@@ -1,5 +1,5 @@
 /**
- * LA CORSIA REMOTA: una card che gira su un'altra macchina.
+ * THE REMOTE LANE: a card that runs on another machine.
  *
  * Two requirements meet in this file, and both are written against a defect
  * that costs real work:
@@ -73,7 +73,7 @@ const MACHINE = "node-1";
 const BASE_URL = "https://node.local";
 const TOKEN = "tok-node-1";
 
-/** Un report del nodo con i soli campi che il caso in prova guarda. */
+/** A node report carrying only the fields the case under test looks at. */
 function report(over: Partial<NodeRunReport> = {}): NodeRunReport {
   return {
     status: "in_progress",
@@ -89,7 +89,7 @@ function report(over: Partial<NodeRunReport> = {}): NodeRunReport {
 }
 
 interface NodeFakeOptions {
-  /** `null` = mai accoppiata: né indirizzo né token. */
+  /** `false` = never paired: neither address nor token. */
   paired?: boolean;
   createRun?: () => Promise<{ runId: string }>;
   readRun?: (runId: string) => Promise<NodeRunReport>;
@@ -173,7 +173,7 @@ function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Partial<Disp
     nowMs: () => now,
     task: () => svc.get(TASK)!.task,
     comments: () => svc.get(TASK)!.comments,
-    /** Un todo che nomina il nodo: è l'unica differenza con una card qualsiasi. */
+    /** A todo that names the node: the only difference from any other card. */
     seed: () => {
       const ts = new Date(now).toISOString();
       db.run(
@@ -189,9 +189,9 @@ const flush = async (n = 12) => {
   for (let i = 0; i < n; i++) await Promise.resolve();
 };
 
-/** Un giro di poll: è `reconcile` a interrogare il nodo, una volta per slot. */
-async function poll(h: ReturnType<typeof harness>, giri = 1) {
-  for (let i = 0; i < giri; i++) {
+/** One poll round: `reconcile` is what asks the node, once per slot. */
+async function poll(h: ReturnType<typeof harness>, rounds = 1) {
+  for (let i = 0; i < rounds; i++) {
     await h.dispatcher.reconcile({ reason: "poll" });
     await flush();
   }
@@ -213,17 +213,17 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.topics).toEqual([]);
     expect(h.turns).toEqual([]);
     expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
-    // Il nodo riconosce il repository dal remoto git, e la card dice da dove viene.
+    // The node resolves the repository from its git remote, and the card says where it came from.
     expect(h.created[0].body).toMatchObject({ originTaskId: TASK, originUrl: "git@github.com:acme/alpha.git" });
     expect(h.task().status).toBe("in_progress");
     expect(h.task().dispatchState).toBe("working");
   });
 
   it("la card che nomina QUESTA macchina gira QUI, come sempre", async () => {
-    // `machine_id` è la scelta di una macchina, e sceglier questa è il default
-    // detto ad alta voce: senza questo caso la corsia remota aspetterebbe per
-    // sempre un nodo che siamo noi, su una riga il cui `baseUrl` è null per
-    // costruzione.
+    // `machine_id` is the choice of A machine, and picking this one is the
+    // default said out loud: without this case the remote lane would wait
+    // forever for a node that is us, on a row whose `baseUrl` is null by
+    // construction.
     const h = harness();
     h.db.run("INSERT INTO machines (id) VALUES ('questa-macchina')");
     h.seed();
@@ -243,9 +243,9 @@ describe("la card parte sul nodo, non qui", () => {
     await dispatch(h);
 
     expect(h.task().dispatchState).toBe("working");
-    // `running` di GET /api/system/dispatch-capacity legge questo numero.
+    // The `running` of GET /api/system/dispatch-capacity reads this number.
     expect(h.dispatcher.busyCount()).toBe(0);
-    // Ma la card resta fra quelle in volo: il processo ci tiene una maniglia.
+    // The card still counts as in flight: this process holds a handle on it.
     expect(h.dispatcher.busyIds()).toContain(TASK);
   });
 
@@ -260,7 +260,7 @@ describe("la card parte sul nodo, non qui", () => {
     expect(t.dispatchError).toBe("node_unreachable");
     expect(t.dispatchDeferredUntil).not.toBeNull();
     expect(Date.parse(t.dispatchDeferredUntil!)).toBeGreaterThan(Date.now());
-    // Il tentativo speso dal claim torna indietro: il nodo spento non è un fallimento della card.
+    // The attempt the claim spent is refunded: a node that is off is not a failure of the card.
     expect(t.dispatchAttempts).toBe(0);
     expect(h.turns).toEqual([]);
     expect(h.worktrees).toEqual([]);
@@ -279,55 +279,56 @@ describe("la card parte sul nodo, non qui", () => {
   });
 });
 
-describe("un nodo è vivo finché i suoi POLL rispondono", () => {
+describe("un nodo è alive finché i suoi POLL rispondono", () => {
   it("venti minuti senza NESSUN poll non seppelliscono niente", async () => {
     const h = harness();
     h.seed();
     await dispatch(h);
 
-    // La macchina dorme: l'orologio corre e nessuno interroga il nodo.
+    // The machine sleeps: the clock runs and nobody asks the node anything.
     h.advance(20 * 60_000);
 
     expect(h.task().status).toBe("in_progress");
     expect(h.task().dispatchState).toBe("working");
     expect(h.comments().some((c) => c.content.includes("non risponde più"))).toBe(false);
 
-    // E al risveglio il primo giro risponde: la corsa è viva come prima.
+    // And on waking the first round answers: the run is alive as it was.
     await poll(h);
     expect(h.task().status).toBe("in_progress");
   });
 
-  it(`${NODE_DEAD_POLLS} giri falliti seppelliscono UNA volta, con una nota sola`, async () => {
+  it(`${NODE_DEAD_POLLS} rounds falliti seppelliscono UNA volta, con una nota sola`, async () => {
     const h = harness({ readRun: () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" })) });
     h.seed();
     await dispatch(h);
     expect(h.task().dispatchAttempts).toBe(1);
 
-    // Un giro prima del tetto: ancora niente.
+    // One round short of the cap: still nothing.
     await poll(h, NODE_DEAD_POLLS - 1);
     expect(h.task().status).toBe("in_progress");
 
-    // Il dispatch si spegne PRIMA dell'ultimo giro: la sepoltura sta nello
-    // step 0 di `reconcile` e avviene comunque, ma la card non riparte subito
-    // sul nodo, così quello che si misura è la sepoltura e non il giro dopo.
+    // Dispatch goes off BEFORE the last round: the burial lives in step 0 of
+    // `reconcile` and happens regardless, but the card does not leave again for
+    // the node straight away, so what gets measured is the burial and not the
+    // round after it.
     h.svc.updateBoardSettings(PID, { autoDispatch: false });
     await poll(h);
 
     const t = h.task();
     expect(t.status).toBe("todo");
-    expect(t.dispatchAttempts).toBe(0); // rimborsato, come gli orfani di KANBAN-10
+    expect(t.dispatchAttempts).toBe(0); // refunded, like the orphans of KANBAN-10
     const note = h.comments().filter((c) => c.content.includes("non risponde più"));
     expect(note).toHaveLength(1);
 
-    // E altri dieci giri non aggiungono una seconda nota: la corsa è già sepolta.
+    // And ten more rounds add no second note: the run is buried already.
     await poll(h, 10);
     expect(h.comments().filter((c) => c.content.includes("non risponde più"))).toHaveLength(1);
   });
 
   it("un giro riuscito al ventinovesimo azzera il conto", async () => {
-    let vivo = false;
+    let alive = false;
     const h = harness({
-      readRun: () => (vivo ? Promise.resolve(report()) : Promise.reject(new Error("giù"))),
+      readRun: () => (alive ? Promise.resolve(report()) : Promise.reject(new Error("giù"))),
     });
     h.seed();
     await dispatch(h);
@@ -335,12 +336,12 @@ describe("un nodo è vivo finché i suoi POLL rispondono", () => {
     await poll(h, NODE_DEAD_POLLS - 1);
     expect(h.task().status).toBe("in_progress");
 
-    // Il nodo risponde una volta: il conto riparte da zero.
-    vivo = true;
+    // The node answers once: the count starts over from zero.
+    alive = true;
     await poll(h);
-    vivo = false;
-    // Altri ventinove falliti non bastano più: senza l'azzeramento questo
-    // giro sarebbe il trentesimo e la corsa sarebbe già sepolta.
+    alive = false;
+    // Twenty-nine more failures are no longer enough: without the reset this
+    // round would be the thirtieth and the run would already be buried.
     await poll(h, NODE_DEAD_POLLS - 1);
 
     expect(h.task().status).toBe("in_progress");
@@ -348,16 +349,16 @@ describe("un nodo è vivo finché i suoi POLL rispondono", () => {
   });
 
   it("la corsa vecchia si cancella PRIMA di crearne una nuova, e il suo rapporto non torna più", async () => {
-    // La corsa 1 non risponde e viene sepolta. Da quel momento «sepolta» la fa
-    // rispondere di nuovo, e con una CONSEGNA: se qualcuno la interrogasse
-    // ancora, la card raccoglierebbe un secondo ramo. La prova che il rapporto
-    // è scartato è che quel ramo non arriva mai.
-    let sepolta = false;
+    // Run 1 stops answering and is buried. From that moment on "buried" makes
+    // it answer again, and with a DELIVERY: if anybody still asked it, the card
+    // would collect a second branch. The proof that the report is dropped is
+    // that this branch never arrives.
+    let buried = false;
     const h = harness({
       readRun: (runId) => {
         if (runId !== "run-1") return Promise.resolve(report());
-        return sepolta
-          ? Promise.resolve(report({ status: "review", deliveryBranch: "ramo-della-corsa-sepolta", baseSha: "aaaaaaa1" }))
+        return buried
+          ? Promise.resolve(report({ status: "review", deliveryBranch: "ramo-della-corsa-buried", baseSha: "aaaaaaa1" }))
           : Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" }));
       },
     });
@@ -365,19 +366,20 @@ describe("un nodo è vivo finché i suoi POLL rispondono", () => {
     await dispatch(h);
 
     await poll(h, NODE_DEAD_POLLS);
-    sepolta = true;
+    buried = true;
 
-    // La sepoltura ha rimesso la card in coda e il `tick` dello stesso giro
-    // l'ha ridispacciata: prima la cancellazione della vecchia, poi la nuova.
-    const ordine = h.calls.filter((c) => c === "create" || c.startsWith("cancel:"));
-    expect(ordine).toEqual(["create", "cancel:run-1", "create"]);
+    // The burial put the card back in the queue and the `tick` of the same
+    // round dispatched it again: first the old run is cancelled, then the new
+    // one is created.
+    const order = h.calls.filter((c) => c === "create" || c.startsWith("cancel:"));
+    expect(order).toEqual(["create", "cancel:run-1", "create"]);
     expect(h.task().status).toBe("in_progress");
 
-    // Da qui in avanti nessuno interroga più `run-1`: il rapporto tardivo di
-    // una corsa sepolta non ha una porta da cui entrare.
-    const dopo = h.calls.length;
+    // From here on nobody asks `run-1` anything: the late report of a buried
+    // run has no door to come in through.
+    const callsBefore = h.calls.length;
     await poll(h, 3);
-    expect(h.calls.slice(dopo).filter((c) => c === "read:run-1")).toEqual([]);
+    expect(h.calls.slice(callsBefore).filter((c) => c === "read:run-1")).toEqual([]);
     expect(h.task().deliveryBranch).toBeNull();
   });
 });
@@ -391,8 +393,8 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     h.seed();
     await dispatch(h);
 
-    // Primo giro: semina soltanto. La nota d'origine del nodo è il nostro
-    // stesso dispatch di ritorno, e rispecchiarla sarebbe rumore.
+    // First round seeds and nothing else. The node's origin note is our own
+    // dispatch coming back, and mirroring it would be noise.
     await poll(h);
     expect(h.comments().some((c) => c.content.includes("Card specchiata"))).toBe(false);
 
@@ -401,11 +403,11 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
       { id: "nc-1", author: "agent", content: "Ho finito il primo pezzo.", kind: "service", createdAt: "2026-09-06T10:01:00.000Z" },
     ];
     await poll(h);
-    await poll(h); // lo stesso commento, di nuovo
+    await poll(h); // the same comment, again
 
     const mirrored = h.comments().filter((c) => c.content === "Ho finito il primo pezzo.");
     expect(mirrored).toHaveLength(1);
-    // La deduplica passa dall'ANCORA (KANBAN-72), non dal testo.
+    // Dedup goes through the ANCHOR (KANBAN-72), never through the text.
     expect(mirrored[0].messageId).toBe("nc-1");
   });
 
@@ -431,15 +433,15 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     const t = h.task();
     expect(t.status).toBe("review");
     expect(t.deliveryBranch).toBe("topics/corsa-remota");
-    expect(t.deliveryCommit).toBe("c0ffeec0ffee"); // il commit DAVVERO piantato qui
+    expect(t.deliveryCommit).toBe("c0ffeec0ffee"); // the commit REALLY planted here
     expect(t.deliveryFilesChanged).toBe(3);
-    // Il ramo è arrivato come bundle sul canale già autenticato.
+    // The branch arrived as a bundle over the already authenticated channel.
     expect(h.plantedWith).toEqual([{ branch: "topics/corsa-remota", baseSha: "abcdef0123456789", bundleBytes: 4 }]);
-    // UNA nota sola, e nomina il nodo.
+    // ONE note only, and it names the node.
     const note = h.comments().filter((c) => c.content.includes("Portatile"));
     expect(note.length).toBeGreaterThanOrEqual(1);
     expect(h.comments().some((c) => c.content.includes("piantato in questo checkout"))).toBe(true);
-    // Lo slot si libera: la corsa è finita.
+    // The slot is released: the run is over.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
   });
 
@@ -463,12 +465,12 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
 
 describe("il bundle presuppone il commit di base", () => {
   it("base assente: niente fetch, niente ripiego a storia intera, un motivo da leggere", async () => {
-    const eseguiti: string[][] = [];
+    const ranGit: string[][] = [];
     const planter = createNodeBranchPlanter({
       repoPathOf: () => "/tmp/alpha",
       runGit: async (_cwd, args) => {
-        eseguiti.push(args);
-        // `cat-file -e` dice di no: questo checkout non ha il commit di base.
+        ranGit.push(args);
+        // `cat-file -e` says no: this checkout does not have the base commit.
         if (args[0] === "cat-file") return { code: 1, stdout: "", stderr: "" };
         return { code: 0, stdout: "", stderr: "" };
       },
@@ -484,8 +486,8 @@ describe("il bundle presuppone il commit di base", () => {
 
     expect(out.planted).toBe(false);
     expect(out.reason).toContain("abcdef01");
-    // Il punto della regola: nessun fetch, e nessuna richiesta di un bundle intero.
-    expect(eseguiti.some((a) => a[0] === "fetch")).toBe(false);
-    expect(eseguiti.map((a) => a[0])).toEqual(["cat-file"]);
+    // The point of the rule: no fetch, and no request for a whole-history bundle.
+    expect(ranGit.some((a) => a[0] === "fetch")).toBe(false);
+    expect(ranGit.map((a) => a[0])).toEqual(["cat-file"]);
   });
 });

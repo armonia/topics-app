@@ -109,6 +109,10 @@ export const PROJECT_WORDS = new Set([
   // it reads. `scp` is git's own short remote syntax (`git@host:owner/repo`),
   // the shape the node comparison has to recognise.
   "cookie", "scp",
+  // Another regular past participle the 1934 list does not carry, next to
+  // `emitted` and `supplied` above. It names what `git bundle verify` answered
+  // before the branch of a node is planted here, and the verb is git's own.
+  "verified",
   // The other half of `online`: the browser event is literally named
   // `offline` (`window.addEventListener('offline', …)`), and a handler for it
   // is called after the event it handles.
