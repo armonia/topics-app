@@ -153,7 +153,11 @@ test.describe('la stessa lista di file su due superfici', () => {
       if (await chevron.count()) await chevron.click();
     }
     const visible = await topicRow.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true, () => false);
-    expect(visible, `the topic is not under its project. The sidebar reads: ${await page.locator('[aria-label="Topics sidebar"]').first().innerText()}`).toBe(true);
+    const seen = await page.evaluate(() => ({
+      projects: [...document.querySelectorAll('[data-testid^="project-toggle-"]')].map((n) => n.getAttribute('data-testid')),
+      treeitems: [...document.querySelectorAll('[role="treeitem"]')].map((n) => n.getAttribute('aria-label')),
+    }));
+    expect(visible, `the topic is not under its project. The sidebar holds: ${JSON.stringify(seen)}`).toBe(true);
     // A chat of a project opens the project's window AND lands on it.
     await topicRow.click();
     await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
