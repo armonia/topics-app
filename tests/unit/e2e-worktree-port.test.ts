@@ -34,10 +34,10 @@ describe("isDispatchWorktree", () => {
   });
 
   it("riconosce un worktree di Claude Code, scavato dentro il repo stesso", () => {
-    // Subagent e workflow lavorano in `<repo>/.claude/worktrees/<nome>`: il
-    // 2026-09-06 dieci di loro ricevevano tutti 13334 e si ammazzavano il
-    // server a vicenda. Anche qui il separatore conta: `.claude/worktrees-old`
-    // non è la cartella.
+    // Subagents and workflows work in `<repo>/.claude/worktrees/<name>`: on
+    // 2026-09-06 ten of them all received 13334 and killed each other's
+    // server. The separator counts here too: `.claude/worktrees-old` is not
+    // the folder.
     expect(isDispatchWorktree("/Users/tizio/Projects/topics-app/.claude/worktrees/wf_3f26af6e-907-1", HOME)).toBe(true);
     expect(isDispatchWorktree("/Users/tizio/Projects/topics-app/.claude/worktrees-old/x", HOME)).toBe(false);
   });

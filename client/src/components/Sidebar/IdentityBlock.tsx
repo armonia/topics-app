@@ -37,7 +37,7 @@
  * called in to undo, and the sentence that explains them was always in the
  * panel anyway.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
 import { getSession, subscribeSession, type SessionState } from '@/lib/auth/session';
 import { etichettaIdentita } from './identityLabel';
@@ -47,8 +47,8 @@ import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
 import { chipClass } from './identityChip';
 import { PALLINO_OK } from './chromeSignals';
-import { ProfileMenu, type SidebarCommands } from './ProfileMenu';
-import { prefetchAccountPanel } from './accountPanelLazy';
+import type { SidebarCommands } from './ProfileMenu';
+import { ProfileMenu, prefetchProfileMenu } from './profileMenuLazy';
 import { TopicsLoadDot } from './TopicsLoadDot';
 import { friendChips, firstName } from './friendChips';
 import { useFriendPresence } from '@/hooks/useFriendPresence';
@@ -231,8 +231,8 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
         ref={setCard}
         data-testid="identity-me-profile"
         onClick={() => setOpen((v) => !v)}
-        onPointerEnter={prefetchAccountPanel}
-        onFocus={prefetchAccountPanel}
+        onPointerEnter={prefetchProfileMenu}
+        onFocus={prefetchProfileMenu}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={who.nome}
@@ -268,24 +268,29 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
         <TopicsLoadDot alarm={alarm} />
       </button>
 
+      {/* The boundary only ever shows on a COLD open (no hover, no focus
+          before the click): warmed by `prefetchProfileMenu`, the menu renders
+          in this same pass. */}
       {open && (
-        <ProfileMenu
-          anchorEl={card}
-          onClose={() => setOpen(false)}
-          who={who}
-          DeviceIcon={DeviceIcon}
-          facts={{
-            device: who.dettaglio,
-            now: summary ?? null,
-            devices,
-            waiting,
-          }}
-          orgs={presence.orgs}
-          friends={friends}
-          signals={signals}
-          commands={commands}
-          onOpenDevices={onOpenDevices}
-        />
+        <Suspense fallback={null}>
+          <ProfileMenu
+            anchorEl={card}
+            onClose={() => setOpen(false)}
+            who={who}
+            DeviceIcon={DeviceIcon}
+            facts={{
+              device: who.dettaglio,
+              now: summary ?? null,
+              devices,
+              waiting,
+            }}
+            orgs={presence.orgs}
+            friends={friends}
+            signals={signals}
+            commands={commands}
+            onOpenDevices={onOpenDevices}
+          />
+        </Suspense>
       )}
     </>
   );

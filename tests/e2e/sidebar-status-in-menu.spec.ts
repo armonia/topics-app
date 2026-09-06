@@ -172,6 +172,12 @@ test.describe("Lo stato vive dietro la card dell'utente", () => {
     //    viewport: a panel against the ceiling or past the floor is the
     //    defect measured on 31/08 (a 226px panel landing at y=2).
     await page.getByTestId("identity-me-profile").click();
+    // The menu is its own chunk (`profileMenuLazy.ts`): a human's hover warms
+    // it before the click, Playwright's click hovers for zero milliseconds, so
+    // on this path the menu mounts a frame later. `rect` reads the DOM in one
+    // tick and has no auto-wait: ask for the menu the way every other spec
+    // does, and only then measure it.
+    await expect(page.getByTestId("profile-menu")).toBeVisible({ timeout: 10_000 });
     const menu = (await rect('[data-testid="profile-menu"]'))!;
     expect(menu.bottom, `the menu ends at ${menu.bottom}, the card starts at ${card.top}`).toBeLessThanOrEqual(card.top);
     expect(menu.top).toBeGreaterThanOrEqual(0);
