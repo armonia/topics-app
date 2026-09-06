@@ -20,9 +20,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "node:path";
 import type { AppContext } from "../../../server/types";
-// Static, not dynamic: `setupTestDataDir` is synchronous, and what it has to do
-// with this - close the handle the previous file left open - cannot wait for a
-// promise. The module only declares things when imported.
 import { closeDatabase } from "../../../server/db";
 
 /**
@@ -90,17 +87,6 @@ function isUnderTestTmp(p: string): boolean {
  * fra tre settimane.
  */
 export function setupTestDataDir(testDataDir: string): void {
-  // THE HANDLE OF WHOEVER CAME BEFORE, CLOSED HERE. `server/db.ts` keeps a
-  // PROCESS singleton and `initDatabase` returns it as it is when it is already
-  // open: pointing `DATA_DIR` somewhere new is then a statement nobody reads,
-  // and the file inherits the database of the file that ran before it - with
-  // its rows inside. Half of the files in this directory call `setupTestDataDir`
-  // without the matching `cleanupTestDataDir`, so their handle stays open for
-  // the rest of the shard: this is the symmetric half of that pair, and it is
-  // the one that does not depend on every file remembering it. Alone, a file
-  // passes either way; in a shard of five hundred it is the difference between
-  // measuring your own database and someone else's.
-  closeDatabase();
   if (!isUnderTestTmp(testDataDir)) {
     throw new Error(
       `setupTestDataDir: "${testDataDir}" non viene da testTmpDir(). ` +
@@ -110,6 +96,18 @@ export function setupTestDataDir(testDataDir: string): void {
   }
   fs.rmSync(testDataDir, { recursive: true, force: true });
   process.env.DATA_DIR = testDataDir;
+  // AND the handle of whoever came before is closed here, not only in their
+  // own afterAll. `initDatabase` returns the cached `_db` WITHOUT looking at
+  // DATA_DIR, so a file that opened the database and never closed it hands the
+  // next one its own rows: the boot list of a file that seeded three topics
+  // answers with somebody else's. That is not a hypothesis, it is what turned
+  // `topics-list-weight` red twice on 2026-09-06 (first assertion, wrong topic
+  // count) while it stayed green alone and green in shard order: which files
+  // share a shard changes from run to run, so the pollution is a lottery.
+  // Closing on SETUP makes the isolation the file's own business instead of
+  // depending on the discipline of whoever ran before it. `closeDatabase` is
+  // idempotent.
+  closeDatabase();
 }
 
 /**
@@ -126,6 +124,7 @@ export function setupTestDataDir(testDataDir: string): void {
  * anche se un test lo aveva gia' chiuso per conto suo.
  */
 export async function cleanupTestDataDir(dir: string): Promise<void> {
+  const { closeDatabase } = await import("../../../server/db");
   closeDatabase();
   fs.rmSync(dir, { recursive: true, force: true });
 }
