@@ -96,7 +96,7 @@ l'umano deve davvero guardare.
 - `client/src/components/Chat/toolDetail.ts` + `ToolCards.tsx` — nuovo dettaglio
   `browser` e `BrowserCard`.
 - `client/src/components/Sidebar/TopicTree.tsx` — righe annidate per i contesti inline.
-- Spec: ADDED `CHAT-TOOL-05` (card inline) e `BROWSER-03` (superficie di apertura,
+- Spec: ADDED `CHAT-TOOL-07` (card inline; era numerata 05, ma `CHAT-TOOL-05` e `06` esistono già in `openspec/specs/chat/spec.md` e la fusione avrebbe prodotto un doppione) e `BROWSER-03` (superficie di apertura,
   promozione, sospensione).
 - Nessuna migration (ui-state). Flag `TOPICS_INLINE_BROWSER` / `localStorage
   ['chat:inlineBrowser']` per il rollout; il default `surface:"inline"` si accende
