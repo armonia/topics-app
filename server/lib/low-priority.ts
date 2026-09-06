@@ -27,30 +27,56 @@
  * throttle. @covers KANBAN-78
  */
 import { spawn } from "child_process";
+import { existsSync } from "fs";
 import { join, sep } from "path";
 
 /** The nice value of everything Topics runs on an agent's behalf. */
 export const AGENT_NICE = 15;
 
+/**
+ * ABSOLUTE PATHS, AND ONLY IF THEY EXIST. The server runs under launchd with
+ * a PATH that has no `/usr/sbin`, so a bare `taskpolicy` in the argv made
+ * every check spawn fail on 2026-09-06 15:00 ("il runner dei check non
+ * riesce a spawnare processi") and a delivered card bounced to «waiting» for
+ * a reason that had nothing to do with its code. A knob that is not there is
+ * skipped, not searched for: the work runs at normal priority, as before.
+ */
+const NICE_BIN = "/usr/bin/nice";
+const RENICE_BIN = "/usr/bin/renice";
+const TASKPOLICY_BIN = "/usr/sbin/taskpolicy";
+
+/** Which knobs this machine actually has (probed once; tests inject). */
+export interface PriorityKnobs { nice: boolean; taskpolicy: boolean }
+
+let probed: PriorityKnobs | null = null;
+function knobs(): PriorityKnobs {
+  if (!probed) probed = { nice: existsSync(NICE_BIN), taskpolicy: existsSync(TASKPOLICY_BIN) };
+  return probed;
+}
+
 /** Argv that runs `argv` at agent priority on this platform. */
-export function lowPriorityArgv(argv: readonly string[], platform: NodeJS.Platform = process.platform): string[] {
+export function lowPriorityArgv(
+  argv: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+  have: PriorityKnobs = knobs(),
+): string[] {
   if (platform === "win32") return [...argv];
-  const niced = ["nice", "-n", String(AGENT_NICE), ...argv];
+  const niced = have.nice ? [NICE_BIN, "-n", String(AGENT_NICE), ...argv] : [...argv];
   // The `utility` class: long work nobody is waiting on. `background` would
   // also throttle its disk I/O to a crawl, and an agent still has to git.
-  return platform === "darwin" ? ["taskpolicy", "-c", "utility", ...niced] : niced;
+  return platform === "darwin" && have.taskpolicy ? [TASKPOLICY_BIN, "-c", "utility", ...niced] : niced;
 }
 
 /** Demote a live process (and, from now on, whatever it forks). Best-effort. */
-export function lowerPriority(pid: number, platform: NodeJS.Platform = process.platform): void {
+export function lowerPriority(pid: number, platform: NodeJS.Platform = process.platform, have: PriorityKnobs = knobs()): void {
   if (!Number.isInteger(pid) || pid <= 0 || platform === "win32") return;
   const run = (cmd: string, args: string[]) => {
     try {
       spawn(cmd, args, { stdio: "ignore" }).on("error", () => { /* no such binary: the work goes on at normal priority */ });
     } catch { /* same */ }
   };
-  run("renice", ["-n", String(AGENT_NICE), "-p", String(pid)]);
-  if (platform === "darwin") run("taskpolicy", ["-c", "utility", "-p", String(pid)]);
+  if (existsSync(RENICE_BIN)) run(RENICE_BIN, ["-n", String(AGENT_NICE), "-p", String(pid)]);
+  if (platform === "darwin" && have.taskpolicy) run(TASKPOLICY_BIN, ["-c", "utility", "-p", String(pid)]);
 }
 
 /**
