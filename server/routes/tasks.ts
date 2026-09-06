@@ -65,6 +65,7 @@ import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -287,6 +288,11 @@ export interface TasksRouterOpts {
    * "verde" vale per QUEL codice, non per il branch a vita.
    */
   taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
+  /**
+   * The user's `task-deliver` hook (HOOKS-02): the first and cheapest gate on
+   * the move to `review`, asked before the dirt probe and the checks.
+   */
+  hooks?: LifecycleHookRunner;
   /**
    * Brings main into the card's branch BEFORE the pre-review checks run, the
    * way the land does before merging (`taskAutoMerge.realign`). `ok:false` is
@@ -2080,6 +2086,29 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       isDelivery = !!reviewGateTask && reviewGateTask.task.status !== "review" && !isQuestion;
     } catch { /* best-effort: a store hiccup must never block a delivery */ }
     if (!isDelivery) return null;
+
+    // THE USER'S OWN GATE COMES FIRST (HOOKS-02): a `task-deliver` hook that
+    // exits non-zero refuses the move with a code of its own and its stderr
+    // as the reason, the twin of the refusals below. It is the cheapest gate
+    // of the chain, so it runs BEFORE the dirt probe and the checks: a rule
+    // that says no must not cost a git status and a full check run first.
+    // The command runs in the worktree of the card when there is one, else
+    // in the repo root.
+    if (opts?.hooks) {
+      const ref = opts.taskCheckoutRef ? await opts.taskCheckoutRef(taskId).catch(() => null) : null;
+      const cwd = ref?.cwd
+        ?? opts.repoRootFor?.({ taskId, projectId, assignedTopicId: reviewGateTask?.task.assignedTopicId ?? null })
+        ?? "";
+      const verdict = await opts.hooks.run("task-deliver", {
+        hook_event_name: "task-deliver",
+        session_id: chat.sessionKey,
+        cwd,
+        task_id: taskId,
+        project_id: projectId,
+        commit: ref?.commit ?? null,
+      });
+      if (!verdict.ok) return json({ error: verdict.reason, code: "review_hook_refused" }, 409);
+    }
 
     if (opts?.taskWorktreeDirtProbe) {
       try {

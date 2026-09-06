@@ -13,6 +13,7 @@ import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
+import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
 import { createBrowserBridgeRouter } from "./browser-bridge";
@@ -441,6 +442,8 @@ export function createTopicsRouter(
   ctx: AppContext,
   browserService?: BrowserService,
   paneAttachedTo: (contextId: string) => boolean = () => false,
+  /** What the chat route needs from the outside and this closure does not own. */
+  extra: { hooks?: LifecycleHookRunner } = {},
 ): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
@@ -856,6 +859,7 @@ export function createTopicsRouter(
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
+    hooks: extra.hooks,
   }, browserService);
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
