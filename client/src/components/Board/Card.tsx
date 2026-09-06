@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlertTriangle, ArchiveRestore, ArrowRightLeft, CircleSlash, ClipboardList, Copy, Cpu, GitBranch, Hourglass, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -34,6 +34,7 @@ import { taskChoiceState } from './taskChoices';
 import { showsStoppedChip } from './stoppedChip';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
+import { machineLabel, useMachines } from '../../state/machinesStore';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
@@ -358,6 +359,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   const toast = useToast();
   // Numeri e date della card seguono la lingua scelta, non una fissata a mano.
   const locale = useLocale();
+  // The node's NAME for the foot chip. Subscribed only by a card that names one:
+  // a board of local cards would otherwise hold one subscription each for an
+  // answer none of them reads.
+  const machines = useMachines(!!task.machineId);
   // The context menu offers two of the same actions as the button row (stop,
   // archive): the words come from the same table, or the card goes back to
   // calling them two different things depending on where you press.
@@ -1556,6 +1561,16 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
         ) : null}
+        {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
+            a node is named: an absent one means "here", and saying that on
+            every card would be noise on all of them to inform one. */}
+        {task.machineId && (
+          <span
+            data-testid="card-node-chip"
+            title={tr('board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
+          ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr('board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
+        )}
         {/* THE GIT CHANGES, next to the model that is writing them.
             Closed it is a chip like the others; open it is a list that drops
             under it, not a surface that takes the whole card. The full diff

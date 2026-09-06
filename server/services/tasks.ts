@@ -1706,6 +1706,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     /** Le altre evidenze del thread, per il carosello della card. */
     previewImages: Map<string, string[]>;
     queue: QueueRank | null;
+    /**
+     * The NAME of every node a card in this batch names. The chip has to say
+     * which machine went silent, and an id in that sentence names nothing to
+     * whoever reads it. Empty when no row names a node: a board of local cards
+     * pays no read at all.
+     */
+    nodeNames: Map<string, string>;
     autoDispatch: boolean;
     heavy: boolean;
     /**
@@ -2047,6 +2054,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ),
       previewImages: previewImagesFor(ids),
       queue: null,
+      nodeNames: new Map(),
       autoDispatch: false,
       heavy: false,
       queueReadable: true,
@@ -2114,6 +2122,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             GROUP BY parent_task_id`,
         ).all(idParam(reviewIds)) as Array<{ pid: string; n: number }>) b.openChildren.set(c.pid, c.n);
       }
+      // The nodes named by these cards, in one read. Outside the `try` there is
+      // nothing to protect: a database without a `machines` table is a reduced
+      // harness schema, and there the chip falls back to the id rather than
+      // making the whole batch unreadable.
+      const machineIds = [...new Set(rows.map((r) => r.machine_id).filter(Boolean) as string[])];
+      if (machineIds.length) {
+        try {
+          for (const m of db.query(
+            "SELECT id, name FROM machines WHERE id IN (SELECT value FROM json_each(?))",
+          ).all(idParam(machineIds)) as Array<{ id: string; name: string }>) b.nodeNames.set(m.id, m.name);
+        } catch { /* no `machines` table: the chip says the id, which still points at something */ }
+      }
       const inCoda = rows.filter((r) => r.status === "todo" && !r.parent_task_id);
       if (inCoda.length) b.queue = rankQueue(b.nowIso);
       // `heavyInFlight` era in fondo a due `&&` per non pagarlo su una riga
@@ -2150,10 +2170,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           blockedByTaskId: r.blocked_by_task_id ?? null,
           blockedBy: r.blocked_by_task_id ? (b.blockers.get(r.blocked_by_task_id) ?? null) : null,
           assignedTo: r.assigned_to ?? null,
+          machineId: r.machine_id ?? null,
         },
         {
           now: b.nowIso,
           autoDispatch: b.autoDispatch,
+          // Resolved here and not in the client: the chip's sentence is composed
+          // server side, and a client that has not read `/api/machines` yet
+          // would print an id for a node it can name perfectly well.
+          nodeName: r.machine_id ? (b.nodeNames.get(r.machine_id) ?? null) : null,
           retryCap: b.retryCap.get(r.project_id) ?? 2,
           ahead: inCoda && b.queue ? b.queue.ahead(r.priority, r.created_at) : 0,
           // Un pesante trattenuto DAL CARICO è il tappo della coda, e la card lo
@@ -2303,6 +2328,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `tasks.model` può essere nullo («auto») anche dopo il dispatch, ma il
       // TOPIC dell'agente è stato creato col modello risolto.
       model: r.model ?? topic?.model ?? null,
+      // WHERE it runs. `null` is «this machine», which is what every card
+      // written before the column existed says (KANBAN-76).
+      machineId: r.machine_id ?? null,
       // Non c'è una colonna `tasks.effort` e non serve: l'autorità è il TOPIC,
       // che è ciò che viene davvero passato allo spawn. Duplicarla su `tasks`
       // creerebbe due verità libere di divergere.
@@ -3118,8 +3146,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3129,6 +3157,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // "Priorità automatica": no explicit choice at creation = the
         // dispatched agent evaluates and sets one at kickoff.
         input.priority === undefined ? 1 : 0,
+        input.machineId ?? null,
       );
       return rowToTask(getTaskRow(id));
     },
@@ -3418,6 +3447,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
         put("model", m || null);
+      }
+      // WHERE it runs. Empty string and null both mean «this machine»: the
+      // picker clears the choice by sending the empty value, and a card with
+      // no node is the ordinary case, not a missing one (KANBAN-76).
+      if (patch.machineId !== undefined) {
+        const node = (patch.machineId ?? "").trim();
+        put("machine_id", node || null);
       }
       if (patch.blockedByTaskId !== undefined) {
         if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);

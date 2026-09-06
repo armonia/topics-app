@@ -3639,6 +3639,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
           const parsed = parseTaskPatch(body, "human", acceptPreview);
           if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
+          // THE MACHINE MUST EXIST. `machine_id` has a FK to `machines`, so an
+          // unknown id would surface as a 500 with SQLite's own words; and a
+          // TYPO would be worse than an error - the card would sit in the queue
+          // waiting for a node nobody ever paired (KANBAN-76).
+          if (typeof parsed.patch.machineId === "string" && parsed.patch.machineId) {
+            if (!ctx.machineStore.get(parsed.patch.machineId)) {
+              return json(
+                { error: `machineId «${parsed.patch.machineId}» non è una macchina conosciuta`, code: "unknown_machine" },
+                400,
+              );
+            }
+          }
           try {
             const prevStatus = svc.get(taskId, { projectId })?.task.status;
             // Invalidate probe cache when output_url changes (new URL needs a fresh probe).

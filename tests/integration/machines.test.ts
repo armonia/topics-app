@@ -3,9 +3,13 @@
  * Covers MachineStore upsertLocal idempotence, REST routes, and the FK
  * SET NULL on `topics.machine_id` when a machine is deleted.
   * @covers MACHINE-01
+  * @covers MACHINE-02
  */
 import { describe, expect, test, beforeAll, beforeEach } from "bun:test";
+import { statSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import type { NodeClient } from "../../server/services/node-client";
 
 const TEST_DATA = testTmpDir("phase-d-data");
 
@@ -126,6 +130,119 @@ describe("Phase D · multi-machine", () => {
     const stillOnline = ctx.machineStore.get(local.id)!;
     expect(stillOnline.status).toBe("online");
 
+    const { closeDatabase } = await import("../../server/db");
+    closeDatabase();
+  });
+  test("MACHINE-02: la stretta di mano scrive il gettone a 0600, crea la riga col base_url, e nessuna risposta lo espone", async () => {
+    const { createMachinesRouter } = await import("../../server/routes/machines");
+    const ctx = await createTestAppContext();
+    ctx.machineStore.upsertLocal();
+    const TOKEN = "node-device-token-0123456789abcdef";
+    const seen: string[] = [];
+    // A node that approves on the second poll. The claim must never travel to
+    // the client, so the fake records it here and the assertions look for it
+    // in every body that went out of the router.
+    const fakeNode: NodeClient = {
+      pairRequest: async (baseUrl) => {
+        seen.push(`request:${baseUrl}`);
+        return { requestId: "req-1", code: "424242", claim: "the-claim-that-must-stay-here", name: "Studio PC", expiresInMs: 180_000 };
+      },
+      pairWait: async ({ claim }) => {
+        seen.push(`wait:${claim}`);
+        return seen.filter((s) => s.startsWith("wait:")).length < 2
+          ? { state: "pending" }
+          : { state: "approved", token: TOKEN, name: "Studio PC" };
+      },
+      createRun: async () => { throw new Error("not in this test"); },
+      readRun: async () => { throw new Error("not in this test"); },
+      fetchBundle: async () => { throw new Error("not in this test"); },
+      cancelRun: async () => { throw new Error("not in this test"); },
+    };
+    ctx.nodeClient = fakeNode;
+    const router = createMachinesRouter(ctx);
+    const call = async (method: string, path: string, body?: unknown) => {
+      const url = new URL(`http://h${path}`);
+      const res = await router(
+        new Request(url, {
+          method,
+          headers: body ? { "content-type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        }),
+        url, path, method,
+      );
+      return { status: res?.status ?? 0, text: await res!.text() };
+    };
+
+    const bad = await call("POST", "/api/machines/pair", { baseUrl: "ftp://nope" });
+    expect(bad.status).toBe(400);
+
+    const opened = await call("POST", "/api/machines/pair", { baseUrl: "https://studio.local:8443/" });
+    expect(opened.status).toBe(200);
+    const openedBody = JSON.parse(opened.text);
+    expect(openedBody.code).toBe("424242");
+    expect(typeof openedBody.pairingId).toBe("string");
+    expect(opened.text).not.toContain("the-claim-that-must-stay-here");
+    expect(opened.text).not.toContain("req-1");
+    expect(seen[0]).toBe("request:https://studio.local:8443");
+
+    const first = await call("GET", `/api/machines/pair/${openedBody.pairingId}`);
+    expect(JSON.parse(first.text)).toEqual({ state: "pending" });
+    expect(seen[1]).toBe("wait:the-claim-that-must-stay-here");
+
+    const second = await call("GET", `/api/machines/pair/${openedBody.pairingId}`);
+    expect(second.status).toBe(200);
+    const approved = JSON.parse(second.text);
+    expect(approved.state).toBe("approved");
+    expect(approved.machine.baseUrl).toBe("https://studio.local:8443");
+    expect(approved.machine.hostname).toBe("studio.local:8443");
+    expect(approved.machine.name).toBe("Studio PC");
+    expect(second.text).not.toContain(TOKEN);
+
+    const tokenFile = join(ctx.STATE_DIR, "nodes", `${approved.machine.id}.token`);
+    expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
+    expect(readFileSync(tokenFile, "utf8").trim()).toBe(TOKEN);
+
+    const list = await call("GET", "/api/machines");
+    expect(list.text).not.toContain(TOKEN);
+    const rows = JSON.parse(list.text).machines as Array<{ id: string; baseUrl: string | null }>;
+    expect(rows.find((r) => r.id === approved.machine.id)?.baseUrl).toBe("https://studio.local:8443");
+    const one = await call("GET", `/api/machines/${approved.machine.id}`);
+    expect(one.text).not.toContain(TOKEN);
+
+    // A handshake consumed is a handshake gone: polling it again is `expired`.
+    const again = await call("GET", `/api/machines/pair/${openedBody.pairingId}`);
+    expect(JSON.parse(again.text)).toEqual({ state: "expired" });
+
+    const { closeDatabase } = await import("../../server/db");
+    closeDatabase();
+  });
+
+  test("MACHINE-02b: un nodo che rifiuta l'host risponde host_not_allowed, non un generico irraggiungibile", async () => {
+    const { createMachinesRouter } = await import("../../server/routes/machines");
+    const { NodeError } = await import("../../server/services/node-client");
+    const ctx = await createTestAppContext();
+    const reasons = ["host_not_allowed", "tls_untrusted", "unreachable"] as const;
+    let i = 0;
+    ctx.nodeClient = {
+      pairRequest: async () => { throw new NodeError(reasons[i++], "refused"); },
+      pairWait: async () => ({ state: "expired" }),
+      createRun: async () => { throw new Error("not in this test"); },
+      readRun: async () => { throw new Error("not in this test"); },
+      fetchBundle: async () => { throw new Error("not in this test"); },
+      cancelRun: async () => { throw new Error("not in this test"); },
+    };
+    const router = createMachinesRouter(ctx);
+    const codes: string[] = [];
+    for (let k = 0; k < reasons.length; k++) {
+      const url = new URL("http://h/api/machines/pair");
+      const res = await router(
+        new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ baseUrl: "https://studio.local" }) }),
+        url, "/api/machines/pair", "POST",
+      );
+      expect(res?.status).toBe(502);
+      codes.push((await res!.json()).code);
+    }
+    expect(codes).toEqual([...reasons]);
     const { closeDatabase } = await import("../../server/db");
     closeDatabase();
   });

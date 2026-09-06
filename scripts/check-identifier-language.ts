@@ -103,6 +103,16 @@ export const PROJECT_WORDS = new Set([
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
   "online", "primaries", "fps", "perf", "strongest",
+  // `cookie` is how the HTTP header, the browser API and RFC 6265 all name the
+  // thing: the device token this machine holds for a node travels as one, and
+  // an identifier that called it anything else would stop matching the header
+  // it reads. `scp` is git's own short remote syntax (`git@host:owner/repo`),
+  // the shape the node comparison has to recognise.
+  "cookie", "scp",
+  // Another regular past participle the 1934 list does not carry, next to
+  // `emitted` and `supplied` above. It names what `git bundle verify` answered
+  // before the branch of a node is planted here, and the verb is git's own.
+  "verified",
   // The other half of `online`: the browser event is literally named
   // `offline` (`window.addEventListener('offline', …)`), and a handler for it
   // is called after the event it handles.

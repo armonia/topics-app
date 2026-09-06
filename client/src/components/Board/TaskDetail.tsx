@@ -5,7 +5,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, ShieldCheck, Sparkles, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -32,6 +32,7 @@ import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../stat
 import { paneIdToContextId } from '../../state/taskBrowserLayout';
 import { noteAutoOpenedPreview, releaseAutoOpenedPreview } from '../../state/taskWorkspacePreviews';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
+import { machineLabel, nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { emptyThreadKey } from './emptyThread';
@@ -1336,6 +1337,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
+  // Node selector (header chip): WHICH MACHINE the card runs on (KANBAN-76).
+  // `null` = this machine; the local row (`baseUrl === null`) is never a choice.
+  const nodeBtnRef = useRef<HTMLButtonElement>(null);
+  const [nodeMenuOpen, setNodeMenuOpen] = useState(false);
+  const machines = useMachines();
+  const nodes = nodesOf(machines);
+  // A card already `in_progress` is running SOMEWHERE: repointing it would
+  // change the label and move nothing, which is a promise the dispatcher does
+  // not keep. The picker is disabled instead of lying.
+  const nodePickerLocked = task?.status === 'in_progress';
+  const changeNode = async (machineId: string | null) => {
+    setNodeMenuOpen(false);
+    if (!task || (task.machineId ?? null) === machineId || busy || nodePickerLocked) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { machineId }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   // Project selector (header chip): move the task to another board, open the
   // current project's window, or scaffold a new workspace project. The list is
   // the server-resolvable board index — fetched lazily on first open.
@@ -1559,7 +1579,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // reading the latest guard/close on each keystroke.
   const escGuardRef = useRef<() => boolean>(() => false);
   escGuardRef.current = () =>
-    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen || modelMenuOpen || optionsMenuOpen;
+    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen || modelMenuOpen || nodeMenuOpen || optionsMenuOpen;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -2152,6 +2172,53 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               ))}
+            </Menu>
+            {/* WHERE it runs, next to WHAT it runs with: same register as the
+                model chip, same `Menu` primitive. A node is not a preference of
+                the agent, it is the machine that executes the turn. */}
+            <button
+              ref={nodeBtnRef}
+              onClick={() => setNodeMenuOpen(true)}
+              data-testid="task-node-chip"
+              disabled={nodePickerLocked}
+              title={nodePickerLocked ? tr('board.task.node.runningTitle') : tr('board.task.node.title')}
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
+            >
+              <Server className="h-3 w-3 shrink-0 text-app-text-muted" />
+              <span className="truncate">{task.machineId ? machineLabel(machines, task.machineId) : tr('board.task.node.chipLocal')}</span>
+              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+            </button>
+            <Menu open={nodeMenuOpen} anchorRef={nodeBtnRef} onClose={() => setNodeMenuOpen(false)} minWidth={220} role="listbox">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.node.heading')}</p>
+              <button
+                role="option" aria-selected={!task.machineId} disabled={busy}
+                onClick={() => changeNode(null)}
+                className={`${POPOVER_ITEM} disabled:opacity-40`}
+              >
+                <Server className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+                <span className="min-w-0 flex-1">{tr('board.task.node.local')}</span>
+                {!task.machineId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              {nodes.map((m) => (
+                <button
+                  key={m.id} role="option" aria-selected={m.id === task.machineId} disabled={busy}
+                  onClick={() => changeNode(m.id)}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${m.status === 'online' ? 'bg-emerald-400' : 'bg-app-text-faint'}`}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                  <span className="shrink-0 text-[10px] text-app-text-muted">
+                    {m.status === 'online' ? tr('board.task.node.online') : tr('board.task.node.offline')}
+                  </span>
+                  {m.id === task.machineId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              ))}
+              {nodes.length === 0 && (
+                <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-app-text-muted">{tr('board.task.node.empty')}</p>
+              )}
             </Menu>
             {/* «In attesa di…» sta IN RIGA, non dentro il ⋯: è uno stato che
                 cambia la lettura del task (non parte finché l'altro non

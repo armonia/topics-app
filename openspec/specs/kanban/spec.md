@@ -3350,6 +3350,127 @@ ricarico).
 - **GIVEN** un valore scritto fuori dai limiti, o illeggibile
 - **THEN** vale il limite (o il default), e il numero mostrato è quello applicato
 
+### Requirement: KANBAN-76 — Una card scelta per un nodo gira LÀ, e torna qui come una card locale
+
+Una card il cui `machine_id` nomina un nodo accoppiato SHALL essere ESEGUITA su
+quel nodo e NON su questa macchina. Il dispatch locale SHALL saltare worktree,
+discorso e turno, e SHALL invece creare sul nodo un task ordinario (`POST
+/api/nodes/runs`) con un commento di servizio che nomina la board di origine.
+
+La scelta del nodo SHALL essere UMANA: `machine_id` assente vuol dire «qui», non
+esiste un nodo `auto` e nessuna regola SHALL spostare una card su un nodo perché
+lì c'è meno carico.
+
+Sul nodo la card SHALL essere un task LOCALE come tutti gli altri: stesso
+dispatcher, stesso worktree, stesso tetto e stesso cancello di KANBAN-16. È il
+tetto del NODO a decidere quando parte. Su questa board lo slot remoto NON SHALL
+consumare posti: con una card remota in `working`, `busyCount()` e il `running`
+di `GET /api/system/dispatch-capacity` SHALL restare a zero.
+
+A ogni giro di riconciliazione lo stato e i commenti di servizio del nodo SHALL
+essere SPECCHIATI sulla card locale, senza duplicati: la deduplica SHALL passare
+dall'ancora di KANBAN-72, cioè dall'id del commento sul nodo. La chat del nodo
+NON SHALL essere trasmessa qui.
+
+Quando la card del nodo arriva in `review` il RAMO SHALL arrivare con lei: un
+git bundle sul canale già autenticato, verificato (`git bundle verify`) e
+piantato in questo checkout come `refs/heads/<branch>`; `delivery_branch` e
+`delivery_commit` SHALL essere registrati, e da lì in poi l'atterraggio SHALL
+essere quello locale di sempre, invariato. Non SHALL esserci nessun `push` verso
+`origin` e nessun remoto condiviso.
+
+Il bundle SHALL presupporre che questo checkout ABBIA il `baseSha`: se non ce
+l'ha, il motivo SHALL essere scritto sulla card e NON SHALL esserci un ripiego a
+bundle di storia intera. Se il nodo non conosce il repository per la sua origine
+git, la risposta SHALL essere un `no_such_repo` dichiarato e NESSUN progetto
+SHALL essere creato sul nodo.
+
+Un nodo IRRAGGIUNGIBILE al momento del dispatch SHALL far ASPETTARE la card con
+un motivo dichiarato (`node_unreachable`) e un `dispatch_deferred_until`: la card
+NON SHALL mai partire su questa macchina perché il nodo non ha risposto.
+
+MISURA: `bun test server/services/task-dispatcher-remote-node.test.ts
+tests/integration/nodes-routes.test.ts server/services/node-client.test.ts` verde,
+e `npx playwright test tests/e2e/board-remote-node.spec.ts` verde: la corsia
+remota non spende il tetto locale, il giro del bundle pianta il ramo su un repo
+git vero, e il chip del nodo sopravvive al reload.
+
+#### Scenario: la card parte sul nodo, non qui
+- **GIVEN** una card in `todo` con `machine_id` di un nodo accoppiato
+- **WHEN** il dispatcher la prende
+- **THEN** nessun worktree e nessun discorso locale SHALL nascere
+- **AND** sul nodo SHALL esistere un task in `todo` con un commento che nomina l'origine
+
+#### Scenario: la corsia remota non spende il tetto locale
+- **GIVEN** una card remota in lavorazione
+- **THEN** `busyCount()` SHALL essere 0
+- **AND** il `running` della capacità di dispatch SHALL essere 0
+
+#### Scenario: il ramo torna come bundle
+- **GIVEN** la card del nodo passata in `review` con un commit sul suo ramo
+- **WHEN** questa board riconcilia
+- **THEN** `refs/heads/<branch>` SHALL esistere in questo checkout
+- **AND** `delivery_branch` e `delivery_commit` SHALL essere registrati
+
+#### Scenario: il repository che il nodo non ha
+- **GIVEN** una origine git che nessun progetto del nodo conosce
+- **THEN** la risposta SHALL essere `no_such_repo`
+- **AND** nessun progetto SHALL essere creato sul nodo
+
+#### Scenario: nodo muto, nessun ripiego locale
+- **GIVEN** un nodo che non risponde al momento del dispatch
+- **THEN** la card SHALL restare in coda col motivo `node_unreachable`
+- **AND** nessun turno SHALL partire su questa macchina
+
+### Requirement: KANBAN-77 — Un nodo è vivo finché i suoi POLL rispondono, non finché l'orologio dice di sì
+
+La vitalità di una corsa remota SHALL essere contata in POLL FALLITI
+CONSECUTIVI, mai in tempo trascorso. Il portatile chiuso non produce nessun
+poll: una regola a tempo seppellirebbe ogni card remota al risveglio, che è
+esattamente la morte auto-inflitta contro cui `sweepDeadTurns` tiene la sua
+isteresi. Venti minuti SENZA nessun poll SHALL seppellire ZERO corse; `K = 30`
+poll consecutivi FALLITI SHALL seppellirne esattamente una.
+
+Una corsa sepolta SHALL rimettere la card in `todo` con il tentativo RIMBORSATO,
+come gli orfani di KANBAN-10, e SHALL lasciare UNA sola nota di sistema, non una
+per giro.
+
+Una corsa sepolta NON SHALL essere una corsa MORTA sul nodo: potrebbe stare
+ancora lavorando. Perciò una nuova corsa per la stessa card SHALL prima
+CANCELLARE la vecchia sul nodo (`DELETE /api/nodes/runs/<id>`), e ogni rapporto
+che porta l'id di una corsa sepolta SHALL essere IGNORATO. Senza queste due cose
+la card raccoglie due consegne e due rami.
+
+MISURA: `bun test server/services/task-dispatcher-remote-node.test.ts` verde: 20
+minuti senza poll non seppelliscono nulla, 30 poll falliti seppelliscono UNA
+volta con una nota sola, il rapporto tardivo di una corsa sepolta è scartato, e
+la corsa nuova è preceduta dalla cancellazione della vecchia.
+
+#### Scenario: la macchina che dorme
+- **GIVEN** una corsa remota e venti minuti senza NESSUN poll
+- **THEN** nessuna corsa SHALL essere sepolta
+
+#### Scenario: trenta poll falliti
+- **GIVEN** una corsa remota
+- **WHEN** 30 poll consecutivi falliscono
+- **THEN** la corsa SHALL essere sepolta UNA volta
+- **AND** la card SHALL tornare in `todo` col tentativo rimborsato
+- **AND** SHALL esserci UNA sola nota di sistema
+
+#### Scenario: un poll riuscito azzera il conto
+- **GIVEN** 29 poll falliti consecutivi
+- **WHEN** il poll successivo riesce
+- **THEN** il conto SHALL tornare a zero e nulla SHALL essere sepolto
+
+#### Scenario: il rapporto tardivo di una corsa sepolta
+- **GIVEN** una corsa sepolta e una corsa nuova per la stessa card
+- **WHEN** arriva un rapporto che porta l'id della corsa sepolta
+- **THEN** SHALL essere ignorato
+
+#### Scenario: la corsa vecchia si cancella prima di crearne una nuova
+- **GIVEN** una card rimessa in coda dopo una sepoltura
+- **WHEN** il dispatcher la riprende per lo stesso nodo
+- **THEN** `DELETE /api/nodes/runs/<vecchia>` SHALL precedere la creazione
 ### Requirement: KANBAN-78 — Ciò che Topics lancia per un agente non passa mai davanti a chi usa la macchina
 
 Tutto ciò che Topics avvia PER CONTO DI UN AGENTE SHALL girare a priorità bassa:

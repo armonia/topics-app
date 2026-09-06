@@ -151,6 +151,8 @@ import m20260904110000_global_orchestrator_sessions from "./migrations/202609041
 import m20260904190854_mark_dispatched_envelopes from "./migrations/20260904190854-mark-dispatched-envelopes.sql" with { type: "text" };
 import m20260904190855_task_comment_message_anchor from "./migrations/20260904190855-task-comment-message-anchor.sql" with { type: "text" };
 import m20260906004423_board_cap_resources_mode from "./migrations/20260906004423-board-cap-resources-mode.sql" with { type: "text" };
+import m20260906115130_task_machine_id from "./migrations/20260906115130-task-machine-id.sql" with { type: "text" };
+import m20260906115131_machine_base_url from "./migrations/20260906115131-machine-base-url.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -306,4 +308,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260904190854, name: "20260904190854-mark-dispatched-envelopes.sql", sql: m20260904190854_mark_dispatched_envelopes },
   { version: 20260904190855, name: "20260904190855-task-comment-message-anchor.sql", sql: m20260904190855_task_comment_message_anchor },
   { version: 20260906004423, name: "20260906004423-board-cap-resources-mode.sql", sql: m20260906004423_board_cap_resources_mode },
+  { version: 20260906115130, name: "20260906115130-task-machine-id.sql", sql: m20260906115130_task_machine_id },
+  { version: 20260906115131, name: "20260906115131-machine-base-url.sql", sql: m20260906115131_machine_base_url },
 ];

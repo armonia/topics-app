@@ -2127,6 +2127,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
   function tuttoPieno(db: Database, s: TaskService): { id: string; altri: string[] } {
     db.run("INSERT INTO topics (id, effort) VALUES ('top-1', 'xhigh')");
     db.run("INSERT INTO agent_profiles (id) VALUES ('ap-1')");
+    // 20260906115130: the node the card runs on. The row has to exist before
+    // `machine_id` names it, because the column carries a foreign key.
+    db.run("INSERT INTO machines (id) VALUES ('mac-1')");
     const bloccante = s.create({ projectId: PID, text: "prima questo" });
     const padre = s.create({ projectId: PID, text: "il padre" });
     const t = s.create({ projectId: PID, text: "tutto pieno", parentTaskId: padre.id });
@@ -2191,7 +2194,11 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          nudge_claimed_at = ?, nudge_fingerprint = 'fp-sollecito', nudge_repeats = 2,
          -- 20260827041049: la proposta di deploy post-approve. Stessa ragione:
          -- una colonna che resta NULL non e' coperta dal confronto.
-         deploy_state = 'proposed', deploy_command_at_propose = 'bun run deploy'
+         deploy_state = 'proposed', deploy_command_at_propose = 'bun run deploy',
+         -- 20260906115130: WHERE the card runs. Same reason as the columns
+         -- above: left NULL it would fall outside the list-against-detail
+         -- comparison, and the node chip reads it on both doors.
+         machine_id = 'mac-1'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

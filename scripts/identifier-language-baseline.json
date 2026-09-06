@@ -811,7 +811,6 @@
       "pres"
     ],
     "client/src/components/Shared/projectIconStore.ts": [
-      "NONE_VERIFIED_TTL_MS",
       "presenti"
     ],
     "client/src/components/Sidebar/BoardStatusCounts.tsx": [
@@ -1768,10 +1767,6 @@
     "client/src/lib/shell/app.ts": [
       "sel"
     ],
-    "client/src/lib/shell/browserLoginState.ts": [
-      "PortableCookie",
-      "toCookieJson"
-    ],
     "client/src/lib/shell/browserOcclusion.test.ts": [
       "lontano",
       "sopra",
@@ -1793,15 +1788,6 @@
       "DESKTOP_SERVER_WS",
       "ShimmedEventSource",
       "rewriting"
-    ],
-    "client/src/lib/shell/tauriBrowserOps.test.ts": [
-      "jarCookies"
-    ],
-    "client/src/lib/shell/tauriBrowserOps.ts": [
-      "StorageCookie",
-      "cookieCount",
-      "cookies",
-      "setPaneCookies"
     ],
     "client/src/lib/sidebarStateGroups.test.ts": [
       "figlioAttende",
@@ -2704,9 +2690,6 @@
       "mapped",
       "xfo"
     ],
-    "server/browser-login-state.ts": [
-      "cookieCount"
-    ],
     "server/browser-native-delegate.test.ts": [
       "intruso",
       "legittimo",
@@ -2714,7 +2697,6 @@
       "vecchio"
     ],
     "server/browser-native-state.test.ts": [
-      "cookies",
       "decArgs"
     ],
     "server/browser-network-log.test.ts": [
@@ -2735,8 +2717,6 @@
       "ScreencastOnFrame",
       "buf",
       "clampDsf",
-      "cookieDir",
-      "cookies",
       "dbs",
       "dsf",
       "editable",
@@ -2762,7 +2742,6 @@
       "HandoffOutcome",
       "ReverseHandoffDeps",
       "ReverseHandoffOutcome",
-      "cookies",
       "impronta",
       "posato"
     ],
@@ -2776,12 +2755,7 @@
       "suDisco",
       "vicino"
     ],
-    "server/browser-site-data.test.ts": [
-      "cookie"
-    ],
     "server/browser-site-data.ts": [
-      "cookie",
-      "cookieSilo",
       "idb"
     ],
     "server/browser-snapshot.ts": [
@@ -2874,22 +2848,14 @@
       "unwatchGitDir"
     ],
     "server/integrations/chrome-cookies.ts": [
-      "COOKIE_BROWSERS",
-      "CdpCookieParam",
-      "CookieBrowser",
       "buf",
-      "cookies",
-      "cookiesDbPath",
       "dec",
       "decryptChromeCookies",
       "decryptFailed",
       "decryptValue",
       "dst",
       "exp",
-      "isCookieBrowser",
-      "listChromeCookieHosts",
-      "pfx",
-      "toCdpCookie"
+      "pfx"
     ],
     "server/integrations/moondream-client.ts": [
       "MoondreamCaptionResponse",
@@ -3102,12 +3068,6 @@
       "vecchio",
       "vietati"
     ],
-    "server/lib/device-auth.ts": [
-      "SESSION_COOKIE",
-      "buildClearedSessionCookie",
-      "buildSessionCookie",
-      "readSessionCookie"
-    ],
     "server/lib/empty-turn-headstone.test.ts": [
       "CARTELLO",
       "futura",
@@ -3224,8 +3184,7 @@
     ],
     "server/lib/identity.test.ts": [
       "RADICE",
-      "aggiungi",
-      "cookie"
+      "aggiungi"
     ],
     "server/lib/identity.ts": [
       "confinamentoDerivato",
@@ -4882,7 +4841,6 @@
       "chiaro",
       "chiesto",
       "chiudi",
-      "cookie",
       "corpo",
       "daChiudere",
       "dati",
@@ -5434,11 +5392,6 @@
       "PARKED_REQUEUE_NOTE_LIKE",
       "REQUEUE_PARKED_LABEL",
       "isRequeueParkedLabel"
-    ],
-    "shared/browser-login-state.ts": [
-      "StorageCookie",
-      "cookieKey",
-      "cookies"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -6563,12 +6516,10 @@
     ],
     "tests/e2e/helpers/ospite.ts": [
       "approvato",
-      "cookie",
       "corpo",
       "daOspite",
       "ospite",
       "richiesta",
-      "setCookie",
       "stato"
     ],
     "tests/e2e/helpers/relay-e2e.ts": [
@@ -7377,7 +7328,6 @@
       "collega",
       "conDispositivo",
       "condividi",
-      "cookie",
       "corpo",
       "creato",
       "dopo",

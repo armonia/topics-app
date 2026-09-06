@@ -157,6 +157,13 @@ export interface Task {
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
   model: string | null;
+  /**
+   * WHERE the card runs (KANBAN-76). `null` = this machine, which is every
+   * card that exists today. A non-null id names a PAIRED node: the dispatcher
+   * mirrors the card onto it instead of opening a worktree here. The choice is
+   * a person's; nothing moves a card to a quieter node by itself.
+   */
+  machineId: string | null;
   /** The effort the task actually ran with (from the agent's topic). Read
    *  only: with the board on `auto` this is the only place the choice shows. */
   effort: string | null;
@@ -356,6 +363,8 @@ export interface CreateTaskInput {
   planFirst?: boolean;
   /** Model override for the agent topic. Omit/null = auto. */
   model?: string | null;
+  /** Run this card on a paired node (KANBAN-76). Omit/null = this machine. */
+  machineId?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
   blockedByTaskId?: string | null;
   /** Reuse the blocker agent's conversation at dispatch. */
@@ -396,6 +405,8 @@ export interface UpdateTaskPatch {
   summary?: string;
   /** Model override for the agent topic; null clears (= auto). */
   model?: string | null;
+  /** Move the card to a paired node; null clears (= this machine). */
+  machineId?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;

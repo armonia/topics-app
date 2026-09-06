@@ -345,6 +345,13 @@ export interface AppContext {
   worktreeGcDeps: import("./services/worktree-manager").WorktreeManagerGcDeps;
   // Multi-machine (Phase D · added at migration 020-021)
   machineStore: import("./services/machine-store").MachineStore;
+  /**
+   * How this machine talks to a paired node (MACHINE-02). Optional so the
+   * router builds the real one (global fetch, wall clock) when nobody injects
+   * it, and a test hands in one with a fake fetch: the pairing handshake must
+   * be provable without a second server on the network.
+   */
+  nodeClient?: import("./services/node-client").NodeClient;
 
   // Paths
   PORT: number;
