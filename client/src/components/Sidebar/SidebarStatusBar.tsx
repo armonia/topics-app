@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { IdentityBlock } from './IdentityBlock';
 import type { SidebarCommands } from './ProfileMenu';
-import { SEGNALE_ATTESA, SEGNALE_GUASTO, PALLINO_ATTESA, PALLINO_GUASTO } from './chromeSignals';
+import { SEGNALE_ATTESA, SEGNALE_GUASTO, SEGNALE_OK, PALLINO_ATTESA, PALLINO_GUASTO, PALLINO_OK } from './chromeSignals';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
 import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
 import { useProviderHold } from '@/state/providerHold';
+import { usePlanUsage } from '@/state/planUsage';
+import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 
 /**
  * IL FONDO DELLA COLONNA: chi sei, e cosa non va.
@@ -67,6 +69,13 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
   // resumes. Said here, once, for the whole app: 27 silent retries per chat
   // were how the person found out on 2026-09-04.
   const providerHold = useProviderHold();
+  const planUsage = usePlanUsage();
+  // The row appears only when the number would change what someone does. Below
+  // the warning line it is true and useless (nobody stops at 12%), and once the
+  // hold is in force the sentence above already says it, harder: two amber rows
+  // about the same window read as two problems.
+  const fiveHour = planUsage?.fiveHour ?? null;
+  const planNotice = !providerHold && fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT ? fiveHour : null;
 
   /**
    * L'ATTESA MUTA, DETTA.
@@ -170,6 +179,26 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
             <span className="truncate">
               {tr(providerHold.window === 'seven_day' ? 'statusBar.providerHold.week' : 'statusBar.providerHold.fiveHours', {
                 time: new Date(providerHold.untilMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+              })}
+            </span>
+          </span>
+        </div>
+      )}
+
+      {wsStatus === 'connected' && planNotice && (
+        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
+          <span
+            data-testid="plan-usage-notice"
+            className={`flex items-center gap-1.5 text-[11px] ${planNotice.utilization >= PLAN_DISPATCH_HOLD_AT ? SEGNALE_ATTESA : SEGNALE_OK} min-w-0 overflow-hidden`}
+            title={tr('statusBar.planUsage.title')}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${planNotice.utilization >= PLAN_DISPATCH_HOLD_AT ? PALLINO_ATTESA : PALLINO_OK}`} />
+            <span className="truncate">
+              {tr('statusBar.planUsage.fiveHours', {
+                pct: Math.round(planNotice.utilization),
+                time: planNotice.resetsAtMs != null
+                  ? new Date(planNotice.resetsAtMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+                  : '--:--',
               })}
             </span>
           </span>

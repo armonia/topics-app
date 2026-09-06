@@ -816,6 +816,7 @@ export type QueueReasonKind =
   | 'resource_floor' // the machine is under the RAM/disk floor: no agent is admitted at all
   | 'resource_pressure' // «per risorse»: the machine is over the chosen load/memory threshold
   | 'spend_cap'      // the 24h spend cap is reached: the queue holds until it scrolls or you raise it
+  | 'plan_window'    // the subscription's five-hour window is nearly gone: the queue waits for the reset
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
   | 'parked'         // in backlog: il dispatcher non guarda questa colonna
@@ -874,7 +875,7 @@ export interface QueueReason {
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
   'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
-  'resource_floor', 'resource_pressure', 'spend_cap',
+  'resource_floor', 'resource_pressure', 'spend_cap', 'plan_window',
   'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
 ];
 
@@ -901,6 +902,7 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   resource_floor: ['board.queue.resourceFloor'],
   resource_pressure: ['board.queue.resourcePressure'],
   spend_cap: ['board.queue.spendCap'],
+  plan_window: ['board.queue.planWindow'],
   checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
   children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
   parked: [
@@ -971,7 +973,7 @@ export interface QueueContext {
    * of 3"), and recomputing them on the client would mean measuring another
    * machine.
    */
-  dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend'; reason: string } | null;
+  dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend' | 'plan'; reason: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
   parentStatus: TaskStatus | string | null;
   /** Vero quando il task non ha una board con una directory (`_none`). */
@@ -1333,14 +1335,20 @@ export function deriveQueueReason(
     const kind: QueueReasonKind =
       ctx.dispatchBlock.kind === 'spend' ? 'spend_cap'
         : ctx.dispatchBlock.kind === 'pressure' ? 'resource_pressure'
-          : 'resource_floor';
+          : ctx.dispatchBlock.kind === 'plan' ? 'plan_window'
+            : 'resource_floor';
     const key =
       kind === 'spend_cap' ? 'board.queue.spendCap'
         : kind === 'resource_pressure' ? 'board.queue.resourcePressure'
-          : 'board.queue.resourceFloor';
+          : kind === 'plan_window' ? 'board.queue.planWindow'
+            : 'board.queue.resourceFloor';
     return {
       kind,
-      tone: kind === 'resource_pressure' ? 'waiting' : 'stalled',
+      // THE FOURTH KIND waits like the third and for the same reason: the
+      // plan's window refills at a published hour, so nobody has to do
+      // anything. It is not folded into the spend cap even though both are a
+      // budget, because a cap is raised by a person and a window is not.
+      tone: kind === 'resource_pressure' || kind === 'plan_window' ? 'waiting' : 'stalled',
       key,
       params: { reason: ctx.dispatchBlock.reason },
     };

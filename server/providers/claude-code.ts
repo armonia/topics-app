@@ -43,6 +43,7 @@ import {
   readAssistantMessageId,
   readEventContent,
   readParentToolUseId,
+  readRateLimitUsage,
   readResultErrorText,
   readResultUsage,
   splitCallUsage,
@@ -50,6 +51,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor } from "./claude/woken-turn";
+import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -2955,6 +2957,21 @@ export class ClaudeCodeProvider implements AIProvider {
     // legge PRIMA del filtro qui sotto, che scarta tutti i `system` — è l'unico
     // posto da cui quel dato passa, e perderlo significherebbe dedurlo.
     this.observeFastMode(event);
+
+    // How full the plan's five-hour window is (USAGE-21). The CLI volunteers
+    // this on every turn and Topics used to drop it with the rest of the noise,
+    // which threw away the only figure that says WHEN you will stop.
+    //
+    // Skipped during reattach replay for the same reason compaction is: the
+    // lines being re-read are the store's tail, and a percentage from an hour
+    // ago overwriting a fresh one would brake the fleet on a window that has
+    // since reset. `lastEventAt` stays untouched on purpose - the plan talking
+    // about itself is not the child process working, and the watchdog counts
+    // work.
+    if (line.kind === "rate_limit") {
+      if (!pp.replayMute && !pp.replaySilent) observePlanUsage(readRateLimitUsage(event));
+      return;
+    }
 
     // Filter noise
     if (line.kind === "noise") return;
