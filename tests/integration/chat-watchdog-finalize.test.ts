@@ -142,10 +142,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * because it is never spent when the code is right: the loop returns as soon as
  * the condition holds.
  */
-const until = async (ready: () => boolean, budgetMs = 10_000): Promise<void> => {
+const until = async (ready: () => boolean, budgetMs = 5_000): Promise<void> => {
   const deadline = Date.now() + budgetMs;
-  while (!ready() && Date.now() < deadline) await sleep(10);
+  while (!ready() && Date.now() < deadline) await sleep(25);
 };
+
+/** The finalization the watchdog broadcasts: one cheap in-memory predicate for
+ *  both tests, so the wait never queries the database in a loop. */
+const finalized = (sent: WireMessage[]) => sent.some((m) => m.type === "stream:tool_result");
 
 describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
   test("il tool aperto viene annunciato, non solo riparato in silenzio", async () => {
@@ -159,7 +163,7 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
     // Soft (60 ms) + grace (60 ms): the child says nothing more and nobody
     // declares the process alive, so the watchdog finalizes. Waited for, not
     // slept through (see `until`).
-    await until(() => h.sent.some((m) => m.type === "stream:tool_result"));
+    await until(() => finalized(h.sent));
 
     const results = h.sent.filter((m) => m.type === "stream:tool_result");
     expect(results.length).toBeGreaterThanOrEqual(1);
@@ -177,7 +181,7 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
     for (const d of DELTAS) { total += d; handler.onTextDelta(d, total); }
     handler.onToolStart("toolu_open", "Bash", { command: "sleep 999" } as never);
 
-    await until(() => DELTAS.every((d) => h.row().blocksText.includes(d)));
+    await until(() => finalized(h.sent));
 
     const { blocksText } = h.row();
     for (const d of DELTAS) expect(blocksText).toContain(d);
