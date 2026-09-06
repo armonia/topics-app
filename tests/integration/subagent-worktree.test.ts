@@ -63,7 +63,7 @@ afterAll(() => {
 
 // Deferred and destructured: an `import()` whose result is not destructured is
 // opaque to the dead-code gate. See the same note in the Phase A test.
-const utilsPromise = (async () => {
+const appContextPromise = (async () => {
   const { createAppContext } = await import("../../server/utils");
   return { createAppContext };
 })();
@@ -76,7 +76,7 @@ const forAgentPromise = (async () => {
 
 describe("un sotto-agente nasce nel suo worktree", () => {
   test("two children of the same project get two directories and two branches, both from main", async () => {
-    const { createAppContext } = await utilsPromise;
+    const { createAppContext } = await appContextPromise;
     const { createAgentWorktree } = await forAgentPromise;
     const ctx = createAppContext(PROJECT_ROOT);
     const project = ctx.projectStore.create({ name: "Fan", slug: "fan-out", path: TEST_REPO });
@@ -126,7 +126,7 @@ describe("un sotto-agente nasce nel suo worktree", () => {
   }, 60_000);
 
   test("a cwd that is itself a worktree still resolves to its project, and an unknown path is refused", async () => {
-    const { createAppContext } = await utilsPromise;
+    const { createAppContext } = await appContextPromise;
     const { createAgentWorktree, resolveAgentProject } = await forAgentPromise;
     const ctx = createAppContext(PROJECT_ROOT);
     const project = ctx.projectStore.create({ name: "Nest", slug: "nested-parent", path: TEST_REPO });
