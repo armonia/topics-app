@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.268",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La rigenerazione del grafo del codice gira a priorità bassa",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.267",
     "date": "2026-09-06",
     "sections": {
