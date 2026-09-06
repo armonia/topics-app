@@ -350,21 +350,7 @@ test.describe("DASHBOARD - the KPI grid returns without moving", () => {
         await waitForPaneStoreQuiet(request);
         // The KPI grid, not the pane's frame: the frame can be on screen with
         // nothing in it, the grid only exists once there are numbers to show.
-        const report = await measureReturn(page, '[data-testid="kpi-card-grid"]', `dashboard-${vp.name}`);
-        // THE PICTURE FOR THE RECORD, on request only (`E2E_CLS_SHOT=<file>`):
-        // the dashboard pane's rectangle 150 ms after `DOMContentLoaded` of one
-        // more reload, with the fetches still held. Run once per bundle and the
-        // two files show the same instant: a spinner in an empty frame, or the
-        // grid already drawn. A second reload and not the measured one, so the
-        // screenshot's own paint never enters the numbers above.
-        if (process.env.E2E_CLS_SHOT && vp.name === WIDE.name) {
-          const clip = await page.getByTestId("dashboard-pane").boundingBox();
-          await page.reload({ waitUntil: "domcontentloaded" });
-          await page.waitForTimeout(150);
-          await page.screenshot({ path: process.env.E2E_CLS_SHOT, clip: clip ?? undefined });
-          console.log(`[cls:${LABEL}:shot] -> ${process.env.E2E_CLS_SHOT}`);
-        }
-        expectQuietAndFull(report);
+        expectQuietAndFull(await measureReturn(page, '[data-testid="kpi-card-grid"]', `dashboard-${vp.name}`));
       });
     });
   }

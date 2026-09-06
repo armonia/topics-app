@@ -70,8 +70,7 @@ only left after React had mounted and hit the suspense boundary. See
 
 Reproduce: `E2E_CLS_LABEL=<label> npx playwright test pane-return-cls`, which
 writes one JSON per surface under `test-results/cls/` so two runs compare line
-by line. Add `E2E_CLS_SHOT=<file>` to also get the dashboard's rectangle 150 ms
-into one more reload, which is the picture the two bundles differ in.
+by line.
 
 THE DASHBOARD CASE HOLDS ITS OWN FETCHES for 300 ms, and without that it proves
 nothing: on the e2e server `/dashboard/kpis` answers in 0-8 ms, so even the
