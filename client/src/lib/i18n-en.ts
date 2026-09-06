@@ -183,6 +183,8 @@ const EN = {
   'ask.recommended.hint': 'This is the route the agent recommends. The choice stays yours.',
   'ask.recommended': 'recommended',
   'ask.answerPlaceholder': 'Write your answer…',
+  'plan.edit.label': 'The plan, yours to correct',
+  'plan.edit.hint': 'Approving sends this version instead of the one the agent wrote. Corrections survive closing the panel.',
   'appearance.chatWidth': 'Chat width',
   'appearance.fullWidth': 'Full width',
   'appearance.chatWidth.aria': 'Maximum width of the chat column',

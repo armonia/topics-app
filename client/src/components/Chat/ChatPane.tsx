@@ -9,8 +9,9 @@ import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysi
 import { claimCenteredHandoff } from '../../state/composerHandoff';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
-import { findPendingPlan } from './planDetection';
-import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
+import { findPendingPlan, planApprovalMessage } from './planDetection';
+import { clearAskDraft, readAskDraft } from './askDraft';
+import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { errMessage } from '../../lib/errMessage';
@@ -1136,7 +1137,7 @@ function ChatPaneComponent({
   );
   const [planBusy, setPlanBusy] = useState(false);
 
-  const handlePlanDecision = useCallback(async (approved: boolean) => {
+  const handlePlanDecision = useCallback(async (approved: boolean, editedPlan?: string) => {
     if (!approved) {
       sendMessage(topic.sessionKey, 'Piano rifiutato. Proponi un\'altra strada, sempre senza toccare niente.');
       return;
@@ -1153,7 +1154,10 @@ function ChatPaneComponent({
       toast.error('Non sono riuscito ad alzare l\'autonomia: il piano non parte.');
       return;
     }
-    sendMessage(topic.sessionKey, 'Piano approvato. Eseguilo.');
+    // A plan corrected by hand goes out instead of the one the model wrote,
+    // and the message says it REPLACES it: the session that resumes still
+    // holds its own (`planApprovalMessage`).
+    sendMessage(topic.sessionKey, planApprovalMessage(editedPlan));
   }, [sendMessage, topic.sessionKey, topic.id, toast]);
 
   /** La scelta presa dalla barra sopra il composer: registra la risposta —
@@ -1162,6 +1166,12 @@ function ChatPaneComponent({
   const handlePlanChoiceFromBar = useCallback(async (approved: boolean) => {
     if (!pendingPlan || planBusy) return;
     setPlanBusy(true);
+    // The correction written in the panel counts from here too. Two surfaces
+    // approving the same plan with different texts run, in silence, the
+    // version nobody chose.
+    const edited = pendingPlan.toolCallId
+      ? readAskDraft(pendingPlan.toolCallId)?.planText?.trim() || undefined
+      : undefined;
     try {
       // Un piano scritto solo in prosa non ha una riga che aspetta: non c'è
       // niente da chiudere, e postare una risposta a un tool inesistente
@@ -1170,10 +1180,15 @@ function ChatPaneComponent({
         await chatApi.toolResponse(topic.sessionKey, pendingPlan.toolCallId, {
           kind: 'questions',
           answers: { [PLAN_APPROVAL_QUESTION]: approved ? PLAN_APPROVE_LABEL : PLAN_REJECT_LABEL },
+          ...(edited ? { metadata: { [PLAN_EDIT_KEY]: edited } } : {}),
           submittedAt: new Date().toISOString(),
         });
+        // This branch never goes through `submitAndForget`, which is where
+        // the draft is cleared: without this the correction would sit there
+        // for seven days under a question already answered (ASK-07).
+        clearAskDraft(pendingPlan.toolCallId);
       }
-      await handlePlanDecision(approved);
+      await handlePlanDecision(approved, edited);
     } catch {
       toast.error('Non sono riuscito a registrare la scelta. Riprova.');
     } finally {

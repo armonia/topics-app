@@ -8,6 +8,7 @@ import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/sy
 import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, TriangleAlert, Bell, X } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
+import type { PlanDecisionHandler } from './Chat/planDetection';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
@@ -939,7 +940,7 @@ interface MessageContentProps {
   usageCompletionTokens?: number | null;
   costCents?: number | null;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
-  onPlanDecision?: (approved: boolean) => void;
+  onPlanDecision?: PlanDecisionHandler;
   // Session viewer
   /**
    * The session key this message belongs to. Threaded down to

@@ -214,4 +214,68 @@ test.describe.serial("Approvazione del piano", () => {
 
     await deleteTopic(request, t.id);
   });
+
+  /**
+   * A plan gets corrected BEFORE it is approved.
+   *
+   * A plan is refused over two wrong lines, and refusing throws the other
+   * forty away with them: the model rewrites from scratch and whoever reads it
+   * has to re-explain in words what was already there, written well. Here
+   * those two lines get fixed, and approving sends the corrected version.
+   *
+   * Closing and reopening is done by RELOADING, not by clicking the row
+   * header: a waiting row is born open and the first click does not close it,
+   * so nothing would remount and the check would pass on nothing.
+   */
+  test("il piano si corregge, e approvare manda la correzione", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "PERM-09" });
+    const toolCallId = "toolu_plan_corretto";
+    // The tests above already approved on this topic: put it back to «ask», or
+    // the move to auto-apply would say nothing.
+    await request.patch(`${E2E_BASE}/api/topics/${topicId}`, { data: { autonomyLevel: "ask" } });
+    await seedPlan(request, toolCallId);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+
+    const form = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
+    await expect(form).toBeVisible({ timeout: 15_000 });
+    // The box is born holding the plan the model PROPOSED: what is written
+    // gets corrected, nobody rewrites it from a blank sheet.
+    const planBox = form.getByTestId("plan-edit-input");
+    await expect(planBox).toHaveValue(/Primo passo/);
+    // Correcting is not answering: approving stays a gesture to make (PERM-03).
+    await expect(form.locator('input[type="radio"]:checked')).toHaveCount(0);
+
+    const CORRECTED = "# Piano\n\n1. **Primo passo** - leggere SOLO i file di test\n2. **Secondo passo** - scrivere il codice";
+    await planBox.fill(CORRECTED);
+    await planBox.screenshot({ path: "test-results/plan-edit-panel.png" });
+
+    // Closed and reopened: the correction is still there. It is a draft per
+    // question, with the expiry of every other one (ASK-07).
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    const afterReload = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`).getByTestId("plan-edit-input");
+    await expect(afterReload).toHaveValue(/SOLO i file di test/, { timeout: 15_000 });
+
+    const autonomia = async () => {
+      const all = await (await request.get(`${E2E_BASE}/api/topics`)).json();
+      return all?.topics?.[topicId]?.autonomyLevel;
+    };
+    expect(await autonomia()).toBe("ask");
+
+    // Approved from the bar above the composer: it is the surface that does
+    // NOT go through the panel, and the one that would send the old text in
+    // silence.
+    await page.getByTestId("plan-approve").click();
+    await expect.poll(autonomia, { timeout: 10_000 }).toBe("auto-apply");
+
+    // The turn restarts with the CORRECTED version, and with the fact that it
+    // replaces the one the model wrote: that session still holds its own.
+    const ultimo = page.locator('[data-testid="chat-message"][data-role="user"]').last();
+    await expect(ultimo).toContainText("SOLO i file di test", { timeout: 15_000 });
+    await expect(ultimo).toContainText("SOSTITUISCE");
+    await expect(ultimo).not.toContainText("Piano approvato. Eseguilo.");
+  });
 });
