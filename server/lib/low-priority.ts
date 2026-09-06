@@ -36,9 +36,9 @@ export const AGENT_NICE = 15;
 /**
  * ABSOLUTE PATHS, AND ONLY IF THEY EXIST. The server runs under launchd with
  * a PATH that has no `/usr/sbin`, so a bare `taskpolicy` in the argv made
- * every check spawn fail on 2026-09-06 15:00 ("il runner dei check non
- * riesce a spawnare processi") and a delivered card bounced to «waiting» for
- * a reason that had nothing to do with its code. A knob that is not there is
+ * every check spawn fail on 2026-09-06 15:00 and a delivered card bounced to
+ * «waiting» for a reason that had nothing to do with its code. The report read
+ * "il runner dei check non riesce a spawnare processi". // allow-italian: quoted report A knob that is not there is
  * skipped, not searched for: the work runs at normal priority, as before.
  */
 const NICE_BIN = "/usr/bin/nice";

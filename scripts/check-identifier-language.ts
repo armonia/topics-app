@@ -86,6 +86,11 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // `renice` and `taskpolicy` are the names macOS gives two real binaries
+  // (`/usr/bin/renice`, `/usr/sbin/taskpolicy`). The constants that hold their
+  // paths have to spell them exactly: any other name would stop naming the
+  // executable the code actually spawns.
+  "renice", "taskpolicy",
   // The macOS credential store, and the plural the dictionary lacks (2026-09-03).
   "keychain", "retries", "emitted", "mkdir", "textarea",
   "img", "lightbox", "zoomable", "dist", "subroutes", "timeline", "supplied", "fmt",
