@@ -17,15 +17,30 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { tmpdir, cpus, loadavg } from "os";
 import { join } from "path";
 import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles } from "./file-watcher";
 import type { AppContext } from "./types";
 
 type Frame = { type: string; projectPath?: string };
 
+/**
+ * The budget STRETCHES with the machine, and that is not politeness: what this
+ * waits for is an event the OS delivers, so under a fleet the wait is long for
+ * a reason that has nothing to do with the code under test. `test-unit-shards`
+ * already stretches the per-test timeout by the same pressure (`planUnderLoad`)
+ * and the shard note says so out loud, but that ceiling never reached the
+ * budget INSIDE a test: at loadavg 17 on 12 cores these two went red on a
+ * branch that does not touch the watcher. Same factor, same cap.
+ */
+function loadFactor(): number {
+  const cores = Math.max(1, cpus().length);
+  const pressure = (loadavg()[0] ?? 0) / cores;
+  return Number.isFinite(pressure) ? Math.min(4, Math.max(1, pressure)) : 1;
+}
+
 async function until(cond: () => boolean, budgetMs = 6000): Promise<boolean> {
-  const deadline = Date.now() + budgetMs;
+  const deadline = Date.now() + budgetMs * loadFactor();
   while (Date.now() < deadline) {
     if (cond()) return true;
     await Bun.sleep(25);
