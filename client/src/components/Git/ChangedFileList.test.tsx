@@ -55,6 +55,33 @@ describe('a row', () => {
     expect(html).toContain('Name.tsx');
   });
 
+  /**
+   * THE ROW IS NAMED AFTER ITS FILE. A row is a button, and a button's
+   * accessible name is its content in DOM order: with the letter first and
+   * spoken, every row was "M something" and the locators anchored on the file
+   * name (`/^consegna\.ts/`, CHANGES-01 and I18N-PANELS-01) stopped matching -- allow-italian: the spec's own file name, quoted
+   * -- the same thing a screen reader user hears. The letter is hidden from
+   * assistive technology, the state is read as a WORD after the name, and a
+   * rename keeps the old name first on screen but not in the DOM.
+   */
+  test('the accessible name starts with the file name: the letter is aria-hidden, the state is a word after it', () => {
+    const html = renderToStaticMarkup(<ChangedFileEntry row={row()} />);
+    expect(html).toMatch(/<span aria-hidden="true"[^>]*data-changed-file-mark="M"/);
+    const name = html.indexOf('>Card.tsx<');
+    expect(name).toBeGreaterThan(-1);
+    // After the name: a visually hidden word, and a WORD -- not the raw i18n
+    // key, which is what a missing catalogue entry renders as. The language
+    // is whatever this bench resolves to (no window here), so the word itself
+    // is not pinned.
+    expect(html.slice(name)).toMatch(/<span class="sr-only">(?!git\.files\.)[^<]+<\/span>/);
+
+    const renamed = renderToStaticMarkup(<ChangedFileEntry row={row({ status: 'renamed', origPath: 'old/Name.tsx' })} />);
+    // The struck-through old name comes AFTER the new one in the DOM, and
+    // `order-first` is what still draws it first.
+    expect(renamed.indexOf('>Card.tsx<')).toBeLessThan(renamed.indexOf('>Name.tsx<'));
+    expect(renamed).toMatch(/order-first[^>]*line-through|line-through[^>]*order-first/);
+  });
+
   test('a binary file says so instead of claiming lines', () => {
     const html = renderToStaticMarkup(<ChangedFileEntry row={row({ binary: true, added: undefined, removed: undefined })} />);
     expect(html).toContain('bin');

@@ -772,6 +772,14 @@ chi la chiede mentre è in volo riceve la stessa risposta, e per una finestra
 breve (≤ 2 s) anche chi la chiede subito dopo. Un errore o una risposta non-2xx
 NON SHALL essere memorizzati: il chiamante successivo richiede alla rete.
 
+La finestra vale per le letture di BOOT, non per una lettura che risponde a un
+avviso di cambiamento: chi rilegge il feed perché un evento `task:*` glielo ha
+detto, perché un lettore glielo ha chiesto o perché il socket è tornato SHALL
+raggiungere il server, per quanto giovane sia l'ultima risposta. Una risposta
+di prima dell'evento è la risposta sbagliata, e servita alla lettura di coda
+di una raffica lascia la board indietro senza un evento successivo che la
+corregga (KANBAN-06).
+
 Il motivo è la coda: il browser tiene sei connessioni per host, e al ricarico
 partivano 90 richieste `/api/*` (misurato il 05/09/2026), fino a 53 insieme —
 `claude-prefs-skip` cinque volte, il roster dei terminali cinque, il feed

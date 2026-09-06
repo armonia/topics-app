@@ -342,11 +342,21 @@ test.describe("Kanban board", () => {
     // Open the detail drawer from the card.
     await page.getByTestId("kanban-column-in_progress").getByText(text).click();
     const drawer = page.getByTestId("task-detail-drawer");
-    await expect(drawer.getByText("Quale opzione preferisci?")).toBeVisible({ timeout: 10000 });
-    await expect(drawer.getByText("Opzione alfa")).toBeVisible();
-    await expect(drawer.getByText("Opzione beta")).toBeVisible();
+    // The options show up TWICE in the drawer, on purpose: as prose in the
+    // thread (the question as the agent said it) and as quick-reply buttons
+    // above the composer, in every column and not only in review (dbdd3f0d3:
+    // a mid-turn question is answered from the card). The prose is what this
+    // spec is about, so it is looked for in the thread.
+    const thread = drawer.getByTestId("task-session-column");
+    await expect(thread.getByText("Quale opzione preferisci?")).toBeVisible({ timeout: 10000 });
+    await expect(thread.getByText("Opzione alfa")).toBeVisible();
+    await expect(thread.getByText("Opzione beta")).toBeVisible();
     // The raw fence must never reach the human.
-    await expect(drawer.getByText("```question")).not.toBeVisible();
+    await expect(thread.getByText("```question")).not.toBeVisible();
+    // And the same options are the answers, one button each.
+    const answers = drawer.getByTestId("task-question-options");
+    await expect(answers.getByRole("button", { name: "Opzione alfa" })).toBeVisible();
+    await expect(answers.getByRole("button", { name: "Opzione beta" })).toBeVisible();
   });
 
   /**

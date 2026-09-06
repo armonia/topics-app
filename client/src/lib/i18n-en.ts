@@ -1534,6 +1534,15 @@ const EN = {
   'git.files.error': 'could not read the files',
   'git.files.empty': 'no files changed',
   'git.files.more': 'and {n} more',
+  // The state as a WORD, for assistive technology: the coloured letter on the
+  // row is hidden from it, and read after the file name (see ChangedFileMark).
+  'git.files.status.added': 'added',
+  'git.files.status.modified': 'modified',
+  'git.files.status.deleted': 'deleted',
+  'git.files.status.renamed': 'renamed',
+  'git.files.status.copied': 'copied',
+  'git.files.status.untracked': 'untracked',
+  'git.files.status.conflicted': 'in conflict',
   // ── Command palette.
   'palette.searchProjects': 'Search projects…',
   'palette.searchWithFiles': 'Search files, topics, messages…',

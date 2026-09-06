@@ -179,9 +179,18 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
   // socket was down are delivered to a socket that no longer exists and nothing
   // replays them. Same subscription as `syncWS` and `useTerminalLifecycle`; the
   // coalescer keeps it to one read.
-  useEffect(() => subscribeLifecycle((event) => {
-    if (event === 'open') refetch();
-  }), [refetch]);
+  //
+  // Project mode only. In `all` mode the feed's OWNER (`useGlobalBoard`)
+  // subscribes to the same `open` and re-reads through the same coalescer;
+  // asking from here as well made the page's FIRST open — which is not a
+  // reconnect — a second network read of the whole feed at boot, because a
+  // reader's ask is a change notice and never rides the boot window.
+  useEffect(() => {
+    if (isAll) return;
+    return subscribeLifecycle((event) => {
+      if (event === 'open') refetch();
+    });
+  }, [isAll, refetch]);
 
   const source = isAll ? globalTasks : own.rows;
   const sourceRef = useRef(source);

@@ -1789,6 +1789,15 @@ const IT: Dict = {
   'git.files.error': 'non sono riuscito a leggere i file',
   'git.files.empty': 'nessun file cambiato',
   'git.files.more': 'e altri {n}',
+  // The state as a WORD, for assistive technology: the coloured letter on the
+  // row is hidden from it, and read after the file name (see ChangedFileMark).
+  'git.files.status.added': 'aggiunto',
+  'git.files.status.modified': 'modificato',
+  'git.files.status.deleted': 'cancellato',
+  'git.files.status.renamed': 'rinominato',
+  'git.files.status.copied': 'copiato',
+  'git.files.status.untracked': 'non tracciato',
+  'git.files.status.conflicted': 'in conflitto',
   // ── Palette dei comandi.
   'palette.searchProjects': 'Cerca progetti…',
   'palette.searchWithFiles': 'Cerca file, topic, messaggi…',

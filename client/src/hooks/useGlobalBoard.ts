@@ -38,7 +38,8 @@ import {
   markBoardTasksSettled, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
 } from '../lib/boardTasksStore';
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
-import { subscribeLifecycle } from '../lib/wsFrameBus';
+import { BOOT_READ_TTL_MS } from '../lib/coalesceFetch';
+import { subscribeLifecycle, subscribeReconnect } from '../lib/wsFrameBus';
 
 /**
  * How long the window is in which events fold into one. 400 ms: above the read
@@ -70,6 +71,15 @@ export function useGlobalBoard(
   // dropped: the moment somebody looks again, ONE read brings back whatever the
   // agents did in the meantime.
   const missedWhileHidden = useRef(false);
+  // A CHANGE WAS ANNOUNCED since the last read (a `task:*` frame, a reconnect,
+  // a reader asking): the next read has to reach the server. Only the reads of
+  // the BOOT — the mount read and the first socket-open re-read, a few hundred
+  // ms apart — may share the app-wide coalescer's window (BOOT_READ_TTL_MS):
+  // they ask the same question. A read that answers an event does not: it
+  // asks "what is the state AFTER this event", and with the TTL on every read
+  // the tail read of a burst got the pre-burst snapshot handed back, with no
+  // later event to correct it (BOARD-19, 2026-09-06).
+  const changeNoticed = useRef(false);
 
   // One coalescer per mount: `useRef` and not `useMemo`, because React is free
   // to discard a `useMemo` value whenever it likes and this one owns a timer
@@ -87,7 +97,16 @@ export function useGlobalBoard(
           // `null` = la lettura è tornata a mani vuote. Non è la stessa cosa di
           // una lista vuota: chi disegna una board deve poter smettere di
           // aspettare senza inventarsi che di task non ce ne sono.
-          try { return await boardApi.listAll(); } catch { return null; }
+          //
+          // The notice is consumed HERE and not where it is raised: a trigger
+          // that lands inside the coalescer's window becomes the tail read,
+          // and it is that read — the last one, later than the last event —
+          // that must not be served from the window.
+          const noticed = changeNoticed.current;
+          changeNoticed.current = false;
+          try {
+            return await boardApi.listAll(undefined, noticed ? undefined : { ttlMs: BOOT_READ_TTL_MS });
+          } catch { return null; }
         },
         apply: (rows) => { if (rows === null) markBoardTasksSettled(); else setBoardTasks(rows); },
       });
@@ -99,8 +118,10 @@ export function useGlobalBoard(
     // The first read of the global feed.
     ensure().trigger();
     // Readers of the store ask for a re-read through here instead of opening a
-    // second fetch of the same 1.4 MB feed.
-    const unregister = setBoardTasksRefresher(() => ensure().trigger());
+    // second fetch of the same 1.4 MB feed. A reader that asks was told
+    // something changed (the board pane's own `task:*` handler runs BEFORE
+    // this hook's, App's effects being the last to run): its read is fresh.
+    const unregister = setBoardTasksRefresher(() => { changeNoticed.current = true; ensure().trigger(); });
     return () => {
       unregister();
       coalescer.current?.dispose();
@@ -113,6 +134,9 @@ export function useGlobalBoard(
     return onMessage((msg) => {
       const t = (msg as { type?: string })?.type;
       if (t !== 'task:created' && t !== 'task:updated' && t !== 'task:deleted') return;
+      // Raised BEFORE the hidden gate: the one read a hidden window owes when
+      // it is looked at again answers these events too.
+      changeNoticed.current = true;
       // AN INVISIBLE WINDOW STILL PAID FOR EVERY MOVE. The board moves because
       // agents move it: a night of eight cards is hundreds of `task:*` frames,
       // and each one had every open window re-read the global feed - a
@@ -142,13 +166,24 @@ export function useGlobalBoard(
   // so without this the store keeps the pre-reload state until something else
   // happens to move. Same subscription as `state/pane/middleware/syncWS.ts` and
   // `useTerminalLifecycle`. With the coalescer it costs one read per reconnect.
-  useEffect(() => subscribeLifecycle((event) => {
-    if (event !== 'open') return;
-    // Same gate, same debt: a hidden window records the hole and fills it when
-    // it is looked at again.
-    if (windowHidden()) { missedWhileHidden.current = true; return; }
-    ensure().trigger();
-  }), [ensure]);
+  //
+  // The FIRST open of the page is not a reconnect: nothing was missed, and its
+  // re-read is the boot's second ask of the same question, which the app-wide
+  // window answers (BOOT-NET-01). A RE-open is the hole, and its read must
+  // reach the server. The reconnect marker is subscribed first so that it runs
+  // before the trigger below on the same `open` (the bus keeps handlers in
+  // subscription order).
+  useEffect(() => {
+    const stopReconnectListener = subscribeReconnect(() => { changeNoticed.current = true; });
+    const stopOpenListener = subscribeLifecycle((event) => {
+      if (event !== 'open') return;
+      // Same gate, same debt: a hidden window records the hole and fills it when
+      // it is looked at again.
+      if (windowHidden()) { missedWhileHidden.current = true; return; }
+      ensure().trigger();
+    });
+    return () => { stopReconnectListener(); stopOpenListener(); };
+  }, [ensure]);
 
   return useMemo(() => {
     let activeCount = 0;
