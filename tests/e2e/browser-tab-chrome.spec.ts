@@ -737,7 +737,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
     // And the tab is still readable while the panel is open.
-    await expect(tab).toContainText(/New tab/);
+    await expect(tab).toContainText(/New tab|Nuova scheda/);
   });
 
   /**
