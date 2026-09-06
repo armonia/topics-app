@@ -30,6 +30,13 @@ describe('sidebar git section visibility', () => {
     expect(hasGitStateToShow({ fileCount: 0, ahead: 2, behind: 0 })).toBe(true);
     expect(hasGitStateToShow({ fileCount: 0, behind: 3, ahead: 0 })).toBe(true);
   });
+
+  it('shows a folder the host repo does not track, even at zero files', () => {
+    // The server folds the host repo's `?? folder/` into zero file rows: the
+    // count reads clean while the panel has a message and an action to show.
+    expect(hasGitStateToShow({ fileCount: 0, ahead: 0, behind: 0, folderUntracked: true })).toBe(true);
+    expect(hasGitStateToShow({ fileCount: 0, ahead: 0, behind: 0, folderUntracked: false })).toBe(false);
+  });
 });
 
 describe('board card git chip visibility', () => {

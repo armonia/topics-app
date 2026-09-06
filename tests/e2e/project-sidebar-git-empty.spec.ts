@@ -16,12 +16,14 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 
-const PROJECT_DIR = `/tmp/e2e-git-empty-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): it is the one the window
+// carries, see `canonicalTmpDir`.
+const PROJECT_DIR = canonicalTmpDir("e2e-git-empty");
 
 test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
   test.beforeAll(() => {

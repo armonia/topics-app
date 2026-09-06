@@ -522,6 +522,10 @@ com'erano.
 - **GIVEN** un repository senza modifiche ma con un commit avanti al remoto
 - **THEN** la sezione resta visibile
 
+#### Scenario: una cartella non tracciata dal repo che la contiene
+- **GIVEN** una cartella aperta come progetto che il repo ospite elenca come `?? cartella/`
+- **THEN** la sezione c'è: zero file lì non è pulizia, è il pannello che dice di chi è il ramo e offre di creare un repository qui
+
 #### Scenario: la card di un turno in corso
 - **GIVEN** una consegna che non ha ancora un conteggio
 - **THEN** la pastiglia resta, e sparisce solo se il conteggio letto è zero

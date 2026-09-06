@@ -382,7 +382,15 @@ export function ProjectSidebar({
   // (store condiviso in useGitStatus), pannello e decorazioni dei file inclusi.
   const { gitStatus, notGit } = useGitStatus({ projectPath, onMessage: onWSMessage });
   const git = gitStatus && !notGit
-    ? { branch: gitStatus.branch, fileCount: gitStatus.files?.length ?? 0, ahead: gitStatus.ahead ?? 0, behind: gitStatus.behind ?? 0 }
+    ? {
+        branch: gitStatus.branch,
+        fileCount: gitStatus.files?.length ?? 0,
+        ahead: gitStatus.ahead ?? 0,
+        behind: gitStatus.behind ?? 0,
+        // A folder the host repo does not track counts ZERO files by design
+        // (`lib/gitVisibility.ts` says why it still earns the section).
+        folderUntracked: !!gitStatus.folderUntracked,
+      }
     : null;
   // NOTHING CHANGED, NOTHING ON SCREEN. A section headed "git changes" with a
   // count of zero spends a row to say that nothing happened, and the same row
