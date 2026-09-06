@@ -27,6 +27,25 @@ function devIconPlugin(): Plugin {
   };
 }
 
+// Plugin: KaTeX ships every font three times (woff2, woff, ttf) and its CSS lists
+// them in that order. Every WebView this client runs in (WKWebView, WebView2,
+// WebKitGTK, Chromium) takes the woff2 and never requests the other two, yet the
+// build emitted all 40 legacy files (817 KB) into public/assets, and the Tauri
+// bundle embeds public/ into the binary. Dropping them at generateBundle leaves
+// the CSS untouched (the @font-face src lists still name them as fallbacks that
+// are never fetched) and none of the bundle gates look at font src.
+function dropLegacyKatexFonts(): Plugin {
+  return {
+    name: 'topics-drop-legacy-katex-fonts',
+    apply: 'build',
+    generateBundle(_, bundle) {
+      for (const name of Object.keys(bundle)) {
+        if (/KaTeX_[^/]*\.(ttf|woff)$/.test(name)) delete bundle[name];
+      }
+    },
+  };
+}
+
 // Plugin: track last source file change time, serve via /@last-change
 function lastChangePlugin(): Plugin {
   let lastChange = new Date().toISOString();
@@ -85,7 +104,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(__appVersion),
     __BUILD_SHA__: JSON.stringify(__buildSha),
   },
-  plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss()],
+  plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss(), dropLegacyKatexFonts()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

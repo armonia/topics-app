@@ -94,6 +94,11 @@ export const PROJECT_WORDS = new Set([
   // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make
   // the code read worse than the platform it calls.
   "clipboard",
+  // `submenu` is the name of the thing itself: a menu level opening beside its
+  // row (`SubmenuItem`, on the shared `Menu` primitive). The 1934 list does not
+  // carry it, and every UI toolkit in use does: renaming it "nested menu item"
+  // would make the component harder to find than the concept it implements.
+  "submenu",
   // `ddl` is what the SQL standard calls the half of itself that creates
   // tables, and it is how the test schemas of this repo are already named
   // (`TASKS_DDL`, `APP_SETTINGS_DDL`). Spelling it out in an identifier would

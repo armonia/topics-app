@@ -718,10 +718,10 @@ const IT: Dict = {
   'board.task.previewMissing': 'Nessuna evidenza su questa consegna. «{recapture}» la rifà dal worktree del task.',
   'board.task.openAsTabTitle': 'Apri come tab nel workspace del task',
   'board.task.downloadFileTitle': 'Scarica il file',
-  'board.task.newTab': 'Nuova scheda',
+  'board.task.newTab': 'Nuova tab',
   'board.task.closedTab': 'chiusa',
-  'board.task.reopenTabTitle': 'Riapri questa scheda',
-  'board.task.removeTabTitle': 'Rimuovi la scheda',
+  'board.task.reopenTabTitle': 'Riapri questa tab',
+  'board.task.removeTabTitle': 'Rimuovi la tab',
   'board.task.subtasksLabel': 'Sottotask',
   'board.task.addSubtaskPlaceholder': '+ sottotask…',
   'board.task.removeAttachmentTitle': 'Rimuovi allegato',
@@ -1172,7 +1172,7 @@ const IT: Dict = {
   'board.publish.confirmBodyStart': 'Push di {n} commit su ',
   'board.publish.confirmBodyEnd': '. Avvia il deploy dove configurato.',
   'board.publish.andMore': '…e altri {n}',
-  'board.publish.done': '{name}: pubblicato ✓',
+  'board.publish.done': '{name}: pubblicato',
   'board.publish.error': 'errore',
   'board.publish.truncated': '…troncato a 50',
   'board.delivery.unlandedTitle': '{n} task chiusi con lavoro non su main',
@@ -2090,6 +2090,9 @@ const IT: Dict = {
   'statusBar.signals.done': '{n} turni finiti che non hai ancora guardato',
   'statusBar.signals.tasks': '{n} task della board in corso',
   'statusBar.signals.open': '{n} sessioni aperte',
+  'statusBar.agents.title': 'Agenti attivi',
+  'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
+  'statusBar.agents.none': 'Nessun agente al lavoro adesso',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.

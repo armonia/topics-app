@@ -10,9 +10,14 @@
  *   - Localised marker: every entry we add carries `topics_app: true` in the
  *     hook object so the uninstaller can remove only our entries.
  *   - Token: relies on Topics App having generated the token on first boot
- *     (also written to ~/.claude/topics-hook-token). If the server has never
- *     been started, this script still writes the settings; the wrapper will
- *     no-op silently until the token exists.
+ *     at ${TOPICS_HOME:-~/.topics}/claude-hooks/hook-token (the wrapper also
+ *     falls back to a legacy ~/.claude/topics-hook-token left by an older
+ *     version). If the server has never been started, this script still
+ *     writes the settings; the wrapper will no-op silently until the token
+ *     exists.
+ *   - This script is the ONE place Topics writes under ~/.claude, and only
+ *     because the user runs it by hand (`bun run hooks:install`): the server
+ *     itself never touches that directory.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, chmodSync, rmSync } from "fs";

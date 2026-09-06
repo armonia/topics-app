@@ -10,7 +10,7 @@
  * `consoleLogModel.ts` (pure e sotto test); qui resta solo il disegno.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X, Search, Copy, Check, ArrowDown } from 'lucide-react';
+import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, ChevronRight, X, Search, Copy, Check, ArrowDown, TriangleAlert } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
 import { CONSOLE_FILTERS, buildConsoleView, consoleTime, formatConsoleRows, type ConsoleFilter, type ConsoleLogRow } from './consoleLogModel';
 import { Menu } from '../Shared/Menu';
@@ -141,7 +141,9 @@ function ConsoleRow({ row }: { row: ConsoleLogRow }) {
       {/* Colonna a larghezza fissa e cifre tabellari: le ore devono stare
           incolonnate anche quando le righe sotto sono di lunghezza diversa. */}
       <span className="shrink-0 w-[52px] tabular-nums text-app-text-faint select-none">{consoleTime(row.at)}</span>
-      <span className={`shrink-0 ${tone}`} aria-hidden>{row.level === 'error' ? '✖' : row.level === 'warn' ? '⚠' : '›'}</span>
+      <span className={`shrink-0 self-center ${tone}`} aria-hidden>
+        {row.level === 'error' ? <X size={12} /> : row.level === 'warn' ? <TriangleAlert size={12} /> : <ChevronRight size={12} />}
+      </span>
       <span className={`flex-1 min-w-0 break-all ${tone}`}>{row.text}</span>
       {row.count > 1 && (
         <span

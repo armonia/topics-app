@@ -991,7 +991,7 @@ const EN = {
   'board.publish.confirmBodyStart': 'Push {n} commits to ',
   'board.publish.confirmBodyEnd': '. It starts the deploy wherever one is configured.',
   'board.publish.andMore': '…and {n} more',
-  'board.publish.done': '{name}: published ✓',
+  'board.publish.done': '{name}: published',
   'board.publish.error': 'error',
   'board.publish.truncated': '…truncated at 50',
   'board.delivery.unlandedTitle': '{n} closed tasks whose work is not on main',
@@ -1783,6 +1783,11 @@ const EN = {
   'statusBar.signals.done': '{n} finished turns you have not looked at',
   'statusBar.signals.tasks': '{n} board tasks running',
   'statusBar.signals.open': '{n} open sessions',
+  // THE ACTIVE AGENTS ROW and the level it opens: who is working, who is
+  // parked on a question, and the sentence for when nobody is.
+  'statusBar.agents.title': 'Active agents',
+  'statusBar.agents.awaitingHeading': 'Waiting for your answer',
+  'statusBar.agents.none': 'No agent is working right now',
   'statusBar.me.panel': 'Your profile',
   'statusBar.me.machine': 'From this device',
   'statusBar.me.devicesRow': 'Authorised devices',
