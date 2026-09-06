@@ -27,6 +27,35 @@ import { KeyboardSensor, MouseSensor, TouchSensor } from '@dnd-kit/core';
  */
 const NOT_A_HANDLE = 'input, textarea, select, button, a, [contenteditable="true"], [data-no-dnd]';
 
+/**
+ * THE FINGER CHANGED OWNER: the board's touch drag lets go.
+ *
+ * `PoliteTouchSensor` arms on the SAME `touchstart` as the card's long press
+ * (`Card.tsx`, `onCardTouchStart`) and activates after 200 ms of a still
+ * finger — the card lifts — before the menu's 500 ms. From activation on,
+ * dnd-kit keeps a capture-phase `click` listener on the document that stops
+ * EVERY click, and removes it only 50 ms after the gesture ends
+ * (`AbstractPointerSensor.handleStart` / `detach`). The menu opening does not
+ * end the gesture: the card stayed lifted under the open menu with the rows
+ * frozen (`beginDrag`) until the finger came off, and a click landing inside
+ * those 50 ms was eaten. Measured 2026-09-06 on `board-card-stop.spec.ts`,
+ * touch project: the click on the menu item arrived 46 ms after the lift, the
+ * menu stayed open, and no `POST …/stop` ever left the browser.
+ *
+ * `touchcancel` is the signal the sensor already listens to for "the system
+ * took the touch", and it listens ON THE NODE THE FINGER LANDED ON — dnd-kit
+ * attaches its move/end/cancel listeners to the `touchstart` target, not to
+ * the document, so that a re-render cannot orphan them
+ * (`getEventListenerTarget`). Hence `touched`, the innermost target, and not
+ * the card. The event does not bubble on purpose: React delivers bubble-phase
+ * handlers from the root, so the long press's own `onTouchCancel` — which
+ * would forget the gesture and let the synthetic click through — never sees
+ * it, and nothing else listening on the document does either.
+ */
+export function releaseTouchDrag(touched: EventTarget): void {
+  touched.dispatchEvent(new Event('touchcancel'));
+}
+
 function onInteractiveTarget(event: Event): boolean {
   const t = event.target;
   return t instanceof Element && t.closest(NOT_A_HANDLE) !== null;

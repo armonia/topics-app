@@ -861,6 +861,20 @@ function tryConnect(): Promise<boolean> {
 
 function setupSocketReader(socket: net.Socket) {
   const rl = createInterface({ input: socket });
+  /**
+   * THE READLINE RE-EMITS THE SOCKET'S ERROR, AND NOBODY WAS LISTENING.
+   *
+   * Node (since v20) and Bun from 1.4 forward every `error` of the input
+   * stream onto the `Interface` itself. The socket's own handler below does
+   * the real work; this listener is there so the copy has a recipient, because
+   * an `error` with no listener is rethrown from `emit`, and this process has
+   * no `uncaughtException` handler: one `write EPIPE` on the bridge socket,
+   * i.e. the bridge hanging up while a `buffer`/`create` is in flight, would
+   * take the whole server down instead of scheduling the reconnect. Bun 1.3
+   * did not forward, which is why the Mac never saw it and the Linux CI
+   * (`bun-version: latest`) did — `terminal-input-dropped.test.ts`.
+   */
+  rl.on("error", () => { /* handled on the socket itself, see below */ });
   rl.on("line", (line: string) => {
     // Any line at all is proof of life, even one we cannot parse. The watchdog
     // reads this, not just the pong.
@@ -893,9 +907,13 @@ function setupSocketReader(socket: net.Socket) {
     }, 500);
   });
 
-  socket.on('error', () => {
+  socket.on('error', (err: NodeJS.ErrnoException) => {
     bridgeReady = false;
     bridgeSocket = null;
+    // 'close' follows and schedules the reconnect; this line is the only place
+    // the REASON is written (EPIPE = the bridge hung up mid-write, ECONNRESET
+    // = it died), and "Bridge socket closed" alone said nothing about it.
+    console.warn(`[Terminal] Bridge socket error: ${err.code ?? err.message}`);
   });
 }
 

@@ -3640,8 +3640,11 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
 /**
  * Comment body (inside a chat bubble). A question block renders as a styled
  * decision request (question + option bullets) instead of raw ``` fences; any
- * text around the block is kept. Quick-reply buttons live on the card; in the
- * drawer the composer is the answer path (reject-with-text → agent resumes).
+ * text around the block is kept. The bullets are the QUESTION as it was asked,
+ * part of the thread; the quick-reply buttons that answer it are drawn above
+ * the composer (`task-question-options`, in every column but `done`), so an
+ * option appears twice on purpose: once as what the agent said, once as the
+ * thing to press.
  */
 export function CommentBody({ content }: { content: string }) {
   const q = parseQuestionBlock(content);

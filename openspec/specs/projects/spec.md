@@ -498,6 +498,12 @@ SHALL comparire solo quando il repository ha qualcosa da dire: file non committa
 oppure commit avanti o indietro rispetto al remoto. I commit non spinti restano dentro
 perché sono lavoro in volo, non pulizia.
 
+Con la sezione se ne va anche il bottone della cronologia, che vive nella sua
+intestazione: su un repository pulito e allineato la cronologia dei commit non ha un
+ingresso nella sidebar. Resta raggiungibile dal pannello git aperto come pane, la cui
+intestazione non è condizionata (decisione del 06/09/2026, quando il test della
+cronologia «ad albero pulito» è stato ristretto al caso «pulito ma avanti al remoto»).
+
 La condizione SHALL essere VIVA: la sezione torna da sola alla prima modifica, senza
 riaprire il progetto.
 
@@ -521,6 +527,10 @@ com'erano.
 #### Scenario: commit non spinti
 - **GIVEN** un repository senza modifiche ma con un commit avanti al remoto
 - **THEN** la sezione resta visibile
+
+#### Scenario: una cartella non tracciata dal repo che la contiene
+- **GIVEN** una cartella aperta come progetto che il repo ospite elenca come `?? cartella/`
+- **THEN** la sezione c'è: zero file lì non è pulizia, è il pannello che dice di chi è il ramo e offre di creare un repository qui
 
 #### Scenario: la card di un turno in corso
 - **GIVEN** una consegna che non ha ancora un conteggio

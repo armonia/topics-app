@@ -82,25 +82,43 @@ const MOUNTED_NODES = 20;
  *
  * So the seed is re-applied and the page reloaded until the cell appears,
  * instead of waiting longer on a page that will never show it.
+ *
+ * TWO ABSENCES, AND ONLY ONE OF THEM IS A REASON TO RELOAD. The SHELL of the
+ * probe missing after the boot is the case above: the seed was lost. The
+ * CONTENT missing inside a shell that is there is a pane still mounting - a
+ * lazy body behind its suspense boundary, xterm fitting its grid - and the
+ * first version of this loop reloaded on that too. That reload was the second
+ * red: it unloaded a page whose store had not hydrated yet, the `pagehide`
+ * flush wrote that empty store over the seed just applied, and every retry
+ * booted on the welcome screen (measured on the terminal row: the shell was
+ * there at 8 nodes and at 81 half a second later, and the case that ran
+ * second in the file - warm caches, so the poll looked earlier - never got
+ * past the 8). Now a shell that is there is waited for, and a reseed is only
+ * written once the old page has LEFT, so its flush is already on the server
+ * when the seed lands instead of a beat behind it.
  */
 async function openProbePane(page: Page, request: APIRequestContext, probe: string): Promise<void> {
+  // The probe's OWN shell, visible. Any visible shell would be satisfied by
+  // the wrong pane, and then the measurement would be about that one.
+  const shell = page.locator(`[data-pane-shell="${probe}"][data-pane-visible="1"]`);
   await resetPaneStore(request, [probe]);
   await goToApp(page);
   await expect
     .poll(
       async () => {
-        // The cell can also appear and then go away one render later, when the
-        // client finishes hydrating over the seed, so the condition is not
-        // "there is a cell" but "there is a MOUNTED pane": the shell plus a
-        // subtree. It is the same guard the measurement needs anyway, folded
-        // into the loop that can still do something about it.
-        const nodes = await cell(page)
+        // `evaluate` waits for the shell to attach (up to the action timeout):
+        // that wait is the boot. A shell that is there answers with its
+        // subtree, small or not, and the poll comes back for the rest.
+        const nodes = await shell
           .evaluate((el) => el.querySelectorAll("*").length)
-          .catch(() => 0);
-        if (nodes > MOUNTED_NODES) return nodes;
+          .catch(() => -1);
+        if (nodes >= 0) return nodes;
+        // No shell: the seed was lost. The old page goes away FIRST, so that
+        // whatever it flushes on the way out lands before the seed and not on
+        // top of it.
+        await page.goto("about:blank");
         await resetPaneStore(request, [probe]);
-        await page.reload();
-        await page.waitForLoadState("domcontentloaded");
+        await goToApp(page);
         return 0;
       },
       {
@@ -110,6 +128,18 @@ async function openProbePane(page: Page, request: APIRequestContext, probe: stri
       },
     )
     .toBeGreaterThan(MOUNTED_NODES);
+
+  // A LABEL BEING EDITED HAS NO INK. A browser pane with nowhere to go asks its
+  // tab for the address editor (`BrowserTabAddress`): the label is an empty
+  // input until Escape, or leaving it, gives the label back. The sweep reads
+  // labels at rest - that is what sits over the glass while a page is used -
+  // so the editor is dismissed here. It is not a way past an empty label: a
+  // row whose label has no text after this still fails the sweep, by name.
+  const editor = page.getByTestId("browser-tab-address-input");
+  if ((await editor.count()) > 0) {
+    await editor.press("Escape");
+    await expect(editor).toHaveCount(0);
+  }
 }
 
 /**

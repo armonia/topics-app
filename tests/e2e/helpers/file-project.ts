@@ -27,7 +27,7 @@
 
 import type { APIRequestContext } from "@playwright/test";
 import { execFileSync } from "child_process";
-import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, unlinkSync, realpathSync } from "fs";
 import { createTopic, deleteTopic } from "./api-fixtures";
 
 export type FileProject = {
@@ -35,6 +35,27 @@ export type FileProject = {
   tmpDir: string;
   topicName: string;
 };
+
+/**
+ * A scratch folder under /tmp, named the way the project window will REALLY
+ * name it on screen.
+ *
+ * Since 7cd202448 the server serves the `project:<path>` pane under its
+ * CANONICAL path (realpath), and on macOS `/tmp` is a link to `/private/tmp`:
+ * a spec that seeds `/tmp/e2e-x` and then looks for
+ * `[data-project-path="/tmp/e2e-x"]` waits ten seconds for a window that is
+ * there the whole time, under the other name. On the Linux runner `/tmp` is a
+ * real directory and the two spellings coincide, so the red showed only on the
+ * laptop — the most expensive kind of red, because whoever reproduces locally
+ * finds a failure that does not exist in CI.
+ *
+ * The ROOT is resolved, not the folder: the folder does not exist yet, and
+ * `realpathSync` on a missing path throws.
+ */
+export function canonicalTmpDir(prefix: string): string {
+  const root = (() => { try { return realpathSync("/tmp"); } catch { return "/tmp"; } })();
+  return `${root}/${prefix}-${Date.now()}`;
+}
 
 /**
  * `git init` + primo commit in una cartella di prova.

@@ -55,6 +55,17 @@ alla consegna: con sei agent erano fino a tre suite in parallelo sui tre slot
 del gate, più le copie orfane lasciate da un turno tagliato — misurato load 115
 su 12 core alle 14:40 del 04/09. Il carico sono i cancelli, non gli agent.
 
+**Le e2e dei file toccati sono il sesto check (dal 06/09/2026).** Cinque cancelli
+su sei non contenevano nessun test end-to-end, e il land e' un merge locale che
+non passa dalla CI: la notte del 05/09 undici card sono arrivate verdi in review
+e la CI di main si e' svegliata con undici spec e2e rosse in piu' (sidebar,
+pannello git, drawer della board, permalink). `bun run check:e2e-touched`
+(`scripts/check-e2e-touched.ts`) sceglie le spec legate al DIFF del ramo (la spec
+stessa, chi importa il modulo, l'area, i testid) e ne fa girare al massimo otto;
+in un worktree costruisce da se' il bundle del client e prende la porta derivata
+dal path, quindi non tocca ne' `public/` ne' la 13334. Sta nella colonna
+`review_checks` del board come gli altri, dopo `test:unit`.
+
 **Il tetto vero e' il PIANO, non la CPU (dal 04/09/2026).** Otto agent nativi e
 le chat della persona stanno sulla stessa OAuth del piano Claude: alle 13:00Z
 la finestra di 5 ore era al 100% e per tre ore ogni turno rispondeva 429. Ora

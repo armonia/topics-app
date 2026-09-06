@@ -199,6 +199,7 @@ export function useTouchDrag({
     if (e.touches.length !== 1) { reset(); return; }
     const touch = e.touches[0];
     const element = e.currentTarget as HTMLElement;
+    const touched = e.target;
     const x = touch.clientX;
     const y = touch.clientY;
     firedRef.current = false;
@@ -210,7 +211,7 @@ export function useTouchDrag({
       firedRef.current = true;
       setPressed(false);
       haptic('medium');
-      pressTargetRef.current = { element, x, y };
+      pressTargetRef.current = { element, touched, x, y };
       cbRef.current.onLift?.();
       attachDragPhase();
     }, LONG_PRESS_MS);

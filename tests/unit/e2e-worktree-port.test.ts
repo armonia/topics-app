@@ -32,6 +32,15 @@ describe("isDispatchWorktree", () => {
     // senza il separatore finale nel confronto, `startsWith` direbbe di sì.
     expect(isDispatchWorktree(`${HOME}/.topics/worktrees-backup/x`, HOME)).toBe(false);
   });
+
+  it("riconosce un worktree di Claude Code, scavato dentro il repo stesso", () => {
+    // Subagents and workflows work in `<repo>/.claude/worktrees/<name>`: on
+    // 2026-09-06 ten of them all received 13334 and killed each other's
+    // server. The separator counts here too: `.claude/worktrees-old` is not
+    // the folder.
+    expect(isDispatchWorktree("/Users/tizio/Projects/topics-app/.claude/worktrees/wf_3f26af6e-907-1", HOME)).toBe(true);
+    expect(isDispatchWorktree("/Users/tizio/Projects/topics-app/.claude/worktrees-old/x", HOME)).toBe(false);
+  });
 });
 
 describe("defaultE2EPort", () => {

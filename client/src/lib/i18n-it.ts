@@ -1413,6 +1413,13 @@ const IT: Dict = {
   'sidebar.unpinVanishes': '{nome} esce dai Fissati e non resta in lista',
   'sidebar.unpinnedGone': '{nome} non è più fissato, e non ha una riga in lista',
   'sidebar.undo': 'Annulla',
+  // A topic's worktree in the sidebar: the chip on the row and the header of
+  // the sub-section when a project works on several worktrees at once.
+  // "Worktree" stays the same word in both languages: it is git's own name.
+  'sidebar.worktree': 'Worktree',
+  'sidebar.inWorktree': 'Nel worktree {nome}',
+  'sidebar.worktreeSection': 'Worktree {nome}',
+  'sidebar.newTopicInWorktree': 'Nuovo topic in questo worktree',
   // ── Persone e gruppi (Impostazioni → Identità).
   //
   // La parola «organizzazione» compare in UNA chiave sola, e solo nella riga
@@ -1782,6 +1789,15 @@ const IT: Dict = {
   'git.files.error': 'non sono riuscito a leggere i file',
   'git.files.empty': 'nessun file cambiato',
   'git.files.more': 'e altri {n}',
+  // The state as a WORD, for assistive technology: the coloured letter on the
+  // row is hidden from it, and read after the file name (see ChangedFileMark).
+  'git.files.status.added': 'aggiunto',
+  'git.files.status.modified': 'modificato',
+  'git.files.status.deleted': 'cancellato',
+  'git.files.status.renamed': 'rinominato',
+  'git.files.status.copied': 'copiato',
+  'git.files.status.untracked': 'non tracciato',
+  'git.files.status.conflicted': 'in conflitto',
   // ── Palette dei comandi.
   'palette.searchProjects': 'Cerca progetti…',
   'palette.searchWithFiles': 'Cerca file, topic, messaggi…',

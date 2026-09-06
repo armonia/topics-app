@@ -59,6 +59,14 @@ export interface LongPressOptions {
 export interface LongPressTarget {
   /** L'elemento su cui è partito il gesto — l'ancora naturale del menu. */
   element: HTMLElement;
+  /**
+   * The node the finger actually landed on: the innermost target of the
+   * `touchstart`, not the element the hook is mounted on. A gesture recogniser
+   * that follows dnd-kit's advice — listeners on the target, so a re-render
+   * cannot orphan them — is listening HERE, and this is the only address at
+   * which it can be told that the press took the finger (`releaseTouchDrag`).
+   */
+  touched: EventTarget;
   /** Il punto toccato, in coordinate viewport. */
   x: number;
   y: number;
@@ -141,6 +149,7 @@ export function useLongPress(
     if (e.touches.length !== 1) { clear(); return; }
     const touch = e.touches[0];
     const element = e.currentTarget as HTMLElement;
+    const touched = e.target;
     const x = touch.clientX;
     const y = touch.clientY;
     firedRef.current = false;
@@ -151,7 +160,7 @@ export function useLongPress(
       firedRef.current = true;
       setPressed(false);
       haptic('medium');
-      cbRef.current({ element, x, y });
+      cbRef.current({ element, touched, x, y });
     }, ms);
   }, [enabled, ms, clear]);
 

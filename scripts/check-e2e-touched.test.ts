@@ -11,7 +11,7 @@
  * one that had actually gone red.
  */
 import { describe, expect, test } from "bun:test";
-import { areaTokens, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
+import { areaTokens, ownBundleDir, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
 
 const spec = (file: string, text: string) => ({ file: `tests/e2e/${file}`, text });
 
@@ -65,5 +65,25 @@ describe("selectSpecs", () => {
     // only the area can link it, and it has to come first.
     const picked = selectSpecs(["client/src/components/Sidebar/TopicItem.tsx"], all);
     expect(picked[0]?.file).toBe("tests/e2e/sidebar-chevron-column.spec.ts");
+  });
+});
+
+describe("ownBundleDir", () => {
+  const main = "/Users/tizio/Projects/topics-app/.git";
+
+  test("the main checkout keeps the watcher's contract: nothing to build", () => {
+    expect(ownBundleDir({}, ".git", ".git", "/tmp")).toBeNull();
+    expect(ownBundleDir({}, main, main, "/tmp")).toBeNull();
+  });
+
+  test("a bundle built elsewhere wins, worktree or not", () => {
+    const linked = `${main}/worktrees/sandy-anchor`;
+    expect(ownBundleDir({ TOPICS_E2E_BUNDLE_DIR: "/tmp/ci-bundle" }, linked, main, "/tmp")).toBeNull();
+  });
+
+  test("a linked worktree builds into a directory named after itself, stable across runs", () => {
+    const linked = `${main}/worktrees/sandy-anchor`;
+    expect(ownBundleDir({}, linked, main, "/tmp")).toBe("/tmp/topics-e2e-touched/sandy-anchor");
+    expect(ownBundleDir({ TOPICS_E2E_BUNDLE_DIR: "  " }, linked, main, "/tmp")).toBe("/tmp/topics-e2e-touched/sandy-anchor");
   });
 });

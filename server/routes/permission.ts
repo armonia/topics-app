@@ -10,10 +10,11 @@ import {
   aliasPermission,
   cancelPermission,
   allowPendingPermissions,
+  takeBufferedDecision,
   PermissionWaitError,
 } from "../lib/permission-bridge";
 import { decideGrantForTool, addToolGrant, listToolGrants, removeToolGrant } from "../lib/tool-grants";
-import { decidePermissionPaint } from "../lib/permission-paint";
+import { decidePermissionPaint, toolNameOnRow as toolNameOnPaintRow } from "../lib/permission-paint";
 import { cliDecisionFor, decisionFreesSession, isPermissionDecision } from "../../shared/permission-decision";
 import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
 import { etichettaAutore } from "../lib/message-author";
@@ -200,6 +201,17 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         if (!toolName || !toolUseId) {
           return json({ error: "toolName and toolUseId are required" }, 400);
         }
+        // 0. The person already decided THIS request, between two legs? Then
+        //    that word comes back, before any rule: «always allow» writes a
+        //    rule and the next leg, checking rules first, would answer `allow`
+        //    on its own and leave the human's `allow_always` in the pantry.
+        //    It also keeps a decided request from being re-opened and its
+        //    panel repainted for nobody.
+        {
+          const decided = takeBufferedDecision(sk, toolUseId);
+          if (decided !== undefined) return json({ decision: decided });
+        }
+
         // 1. Una regola lo copre già? Allora non si disturba nessuno. Qui dentro
         //    c'è anche `mcp__topics__*`: sono le mani di Topics, e il 7 agosto
         //    una richiesta di permesso è arrivata proprio su
@@ -341,14 +353,18 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         // per certo di questa richiesta una volta che il click è arrivato.
         // Illeggibile è una risposta legittima — nessuna delle due decisioni che
         // lo usano dipende da lui per essere presa.
+        //
+        // BOTH columns are read, and `lib/permission-paint.ts` decides (blocks
+        // first, column as fallback): a row with blocks has `tool_calls = '[]'`
+        // on disk, and reading only that column was how "always allow" quietly
+        // stopped writing the rule.
         const toolNameOnRow = (): string | null => {
           try {
             const row = ctx.db
-              .prepare("SELECT tool_calls FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: unknown } | undefined;
-            const decoded = decodeCol(row?.tool_calls);
-            const calls = decoded ? (JSON.parse(decoded) as { id?: string; name?: string }[]) : [];
-            return calls.find((c) => c?.id === toolCallId)?.name ?? null;
+              .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
+              .get(sk) as { tool_calls?: unknown; blocks?: unknown } | undefined;
+            if (!row) return null;
+            return toolNameOnPaintRow({ tool_calls: decodeCol(row.tool_calls), blocks: decodeCol(row.blocks) }, toolCallId);
           } catch {
             return null;
           }

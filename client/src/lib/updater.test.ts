@@ -10,6 +10,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { shouldShowUpdaterToast, updateTitle, type UpdaterStatus } from './updater';
 
 const quiet = { dismissed: false, versionPopoverOpen: false };
@@ -181,8 +182,12 @@ describe('the keys exist in both dictionaries', () => {
     'update.err.network', 'update.err.endpoint', 'update.err.generic',
     'update.downloadInstall',
   ];
-  const it = readFileSync(new URL('./i18n-it.ts', import.meta.url), 'utf8');
-  const en = readFileSync(new URL('./i18n-en.ts', import.meta.url), 'utf8');
+  // A path string, not `new URL('./i18n-it.ts', import.meta.url)`: knip reads
+  // a `new URL(…, import.meta.url)` as a module edge, and a catalogue reached
+  // that way counts as "used whole" - every dead key in it goes blind
+  // (`check:deadcode-blindspots` flagged both catalogues the day this landed).
+  const it = readFileSync(join(import.meta.dir, 'i18n-it.ts'), 'utf8');
+  const en = readFileSync(join(import.meta.dir, 'i18n-en.ts'), 'utf8');
   for (const k of KEYS) {
     test(`${k} is translated in it and en`, () => {
       expect(it).toContain(`'${k}':`);

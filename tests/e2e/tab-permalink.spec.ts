@@ -23,9 +23,9 @@
  *    do not send `text/html`, and the text 404 they got turned, inside the
  *    shell, into an offer to DOWNLOAD the link;
  *  · TABLINK-08 la clipboard VERA, non lo stub;
- *  · TABLINK-09/10 il RIFIUTO non è mai muto. Sono due canali diversi perché il
- *    toast non è disponibile ovunque: in chat si ricade sul browser esterno
- *    (il context dei toast non è memoizzato e non si può consumare lì), al boot
+ *  · TABLINK-09/10 il RIFIUTO non è mai muto. Sono due canali diversi: in chat
+ *    si ricade sulla porta dei LINK (`lib/openLink`, che oggi apre una tab del
+ *    browser di Topics e il browser di sistema solo su gesto esplicito), al boot
  *    si mostra il toast — che vive sotto `<ToastProvider>`, cioè non in App;
  *  · TABLINK-13 the twin of TABLINK-10 for `/task/<id>`: the one branch of the
  *    grammar that does not go through the existence check, because the board
@@ -84,17 +84,42 @@ function copiedTexts(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __copied?: string[] }).__copied ?? []);
 }
 
-/** `window.open` registrato invece di aprire davvero: è il canale di
- *  `openExternalOnce` sul web, e serve a provare che un link self-origin NON ci
- *  passa. */
-async function stubExternalOpen(page: Page): Promise<void> {
+/** The ONE link door (`lib/openLink`), recorded instead of opened.
+ *
+ *  A link the app cannot route in-house no longer leaves for the system
+ *  browser: `openLink` fires the cancelable `browser:open-tab` event
+ *  (OPEN_TAB_EVENT) and the surface able to host a tab of the Topics browser
+ *  claims it; `window.open` remains the fallback when nobody claims, and the
+ *  door of Cmd/Ctrl-click. Two lists, because they prove two different things:
+ *  `__opened` says the link WENT THROUGH the door (and with which URL),
+ *  `__openedExternal` that it did NOT leave the app. The listener is in
+ *  capture and is born before the app, so it sees the event even when a
+ *  claimant consumes it. */
+async function stubLinkDoor(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    (window as unknown as { __opened: string[] }).__opened = [];
+    const w = window as unknown as { __opened: string[]; __openedExternal: string[] };
+    w.__opened = [];
+    w.__openedExternal = [];
+    window.addEventListener(
+      "browser:open-tab",
+      (e) => { w.__opened.push(String((e as CustomEvent<{ url?: string }>).detail?.url)); },
+      { capture: true },
+    );
     window.open = ((u?: string | URL) => {
-      (window as unknown as { __opened: string[] }).__opened.push(String(u));
+      w.__openedExternal.push(String(u));
       return null;
     }) as typeof window.open;
   });
+}
+
+/** The URLs that went through the link door so far, in order. */
+function openedLinks(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __opened?: string[] }).__opened ?? []);
+}
+
+/** The URLs that left for the system browser so far. */
+function openedExternal(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as { __openedExternal?: string[] }).__openedExternal ?? []);
 }
 
 test.describe("Permalink di una tab — il produttore", () => {
@@ -119,7 +144,7 @@ test.describe("Permalink di una tab — il produttore", () => {
     // Una sola tab aperta: i locator qui sotto contano su una barra pulita.
     await resetPaneStore(request, [mainId]);
     await stubClipboard(page);
-    await stubExternalOpen(page);
+    await stubLinkDoor(page);
   });
 
   test("TABLINK-01: il menu della tab copia il TOPIC, non l'id della pane", async ({ page }) => {
@@ -197,20 +222,22 @@ test.describe("Permalink di una tab — il produttore", () => {
 
     // La tab della chat di destinazione si apre QUI…
     await expect(page.getByTestId(`pane-tab-${otherId}`)).toBeVisible({ timeout: 10000 });
-    // …e nessun browser esterno è stato lanciato, né la SPA ha navigato.
-    expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual([]);
+    // …without going through the link door (no browser tab, no system
+    // browser), and the SPA did not navigate.
+    expect(await openedLinks(page)).toEqual([]);
+    expect(await openedExternal(page)).toEqual([]);
     expect(page.url()).toBe(before);
   });
 
-  test("TABLINK-09: un permalink MORTO in chat ricade sul browser ESTERNO, invece di restare muto", async ({ page, request }) => {
-    // Il difetto: `ChatMarkdown` non passava nessun `notify` a `openTabInApp`,
-    // quindi un target che il server dichiara inesistente produceva un click
-    // che non apriva niente e non diceva niente. Il toast qui non è
-    // utilizzabile (il context non è memoizzato: un `useToast()` in questo
-    // renderer farebbe di OGNI link di OGNI messaggio un consumatore che si
-    // ri-renderizza a ogni giro), quindi il canale giusto è il RIPIEGO: si
-    // torna a com'era prima che i self-origin venissero intercettati — il
-    // browser di sistema, dove il contenuto almeno si VEDE.
+  test("TABLINK-09: un permalink MORTO in chat ricade sulla porta dei LINK, invece di restare muto", async ({ page, request }) => {
+    // The defect: `ChatMarkdown` passed no `notify` to `openTabInApp`, so a
+    // target the server declares nonexistent produced a click that opened
+    // nothing and said nothing. The right channel is the FALLBACK
+    // (`lib/deepLinkClick`: "nothing opened → open it like any other link"),
+    // i.e. the link door — which since commit 8b733b1fb is `openLink`: a TAB of
+    // the Topics browser, claimed by the standalone group this chat lives in,
+    // and the system browser only on an explicit gesture. The content is at
+    // least SEEN, and seen HERE.
     const morto = `${E2E_BASE}/tab/chat/11111111-1111-4111-8111-111111111111`;
     await seedMessage(request, {
       sessionKey: `topic:${mainId.slice(0, 8)}`,
@@ -218,19 +245,35 @@ test.describe("Permalink di una tab — il produttore", () => {
       content: `Questa non c'è più: ${morto}`,
     });
 
+    // The tab that is born connects to the server's browser process
+    // (`/ws/browser/<contextId>`), and at that point the server LAUNCHES a
+    // headless Chromium to load the URL in it — which here is the app itself: a
+    // second copy of Topics attached to the same workspace, alive until someone
+    // closes the contexts (they outlive `resetPaneStore`, see
+    // `closeAllBrowserContexts`). The pane's transport is not what is measured
+    // here: a silent mock accepts the WS, so the server never sees a context.
+    // Measured in the server log: this standalone path knocks on no other door
+    // (no `/interact`, the URL is picked up from the persisted pane).
+    await page.routeWebSocket(/\/ws\/browser\//, () => { /* accepted, never answered */ });
+
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await page.getByTestId(`pane-tab-${mainId}`).click();
 
     const anchor = page.locator(`a[href="${morto}"]`);
     await expect(anchor).toBeVisible({ timeout: 15000 });
+    const before = page.url();
     await anchor.click();
 
-    await expect.poll(
-      () => page.evaluate(() => (window as unknown as { __opened: string[] }).__opened),
-      { timeout: 10000 },
-    ).toEqual([morto]);
-    // E nessuna tab fantasma: il ripiego non è un permesso a materializzare.
+    // The link went through the door: that URL, exactly once.
+    await expect.poll(() => openedLinks(page), { timeout: 10000 }).toEqual([morto]);
+    // And the door led somewhere: a tab of the Topics browser, mounted in THIS
+    // window — not in the system browser.
+    await expect(page.locator("[data-browser-pane]")).toBeVisible({ timeout: 10000 });
+    expect(await openedExternal(page)).toEqual([]);
+    // The SPA did not navigate: the fallback opens a tab, it does not move this one.
+    expect(page.url()).toBe(before);
+    // And no ghost CHAT tab: the fallback is not a licence to materialise.
     await expect(page.getByTestId("pane-tab-11111111-1111-4111-8111-111111111111")).toHaveCount(0);
   });
 });

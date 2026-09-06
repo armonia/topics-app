@@ -55,6 +55,13 @@ function startFakeBridge(): Promise<FakeBridge> {
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => { /* the server closes when it wants to */ });
     const rl = createInterface({ input: socket });
+    // The `buffer` reply below goes out AFTER the server has destroyed its end
+    // (that is the first test's whole point), so on Linux it is a `write
+    // EPIPE`. The socket listener above absorbs it; but Bun >= 1.4, like Node,
+    // re-emits the input's `error` on the readline itself, and with no listener
+    // there the copy is rethrown and charged to whichever test is running:
+    // the SECOND one, for a byte the first one dropped on purpose.
+    rl.on("error", () => { /* same error, already absorbed on the socket */ });
     rl.on("line", (line) => {
       let msg: { type?: string; id?: string };
       try { msg = JSON.parse(line); } catch { return; }

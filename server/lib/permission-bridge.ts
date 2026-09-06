@@ -178,12 +178,8 @@ export function waitForDecision(
   const key = permissionKey(sessionKey, toolUseId);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const buf = buffered.get(key);
-  if (buf) {
-    clearTimeout(buf.timer);
-    buffered.delete(key);
-    return Promise.resolve(buf.decision);
-  }
+  const buf = takeBufferedDecision(sessionKey, toolUseId);
+  if (buf !== undefined) return Promise.resolve(buf);
 
   const existing = waiters.get(key);
   if (existing) {
@@ -199,6 +195,29 @@ export function waitForDecision(
     }, timeoutMs);
     waiters.set(key, { resolve, reject, timer });
   });
+}
+
+/**
+ * The decision a human delivered to THIS request while no leg was in flight,
+ * taken out of the pantry, or `undefined` when there is none.
+ *
+ * The route reads it at the TOP of a leg, before the global rules. The order
+ * matters: a click between two legs closes the request and buffers the
+ * decision, and the next leg used to reach `waitForDecision` (which drains
+ * the buffer) only after the grant check. With «always allow» that check now
+ * finds the rule the click just wrote, answers `allow` on its own, and the
+ * human's `allow_always` stays in the pantry until its TTL: the CLI got an
+ * answer, but not the one the person gave for this very request. Reading the
+ * pantry first also spares the leg from re-opening a request that is already
+ * decided, that is from repainting a panel nobody needs to press again.
+ */
+export function takeBufferedDecision(sessionKey: string, toolUseId: string): PermissionDecision | undefined {
+  const key = permissionKey(sessionKey, toolUseId);
+  const buf = buffered.get(key);
+  if (!buf) return undefined;
+  clearTimeout(buf.timer);
+  buffered.delete(key);
+  return buf.decision;
 }
 
 /**

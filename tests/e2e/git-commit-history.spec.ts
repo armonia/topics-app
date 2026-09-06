@@ -15,13 +15,28 @@ import { test, expect, type Locator } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { execFileSync } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, unlinkSync } from "fs";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-storia-${Date.now()}`;
+// Canonical spelling (`/private/tmp` on macOS): it is the one the window
+// carries, see `canonicalTmpDir`.
+const PROJ = canonicalTmpDir("e2e-storia");
+/**
+ * A LOCAL (bare) remote holding only the first commit: the repo stays two
+ * commits AHEAD.
+ *
+ * Not decoration. Since PROJECT-12 the sidebar's git section does not exist on
+ * a clean repo aligned with its upstream — and with it goes the history
+ * button, which lives in its header. These tests are about the CLEAN tree
+ * (everything committed, nothing to stage), and the one state in which the
+ * sidebar still shows the section without dirtying the tree is exactly what
+ * the spec calls "unpushed commits": work in flight, not cleanliness. The
+ * panel keeps saying "clean working tree", which is the case measured here.
+ */
+const REMOTE = `${PROJ}-remote.git`;
 
 /**
  * L'identita' viaggia CON il comando, non con la macchina.
@@ -78,6 +93,11 @@ test.describe("cronologia dei commit", () => {
     writeFileSync(`${PROJ}/README.md`, "riga uno\n");
     writeFileSync(`${PROJ}/src/vecchio.ts`, "export const a = 1;\n");
     initGitRepo(PROJ, "il primo commit");
+    // The remote is born NOW and receives only this commit: the two that
+    // follow stay unpushed (see `REMOTE`).
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", REMOTE], { stdio: "pipe" });
+    git(["remote", "add", "origin", REMOTE]);
+    git(["push", "-q", "-u", "origin", "main"]);
 
     // Secondo commit: una modifica, un'aggiunta, una cancellazione, un rename.
     writeFileSync(`${PROJ}/README.md`, "riga uno\nriga due\nriga tre\n");
@@ -92,7 +112,10 @@ test.describe("cronologia dei commit", () => {
     git(["commit", "-m", "il terzo commit"]);
   });
 
-  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true }));
+  test.afterAll(() => {
+    rmSync(PROJ, { recursive: true, force: true });
+    rmSync(REMOTE, { recursive: true, force: true });
+  });
 
   test("elenca i commit, e ogni commit dice quali file e quante righe", async ({ page, request }) => {
     await resetPaneStore(request, []);
@@ -201,7 +224,15 @@ test.describe("cronologia dei commit", () => {
   });
 
 
-  test("con l'albero PULITO la cronologia resta raggiungibile, e l'icona git non e' accesa", async ({ page, request }) => {
+  test("con l'albero PULITO ma avanti al remoto la cronologia resta raggiungibile dalla sidebar, e l'icona git non e' accesa", async ({ page, request }) => {
+    // Clean but not aligned: two commits ahead of the remote (see `REMOTE`).
+    // Since PROJECT-12 it is the only state in which the sidebar shows the
+    // section with no file to stage — hence the only one in which the "clean
+    // working tree" message and the history button are on screen together.
+    // On a clean repo ALIGNED with its upstream the sidebar has no git section
+    // by design, so no history button either: there the history lives in the
+    // git pane, whose header is not gated (ProjectSidebar.tsx is the only
+    // caller of hasGitStateToShow). That state is PROJECT-12's, not this test's.
     await resetPaneStore(request, []);
     await seedProjectPane(request, PROJ);
     await waitForPaneStoreQuiet(request);
@@ -277,7 +308,7 @@ test.describe("cronologia dei commit", () => {
     // che promette qualcosa e non ha niente da dare. E non serve chiedere la
     // lista per saperlo: `lastCommit.hash` e' vuoto quando `git log -1` esce
     // non-zero, cioe' esattamente quando la storia non c'e'.
-    const VUOTO = `/tmp/e2e-storia-vuota-${Date.now()}`;
+    const VUOTO = canonicalTmpDir("e2e-storia-vuota");
     mkdirSync(VUOTO, { recursive: true });
     writeFileSync(`${VUOTO}/nuovo.txt`, "mai committato\n");
     // `-b main`: senza, il ramo iniziale lo decide `init.defaultBranch` della

@@ -38,13 +38,26 @@
  *   1  a related spec is red
  *   2  the selection could not be made (no git, no base branch to diff against)
  *
+ * WHERE THE BUNDLE COMES FROM
+ * In the main checkout `public/` is kept fresh by the client watcher and the
+ * global-setup waits for it: that contract is untouched. A worktree has no
+ * watcher: its `public/` is whatever the last land committed, older than the
+ * branch's own client changes, and the global-setup would wait ninety seconds
+ * for a freshness that never comes. So outside the main checkout the gate
+ * BUILDS the bundle itself, into a directory of its own, and hands it over
+ * through `TOPICS_E2E_BUNDLE_DIR` (see `ownBundleDir`). That is what lets the
+ * board run this as a delivery check in the agent's worktree - the place where
+ * the eleven e2e reds of 2026-09-06 would have been caught, one card at a time,
+ * instead of all together in the nightly.
+ *
  * USAGE
  *   bun run check:e2e-touched            select and RUN (this is the gate)
  *   bun run check:e2e-touched --list     only print what it would run
  *   bun run check:e2e-touched --base=main   diff against another base
  */
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join, basename, extname } from "node:path";
+import { join, basename, extname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 /** More than this many specs and it is not a gate any more, it is the suite. */
 const MAX_SPECS = 8;
@@ -216,12 +229,45 @@ export function selectSpecs(
   return [...picks.values()].sort((a, b) => a.rank - b.rank || a.file.localeCompare(b.file));
 }
 
+/**
+ * The directory this run must BUILD its bundle into, or `null` when the
+ * global-setup's own contract applies.
+ *
+ * `null` in two cases: an explicit `TOPICS_E2E_BUNDLE_DIR` (someone built it
+ * elsewhere, as the CI does), and the main checkout, which is where `git-dir`
+ * and `git-common-dir` are the same directory and the client watcher keeps
+ * `public/` fresh. A linked worktree has its own `git-dir` under
+ * `<main>/.git/worktrees/<name>`: there the bundle is built into a directory
+ * named after that worktree, stable across runs so the copy is reused.
+ */
+export function ownBundleDir(
+  env: { TOPICS_E2E_BUNDLE_DIR?: string; [key: string]: string | undefined },
+  gitDir: string,
+  gitCommonDir: string,
+  tmp: string,
+): string | null {
+  if (env.TOPICS_E2E_BUNDLE_DIR?.trim()) return null;
+  if (resolve(gitDir) === resolve(gitCommonDir)) return null;
+  return join(tmp, "topics-e2e-touched", basename(resolve(gitDir)));
+}
+
+/** Builds the client into `dir`. The build's own output is the only message. */
+function buildBundle(dir: string): boolean {
+  console.log(`check:e2e-touched: linked worktree, building the bundle into ${dir}\n`);
+  const proc = Bun.spawnSync(
+    ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
+    { cwd: "client", stdout: "inherit", stderr: "inherit" },
+  );
+  return proc.exitCode === 0;
+}
+
 function main(): number {
   const args = process.argv.slice(2);
   const listOnly = args.includes("--list");
   const base = (args.find((a) => a.startsWith("--base="))?.split("=")[1] ?? "main").trim();
 
-  if (!sh(["git", "rev-parse", "--git-dir"]).trim()) {
+  const gitDir = sh(["git", "rev-parse", "--git-dir"]).trim();
+  if (!gitDir) {
     console.error("check:e2e-touched: not a git checkout, nothing to compare. NOT MEASURED.");
     return 2;
   }
@@ -260,11 +306,22 @@ function main(): number {
   }
   if (listOnly) return 0;
 
+  const env = { ...process.env };
+  const bundleDir = ownBundleDir(env, gitDir, sh(["git", "rev-parse", "--git-common-dir"]).trim(), tmpdir());
+  if (bundleDir) {
+    if (!buildBundle(bundleDir)) {
+      console.error("check:e2e-touched: the client bundle does not build, so the specs cannot run. NOT MEASURED.");
+      return 2;
+    }
+    env.TOPICS_E2E_BUNDLE_DIR = bundleDir;
+  }
+
   const files = run.map((p) => p.file);
   console.log(`\n$ npx playwright test ${files.join(" ")} --reporter=line\n`);
   const proc = Bun.spawnSync(["npx", "playwright", "test", ...files, "--reporter=line"], {
     stdout: "inherit",
     stderr: "inherit",
+    env,
   });
   return proc.exitCode === 0 ? 0 : 1;
 }

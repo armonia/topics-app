@@ -13,16 +13,29 @@
 
 /** What the sidebar knows about the repository, or nothing at all (loading, or
  *  not a repository). */
-export type GitCounts = { fileCount: number; ahead: number; behind: number } | null | undefined;
+export type GitCounts = {
+  fileCount: number;
+  ahead: number;
+  behind: number;
+  /**
+   * The opened folder is itself untracked by the repo that contains it. The
+   * server folds the host repo's `?? folder/` record into ZERO files on
+   * purpose (a directory is not a file row), so the count alone reads as a
+   * clean tree — and hid the one panel that says "not tracked by «repo»" and
+   * offers to create a repository here (git-untracked-folder.spec.ts). An
+   * untracked folder IS uncommitted work: the section stays.
+   */
+  folderUntracked?: boolean;
+} | null | undefined;
 
 /**
  * The sidebar section shows when git has SOMETHING to say: uncommitted files,
- * or a divergence from the upstream. Ahead/behind stay in, because commits
- * nobody pushed are work in flight too, and the collapsed rail already spends
- * a dot on them.
+ * a divergence from the upstream, or a folder the host repo does not track
+ * yet. Ahead/behind stay in, because commits nobody pushed are work in flight
+ * too, and the collapsed rail already spends a dot on them.
  */
 export function hasGitStateToShow(status: GitCounts): boolean {
-  return !!status && (status.fileCount > 0 || status.ahead > 0 || status.behind > 0);
+  return !!status && (status.fileCount > 0 || status.ahead > 0 || status.behind > 0 || !!status.folderUntracked);
 }
 
 /**

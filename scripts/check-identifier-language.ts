@@ -103,6 +103,10 @@ export const PROJECT_WORDS = new Set([
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
   "online", "primaries", "fps", "perf", "strongest",
+  // The other half of `online`: the browser event is literally named
+  // `offline` (`window.addEventListener('offline', …)`), and a handler for it
+  // is called after the event it handles.
+  "offline",
   // `upsert` is the database verb (insert-or-update) SQLite itself documents;
   // the 1934 list predates it. `reusable` is a regular adjective the list lacks.
   "upsert", "reusable",

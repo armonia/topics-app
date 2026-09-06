@@ -66,29 +66,56 @@ const LEFT_TO_RIGHT_MARK = '\u200E';
 /** How wide the mark column is, so every row's name starts on the same pixel. */
 const MARK_CELL = 'w-4 shrink-0 text-center font-mono text-[10px] font-bold leading-none';
 
-/** THE MARK: the letter and its colour, in a fixed-width cell so every row's
- *  name starts on the same pixel. */
+/** The word a screen reader gets instead of the letter (see `ChangedFileMark`). */
+const STATUS_WORD_KEY: Record<ChangedFileStatus, string> = {
+  added: 'git.files.status.added',
+  modified: 'git.files.status.modified',
+  deleted: 'git.files.status.deleted',
+  renamed: 'git.files.status.renamed',
+  copied: 'git.files.status.copied',
+  untracked: 'git.files.status.untracked',
+  conflicted: 'git.files.status.conflicted',
+};
+
+/**
+ * THE MARK: the letter and its colour, in a fixed-width cell so every row's
+ * name starts on the same pixel.
+ *
+ * Hidden from assistive technology ON PURPOSE. The letter is first on the row,
+ * and a row is a button whose accessible name is its content: with the letter
+ * spoken, every file was announced as "M something" and the name of the row
+ * started with a state instead of the file it is about. The state is not
+ * dropped -- `ChangedFilePath` says it as a WORD right after the name, which is
+ * also what a letter that means "modified" should sound like.
+ */
 export function ChangedFileMark({ row }: { row: ChangedFileRow }) {
   const mark = markOf(row);
   return (
-    <span className={`${MARK_CELL} ${mark.tone}`} data-changed-file-mark={mark.letter}>{mark.letter}</span>
+    <span aria-hidden="true" className={`${MARK_CELL} ${mark.tone}`} data-changed-file-mark={mark.letter}>{mark.letter}</span>
   );
 }
 
 /** THE PATH: the name whole, the folder elided from the left, a rename saying
  *  where it came from. */
 export function ChangedFilePath({ row }: { row: ChangedFileRow }) {
+  const tr = useT();
   const { dir, name } = splitPath(row.path);
   return (
     <span className="flex min-w-0 flex-1 items-baseline gap-1">
+      {/* THE NAME FIRST IN THE DOM, whatever is drawn before it: the row's
+          accessible name starts here, and "starts with the file name" is the
+          one thing every surface's locator and every screen reader rely on. */}
+      <span className="max-w-[70%] flex-shrink-0 truncate text-app-text-body">{name}</span>
+      <span className="sr-only">{tr(STATUS_WORD_KEY[row.status])}</span>
       {row.origPath && (
-        // The old name, struck through, BEFORE the new one: without it a
-        // rename shows up as a file that appeared out of nowhere.
-        <span className="max-w-[40%] flex-shrink-0 truncate text-app-text-muted line-through">
+        // The old name, struck through, BEFORE the new one on screen (`order-first`)
+        // and after it in the DOM: without it a rename shows up as a file that
+        // appeared out of nowhere, and with it first the row would be NAMED
+        // after the file that no longer exists.
+        <span className="order-first max-w-[40%] flex-shrink-0 truncate text-app-text-muted line-through">
           {splitPath(row.origPath).name}
         </span>
       )}
-      <span className="max-w-[70%] flex-shrink-0 truncate text-app-text-body">{name}</span>
       {dir && (
         <span className="path-elide-left min-w-0 flex-1 text-[11px] text-app-text-muted">
           {LEFT_TO_RIGHT_MARK + dir.slice(0, -1)}
