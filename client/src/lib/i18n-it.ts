@@ -744,6 +744,41 @@ const IT: Dict = {
   'board.task.reopenedRest': '{detail}. Aveva consegnato, e il motivo è nel thread qui sotto.',
   'board.task.labelsChip': 'etichette',
   'board.task.modelAutoOption': 'Auto',
+  // THE NODE A CARD RUNS ON (KANBAN-76). The choice is human: there is no
+  // "auto" node, and nothing moves a card because another one is less loaded.
+  'board.task.node.heading': 'Dove gira',
+  'board.task.node.local': 'Questa macchina',
+  'board.task.node.chipLocal': 'qui',
+  'board.task.node.title': 'Su quale macchina gira questa card. La scelta è tua: nessuna regola la sposta da sola.',
+  'board.task.node.runningTitle': 'La card è già in corso. Spostarla adesso su un altro nodo non la sposterebbe davvero: si sceglie prima che parta.',
+  'board.task.node.online': 'in linea',
+  'board.task.node.offline': 'non risponde',
+  'board.task.node.empty': 'Nessun nodo accoppiato. Se ne aggiunge uno dalle impostazioni, in Dispositivi.',
+  'board.task.node.on': 'su {node}',
+  'board.task.node.onTitle': 'Questa card gira sul nodo {node}, non su questa macchina.',
+  // PAIRING A NODE (MACHINE-02). Three failures, three sentences: whoever reads
+  // "unreachable" on a refused host goes and looks at the wrong machine.
+  'settings.machines.pair.title': 'Nodi',
+  'settings.machines.pair.blurb': 'Una seconda macchina che può eseguire le card di questa board. Il codice si approva davanti a lei.',
+  'settings.machines.pair.add': 'Aggiungi nodo',
+  'settings.machines.pair.address': 'Indirizzo del nodo',
+  'settings.machines.pair.addressPlaceholder': 'https://nodo.local:3333',
+  'settings.machines.pair.start': 'Chiedi l’accesso',
+  'settings.machines.pair.cancel': 'Annulla',
+  'settings.machines.pair.codeIntro': 'Approva questo codice sull’altra macchina:',
+  'settings.machines.pair.codeWait': 'In attesa che qualcuno lo approvi da lì…',
+  'settings.machines.pair.approved': '{name} è accoppiata: adesso questo nodo si può scegliere su una card.',
+  'settings.machines.pair.denied': 'La richiesta è stata rifiutata sull’altra macchina.',
+  'settings.machines.pair.expired': 'Il codice è scaduto prima che qualcuno lo approvasse.',
+  'settings.machines.pair.again': 'Riprova',
+  'settings.machines.pair.close': 'Chiudi',
+  'settings.machines.pair.error.unreachable': 'Nessuno ha risposto a quell’indirizzo. Controlla che il nodo sia acceso e che l’indirizzo sia quello giusto.',
+  'settings.machines.pair.error.tlsUntrusted': 'Questa macchina non si fida del certificato del nodo. Il nodo risponde: è la sua identità che da qui non si riesce a verificare.',
+  'settings.machines.pair.error.hostNotAllowed': 'Il nodo rifiuta questo indirizzo: non è fra quelli che ammette. Si aggiunge alla sua lista di host ammessi, sul nodo.',
+  'settings.machines.pair.error.unauthorized': 'Il nodo ha risposto, ma non ha accettato la richiesta di appaiamento.',
+  'settings.machines.pair.error.serverError': 'Il nodo ha risposto con un errore. La spiegazione sta nei suoi log.',
+  'settings.machines.pair.error.badAddress': 'L’indirizzo deve essere un URL http o https.',
+  'settings.machines.pair.error.generic': 'L’appaiamento non è riuscito.',
   // La riga di ritorno in cima alla chat di una sessione di board: da dove si
   //    LAVORA a dove si DECIDE. Il verso opposto della board.
   // IL CONTESTO DI UNA CHAT VUOTA. Un topic porta addosso scelte che decidono

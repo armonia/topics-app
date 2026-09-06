@@ -541,6 +541,11 @@ export interface BoardTask {
   userCommentCount: number;
   /** Model the dispatched agent runs on; null = provider default ("Auto"). */
   model: string | null;
+  /**
+   * The paired node this card runs on. `null` = this machine (KANBAN-76): the
+   * choice is human, there is no `auto` node, and nothing moves a card by load.
+   */
+  machineId: string | null;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
    *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
    *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */
@@ -738,6 +743,9 @@ export interface UpdateTaskBody {
   previewImage?: string;
   /** Model the dispatched agent runs on; null clears back to "Auto". */
   model?: string | null;
+  /** The paired node the card runs on; null (or an empty string) clears it back
+   *  to this machine. An unknown id is refused with `unknown_machine`. */
+  machineId?: string | null;
   /** Gate: don't dispatch until this root task is done; null clears it. */
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
