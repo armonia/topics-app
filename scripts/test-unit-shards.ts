@@ -77,6 +77,7 @@ import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "fs
 import { resolve, join } from "path";
 import { tmpdir, loadavg, cpus } from "os";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
+import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
 
 /**
  * How many shards, and how long a test may take, on THIS machine right now.
@@ -101,6 +102,13 @@ export interface LoadPlan {
   timeoutMs: number;
   /** load / cores, the number the two adjustments are driven by. */
   pressure: number;
+  /**
+   * How much longer this plan expects to take than the nominal one, as a
+   * multiple: the parallelism it gave up (4 shards -> 2 is 2x wall clock, the
+   * work being the same). Declared to whoever times this run from OUTSIDE under
+   * a cap of its own, see shared/gate-slowdown.ts; 1 when nothing changed.
+   */
+  slowdown: number;
   /** One line for the output when the plan changed; null on a quiet machine. */
   note: string | null;
 }
@@ -117,16 +125,20 @@ export function planUnderLoad(input: {
   const cores = Math.max(1, input.cores);
   const pressure = Math.max(0, input.load) / cores;
   if (!Number.isFinite(pressure) || pressure <= LOAD_PRESSURE_FLOOR) {
-    return { shards: input.shards, timeoutMs: input.timeoutMs, pressure, note: null };
+    return { shards: input.shards, timeoutMs: input.timeoutMs, pressure, slowdown: 1, note: null };
   }
   const shards = input.shardsExplicit ? input.shards : Math.max(2, Math.min(input.shards, Math.floor(input.shards / pressure)));
   const factor = Math.min(LOAD_TIMEOUT_CAP, pressure);
   const timeoutMs = input.timeoutExplicit ? input.timeoutMs : Math.round(input.timeoutMs * factor);
   const changed = shards !== input.shards || timeoutMs !== input.timeoutMs;
+  // Only the shards move the WALL CLOCK: the per-test cap is a ceiling on a
+  // single test, not time anybody spends. The same files across half the
+  // workers take about twice as long, and that is the number to declare.
+  const slowdown = clampSlowdown(input.shards / Math.max(1, shards));
   const note = changed
     ? `carico ${input.load.toFixed(1)} su ${cores} core (pressione ${pressure.toFixed(2)}): ${shards} shard invece di ${input.shards}, timeout per test ${timeoutMs} ms invece di ${input.timeoutMs}`
     : null;
-  return { shards, timeoutMs, pressure, note };
+  return { shards, timeoutMs, pressure, slowdown, note };
 }
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -364,15 +376,22 @@ async function runBunTest(
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
+  const baseShards = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4);
   const plan = planUnderLoad({
     load: loadavg()[0] ?? 0,
     cores: cpus().length || 1,
-    shards: Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4),
+    shards: baseShards,
     timeoutMs: Number(process.env.TOPICS_TEST_TIMEOUT_MS) || 30000,
     shardsExplicit: Number(process.env.TOPICS_UNIT_SHARDS) > 0,
     timeoutExplicit: Number(process.env.TOPICS_TEST_TIMEOUT_MS) > 0,
   });
   if (plan.note) console.error(`test-unit-shards: ${plan.note}`);
+  // Said BEFORE the first shard starts, because whoever is timing this run from
+  // outside has to hear it while there is still time on its cap to extend.
+  if (plan.slowdown > 1) {
+    const reason = `${plan.shards} shard invece di ${baseShards} sotto carico (pressione ${plan.pressure.toFixed(2)})`;
+    console.error(gateSlowdownLine(plan.slowdown, reason));
+  }
   const shardsN = plan.shards;
   const timeoutMs = plan.timeoutMs;
 

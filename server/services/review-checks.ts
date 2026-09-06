@@ -24,6 +24,7 @@
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 import { parseSlotAcquired } from "../../shared/slot-acquired";
+import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { killProcessTree } from "../lib/process-tree";
@@ -96,6 +97,13 @@ export const TAIL_LINES = 40;
  *
  * Restare comunque un tetto conta: oltre venti minuti il comando non è lento,
  * è appeso, e va fermato per non tenere occupata una worktree per sempre.
+ *
+ * It is the BASE cap, not the final one: a command that declares a slowdown
+ * before it starts (`shared/gate-slowdown.ts` - the unit runner halving its
+ * shards on a loaded machine) gets this multiplied by the factor it declared,
+ * up to 3x. Card 40dc7674: at 2 shards under a fleet the same green suite ran
+ * past twenty minutes, and the fixed cap refused a correct delivery three
+ * times. A slowdown the runner ANNOUNCED is not a hang.
  */
 export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
@@ -327,15 +335,31 @@ async function runOne(
       stderr: "pipe",
       env: { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" },
     });
-    timer = setTimeout(() => { timedOut = true; killTree(); }, opts.timeoutMs);
+    // stdout is collected whole; stderr is read as it arrives, because two of
+    // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
+    // moment the command really starts, and the cap is restarted from there:
+    // queueing for a slot is not the command's time (shared/slot-acquired.ts).
+    // The runner prints `GATE_SLOWDOWN_PREFIX` when it has decided to take
+    // longer on purpose - fewer shards on a loaded machine - and the cap is
+    // stretched by the factor it declares (shared/gate-slowdown.ts).
+    //
+    // THE CLOCK IS A DEADLINE, not a duration: both lines rewrite it, so it is
+    // kept as `clockFrom + capMs` and re-armed, instead of a fresh full cap
+    // each time (which would hand a hung command an extra cap per line).
+    let clockFrom = Date.now();
+    let capMs = opts.timeoutMs;
+    const armTimer = () => {
+      if (timer) clearTimeout(timer);
+      if (timedOut) return;
+      const left = Math.max(0, clockFrom + capMs - Date.now());
+      timer = setTimeout(() => { timedOut = true; killTree(); }, left);
+    };
+    armTimer();
     opts.signal?.addEventListener("abort", onAbort, { once: true });
-    // stdout is collected whole; stderr is read as it arrives, because one of
-    // its lines moves the clock: `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
-    // moment the command really starts, and the cap is restarted from there.
-    // Queueing for a slot is not the command's time (shared/slot-acquired.ts).
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";
     let queuedMs: number | null = null;
+    let slowdown: number | null = null;
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
     const decoder = new TextDecoder();
     for (;;) {
@@ -346,10 +370,16 @@ async function runOne(
         const q = parseSlotAcquired(err);
         if (q !== null) {
           queuedMs = q;
-          if (timer && !timedOut) {
-            clearTimeout(timer);
-            timer = setTimeout(() => { timedOut = true; killTree(); }, opts.timeoutMs);
-          }
+          clockFrom = Date.now();
+          armTimer();
+        }
+      }
+      if (slowdown === null) {
+        const f = parseGateSlowdown(err);
+        if (f !== null && f > 1) {
+          slowdown = f;
+          capMs = Math.round(opts.timeoutMs * f);
+          armTimer();
         }
       }
     }
@@ -369,6 +399,7 @@ async function runOne(
       // c'e' sarebbe una bugia, e il testo del commento la ripeterebbe.
       notMeasured: code === NOT_MEASURED_EXIT,
       ...(queuedMs !== null ? { queuedMs } : {}),
+      ...(slowdown !== null ? { slowdown } : {}),
       tail: failureTail(combined) || (timedOut ? "(nessun output prima del timeout)" : "(nessun output)"),
     };
   } catch (e) {
@@ -474,7 +505,12 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   const line = (r: CheckRun) => {
     const queued = r.queuedMs ?? 0;
     const run = fmtMs(Math.max(0, r.ms - queued));
-    return `${r.ok ? "✓" : "✗"} \`${r.name}\` (${run}${queued > 0 ? `, dopo ${fmtMs(queued)} in coda per lo slot` : ""})`;
+    const parts = [run];
+    if (queued > 0) parts.push(`dopo ${fmtMs(queued)} in coda per lo slot`);
+    // The declared slowdown is named, otherwise a 30-minute green looks like a
+    // cap nobody enforced instead of a plan the runner announced.
+    if (r.slowdown) parts.push(`piano ridotto sotto carico, tetto x${r.slowdown.toFixed(1)}`);
+    return `${r.ok ? "✓" : "✗"} \`${r.name}\` (${parts.join(", ")})`;
   };
   if (!failed) {
     return `**Checks pre-review verdi**${where}: ${runs.map(line).join(", ")}.`;

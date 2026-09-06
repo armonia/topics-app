@@ -7,6 +7,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { readFileSync } from "fs";
 import { slotAcquiredLine } from "../../shared/slot-acquired";
+import { gateSlowdownLine } from "../../shared/gate-slowdown";
 import {
   formatChecksComment,
   formatChecksWait,
@@ -170,6 +171,42 @@ describe("runReviewChecks", () => {
     expect(runs[0].timedOut).toBe(false);
     expect(runs[0].ok).toBe(true);
     expect(runs[0].queuedMs).toBe(2000);
+  }, 20_000);
+
+  test("a declared slowdown stretches the cap: fewer shards is a plan, not a hang", async () => {
+    // 1.5 s against a 1 s cap: dead. With the runner declaring "x2 slower"
+    // first (card 40dc7674: 2 shards instead of 4 under the fleet) the cap
+    // becomes 2 s and the work fits. The factor is reported.
+    const line = gateSlowdownLine(2, "2 shard invece di 4 sotto carico");
+    const runs = await runReviewChecks(
+      [{ name: "piano ridotto", cmd: `echo '${line}' 1>&2; sleep 1.5` }],
+      { cwd, timeoutMs: 1000 },
+    );
+    expect(runs[0].timedOut).toBe(false);
+    expect(runs[0].ok).toBe(true);
+    expect(runs[0].slowdown).toBe(2);
+  }, 20_000);
+
+  test("without the declaration the same 1.5 s against a 1 s cap is a timeout (control)", async () => {
+    const runs = await runReviewChecks([{ name: "senza piano", cmd: "sleep 1.5" }], { cwd, timeoutMs: 1000 });
+    expect(runs[0].timedOut).toBe(true);
+    expect(runs[0].slowdown).toBeUndefined();
+  }, 20_000);
+
+  test("queue and slowdown together: the cap restarts at the slot line AND is multiplied", async () => {
+    // 0.6 s of queue, then 1.5 s of work, against a 1 s cap: neither move
+    // alone saves it (0.6 + 1.5 is past both the bare cap and the restarted
+    // one). The clock is a deadline both lines rewrite, not two caps handed
+    // out one after the other.
+    const slot = slotAcquiredLine("test:unit", 2000);
+    const slowdownLine = gateSlowdownLine(2, "2 shard invece di 4");
+    const runs = await runReviewChecks(
+      [{ name: "coda e piano", cmd: `sleep 0.6; echo '${slot}' 1>&2; echo '${slowdownLine}' 1>&2; sleep 1.5` }],
+      { cwd, timeoutMs: 1000 },
+    );
+    expect(runs[0].timedOut).toBe(false);
+    expect(runs[0].queuedMs).toBe(2000);
+    expect(runs[0].slowdown).toBe(2);
   }, 20_000);
 
   test("without the slot line the same 3 s against a 2 s cap is a timeout (control)", async () => {

@@ -23,7 +23,22 @@ import {
 describe("planUnderLoad", () => {
   test("a quiet machine keeps the plan as it is", () => {
     const p = planUnderLoad({ load: 6, cores: 12, shards: 4, timeoutMs: 30000 });
-    expect(p).toEqual({ shards: 4, timeoutMs: 30000, pressure: 0.5, note: null });
+    expect(p).toEqual({ shards: 4, timeoutMs: 30000, pressure: 0.5, slowdown: 1, note: null });
+  });
+
+  test("halving the shards is declared as a 2x slowdown, so an outside cap can follow it", () => {
+    // Card 40dc7674: at 4 shards the suite is green in 7m59s, at 2 shards under
+    // the fleet it runs past the board's fixed 20 minutes. The plan knows it
+    // will be slower before the first shard starts; the number has to travel.
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 4, timeoutMs: 30000 });
+    expect(p.shards).toBe(2);
+    expect(p.slowdown).toBe(2);
+  });
+
+  test("an explicit shard count changes nothing, so it declares no slowdown", () => {
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 4, timeoutMs: 30000, shardsExplicit: true });
+    expect(p.shards).toBe(4);
+    expect(p.slowdown).toBe(1);
   });
 
   test("load 46 on 12 cores (measured 05/09/2026): two shards, the cap scaled by the pressure, and it says so", () => {
