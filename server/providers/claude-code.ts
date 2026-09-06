@@ -2887,17 +2887,36 @@ export class ClaudeCodeProvider implements AIProvider {
         // Senza `aborting` non ha premuto nessuno: è il figlio uscito pulito a
         // turno aperto. Resta `cancelled` senza causa — meglio "annullato" che
         // una causa inventata.
-        pp.streamHandler.onAborted?.({
+        this.tellHandlerSafely(pp, "onAborted", () => pp.streamHandler?.onAborted?.({
           turnEnd: pp.aborting
             ? cancelled(pp.abortReason === "watchdog" ? "watchdog" : "user")
             : { end: "cancelled" },
-        });
+        }));
       } else {
-        pp.streamHandler.onError(`Process exited with code ${code}`);
+        this.tellHandlerSafely(pp, "onError", () => pp.streamHandler?.onError(`Process exited with code ${code}`));
       }
       pp.streamHandler = null;
     }
     this.cleanupTimers(pp);
+  }
+
+  /**
+   * THE HANDLER'S OWN THROW MUST NOT TAKE THE SERVER DOWN. Bun exits on an
+   * uncaught exception, and the stream handler's onError/onAborted run
+   * synchronous work on the way out (finalizeStream, a topic save, broadcasts).
+   * The server log counts 30 process deaths from exactly this path: an SQLite
+   * foreign-key failure inside onError → saveSingleTopic took every session on
+   * the machine down with the one that had just exited. Here the failure is
+   * logged with the session it belongs to and the exit keeps going: the handler
+   * is cleared and the timers are cleaned up either way.
+   */
+  private tellHandlerSafely(pp: PersistentProcess, what: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      console.error(`[claude-code] stream handler ${what} threw for ${pp.sessionKey}: ${msg}`);
+    }
   }
 
   // Child failed to spawn / errored (direct: proc 'error'; broker: spawn ack rejection).
@@ -2911,7 +2930,7 @@ export class ClaudeCodeProvider implements AIProvider {
       reject(err);
     }
     if (pp.streamHandler) {
-      pp.streamHandler.onError(err.message);
+      this.tellHandlerSafely(pp, "onError", () => pp.streamHandler?.onError(err.message));
       pp.streamHandler = null;
     }
     this.cleanupTimers(pp);

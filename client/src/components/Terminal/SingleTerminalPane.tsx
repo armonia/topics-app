@@ -387,7 +387,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       //  • It stacks a second silent blank-screen failure onto a window already
       //    fragile across sleep/wake + display changes (see recomposeWindow).
       // Canvas2D is not an option either: the canvas addon was REMOVED in xterm v6
-      // (the pinned @xterm/addon-canvas only loads behind the demo flag below).
+      // (@xterm/addon-canvas is no longer a dependency of this client at all).
       // DOM is the unique renderer that is transparent, context-free, crisp at any
       // DPR, and gives mobile native text selection — and it's every GPU renderer's
       // own fallback anyway. Revisit only if profiling MEASURES DOM dropping frames
@@ -421,13 +421,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // (useSidebarFlipPush), not a per-frame row relayout, so DOM no longer
     // reflows terminals during the slide.) DOM is transparent (keeps the frosted
     // glass — unlike WebGL bug #4212), crisp at any DPR, and gives native text
-    // selection. The demo flag below remains ONLY for the landing page's block-
-    // art logo and is itself v6-incompatible — never set it in the app.
-    if ((window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
-      import('@xterm/addon-canvas')
-        .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ } })
-        .catch(() => { /* DOM fallback */ });
-    }
+    // selection. The `__TOPICS_DEMO_CANVAS__` escape hatch that used to load the
+    // addon here for the landing page is gone with the dependency: nothing set
+    // the flag any more (landing-boot.js dropped it in 65cfd3a6f), yet every
+    // build still emitted a 95 KB chunk for it.
 
     registerWrappedLinkProvider(term, (uri, ev) => openTerminalLink(uri, createPaneId('terminal', sessionId), ev));
 

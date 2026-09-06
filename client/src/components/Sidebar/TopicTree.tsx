@@ -2072,7 +2072,7 @@ export function TopicTree({
                 data-testid="pin-toggle-item"
               >
                 {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-                <span>{isPinned ? 'Rimuovi dai Fissati' : 'Aggiungi ai Fissati'}</span>
+                <span>{isPinned ? tr('tab.menu.unpin') : tr('tab.menu.pin')}</span>
               </button>
             );
           })()}

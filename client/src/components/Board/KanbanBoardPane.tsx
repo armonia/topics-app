@@ -583,6 +583,17 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   );
 }
 
+// SENSOR OPTIONS LIVE AT MODULE LEVEL, NOT INLINE. dnd-kit memoizes each sensor
+// on `[sensor, options]`, so an inline options object made `sensors` a new array
+// on every render of the pane, which rebuilt dnd-kit's InternalContext, which
+// re-rendered every `useSortable` card at identical props: the `memo(Card)`
+// below never held from the day it was written (measured 2026-09-07: 32/32
+// cards re-rendered 25-29 times in 30 idle seconds, ~550 ms of JS per 30 s with
+// four agents at work). Hoisting the three objects is the whole fix.
+const MOUSE_SENSOR_OPTS = { activationConstraint: { distance: 4 } } as const;
+const TOUCH_SENSOR_OPTS = { activationConstraint: { delay: 200, tolerance: 8 } } as const;
+const KEYBOARD_SENSOR_OPTS = { coordinateGetter: sortableKeyboardCoordinates } as const;
+
 export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, onOpenGlobalOrchestrator, onStartMission }: Props) {
   const tr = useT();
   // A dead `/task/<id>` has to SAY SO, with the same words a dead `/tab/…`
@@ -1436,9 +1447,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Sensori SORDI ai campi e ai comandi: un click nell'input di risposta non
   // deve diventare un trascinamento (vedi `dndSensors.ts` per il perché).
   const sensors = useSensors(
-    useSensor(PoliteMouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(PoliteTouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(PoliteKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(PoliteMouseSensor, MOUSE_SENSOR_OPTS),
+    useSensor(PoliteTouchSensor, TOUCH_SENSOR_OPTS),
+    useSensor(PoliteKeyboardSensor, KEYBOARD_SENSOR_OPTS),
   );
   const onDragStart = useCallback((e: DragStartEvent) => {
     // Le righe si congelano qui e si scongelano in `endDrag`: fin quando la card

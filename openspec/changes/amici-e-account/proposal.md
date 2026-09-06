@@ -1,7 +1,12 @@
 # Change: amici-e-account
 
-> **Stato: PROPOSTA, non approvata.** Nessuna riga di implementazione prima di un
-> sì esplicito. I bivi in fondo sono decisioni di prodotto, non domande retoriche:
+> **Stato (2026-09-07): F2 e F3 consegnate** in `c8ff34d8c` (`server/routes/friendships.ts`,
+> migration `20260830225759-amicizie.sql`, `FriendsSection` in `ProfileMenu.tsx`, requisito
+> FRIEND-01 in `openspec/specs/accounts-orgs/spec.md`). **Resta F1**; `tasks.md` non è stato
+> aggiornato con la consegna e va letto insieme a questa riga.
+>
+> Testo originale della proposta: «PROPOSTA, non approvata. Nessuna riga di implementazione prima di un
+> sì esplicito.» I bivi in fondo sono decisioni di prodotto, non domande retoriche:
 > per ognuno c'è già una raccomandazione e la ragione presa dal codice.
 >
 > Card `756e39ee`. La richiesta, testuale: «persone non è persone ma amici, e manca

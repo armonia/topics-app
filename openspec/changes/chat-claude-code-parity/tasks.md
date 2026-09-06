@@ -43,6 +43,11 @@ Each task lists its verification. The change is complete only when every box is 
 
 ## 3. Opt-in per-topic permission prompts
 
+> **Superato (2026-09-07):** i prompt di permesso arrivano oggi da `--permission-prompt-tool`
+> (canale MCP `permission`, vedi `openspec/specs/questions/spec.md` e `server/mcp/`), non da una
+> colonna `topics.permission_prompts` né da un decoder del control protocol. `permission_prompts`
+> non esiste nel codice. I punti 3.1-3.3 restano qui come storia della scelta, non come lavoro da fare.
+
 - [ ] 3.1 Migration: `topics.permission_prompts` (default 0). **Verify:** migration applies + rolls forward on a fresh DB.
 - [ ] 3.2 `resolveClaudeCodePermissionMode` (`app-settings.ts:189`): flag off → `bypassPermissions` (unchanged); flag on → prompting mode from 0.3. **Verify:** `bun:test` — mode resolution both ways.
 - [ ] 3.3 `server/providers/claude/control-protocol.ts`: pure decode `control_request` + encode allow/deny/always `control_response`. **Verify:** `bun:test` against 0.3 fixture.

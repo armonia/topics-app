@@ -1,3 +1,4 @@
+import { TriangleAlert } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import type { LandingBand } from './landingBand';
 
@@ -24,7 +25,9 @@ export function LandingNotice({ band, testId, compact }: { band: LandingBand; te
     : `shrink-0 border-b px-3 py-1.5 text-[11px] ${tone}`;
   return (
     <div data-testid={testId} className={box}>
-      {!pending && '⚠️ '}
+      {/* An icon, not the emoji glyph: U+26A0 U+FE0F forces the colour emoji
+          presentation and ignores the band's text colour. */}
+      {!pending && <TriangleAlert size={12} className="inline shrink-0 mr-1 -mt-px" aria-hidden />}
       {tr('board.task.land')} <strong>{tr(WORD[band.kind])}</strong>
       {band.kind === 'queued' && band.ahead > 0
         ? tr(band.ahead === 1 ? 'board.task.landQueuedRestOne' : 'board.task.landQueuedRestMany', { n: band.ahead })
