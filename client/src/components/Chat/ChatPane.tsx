@@ -28,6 +28,8 @@ import { PlanApprovalBar } from './PlanApprovalBar';
 import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { TaskCardStrip } from './TaskCardStrip';
+import { TaskWorkFoldContext } from './taskWorkFoldContext';
+import { useTopicTask } from '../../state/taskSessions';
 import { ChangedFilesStrip } from './ChangedFilesStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
@@ -1525,6 +1527,14 @@ function ChatPaneComponent({
     [currentMessages, pinnedIds],
   );
 
+  /**
+   * Is this chat the session of a board task? Then its transcript has a second
+   * reader (whoever approves it) and the machine work of each turn folds into
+   * one accordion, while the words stay in plain sight. Same index that feeds
+   * the strip above, so it costs no request of its own.
+   */
+  const foldTaskWork = !!useTopicTask(topic.id);
+
   return (
     <div
       ref={paneRootRef}
@@ -1557,7 +1567,9 @@ function ChatPaneComponent({
           (`ChangedFilesStrip` below): what the topic wrote is read where the
           next message is written. */}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
+      <TaskWorkFoldContext.Provider value={foldTaskWork}>
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}

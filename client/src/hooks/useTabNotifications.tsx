@@ -1,13 +1,14 @@
 import { createContext, useContext, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
-import { useAttentionSignals, rollupProjectAttention, rollupGlobalAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
+import { useAttentionSignals, rollupProjectAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
+import { chromeAttentionTotal } from '../state/attentionTotal';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 import { useRefMirror } from './useRefMirror';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { useBoardTasks } from '../lib/boardTasksStore';
-import { trayBoardGroups, trayBoardAttention } from '../../../shared/tray-board';
+import { trayBoardGroups } from '../../../shared/tray-board';
 
 interface TabNotificationContextValue {
   /** Get badge count for a pane. Chat panes use unreadData[topicId], others use extraCounts. */
@@ -20,7 +21,10 @@ interface TabNotificationContextValue {
    *  che è il caso in cui la tab il numero non lo mostra): senza questo, un badge
    *  di progetto non è risalibile a nulla. */
   describeProjectBadge: (projectPath: string) => string;
-  /** Increment badge for a non-chat pane (agents, terminal, etc.) */
+  /** Increment badge for a non-chat pane (agents, session viewer, ...). It feeds
+   *  `extraCounts`, the window-local half of the chrome number: no caller today,
+   *  but the sum is still part of `chromeAttentionTotal` and the sidebar utility
+   *  rows still read the same map, both pinned by `attentionTotal.test.ts`. */
   notifyPane: (paneId: string) => void;
   /** Clear badge for a non-chat pane */
   clearPane: (paneId: string) => void;
@@ -153,16 +157,6 @@ export function TabNotificationProvider({
     );
   }, [topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds]);
 
-  // Desktop (Tauri) dock-icon badge + macOS menu-bar tray glyph: reflect the
-  // app-wide attention total on the OS chrome, driven by the SAME signals as the
-  // in-app tab badges so it can never drift from what's on screen. The rollup
-  // covers every topic + terminal; `extraCounts` adds the remaining pane badges
-  // (which live only in this layer). No-op off Tauri.
-  const totalAttention = useMemo(() => {
-    let extra = 0;
-    for (const n of extraCounts.values()) extra += n;
-    return rollupGlobalAttention(topics, unreadData, claudeAttentionTopics, terminalFinishedIds) + extra;
-  }, [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, extraCounts]);
   // The top attention chats, as clickable tray-menu rows (id + title). Sorted by
   // attention weight, capped so the tray menu stays short. Only chat topics: they
   // navigate cleanly via handleTopicClick; terminal attention still counts
@@ -175,21 +169,29 @@ export function TabNotificationProvider({
       .slice(0, 8)
       .map(({ id, title }) => ({ id, title }));
   }, [topics, unreadData, claudeAttentionTopics]);
-  // IL LAVORO DELLA BOARD, nella stessa chiamata. La tray è l'unica superficie
-  // che resta quando la finestra è nascosta, e diceva soltanto chi aspetta una
-  // risposta in chat: dei task aperti, niente. Le righe arrivano dallo STESSO
-  // store che alimenta la riga «Board» in sidebar (`boardTasksStore`), così le
-  // due superfici non possono raccontare due board diverse; COSA entra nel menu
-  // (ordine, esclusi, taglio dei titoli) lo decide `shared/tray-board`, dove è
-  // provato — qui si legge e si spedisce, non si ridecide.
+  // THE BOARD'S WORK, in the same call. The tray is the only surface left when
+  // the window is hidden, and it used to list only the chats waiting for a reply:
+  // nothing about open cards. The rows come from the SAME store that feeds the
+  // "Board" sidebar row (`boardTasksStore`), so the two surfaces cannot tell two
+  // different boards; WHAT enters the menu (order, exclusions, title cut) is
+  // decided and tested in `shared/tray-board`. Here it is read and shipped.
   const boardTasks = useBoardTasks();
   const boardGroups = useMemo(() => trayBoardGroups(boardTasks), [boardTasks]);
-  // Il glifo conta anche le card che aspettano una DECISIONE. È lo stesso
-  // criterio delle chat («chi sta chiedendo qualcosa a un umano»), quindi
-  // finisce nello stesso numero: due contatori diversi su dock e barra dei menu
-  // sarebbero la deriva che questo punto esiste per impedire. Il lavoro che
-  // gira da solo non entra: non chiede niente a nessuno.
-  const chromeCount = totalAttention + trayBoardAttention(boardGroups);
+  // THE ONE OS NUMBER. Dock badge, menu-bar tray glyph and the PWA Badging API
+  // below all read `chromeCount`, and `chromeCount` is `chromeAttentionTotal`:
+  // the pure function whose rule ("how many things are asking a human for
+  // something") and whose parity with the sidebar rows are pinned by
+  // `attentionTotal.test.ts`. `extraCounts` is the window-local pane badge map
+  // (fed by `notifyPane`); it lives only in this layer, which is why it is
+  // handed in rather than read from a store. No-op off Tauri for the invoke.
+  const chromeCount = useMemo(() => chromeAttentionTotal({
+    topics,
+    unread: unreadData,
+    claudeAttentionTopics,
+    terminalFinishedIds,
+    boardGroups,
+    paneCounts: extraCounts,
+  }), [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, boardGroups, extraCounts]);
   useEffect(() => {
     if (!isTauri) return;
     void tauriInvoke('set_app_status', {
@@ -203,19 +205,17 @@ export function TabNotificationProvider({
   // the SILENT channel: a muted topic emits no banner (useCompletionNotifier
   // gates that), but its completion still counts here — the rollup is mute-blind
   // — so an installed PWA shows "3 turns finished" on its dock/taskbar icon
-  // without interrupting. Driven by the SAME `totalAttention` as the tab badges,
+  // without interrupting. Driven by the SAME per-subject helpers as the tab badges,
   // so it can never drift from what's on screen; it clears the moment a topic
   // returns to the foreground (reading a topic zeroes its unread → the rollup
   // drops). Feature-detected: no-op where the API is absent (Firefox, older
   // Safari). Runs on EVERY shell — the Badging API also lights the Tauri app
   // icon on platforms that support it, complementing the native tray glyph.
   //
-  // STESSO NUMERO del glifo nativo (`chromeCount`), non `totalAttention`: sono
-  // due strade che dipingono LA STESSA icona (su macOS il dock la riceve da
-  // entrambe), e da quando le card in review contano, tenerle su due conti
-  // diversi voleva dire un badge che cambia valore a seconda di chi l'ha
-  // scritto per ultimo. Il criterio è uno: quante cose stanno chiedendo
-  // qualcosa a un umano.
+  // SAME NUMBER as the native glyph (`chromeCount`), never a second sum: two
+  // roads paint THE SAME icon (on macOS the dock receives it from both), so two
+  // different counts meant a badge whose value depended on who wrote last.
+  //
   useEffect(() => {
     const nav = typeof navigator !== 'undefined'
       ? (navigator as Navigator & {

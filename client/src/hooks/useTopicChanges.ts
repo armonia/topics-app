@@ -15,12 +15,6 @@ import { useWSSubscription } from './useWSSubscription';
 import type { WSMessage } from '../types';
 import type { TopicChanges } from '../../../shared/topic-changes';
 
-/** `src/lib/` + `thing.ts`: the folder stays readable without shouting. */
-export function splitPath(path: string): { dir: string; name: string } {
-  const cut = path.lastIndexOf('/');
-  return cut < 0 ? { dir: '', name: path } : { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
-}
-
 export function useTopicChanges(
   topicId: string,
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void,

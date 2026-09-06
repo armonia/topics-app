@@ -411,6 +411,11 @@ progetto, che la sidebar mostra gia'.
 - **WHEN** l'utente clicca su una riga
 - **THEN** il diff di quel file si apre nella pane editor
 
+Le RIGHE dell'elenco non sono di questa striscia: sono il componente condiviso
+descritto da `GIT-FILELIST-01` (lettera di stato, percorso col nome intero,
+conteggi o «bin»), lo stesso che monta il chip di consegna di una card. Qui
+restano il chip, il conteggio, il branch e l'apertura del diff.
+
 ### Requirement: CHAT-TOOL-01 — Lo stato "running" copre l'utilizzo reale del tool
 
 Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la finestra di
@@ -468,6 +473,44 @@ si aggregano mai; gli errori SHALL restare visibili (conteggio) anche a gruppo c
 - **GIVEN** un gruppo di call in cui una è `waiting_for_input`
 - **WHEN** il messaggio renderizza
 - **THEN** la call col form resta una riga autonoma col form visibile
+
+### Requirement: CHAT-TOOL-06 — Nella chat di un task il lavoro macchina sta in un accordion
+
+Nella chat che è la SESSIONE di un task (topic legato a una scheda di board), il sistema
+SHALL ripiegare il lavoro macchina di un turno — messaggi dell'agente senza prosa che
+portano solo tool call, sotto-agenti o ragionamento — in UN accordion chiuso di default
+per tratto contiguo di lavoro, con una riga di riepilogo (numero di azioni, conteggi per
+tool, durata, file scritti, sotto-agenti, errori) e apertura al click sulle stesse righe
+per-azione di sempre. Prosa dell'agente, domande all'umano, consegne e messaggi umani
+SHALL restare in chiaro. Il sistema SHALL NON ripiegare ciò che aspetta una persona
+(`waiting_for_input`, permessi) né il lavoro ancora in corso, e SHALL NON riordinare la
+cronologia: la prosa scritta a metà turno resta al suo posto e spezza il tratto. In una
+chat che non è la sessione di un task il comportamento SHALL restare invariato.
+
+#### Scenario: dieci azioni dietro una riga sola
+- **GIVEN** la chat di un task con un messaggio umano, dieci tool call in dieci messaggi,
+  una risposta in prosa e una domanda all'umano
+- **WHEN** l'utente apre la chat
+- **THEN** vede un accordion chiuso che dichiara «10 azioni», i conteggi per tool, la
+  durata e i file scritti
+- **AND** nessuna riga per-azione è a schermo
+- **AND** la prosa e la domanda sono visibili
+
+#### Scenario: il click restituisce tutto
+- **GIVEN** l'accordion chiuso del turno
+- **WHEN** l'utente lo apre
+- **THEN** dentro ci sono le stesse righe per-azione che il transcript renderizzava prima
+
+#### Scenario: una chat normale non cambia
+- **GIVEN** la stessa sequenza di messaggi in una chat che non è la sessione di un task
+- **WHEN** l'utente la apre
+- **THEN** non c'è nessun accordion di turno e le corse di tool si vedono come prima
+  (CHAT-TOOL-02)
+
+#### Scenario: ciò che aspetta una persona non si piega
+- **GIVEN** un turno in cui una call è `waiting_for_input` o è ancora in esecuzione
+- **WHEN** il transcript renderizza
+- **THEN** quel messaggio resta in chiaro, fuori dall'accordion
 
 ### Requirement: CHAT-TOOL-03 — Niente flash del pannello per i tool rapidi
 

@@ -210,6 +210,9 @@ export interface ChatRequest {
 export interface HistoryRequest {
   limit?: number;
   offset?: number;
+  /** Only the messages BEFORE this id (the cursor of a tail-first open,
+   *  see `shared/history-paging.ts`). */
+  before?: string;
 }
 
 export interface HistoryMessage extends Message {

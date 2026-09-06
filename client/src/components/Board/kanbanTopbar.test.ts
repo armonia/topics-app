@@ -304,3 +304,40 @@ describe("5. i filtri hanno un guscio solo", () => {
     expect(active, "lo stato attivo del guscio non si trova piu'").toHaveLength(1);
   });
 });
+
+/**
+ * 6. THE ROW HAS ONE HEIGHT, AND IT IS WRITTEN ONCE.
+ *
+ * The rendered proof is `tests/e2e/board-topbar-height.spec.ts`, which reads
+ * the bounding boxes: that is what says the controls really are the same size.
+ * What it CANNOT see is the missions button, which exists only on a dev install
+ * (`useDevInstall`) and therefore never renders under the e2e harness - and it
+ * was one of the three controls measured at 20px. So this section covers the
+ * control the measurement cannot reach, plus the property the measurement
+ * cannot express: that the number is declared in ONE place. A row where every
+ * control spells its own `h-6` measures the same today and drifts the first
+ * time someone types `h-7`.
+ */
+describe("6. la barra ha una sola altezza, scritta una volta", () => {
+  const CONSTANTS = readFileSync(join(DIR, "constants.ts"), "utf8");
+
+  test("il numero e' dichiarato una volta sola, e nessuno lo riscrive a mano", () => {
+    expect(CONSTANTS, "il token dell'altezza non si trova piu'").toContain("export const TOOLBAR_CONTROL_H = 'h-6'");
+    // One literal in the whole family: the declaration itself. Comments are
+    // stripped first, because the note that EXPLAINS the token necessarily
+    // spells the class it holds.
+    const scattered = [
+      ...codeWithoutComments(CONSTANTS).matchAll(/h-6/g),
+      ...codeWithoutComments(PANE).matchAll(/h-6/g),
+      ...codeWithoutComments(PICKER).matchAll(/h-6/g),
+    ];
+    expect(scattered, "l'altezza della barra e' scritta in piu' di un posto").toHaveLength(1);
+  });
+
+  test("anche il bottone delle missioni, che l'e2e non vede mai, indossa il token", () => {
+    const missions = codeWithoutComments(PANE).slice(codeWithoutComments(PANE).indexOf("function MissionsMenu"));
+    const button = missions.slice(0, missions.indexOf("</button>"));
+    expect(button, "il bottone delle missioni non porta l'altezza condivisa").toContain("${TOOLBAR_CONTROL_H}");
+    expect(button, "un padding verticale rimette il bottone fuori misura").not.toContain("py-0.5");
+  });
+});

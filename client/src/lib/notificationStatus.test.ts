@@ -13,10 +13,15 @@
  * arrivano?** Non «siamo autorizzati». Un canale che consegna non prende
  * un'icona d'allarme solo perché consegna per vie traverse.
  *
+ *
+ * `notificationPermissionAction` (at the end) is the decision behind the
+ * button under the verdict: what pressing it does, and when it is not drawn.
+ *
  * @covers CMD-02
+ * @covers NOTIF-PERM-01
  */
 import { describe, test, expect } from 'bun:test';
-import { describeNativeNotifications } from './notificationStatus';
+import { describeNativeNotifications, notificationPermissionAction } from './notificationStatus';
 import type { NativeNotificationStatus } from './shell/app';
 
 const mac = (over: Partial<NativeNotificationStatus> = {}): NativeNotificationStatus => ({
@@ -116,5 +121,42 @@ describe('describeNativeNotifications', () => {
     for (const s of senzaConsegna) {
       expect(describeNativeNotifications(s).health).not.toBe('ok');
     }
+  });
+});
+
+/**
+ * Which button, if any, sits under the verdict. The verdict only reads the
+ * state; this decides what pressing the button does, and it has to agree with
+ * the shell's `request_permission`. One case per branch: ask while macOS has
+ * not decided, open System Settings on a denial, and nothing when granted,
+ * outside a .app bundle, off macOS, or outside Tauri.
+ */
+describe('notificationPermissionAction', () => {
+  test('asks while macOS has not decided yet', () => {
+    expect(notificationPermissionAction(mac({ authState: 'notDetermined' })))
+      .toEqual({ kind: 'request', labelKey: 'notif.perm.request' });
+    expect(notificationPermissionAction(mac({ authState: 'pending' })))
+      .toEqual({ kind: 'request', labelKey: 'notif.perm.request' });
+  });
+
+  test('opens System Settings on a denial, the prompt is never shown twice', () => {
+    expect(notificationPermissionAction(mac({ authState: 'denied' })))
+      .toEqual({ kind: 'open-settings', labelKey: 'notif.perm.openSettings' });
+  });
+
+  test('nothing to do once granted', () => {
+    expect(notificationPermissionAction(mac({ authState: 'granted', authorized: true })).kind).toBe('none');
+  });
+
+  test('nothing to do outside a .app bundle, even when undecided', () => {
+    expect(notificationPermissionAction(mac({ bundled: false, authState: 'notDetermined' })).kind).toBe('none');
+  });
+
+  test('nothing to do off macOS', () => {
+    expect(notificationPermissionAction(mac({ platform: 'windows', authState: 'unknown' })).kind).toBe('none');
+  });
+
+  test('nothing to do outside Tauri, the browser owns that permission', () => {
+    expect(notificationPermissionAction(null).kind).toBe('none');
   });
 });

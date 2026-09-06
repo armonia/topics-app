@@ -294,6 +294,31 @@ export const COMMENTO_PIEGA_CHARS = 620;
 export const RICHIESTA_PIEGA_CHARS = 190;
 
 /**
+ * THE HEIGHT OF EVERY CONTROL IN THE BOARD TOOLBAR, declared once.
+ *
+ * Half the row already stood at 24px because `filterFieldClass` spelled `h-6`
+ * for the filter shells, and three chips copied the literal by hand. The other
+ * half stated no height at all and let padding decide: the project/all toggle
+ * and the missions button came out at 20px (`py-0.5` around a 16px line box),
+ * the archive and settings glyphs at 22px (`p-1` around a 14px icon). Three
+ * heights on one line, all centred on it, which is why the fault reads as "the
+ * row looks ragged" rather than as a control being wrong.
+ *
+ * 24px is the number the row can afford and the one it should want: the bar is
+ * 36px tall (`py-1.5` around its content), and 24 is the minimum target size
+ * WCAG 2.2 AA asks for. Written as `h-6` and not as `py-*` because an `<input>`
+ * is taller than a button at the same padding (the UA line-height), and the
+ * search box has to land on the same pixel as the glyph next to it.
+ *
+ * WEAR IT, DO NOT RESTATE IT. Every control on the row interpolates this
+ * constant, so the row has one number to change and a grep for the token finds
+ * everything that answers to it. An icon-only button pairs it with `w-6` to
+ * stay square. `board-topbar-height.spec.ts` measures the rendered result: the
+ * token is the intent, the bounding boxes are the proof.
+ */
+export const TOOLBAR_CONTROL_H = 'h-6';
+
+/**
  * THE SHELL OF EVERY FILTER CONTROL in the board toolbar: the search box, the
  * priority/assignee token field, the labels chip and the project picker wear
  * this and nothing else. It is also the look the task composer gives its own
@@ -311,8 +336,8 @@ export const RICHIESTA_PIEGA_CHARS = 190;
  * narrowing the board. Text typed in the search box, tokens in the field,
  * labels or projects picked - all of them darken the shell the same way.
  *
- * `h-6` explicit (not `py-*`) because an `<input>`, which the UA line-height
- * makes taller, has to land on the exact same height as a button.
+ * The height is not spelled here: it is `TOOLBAR_CONTROL_H`, the one the whole
+ * row wears.
  */
 /**
  * The focus ring of a filter control: 1px, INSET, on the SHELL.
@@ -338,7 +363,7 @@ export const filterFocusRingClass =
   'has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary/70';
 
 export const filterFieldClass = (active: boolean) =>
-  `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${filterFocusRingClass} ${
+  `flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${filterFocusRingClass} ${
     active
       ? 'bg-black/15 text-app-text dark:bg-white/15'
       : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'

@@ -21,6 +21,13 @@ The system SHALL maintain visual stability during all user interactions, with Cu
 - **THEN** the conversation is revealed only once it is painted, authoritative and whole (server history applied, first item painted, images in view loaded), and the Cumulative Layout Shift of the return is at most 0.01
 - **AND** the tab badges, the goal bar, the identity row and the pinned tiles are drawn from what the device last saw, so their first frame is their final frame
 
+#### Scenario: A pane whose numbers have not landed draws the layout they will land in
+- **GIVEN** a pane whose content comes from a fetch (the dashboard: nine KPI cards and a time-series chart, from `/api/dashboard/kpis` and `/api/dashboard/timeseries`)
+- **WHEN** it mounts before either answer has arrived
+- **THEN** it SHALL draw its final geometry with the cards in the "no source" state they already speak, never a centred spinner that is later replaced by the whole layout
+- **AND** on a RETURN the numbers SHALL come from the device's local copy, together with the metric and range they were drawn for, so the first frame is the frame the reader left
+- **AND** an indicator that comes and goes on its own clock (a refresh glyph, a liveness dot) SHALL keep its box, or sit where nothing follows it
+
 #### Scenario: Topic switch has no visible layout shift
 - **GIVEN** a topic is selected
 - **WHEN** user clicks another topic

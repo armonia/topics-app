@@ -39,7 +39,7 @@ import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
-import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
+import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -183,9 +183,8 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
         data-testid="delivery-badge"
         onClick={() => { setOpen((s) => !s); refresh(); }}
         title={title}
-        /* h-6 come i chip dei filtri: 24px è il minimo WCAG 2.2 AA per un
-           bersaglio, ed è quanto una riga di 36px può dare. */
-        className={`flex h-6 items-center gap-1.5 rounded px-2 text-[11px] transition-colors ${tone}`}
+        /* The row's one height (`TOOLBAR_CONTROL_H`), not a literal of its own. */
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1.5 rounded px-2 text-[11px] transition-colors ${tone}`}
       >
         <span>{tr('board.toolbar.delivery')}</span>
         {unlanded.length > 0 && (
@@ -334,7 +333,7 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid="worktree-count-badge"
-        className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] ${orphan > 0
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-[11px] ${orphan > 0
           ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
           : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
       >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
@@ -422,7 +421,7 @@ function LoadAdviceChip() {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid="load-advice-chip"
-        className={`flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
         {tr('board.load.stopN', { n: over })}
@@ -475,7 +474,7 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         onClick={() => setOpen((o) => !o)}
         data-testid="missions-button"
         title={tr('board.toolbar.missionsTitle')}
-        className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
         <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
@@ -559,7 +558,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           // 16px target, the smallest on the row. Same inset ring as the
           // shells: being the smallest target, it is also the one the global
           // offset outline overflows worst.
-          className={`grid h-6 w-6 shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
+          className={`grid ${TOOLBAR_CONTROL_H} w-6 shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
         >
           <X className="h-3 w-3" />
         </button>
@@ -1717,11 +1716,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <>
             <button
               onClick={() => setMode('project')}
-              className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-xs ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
-              className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-xs ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
@@ -1769,7 +1768,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               data-testid="board-archived-toggle"
               aria-pressed={showArchived}
               onClick={() => setShowArchived((v) => !v)}
-              className={`rounded p-1 ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`grid ${TOOLBAR_CONTROL_H} w-6 place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
@@ -1782,7 +1781,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClick={() => setShowSettings((s) => !s)}
             aria-expanded={showSettings}
             aria-haspopup="menu"
-            className={`rounded p-1 ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`grid ${TOOLBAR_CONTROL_H} w-6 place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>

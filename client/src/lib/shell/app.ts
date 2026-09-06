@@ -196,6 +196,26 @@ export async function notificationStatus(): Promise<NativeNotificationStatus | n
 }
 
 /**
+ * Act on the native notification permission from Settings, and get the fresh
+ * state back in the same shape as `notificationStatus`.
+ *
+ * The shell decides what "act" means from the real state (ask macOS, open
+ * System Settings when the answer was a denial, nothing when granted or off
+ * macOS): the client only presses the button and redraws. `null` outside
+ * Tauri, like `notificationStatus`. If the command itself fails the panel must
+ * still tell the truth, so the fallback is a plain re-read, not `null`, which
+ * would redraw the browser verdict on a desktop shell.
+ */
+export async function requestNotificationPermission(): Promise<NativeNotificationStatus | null> {
+  if (shellKind !== 'tauri') return null;
+  try {
+    return await tauriInvoke<NativeNotificationStatus>('request_notification_permission');
+  } catch {
+    return notificationStatus();
+  }
+}
+
+/**
  * Ricarica il client. Sul desktop ricarica TUTTE le finestre, non solo questa.
  *
  * Il bundle è uno solo: con più finestre aperte (i gruppi staccati), ricaricarne
