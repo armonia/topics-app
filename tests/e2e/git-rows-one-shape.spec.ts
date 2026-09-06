@@ -17,7 +17,6 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { hermetic } from './fixtures/hermetic';
-import { goToApp, openTopic } from './helpers';
 import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import { seedMessage } from './helpers/seed-messages';
 import { projectRow } from './helpers/project-row';
@@ -113,10 +112,13 @@ async function rowsOf(scope: ReturnType<Page['locator']>): Promise<string[]> {
 test.describe('la stessa lista di file su due superfici', () => {
   test('la striscia della chat e il chip della card disegnano le stesse righe', async ({ page }) => {
     // ── SURFACE ONE: the strip above the composer.
+    //
+    // The topic is opened from its TAB and not from the sidebar tree: a topic
+    // bound to a project is nested under that project, so a `treeitem` by name
+    // never resolves at the top level (measured: 30s of waiting, twice).
     await resetPaneStore(page.request, [topicId]);
-    await goToApp(page);
-    await page.keyboard.press('Escape');
-    await openTopic(page, new RegExp(`git-rows-${STAMP}`));
+    await page.goto('/');
+    await page.getByTestId(`pane-tab-${topicId}`).click();
 
     const chip = page.getByTestId('chat-changes-chip');
     await expect(chip).toBeVisible({ timeout: 20_000 });
