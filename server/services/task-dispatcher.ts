@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, capMode, capThresholds, hasDeliveredWork, machinePressureVerdict, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type GlobalDispatchCap, type MachinePressure, type PressureVerdict } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
@@ -157,6 +157,18 @@ export interface DispatcherDeps {
    * mai: una guardia che non si sa misurare non deve poter fermare la board.
    */
   resourceBlock?: () => string | null;
+  /**
+   * THE MACHINE'S PRESSURE, for the cap "by resources": load average, cores,
+   * memory and the agents already in flight, read NOW. Only consulted when the
+   * '*' row says `mode = resources`; in count mode it is never called.
+   *
+   * It is a dependency and not a call to `computeDispatchCapacity` because the
+   * test that matters ("over the threshold, nothing starts; under it, it
+   * starts") has to fix the load, and a real reading would assert on whatever
+   * the suite is running next to. `null` or absent = not measurable, and a
+   * gate that cannot measure does not close: it reads as "admit".
+   */
+  machinePressure?: () => MachinePressure | null;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -777,6 +789,46 @@ function boardLanguage(settings: { language?: string } | null | undefined): Outp
   return resolveOutputLanguage();
 }
 
+/** `1.4` as `1,4`: the sentence is Italian like the rest of this file's card
+ *  lines, and a decimal point in an Italian sentence reads as a typo. */
+const itNumber = (n: number, digits = 1): string => n.toFixed(digits).replace(".", ",");
+const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
+
+/**
+ * "Over the threshold", written on the card WITH the numbers that produced it:
+ * the reading, the core count or the total, the threshold the person chose.
+ * Without them the line is "in coda" again, which is the sentence the chip
+ * already says and the one that made a paused board look like a broken one.
+ *
+ * It says the wait ends by itself. That is the difference from the floor's
+ * line (which does not promise it) and from the spend cap's (which says what
+ * to do instead): three brakes, three sentences, and each one true about its
+ * own way of ending.
+ *
+ * Exported for the test, which asserts on the numbers and not on the prose.
+ */
+export function machinePressureMessage(
+  probe: MachinePressure,
+  verdict: PressureVerdict,
+  thresholds: { maxLoadRatio: number; maxMemRatio: number },
+): string {
+  const cores = probe.cores > 0 ? probe.cores : 1;
+  const agents = probe.running === 1 ? "1 agent al lavoro" : `${Math.max(0, probe.running)} agent al lavoro`;
+  if (verdict.blockedBy === "memory") {
+    const usedGB = Math.max(0, probe.totalMemGB - (probe.availableMemGB ?? 0));
+    return (
+      `Memoria oltre la soglia: ${itNumber(usedGB)} GB usati su ${itNumber(probe.totalMemGB)} ` +
+      `(${asPercent(verdict.memRatio ?? 0)}, soglia ${asPercent(thresholds.maxMemRatio)}). ` +
+      `Con ${agents} non ne parte un altro finché la memoria non si libera: riparte da sé, niente è andato perso.`
+    );
+  }
+  return (
+    `Carico oltre la soglia: ${itNumber(Math.max(0, probe.load1))} su ${cores} core ` +
+    `(${asPercent(verdict.loadRatio)} della macchina, soglia ${asPercent(thresholds.maxLoadRatio)}). ` +
+    `Con ${agents} non ne parte un altro finché il carico non scende: riparte da sé, niente è andato perso.`
+  );
+}
+
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /**
    * Lo STATO della modalità notturna per una board, calcolato una volta sola.
@@ -868,9 +920,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * (`dispatch-capacity.ts`).
    */
   function currentCap(): number {
-    let gcap = { auto: true, max: 3 };
+    let gcap: GlobalDispatchCap = { auto: true, max: 3 };
     try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
+    // In "by resources" mode the NUMBER does not apply. It is the alternative
+    // brake, not a second one on top: the person chose "stop when the machine
+    // is under pressure" precisely because a fixed count was the wrong
+    // question on their machine, and keeping the count too would make the
+    // mode a stricter version of what they turned off. The pressure gate
+    // (`pressureBlock`) and the hard floor (`admissionBlock`) still hold.
+    if (capMode(gcap) === "resources") return Infinity;
     return effectiveDispatchCap(gcap, deps.recommendedCap ? deps.recommendedCap() : null);
+  }
+  /** Is the '*' row in "by resources" mode right now. Fail closed to `count`:
+   *  an unreadable row must not switch the ramp below off. */
+  function inResourcesMode(): boolean {
+    try { return capMode(deps.svc.getGlobalCap()) === "resources"; } catch { return false; }
   }
   /**
    * Il PAVIMENTO, letto ADESSO. Vive accanto al tetto e non dentro, perché sono
@@ -905,6 +969,54 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
       else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
       lastAdmissionBlock = kind;
+      return reason;
+    } catch { return null; }
+  }
+
+  /**
+   * THE CAP "BY RESOURCES", read NOW: why the machine is over the threshold the
+   * person chose, or `null` when it is under it, when the mode is off, or when
+   * nothing can be measured.
+   *
+   * It sits next to the floor and not inside it because they answer different
+   * questions and end differently. The floor is a fixed line under which the
+   * machine breaks (a full disk fails the DB's writes) and it is not a setting;
+   * this is a preference, on a threshold the person moves, and it lifts by
+   * itself as soon as the load drops. That difference is why the two publish
+   * as two different kinds and why the floor wins when both hold.
+   *
+   * The one exception (`firstAgentExempt`) is decided in `shared/board.ts`:
+   * with no agent running the first one starts even on a loaded machine, or a
+   * developer who keeps their own Mac over the threshold would own a board
+   * that never starts and looks broken.
+   *
+   * Said once per EPISODE in the log, like the floor: the numbers change at
+   * every reading, so the comparison is on which axis said no, not on the text.
+   */
+  let lastPressureAxis: PressureVerdict["blockedBy"] = null;
+  let firstAgentExemptNoted = false;
+  function pressureBlock(): string | null {
+    try {
+      let gcap: GlobalDispatchCap;
+      try { gcap = deps.svc.getGlobalCap(); } catch { return null; }
+      if (capMode(gcap) !== "resources") { lastPressureAxis = null; return null; }
+      const probe = deps.machinePressure?.() ?? null;
+      if (!probe) return null;
+      const thresholds = capThresholds(gcap);
+      const verdict = machinePressureVerdict(probe, thresholds);
+      if (verdict.firstAgentExempt) {
+        // Not a block, but not a free machine either: the log says why the
+        // first one went through, once, or the next "why did that start on a
+        // loaded Mac" costs somebody a read of the shared contract.
+        if (!firstAgentExemptNoted) log("pressione sopra la soglia ma nessun agent al lavoro: il primo parte comunque");
+        firstAgentExemptNoted = true;
+      } else {
+        firstAgentExemptNoted = false;
+      }
+      const reason = verdict.admit ? null : machinePressureMessage(probe, verdict, thresholds);
+      if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per pressione: ${reason}`);
+      else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: la pressione della macchina è scesa sotto la soglia");
+      lastPressureAxis = reason ? verdict.blockedBy : null;
       return reason;
     } catch { return null; }
   }
@@ -3166,7 +3278,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the same reason: the message is not lost, it waits. A cap that refused only
     // new dispatches would let through the turn that starts from a review
     // rejection, which is exactly the extra turn on an already expensive card.
-    const floorBlock = drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents);
+    // The pressure gate is last and only in "by resources" mode: there the
+    // count is infinite, so this is the only door a resume has to pass. A
+    // resumed turn is a full agent turn on the same machine: letting it through
+    // over the threshold would be the count-mode leak (resumes outside the
+    // cap) reborn under another name.
+    const floorBlock = drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3593,6 +3710,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // prende dal ROSTER vivo. Usare questo come divisore lo invertiva: macchina
     // carica → raccomandazione 1 → «sono solo» → fetta intera.
     const effectiveCap = currentCap();
+    /**
+     * THE RAMP of the "by resources" mode: ONE new dispatch per tick.
+     *
+     * Not out of caution: out of how the measure works. `load1` is a one-minute
+     * average, so it describes the machine of a minute ago, and the pressure
+     * gate reads it once per round. With N cards ready on a quiet machine, N
+     * verdicts in the same round would all read the same quiet load, and N
+     * agents would start together with no count left to stop them. It happened
+     * for real with the cap at zero: fourteen cards in one tick. One per tick
+     * (every ten seconds) is a ramp of six a minute, which is what gives the
+     * average time to move between one admission and the next.
+     *
+     * Only NEW dispatches count. A resume is a turn on an agent already
+     * measured in `running`, and it has its own door (`pressureBlock` in
+     * `resume`); it does not consume this round's admission.
+     */
+    const oneNewPerTick = inResourcesMode();
+    let startedThisTick = 0;
 
     // Le corse dei check pre-review valgono slot: ogni barra in volo satura
     // core nella stessa macchina degli agenti. Si contano UNA volta per tick
@@ -3622,12 +3757,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
     const resourceFloor = admissionBlock();
     const daySpendBlock = resourceFloor ? null : spendBrake.dayBlock();
-    const floorBlock = resourceFloor ?? daySpendBlock;
+    // The cap "by resources", ONCE per tick like the floor and after it: when
+    // the floor or the bill already holds the queue there is nothing left for
+    // the pressure to decide, and its probe (a `vm_stat` spawn) is not free.
+    // Read once because the question is about the machine, not the card, and
+    // because one reading per tick is what makes "nothing starts this round"
+    // a single verdict instead of N cards racing the same load average.
+    const pressure = resourceFloor || daySpendBlock ? null : pressureBlock();
+    const floorBlock = resourceFloor ?? daySpendBlock ?? pressure;
     // WHAT HOLDS THE WHOLE QUEUE, published where the card mapper can read it
-    // (no row records these two: they are about the machine) and turned into
+    // (no row records these three: they are about the machine) and turned into
     // the line for the thread. Called every tick, `null` included, so the
     // signal never outlives the block it describes.
-    const floorNote = publishDispatchBlock(resourceFloor, daySpendBlock);
+    const floorNote = publishDispatchBlock(resourceFloor, daySpendBlock, pressure);
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -3722,6 +3864,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: floorNote });
           } catch { /* il task può essersi mosso sotto i piedi */ }
         }
+        continue;
+      }
+      // The ramp (see `oneNewPerTick`): this round's admission is spent. The
+      // rest of the queue gets the `queued` chip, like a full cap would give
+      // it, and its turn comes at the next tick with a fresher load average.
+      if (oneNewPerTick && startedThisTick >= 1) {
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
         continue;
       }
       // Respect the grace debounce: a task still inside its window is claimed by
@@ -3894,6 +4043,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         } catch { /* il task può essersi mosso */ }
       }
       emit(claimed); // chip → starting
+      // A claim that went through IS a new dispatch, fan-out or single: the
+      // ramp counts cards, because one card is one reading of the machine.
+      startedThisTick++;
       // Worktree dispatch with a live external session: the agent's files are
       // isolated, but the BRANCH it will land on is contended. Say so in the
       // thread so the reviewer knows before approving a merge.

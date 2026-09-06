@@ -26,13 +26,31 @@ import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { capMode, capThresholds, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
 import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
+
+/**
+ * The global cap as the client reads it, in ONE place for the GET, the PATCH
+ * response and the `board:global-cap` broadcast: three copies of the field
+ * names are three ways for the panel to show a mode the dispatcher is not in.
+ * Mode and thresholds go through `capMode` / `capThresholds`, so what travels
+ * is always the applied value (clamped, defaulted), never the raw row.
+ */
+function globalCapFields(cap: GlobalDispatchCap): {
+  maxAgentsAuto: boolean;
+  maxAgents: number;
+  maxAgentsMode: "count" | "resources";
+  maxLoadRatio: number;
+  maxMemRatio: number;
+} {
+  const t = capThresholds(cap);
+  return { maxAgentsAuto: cap.auto, maxAgents: cap.max, maxAgentsMode: capMode(cap), maxLoadRatio: t.maxLoadRatio, maxMemRatio: t.maxMemRatio };
+}
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
@@ -2606,13 +2624,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (pathname === "/api/all-boards/settings") {
       if (method === "GET") {
         try {
-          const cap = svc.getGlobalCap();
           // The spend travels with the caps and is read even when they are off:
           // `task-spend-caps.ts` says why, and owns the field names.
           return json({
             autoDispatch: svc.getGlobalAutoDispatch(),
-            maxAgentsAuto: cap.auto,
-            maxAgents: cap.max,
+            ...globalCapFields(svc.getGlobalCap()),
             ...spendSnapshot(svc),
           });
         } catch (e) { return fail(e); }
@@ -2622,9 +2638,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const hasAuto = typeof body?.autoDispatch === "boolean";
         const hasCapAuto = typeof body?.maxAgentsAuto === "boolean";
         const hasCapMax = Number.isFinite(body?.maxAgents);
+        // The "by resources" mode and its thresholds. Out-of-range ratios are
+        // NOT refused: `setGlobalCap` clamps them with the same reader the gate
+        // applies, and the response carries the value that will actually rule.
+        const hasCapMode = body?.maxAgentsMode === "count" || body?.maxAgentsMode === "resources";
+        const hasLoadRatio = Number.isFinite(body?.maxLoadRatio);
+        const hasMemRatio = Number.isFinite(body?.maxMemRatio);
         const hasSpend = hasSpendCapPatch(body);
-        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasSpend) {
-          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
+        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasLoadRatio && !hasMemRatio && !hasSpend) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), maxLoadRatio, maxMemRatio, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -2634,18 +2656,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }
           // The ONE machine-wide cap lives on the reserved '*' row; the dispatcher
           // reads it via getGlobalCap() and enforces it across every board.
-          if (hasCapAuto || hasCapMax) {
+          if (hasCapAuto || hasCapMax || hasCapMode || hasLoadRatio || hasMemRatio) {
             svc.setGlobalCap({
               auto: hasCapAuto ? body.maxAgentsAuto : undefined,
               max: hasCapMax ? body.maxAgents : undefined,
+              mode: hasCapMode ? body.maxAgentsMode : undefined,
+              maxLoadRatio: hasLoadRatio ? body.maxLoadRatio : undefined,
+              maxMemRatio: hasMemRatio ? body.maxMemRatio : undefined,
             });
           }
           // The spend caps are written by a PERSON, from here. Zero clears a cap.
           if (hasSpend) applySpendCapPatch(svc, body);
-          const cap = svc.getGlobalCap();
+          const capFields = globalCapFields(svc.getGlobalCap());
           const caps = spendCapFields(svc);
-          broadcastToAll({ type: "board:global-cap", maxAgentsAuto: cap.auto, maxAgents: cap.max, ...caps });
-          return json({ autoDispatch, maxAgentsAuto: cap.auto, maxAgents: cap.max, ...caps });
+          broadcastToAll({ type: "board:global-cap", ...capFields, ...caps });
+          return json({ autoDispatch, ...capFields, ...caps });
         } catch (e) { return fail(e); }
       }
       return null;

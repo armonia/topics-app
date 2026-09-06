@@ -191,6 +191,29 @@ describe("2. una sola porta alle impostazioni", () => {
     expect(opens, "piu' di un elemento opens le impostazioni: e' il difetto che la carta chiedeva di togliere").toBe(1);
   });
 
+  test("il pannello e' un DROPDOWN ancorato al ⚙, non una banda sotto la barra", () => {
+    // KANBAN-75: the settings open as a `Menu` anchored to the gear. A band
+    // under the toolbar drew the very line KANBAN-12 removed and pushed the
+    // columns down; a `Menu` is portalled and floats. Three things are read:
+    // the same state that the ONE door toggles is what opens the Menu, the
+    // Menu's anchor is the gear's ref, and the shared shell declares no border
+    // (the surface is the Menu's own).
+    const code = codeWithoutComments(PANE);
+    const menu = code.match(/<Menu\s[^>]*open=\{showSettings\}[^>]*>/s)?.[0];
+    expect(menu, "nessun <Menu open={showSettings}>: il pannello non e' un dropdown").toBeTruthy();
+    expect(menu).toMatch(/anchorRef=\{settingsBtnRef\}/);
+    expect(code).toMatch(/ref=\{settingsBtnRef\}/);
+    // And no other surface still shows the panel as a band.
+    expect(code).not.toMatch(/\{showSettings\s*&&/);
+    const sections = readFileSync(join(DIR, "BoardSettingsSections.tsx"), "utf8");
+    const shell = codeWithoutComments(sections).match(/SETTINGS_PANEL_SHELL\s*=\s*'([^']*)'/)?.[1] ?? "";
+    expect(shell.length, "SETTINGS_PANEL_SHELL non trovata").toBeGreaterThan(10);
+    expect(shell, `il guscio del pannello ha di nuovo un bordo: ${shell}`).not.toMatch(/border/);
+    // A dropdown that cannot scroll is a dropdown whose bottom rows are unreachable.
+    expect(shell).toContain("overflow-y-auto");
+    expect(shell).toMatch(/max-h-/);
+  });
+
   test("l'interruttore globale vive nel pannello, non in un menu della barra", () => {
     // Removing the caret is only safe because that block already exists in the
     // gear panel, on every board. If it vanished from there, removing the caret

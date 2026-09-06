@@ -77,7 +77,7 @@ export async function stubProbes(page: Page, opts?: { running?: number }) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        recommended: 2, cores: 12, totalMemGB: 32, load1: 15.4, running,
+        recommended: 2, cores: 12, totalMemGB: 32, availableMemGB: 9.5, load1: 15.4, running,
         oursCores: 6.2, budgetCores: 6,
         reason: "12 core → base 4, ridotto a 2: gli agent tengono 6.2 core sui 6 di quota",
       }),
@@ -127,19 +127,34 @@ export async function openProjectBoard(page: Page) {
   await btn.click();
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 15000 });
 
-  const triggers = page.getByTestId("pane-add-menu-trigger");
-  const item = page.getByTestId("pane-add-menu-kanban");
-  const count = await triggers.count();
-  let opened = false;
-  for (let i = count - 1; i >= 0; i--) {
-    const t = triggers.nth(i);
-    if (!(await t.isVisible().catch(() => false))) continue;
-    if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
-    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) { opened = true; break; }
-    await page.keyboard.press("Escape");
+  // The window may ALREADY hold a Board pane: the previous test's page flushes
+  // its pane store on close, and that write can land after this test's reset.
+  // Measured on a bundle built from HEAD (TOPBAR-09 then TOPBAR-10, every
+  // other test): the `+` menu then has no "Board" entry and this used to give
+  // up with "no + menu with a Board (kanban) entry found". A tab that is there
+  // is clicked, which is what a person would do.
+  const already = page.getByTestId("project-window").locator('[data-testid="pane-tab-label"]', { hasText: /^Board$/ });
+  if (!(await page.getByTestId("kanban-board").isVisible().catch(() => false)) && (await already.count()) > 0) {
+    await already.first().click();
+    // WAIT for it: an `isVisible()` read right after the click still says no,
+    // and the `+` path below would then look for an entry the menu no longer has.
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
   }
-  if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
-  await item.click();
+  if (!(await page.getByTestId("kanban-board").isVisible().catch(() => false))) {
+    const triggers = page.getByTestId("pane-add-menu-trigger");
+    const item = page.getByTestId("pane-add-menu-kanban");
+    const count = await triggers.count();
+    let opened = false;
+    for (let i = count - 1; i >= 0; i--) {
+      const t = triggers.nth(i);
+      if (!(await t.isVisible().catch(() => false))) continue;
+      if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
+      if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) { opened = true; break; }
+      await page.keyboard.press("Escape");
+    }
+    if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
+    await item.click();
+  }
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
   // The project filters only exist where there is more than one project to
   // filter: the "all projects" mode of the project board (which is also the

@@ -19,8 +19,16 @@
  * a headless import - it stays `null` and the mapper behaves exactly as before.
  */
 
-/** Which of the two machine-wide blocks fired. */
-export type DispatchBlockKind = "resources" | "spend";
+/**
+ * Which of the three machine-wide blocks fired.
+ *
+ * `resources` is the hard floor (disk or RAM under a fixed line), `pressure`
+ * is the opt-in "by resources" cap (load or memory over the threshold the
+ * person chose), `spend` is the 24h bill. Two different kinds for the two
+ * resource brakes on purpose: the card mapper gives them different tones,
+ * because one is a wait that dissolves by itself and the other is not.
+ */
+export type DispatchBlockKind = "resources" | "pressure" | "spend";
 
 export interface DispatchBlock {
   kind: DispatchBlockKind;
@@ -57,12 +65,24 @@ export function currentDispatchBlock(): DispatchBlock | null {
  * dropped alone on a card reads like a truncated string. The floor's message is
  * already a sentence, with its numbers, and it travels as it is.
  *
+ * THE ORDER, when more than one holds: floor, then spend, then pressure. The
+ * floor wins over pressure because a full disk does not reabsorb itself while
+ * load does: showing "load over the threshold, it restarts by itself" on a
+ * machine whose SQLite writes are about to fail would promise a restart that
+ * never comes. Spend wins over pressure for the same reason on the other axis:
+ * the bill does not go down by waiting, and the sentence that says what to do
+ * (raise the cap) must not be hidden behind a wait that will pass anyway.
+ *
  * Returns the sentence to write in the thread, or `null` when nothing is
  * holding the queue.
  */
 export function publishDispatchBlock(
   resourceFloor: string | null,
   daySpendBlock: string | null,
+  /** The "by resources" verdict, already a full sentence with its numbers
+   *  (see `machinePressureMessage` in the dispatcher). Absent or `null` when
+   *  the mode is off or the machine is under its thresholds. */
+  pressureBlock: string | null = null,
 ): string | null {
   const spend = daySpendBlock
     ? `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
@@ -72,7 +92,8 @@ export function publishDispatchBlock(
   setDispatchBlock(
     resourceFloor ? { kind: "resources", reason: resourceFloor }
       : spend ? { kind: "spend", reason: spend }
-        : null,
+        : pressureBlock ? { kind: "pressure", reason: pressureBlock }
+          : null,
   );
-  return resourceFloor ?? spend;
+  return resourceFloor ?? spend ?? pressureBlock;
 }
