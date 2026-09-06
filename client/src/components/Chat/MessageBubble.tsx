@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { memo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
@@ -8,6 +8,9 @@ import { MessageContent } from '../MessageContent';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
+import { isMachineWork } from './taskWorkFold';
+import { TaskWorkAccordion } from './TaskWorkAccordion';
+import { useTaskWorkFold } from './taskWorkFoldContext';
 import { DispatchEnvelopeRow } from './DispatchEnvelopeRow';
 import { useMobile } from '../../hooks/useMobile';
 import { hoverRevealClass } from '../../lib/hoverReveal';
@@ -111,6 +114,16 @@ interface MessageBubbleProps {
   isLast?: boolean;
 }
 
+/**
+ * The work of a task turn, behind one row. Transparent everywhere else: with
+ * `fold` false this renders its children and nothing more, which is why a
+ * normal conversation cannot change shape by mistake.
+ */
+function FoldWork({ fold, msg, children }: { fold: boolean; msg: ChatMessage; children: ReactNode }) {
+  if (!fold) return <>{children}</>;
+  return <TaskWorkAccordion msg={msg}>{children}</TaskWorkAccordion>;
+}
+
 export const MessageBubble = memo(function MessageBubble({
   msg,
   prev,
@@ -134,6 +147,8 @@ export const MessageBubble = memo(function MessageBubble({
   isLast,
 }: MessageBubbleProps) {
   const tr = useT();
+  // Only inside the chat of a board task, and only on wordless machine work.
+  const foldWork = useTaskWorkFold() && isMachineWork(msg);
   // I numeri del turno: se non ce n'è nemmeno uno, la riga dei metadati non ha
   // niente da dire oltre all'ora.
   const hasTurnMetrics =
@@ -404,6 +419,11 @@ export const MessageBubble = memo(function MessageBubble({
             style={{ fontSize: `${fontSize}px`, overflowWrap: 'break-word', wordBreak: 'break-word' }}
           >
             <div className="message-content">
+              {/* In a task chat the machine work of the turn goes behind ONE
+                  closed row; everywhere else this is the transcript as it has
+                  always been. `isMachineWork` decides, and the accordion opens
+                  onto exactly these same rows. */}
+              <FoldWork fold={foldWork} msg={msg}>
               <MessageContent
                 content={msg.content}
                 role={msg.role}
@@ -425,6 +445,7 @@ export const MessageBubble = memo(function MessageBubble({
                 messageId={msg.id}
                 onMessage={onMessage}
               />
+              </FoldWork>
             </div>
           </div>
           )}
