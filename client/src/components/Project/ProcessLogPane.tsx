@@ -213,6 +213,20 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
           {formatDuration(startedAt, completedAt)}
         </span>
         <div className="flex-1" />
+        {/* THE LIVENESS SIGNAL LIVES HERE, not in a bar under the log.
+            It used to be a strip below the `pre`, mounted only while the
+            process ran: the moment the process finished, that strip unmounted
+            and the log grew by its height. A reload landing on a process that
+            had ended while nobody watched paid the same shift, in reverse,
+            because the pane starts out assuming "running". After the spacer
+            nothing follows but the Stop button, so appearing and disappearing
+            here moves nothing. */}
+        {status === 'running' && (
+          <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            {offset} lines
+          </span>
+        )}
         {status === 'running' && (
           <button
             onClick={handleStop}
@@ -235,16 +249,6 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
           ? (pending ? (output ? output + '\n' + pending : pending) : output)
           : (error ? `Error: ${error}` : 'Waiting for output...')}
       </pre>
-
-      {/* Status bar */}
-      {status === 'running' && (
-        <div className="flex items-center gap-2 px-3 py-1 border-t border-app-border bg-elevated flex-shrink-0">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-[11px] text-app-text-muted">
-            Streaming output... ({offset} lines)
-          </span>
-        </div>
-      )}
     </div>
   );
 }
