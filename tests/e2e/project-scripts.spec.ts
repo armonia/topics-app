@@ -18,12 +18,38 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
 
 hermetic(test);
 
-const RUST = `/tmp/e2e-scripts-rust-${Date.now()}`;
-const NUDA = `/tmp/e2e-scripts-nuda-${Date.now()}`;
+/**
+ * The fixtures live in the isolated WORKSPACE, not in `/tmp`.
+ *
+ * `resolveProjectPath` (server/utils.ts) only accepts a path inside a project
+ * the server already knows, and a bare `/tmp/e2e-...` is inside none of the six
+ * sources: the pane-store PUT came back 400 `Invalid path`, the project window
+ * never rendered, and the three cases here failed on `toHaveCount(1)` while the
+ * screen said "No chats open". A direct child of `${OPENCLAW_DIR}/workspace`
+ * carrying a project marker IS known (source 6, `scanWorkspaceProjects`), which
+ * is the same road `project-commands.spec.ts` already takes. global-setup
+ * propagates OPENCLAW_DIR to this runner process so both sides agree.
+ *
+ * And CANONICAL: on macOS `/tmp` is a symlink to `/private/tmp`, the server
+ * stores the realpath, and the window carries THAT string in
+ * `data-project-path`. A locator built on the other spelling matches nothing
+ * and reads as "the window never opened". Same defect `check:tmp-canonical`
+ * guards for board ids, met here through the pane.
+ */
+function canonical(dir: string): string {
+  try { return realpathSync(dir); } catch { return dir; }
+}
+const WORKSPACE_DIR = join(
+  canonical(process.env.OPENCLAW_DIR || join(process.env.HOME || "/tmp", ".openclaw")),
+  "workspace",
+);
+const RUST = join(WORKSPACE_DIR, `e2e-scripts-rust-${Date.now()}`);
+const NUDA = join(WORKSPACE_DIR, `e2e-scripts-nuda-${Date.now()}`);
 
 async function openProcesses(page: import("@playwright/test").Page, path: string) {
   const win = page.locator(`[data-testid="project-window"][data-project-path="${path}"]`);
@@ -37,12 +63,17 @@ async function openProcesses(page: import("@playwright/test").Page, path: string
 test.describe("script del progetto", () => {
   test.beforeAll(() => {
     // Un progetto SENZA package.json: prima era una sezione muta per sempre.
+    mkdirSync(WORKSPACE_DIR, { recursive: true });
     mkdirSync(`${RUST}/src`, { recursive: true });
     writeFileSync(`${RUST}/Cargo.toml`, '[package]\nname = "esempio"\nversion = "0.1.0"\n');
     writeFileSync(`${RUST}/src/main.rs`, "fn main() {}\n");
     writeFileSync(`${RUST}/Makefile`, "VAR := non:un:target\n\n.PHONY: fmt\n\nfmt:\n\t@echo formattato\n\nciao:\n\t@echo ciao\n");
     mkdirSync(NUDA, { recursive: true });
     writeFileSync(`${NUDA}/note.txt`, "niente da lanciare\n");
+    // A README is a project MARKER (so the workspace scan knows this dir and
+    // the pane can be seeded) and is NOT a manifest: the empty state below is
+    // exactly what it has to keep saying.
+    writeFileSync(`${NUDA}/README.md`, "# niente da lanciare\n");
   });
   test.afterAll(() => {
     rmSync(RUST, { recursive: true, force: true });
