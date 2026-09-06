@@ -251,11 +251,53 @@ export function ownBundleDir(
   return join(tmp, "topics-e2e-touched", basename(resolve(gitDir)));
 }
 
+/** The lowest Node the client's Vite agrees to start on. */
+const MIN_NODE = { major: 20, minor: 19 };
+
+/** Node builds this gate may fall back to when the one on PATH is too old. */
+const NODE_FALLBACKS = ["/opt/homebrew/bin/node", "/usr/local/bin/node"];
+
+/** `v20.19.0` and friends to a pair; anything unreadable counts as too old. */
+export function parseNodeVersion(out: string): { major: number; minor: number } | null {
+  const m = /^v(\d+)\.(\d+)\./.exec(out.trim());
+  return m ? { major: Number(m[1]), minor: Number(m[2]) } : null;
+}
+
+/** Whether that version can run the client build at all. */
+export function nodeIsRecentEnough(v: { major: number; minor: number } | null): boolean {
+  if (!v) return false;
+  if (v.major !== MIN_NODE.major) return v.major > MIN_NODE.major;
+  return v.minor >= MIN_NODE.minor;
+}
+
+/**
+ * THE INTERPRETER IS CHOSEN, NOT INHERITED. `vite` starts through
+ * `#!/usr/bin/env node`, so the build runs on whatever Node comes first in
+ * PATH. Under launchd that is the system one (18.14.0 on 2026-09-06), which
+ * Vite refuses with `crypto.hash is not a function`: the gate then reported
+ * NOT MEASURED and bounced a delivery for a red belonging to the machine, not
+ * to the branch. So we probe, and only if the inherited Node is too old do we
+ * name a newer one explicitly. Returns null when PATH is already fine.
+ */
+export function pickNodeBin(
+  versionOf: (bin: string) => string | null = (bin) => sh([bin, "--version"]) || null,
+  candidates: readonly string[] = NODE_FALLBACKS,
+): string | null {
+  if (nodeIsRecentEnough(parseNodeVersion(versionOf("node") ?? ""))) return null;
+  for (const bin of candidates) {
+    if (nodeIsRecentEnough(parseNodeVersion(versionOf(bin) ?? ""))) return bin;
+  }
+  return null;
+}
+
 /** Builds the client into `dir`. The build's own output is the only message. */
 function buildBundle(dir: string): boolean {
   console.log(`check:e2e-touched: linked worktree, building the bundle into ${dir}\n`);
+  const vite = ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"];
+  const nodeBin = pickNodeBin();
+  if (nodeBin) console.log(`check:e2e-touched: the Node on PATH is too old for Vite, building with ${nodeBin}\n`);
   const proc = Bun.spawnSync(
-    ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
+    nodeBin ? [nodeBin, ...vite] : vite,
     { cwd: "client", stdout: "inherit", stderr: "inherit" },
   );
   return proc.exitCode === 0;
