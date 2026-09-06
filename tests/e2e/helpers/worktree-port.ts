@@ -57,13 +57,21 @@ function hash32(s: string): number {
 }
 
 /**
- * `true` se `baseDir` sta dentro `~/.topics/worktrees/` — cioè è un checkout
- * creato dal dispatcher per un agente, non il repo dell'utente.
+ * `true` se `baseDir` è un checkout creato PER UN AGENTE, non il repo
+ * dell'utente: sotto `~/.topics/worktrees/` (il dispatcher della board) oppure
+ * sotto un `.claude/worktrees/` (i subagent e i workflow di Claude Code, che
+ * scavano il loro worktree dentro il repo stesso).
+ *
+ * La seconda radice manca dal 2026-09-06: dieci agenti di un workflow, ognuno
+ * nel suo `.claude/worktrees/wf_…-N`, ricevevano tutti 13334 e il global-setup
+ * di ognuno faceva piazza pulita sul server degli altri — lo stesso incidente
+ * dell'intestazione, con un'altra cartella.
  */
 export function isDispatchWorktree(baseDir: string, home: string): boolean {
-  const worktreesRoot = join(home, ".topics", "worktrees") + sep;
   const norm = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
-  return norm.startsWith(worktreesRoot);
+  const dispatcherRoot = join(home, ".topics", "worktrees") + sep;
+  const claudeWorktrees = `${sep}.claude${sep}worktrees${sep}`;
+  return norm.startsWith(dispatcherRoot) || norm.includes(claudeWorktrees);
 }
 
 /**
