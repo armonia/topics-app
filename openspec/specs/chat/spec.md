@@ -3622,3 +3622,68 @@ scenari, ciascuno con la sua rotta mockata a 500 o abortita.
 - **WHEN** la persona incolla insieme un'immagine valida e una corrotta
 - **THEN** l'anteprima della valida entra nel composer
 - **AND** un toast di errore nomina il file scartato
+
+### Requirement: CHAT-HIST-01 — La chat si apre sulla CODA, e il resto arriva quando nessuno guarda
+
+All'apertura di una chat — ricarico, cambio scheda, rientro — il client SHALL
+chiedere al server SOLO gli ultimi `HISTORY_FIRST_PAGE` messaggi
+(`shared/history-paging.ts`), e il sipario SHALL alzarsi quando QUELLA pagina è
+dipinta, intera e ferma. Prima aspettava la storia completa, che su una chat
+vera pesa da 200 KB a 2,6 MB e arriva in 0,7-1,7 s, cioè fino al tetto del
+sipario (1200 ms). Una chat con meno di una pagina di messaggi SHALL fare UNA
+richiesta sola, come prima; la coda NON SHALL essere chiesta due volte.
+
+La copia locale (`messages-cache-*`) SHALL contenere la STESSA coda della prima
+pagina, per numero di messaggi, con il tetto in byte come sola guardia: così il
+primo fotogramma disegnato dalla cache È la prima pagina, e la risposta del
+server la conferma senza aggiungere né togliere righe.
+
+I messaggi precedenti (`limit: 0` con il cursore `before` = id del più vecchio
+della pagina, WIRE-11) SHALL essere caricati e fusi nello store SOLO quando la
+pane non è a schermo (scheda dietro un'altra, viewport alta zero), oppure su
+richiesta: MAI sotto gli occhi di chi legge. Una lista virtuale indirizza le
+righe per indice, e anteporre ottanta messaggi cambia ciò che «la riga 30»
+mostra; il rimedio che Virtuoso offre (`firstItemIndex`) è stato misurato a CLS
+0,60 su un gesto il cui contratto è 0,01 (PERF-01). Al ritorno della pane la
+viewport SHALL trovarsi dove era: in fondo se lì riposava, sulla riga che aveva
+in cima se la persona aveva scorso. Nessuno scheletro nuovo, nessuno scorrimento
+automatico all'arrivo in cima (`startReached`).
+
+Finché il resto non è arrivato la chat è PARZIALE, e in cima alla finestra
+caricata SHALL comparire una riga discreta «Carica i messaggi precedenti (n)» —
+stessa geometria dei divisori di compattazione, icona lucide, italiano e inglese
+— che al click carica il resto e riàncora la lista sul messaggio che era il
+primo: un salto chiesto non è uno spostamento. Le superfici che leggono «tutti i
+messaggi» SHALL saperlo (`historyCompleteness`): un divisore di compattazione la
+cui ancora non è ancora caricata NON SHALL essere disegnato in cima; un salto
+dalla palette a un messaggio non ancora presente SHALL chiedere il resto invece
+di rinunciare al bersaglio. I percorsi che ricevono il thread intero (cambio
+ramo, cancellazione, ricarico dopo una modifica) SHALL marcare la chat completa.
+
+#### Scenario: il sipario si alza sulla coda, e la pagina vecchia non viene nemmeno chiesta finché la pane è a schermo
+- **GIVEN** una chat con tre pagine di messaggi già vista da questo dispositivo
+- **AND** la risposta ai messaggi precedenti alla prima pagina trattenuta per due secondi
+- **WHEN** la persona ricarica e resta a guardare la chat
+- **THEN** la conversazione è visibile con i suoi ultimi messaggi entro il tetto del sipario
+- **AND** la coda è stata chiesta una volta sola e i messaggi precedenti zero volte
+- **AND** il CLS del ritorno resta al più 0,01
+
+#### Scenario: la storia si completa mentre la scheda è dietro un'altra
+- **GIVEN** la chat parziale del primo scenario
+- **WHEN** la persona passa a un'altra scheda e poi torna
+- **THEN** i messaggi precedenti sono stati chiesti (una volta) mentre la scheda era nascosta
+- **AND** al ritorno la chat è di nuovo in fondo, sull'ultimo messaggio
+- **AND** il primo messaggio della chat è raggiungibile scorrendo in alto, senza la riga «Carica i messaggi precedenti»
+
+#### Scenario: chi scorre in alto prima del completamento trova la riga, e il click lo porta al primo messaggio
+- **GIVEN** la chat parziale appena ricaricata
+- **WHEN** la persona scorre subito in cima alla finestra caricata
+- **THEN** compare la riga «Carica i messaggi precedenti (n)» con n = messaggi mancanti
+- **WHEN** la clicca
+- **THEN** la lista si riàncora sul messaggio che era il primo
+- **AND** scorrendo ancora in alto il primo messaggio della chat è visibile
+
+#### Scenario: una chat più corta di una pagina
+- **GIVEN** una chat con meno di `HISTORY_FIRST_PAGE` messaggi
+- **WHEN** la persona ricarica
+- **THEN** il client fa UNA sola richiesta di storia, nessuna con `before`
