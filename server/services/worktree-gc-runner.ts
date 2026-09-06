@@ -56,6 +56,13 @@ export interface WorktreeGcDeps {
   projectStore: { get(id: string): { path?: string } | null | undefined };
   getTopicBySessionKey: (sessionKey: string) => any;
   resolveTopicCwd: (topic: any) => string | null;
+  /**
+   * The working directories of live terminal sessions, for the WORKTREE-14
+   * guard. The binding between a session and a worktree is the PATH and nothing
+   * else: no column, no migration, and a session that came back from
+   * `terminal_sessions` after a restart counts like any other.
+   */
+  liveCwds?: () => string[];
   /** Il servizio task: card, impostazioni, park, commenti, consegna. */
   svc: any;
   /**
@@ -406,6 +413,15 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
       },
       isBusy: (taskId) => deps.isInFlight(taskId),
+      liveInside: (w) => {
+        const cwds = deps.liveCwds?.() ?? [];
+        if (!cwds.length) return false;
+        // The directory itself or a descendant of it: a child that did `cd
+        // server/` is still inside the worktree, and the trailing separator
+        // stops `…/foo-2` from passing as a descendant of `…/foo`.
+        const prefix = w.absPath.endsWith("/") ? w.absPath : `${w.absPath}/`;
+        return cwds.some((c) => c === w.absPath || c.startsWith(prefix));
+      },
       diskPresent: (absPath) => existsSync(absPath),
       realDirt: (absPath) => worktreeDirtProbe(absPath),
       branchStatus: (w) => {
