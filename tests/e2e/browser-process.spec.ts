@@ -69,12 +69,14 @@ async function mountBrowserPaneViaEvent(
  * there but transparent, and the label on top of it takes the pointer.
  */
 async function openTabAddressEditor(page: import("@playwright/test").Page): Promise<void> {
-  // Since 2026-09-03 the address is edited IN the tab (BROWSER-CHROME-INLINE-01):
-  // the click on the active browser tab swaps its label for an input. No row
-  // appears under the tab.
+  // Since 2026-09-03 the address is edited FROM the tab (BROWSER-CHROME-INLINE-01),
+  // and since 2026-09-06 in a dropdown anchored under it rather than in place of
+  // the label: the click on the active browser tab opens the panel, and the tab
+  // goes on writing the page title. No row appears under the tab either way.
   const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
   await expect(tab).toBeVisible({ timeout: 10_000 });
   await tab.getByTestId("pane-tab-label").click();
+  await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("browser-tab-address-input")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
 }
@@ -314,7 +316,8 @@ test.describe("RemoteBrowserPanel", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
       // The controls live on the tab (BROWSER-CHROME-INLINE-01): reload under
-      // the pointer, the rest behind the dots, the address editable in place.
+      // the pointer, the rest behind the dots, the address in a dropdown the
+      // tab opens under itself.
       const longWait = { timeout: 10_000 };
       const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
       await expect(tab).toBeVisible(longWait);
@@ -334,7 +337,7 @@ test.describe("RemoteBrowserPanel", () => {
   // when the connection succeeds. We add a no-op routeWebSocket mock so the
   // WS attempt fails immediately and the hook falls back to REST /interact
   // (the path this test asserts against).
-  test("BROWSER-05: the address typed in the tab navigates", async ({
+  test("BROWSER-05: the address typed in the tab's dropdown navigates", async ({
     page,
     browserProcessPage,
     request,

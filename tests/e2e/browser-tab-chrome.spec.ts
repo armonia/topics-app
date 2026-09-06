@@ -6,7 +6,8 @@
  * tab. That is only a good trade if everything the bar used to hold is still
  * reachable from the tab, so the assertions here are the four pieces of it:
  *
- *   1. the tab is LABELLED with the address (host + path), not with a title;
+ *   1. the tab is LABELLED with the page TITLE, and the address it used to
+ *      write is a click away (the dropdown under the tab) instead of gone;
  *   2. the address bar is GONE once the page is loaded (that is the space we
  *      were buying);
  *   3. the icon slot swaps the favicon for RELOAD under the pointer;
@@ -33,6 +34,7 @@ import {
   deleteTopic,
   waitForTopicVisible,
   resetPaneStore,
+  seedPaneStore,
   resetProjectPanes,
   seedProjectPane,
   closeAllBrowserContexts,
@@ -50,12 +52,21 @@ hermetic(test);
 const HOST = "127.0.0.1";
 
 /**
- * The site the pane will show. Three things matter for the assertions: a path
- * (so the tab label has something to shorten), a declared favicon (the icon
- * slot has a real image to swap out), and two console errors (the red cue).
+ * The pages the pane will show, BY PATH, because the tab now writes the page
+ * title and a title is the thing that has to differ. Three shapes: a titled
+ * page (the tab writes that title), a SECOND titled page (so a navigation is
+ * observable on the tab), and a page with no `<title>` at all (the tab falls
+ * back to the address). Every one of them keeps the declared favicon (the icon
+ * slot has a real image to swap out) and the two console errors (the red cue).
  */
-function pagina(): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Rapporto</title>
+const PAGE_TITLES: Record<string, string | null> = {
+  "/rapporto": "Rapporto",
+  "/report-two": "Second report",
+  "/no-title": null,
+};
+
+function pagina(pageTitle: string | null): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">${pageTitle ? `<title>${pageTitle}</title>` : ""}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233fb984'/%3E%3Ctext x='16' y='23' font-size='20' font-family='sans-serif' text-anchor='middle' fill='%23fff'%3ER%3C/text%3E%3C/svg%3E">
 <style>
  html,body{height:100%;margin:0}
@@ -65,7 +76,7 @@ function pagina(): string {
  h1{font-size:52px;margin:0 0 14px;letter-spacing:-.02em}
  p{margin:0;font-size:20px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:.75}
 </style></head><body>
- <div class="scheda"><h1>Rapporto</h1><p>una pagina qualunque</p></div>
+ <div class="scheda"><h1>${pageTitle ?? "Untitled"}</h1><p>una pagina qualunque</p></div>
  <script>
   console.error('inventario non raggiungibile');
   console.error('due tentativi falliti');
@@ -74,12 +85,13 @@ function pagina(): string {
 }
 
 async function startSite(): Promise<{ server: Server; origin: string }> {
-  const server = createServer((_req, res) => {
+  const server = createServer((req, res) => {
+    const path = new URL(req.url ?? "/", "http://site.invalid").pathname;
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
-    res.end(pagina());
+    res.end(pagina(path in PAGE_TITLES ? PAGE_TITLES[path] ?? null : "Rapporto"));
   });
   await new Promise<void>((ok) => server.listen(0, HOST, ok));
   return { server, origin: `http://${HOST}:${(server.address() as AddressInfo).port}` };
@@ -124,7 +136,9 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     const topic = await createTopic(request, `E2E-TABCHROME-${Date.now()}`);
     topicId = topic.id;
     const host = new URL(origin).host;
-    const label = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
+    // The tab writes the page TITLE now; the host is what it must NOT write.
+    const label = /Rapporto/;
+    const hostPattern = new RegExp(host.replace(/\./g, "\\."));
 
     await clipDiConsegna({
       nome: "browser-tab-chrome",
@@ -155,9 +169,12 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         await mountPane(page, topicId, `${origin}/rapporto`);
         const tab = tabDelBrowser(page);
 
-        // 1. WHERE WE ARE is written on the tab.
+        // 1. WHAT PAGE THIS IS, written on the tab: the page title, the way
+        //    every browser writes it. The address is not on the label any more
+        //    - it is on the hover card and in the dropdown the tab opens under
+        //    itself - so the host must NOT be there.
         await expect(tab).toContainText(label, { timeout: 60_000 });
-        await expect(tab).toContainText(/rapporto/);
+        await expect(tab, "the host is not the tab's label any more").not.toContainText(hostPattern);
         await beat(page, 1400);
 
         // 2. …and precisely because the address is on the tab, the bar is no
@@ -222,8 +239,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-DEBT-${Date.now()}`);
     topicId = topic.id;
-    const host = new URL(origin).host;
-    const label = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
+    const label = /Rapporto/;
 
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
@@ -279,8 +295,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-HYDRATE-${Date.now()}`);
     topicId = topic.id;
-    const host = new URL(origin).host;
-    const label = new RegExp(host.replace(/\./g, "\\.").replace(/:/g, ":"));
+    const label = /Rapporto/;
 
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
@@ -364,8 +379,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       const projectTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(project)}`);
       await expect(projectTab).toBeVisible({ timeout: 15000 });
       await projectTab.click();
-      const host = new URL(origin).host;
-      await expect(tabDelBrowser(page)).toContainText(new RegExp(host.replace(/\./g, "\\.")), { timeout: 60_000 });
+      // The seeded pane carries its title, so the tab names the page at once.
+      await expect(tabDelBrowser(page)).toContainText(/Rapporto/, { timeout: 60_000 });
       // The claim is a negative one - the URL row must NOT come back on its own
       // once the store has spoken - and `toHaveCount(0)` is true the instant it
       // is asked. The condition that makes it mean something is not a fixed
@@ -402,29 +417,194 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       rmSync(project, { recursive: true, force: true });
     }
   });
-  test("BROWSER-CHROME-INLINE-01: il clic sulla tab attiva apre l'editor NELLA tab, e la riga sotto non compare", async ({ page, request }) => {
+  /**
+   * THE LABEL STAYS, THE ADDRESS DROPS DOWN.
+   *
+   * Until 2026-09-06 the click on the active tab swapped the label for an
+   * input, in place. Two things were wrong with that, and neither is cosmetic:
+   * the tab you were typing in stopped naming its page (on a blank pane, which
+   * opens the editor by itself, the tab had no text at all - measured in
+   * `chrome-bar-surface-inventory`, whose contrast sweep collected nothing),
+   * and the field was as wide as a tab while an address is not.
+   *
+   * So the label is never replaced. The address opens in a panel anchored under
+   * the tab, and the assertions below are the four halves of that: the tab
+   * names the page, the panel opens UNDER it seeded with the address, there is
+   * exactly ONE address field in the pane, and Enter still navigates.
+   */
+  test("BROWSER-CHROME-INLINE-01: the tab keeps its name and the address opens in a dropdown under it", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BROWSER-CHROME-INLINE-01" });
     const origin = site!.origin;
     await resetPaneStore(request, []);
     const topic = await createTopic(request, `E2E-TABCHROME-INLINE-${Date.now()}`);
     topicId = topic.id;
     const host = new URL(origin).host;
-    const label = new RegExp(host.replace(/\./g, "\\."));
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
     await mountPane(page, topic.id, `${origin}/rapporto`);
-    await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
+
+    // (a) A PAGE WITH A TITLE: the ACTIVE tab writes the title, not the host.
+    const tab = tabDelBrowser(page);
+    await expect(tab).toContainText(/Rapporto/, { timeout: 60_000 });
+    await expect(tab, "the active tab must not be labelled with the host")
+      .not.toContainText(new RegExp(host.replace(/\./g, "\\.")));
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
-    // The click that focuses the pane: it must NOT bring the row back.
-    await tabDelBrowser(page).getByTestId("pane-tab-label").click();
+
+    // (b) The click on the tab you are ALREADY in opens the dropdown, seeded
+    //     with the address, and the label is still there underneath.
+    await tab.getByTestId("pane-tab-label").click();
+    const dropdown = page.getByTestId("browser-address-dropdown");
+    await expect(dropdown, "the dropdown opens under the tab").toBeVisible({ timeout: 10_000 });
+    await expect(tab, "the label is not replaced by the field").toContainText(/Rapporto/);
     const editor = page.getByTestId("browser-tab-address-input");
-    await expect(editor, "the editor opens inside the tab").toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("browser-url-input"), "no row under the tab").toHaveCount(0);
-    await editor.fill(`${origin}/seconda-pagina`);
+    await expect(editor).toHaveValue(`${origin}/rapporto`);
+
+    // ...UNDER the tab, which is a geometric claim and is checked as one: the
+    // panel's top edge is at or below the tab's bottom edge.
+    const tabBox = (await tab.boundingBox())!;
+    const panelBox = (await dropdown.boundingBox())!;
+    expect(
+      panelBox.y,
+      "the panel is anchored to the bottom edge of the tab",
+    ).toBeGreaterThanOrEqual(tabBox.y + tabBox.height - 2);
+    // ...and it is at least as wide as the tab it hangs from.
+    expect(panelBox.width).toBeGreaterThanOrEqual(Math.min(tabBox.width, 480) - 1);
+
+    // EXACTLY ONE ADDRESS FIELD IN THE PANE. The toolbar's own input only
+    // exists on a console/downloads reveal (`useBrowserChromeBridge`), so
+    // opening the dropdown must not produce a second one.
+    await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
+    await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
+
+    // Escape closes it and gives nothing back but the label.
+    await editor.press("Escape");
+    await expect(dropdown).toHaveCount(0);
+    await expect(tab).toContainText(/Rapporto/);
+
+    // Enter navigates. The second page has a title of its own, which is the
+    // only way to observe the navigation on a tab that writes titles.
+    await tab.getByTestId("pane-tab-label").click();
+    await expect(dropdown).toBeVisible({ timeout: 10_000 });
+    await editor.fill(`${origin}/report-two`);
     await editor.press("Enter");
-    await expect(tabDelBrowser(page), "the tab writes the new address").toContainText(/seconda-pagina/, { timeout: 60_000 });
+    await expect(tab, "the tab writes the new page's title").toContainText(/Second report/, { timeout: 60_000 });
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(0);
     await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
+  });
+
+  /**
+   * A PAGE WITH NO TITLE IS THE ONE CASE WHERE THE ADDRESS IS THE LABEL.
+   *
+   * It is the fallback, not the rule, and it is worth its own case because it
+   * is the half of the old behaviour that survives: a tab with nothing to name
+   * itself with still has to say something, and the address is the only thing
+   * left that identifies the page.
+   */
+  test("BROWSER-TAB-LABEL-01: a page with no title falls back to the address", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-TAB-LABEL-01" });
+    const origin = site!.origin;
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-TABCHROME-NOTITLE-${Date.now()}`);
+    topicId = topic.id;
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await mountPane(page, topic.id, `${origin}/no-title`);
+    await expect(tabDelBrowser(page)).toContainText(/no-title/, { timeout: 60_000 });
+  });
+
+  /**
+   * (c) THE FIRST CLICK ON ANOTHER TAB ONLY BRINGS YOU THERE.
+   *
+   * The guard is `isFullyActive` in `PaneTabBar`: the label opens the address
+   * only on the tab you are already looking at. Without it, reaching a browser
+   * tab would drop a panel in your face every time.
+   *
+   * Two panes are seeded into one tab bar (the dashboard and a browser already
+   * on a page) rather than opened through the chat event, because a browser
+   * opened that way is soloed into a cell of its own - a bar with a single tab,
+   * where "another tab" does not exist.
+   */
+  test("BROWSER-TAB-LABEL-02: the first click on a browser tab activates it and opens nothing", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-TAB-LABEL-02" });
+    const origin = site!.origin;
+    const ctx = `tabguard-${Date.now()}`;
+    const paneId = `browser:${ctx}`;
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: {
+        __dashboard__: { id: "__dashboard__", type: "dashboard", title: "", openedAt },
+        [paneId]: { id: paneId, type: "browser", title: "Rapporto", titleSource: "auto", url: `${origin}/rapporto`, openedAt },
+      },
+      groups: {
+        "group:default": { id: "group:default", paneIds: ["__dashboard__", paneId], splitRatio: 1, splitAxis: "horizontal" },
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await goToApp(page);
+
+    const browserTab = page.locator(`[data-pane-id="${paneId}"]`);
+    const dashboardTab = page.locator('[data-pane-id="__dashboard__"]');
+    await expect(browserTab).toBeVisible({ timeout: 30_000 });
+    await expect(dashboardTab).toBeVisible({ timeout: 30_000 });
+
+    // Park the focus somewhere else, so the browser tab is the one you are NOT in.
+    await dashboardTab.click();
+    await expect(browserTab).toHaveAttribute("data-active", "false", { timeout: 15_000 });
+    await expect(page.getByTestId("browser-address-dropdown")).toHaveCount(0);
+
+    // The first click brings you there, and only that.
+    await browserTab.getByTestId("pane-tab-label").click();
+    await expect(browserTab).toHaveAttribute("data-active", "true", { timeout: 15_000 });
+    await expect(
+      page.getByTestId("browser-address-dropdown"),
+      "reaching a tab must not open its address",
+    ).toHaveCount(0);
+
+    // The SECOND click, on the tab you are now in, is the one that opens it.
+    await browserTab.getByTestId("pane-tab-label").click();
+    await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 15_000 });
+  });
+
+  /**
+   * (d) A BLANK PANE OPENS THE DROPDOWN BY ITSELF, and still has no second field.
+   *
+   * `RemoteBrowserPanel` auto-focuses the address of a pane that has nowhere to
+   * go. That used to blank the tab's label (the label WAS the input); now the
+   * tab says "New tab" and the panel hangs under it.
+   */
+  test("BROWSER-TAB-LABEL-03: a blank pane opens its address by itself, and the toolbar stays away", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-TAB-LABEL-03" });
+    const paneId = `browser:blank-${Date.now()}`;
+    // Seeded WITHOUT a title, which is what the product actually writes: a
+    // browser pane is opened as `{id, type}` and nothing else
+    // (`usePaneOrdering.persistBrowserPane`). The shared `resetPaneStore`
+    // fixture stamps "Browser" on it, and that stamp would be the thing under
+    // test rather than the rule.
+    const openedAt = Date.now();
+    await seedPaneStore(request, () => ({
+      panes: { [paneId]: { id: paneId, type: "browser", openedAt } },
+      groups: {
+        "group:default": { id: "group:default", paneIds: [paneId], splitRatio: 1, splitAxis: "horizontal" },
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    await goToApp(page);
+
+    const tab = page.locator(`[data-pane-id="${paneId}"]`);
+    await expect(tab).toBeVisible({ timeout: 30_000 });
+    // The tab names itself before anyone types anything, which is the half the
+    // in-place editor could not do: it left the label blank.
+    await expect(tab).toContainText(/New tab/, { timeout: 30_000 });
+    await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 30_000 });
+    // The pane's ONLY address field is the one in the dropdown.
+    await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
+    await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
+    // And the tab is still readable while the panel is open.
+    await expect(tab).toContainText(/New tab/);
   });
 
   /**

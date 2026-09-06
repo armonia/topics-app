@@ -73,33 +73,34 @@ const cell = (page: Page) => page.locator('[data-pane-shell][data-pane-visible="
 const MOUNTED_NODES = 20;
 
 /**
- * A BLANK BROWSER PANE ASKS ITS TAB FOR THE ADDRESS EDITOR, and the label is an
- * empty input until it is dismissed.
+ * A BLANK BROWSER PANE ASKS ITS TAB FOR THE ADDRESS EDITOR, and the dropdown it
+ * opens hangs over the row the sweep is about to read.
  *
  * `RemoteBrowserPanel` auto-focuses the address of a pane that has nowhere to
  * go, 50 ms after the pane becomes visible (`RemoteBrowserPanel.tsx`, the
  * `setTimeout(() => focusUrlBar(), 50)` guarded by `empty`), and the tab answers
- * by swapping its label for the input (`BrowserTabAddress`). A label with no
- * text is skipped by the sweep, so on the browser rows of run ecbc4cd44 the
- * sweep collected nothing at all and failed with "no reading collected"
- * (helpers/chrome-contrast.ts) on a bar that was perfectly visible.
+ * by opening its address dropdown (`BrowserTabAddress`).
  *
- * The previous version of this dismissal read the editor ONCE, right after the
- * pane mounted, which is a beat before the effect that opens it: the count was
- * zero, nothing was dismissed, and the editor opened into the sweep. So the
- * editor is WAITED FOR and then dismissed, and the post-condition asserted is
- * the one the sweep actually needs: every label has ink. The wait is bounded
- * and its absence is not an error, because a pane that never asks for the
- * editor is already in the state we want.
+ * Since 2026-09-06 that panel no longer REPLACES the label - the tab writes
+ * "New tab" and keeps writing it - so the failure this dismissal was written
+ * against (a label with no text is skipped by the sweep, and on the browser
+ * rows of run ecbc4cd44 the sweep collected nothing at all and failed with "no
+ * reading collected") cannot come back the same way. The dismissal stays
+ * anyway, and for the reason that outlives the shape: the sweep reads the bar
+ * AT REST, and a frosted panel hanging off a tab is not rest. The
+ * post-condition is unchanged and is the one the sweep actually needs: every
+ * label has ink. The wait is bounded and its absence is not an error, because a
+ * pane that never asks for the editor is already in the state we want.
  */
 async function labelsAtRest(page: Page, probe: string): Promise<void> {
   const editor = page.getByTestId("browser-tab-address-input");
+  const dropdown = page.getByTestId("browser-address-dropdown");
   if (probe.startsWith("browser:")) {
-    await editor.waitFor({ state: "attached", timeout: 5_000 }).catch(() => {});
+    await dropdown.waitFor({ state: "attached", timeout: 5_000 }).catch(() => {});
   }
-  if ((await editor.count()) > 0) {
+  if ((await dropdown.count()) > 0) {
     await editor.press("Escape");
-    await expect(editor).toHaveCount(0);
+    await expect(dropdown).toHaveCount(0);
   }
 
   const labels = page.locator(TAB_LABELS);

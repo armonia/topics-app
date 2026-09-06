@@ -1774,6 +1774,71 @@ esserci» — il clic che porta il fuoco sulla pane apriva l'editor nella riga.
 - **WHEN** si scrive un indirizzo e si preme Invio
 - **THEN** la pane va a quell'indirizzo e la tab lo scrive, senza riga sotto
 
+### Requirement: BROWSER-TAB-LABEL-01 — A browser tab SHALL write the page title, and the address SHALL open in a dropdown under it
+
+A browser tab SHALL be labelled with the name of the page, the way every other
+browser labels one: a name somebody DECIDED first (a manual rename, or the name
+an agent gave the tab it opened for a task), then the live page title, then the
+address as a FALLBACK for a page that declares no title, then "New tab" for a
+pane that has neither. The label SHALL NOT depend on whether the tab is the
+active one: until 06/09/2026 the active tab wrote the address instead, so the
+one tab being worked in was the only one that did not name its page, and the
+label changed under the user every time focus moved.
+
+The address SHALL stay reachable from the tab, in two surfaces that cost the
+label nothing: the hover card (name on the first line, whole address on the
+second) and a DROPDOWN anchored under the tab. The tab label SHALL NOT be
+replaced by an input.
+
+The dropdown SHALL open on the same triggers as before (a click on the tab
+already active, Cmd+L, the tab menu's "edit address", and a pane with nowhere to
+go), SHALL be seeded with the address of the page with its text selected, SHALL
+navigate on Enter and SHALL close on Escape, on blur or on a click outside. It
+SHALL be drawn on the shared popover surface, which is what keeps it visible
+over a native browser view on the desktop app.
+
+A pane SHALL carry EXACTLY ONE address field: the navigation row under the tab
+appears only on an explicit console or downloads reveal (see
+BROWSER-CHROME-INLINE-01), so opening the dropdown SHALL never produce a second
+one.
+
+The first click on a browser tab that is NOT the active one SHALL only activate
+it: reaching a tab is not asking for its address.
+
+#### Scenario: a page that declares a title
+- **GIVEN** a browser pane on a page whose document has a `<title>`, its tab active
+- **THEN** the tab SHALL show that title and SHALL NOT show the host
+
+#### Scenario: the click on the tab already active
+- **GIVEN** a browser pane on a loaded page, its tab active
+- **WHEN** the tab label is clicked
+- **THEN** a dropdown SHALL open under the tab seeded with the address, the label SHALL still name the page, and the pane SHALL have no second address field
+- **AND** Enter SHALL navigate to what was typed, Escape SHALL close the dropdown
+
+#### Scenario: a page with no title
+- **GIVEN** a browser pane on a page whose document declares no `<title>`
+- **THEN** the tab SHALL fall back to the address
+
+### Requirement: BROWSER-TAB-LABEL-02 — Reaching a browser tab SHALL NOT open its address
+
+#### Scenario: the first click on another tab
+- **GIVEN** two panes in one tab bar, the browser one NOT active
+- **WHEN** its tab is clicked once
+- **THEN** the tab SHALL become active and no address dropdown SHALL open
+- **AND** a second click, on the tab now active, SHALL open it
+
+### Requirement: BROWSER-TAB-LABEL-03 — A blank pane SHALL offer its address without a second field
+
+A pane with no address opens the field to type one by itself: it is the only
+way out of a blank pane, and it stays. What it SHALL NOT do is bring the row
+under the tab back with it, which would be a second field for the same thing.
+
+#### Scenario: a pane with nowhere to go
+- **GIVEN** a browser pane with no address
+- **WHEN** it becomes visible
+- **THEN** the address dropdown SHALL open by itself, empty, and the toolbar SHALL NOT render a second address field
+- **AND** the tab SHALL read "New tab"
+
 ### Requirement: BROWSER-PORT-01 — A localhost pane SHALL say when the port belongs to another project
 
 Opening `http://localhost:<port>` in a pane is the most ordinary thing an agent

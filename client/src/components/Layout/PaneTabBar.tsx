@@ -52,7 +52,7 @@ import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
 import { BrowserTabAddress } from './BrowserTabAddress';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
-import { browserTabLabel, browserTabSubtitle, type BrowserLabelPreference } from '../../lib/browserTabLabel';
+import { browserTabLabel, browserTabSubtitle } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
@@ -587,21 +587,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // `PANE_CONFIG`), e una chat senza nome è «New Chat», non il suo id. La regola
   // la applica anche il render, più sotto: qui serve perché l'anteprima del
   // trascinamento deve dire la STESSA parola che sta scritta sulla tab.
-  const etichettaTab = useCallback((pane: Pane | undefined, paneId: string, prefer?: BrowserLabelPreference): string => {
+  const etichettaTab = useCallback((pane: Pane | undefined, paneId: string): string => {
     if (!pane) return paneId;
     const config = getPaneConfig(pane.type);
-    // A BROWSER TAB WRITES THE PAGE TITLE AT REST AND THE ADDRESS WHEN ACTIVE.
-    // The active one is expanded and click-to-edit, so it is the tab that has
-    // to answer "which page is this, exactly"; the resting ones read like any
-    // other browser's. The rule (and the why) lives in `lib/browserTabLabel`;
-    // here we only hand it the pane's state.
+    // A BROWSER TAB WRITES THE PAGE TITLE, whether it is the active one or not.
+    // The address is not on the label any more: it is on the hover card and in
+    // the dropdown the tab opens under itself (`BrowserTabAddress`), so the tab
+    // you are working in says what page it is like every other tab in the bar.
+    // The rule (and the why) lives in `lib/browserTabLabel`; here we only hand
+    // it the pane's state.
     if (pane.type === 'browser') {
       return browserTabLabel({
         title: pane.title,
         titleSource: pane.titleSource,
         url: pane.url || getBrowserPaneUrl(pane.id),
-        fallback: config.label,
-        prefer,
       });
     }
     return (isUtilityPanelId(pane.id) ? config.label : pane.title)
@@ -1069,33 +1068,26 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // l'ha già aperta, per sempre. Per loro comanda la config.
         // La regola sta in `etichettaTab`, in cima: la parola scritta sulla tab
         // e quella dell'anteprima di trascinamento devono essere la stessa.
-        // ...and for a browser pane it also depends on the STATE: the active
-        // tab is the expanded one, where the address is read and edited, so it
-        // writes the address; the resting ones write the page title.
-        // `isSelected` and NOT `isFullyActive`: the second one also asks that
-        // the WINDOW have focus, and a tab that rewrote its own label every
-        // time you alt-tabbed away would be a tab you cannot read out of the
-        // corner of your eye. Each tab bar has exactly one selected tab, so at
-        // most one expanded tab per bar even in a split.
-        const browserPrefer: BrowserLabelPreference | undefined = pane.type === 'browser'
-          ? (isSelected ? 'address' : 'title')
-          : undefined;
-        const label = etichettaTab(pane, pane.id, browserPrefer);
+        // ...and for a browser pane the STATE does not enter into it: the
+        // active tab writes the page title exactly like the resting ones. The
+        // label used to swap to the address when the tab was selected, which
+        // made it change under you every time focus moved and left the tab you
+        // were working in as the only one not naming its page. The address has
+        // two surfaces of its own now: the hover card just below, and the
+        // dropdown the tab opens under itself.
+        const label = etichettaTab(pane, pane.id);
         // THE HOVER CARD SAYS BOTH THINGS, ALWAYS, in the shape every browser
         // uses: the page name on the first line, the WHOLE address on the
-        // second. It is the same card in either state of the tab (the active
-        // one writes the address, the resting ones the title), so hovering
-        // always answers the half that is not written. And it is not the system
-        // tooltip: `TooltipDelegate` intercepts `title` and redraws it after
-        // 350 ms instead of the well over a second macOS takes.
+        // second. That second line is what tells three tabs called
+        // "Vite + React" apart, and it costs the label nothing. And it is not
+        // the system tooltip: `TooltipDelegate` intercepts `title` and redraws
+        // it after 350 ms instead of the well over a second macOS takes.
         const browserHover = pane.type === 'browser'
           ? (() => {
             const input = {
               title: pane.title,
               titleSource: pane.titleSource,
               url: pane.url || getBrowserPaneUrl(pane.id),
-              fallback: getPaneConfig(pane.type).label,
-              prefer: 'title' as const,
             };
             const name = browserTabLabel(input);
             const address = browserTabSubtitle(input);
@@ -1365,9 +1357,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
-              // CLICK THE ADDRESS AND TYPE OVER IT, in the tab (BrowserTabAddress).
+              // CLICK THE LABEL AND THE ADDRESS DROPS DOWN (BrowserTabAddress).
               // Only on the tab you are already looking at: the first click on
-              // another tab still means "bring me there".
+              // another tab still means "bring me there". The label itself is
+              // never replaced - the panel opens under the tab.
               onClick={pane.type === 'browser' && isFullyActive
                 ? (e) => {
                   const edit = getBrowserPaneChrome(pane.id)?.commands.editAddress;
