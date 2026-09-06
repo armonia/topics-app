@@ -264,8 +264,13 @@ export function ownBundleDir(
 /** Builds the client into `dir`. The build's own output is the only message. */
 function buildBundle(dir: string): boolean {
   console.log(`check:e2e-touched: linked worktree, building the bundle into ${dir}\n`);
+  // `bun` in front, exactly as `scripts/build-client.ts` learned to do it: the
+  // shebang of `.bin/vite` is `env node`, and the node first on this machine's
+  // PATH is 18, older than vite requires. Without the prefix the build dies on
+  // `crypto.hash is not a function` and the gate reports NOT MEASURED for a
+  // reason that has nothing to do with the branch.
   const proc = Bun.spawnSync(
-    ["./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
+    ["bun", "./node_modules/.bin/vite", "build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"],
     { cwd: "client", stdout: "inherit", stderr: "inherit" },
   );
   return proc.exitCode === 0;
