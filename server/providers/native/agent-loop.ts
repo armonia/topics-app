@@ -46,6 +46,7 @@ import type { TurnEndInfo } from "../stop-reason";
 import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
+import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
@@ -132,6 +133,17 @@ export interface AgentTurnOptions {
   history: AgentMessage[];
   /** Cosa l'agente può fare su questa macchina. Vedi `permissions.ts`. */
   autonomy?: AutonomyLevel;
+  /**
+   * The user's lifecycle hooks (`~/.topics/hooks.json`, HOOKS-01). The
+   * `pre-tool` one runs here, AFTER `decide` has allowed a tool, so it can
+   * only take away, never grant. `turn-end` is NOT run by the loop: awaiting
+   * it here would hold the stream open for the hook's duration, and the route
+   * fires it after the turn has been finalised. Absent = the round is exactly
+   * what it was before hooks existed: the tests and `complete` never pass one.
+   */
+  hooks?: LifecycleHookRunner;
+  /** What the hooks read as `session_id`; empty when the caller has none. */
+  sessionId?: string;
   /**
    * I mestieri di Topics (card, browser, agenti). Assente = l'agente sa solo
    * programmare: è il caso di `complete` e dei test, non quello di una chat.
@@ -744,6 +756,20 @@ export async function runAgentTurn(
       const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
       const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
+      // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
+      // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
+      // a tool the verdict allowed can still be refused by the user's own
+      // rule. The refusal takes the same door as a denied permission, so the
+      // agent reads the reason and changes course instead of losing the turn.
+      const hookVeto = verdict.allow && opts.hooks
+        ? await opts.hooks.run("pre-tool", {
+          hook_event_name: "pre-tool",
+          session_id: opts.sessionId ?? "",
+          cwd: opts.toolContext.workspace,
+          tool_name: t.name!,
+          tool_input: t.input ?? {},
+        })
+        : null;
       // Tre famiglie di tool, un solo giro. I mestieri di Topics passano dai
       // loro handler (`topics-tools.ts`), quelli di macchina dai nostri, e i
       // tool dei server MCP globali dalla flotta (`mcp-fleet.ts`).
@@ -753,6 +779,8 @@ export async function runAgentTurn(
       // table that owns their names.
       const out = !verdict.allow
         ? { content: verdict.reason, isError: true }
+        : hookVeto && !hookVeto.ok
+          ? { content: hookVeto.reason, isError: true }
         : isMcpTool(t.name!)
           ? await executeMcpTool(t.name!, (t.input ?? {}) as Record<string, unknown>)
           : opts.topics && isTopicsTool(t.name!)

@@ -94,6 +94,11 @@ export const PROJECT_WORDS = new Set([
   // (`navigator.clipboard`, `ClipboardEvent`), so renaming around it would make
   // the code read worse than the platform it calls.
   "clipboard",
+  // The two macOS priority binaries this repo spawns by absolute path.
+  // `renice` and `taskpolicy` are the names the operating system gives them
+  // (`/usr/bin/renice`, `/usr/sbin/taskpolicy`); an identifier that spelled
+  // them differently would no longer name the thing it launches.
+  "renice", "taskpolicy",
   // `ddl` is what the SQL standard calls the half of itself that creates
   // tables, and it is how the test schemas of this repo are already named
   // (`TASKS_DDL`, `APP_SETTINGS_DDL`). Spelling it out in an identifier would
