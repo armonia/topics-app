@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.273",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La corsia del nodo remoto esce dal dispatcher e la baseline del bloat torna quella di prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il modulo nuovo parla inglese come chiede il repo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.272",
     "date": "2026-09-06",
     "sections": {

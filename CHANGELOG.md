@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.273 — 2026-09-06
+
+### Sotto il cofano
+- La corsia del nodo remoto esce dal dispatcher e la baseline del bloat torna quella di prima
+- Il modulo nuovo parla inglese come chiede il repo
+
 ## 2.2.272 — 2026-09-06
 
 ### Sotto il cofano
