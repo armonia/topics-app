@@ -3380,3 +3380,9 @@ doveva rallentare. Windows resta com'è.
 - **THEN** il suo pid viene demotato appena il bridge lo consegna
 - **GIVEN** un PTY aperto dalla persona nel repo
 - **THEN** la sua priorità non cambia
+
+#### Scenario: la CLI di una card è demotata, quella di una chat della persona no
+- **GIVEN** la CLI (`claude`, `codex`) che il provider spawna per una sessione legata a una card dispatchata, o con cwd in un worktree di agente
+- **THEN** il suo pid viene demotato appena lo spawn lo consegna (anche quando è il broker ai-bridge a spawnarla), così che i test, le build e i Chromium che la card lancia ereditino la priorità
+- **GIVEN** la CLI di una chat della persona nel suo repo
+- **THEN** la sua priorità non cambia

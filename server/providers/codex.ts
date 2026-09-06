@@ -35,6 +35,7 @@ import { topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
+import { demoteAgentCli } from "./agent-cli-priority";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -464,6 +465,8 @@ export class CodexProvider implements AIProvider {
       stdio: ["pipe", "pipe", "pipe"],
       env,
     });
+    // A card's CLI steps aside for the person (KANBAN-78); its children inherit.
+    demoteAgentCli(sessionKey, workspace, child.pid);
     // Keep a direct handle to THIS turn's state: the maps are keyed by
     // sessionKey and a newer turn overwrites both entries (e.g. the chat
     // route's timeout aborts this turn and the queue moves on while this

@@ -26,6 +26,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
+import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
@@ -2218,6 +2219,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // uguale avviata altrove. Vedi `providers/session-pids.ts`.
         .then(async ({ pid, resumed }) => {
           setSessionCliPid(sessionKey, pid);
+          // A card's CLI steps aside for the person (KANBAN-78): demoted by
+          // pid because the broker spawned it, and its children inherit.
+          demoteAgentCli(sessionKey, workspace, pid);
           // `resumed` = the daemon handed us a child that was ALREADY running
           // (it outlives our restarts by design) instead of spawning one. Old
           // daemons don't attach us on that branch, so this turn's stdin write
@@ -2239,6 +2243,7 @@ export class ClaudeCodeProvider implements AIProvider {
       const rl = createInterface({ input: proc.stdout! });
       rl.on("line", onLine);
       setSessionCliPid(sessionKey, proc.pid);
+      demoteAgentCli(sessionKey, workspace, proc.pid);
       pp.proc = proc;
       pp.readline = rl;
       pp.io = directIO(proc);

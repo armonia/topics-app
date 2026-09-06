@@ -1,5 +1,136 @@
 [
   {
+    "version": "2.2.269",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il piano si corregge prima di approvarlo, e approvare manda la correzione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le variabili del runner si chiamano con parole che l'inglese conosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano dice quanto resta della finestra, e la coda lo ascolta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome della promessa dice cosa contiene, non da che file viene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stderr, stdout e utils entrano nel dizionario degli identificatori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La priorità bassa usa path assoluti, e un binario che manca si salta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Name the two macOS priority binaries in English, and quote the spawn failure in English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two board specs seed the project under the path the server actually serves",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The two red gates on HEAD go green: the quote is marked, the binaries are named",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "renice e taskpolicy sono nomi di binari, la frase italiana e una citazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento sul PATH cita l'errore di Bun, non la frase italiana",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello e2e sceglie un node che vite regge, non il primo del PATH",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello e2e dei file toccati dice «non misurato» con il codice che il runner capisce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test della correzione al piano parla inglese come il resto del repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due bottoni Unix della priorità entrano nel dizionario dei nomi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The e2e gate picks a Node that Vite accepts instead of inheriting one",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Six more board specs name the temp directory by its real path",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello e2e dei file toccati sceglie il suo Node e non eredita NODE_OPTIONS",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "renice e taskpolicy entrano nel dizionario degli identificatori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello e2e e il dizionario tornano alla versione di main, non alla copia rifatta nel ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello e2e costruisce il bundle con bun, non con il node che trova nel PATH",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno spec che indirizza una board semina sul /tmp canonico, e un cancello lo tiene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il dizionario resta quello di main: renice e taskpolicy ci sono gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il runner dei check accende un solo interruttore del colore: con due, Node riempiva la coda di avvisi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.268",
     "date": "2026-09-06",
     "sections": {
@@ -9,6 +140,16 @@
       "internal": [
         {
           "it": "La rigenerazione del grafo del codice gira a priorità bassa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il buco 4 del confronto coi concorrenti si chiude, e dice a che prezzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una regola dell'utente puo' entrare fra l'agente e il repository",
           "en": "",
           "scope": null
         }
@@ -24,12 +165,47 @@
       "perf": [],
       "internal": [
         {
+          "it": "Le spec dicono che un sotto-agente puo' nascere in un worktree suo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nascita del worktree di una card diventa un modulo che sa servire anche un figlio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno spawn puo' chiedere una cartella sua, e il padre si sente dire quale ramo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Ciò che Topics lancia per un agente gira a priorità bassa: la macchina non rallenta per colpa sua",
           "en": "",
           "scope": null
         },
         {
+          "it": "Il rapporto d'uscita dice dove sta il lavoro quando non e' piu' nella cartella del padre",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un permalink a un terminale parcheggiato riceve un verdetto, non un ciclo di 500 ms",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte MCP sa chiedere l'isolamento e riportare il ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La scopa chiede per prima cosa se c'e' qualcuno dentro la cartella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due figli scrivono lo stesso file e non si sovrascrivono: la prova su un repo vero",
           "en": "",
           "scope": null
         }
