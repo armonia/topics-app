@@ -603,8 +603,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         url: pane.url || getBrowserPaneUrl(pane.id),
       });
       // The constant is English by construction (`lib/` has no translator); the
-      // tab is read in the app's language, next to a page that says the same
-      // words in it ("Nuova scheda").
+      // tab is read in the app's language, next to a new-tab page that already
+      // says the same words in that language.
       return raw === NEW_TAB_LABEL ? tr('browser.newTab.title') : raw;
     }
     return (isUtilityPanelId(pane.id) ? config.label : pane.title)

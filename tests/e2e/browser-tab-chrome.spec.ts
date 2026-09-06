@@ -729,7 +729,9 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(tab).toBeVisible({ timeout: 30_000 });
     // The tab names itself before anyone types anything, which is the half the
     // in-place editor could not do: it left the label blank.
-    await expect(tab).toContainText(/New tab/, { timeout: 30_000 });
+    // In the app's language: the e2e project runs `it-IT`, and a fresh settings
+    // row follows the browser locale.
+    await expect(tab).toContainText(/New tab|Nuova scheda/, { timeout: 30_000 });
     await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 30_000 });
     // The pane's ONLY address field is the one in the dropdown.
     await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
