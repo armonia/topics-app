@@ -1,7 +1,7 @@
 /**
  * Deleting a worktree row: the topics bound to it forget the Claude session that
  * lived in the reaped checkout and degrade to their project path, still working.
- * @covers WORKTREE-03
+ * @covers WORKTREE-03, WORKTREE-14
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -131,5 +131,23 @@ describe("worktreeStore.delete — reap forgets orphaned sessions", () => {
     const store = createWorktreeStore(db);
     expect(store.delete("does-not-exist")).toBe(false);
     expect(sessionKeys()).toEqual(["topic:t1", "topic:t2", "topic:t3"]);
+  });
+});
+
+describe("worktreeStore.getByAbsPath - a directory names its worktree", () => {
+  test("finds the row checked out at that exact path", () => {
+    const store = createWorktreeStore(db);
+    const found = store.getByAbsPath("/tmp/wt1");
+    expect(found?.id).toBe("wt1");
+    expect(found?.projectId).toBe("p1");
+  });
+
+  test("a path nobody checked out answers null, and so does a prefix of one", () => {
+    const store = createWorktreeStore(db);
+    expect(store.getByAbsPath("/tmp/elsewhere")).toBeNull();
+    // Deliberately exact: `/tmp/wt1/server` is INSIDE a worktree but is not the
+    // worktree, and a lookup that answered here would hand the sweep and the
+    // spawn route a row for a directory that is only a descendant.
+    expect(store.getByAbsPath("/tmp/wt1/server")).toBeNull();
   });
 });

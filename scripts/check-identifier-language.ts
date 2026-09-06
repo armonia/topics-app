@@ -123,6 +123,9 @@ export const PROJECT_WORDS = new Set([
   // bounced on them in one afternoon (06/09/2026), each adding the same words
   // on its own branch.
   "stderr", "stdout", "utils",
+  // Two Unix tools, named as identifiers in server/lib/low-priority.ts
+  // (`RENICE_BIN`, `TASKPOLICY_BIN`): the binaries this machine has, not words.
+  "renice", "taskpolicy",
   // The name of the tool this codebase shells out to for every audio
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.

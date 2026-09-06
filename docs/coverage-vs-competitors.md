@@ -35,7 +35,7 @@ una superficie · `no` assente · `no (non doc.)` nessuna fonte ufficiale trovat
 | Goal dichiarato che sopravvive al turno | **si** `openspec/specs/context/spec.md` CTX-GOAL-01..03, `server/services/goal-loop.ts` (giudice + freni), MISSION-01 | si (`/goal`, giudice a ogni turno) | si (`/goal` in app, CLI, IDE) | si (`/goal`, in rollout) | parz. (titolo: Codex goal support) |
 | Todo list dell'agente a schermo | **si** `openspec/specs/chat/spec.md` TODO-01..03; anche il runtime nativo la scrive (`server/providers/native/tools.ts`, `todo_write`) | si (task list, `Ctrl+T`) | parz. (`update_plan` spento di default) | no (non doc.) (piano markdown) | si (titolo: Todos) |
 | Sotto-agenti | **si** `openspec/specs/chat/spec.md` SUBAGENT-01..07, `openspec/specs/processes/spec.md` SUBAGENT-03, tool `spawn_agent` in `server/mcp/topics-mcp-server.ts` | si (`.claude/agents`, tetto 20, `isolation: worktree`) | si (built-in + TOML in `.codex/agents`) | si (`.cursor/agents`, worktree o VM) | parz. (quelli della CLI ospitata) |
-| Sotto-agente isolato in un worktree suo | **no**: il figlio eredita la cartella del padre (`spawn_agent`, campo `cwd`) | si (`isolation: worktree`) | parz. (worktree per chat nell'app) | si (subagent su worktree/VM) | no (non doc.) |
+| Sotto-agente isolato in un worktree suo | **si** `openspec/specs/worktrees/spec.md` WORKTREE-14, `spawn_agent` con `isolation: worktree` (`server/services/worktree-for-agent.ts`); senza il campo il figlio eredita ancora la cartella del padre | si (`isolation: worktree`) | parz. (worktree per chat nell'app) | si (subagent su worktree/VM) | no (non doc.) |
 | Checkpoint della conversazione | **si** `openspec/specs/chat/spec.md` CHAT-05, `server/routes/checkpoints.ts` | si (`/rewind`, 100 punti) | parz. (undo per edit) | no (il restore tocca solo i file) | si (titolo: Checkpoints) |
 | Checkpoint dell'albero di lavoro | **si** `server/routes/checkpoints.ts` (`git restore --source`, auto-stash) + automatici per turno (`server/services/turn-checkpoints.ts`) | si (ma non le modifiche fatte da bash) | parz. (snapshot del worktree prima della cancellazione) | si (snapshot dei file) | si (titolo: Codex Checkpoints) |
 | Hook di ciclo di vita configurabili dall'utente | **si** `openspec/specs/lifecycle-hooks/spec.md` HOOKS-01..03, `server/services/lifecycle-hooks.ts`: un file utente `~/.topics/hooks.json`, quattro eventi (`pre-tool`, `turn-end`, `task-deliver`, `worktree-create`) sul runtime nativo e sul board, exit non-zero = blocco con lo stderr come motivo; in piu' Topics *riceve* gli hook di Claude Code (CCS-02, CCS-06, `server/routes/claude-hooks.ts`) | si (oltre 30 eventi, `settings.json`) | si (`hooks.json`, con trust) | si (18 eventi, `hooks.json`) | si (titolo: Run script, hooks) |
@@ -100,11 +100,12 @@ quanto e' di moda la funzione. Fra parentesi la taglia stimata.
    Seatbelt e Landlock, e Codex chiude la rete di default. Su una macchina dove
    girano agenti dispacciati di notte, e' la differenza fra un danno e un
    incidente.
-4. **Sotto-agenti nel proprio worktree** (M). Un figlio oggi scrive nella
-   cartella del padre: due figli sullo stesso task si pestano i piedi, e il
-   fan-out (KANBAN-13) non arriva sotto il livello del task. Claude Code lo ha
-   risolto con `isolation: worktree`, Cursor mandando i subagent su worktree o
-   VM.
+4. ~~**Sotto-agenti nel proprio worktree** (M)~~ **chiuso**. `spawn_agent`
+   accetta `isolation: "worktree"` e fa nascere il figlio in un checkout suo,
+   con lo stesso percorso delle card (WORKTREE-14): due figli sullo stesso file
+   non si sovrascrivono e il padre legge il ramo invece dei file mescolati.
+   Resta opt-in di proposito, perche' un checkout costa ~600 MB e il default
+   lo pagherebbe ogni chat che delega qualcosa.
 5. **Aggancio a GitHub: PR, commenti, check** (L). Topics atterra in locale, e
    per una persona sola e' meglio. Ma chi lavora in team vive sulle PR: nessuna
    review di Topics arriva dove il team guarda, e nessun check di Topics puo'

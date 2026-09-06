@@ -14,7 +14,7 @@
  * minuti dopo il boot in produzione. Questo test e' il posto in cui si vede
  * subito.
  *
- * @covers WORKTREE-09
+ * @covers WORKTREE-09, WORKTREE-14
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -128,6 +128,50 @@ describe("il cablaggio della potatura dei worktree", () => {
     await gc.slimWorktreeOfTask("t1");
     expect(letture).toEqual(["t1"]);   // ha risolto il worktree…
     // …e si e' fermato: nessuna chiamata al disco oltre l'esistenza.
+  });
+});
+
+describe("le cartelle vive fermano la potatura", () => {
+  /** A `ready` row as the store hands it over, just enough for the pass. */
+  function readyRow(id: string, absPath: string) {
+    return { id, project_id: "p", projectId: "p", abs_path: absPath, absPath, branch_name: `topics/${id}`, branchName: `topics/${id}`, mode: "branch", status: "ready" };
+  }
+
+  it("una sessione dentro la cartella la tiene, e nessuno chiede di chi sia", async () => {
+    const { deps, toccati } = fakeDeps({
+      worktreeStore: { list: () => [readyRow("w1", "/tmp/wt/w1")] },
+      // The child did `cd server/`: it is still inside the worktree.
+      liveCwds: () => ["/tmp/wt/w1/server"],
+    });
+    const gc = createWorktreeGcRunner(deps);
+    const esito = await gc.runWorktreeGc();
+    expect(esito!.kept).toBe(1);
+    expect(esito!.reaped).toBe(0);
+    expect(toccati).toEqual([]);
+  });
+
+  it("una cartella che comincia allo stesso modo non e' la stessa cartella", async () => {
+    // `/tmp/wt/w1-bis` is not inside `/tmp/wt/w1`: without the trailing
+    // separator any session would keep the neighbour's worktree alive.
+    const { deps } = fakeDeps({
+      worktreeStore: { list: () => [readyRow("w1", "/tmp/wt/w1")] },
+      liveCwds: () => ["/tmp/wt/w1-bis"],
+    });
+    const gc = createWorktreeGcRunner(deps);
+    const esito = await gc.runWorktreeGc();
+    expect(esito!.kept).toBe(0);
+    expect(esito!.keptReasons["sessione viva nella cartella"]).toBeUndefined();
+  });
+
+  it("senza sessioni vive la guardia non dice niente", async () => {
+    const { deps } = fakeDeps({
+      worktreeStore: { list: () => [readyRow("w1", "/tmp/wt/w1")] },
+      liveCwds: () => [],
+    });
+    const gc = createWorktreeGcRunner(deps);
+    const esito = await gc.runWorktreeGc();
+    expect(esito!.kept).toBe(0);
+    expect(esito!.keptReasons["sessione viva nella cartella"]).toBeUndefined();
   });
 });
 
