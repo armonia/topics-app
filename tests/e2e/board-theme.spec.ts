@@ -26,7 +26,7 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
-import { seedFileProject, cleanupFileProject, type FileProject } from "./helpers/file-project";
+import { seedFileProject, cleanupFileProject, type FileProject, canonicalTmpRoot } from "./helpers/file-project";
 import { contrastOf, effectiveBgOf, contrastRatio, AA_TESTO, AA_GRAFICA } from "./helpers/contrast";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
@@ -36,7 +36,7 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-board-theme-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-board-theme-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 

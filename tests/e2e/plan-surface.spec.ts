@@ -22,11 +22,12 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 
 hermetic(test);
@@ -42,12 +43,11 @@ const BASE = E2E_BASE;
  * the canonical path of its topic — gives two DIFFERENT boards, and the
  * comment comes back "task not found" on a task that exists. Measured on 09-03.
  *
- * So the real path is read from disk AFTER creating the folder, and from
- * then on only that one is used.
+ * So the path is built on the canonical root (`canonicalTmpRoot`), and that
+ * is the only spelling this file ever uses.
  */
-const PROJECT_PATH_RAW = `/tmp/e2e-plan-surface-${Date.now()}`;
-let PROJECT_PATH = PROJECT_PATH_RAW;
-let PROJECT_ID = boardIdForPath(PROJECT_PATH_RAW);
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-plan-surface-${Date.now()}`;
+const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const FIXTURES = join(__dirname, "..", "..", "client", "src", "components", "Board", "__fixtures__");
 /** The plan AS THE AGENT WRITES IT (no fence: the server composes it). */
@@ -179,9 +179,7 @@ test.describe("Tab Piano", () => {
   const seeded: { id: string; text: string }[] = [];
 
   test.beforeAll(async ({ request }) => {
-    mkdirSync(PROJECT_PATH_RAW, { recursive: true });
-    PROJECT_PATH = realpathSync(PROJECT_PATH_RAW);
-    PROJECT_ID = boardIdForPath(PROJECT_PATH);
+    mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-plan-surface" }, null, 2));
     writeFileSync(
       `${PROJECT_PATH}/favicon.png`,

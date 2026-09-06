@@ -43,6 +43,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -51,9 +52,9 @@ const API = `${BASE}/api`;
 
 const STAMP = Date.now();
 /** Il repo che SI avvia: il suo `dev` serve la pagina che finirà sulla card. */
-const REPO = `/tmp/topics-e2e-recapture-${STAMP}`;
+const REPO = `${canonicalTmpRoot()}/topics-e2e-recapture-${STAMP}`;
 /** Il repo che NON si avvia: nessuno script, quindi nessuna anteprima possibile. */
-const MUTED_REPO = `/tmp/topics-e2e-recapture-muto-${STAMP}`;
+const MUTED_REPO = `${canonicalTmpRoot()}/topics-e2e-recapture-muto-${STAMP}`;
 const PROJECT_ID = boardIdForPath(REPO);
 const MUTED_PROJECT_ID = boardIdForPath(MUTED_REPO);
 

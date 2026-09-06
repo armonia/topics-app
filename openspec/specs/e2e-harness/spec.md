@@ -472,3 +472,36 @@ Il fallimento SHALL essere DETTO, non ingoiato: un avvio che nasconde ciò che n
 #### Scenario: la ricostruzione del riassunto fallisce
 - **GIVEN** un errore di scrittura sul riassunto
 - **THEN** il server SHALL partire lo stesso, dichiarando il fallimento
+
+### Requirement: E2E-GATE-10 — Uno spec che indirizza una board non scrive `/tmp` a mano
+
+Su macOS `/tmp` è un collegamento a `/private/tmp`. Il server memorizza il
+percorso di progetto di un topic in forma canonica e l'id di una board è
+l'IMPRONTA di quella stringa: uno spec che semina le card su
+`boardIdForPath("/tmp/x")` e poi apre la finestra della cartella che ha creato
+guarda una board diversa, vuota, mentre i suoi task stanno su un id che nessuno
+chiede. Il rosso si vede solo sul portatile, perché sul runner `/tmp` è una
+cartella vera e le due grafie sono la stessa stringa: lo stesso difetto è stato
+pagato tre volte.
+
+Uno spec che nomina `projectIdForPath` o `boardIdForPath` SHALL comporre i propri
+percorsi sulla radice canonica (`canonicalTmpRoot`/`canonicalTmpDir` in
+`tests/e2e/helpers/file-project.ts`), mai su un `/tmp/` letterale.
+
+Il cancello SHALL essere STATICO: il difetto non si vede eseguendo la suite sul
+runner, quindi un banco non lo può misurare. SHALL guardare solo i file dove un
+percorso è un'IDENTITÀ, e SHALL lasciare passare una riga perdonata con
+`allow-literal-tmp: <ragione>` sulla riga stessa o su quella sopra, perché un
+percorso temporaneo usato come semplice file non ha nessun difetto.
+
+#### Scenario: uno spec che indirizza una board con /tmp letterale
+- **GIVEN** un file che nomina `boardIdForPath` e compone un percorso con `/tmp/`
+- **THEN** il cancello SHALL uscire ROSSO, nominando file e riga
+
+#### Scenario: la stessa riga perdonata
+- **GIVEN** la stessa riga con `allow-literal-tmp: <ragione>` sopra
+- **THEN** il cancello SHALL uscire verde
+
+#### Scenario: un file che non indirizza nessuna board
+- **GIVEN** un file con `/tmp/` letterale che non nomina nessuno dei due
+- **THEN** il cancello SHALL uscire verde

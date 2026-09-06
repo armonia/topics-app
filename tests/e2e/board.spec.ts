@@ -25,6 +25,7 @@ import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 // Hermetic boundary: this file restarts from the globalSetup baseline, not from
 // the state left behind by the specs before it. See fixtures/hermetic.ts.
@@ -578,7 +579,7 @@ test.describe("Kanban board", () => {
    */
   test("BOARD-16: la tab della board di progetto conta solo i task di quel progetto", async ({ page }) => {
     const stamp = Date.now();
-    const OTHER_ID = boardIdForPath(`/tmp/e2e-board-altro-${stamp}`);
+    const OTHER_ID = boardIdForPath(`${canonicalTmpRoot()}/e2e-board-altro-${stamp}`);
     await apiCreateTask(page.request, { text: `Solo mio ${stamp}`, status: "in_progress" });
     await apiCreateTask(page.request, { text: `Di un altro ${stamp}`, status: "in_progress" }, OTHER_ID);
 

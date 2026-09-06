@@ -238,6 +238,12 @@ jobs:
           # una misura impossibile e' un rosso, non un «skipping» verde.
           bun run check:identifier-language
           bun run check:sleeps
+          # Su questo runner `/tmp` e' una cartella vera, quindi il difetto che
+          # questo cancello ferma qui NON si vede girando la suite: e' statico
+          # apposta. Uno spec che indirizza una board con `/tmp/...` letterale
+          # semina le card su un id diverso da quello che la finestra apre, e il
+          # rosso esce solo su macOS, dove `/tmp` e' un link a `/private/tmp`.
+          bun run check:tmp-canonical
           bun run check:spec-coverage
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo
