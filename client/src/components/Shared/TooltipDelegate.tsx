@@ -64,6 +64,32 @@ function fuoriPortata(el: Element): boolean {
   return tag === 'IFRAME' || tag === 'OPTION' || tag === 'OPTGROUP';
 }
 
+/**
+ * THE HOLE THE DELEGATE HAD: A DISABLED CONTROL.
+ *
+ * A disabled form control does not dispatch mouse events at all, so the
+ * `mouseover` that reaches this delegate has the CONTAINER as its target and
+ * `closest('[title]')` walks upwards, past the button the pointer is actually
+ * on. The attribute therefore stayed in place and the native tooltip was the
+ * only one shown: 30 call sites in `client/src` put a `title` on a control that
+ * is disabled some of the time, and they are the ones where the tooltip matters
+ * most, because it is the sentence explaining why the button is off.
+ *
+ * The hit test is only run when no `[title]` ancestor was found, which is what
+ * being over a disabled control looks like, so a normal hover never pays for it.
+ */
+function disabledTitleUnder(e: Event): Element | null {
+  const m = e as MouseEvent;
+  if (typeof m.clientX !== 'number' || typeof m.clientY !== 'number') return null;
+  const hit = document.elementFromPoint(m.clientX, m.clientY);
+  if (!hit || hit === e.target) return null;
+  const el = hit.closest('[title]');
+  if (!el || fuoriPortata(el)) return null;
+  // Only the disabled case: anything else here would mean the pointer is over a
+  // node the event system can reach, and that path already works.
+  return el.matches(':disabled') ? el : null;
+}
+
 interface Stato {
   testo: string;
   rect: DOMRect;
@@ -100,7 +126,7 @@ export function TooltipDelegate() {
     const onOver = (e: Event) => {
       const t = e.target;
       if (!(t instanceof Element)) return;
-      const el = t.closest('[title]');
+      const el = t.closest('[title]') ?? disabledTitleUnder(e);
       if (!el || fuoriPortata(el)) {
         if (sospeso.current && !sospeso.current.el.contains(t)) { stop(); restituisci(); setStato(null); }
         return;
@@ -154,7 +180,14 @@ export function TooltipDelegate() {
     const onOut = (e: Event) => {
       const t = e.target;
       if (!(t instanceof Element)) return;
-      if (!sospeso.current || !sospeso.current.el.contains(t)) return;
+      const held = sospeso.current?.el;
+      // `held.contains(t)` is the normal way out: the pointer leaves the element
+      // that owns the tooltip, or one of its children. The second half is the
+      // DISABLED case: that control dispatches nothing, so the only `mouseout`
+      // that ever reports the pointer leaving it is the one fired by an
+      // ANCESTOR being left. Without it the tooltip of a disabled button stayed
+      // on screen until the next click.
+      if (!held || !(held.contains(t) || t.contains(held))) return;
       stop();
       timer.current = setTimeout(() => { restituisci(); setStato(null); }, CHIUSURA_MS);
     };
