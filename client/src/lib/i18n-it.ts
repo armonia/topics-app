@@ -404,6 +404,9 @@ const IT: Dict = {
 
   'tab.openedBrowser': 'Questa tab ha aperto un browser',
   'tab.cloudSession': 'Sessione cloud (OpenClaw)',
+  'tab.stopTurn': 'Ferma il turno',
+  'tab.stopTurnOn': 'Ferma il turno su {name}',
+  'tab.menu.stopTurn': 'Ferma il turno',
   'tab.restartSession': 'Riavvia la sessione (Claude/codex riprendono via --resume)',
   'tab.restartSessionFailed': 'Riavvio non riuscito: il server ha rifiutato',
   'tab.restartSessionUnreachable': 'Riavvio non riuscito: il server non risponde',

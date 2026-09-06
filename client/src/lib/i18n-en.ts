@@ -401,6 +401,9 @@ const EN = {
 
   'tab.openedBrowser': 'This tab opened a browser',
   'tab.cloudSession': 'Cloud session (OpenClaw)',
+  'tab.stopTurn': 'Stop the turn',
+  'tab.stopTurnOn': 'Stop the turn on {name}',
+  'tab.menu.stopTurn': 'Stop the turn',
   'tab.restartSession': 'Restart the session (Claude/codex resume via --resume)',
   'tab.restartSessionFailed': 'Restart failed: the server refused',
   'tab.restartSessionUnreachable': 'Restart failed: the server did not answer',
