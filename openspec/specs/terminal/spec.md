@@ -395,6 +395,51 @@ misurato, l'unico rosso di oltre settemila casi.
 - **GIVEN** un ambiente senza ponte
 - **THEN** SHALL essere dichiarata l'assenza, non un guasto
 
+### Requirement: TERM-09 — Un attacco a una sessione PARCHEGGIATA riceve un verdetto, non un ciclo
+
+Aprire la pane di una sessione che il server ha PARCHEGGIATO — riga `dormant`,
+pseudo-terminale assente — NON SHALL lasciare la pane vuota, e NON SHALL far
+ritentare l'attacco all'infinito.
+
+L'incidente per cui esiste, misurato il 05/09/2026: il permalink
+`/tab/terminal/<id>` verso una shell parcheggiata da un riavvio disegnava
+niente — né prompt né velo — mentre il registro del server riempiva di
+`POST /api/terminal/sessions/<id>/resize 404` una riga ogni 500 ms, finché la
+scheda restava aperta. Il server accetta l'upgrade della WebSocket per
+qualunque id e rifiuta solo dopo, in `open`, con 1008; il client vedeva prima
+un'apertura RIUSCITA e azzerava il contatore dei tentativi, quindi la grazia
+che dichiara scaduta una sessione non superava mai 1: niente velo, e la
+rianimazione automatica — che aspetta quel velo — non partiva mai.
+
+Il server SHALL distinguere le due assenze. Una riga parcheggiata SHALL
+ricevere un codice di chiusura PROPRIO (`TERMINAL_WS_CLOSE_DORMANT`, 4001): è
+un verdetto, perché quella riga la scrivono solo un parcheggio, un'uscita o un
+riavvio, e la riporta viva solo una rianimazione. Tutto il resto — una riga che
+il riconcilio sta per riattaccare, nessuna riga — resta 1008, e per quello il
+client tiene la sua grazia.
+
+Il client SHALL trattare il verdetto come tale: velo «Sessione scaduta» subito,
+nessun nuovo tentativo. Da lì valgono le regole già scritte: la pane GUARDATA
+si rianima da sola dalla porta di rianimazione esistente (stessa riga, stessa
+cartella), quella in secondo piano aspetta il click (TERM-05).
+
+Il contatore dei tentativi NON SHALL azzerarsi all'apertura del socket, ma al
+primo frame che solo una sessione viva manda (`replay-end`): un'apertura seguita
+da un rifiuto è un attacco fallito in più, non un nuovo inizio. Vale anche per
+una riga cancellata del tutto, che prima cadeva nello stesso ciclo.
+
+#### Scenario: permalink a una sessione parcheggiata, pane attiva
+- **GIVEN** una riga `dormant` la cui pseudo-terminale non esiste più
+- **WHEN** si apre `/tab/terminal/<id>`
+- **THEN** la sessione SHALL tornare viva sotto lo stesso id, il terminale SHALL essere utilizzabile
+- **AND** i `resize` respinti con 404 SHALL essere al massimo una manciata, non un flusso continuo
+
+#### Scenario: scheda salvata in secondo piano
+- **GIVEN** la stessa riga, ripristinata come scheda dietro un'altra
+- **THEN** NON SHALL essere rianimata finché nessuno la guarda
+- **WHEN** la scheda viene cliccata
+- **THEN** SHALL tornare viva
+
 ### Requirement: RESTART-SAY-01 — Un riavvio rifiutato lo DICE, e non si finge un'attesa
 
 Il gesto che riavvia una sessione mostra un velo mentre la vecchia muore e la

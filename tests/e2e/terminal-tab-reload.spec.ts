@@ -18,6 +18,7 @@ import {
   resetProjectPanes,
 } from "./helpers/api-fixtures";
 import { goToApp, openTopic } from "./helpers";
+import { projectRowSelector } from "./helpers/terminal-workspace";
 import type { Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -229,7 +230,12 @@ async function navigateAndOpenTerminal(page: Page, terminalPage: TerminalPage) {
     if (expanded === "false") await projectsSection.click();
   }
 
-  const projectHeader = page.locator(`button[title="${"/tmp"}"]`);
+  // Both spellings of the path: the server registers `/tmp` through a realpath,
+  // and on macOS that is `/private/tmp` - this private copy of the helper kept
+  // the literal and died here after ten seconds on a fresh e2e database, on
+  // main as well (measured 2026-09-06). `projectRowSelector` is the shared
+  // answer every other terminal spec already uses.
+  const projectHeader = page.locator(projectRowSelector()).first();
   await projectHeader.waitFor({ state: "visible", timeout: 10_000 });
   await projectHeader.click();
 

@@ -104,7 +104,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
-import { parkIdleClaudeSessions } from "./terminal";
+import { parkIdleClaudeSessions, parkTerminalSession } from "./terminal";
 import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
 import { shellProcessKey } from "../../shared/background-shell-registry";
 import { setSessionCliPid } from "../providers/session-pids";
@@ -233,6 +233,21 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       // `skipped` con il motivo: senza, un test che non vede il parcheggio non
       // sa distinguere «il gate ha fatto il suo lavoro» da «lo sweep e' rotto».
       return json({ ok: true, ...result });
+    }
+
+    // POST /api/test/terminal/:id/park - the state a server restart leaves on a
+    // session whose PTY the bridge no longer holds (`reconcileSessions` ->
+    // `park`): row `dormant`, no live entry, PTY gone. No gate, unlike the
+    // sweep above: a shell never passes `decidePark`, and the bridge outlives a
+    // restart, so restarting the server in a test would reattach the shell
+    // instead of parking it. See `parkTerminalSession`.
+    {
+      const m = pathname.match(/^\/api\/test\/terminal\/([^/]+)\/park$/);
+      if (m && method === "POST") {
+        const id = decodeURIComponent(m[1]!);
+        if (!parkTerminalSession(id)) return json({ error: "no live session with this id" }, 404);
+        return json({ ok: true, id });
+      }
     }
 
     // POST /api/test/orgs/:id/members {name} — the second person in the group.

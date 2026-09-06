@@ -21,7 +21,7 @@ import { restartTerminalSession } from '../../lib/terminalReload';
 import { copyText } from '../../lib/clipboard';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
-import { TERMINAL_INPUT_DROPPED } from '../../../../shared/terminal-messages';
+import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../shared/terminal-messages';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -179,7 +179,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // "expired", and (b) auto-recover a pane that already went stale the instant
   // its session reappears in the list. Read inside the connection effect via
   // refs so the (sessionId-keyed) xterm mount effect never re-runs on a list
-  // change.
+  // change. ONE close code is an exception, because it is not a drop but a
+  // verdict: TERMINAL_WS_CLOSE_DORMANT, "this row is parked" - see `ws.onclose`.
   const t = useT();
   // A refused restart has to be SAID: before, it ended in a `.catch(() => {})`.
   const toast = useToast();
@@ -527,7 +528,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       }
 
       ws.onopen = () => {
-        retryCount = 0;
+        // NOT `retryCount = 0` here. The server accepts the upgrade for ANY id
+        // and answers only in `open`, so a socket that opens and is closed a
+        // moment later with "session not found" is a FAILED attach that looked
+        // like a successful one: resetting the counter on it kept the grace
+        // below at 1 forever - reconnect, resize (404), close, 500 ms, again -
+        // and the expired overlay, which is what the auto-revive waits for,
+        // never came. The counter resets at `replay-end`, the first frame only
+        // a live session sends.
         setStale(false);
         // A banner that lies is worse than one in the wrong language. The
         // "expired" line is written into the SCROLLBACK, so a later successful
@@ -568,6 +576,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return;
             }
             if (msg && msg.type === 'replay-end') {
+              // The attach is real: this frame comes from a live session only.
+              // A close from here on is a drop, not a refusal, and the grace
+              // starts over (see the note in `ws.onopen`).
+              retryCount = 0;
               // The screen the reader was looking at is on screen again, for
               // real this time: the seed has done its job and steps aside, and
               // what it will show NEXT time is written down here.
@@ -627,6 +639,19 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // Clean end — the PTY exited (`exit`, process finished). Not a
           // reconnect candidate; the session drops from the list on its own.
           coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.ended')}]\x1b[0m\r\n`);
+          return;
+        }
+        if (event.code === TERMINAL_WS_CLOSE_DORMANT) {
+          // A VERDICT, not a drop: the server has this session PARKED (row
+          // dormant, PTY gone) and nothing but a revive brings it back. No
+          // grace and no retry - retrying is the loop this code is here to
+          // end. The expired overlay goes up at once; if this pane is the one
+          // being looked at, the revive effect below takes it from there, and
+          // a pane in the background waits for its click (TERM-05).
+          coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.expired')}]\x1b[0m\r\n`);
+          expiredShownRef.current = true;
+          setStale(true);
+          onStale?.();
           return;
         }
         // 1008 ("session not found") or any abnormal close. The PTY bridge
