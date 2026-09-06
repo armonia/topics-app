@@ -411,6 +411,11 @@ progetto, che la sidebar mostra gia'.
 - **WHEN** l'utente clicca su una riga
 - **THEN** il diff di quel file si apre nella pane editor
 
+Le RIGHE dell'elenco non sono di questa striscia: sono il componente condiviso
+descritto da `GIT-FILELIST-01` (lettera di stato, percorso col nome intero,
+conteggi o «bin»), lo stesso che monta il chip di consegna di una card. Qui
+restano il chip, il conteggio, il branch e l'apertura del diff.
+
 ### Requirement: CHAT-TOOL-01 — Lo stato "running" copre l'utilizzo reale del tool
 
 Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la finestra di
