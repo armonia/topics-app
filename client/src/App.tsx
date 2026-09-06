@@ -3,6 +3,7 @@ import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Search } from 'lucide-react';
 import { useGlobalBoard } from './hooks/useGlobalBoard';
+import { useWorktrees } from './hooks/useWorktrees';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
 import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail, type SettingsPanelSection } from './lib/openSettings';
@@ -409,7 +410,9 @@ function App() {
   // (find/jump to a project). The scope is sticky for the open session of
   // the palette and reset by whichever shortcut/button opens it next.
   const [searchScope, setSearchScope] = useState<'all' | 'projects' | 'history'>('all');
-  const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string }>(false);
+  // `worktreeId` rides along from a sidebar worktree section ("New topic in
+  // this worktree"): the dialog opens with that worktree already picked.
+  const [showNewTopic, setShowNewTopic] = useState<false | { projectPath?: string; worktreeId?: string }>(false);
   const [showSettings, setShowSettings] = useState(false);
   // La sezione da cui aprire le Impostazioni, quando si arriva da un punto
   // preciso (la riga dell'identità → Dispositivi). `undefined` = comportamento
@@ -523,6 +526,9 @@ function App() {
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
   const { activeCount: boardTaskCount, byStatus: boardByStatus } = useGlobalBoard(onWSMessage);
+  // Every worktree of the workspace, kept live over WS: the sidebar names a
+  // bound topic's chip and a project's worktree sections from it.
+  const { worktrees } = useWorktrees({ onMessage: onWSMessage });
 
   // topicId → task index for dispatched tasks. Un consumatore solo, e apposta:
   // `useCompletionNotifier` è l'unica porta dei banner. Ci mette dentro il
@@ -1727,6 +1733,8 @@ function App() {
             onArchiveTopic={handleArchiveTopicDeferred}
             onArchiveProject={handleArchiveProjectDeferred}
             onNewTopicInProject={(projectPath) => handleQuickCreateTopic(projectPath)}
+            worktrees={worktrees}
+            onNewTopicInWorktree={(projectPath, worktreeId) => setShowNewTopic({ projectPath, worktreeId })}
             onAddProjectPane={handleAddProjectPane}
             onProjectClick={handleProjectClick}
             stopSession={stopSession}
@@ -2156,6 +2164,7 @@ function App() {
             onClose={() => setShowNewTopic(false)}
             onCreate={handleCreateTopic}
             projectPath={showNewTopic ? showNewTopic.projectPath : undefined}
+            worktreeId={showNewTopic ? showNewTopic.worktreeId : undefined}
             onMessage={onWSMessage}
           />
         </Suspense>
