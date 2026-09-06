@@ -1335,12 +1335,8 @@
     ],
     "client/src/hooks/useWebSocket.ts": [
       "NOMI",
-      "OFFLINE_THRESHOLD_MS",
-      "clearOfflineTimer",
-      "offlineTimerRef",
       "perdiIlFilo",
-      "persa",
-      "startOfflineTimer"
+      "persa"
     ],
     "client/src/lib/api.ts": [
       "ProfiloGitHubClient",
@@ -1855,9 +1851,6 @@
       "buf",
       "calibrating",
       "rms"
-    ],
-    "client/src/main.tsx": [
-      "DYN_IMPORT_FAIL"
     ],
     "client/src/state/attention.test.ts": [
       "PROJ",
@@ -4020,9 +4013,6 @@
     "server/providers/openai.ts": [
       "tcArr"
     ],
-    "server/providers/openclaw.ts": [
-      "offlineStates"
-    ],
     "server/providers/prompt-cache.test.ts": [
       "dopoUna"
     ],
@@ -4708,7 +4698,6 @@
       "tuttiIFileIdentici"
     ],
     "server/services/machine-store.ts": [
-      "markStaleOffline",
       "stmts"
     ],
     "server/services/night-mode.ts": [

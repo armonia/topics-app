@@ -124,7 +124,12 @@ test.describe("Un predicato solo per «quante colonne»", () => {
       // 834 is above 768: this is the grid that has splits.
       expect(await layoutIsMobile(page)).toBe(false);
 
-      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      // The tab of the seeded chat, found by its id and not by
+      // `[draggable="true"]`: on a touch screen the HTML5 drag is switched off
+      // on purpose (its lift competes with the long-press, see `PaneTabBar`),
+      // so that attribute is exactly what a finger never gets - and this proof
+      // runs with a finger. The menu is the thing under test, not the drag.
+      const tab = page.locator('[role="main"]').getByTestId(`pane-tab-${topicId!}`);
       await expect(tab).toBeVisible({ timeout: 15_000 });
       await tab.click({ button: "right" });
 
