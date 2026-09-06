@@ -17,6 +17,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
+import { canonicalTmpRoot } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
@@ -36,9 +37,13 @@ const PNG_1x1 = Buffer.from(
 
 /** Three projects WITH a favicon and names as long as the ones in the
  *  owner's screenshot ("topics-app", "armonia-crm", "edm-contratto"). */
-const WITH_ICON = ["topics-app", "armonia-crm", "edm-contratto"].map((n) => `/tmp/e2e-058-${n}-${STAMP}`);
+// Canonical spelling (`/private/tmp` on macOS): the server serves the project
+// pane under the resolved path, and the board id is the hash of that STRING —
+// so a literal `/tmp` seeds a board the pane never reads.
+const TMP = canonicalTmpRoot();
+const WITH_ICON = ["topics-app", "armonia-crm", "edm-contratto"].map((n) => `${TMP}/e2e-058-${n}-${STAMP}`);
 /** One project WITHOUT a favicon: the "finance" row of the screenshot. */
-const NO_ICON = `/tmp/e2e-058-finance-${STAMP}`;
+const NO_ICON = `${TMP}/e2e-058-finance-${STAMP}`;
 const NO_ICON_BOARD = boardIdForPath(NO_ICON);
 
 const topics: string[] = [];
