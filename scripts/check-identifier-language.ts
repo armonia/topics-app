@@ -122,6 +122,12 @@ export const PROJECT_WORDS = new Set([
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
   "ffmpeg",
+  // The two Unix knobs that lower an agent's priority, in
+  // `server/lib/low-priority.ts`. Same rule as `ffmpeg`: a constant holding
+  // the path of `/usr/bin/renice` or `/usr/sbin/taskpolicy` has to be named
+  // after the binary it runs, or nobody can tell which one is missing when
+  // the spawn fails.
+  "renice", "taskpolicy",
   // Same hole again (2026-09-04): `coordinator` names the global Kanban
   // coordinator throughout the orchestrator feature, and `denied` is the
   // past participle the list stops short of.
