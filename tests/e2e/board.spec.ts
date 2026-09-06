@@ -21,7 +21,7 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -31,7 +31,15 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-board-${Date.now()}`;
+// The REAL directory, never the string reached through a symlink. The server
+// resolves a topic's `projectPath` once, on the way in (`canonicalProjectPath`,
+// commit ec3110f0b) and `projectIdForPath` hashes the STRING: on macOS `/tmp`
+// is a link to `/private/tmp`, so a board addressed as `/tmp/e2e-board-…` and
+// a session bound to the same folder resolved to TWO project ids, and every
+// `/api/sessions/:key/tasks…` call here 404-ed (IDOR guard) — locally only,
+// because the Linux runner has a real `/tmp`. Same folder, same string, both
+// OSes.
+const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-board-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
@@ -709,13 +717,17 @@ test.describe("Kanban board", () => {
     await expect(drawer).not.toBeVisible({ timeout: 5000 });
   });
 
-  test("BOARD-13: a URL in a thread comment is a link that opens OUT, without navigating the app", async ({ page }) => {
+  test("BOARD-13: a URL in a thread comment is a link that opens a TAB of the Topics browser, without navigating the app", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
-    // Regressione: il renderer `a` viveva solo in MessageContent, quindi ogni
-    // altra superficie markdown (commenti della board, descrizione, piano,
-    // divisori di compattazione) cadeva sull'`<a>` di default di react-markdown.
-    // Nella WKWebView del guscio Tauri quel link è morto; su web porta via la
-    // SPA. Ora il default sta in ChatMarkdown, che tutte ereditano.
+    // Regression: the `a` renderer lived only in MessageContent, so every other
+    // markdown surface (board comments, description, plan, compaction dividers)
+    // fell back to react-markdown's default `<a>`. Inside the Tauri shell's
+    // WKWebView that link is dead; on the web it takes the SPA away. The default
+    // now lives in ChatMarkdown, which every surface inherits — and since commit
+    // 8b733b1fb the door is `lib/openLink`: a tab of the Topics browser in the
+    // window the click happened in (here the project window, which claims the
+    // event because the drawer sits under its `data-project-path`), and the
+    // system browser only on Cmd/Ctrl-click.
     const text = `Link task ${Date.now()}`;
     const task = await apiCreateTask(page.request, { text, status: "in_progress" });
     const url = "https://example.org/anteprima";
@@ -726,15 +738,40 @@ test.describe("Kanban board", () => {
     );
     expect(res.status()).toBe(201);
 
-    // `openExternal` su web finisce in window.open: lo si registra invece di
-    // aprirlo davvero, così il click è osservabile senza una finestra vera.
+    // The link door, recorded instead of opened. `openLink` fires the
+    // cancelable `browser:open-tab` event and the surface hosting the tab claims
+    // it; `window.open` remains the fallback when nobody claims, and the door
+    // of Cmd/Ctrl-click. Two lists: `__opened` proves the link WENT THROUGH the
+    // door and with which URL, `__openedExternal` that it did not leave the
+    // app. A capture listener born before the app: it sees the event even when
+    // the claimant consumes it.
     await page.addInitScript(() => {
-      (window as unknown as { __opened: string[] }).__opened = [];
+      const w = window as unknown as { __opened: string[]; __openedExternal: string[] };
+      w.__opened = [];
+      w.__openedExternal = [];
+      window.addEventListener(
+        "browser:open-tab",
+        (e) => { w.__opened.push(String((e as CustomEvent<{ url?: string }>).detail?.url)); },
+        { capture: true },
+      );
       window.open = ((u?: string | URL) => {
-        (window as unknown as { __opened: string[] }).__opened.push(String(u));
+        w.__openedExternal.push(String(u));
         return null;
       }) as typeof window.open;
     });
+    // The tab that is born knocks on the server's browser process three times,
+    // measured in the server log: the `/ws/browser/<contextId>` stream, then
+    // `POST /api/browsers/<contextId>/interact` (the project window pushes the
+    // URL through `onBrowserNavigateUrl`, which LAUNCHES a headless Chromium in
+    // the test server and fetches example.org for real), and the framing probe
+    // `GET /api/browsers/framable?url=…`, another server-side fetch of that
+    // host. The pane's transport is not what this test measures; each door is
+    // answered here, so the server never owns a context (they outlive
+    // `resetPaneStore`, see `closeAllBrowserContexts`) and nothing goes out to
+    // the network.
+    await page.routeWebSocket(/\/ws\/browser\//, () => { /* accepted, never answered */ });
+    await page.route("**/api/browsers/*/interact", (route) => route.fulfill({ json: { ok: true } }));
+    await page.route(/\/api\/browsers\/framable\?/, (route) => route.fulfill({ json: { framable: false } }));
 
     await page.goto("/");
     await openProjectBoard(page);
@@ -748,13 +785,17 @@ test.describe("Kanban board", () => {
     const before = page.url();
     await link.click();
 
-    // Aperto FUORI…
+    // Through the link door, with that URL…
     await expect
       .poll(() => page.evaluate(() => (window as unknown as { __opened: string[] }).__opened), {
         timeout: 5000,
       })
       .toContain(url);
-    // …e la SPA è rimasta dov'era (il preventDefault ha fatto il suo lavoro).
+    // …which opened a browser tab HERE, in the project window, and nothing in
+    // the system browser.
+    await expect(projectWindow(page).locator("[data-browser-pane]")).toBeVisible({ timeout: 10000 });
+    expect(await page.evaluate(() => (window as unknown as { __openedExternal: string[] }).__openedExternal)).toEqual([]);
+    // …and the SPA stayed where it was (the preventDefault did its job).
     expect(page.url()).toBe(before);
     await expect(drawer).toBeVisible();
   });
