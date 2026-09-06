@@ -24,6 +24,7 @@ import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -32,7 +33,7 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const API = `${BASE}/api`;
-const REPO = `/tmp/e2e-scelte-${Date.now()}`;
+const REPO = canonicalTmpDir("e2e-scelte");
 
 const PROJECT_ID = boardIdForPath(REPO);
 

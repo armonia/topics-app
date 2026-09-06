@@ -3,7 +3,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
-import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore } from "./server/lib/provider-hold";
+import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
@@ -3600,6 +3600,12 @@ const opzioniServer = {
       if (holdInForce) {
         inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
       }
+      // Same for the reading behind it: a reload must land on the same row,
+      // and the next event may be minutes away.
+      const usageNow = planUsage();
+      if (usageNow) {
+        inviaIniziale({ type: "provider:usage", fiveHour: usageNow.fiveHour, sevenDay: usageNow.sevenDay, observedAtMs: usageNow.observedAtMs });
+      }
       // v3 foundations WS-02 — handshake welcome (additive; old clients ignore unknown types).
       inviaIniziale({
         type: "welcome",
@@ -5068,6 +5074,15 @@ onProviderHold((hold) => {
   broadcastToAll(hold
     ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
     : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
+});
+
+// And the reading on the way there: how full the window is, said whenever
+// either source speaks (the CLI event, or a usage read the retry loop already
+// made). The status bar shows it long before anything stops.
+onPlanUsage((usage) => {
+  broadcastToAll(usage
+    ? { type: "provider:usage", fiveHour: usage.fiveHour, sevenDay: usage.sevenDay, observedAtMs: usage.observedAtMs }
+    : { type: "provider:usage", fiveHour: null, sevenDay: null, observedAtMs: Date.now() });
 });
 
 // A HOLD MUST BE ABLE TO END ON ITS OWN. The memo is cleared by a successful
