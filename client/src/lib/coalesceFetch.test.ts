@@ -105,11 +105,15 @@ describe('coalescedFetch — one request per URL in flight', () => {
     const a = c.fetch('/api/browsers/engines', undefined, { ttlMs: 2000 });
     const b = c.fetch('/api/browsers/engines', undefined, { ttlMs: 2000 });
     expect(net.calls.length).toBe(1);
-    // Both expectations are armed BEFORE the failure: a rejection nobody is
-    // listening to yet is reported as unhandled by the runner.
-    const failures = Promise.all([expect(a).rejects.toThrow('offline'), expect(b).rejects.toThrow('offline')]);
+    // Both handlers are attached BEFORE the failure: a rejection nobody is
+    // listening to yet is reported as unhandled by the runner. Plain `.then`
+    // handlers and not `expect().rejects`: on bun 1.3.8 the latter, armed on a
+    // promise that is still pending, never settled and the run spun at 100% CPU
+    // (measured 2026-09-06 with this very test).
+    const outcome = (p: Promise<Response>) => p.then(() => 'answered', (e: Error) => e.message);
+    const failures = Promise.all([outcome(a), outcome(b)]);
     net.fail(new Error('offline'));
-    await failures;
+    expect(await failures).toEqual(['offline', 'offline']);
     void c.fetch('/api/browsers/engines', undefined, { ttlMs: 2000 });
     expect(net.calls.length).toBe(2);
     net.answer('{}');
