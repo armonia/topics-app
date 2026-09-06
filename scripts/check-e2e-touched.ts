@@ -241,7 +241,7 @@ export function selectSpecs(
  * named after that worktree, stable across runs so the copy is reused.
  */
 export function ownBundleDir(
-  env: { TOPICS_E2E_BUNDLE_DIR?: string },
+  env: { TOPICS_E2E_BUNDLE_DIR?: string; [key: string]: string | undefined },
   gitDir: string,
   gitCommonDir: string,
   tmp: string,
