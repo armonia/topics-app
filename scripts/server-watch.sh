@@ -97,9 +97,22 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
         BOOT_NOW=$(stat -f %m "$DSTATE_BOOT" 2>/dev/null || echo 0)
         if [ "$BOOT_NOW" != "${BOOT_SEEN:-}" ]; then
           BOOT_SEEN=$BOOT_NOW
-          LAST_HASH=$(src_hash)
-          echo "[start-prod] server (ri)partito alle $(date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
-          continue
+          #    ...unless the tree has MOVED SINCE that boot. The event that wakes
+          #    this loop can be the very edit the server did not load: on
+          #    2026-09-06 a land merged two migrations 71 s after a boot, the
+          #    fresh hash read here already contained them, and the guard
+          #    declared them "already loaded" — the server ran the old code
+          #    with no restart pending and the live DB never got its columns.
+          #    A file newer than the boot stamp cannot have been loaded by it:
+          #    when there is one, the impronta is NOT re-read, so the normal
+          #    comparison below sees the change and asks the restart.
+          _newer=$(cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -newer "$DSTATE_BOOT" 2>/dev/null | head -1)
+          if [ -z "$_newer" ]; then
+            LAST_HASH=$(src_hash)
+            echo "[start-prod] server (ri)partito alle $(date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
+            continue
+          fi
+          echo "[start-prod] server (ri)partito alle $(date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null), ma sotto server/ c'e' gia' qualcosa di piu' nuovo del boot (es. $_newer): l'impronta non si rilegge, si confronta"
         fi
         # 2. L'impronta del contenuto: uguale a quella dell'ultimo avvio (o
         #    dell'ultimo reload chiesto) significa che il server gira GIA' su
