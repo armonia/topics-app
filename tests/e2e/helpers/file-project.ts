@@ -53,8 +53,16 @@ export type FileProject = {
  * `realpathSync` on a missing path throws.
  */
 export function canonicalTmpDir(prefix: string): string {
-  const root = (() => { try { return realpathSync("/tmp"); } catch { return "/tmp"; } })();
-  return `${root}/${prefix}-${Date.now()}`;
+  return `${canonicalTmpRoot()}/${prefix}-${Date.now()}`;
+}
+
+/**
+ * The temp root under the spelling the server uses (`/private/tmp` on macOS).
+ * For specs that build several project folders at once and need the root
+ * itself, not one named folder.
+ */
+export function canonicalTmpRoot(): string {
+  try { return realpathSync("/tmp"); } catch { return "/tmp"; }
 }
 
 /**
