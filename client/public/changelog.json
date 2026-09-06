@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.2.272",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La corsia remota pesa 529 righe sul dispatcher, e la baseline lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La colonna del nodo entra nel cancello che pretende ogni campo pieno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del watcher aspetta l'evento fino a 30 s: a nice 15 sotto carico, 6 s erano un rosso senza colpa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il budget del watcher si allunga col carico, come gia' fa il timeout esterno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il watcher non da' per caricato cio' che e' piu' nuovo del boot: il merge arrivato dopo il riavvio chiede il suo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.271",
+    "date": "2026-09-06",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il file temporaneo del messaggio di commit non e' parte della consegna",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.270",
     "date": "2026-09-06",
     "sections": {
@@ -44,6 +96,11 @@
           "scope": null
         },
         {
+          "it": "La corsia remota: una card scelta per un nodo gira la', e il tetto qui non la paga",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il nome della promessa dice cosa contiene, non da che file viene",
           "en": "",
           "scope": null
@@ -75,6 +132,21 @@
         },
         {
           "it": "renice e taskpolicy sono nomi di binari, la frase italiana e una citazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The node a card runs on is visible where it is chosen and where the board is read",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A silent node says so on the card, and an end-to-end test can reach that state",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The remote-lane test speaks English, comments and names included",
           "en": "",
           "scope": null
         },
@@ -196,6 +268,11 @@
           "scope": null
         },
         {
+          "it": "Una card puo' dichiarare SU QUALE macchina gira, e la macchina sa dove risponde",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Uno spawn puo' chiedere una cartella sua, e il padre si sente dire quale ramo",
           "en": "",
           "scope": null
@@ -227,6 +304,11 @@
         },
         {
           "it": "Due figli scrivono lo stesso file e non si sovrascrivono: la prova su un repo vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nodo si accoppia come un dispositivo, e sa ricevere una card nata altrove",
           "en": "",
           "scope": null
         }
