@@ -2213,6 +2213,12 @@ function App() {
               if (opened) handleClosePanel(contextMenu.topic.id);
             });
           }}
+          // The SAME command the composer and the row rail fire, not a third
+          // path: the menu row exists because the rail does not reveal itself
+          // to a finger (see `onStopStreaming` in ContextMenu).
+          onStopStreaming={contextMenu.topic.isGlobalOrchestrator ? undefined : () => {
+            void stopSession(contextMenu.topic.sessionKey);
+          }}
         />
       )}
 

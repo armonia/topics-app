@@ -2592,26 +2592,33 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 .animate-orbit-breath { animation: orbit-breath 2.4s ease-in-out infinite; }
 
-/* THE TIME THAT IS PASSING RIGHT NOW, painted like the loader that goes with it.
+/* THE TIME THAT IS PASSING RIGHT NOW, told by MOTION and not by colour.
  *
  * Two durations sit on these surfaces and they answer opposite questions: "it
  * has been going for 12m" (running, the number grows while you look at it) and
- * "it answered 12m ago" (finished, the number is a receipt). Rendered in the
- * same grey they were indistinguishable, and the card asked for exactly that
- * distinction. So the live one takes the loader's colour and the loader's
- * motion — the primary, sweeping — and the finished one stays quiet grey.
+ * "it answered 12m ago" (finished, the number is a receipt). In the same static
+ * grey they were indistinguishable, and telling them apart is what this class
+ * is for.
  *
- * Same `shimmer` keyframe as the turn phrase in the chat, so the app has ONE
- * moving-text idiom rather than two. Paused with everything else when the
- * window is in the background (`.anims-paused`). */
+ * IT USED TO BE BLUE, and the blue is gone. It was the primary sweeping across
+ * the digits, which made the distinction twice — once with movement, once with
+ * a hue — and the hue was the half that cost. Blue is this app's 'done' tier
+ * (TIER_DONE_BG): a running number wearing the colour of finished work says the
+ * opposite of what it is, and next to an amber 'your move' fill you got three
+ * colours on one row for two states. The sweep alone already separates them,
+ * because a receipt never moves.
+ *
+ * So the ink is the normal text ink and the shimmer travels through it: muted
+ * at the edges, full text colour at the crest, exactly the ramp
+ * `.turn-activity-phrase` uses on the turn line in the chat. Same `shimmer`
+ * keyframe too, so the app has ONE moving-text idiom rather than two. Paused
+ * with everything else when the window is in the background (`.anims-paused`). */
 .time-live {
   background-image: linear-gradient(
     100deg,
-    color-mix(in srgb, var(--primary) 45%, transparent) 0%,
-    color-mix(in srgb, var(--primary) 45%, transparent) 34%,
-    var(--primary) 50%,
-    color-mix(in srgb, var(--primary) 45%, transparent) 66%,
-    color-mix(in srgb, var(--primary) 45%, transparent) 100%
+    var(--text-muted) 0%, var(--text-muted) 34%,
+    var(--text) 50%,
+    var(--text-muted) 66%, var(--text-muted) 100%
   );
   background-size: 220% 100%;
   -webkit-background-clip: text;
@@ -2626,12 +2633,15 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
      travel becomes a shape instead of a time. */
   .animate-orbit-spin { animation: none; transform: rotate(112deg); }
   .animate-orbit-breath { animation: none; opacity: 0.9; }
-  /* The live time keeps its colour — that is the part that distinguishes it
-     from the finished one — and loses only the sweep. */
+  /* Without motion the only thing left to separate a running number from a
+     receipt is weight, so the live one settles on the FULL text ink while the
+     receipt stays in its own quiet tone. Not the primary: the colour left this
+     class for the reason written above it, and it does not come back through
+     the side door of a media query. */
   .time-live {
     animation: none;
-    -webkit-text-fill-color: var(--primary);
-    color: var(--primary);
+    -webkit-text-fill-color: var(--text);
+    color: var(--text);
   }
 }
 

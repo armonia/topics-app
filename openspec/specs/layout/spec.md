@@ -515,6 +515,45 @@ RITMO, non solo come attributo: un esito verde non la dimostra a nessuno.
 - **GIVEN** più sessioni
 - **THEN** SHALL essere raggruppate per chi aspetta e chi lavora
 
+### Requirement: CHROME-12 — Prima si ferma, poi si chiude, e il segnale di lavoro sta in coda
+
+Il binario dei comandi in coda a una superficie di riga — una scheda della barra,
+una riga della barra laterale — SHALL mostrare, quando un turno sta lavorando,
+DUE comandi in quest'ordine: FERMARE il turno e poi CHIUDERE la superficie.
+Fermare SHALL precedere chiudere sia nel DOM sia sullo schermo: chiudere una
+scheda il cui turno è ancora vivo è la seconda metà dello stesso pensiero, mai la
+prima. Senza un turno vivo il binario SHALL mostrare il solo comando di chiusura.
+
+Il comando di stop SHALL essere lo STESSO del compositore della chat: un secondo
+percorso per fermare un turno è un secondo modo di fermarlo a metà.
+
+L'ordine dei segnali in coda SHALL essere unico per le due superfici — pallino
+delle notifiche, poi il fissaggio, poi il tempo, e il glifo di caricamento
+ULTIMO, nello stesso slot del comando di chiusura. Il fissaggio NON SHALL stare
+fra il caricamento e il tempo.
+
+Il glifo di caricamento SHALL essere UNO per tutte le superfici e SHALL venire
+dal set di icone del prodotto: mai un'emoji, mai un disegno di questa sola
+superficie.
+
+Un tempo che SCORRE SHALL distinguersi da un tempo FINITO per il MOVIMENTO, non
+per la tinta: il numero vivo SHALL restare nell'inchiostro normale del testo e
+SHALL conservare la propria animazione.
+
+#### Scenario: la scheda che streama
+- **GIVEN** una scheda di chat con un turno in corso
+- **WHEN** ci si passa sopra col mouse o ci si arriva da tastiera
+- **THEN** SHALL comparire Ferma e poi Chiudi, in quest'ordine da sinistra a destra
+
+#### Scenario: la scheda ferma
+- **GIVEN** una scheda senza turno in corso
+- **THEN** il binario SHALL mostrare il solo comando di chiusura
+
+#### Scenario: fermare e poi chiudere
+- **GIVEN** una scheda con un turno in corso
+- **WHEN** si preme Ferma
+- **THEN** il turno SHALL terminare e la scheda SHALL restare aperta e chiudibile
+
 ### Requirement: PANE-01 — Il crollo di UNA superficie non porta giù le altre
 
 Ogni superficie della griglia SHALL avere il PROPRIO recinto d'errore. Con un

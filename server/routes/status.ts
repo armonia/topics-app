@@ -193,6 +193,10 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         return json({ ok: false, error: "Restart is only supported with the OpenClaw provider" }, 404);
       }
       try {
+        // runtime-dep-ok: an OPTIONAL third-party integration, reachable only
+        // from a button that the guard above already restricts to installations
+        // whose provider IS OpenClaw. Nothing in Topics needs it; if the binary
+        // is absent this one route answers with the spawn error.
         const proc = Bun.spawn(["openclaw", "gateway", "restart"], {
           stdout: "pipe",
           stderr: "pipe",
