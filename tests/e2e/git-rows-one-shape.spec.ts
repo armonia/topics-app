@@ -17,7 +17,7 @@
 import { expect, type Page } from '@playwright/test';
 import { test } from './fixtures/chat.fixture';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
+import { createTopic, deleteTopic } from './helpers/api-fixtures';
 import { seedMessage } from './helpers/seed-messages';
 import { projectRow } from './helpers/project-row';
 import { E2E_BASE } from './helpers/test-server';
@@ -127,16 +127,16 @@ async function rowsOf(scope: ReturnType<Page['locator']>): Promise<string[]> {
 
 test.describe('la stessa lista di file su due superfici', () => {
   test('la striscia della chat e il chip della card disegnano le stesse righe', async ({ page }) => {
+    // BOTH SURFACES LIVE IN THE PROJECT WINDOW, and that is not a shortcut: a
+    // topic bound to a project is nested under it, so its pane lives in the
+    // project's own store and neither its `treeitem` nor its `pane-tab`
+    // resolves in the main window (measured: three runs waiting 30s each).
+    await openProjectWindow(page);
+
     // ── SURFACE ONE: the strip above the composer.
-    //
-    // Reached by PERMALINK, not from the sidebar: a topic bound to a project is
-    // nested under that project, so neither its `treeitem` nor its `pane-tab`
-    // resolves at the top level (measured: two runs, 30s of waiting each).
-    await resetPaneStore(page.request, [topicId]);
-    const opened = await page.goto(`/tab/chat/${topicId}`);
-    expect(opened?.status(), 'the permalink has to be addressable by the server').toBe(200);
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 20_000 });
-    await expect(page.getByTestId(`pane-tab-${topicId}`)).toBeVisible({ timeout: 20_000 });
+    const topicRow = page.getByRole('treeitem', { name: new RegExp(`git-rows-${STAMP}`) });
+    await expect(topicRow.first()).toBeVisible({ timeout: 20_000 });
+    await topicRow.first().click();
 
     const chip = page.getByTestId('chat-changes-chip');
     await expect(chip).toBeVisible({ timeout: 20_000 });
@@ -149,7 +149,7 @@ test.describe('la stessa lista di file su due superfici', () => {
     expect(chatRows).toEqual([`A ${ADDED}`, `M ${MODIFIED}`]);
 
     // ── SURFACE TWO: the delivery chip of the card, same repository.
-    await openBoard(page);
+    await openBoardPane(page);
     const card = page.locator(`[data-task-card="${taskId}"]`);
     await expect(card).toBeVisible({ timeout: 20_000 });
     const toggle = card.getByTestId('card-delivery-files-toggle');
@@ -164,8 +164,8 @@ test.describe('la stessa lista di file su due superfici', () => {
   });
 });
 
-/** Open the project's board pane, from the sidebar. */
-async function openBoard(page: Page): Promise<void> {
+/** Open the project's own window, where both surfaces live. */
+async function openProjectWindow(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
   const section = page.getByRole('button', { name: /sezione Progetti/ });
@@ -174,7 +174,10 @@ async function openBoard(page: Page): Promise<void> {
   await expect(row).toBeVisible({ timeout: 20_000 });
   await row.click();
   await expect(page.getByTestId('project-window')).toBeVisible({ timeout: 20_000 });
+}
 
+/** Add the board pane to the open project window. */
+async function openBoardPane(page: Page): Promise<void> {
   const triggers = page.getByTestId('pane-add-menu-trigger');
   const entry = page.getByTestId('pane-add-menu-kanban');
   for (let i = (await triggers.count()) - 1; i >= 0; i--) {
