@@ -333,6 +333,8 @@ const IT: Dict = {
   'notif.focus.blurb': 'Non riusciamo a leggere lo stato del Focus / Non disturbare, quindi i banner arrivano anche mentre è attivo: su macOS quel dato è protetto.',
   'notif.focus.grant': "Concedi l'accesso completo al disco",
   'notif.focus.thenRestart': ", poi riavvia Topics: il permesso si legge all'avvio del processo.",
+  'notif.perm.request': 'Concedi il permesso',
+  'notif.perm.openSettings': 'Apri Impostazioni di Sistema',
   'notif.muted.title': 'Silenziati',
   'notif.muted.blurb': "Questi progetti non fanno arrivare banner né suono quando un agente finisce. Contano lo stesso nel badge dell'app: a sparire è l'interruzione, non il conteggio.",
   'notif.muted.unmute': 'Riattiva le notifiche per questo progetto',
