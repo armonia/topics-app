@@ -1,18 +1,18 @@
 /**
- * LA CHAT DI UN TASK SI LEGGE PER DECIDERE.
+ * THE CHAT OF A TASK IS READ TO DECIDE.
  *
- * Chi apre la sessione di un task non la legge come una conversazione: la legge
- * per approvare. Le parole dell'agente, le sue domande e le consegne sono la
- * decisione; le dieci azioni che le hanno prodotte sono la prova, ed erano il
- * grosso della pagina.
+ * Whoever opens the session of a task does not read it as a conversation: they
+ * read it to approve. The agent's words, its questions and its deliveries are
+ * the decision; the ten actions that produced them are the proof, and they were
+ * most of the page.
  *
- * Questa spec semina la forma vera del transcript (un messaggio per azione,
- * senza prosa, come la scrive l'importer) dentro una sessione LEGATA a un task,
- * e pretende tre cose: la corsa chiusa dietro una riga di riepilogo, la prosa e
- * la domanda sempre in chiaro, e le stesse righe di prima al primo clic.
+ * This spec seeds the real shape of a transcript (one message per action, no
+ * prose, the way the importer writes it) inside a session BOUND to a task, and
+ * demands three things: the run behind one summary row, prose and question
+ * always in plain sight, and the very same rows back at the first click.
  *
- * Il quarto caso e' quello che protegge tutto il resto: la stessa semina in una
- * chat NON di task non deve cambiare di una virgola.
+ * The last case protects all the others: the same seed in a chat that is NOT a
+ * task session must not change by one comma.
  *
  * @covers CHAT-TOOL-06
  */
@@ -36,8 +36,8 @@ const PROJECT_ID = projectIdForPath(PROJECT_PATH);
 
 type Req = import("@playwright/test").APIRequestContext;
 
-/** La domanda che ferma il turno: e' la cosa che NON deve finire ripiegata. */
-const DOMANDA = {
+/** The question that stops the turn: the one thing that must NEVER fold. */
+const HUMAN_QUESTION = {
   question: "DOMANDA-ALL-UMANO: lando su main?",
   header: "Scelta",
   options: [{ label: "Landa su main" }, { label: "Aspetta" }],
@@ -56,7 +56,7 @@ const ACTIONS = [
   { name: "Read", args: { file_path: "/repo/src/e.ts" } },
 ];
 
-/** La sessione dell'agente, seminata come la scrive il transcript vero. */
+/** The agent's session, seeded the way a real transcript writes it. */
 async function seedSession(request: Req, sessionKey: string, prefix: string) {
   await seedMessage(request, { sessionKey, role: "user", content: "sistema il modulo" });
   for (const [i, a] of ACTIONS.entries()) {
@@ -83,14 +83,14 @@ async function seedSession(request: Req, sessionKey: string, prefix: string) {
     toolCalls: [{
       id: `${prefix}-ask`,
       name: "mcp__topics__ask_user_question",
-      args: { questions: [DOMANDA] },
+      args: { questions: [HUMAN_QUESTION] },
       status: "waiting_for_input",
-      userInputSchema: { kind: "questions", questions: [{ ...DOMANDA, multiSelect: false }] },
+      userInputSchema: { kind: "questions", questions: [{ ...HUMAN_QUESTION, multiSelect: false }] },
     }],
   });
 }
 
-/** Lega il task al topic dell'agente come fa il dispatcher. */
+/** Binds the task to the agent's topic, the way the dispatcher does. */
 async function bindTopic(request: Req, taskId: string, topicId: string) {
   const res = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/bind-topic`, {
     data: { topicId, dispatchState: "working" },
@@ -115,8 +115,8 @@ test.describe("Il lavoro dell'agente in una chat di task", () => {
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(SHOTS, { recursive: true });
-    // La cartella del progetto: senza, la board del task non ha un posto a cui
-    // appartenere e la scheda non compare fra le colonne.
+    // The project folder: without it the task's board has nowhere to belong
+    // and the card never shows up in the columns.
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-workfold" }));
     taskTopicName = `work-fold-task-${STAMP}`;
@@ -142,57 +142,57 @@ test.describe("Il lavoro dell'agente in una chat di task", () => {
     for (const id of [plainTopicId, taskTopicId]) if (id) await deleteTopic(request, id);
   });
 
-  // Una pane per volta: con due chat aperte insieme la riga della scheda
-  // dell'una si vedrebbe mentre si guarda l'altra, ed e' esattamente cio' che
-  // il secondo caso deve poter negare.
+  // One pane at a time: with two chats open together the task strip of one
+  // would be on screen while looking at the other, which is exactly what the
+  // last case has to be able to deny.
 
   test("dieci azioni stanno dietro UNA riga chiusa, e la prosa e la domanda restano in chiaro", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-06" });
     await resetPaneStore(request, [taskTopicId]);
     await openChat(page, taskTopicName);
-    // La riga di ritorno alla scheda dice che questa chat e' la sessione di un
-    // task: senza, il ripiegamento non deve nemmeno accendersi.
+    // The strip back to the card is what says this chat is the session of a
+    // task: without it the fold must not even switch on.
     await expect(page.getByTestId("chat-task-card-strip")).toBeVisible({ timeout: 20_000 });
 
     const fold = page.getByTestId("task-work-accordion");
     await expect(fold, "la corsa deve produrre un accordion solo").toHaveCount(1, { timeout: 15_000 });
     await expect(fold).toHaveAttribute("data-open", "false");
-    // Il riepilogo vale la piega: quante azioni, cosa e' stato fatto, quanto e'
-    // durato, quanti file sono stati scritti.
+    // The summary is what makes the fold worth it: how many actions, what was
+    // done, how long it took, how many files were written.
     await expect(fold).toHaveAttribute("data-actions", "10");
     const summary = fold.getByTestId("task-work-summary");
     await expect(summary).toContainText("10");
     await expect(summary).toContainText("Read");
     await expect(fold.getByTestId("task-work-duration")).toBeVisible();
-    // Tre file SCRITTI (a.ts, b.ts, d.ts): i letti non sono file toccati.
+    // Three files WRITTEN (a.ts, b.ts, d.ts): a file only read is not touched.
     await expect(fold.getByTestId("task-work-files")).toContainText("3");
     await didascalia(page, "Dieci azioni dietro una riga sola");
     await beat(page);
 
-    // Chiuso: nessuna delle dieci righe per-azione e' a schermo. La riga della
-    // DOMANDA (`wf-ask`) e' fuori dal conto apposta: non si piega mai.
+    // Closed: none of the ten per-action rows is on screen. The question row
+    // (`wf-ask`) is out of the count on purpose: it never folds.
     for (let i = 0; i < ACTIONS.length; i++) {
       await expect(page.getByTestId(`tool-call-row-wf-${i}`)).toHaveCount(0);
     }
     await expect(page.getByTestId("tool-call-row-wf-ask")).toBeVisible();
 
-    // Le parole restano: la prosa e la domanda non si piegano mai. Nel
-    // transcript, non nella sidebar (che dell'ultimo messaggio fa l'anteprima).
+    // The words stay. In the transcript, not in the sidebar, which makes a
+    // preview out of the last message and would match twice.
     const transcript = page.getByTestId("virtuoso-item-list");
     await expect(transcript.getByText("PROSA-DELL-AGENTE", { exact: false })).toBeVisible();
-    // La domanda con il suo pannello di risposta, aperto e cliccabile.
+    // The question with its answer panel, open and clickable.
     await expect(page.getByTestId("tool-input-form-wf-ask")).toContainText("DOMANDA-ALL-UMANO");
 
     await page.screenshot({ path: join(SHOTS, "chiuso.png") });
     await didascalia(page, "La prosa e la domanda restano in chiaro");
     await beat(page);
 
-    // Al clic torna tutto, righe per-azione comprese.
+    // One click and everything is back, per-action rows included.
     await didascalia(page, "Un clic, e il lavoro torna tutto");
     await summary.click();
     await expect(fold).toHaveAttribute("data-open", "true");
-    const gruppo = fold.getByTestId("tool-group-summary");
-    if (await gruppo.count()) await gruppo.first().click();
+    const group = fold.getByTestId("tool-group-summary");
+    if (await group.count()) await group.first().click();
     for (let i = 0; i < ACTIONS.length; i++) {
       await expect(page.getByTestId(`tool-call-row-wf-${i}`)).toBeVisible();
     }
@@ -204,13 +204,13 @@ test.describe("Il lavoro dell'agente in una chat di task", () => {
     test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-06" });
     await resetPaneStore(request, [taskTopicId]);
     await goToApp(page);
-    // La board globale: la scheda vive su un progetto di /tmp, non su una
-    // finestra di progetto aperta.
+    // The global board: the card lives on a /tmp project, not on an open
+    // project window.
     await page.getByTestId("pane-add-menu-trigger").first().click();
     await page.getByTestId("pane-add-menu-board").click();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20_000 });
-    // Dentro la board: lo stesso testo vive anche sulla riga di ritorno della
-    // chat, che qui sta dietro e non e' cliccabile.
+    // Inside the board: the same text also lives on the chat's task strip,
+    // which here sits behind and is not clickable.
     const card = page.getByTestId("kanban-board").getByText(`Rifinitura conversazione ${STAMP}`).first();
     await card.scrollIntoViewIfNeeded();
     await card.click();
@@ -227,8 +227,8 @@ test.describe("Il lavoro dell'agente in una chat di task", () => {
     await resetPaneStore(request, [plainTopicId]);
     await openChat(page, plainTopicName);
     await expect(page.getByTestId("chat-task-card-strip")).toHaveCount(0);
-    // La riga di gruppo dei tool (CHAT-TOOL-02) e' il comportamento storico e
-    // resta: quello che non c'e' e' il ripiegamento per turno.
+    // The tool group row (CHAT-TOOL-02) is the historical behaviour and it
+    // stays: what is absent here is the per-turn fold.
     await expect(page.getByTestId("tool-group-row").first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("task-work-accordion")).toHaveCount(0);
     await expect(page.getByTestId("virtuoso-item-list").getByText("PROSA-DELL-AGENTE", { exact: false })).toBeVisible();
