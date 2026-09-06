@@ -368,3 +368,9 @@ CONSEGNA-*.md
 
 # Alzato da check:deadcode-blindspots mentre riscrive i sorgenti; letto da scripts/server-watch.sh
 .topics-reload-hold
+# coverage-vs-competitors.md e' la mappa datata di cosa hanno Claude Code,
+# Codex, Cursor e Conductor e noi no, con la prova accanto a ogni riga (uno spec
+# id o un file). Serve committata per due motivi: si rilegge fra sei mesi per
+# vedere quanto e' invecchiata, e le card di backlog che ne escono la citano per
+# id. Su un disco solo sarebbe l'opinione di una sera.
+!docs/coverage-vs-competitors.md
