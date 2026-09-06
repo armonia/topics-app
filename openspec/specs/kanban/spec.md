@@ -3250,3 +3250,80 @@ in it/en.
 #### Scenario: una card done non ha code
 - **GIVEN** un commento umano su una card `done` senza busta
 - **THEN** nessun chip
+
+### Requirement: KANBAN-75 — Il tetto sa contare gli agenti O misurare la macchina, e sono due domande diverse
+
+Il freno globale del dispatch SHALL avere DUE modalità, e la scelta fra le due
+SHALL essere esplicita e persistente per macchina (riga riservata
+`board_settings['*']`, la stessa del tetto di oggi).
+
+1. **Per numero** (`count`) — quella di sempre, e SHALL restare il DEFAULT:
+   quanti agenti insieme (`auto`, numero fisso, nessun tetto).
+2. **Per risorse** (`resources`) — quanto di questa macchina possono prendersi:
+   un agente nuovo SHALL partire solo se la pressione sta sotto DUE soglie,
+   `load1 / core` e `memoria usata / totale`. In questa modalità il tetto
+   NUMERICO non si applica: è l'alternativa, non un secondo freno sovrapposto.
+
+Perché non è l'`auto` di oggi sotto un altro nome: `auto` guarda apposta soltanto
+il carico NOSTRO, perché una flotta che frena sul carico dell'intera macchina
+frena su sé stessa e si stabilizza a un agente (misurato il 12/08/2026, e il
+perché sta in testa a `server/services/dispatch-capacity.ts`). Questa modalità
+guarda la macchina INTERA, browser e videochiamata di chi ci lavora sopra
+compresi, perché esiste per tenerla usabile. È la politica opposta, dichiarata,
+ed è esattamente il motivo per cui è opt-in.
+
+**L'ECCEZIONE, e sta nel contratto.** A zero agenti vivi si ammette SEMPRE, per
+quanto carica sia la macchina, e il verdetto lo DICHIARA (`firstAgentExempt`).
+Senza, chi lavora sul proprio Mac tiene la soglia superata da solo, la coda non
+parte mai, e il modo in cui lo si scopre è che qualcuno guarda dodici card ferme
+e conclude che il dispatcher è rotto.
+
+**Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
+il pavimento) vale in ENTRAMBE le modalità e vince sulla pressione: un disco
+pieno non si riassorbe da solo, il carico sì. Per questo il motivo di coda della
+pressione è un tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
+(`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
+una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
+non dire.
+
+**I colori sono un giudizio sulla SOGLIA, non la temperatura della macchina.**
+Una soglia si sbaglia in DUE versi: troppo bassa e la coda non parte mai, troppo
+alta e la macchina è già inusabile quando il freno morde. Verde è la fascia
+consigliata in mezzo, giallo la fascia usabile fuori dal consiglio, rosso i due
+estremi. La misura VIVA si colora invece contro la soglia scelta
+(`livePressureBand`), che è una terza domanda: quanto manca prima di aspettare.
+
+**Le impostazioni della board stanno in UN dropdown**, ancorato al ⚙ della
+toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
+flip/clamp, Escape, esclusività fra popover). Resta valido KANBAN-12: una sola
+porta alle impostazioni, e nessuna riga sotto la toolbar.
+
+MISURA: `shared/dispatch-pressure.test.ts` per la funzione pura (i due assi, il
+confine inclusivo, la sonda di memoria assente, l'esenzione del primo agente, le
+tre fasce di colore); test di integrazione del dispatcher con carico iniettato
+per i due versi; e2e sul dropdown (apertura, cambio modalità, persistenza al
+ricarico).
+
+#### Scenario: sopra la soglia il secondo agente aspetta
+- **GIVEN** la modalità «per risorse» con soglia di carico 0,9
+- **AND** un agente già in volo su una macchina a load 11 su 10 core
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** nessun dispatch nuovo parte
+- **AND** le card in coda portano il motivo `resource_pressure` con i numeri, e il tono dice che riparte da sola
+
+#### Scenario: a coda vuota il primo parte comunque
+- **GIVEN** la stessa macchina carica e ZERO agenti vivi
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** un agente parte, e il verdetto dichiara l'esenzione invece di sostenere che la macchina è libera
+
+#### Scenario: la memoria non misurata non blocca niente
+- **GIVEN** una macchina dove la sonda della memoria risponde `null`
+- **THEN** il verdetto SHALL guardare il solo carico: «non lo so» non è «zero»
+
+#### Scenario: «per numero» non cambia comportamento
+- **GIVEN** la modalità di default
+- **THEN** il tetto resta quello di prima e nessuna soglia di pressione entra nella decisione
+
+#### Scenario: una soglia fuori scala si stringe, non si rifiuta
+- **GIVEN** un valore scritto fuori dai limiti, o illeggibile
+- **THEN** vale il limite (o il default), e il numero mostrato è quello applicato

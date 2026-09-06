@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   closeAllPopovers,
+  descendantPopoverNodes,
   openPopoverCount,
   popoversToClose,
   registerOpenPopover,
@@ -160,6 +161,36 @@ describe('il registro degli aperti', () => {
     registerOpenPopover(popover({ nodes: () => ['panel-excl' as unknown as Node] }));
     registerOpenPopover(popover({ exclusive: false, nodes: () => [panel] }));
     expect(subSurfaceNodes()).toEqual([panel]);
+  });
+
+  it('descendantPopoverNodes: un popover il cui trigger sta dentro il pannello dato è un FIGLIO', () => {
+    // A `Select` inside the settings dropdown: its trigger lives in the
+    // dropdown's panel, its own panel does not (portal). For the parent it has
+    // to count as "inside", even though the child is `exclusive` (on purpose:
+    // it evicts its siblings).
+    const parentPanel = { contains: (n: unknown) => n === childTrigger } as unknown as Node;
+    const childTrigger = { contains: () => false } as unknown as Node;
+    const childPanel = { contains: () => false } as unknown as Node;
+    const parent = popover({ nodes: () => [parentPanel] });
+    registerOpenPopover(parent);
+    registerOpenPopover(popover({ trigger: () => childTrigger, nodes: () => [childTrigger, childPanel] }));
+    expect(descendantPopoverNodes(parent)).toEqual([childTrigger, childPanel]);
+    // And the parent stays open: the registry knew that already.
+    expect(openPopoverCount()).toBe(2);
+  });
+
+  it('descendantPopoverNodes: un fratello, o se stesso, non è un figlio', () => {
+    // A popover's refs may include a container of its OWN trigger
+    // (`extraRefs`): by geometry it would count as its own child, and a popover
+    // that is its own child never closes on Escape again. The comparison is by
+    // entry identity, not by containment.
+    const myTrigger = { contains: () => false } as unknown as Node;
+    const myWrapper = { contains: (n: unknown) => n === myTrigger } as unknown as Node;
+    const strangerTrigger = { contains: () => false } as unknown as Node;
+    const me = popover({ trigger: () => myTrigger, nodes: () => [myTrigger, myWrapper] });
+    registerOpenPopover(me);
+    registerOpenPopover(popover({ exclusive: false, trigger: () => strangerTrigger, nodes: () => [strangerTrigger] }));
+    expect(descendantPopoverNodes(me)).toEqual([]);
   });
 
   it('closeAllPopovers svuota il registro e chiude tutti, sotto-superfici comprese', () => {

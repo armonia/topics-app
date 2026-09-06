@@ -82,10 +82,19 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch }: {
   );
 }
 
-/** The shell both panels share, so the general board's settings cannot drift
- *  into looking like a different kind of surface. */
+/**
+ * The shell both panels share, so the general board's settings cannot drift
+ * into looking like a different kind of surface.
+ *
+ * It is the BODY of a dropdown now, not a band under the toolbar (KANBAN-75,
+ * and KANBAN-12 before it: no line under the bar). The surface, border and
+ * shadow come from the `Menu` that hosts it, so none are declared here; what
+ * this owns is the reading width, the ceiling and the scroll. The width is a
+ * `max-w` and not a `w`: the host panel shrinks to fit, and on the phone the
+ * `Menu` becomes a full-width sheet this must not narrow.
+ */
 export const SETTINGS_PANEL_SHELL =
-  'shrink-0 space-y-2 border-b border-app-border bg-app-inset px-3 py-2.5 text-xs text-app-text-heading';
+  'mx-auto w-full max-w-[400px] space-y-2 overflow-y-auto overscroll-contain px-3 py-2.5 text-xs text-app-text-heading max-h-[min(70vh,640px)]';
 
 /**
  * The settings panel for the GENERAL board, which has no project and therefore

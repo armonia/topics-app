@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { registerOpenPopover, subSurfaceNodes } from '../lib/popoverRegistry';
+import { descendantPopoverNodes, registerOpenPopover, subSurfaceNodes, type PopoverEntry } from '../lib/popoverRegistry';
 import { swallowNextClick } from '../lib/outsidePress';
 
 /**
@@ -78,12 +78,13 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     // ⌘N parte spesso col fuoco già dentro un menu aperto, e activeElement
     // farebbe passare la palette per un figlio di quel menu — cioè li terrebbe
     // aperti entrambi, che è il bug. Vedi lib/popoverRegistry.
-    const unregister = registerOpenPopover({
+    const self: PopoverEntry = {
       close: () => onCloseRef.current(),
       trigger: () => refsRef.current[0]?.current ?? null,
       nodes: () => refsRef.current.map((r) => r.current),
       exclusive: exclusiveRef.current,
-    });
+    };
+    const unregister = registerOpenPopover(self);
 
     const onPointer = (e: Event) => {
       const t = e.target as Node | null;
@@ -94,6 +95,12 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
       // chiudersi qui vorrebbe dire smontarlo prima che il click arrivi alla
       // voce scelta. Vedi `lib/popoverRegistry.subSurfaceNodes`.
       if (t && subSurfaceNodes().some((n) => !!n && n.contains(t))) return;
+      // And a CHILD popover (its trigger sits inside our refs) counts as inside
+      // even when it is `exclusive`: the `Select` in the settings dropdown lives
+      // in a portal on `<body>`, and closing here would unmount it before the
+      // `click` reaches the chosen option. See
+      // `lib/popoverRegistry.descendantPopoverNodes`.
+      if (t && descendantPopoverNodes(self).some((n) => !!n && n.contains(t))) return;
       // Il gesto che chiude non fa anche l'altra cosa: il `click` che segue
       // questa pressione trova sotto il puntatore la pagina — che senza il
       // guardiano si aziona. Vedi `lib/outsidePress`.
@@ -102,6 +109,11 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // With a child open, Escape closes the CHILD: both listen to the same
+        // capture-phase `keydown`, and `stopPropagation` does not stop another
+        // listener on the same node, so without this line an Escape on the
+        // model picker also closed the dropdown hosting it.
+        if (descendantPopoverNodes(self).length > 0) return;
         e.stopPropagation();
         onCloseRef.current();
       }

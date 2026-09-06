@@ -814,6 +814,7 @@ export type QueueReasonKind =
   | 'heavy_hold'     // è PESANTE, aspetta margine, e intanto tiene ferma la coda
   | 'heavy_busy'     // un ALTRO task pesante è al lavoro e si prende la macchina da solo
   | 'resource_floor' // the machine is under the RAM/disk floor: no agent is admitted at all
+  | 'resource_pressure' // «per risorse»: the machine is over the chosen load/memory threshold
   | 'spend_cap'      // the 24h spend cap is reached: the queue holds until it scrolls or you raise it
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
@@ -873,7 +874,7 @@ export interface QueueReason {
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
   'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
-  'resource_floor', 'spend_cap',
+  'resource_floor', 'resource_pressure', 'spend_cap',
   'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
 ];
 
@@ -898,6 +899,7 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   heavy_hold: ['board.queue.heavyHold.alone', 'board.queue.heavyHold.blocking'],
   heavy_busy: ['board.queue.heavyBusy'],
   resource_floor: ['board.queue.resourceFloor'],
+  resource_pressure: ['board.queue.resourcePressure'],
   spend_cap: ['board.queue.spendCap'],
   checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
   children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
@@ -969,7 +971,7 @@ export interface QueueContext {
    * of 3"), and recomputing them on the client would mean measuring another
    * machine.
    */
-  dispatchBlock?: { kind: 'resources' | 'spend'; reason: string } | null;
+  dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend'; reason: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
   parentStatus: TaskStatus | string | null;
   /** Vero quando il task non ha una board con una directory (`_none`). */
@@ -1323,10 +1325,23 @@ export function deriveQueueReason(
   // (`admissionBlock() ?? dayBlock()`), and a machine out of RAM does not start
   // anything even with the ledger at zero.
   if (ctx.dispatchBlock) {
+    // THE THIRD KIND is the one that does come back on its own, and that is why
+    // it is not folded into the floor: «per risorse» holds the queue while the
+    // machine is over the chosen threshold, and load drops by itself the moment
+    // whatever is busy stops. Tone `waiting`, not `stalled`: nobody has to do
+    // anything, unlike a full disk or a spend cap a person has to raise.
+    const kind: QueueReasonKind =
+      ctx.dispatchBlock.kind === 'spend' ? 'spend_cap'
+        : ctx.dispatchBlock.kind === 'pressure' ? 'resource_pressure'
+          : 'resource_floor';
+    const key =
+      kind === 'spend_cap' ? 'board.queue.spendCap'
+        : kind === 'resource_pressure' ? 'board.queue.resourcePressure'
+          : 'board.queue.resourceFloor';
     return {
-      kind: ctx.dispatchBlock.kind === 'spend' ? 'spend_cap' : 'resource_floor',
-      tone: 'stalled',
-      key: ctx.dispatchBlock.kind === 'spend' ? 'board.queue.spendCap' : 'board.queue.resourceFloor',
+      kind,
+      tone: kind === 'resource_pressure' ? 'waiting' : 'stalled',
+      key,
       params: { reason: ctx.dispatchBlock.reason },
     };
   }
@@ -1636,6 +1651,15 @@ export interface DispatchCapacity {
    */
   oursCores: number | null;
   budgetCores: number;
+  /**
+   * Memory REALLY available right now, in GB, or `null` where the probe has
+   * nothing to say (outside macOS). It travels with the capacity because the
+   * "by resources" mode draws it live next to the threshold: without it the UI
+   * would show a memory threshold and be unable to say how close the machine
+   * is to it, which is a slider that explains nothing. `null` is NOT MEASURED,
+   * never zero.
+   */
+  availableMemGB: number | null;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
   /**
@@ -1650,7 +1674,7 @@ export interface DispatchCapacity {
 
 /** Il tetto globale come sta scritto: `auto` (dimensionato dalla macchina) o il
  *  numero fisso. Gemello della riga riservata `board_settings['*']`. */
-export interface GlobalDispatchCap {
+export interface GlobalDispatchCap extends GlobalDispatchCapExtras {
   auto: boolean;
   max: number;
 }
@@ -1743,6 +1767,17 @@ export function sizingDispatchCap(cap: GlobalDispatchCap, structural: number | n
   if (isGlobalCapOff(cap) || cap.auto) return Math.max(1, structural ?? 3);
   return Math.max(1, cap.max);
 }
+
+/**
+ * The cap "by resources" and its three pure functions live next door
+ * (`dispatch-pressure.ts`) and come back out from here: every reader of the cap
+ * already imports this file, and a second import path for the same subject is
+ * how two halves of one contract start drifting.
+ */
+export * from './dispatch-pressure';
+// The type is imported too, and not only re-exported: `GlobalDispatchCap`
+// extends it right below, and `export *` does not put a name in local scope.
+import type { GlobalDispatchCapExtras } from './dispatch-pressure';
 
 /** Le due primitive di collegamento dell'intake. */
 export type LinkKind = "subtask" | "chain";

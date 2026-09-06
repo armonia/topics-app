@@ -1366,6 +1366,15 @@ const taskDispatcher = createTaskDispatcher({
   // posti residui. Letto dentro la closure, non alla costruzione: il dispatcher
   // esiste solo dopo questa chiamata.
   recommendedCap: () => computeDispatchCapacity(turniInVolo()).recommended,
+  // The cap "by resources": load, cores, memory and the turns in flight, from
+  // the SAME reading the auto cap and the night mode use. One probe for three
+  // readers, or the settings panel could draw a load the gate did not decide on.
+  // The runtime flag only shapes `recommended` (which this reader ignores); it
+  // is passed anyway so the reading is the one the panel gets from the route.
+  machinePressure: () => {
+    const c = computeDispatchCapacity(turniInVolo(), undefined, resolveAgentRuntime() === "cli");
+    return { load1: c.load1, cores: c.cores, availableMemGB: c.availableMemGB, totalMemGB: c.totalMemGB, running: c.running };
+  },
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
   // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non

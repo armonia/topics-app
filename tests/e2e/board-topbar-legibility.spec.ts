@@ -711,7 +711,11 @@ test.describe("Top bar della kanban — si legge da sola", () => {
 
     const board = page.getByTestId("kanban-board");
     const porta = board.getByTitle("Impostazioni auto-dispatch");
-    const dispatchState = board.getByTestId("global-cap-control");
+    // PAGE-wide, not `board.`: the settings are a dropdown portalled to <body>
+    // (KANBAN-75), so a locator scoped to the board would count zero with the
+    // panel wide open and prove nothing. Page-wide "exactly one" is the
+    // stronger claim anyway: no copy of the state anywhere on the screen.
+    const dispatchState = page.getByTestId("global-cap-control");
     const pannello = page.getByTestId("board-settings-panel");
 
     // ONE door, not two.
