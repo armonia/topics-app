@@ -98,3 +98,40 @@ export function describeNativeNotifications(
         : 'macOS non ci ha ancora autorizzati a postare a nome di Topics, e non c’è nessun ripiego installato. Il toast in finestra continua a funzionare.',
   };
 }
+
+/** What the one button under the verdict does, if it is drawn at all. */
+export interface NotificationPermissionAction {
+  kind: 'request' | 'open-settings' | 'none';
+  /** i18n key of the button label. Empty when `kind` is `none`. */
+  labelKey: string;
+}
+
+/**
+ * The DECISION behind the permission button, as a pure function.
+ *
+ * The verdict above says what happens; this says what pressing the button
+ * does, and it has to agree with the shell's `request_permission`:
+ * - `request` while macOS has not decided (`pending` or `notDetermined`):
+ *   the system prompt can still be shown, so we ask;
+ * - `open-settings` on `denied`: macOS shows the prompt once per install,
+ *   the only way back is System Settings > Notifications;
+ * - `none` when granted, outside a .app bundle (nothing can be asked from
+ *   there, and the verdict already says so), off macOS, or outside Tauri
+ *   (the browser owns that permission and its prompt).
+ */
+export function notificationPermissionAction(
+  status: NativeNotificationStatus | null,
+): NotificationPermissionAction {
+  if (!status || status.platform !== 'macos' || !status.bundled) {
+    return { kind: 'none', labelKey: '' };
+  }
+  switch (status.authState) {
+    case 'denied':
+      return { kind: 'open-settings', labelKey: 'notif.perm.openSettings' };
+    case 'pending':
+    case 'notDetermined':
+      return { kind: 'request', labelKey: 'notif.perm.request' };
+    default:
+      return { kind: 'none', labelKey: '' };
+  }
+}

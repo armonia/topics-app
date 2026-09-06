@@ -411,3 +411,29 @@ percorsi diversi non si incontrano, e nessuna prova in processo lo vedrebbe.
 #### Scenario: un'operazione sul socket vero
 - **GIVEN** i due estremi connessi con serializzazione letterale
 - **THEN** il risultato SHALL tornare a chi lo attende
+
+### Requirement: WIRE-11 — La storia si può chiedere «prima di» un messaggio, e l'id batte lo scarto
+
+`POST /api/history/:key` SHALL accettare un cursore `before`: l'id di un
+messaggio del thread attivo, e la risposta SHALL contenere SOLO le righe che lo
+precedono. Serve a chi apre una chat in due tempi — prima la coda (`limit: N`),
+poi tutto ciò che sta prima dell'ultima riga della coda — perché il thread può
+crescere fra le due richieste (un turno che atterra, un parziale vuoto ripulito)
+e uno scarto numerico salterebbe righe diverse da quelle volute; un id no.
+
+Il cursore SHALL comporsi con `limit` (le N righe subito prima del cursore) e
+SHALL essere retro-compatibile: assente, la risposta è quella di sempre. Un id
+SCONOSCIUTO SHALL restituire il thread INTERO e non una risposta vuota: chi
+chiede deduplica per id, mentre una risposta vuota gli farebbe credere che la
+testa della conversazione non esista. `total` SHALL contare sempre il thread
+intero, anche quando `before` accorcia la risposta: è così che chi chiede sa se
+ciò che tiene è tutta la storia.
+
+#### Scenario: coda e resto si incastrano senza buchi né doppioni
+- **GIVEN** un thread di 120 righe
+- **WHEN** si chiedono le ultime 40 e poi `before` = id della più vecchia di quelle 40
+- **THEN** la seconda risposta contiene esattamente le righe 1-80 e `total` vale 120 in entrambe
+
+#### Scenario: un cursore sconosciuto
+- **GIVEN** un `before` che non è nel thread
+- **THEN** la risposta è il thread intero, non vuota

@@ -13,7 +13,16 @@ import {
 } from 'lucide-react';
 
 interface KPICardGridProps {
-  kpis: DashboardKPIs;
+  /**
+   * `null` = the numbers have not landed yet.
+   *
+   * The grid is drawn anyway, with every card in the "no source" state the
+   * KPICard already speaks (a dash). That is not decoration: it is what keeps
+   * the pane from being an empty rectangle until two fetches answer, and then
+   * growing nine cards and a chart in a single frame. Same grid, same card
+   * heights, only the glyphs change when the data lands.
+   */
+  kpis: DashboardKPIs | null;
 }
 
 /**
@@ -35,73 +44,73 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
     <div data-testid="kpi-card-grid" className="grid grid-cols-5 gap-2">
       <KPICard
         label="Throughput (Today)"
-        value={kpis.throughputDay}
+        value={kpis ? kpis.throughputDay : null}
         unit="tasks"
         // Fa FAMIGLIA con la card della settimana qui sotto: i due numeri sono
         // la stessa misura su due finestre, quindi il glifo deve dire la
         // finestra. Il lampo che c'era diceva «veloce», che qui non c'entra —
         // ed è il significato che il lampo tiene nel composer del Fast Mode.
         icon={CalendarClock}
-        trend={kpis.throughputDay > 0 ? 'up' : 'flat'}
+        trend={kpis && kpis.throughputDay > 0 ? 'up' : 'flat'}
       />
       <KPICard
         label="Throughput (Week)"
-        value={kpis.throughputWeek}
+        value={kpis ? kpis.throughputWeek : null}
         unit="tasks"
         icon={CalendarCheck}
-        trend={kpis.throughputWeek > 0 ? 'up' : 'flat'}
+        trend={kpis && kpis.throughputWeek > 0 ? 'up' : 'flat'}
       />
       <KPICard
         label="Avg Cycle Time"
-        value={kpis.avgCycleTimeHours}
+        value={kpis ? kpis.avgCycleTimeHours : null}
         unit="hrs"
         icon={Clock}
-        trend={kpis.avgCycleTimeHours > 0 ? 'down' : 'flat'}
+        trend={kpis && kpis.avgCycleTimeHours > 0 ? 'down' : 'flat'}
         upIsGood={false}
       />
       <KPICard
         label="Work in Progress"
-        value={kpis.wipCount}
+        value={kpis ? kpis.wipCount : null}
         unit="tasks"
         icon={Loader}
-        trend={kpis.wipCount > 0 ? 'up' : 'flat'}
+        trend={kpis && kpis.wipCount > 0 ? 'up' : 'flat'}
       />
       <KPICard
         label="Error Rate"
-        value={`${(kpis.errorRate * 100).toFixed(1)}%`}
+        value={kpis ? `${(kpis.errorRate * 100).toFixed(1)}%` : null}
         icon={AlertTriangle}
-        trend={kpis.errorRate > 0.05 ? 'up' : kpis.errorRate > 0 ? 'flat' : 'flat'}
+        trend={kpis && kpis.errorRate > 0.05 ? 'up' : 'flat'}
         upIsGood={false}
       />
       <KPICard
         label="Token Spend (Today)"
-        value={`$${kpis.tokenSpendDay.toFixed(2)}`}
+        value={kpis ? `$${kpis.tokenSpendDay.toFixed(2)}` : null}
         icon={DollarSign}
-        trend={kpis.tokenSpendDay > 0 ? 'up' : 'flat'}
+        trend={kpis && kpis.tokenSpendDay > 0 ? 'up' : 'flat'}
         upIsGood={false}
-        partialNote={uncertainNote(kpis.tokenSpendDayUncertain)}
+        partialNote={uncertainNote(kpis?.tokenSpendDayUncertain)}
       />
       <KPICard
         label="Token Spend (Week)"
-        value={`$${kpis.tokenSpendWeek.toFixed(2)}`}
+        value={kpis ? `$${kpis.tokenSpendWeek.toFixed(2)}` : null}
         icon={Wallet}
-        trend={kpis.tokenSpendWeek > 0 ? 'up' : 'flat'}
+        trend={kpis && kpis.tokenSpendWeek > 0 ? 'up' : 'flat'}
         upIsGood={false}
-        partialNote={uncertainNote(kpis.tokenSpendWeekUncertain)}
+        partialNote={uncertainNote(kpis?.tokenSpendWeekUncertain)}
       />
       <KPICard
         label="Approval Turnaround"
-        value={kpis.approvalTurnaroundHours}
+        value={kpis ? kpis.approvalTurnaroundHours : null}
         unit="hrs"
         icon={Hourglass}
-        trend={kpis.approvalTurnaroundHours > 0 ? 'down' : 'flat'}
+        trend={kpis && kpis.approvalTurnaroundHours > 0 ? 'down' : 'flat'}
         upIsGood={false}
       />
       <KPICard
         label="Pending Approvals"
-        value={kpis.pendingApprovals}
+        value={kpis ? kpis.pendingApprovals : null}
         icon={CheckCircle}
-        trend={kpis.pendingApprovals > 0 ? 'up' : 'flat'}
+        trend={kpis && kpis.pendingApprovals > 0 ? 'up' : 'flat'}
         upIsGood={false}
       />
     </div>

@@ -880,6 +880,23 @@ reintrodurre per sbaglio, perché niente, nel codice, dice che era voluta.
 - **WHEN** sono zero, oppure sono più di una e diverse fra loro
 - **THEN** il vincolo è violato
 
+#### Scenario: ogni controllo della barra è alto uguale
+
+- **GIVEN** la barra aperta a 1440 e a 390 px, con i suoi controlli disegnati
+- **WHEN** si leggono nel DOM le bounding box di ognuno
+- **THEN** sono tutte alte 24 px (±1) e hanno lo stesso bordo superiore
+
+> Quarto vincolo, aggiunto dopo la misura: metà riga stava già a 24 px
+> (`filterFieldClass`), l'altra metà lasciava decidere il padding — 20 px per i
+> due bottoni progetto/tutti e per «Missioni», 22 px per i glifi archivio e
+> impostazioni. Niente si sovrapponeva e niente sporgeva, quindi i test che
+> misurano la RIGA restavano verdi: la riga era una sola e alta 36 px, ma le
+> cose dentro non erano d'accordo fra loro. L'altezza è ora dichiarata una volta
+> (`TOOLBAR_CONTROL_H` in `Board/constants.ts`) e indossata da tutti; a
+> misurarla è `tests/e2e/board-topbar-height.spec.ts`, sulle box rese, perché un
+> test che leggesse la classe passerebbe su un controllo che porta il token e
+> viene stirato dal proprio padding.
+
 ### Requirement: KANBAN-13 — Il fan-out apre N strade sullo stesso task, e nessuna delle N è privilegiata
 
 Quando la board lo chiede, il sistema SHALL far partire fino a `MAX_FANOUT`

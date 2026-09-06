@@ -2444,15 +2444,7 @@ fn notify(
 fn notification_status() -> serde_json::Value {
     #[cfg(target_os = "macos")]
     {
-        let s = macos_notifications::status();
-        serde_json::json!({
-            "platform": "macos",
-            "bundled": s.bundled,
-            "authorized": s.authorized,
-            "authState": s.auth_state,
-            "helper": s.helper,
-            "logPath": s.log_path,
-        })
+        macos_status_json(&macos_notifications::status())
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -2466,6 +2458,44 @@ fn notification_status() -> serde_json::Value {
             "helper": serde_json::Value::Null,
             "logPath": serde_json::Value::Null,
         })
+    }
+}
+
+/// The wire shape of a macOS notification status, shared by
+/// `notification_status` and `request_notification_permission` so the client
+/// redraws the same panel from either answer.
+#[cfg(target_os = "macos")]
+fn macos_status_json(s: &macos_notifications::NotificationStatus) -> serde_json::Value {
+    serde_json::json!({
+        "platform": "macos",
+        "bundled": s.bundled,
+        "authorized": s.authorized,
+        "authState": s.auth_state,
+        "helper": s.helper,
+        "logPath": s.log_path,
+    })
+}
+
+/// Act on the notification permission from Settings, then report the fresh
+/// state in the SAME shape as `notification_status`.
+///
+/// `notification_status` only tells the truth; this one lets the person do
+/// something about it with one button. The decision (ask, open System
+/// Settings, or nothing) lives in `macos_notifications::request_permission`
+/// and is logged branch by branch. Off macOS the plugin path has no
+/// permission to act on, so this is the plain status.
+///
+/// `(async)` for the same reason as `notification_status`: it waits for the
+/// system prompt's answer, and that wait must never sit on the main thread.
+#[tauri::command(async)]
+fn request_notification_permission() -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        macos_status_json(&macos_notifications::request_permission())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        notification_status()
     }
 }
 
@@ -11076,6 +11106,7 @@ pub fn run() {
             set_theme,
             notify,
             notification_status,
+            request_notification_permission,
             focus_status,
             open_external,
             set_clipboard_image,

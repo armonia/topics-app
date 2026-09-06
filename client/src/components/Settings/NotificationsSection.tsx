@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { Bell, BellOff, Check, AlertCircle, Moon, Smartphone } from 'lucide-react';
 import type { AppSettings } from '../../types';
-import { notificationStatus, type NativeNotificationStatus } from '../../lib/shell/app';
-import { describeNativeNotifications } from '../../lib/notificationStatus';
+import { notificationStatus, requestNotificationPermission, type NativeNotificationStatus } from '../../lib/shell/app';
+import { describeNativeNotifications, notificationPermissionAction } from '../../lib/notificationStatus';
 import { focusGateState, FULL_DISK_ACCESS_URL, type FocusGateState } from '../../lib/shell/focus';
 import { openExternalOnce } from '../../lib/openExternal';
 import { ToggleRow } from './ToggleRow';
@@ -23,20 +23,40 @@ interface NotificationsSectionProps {
  * accorgersene: la catena cade in silenzio in tre punti diversi. Questa riga
  * legge lo stato dal guscio (`notification_status`, sola lettura) e dice cosa
  * succede davvero — inclusa la riga di log da guardare quando non arriva nulla.
+ *
+ * Reading alone was a diagnosis with no handle. The button under the verdict
+ * acts on the permission (`request_notification_permission`) and the panel
+ * redraws from the status that call returns, so it tells the truth right after
+ * the person clicks, not at the next reopen. Which button, if any, is decided
+ * by `notificationPermissionAction`, the pure function the tests bite.
  */
 function NativeBannerStatus() {
+  const tr = useT();
   const [status, setStatus] = useState<NativeNotificationStatus | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(true);
   useEffect(() => {
-    let alive = true;
-    void notificationStatus().then((s) => { if (alive) setStatus(s); });
-    return () => { alive = false; };
+    alive.current = true;
+    void notificationStatus().then((s) => { if (alive.current) setStatus(s); });
+    return () => { alive.current = false; };
   }, []);
+
+  const act = async () => {
+    setBusy(true);
+    try {
+      const next = await requestNotificationPermission();
+      if (alive.current) setStatus(next);
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  };
 
   // `undefined` = ancora in volo. Non si disegna una diagnosi non ancora letta:
   // un lampo di "NON arrivano" che poi si smentisce è peggio del nulla.
   if (status === undefined) return null;
 
   const verdict = describeNativeNotifications(status);
+  const action = notificationPermissionAction(status);
   const tone = {
     ok: 'text-app-text-muted',
     degraded: 'text-amber-500',
@@ -60,6 +80,14 @@ function NativeBannerStatus() {
           <div className="text-app-text-muted mt-0.5 font-mono text-[10.5px] break-all">
             {status.logPath}
           </div>
+        )}
+        {action.kind !== 'none' && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { void act(); }}
+            className="mt-1.5 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >{tr(action.labelKey)}</button>
         )}
       </div>
     </div>

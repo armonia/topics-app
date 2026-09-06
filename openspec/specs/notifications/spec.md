@@ -623,3 +623,75 @@ spegne troppo ruba un avviso, e chi lo perde non ha modo di sapere che c'era.
 - **WHEN** un avviso di sessione e' piu' recente della finestra di grazia
 - **THEN** NON SHALL essere spento: e' ancora una notizia
 
+
+### Requirement: CHROME-COUNT-01 — Un numero solo per il dock, la tray e l'icona, ed e' quello della sidebar
+
+Il numero che Topics dipinge sul sistema operativo (badge dell'icona, glifo
+nella barra dei menu, Badging API della PWA) SHALL essere il risultato di UNA
+funzione pura, e quella funzione SHALL essere l'unico posto dove quel numero
+esiste. Finche' l'espressione viveva dentro un componente, «lo stesso conto
+della sidebar» era una promessa scritta in un commento: nessun test la teneva,
+e una superficie poteva cambiare criterio senza che l'altra se ne accorgesse.
+
+Il criterio e' uno: QUANTE COSE STANNO CHIEDENDO QUALCOSA A UN UMANO. Le chat
+non lette o ferme in attesa, i terminali che hanno finito, le card della board
+che aspettano una decisione. Il lavoro che gira da solo non entra, e un topic
+ARCHIVIATO non entra mai: non ha una riga da aprire, quindi il suo conteggio
+non si potrebbe spegnere da nessuna parte.
+
+La somma SHALL coincidere con la somma dei badge che la sidebar mostra per gli
+stessi soggetti, e la parita' SHALL essere provata calcolando l'attesa dagli
+stessi aiutanti per-riga, non da un numero scritto a mano: un test che ripete a
+memoria il totale resta verde proprio nel caso che deve prendere.
+
+#### Scenario: le due superfici sullo stesso stato
+- **WHEN** un insieme di topic, terminali e card produce il conteggio del chrome
+- **THEN** quel numero SHALL essere uguale alla somma dei badge delle righe di
+  sidebar degli stessi soggetti
+
+#### Scenario: la chat letta
+- **WHEN** un topic con non letti viene letto e il suo conteggio va a zero
+- **THEN** il totale SHALL calare esattamente della sua quota, senza toccare gli altri
+
+#### Scenario: un topic archiviato con non letti
+- **THEN** SHALL contare zero: nessuna superficie lo mostra, nessun gesto lo spegne
+
+#### Scenario: archiviato in vista, con «mostra archiviati» acceso
+- **WHEN** la riga di un topic archiviato con non letti compare in sidebar
+- **THEN** SHALL portare badge zero, come il chrome: la riga c'e', ma non
+  esiste nessuna lettura che possa spegnerla, e mostrarne il conteggio faceva
+  leggere sette dove il sistema operativo diceva zero
+
+#### Scenario: niente da mostrare
+- **WHEN** non c'e' nessun soggetto in attesa
+- **THEN** il totale SHALL essere zero, che e' il badge spento
+
+### Requirement: NOTIF-PERM-01 — Il permesso di sistema si legge E si concede da dentro l'app
+
+Il pannello Impostazioni SHALL dire lo stato vero della catena dei banner
+nativi e SHALL offrire l'azione che quello stato consente. Uno stato in sola
+lettura lascia la persona davanti a una diagnosi senza porta: «non arrivano»,
+e poi?
+
+L'azione dipende dallo stato, e non SHALL essercene una che non fa niente:
+
+- non ancora deciso: SHALL chiedere il permesso al sistema;
+- negato: macOS non ripropone il prompt, quindi SHALL aprire il pannello
+  Impostazioni di Sistema → Notifiche;
+- concesso, fuori dal bundle .app, o fuori da macOS: nessun tasto, perche' non
+  c'e' niente che un tasto possa cambiare.
+
+Dopo l'azione il pannello SHALL rileggere lo stato: seguire il consiglio e
+vedere la stessa diagnosi di prima e' indistinguibile dal non aver fatto nulla.
+
+#### Scenario: permesso mai chiesto
+- **WHEN** lo stato e' «non ancora deciso»
+- **THEN** il tasto SHALL chiedere il permesso al sistema
+
+#### Scenario: permesso negato
+- **WHEN** lo stato e' «negato»
+- **THEN** il tasto SHALL portare al pannello di sistema, non a un secondo prompt che non comparira'
+
+#### Scenario: niente da fare
+- **WHEN** il permesso e' concesso, o l'app non gira da un bundle, o non e' macOS
+- **THEN** NON SHALL comparire nessun tasto
