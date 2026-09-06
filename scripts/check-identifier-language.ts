@@ -106,6 +106,10 @@ export const PROJECT_WORDS = new Set([
   // `upsert` is the database verb (insert-or-update) SQLite itself documents;
   // the 1934 list predates it. `reusable` is a regular adjective the list lacks.
   "upsert", "reusable",
+  // `scroller` is what this codebase calls the scrolling element of a list
+  // (`scrollerEl`, `scrollerRef` in MessageList predate the gate); the list
+  // stops at `scroll`.
+  "scroller",
   // The name of the tool this codebase shells out to for every audio
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
