@@ -196,6 +196,7 @@ test.describe("Fermare un task senza archiviarlo", () => {
     //    niente) e non il vuoto di prima (una card muta in Backlog).
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(card.getByTestId("dispatch-chip")).toHaveAttribute("data-state", "stopped", { timeout: 10000 });
+    // allow-literal-tmp: an evidence dump read by hand, not a path hashed into a board id.
     if (shot) writeFileSync("/tmp/e2e-cardstop-crop.json", JSON.stringify({ ...shot, cardAfter: await card.boundingBox() }));
     await beat(page, 2500);
 

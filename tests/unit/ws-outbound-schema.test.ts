@@ -214,6 +214,7 @@ describe('outbound registry contract', () => {
       'project:new',
       'project:updated',
       'provider:hold',
+      'provider:usage',
       'providers:snapshot',
       'scripts:output',
       'scripts:updated',
@@ -366,8 +367,11 @@ describe('outbound registry contract', () => {
   // ascoltatore `useNotificationHistory`.
   // 96 → 97: `provider:hold`, the plan's usage window spent (server/lib/provider-hold.ts):
   // sent on every change and on connect, so the status bar says until when.
-  test('all 97 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(97);
+  // 97 → 98: `provider:usage`, how full the plan's five-hour window is: the
+  // hold only fires at the wall, this is the reading the status bar shows on
+  // the way there and the dispatcher brakes on.
+  test('all 98 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(98);
   });
 });
 

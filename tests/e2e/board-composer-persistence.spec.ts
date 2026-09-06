@@ -28,12 +28,13 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
 const STAMP = Date.now();
-const PROJ = `/tmp/e2e-composer-persist-${STAMP}`;
+const PROJ = `${canonicalTmpRoot()}/e2e-composer-persist-${STAMP}`;
 
 const PROJ_ID = boardIdForPath(PROJ);
 

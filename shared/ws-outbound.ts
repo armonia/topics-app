@@ -1027,6 +1027,16 @@ const providerHoldSchema = z.looseObject({
   sinceMs: z.nullable(z.number()),
 });
 
+// How full the plan's two windows are (server/lib/provider-hold.ts). Not the
+// same frame as the hold: the hold says "the wall is here", this says how close
+// it is, which is what the status bar shows before anything has stopped.
+const providerUsageSchema = z.looseObject({
+  type: z.literal('provider:usage'),
+  fiveHour: z.nullable(z.object({ utilization: z.number(), resetsAtMs: z.nullable(z.number()) })),
+  sevenDay: z.nullable(z.object({ utilization: z.number(), resetsAtMs: z.nullable(z.number()) })),
+  observedAtMs: z.number(),
+});
+
 // Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
 // BOOLEANO ("scegli tu in base alla capacità"), non un numero.
 const boardGlobalCapSchema = z.looseObject({
@@ -1347,6 +1357,7 @@ const OUTBOUND_SCHEMAS = {
   'board:dispatch': boardDispatchSchema,
   'board:global-cap': boardGlobalCapSchema,
   'provider:hold': providerHoldSchema,
+  'provider:usage': providerUsageSchema,
   'board:settings': boardSettingsSchema,
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,

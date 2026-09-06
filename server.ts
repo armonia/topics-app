@@ -3,7 +3,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
-import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore } from "./server/lib/provider-hold";
+import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
@@ -59,7 +59,7 @@ import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
@@ -71,7 +71,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
 import { createExternalSessionsService } from "./server/services/external-sessions";
-import { resolveWorktreeBaseRef } from "./server/services/worktree-base-ref";
+import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
@@ -140,6 +140,7 @@ import { pickTaskPlan } from "./server/services/task-model-picker";
 import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
+import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
 import { createNotificationsRouter } from "./server/routes/notifications";
@@ -655,7 +656,8 @@ const paneAttachedTo = (contextId: string): boolean => {
   for (const w of set) if (w.readyState === 1) return true;
   return false;
 };
-const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo);
+// The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks() });
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
@@ -1316,6 +1318,21 @@ function isChecksHold(sessionKey: string): boolean {
   }
 }
 
+/**
+ * Il manager e lo store, vestiti come li chiede `worktree-for-agent.ts`. Un
+ * solo posto in cui questo cablaggio esiste, cosi' la nascita del worktree di
+ * una card e quella di un sotto-agente isolato non possono divergere; l'unica
+ * differenza e' l'etichetta con cui il ripiego su HEAD si annuncia nei log.
+ */
+function agentWorktreeDeps(label: string): AgentWorktreeDeps {
+  return {
+    projectPath: (projectStoreId) => ctx.projectStore.get(projectStoreId)?.path,
+    create: (input) => ctx.worktreeManager.create(input),
+    awaitMaterialisation: (id, timeoutMs) => ctx.worktreeManager.awaitMaterialisation(id, timeoutMs),
+    warn: (reason) => console.warn(`[${label}] ${reason}`),
+  };
+}
+
 const taskAttemptStore = createTaskAttemptStore(ctx.db);
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
@@ -1502,21 +1519,12 @@ const taskDispatcher = createTaskDispatcher({
       undefined,
       resolveAgentRuntime() === "cli",
     ),
-  createWorktree: async (projectStoreId) => {
-    // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso:
-    // con `HEAD` il worktree ereditava il ramo di chi stava lavorando qui, e da
-    // lì arrivavano collisioni di migration, consegne su commit mai landati e
-    // land che pubblicavano lavoro di terzi. Il perché per esteso, e il ripiego
-    // su HEAD quando `main` non c'è, stanno in `worktree-base-ref.ts`.
-    const base = await resolveWorktreeBaseRef(ctx.projectStore.get(projectStoreId)?.path);
-    if (base.fallback) console.warn(`[dispatch] ${base.reason}: il worktree parte da HEAD`);
-    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: base.baseRef });
-    const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, WORKTREE_READY_MS);
-    if (ready.status !== "ready") {
-      throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
-    }
-    return ready.id;
-  },
+  // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
+  // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
+  // (WORKTREE-14): il corpo sta in `worktree-for-agent.ts`, il perché del
+  // ripiego su HEAD in `worktree-base-ref.ts`.
+  createWorktree: (projectStoreId) =>
+    createAgentWorktree(agentWorktreeDeps("dispatch"), projectStoreId, worktreeReadyMs()),
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   // C'e' qualcosa da perdere in questo worktree? Serve al dispatcher per NON
   // cancellare il branch di un tentativo rimesso in coda che pero' aveva gia'
@@ -1978,6 +1986,9 @@ const worktreeGc = createWorktreeGcRunner({
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
   listOwnedScripts: () => listOwnedScripts(),
+  // WORKTREE-14: chi sta DENTRO una cartella, che e' l'unica cosa che tiene in
+  // piedi il worktree di un sotto-agente isolato (nessun task lo protegge).
+  liveCwds: () => liveTerminalCwds(),
 });
 
 
@@ -2180,6 +2191,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
   // comandi nel checkout principale, cioè su codice che non è il suo.
   taskCheckoutRef,
+  // The user's `task-deliver` hook, the first gate on the move to review (HOOKS-02).
+  hooks: defaultLifecycleHooks(),
   // Main dentro il ramo PRIMA dei check, come fa il land prima di fondere: il
   // cancello misura l'albero che atterra, non una base invecchiata.
   realignForChecks: (taskId) => taskAutoMerge.realign(taskId),
@@ -2397,20 +2410,6 @@ const machinesRouter = createMachinesRouter(ctx);
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
 // and flips other machines that haven't checked in for 5 minutes to
 // `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
-// QUANTO SI ASPETTA CHE UN WORKTREE SIA PRONTO, E PERCHE' NON SONO DUE MINUTI.
-//
-// Un worktree diventa `ready` solo DOPO l'install delle dipendenze (la fine di
-// `installDeps`, in `worktree-manager.ts`). Due minuti bastano a un repo
-// piccolo e non bastano a uno grosso: misurato il 19/08 su dancerooms,
-// 242 secondi. Il risultato non era «parte lento», era «NON PARTE»: chi
-// aspettava mollava a 120s, il dispatch falliva, e la card restava ferma senza
-// che niente dicesse che il ritardo era di `pnpm install`.
-//
-// Dieci minuti sono un tetto contro un install BLOCCATO (rete morta, lock di
-// un registry), non una stima del caso normale: quando l'install va, si torna
-// appena finisce. Regolabile per chi ha un repo piu' lento di dancerooms.
-const WORKTREE_READY_MS = Math.max(60_000, Number(process.env.TOPICS_WORKTREE_READY_MS) || 600_000);
-
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const STALE_THRESHOLD_MS = 5 * 60_000;
 function tickHeartbeat() {
@@ -3600,6 +3599,12 @@ const opzioniServer = {
       const holdInForce = providerHold();
       if (holdInForce) {
         inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
+      }
+      // Same for the reading behind it: a reload must land on the same row,
+      // and the next event may be minutes away.
+      const usageNow = planUsage();
+      if (usageNow) {
+        inviaIniziale({ type: "provider:usage", fiveHour: usageNow.fiveHour, sevenDay: usageNow.sevenDay, observedAtMs: usageNow.observedAtMs });
       }
       // v3 foundations WS-02 — handshake welcome (additive; old clients ignore unknown types).
       inviaIniziale({
@@ -5069,6 +5074,15 @@ onProviderHold((hold) => {
   broadcastToAll(hold
     ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
     : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
+});
+
+// And the reading on the way there: how full the window is, said whenever
+// either source speaks (the CLI event, or a usage read the retry loop already
+// made). The status bar shows it long before anything stops.
+onPlanUsage((usage) => {
+  broadcastToAll(usage
+    ? { type: "provider:usage", fiveHour: usage.fiveHour, sevenDay: usage.sevenDay, observedAtMs: usage.observedAtMs }
+    : { type: "provider:usage", fiveHour: null, sevenDay: null, observedAtMs: Date.now() });
 });
 
 // A HOLD MUST BE ABLE TO END ON ITS OWN. The memo is cleared by a successful

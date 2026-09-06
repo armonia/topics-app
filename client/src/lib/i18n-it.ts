@@ -2011,6 +2011,8 @@ const IT: Dict = {
   'statusBar.providerHold.title': 'La finestra di utilizzo del piano Claude è esaurita: i turni riprendono da soli dopo il reset.',
   'statusBar.providerHold.fiveHours': 'Limite del piano raggiunto (finestra di 5 ore): riparte alle {time}',
   'statusBar.providerHold.week': 'Limite del piano raggiunto (finestra settimanale): riparte alle {time}',
+  'statusBar.planUsage.title': "Quanto è piena la finestra di 5 ore del piano Claude. Sopra la soglia il board smette di avviare card nuove: quel che resta va ai turni in corso e alle tue chat.",
+  'statusBar.planUsage.fiveHours': 'Finestra 5 ore al {pct}%: reset alle {time}',
   'statusBar.degraded.fix': 'Avvia un server locale',
   'statusBar.degraded.fixFailed': "Non ci sono riuscito: elimina il file a mano e riapri Topics.",
   // THE DOT NEXT TO «Topics». Three sentences and not one with a number in it:
@@ -2237,6 +2239,9 @@ const IT: Dict = {
   'board.queue.spendCap.head': 'ferma',
   'board.queue.spendCap.detail': 'tetto di spesa giornaliero',
   'board.queue.spendCap.title': 'Il tetto di spesa delle 24 ore è stato raggiunto, quindi non parte niente su nessuna board. Riparte da sé quando la finestra scorre oltre i turni più vecchi, o subito se alzi il tetto dalle impostazioni della board. {reason}',
+  'board.queue.planWindow.head': 'in attesa',
+  'board.queue.planWindow.detail': 'finestra del piano quasi piena',
+  'board.queue.planWindow.title': "La finestra di 5 ore dell'abbonamento è quasi esaurita, quindi non parte nessuna card nuova: quel che resta va ai turni già in corso e alle tue chat. Riparte da sé al reset, senza che tu faccia niente. {reason}",
   'board.queue.checklistFrozen.one.head': 'ferma',
   'board.queue.checklistFrozen.one.detail': '1 sottotask aperto',
   'board.queue.checklistFrozen.one.title': 'In review con un sottotask ancora aperto: approvarla non la chiude, perché una card con un sottotask aperto non può andare in done. E quei passi non li prende nessun dispatcher: li lavora solo l\'agente di questa card, dentro il proprio turno. Chiudili o archiviali, oppure rimetti questa card in coda e falla finire.',

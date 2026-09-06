@@ -21,7 +21,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { initGitRepo } from "./helpers/file-project";
+import { initGitRepo, canonicalTmpRoot } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -29,7 +29,7 @@ import { projectIdForPath as boardIdForPath } from "../../shared/board";
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-subwork-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-subwork-${Date.now()}`;
 
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
@@ -187,6 +187,7 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     // measured instead of guessed.
     if (process.env.E2E_EVIDENCE === "1") {
       const [d, r] = [await drawer.boundingBox(), await row.boundingBox()];
+      // allow-literal-tmp: an evidence dump read by hand, not a path hashed into a board id.
       if (d && r) writeFileSync("/tmp/e2e-subwork-crop.json", JSON.stringify({ drawer: d, row: r }));
     }
     await beat(page, 2600);

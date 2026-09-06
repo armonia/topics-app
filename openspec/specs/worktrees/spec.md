@@ -478,3 +478,73 @@ setup problem read as a compile error.
 #### Scenario: run twice
 - **GIVEN** a worktree that already holds the sidecars
 - **THEN** the provisioning SHALL leave them alone and report them present
+
+### Requirement: WORKTREE-14 — A sub-agent can be born in a worktree of its own
+
+A sub-agent spawned by another session SHALL be able to run in its OWN checkout
+instead of the parent's directory, and that checkout SHALL be born through the
+same path a board card uses: a branch worktree of the parent's project, based on
+the integration branch by WORKTREE-08, materialised through WORKTREE-01 and
+awaited until it is `ready`.
+
+The isolation SHALL be opt-in. Without it the child keeps today's behaviour and
+inherits the parent's working directory: a checkout is roughly 600 MB, and a
+cost paid by every chat that delegates anything is not a cost anyone chose.
+
+The project SHALL be resolved from a directory, in order: the requested working
+directory, the parent's, then the working directory of the parent's topic. A
+directory that is ITSELF a worktree SHALL resolve to the project that worktree
+belongs to, because the parent may well be a card's agent already standing in
+one. When no directory names a project the request SHALL be refused, and the
+refusal SHALL name the path it could not place.
+
+While a live session stands inside a worktree directory, the sweep SHALL keep
+it, and SHALL ask that question BEFORE every other one. A worktree born minutes
+ago holds no commits and belongs to no task, which is exactly the shape the
+sweep reaps: without this rule the directory disappears under a child that is
+still working in it.
+
+When the child exits, nothing SHALL be deleted on the spot. The checkout stops
+being live and the ordinary sweep judges it by WORKTREE-09 and WORKTREE-10: a
+child that committed nothing is reaped, a child that committed keeps its branch
+and loses only the directory. The parent SHALL NOT merge, land, or run git on
+the child's branch.
+
+The parent SHALL be told the branch: at spawn, in the list of its agents, when
+it stops one, and in the exit report the chat receives. A parent that cannot
+name the branch cannot read the work, and the work is the only reason the child
+had a directory of its own.
+
+#### Scenario: two children of the same parent do not share a directory
+- **GIVEN** a parent session in a project, and two sub-agents spawned with
+  worktree isolation
+- **THEN** each child SHALL get its own directory and its own branch, both based
+  on `refs/heads/main` even when the shared checkout stands elsewhere
+- **AND** the same file written and committed in both SHALL differ between the
+  two branches, with the integration branch untouched
+
+#### Scenario: the parent is itself standing in a worktree
+- **GIVEN** a parent whose working directory is a registered worktree, not a
+  project path
+- **THEN** the project SHALL be resolved through that worktree's project
+- **AND** a directory that matches neither SHALL be refused with a message
+  naming that path
+
+#### Scenario: the sweep does not reap under a live child
+- **GIVEN** a worktree with no task bound to it and a live session whose working
+  directory is inside it
+- **THEN** the sweep SHALL keep it, with the reason naming the live session
+- **AND** that question SHALL be asked before the branch, the disk or the task
+  are looked at
+
+#### Scenario: after the child exits the ordinary rules decide
+- **GIVEN** a worktree whose child has exited, leaving no live session inside
+- **THEN** no immediate deletion SHALL happen because of the exit
+- **AND** the next sweep SHALL judge it by WORKTREE-09 and WORKTREE-10
+
+#### Scenario: the parent reads the branch
+- **GIVEN** a sub-agent born in a worktree
+- **THEN** the spawn answer, the agent list and the stop answer SHALL each name
+  its branch
+- **AND** a sub-agent without a worktree SHALL leave all three exactly as they
+  are today

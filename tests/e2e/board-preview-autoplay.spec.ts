@@ -34,11 +34,12 @@ import { join } from "path";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-preview-autoplay-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-preview-autoplay-${Date.now()}`;
 // Allowlist di /api/media: `${OPENCLAW_DIR}/media/`, e OPENCLAW_DIR del server
 // di test sta dentro la sua DATA_DIR (helpers/test-server.ts).
 const MEDIA_DIR = join(E2E_DATA_DIR, ".openclaw", "media", "preview-autoplay");

@@ -36,6 +36,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -48,7 +49,7 @@ const AFTER = ["uno", "due", "TRE", "quattro", "cinque", "sei"].join("\n") + "\n
 
 interface WorktreeRow { id: string; status: string; absPath: string; branchName: string }
 
-const REPO = `/tmp/topics-e2e-diffreview-${Date.now()}`;
+const REPO = `${canonicalTmpRoot()}/topics-e2e-diffreview-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(REPO);
 
 let topicId: string | null = null;

@@ -693,3 +693,62 @@ pura. Un cartello che arriva già scaduto SHALL essere adottato come niente.
 - **GIVEN** un hold in corso
 - **WHEN** arriva un frame senza `untilMs`
 - **THEN** lo stato SHALL leggersi come assente
+
+### Requirement: USAGE-21 — La finestra del piano si legge dall'evento della CLI, e frena la coda prima del muro
+
+Con le CLI in abbonamento il vincolo non è il dollaro: è la finestra a cinque
+ore. La CLI lo dice a ogni turno con `rate_limit_event`, e Topics lo scartava
+come rumore — buttando via l'unico dato che dice QUANDO ti fermerai.
+
+L'evento `rate_limit_event` NON SHALL essere classificato rumore. La sua
+lettura SHALL portare, per ciascuna delle due finestre, la percentuale usata e
+l'istante di reset in millisecondi: la CLI dà una FRAZIONE (0-1, che può
+superare 1) e secondi epoch, il promemoria tiene percentuale e millisecondi.
+
+La lettura SHALL finire nello STESSO promemoria di processo che già alimenta il
+cartello del limite (`provider-hold`), scritto sia dall'evento della CLI sia
+dalle letture dell'endpoint d'uso: due sorgenti, un solo numero. Una finestra
+oltre il proprio reset SHALL sparire dal promemoria da sé, come l'hold.
+
+Una finestra a cinque ore ESAURITA letta dall'evento SHALL produrre lo stesso
+hold della lettura via endpoint (RESUME-04), passando per la stessa regola.
+
+Sopra la soglia di freno, e con un reset ancora futuro, il giro di dispatch NON
+SHALL avviare nessuna card nuova, e SHALL dirne il motivo una volta sola per
+istante di reset. Sotto la soglia il giro SHALL comportarsi esattamente come
+prima; senza nessuna lettura registrata SHALL avviare, perché «non lo so» non è
+«sei al limite». La soglia SHALL guardare la sola finestra a cinque ore: una
+settimana quasi piena non ferma la coda di oggi.
+
+Un evento RIASCOLTATO durante la ripresa di una sessione NON SHALL sovrascrivere
+una lettura fresca: è la coda del registro, non una misura di adesso.
+
+Sopra la soglia di avviso la fascia di stato SHALL mostrare percentuale e ora di
+reset; il cartello dell'hold, quando c'è, SHALL prendere il suo posto invece di
+affiancarlo. La riga SHALL scadere da sé al reset, con la regola di USAGE-20.
+
+#### Scenario: l'evento della CLI si legge in percentuale e millisecondi
+- **GIVEN** un `rate_limit_event` con la finestra a cinque ore a frazione 0.82 e reset in secondi epoch
+- **THEN** la lettura SHALL dare 82 e lo stesso istante in millisecondi
+
+#### Scenario: la finestra esaurita produce l'hold
+- **GIVEN** un evento con la finestra a cinque ore piena e reset futuro
+- **THEN** SHALL valere lo stesso hold della lettura via endpoint
+
+#### Scenario: sopra la soglia il giro non avvia
+- **GIVEN** una lettura della finestra a cinque ore sopra la soglia di freno, con reset futuro
+- **WHEN** parte il giro di dispatch
+- **THEN** nessun turno SHALL partire e la card SHALL restare in coda
+
+#### Scenario: sotto la soglia il giro avvia
+- **GIVEN** una lettura della finestra a cinque ore sotto la soglia
+- **THEN** il giro SHALL avviare il turno come prima
+
+#### Scenario: senza lettura si avvia
+- **GIVEN** nessuna lettura registrata
+- **THEN** il giro SHALL avviare il turno
+
+#### Scenario: la lettura scade al reset
+- **GIVEN** una lettura registrata
+- **WHEN** passa il suo istante di reset
+- **THEN** SHALL leggersi come assente

@@ -27,11 +27,12 @@ import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const BASE = E2E_BASE;
-const PROJECT_PATH = `/tmp/e2e-preview-edge-${Date.now()}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-preview-edge-${Date.now()}`;
 const MEDIA_DIR = join(E2E_DATA_DIR, ".openclaw", "media", "preview-edge");
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 

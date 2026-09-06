@@ -20,6 +20,7 @@ import {
   readAssistantContextTokens,
   readEventContent,
   readParentToolUseId,
+  readRateLimitUsage,
   readResultErrorText,
   readResultUsage,
   splitCallUsage,
@@ -30,7 +31,7 @@ describe("classifyStreamLine", () => {
   test("riconosce ogni riga che il provider tratta in modo diverso", () => {
     expect(classifyStreamLine(F.COMPACT_BOUNDARY).kind).toBe("compaction");
     expect(classifyStreamLine(F.SYSTEM_INIT).kind).toBe("noise");
-    expect(classifyStreamLine(F.RATE_LIMIT).kind).toBe("noise");
+    expect(classifyStreamLine(F.RATE_LIMIT).kind).toBe("rate_limit");
     // THE FIELD NAME, not just the verdict. `classifyStreamLine` reads only
     // `type`, so a fixture with an invented payload key stays green forever and
     // becomes the shape the next feature is written against. The CLI (2.1.238)
@@ -54,6 +55,35 @@ describe("classifyStreamLine", () => {
     expect(classifyStreamLine(F.ASSISTANT_TEXT).label).toBe("assistant");
     expect(classifyStreamLine(null).label).toBe("?");
     expect(classifyStreamLine({ type: "qualcosa_di_nuovo" }).kind).toBe("unknown");
+  });
+});
+
+/**
+ * The units, which is the only thing that can quietly go wrong here.
+ *
+ * @covers USAGE-21
+ */
+describe("readRateLimitUsage", () => {
+  test("la frazione diventa percento e i secondi diventano millisecondi", () => {
+    const usage = readRateLimitUsage(F.RATE_LIMIT);
+    expect(usage?.fiveHour).toEqual({ utilization: 82, resetsAtMs: 1_754_600_000_000 });
+    expect(usage?.sevenDay).toEqual({ utilization: 31, resetsAtMs: 1_755_000_000_000 });
+  });
+
+  test("un evento senza `unifiedWindows` non è una finestra vuota, è nessuna lettura", () => {
+    // Older CLIs send the same event with only `status`: reading that as 0%
+    // would tell whoever decides to brake that the window is wide open.
+    expect(readRateLimitUsage({ type: "rate_limit_event", rate_limit_info: { status: "allowed" } })).toBeNull();
+    expect(readRateLimitUsage(F.SYSTEM_INIT)).toBeNull();
+  });
+
+  test("una finestra sola basta, l'altra resta null", () => {
+    const usage = readRateLimitUsage({
+      type: "rate_limit_event",
+      rate_limit_info: { unifiedWindows: { five_hour: { utilization: 1.04, resetsAt: 1_754_600_000 } } },
+    });
+    expect(usage?.fiveHour?.utilization).toBeCloseTo(104, 6);
+    expect(usage?.sevenDay).toBeNull();
   });
 });
 

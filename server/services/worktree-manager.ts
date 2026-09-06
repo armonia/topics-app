@@ -43,6 +43,7 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { topicsHome } from "./daemon-state";
+import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";
 import type { OwnedScript } from "../lib/ghost-script";
 import type { NotificationRecordInput } from "../../shared/notification-log";
@@ -172,6 +173,8 @@ export function createWorktreeManager(
   deps: {
     projectStore: ProjectStore;
     worktreeStore: WorktreeStore;
+    /** The user's `worktree-create` hook (HOOKS-02): asked BEFORE any row exists. */
+    hooks?: LifecycleHookRunner;
   },
   gcDeps: WorktreeManagerGcDeps = {},
 ): WorktreeManager {
@@ -334,6 +337,23 @@ export function createWorktreeManager(
       branchName = input.baseRef;
     } else {
       branchName = null;
+    }
+
+    // THE USER'S HOOK IS ASKED BEFORE THE ROW EXISTS (HOOKS-02): a refusal
+    // must leave nothing behind, not even a `pending` row for the GC to find.
+    // It sees the name and branch the row would have carried, so a rule can
+    // decide on them; `cwd` is the project the worktree would be carved from.
+    if (deps.hooks) {
+      const verdict = await deps.hooks.run("worktree-create", {
+        hook_event_name: "worktree-create",
+        session_id: "",
+        cwd: project.path,
+        worktree_name: name,
+        worktree_path: absPath,
+        branch_name: branchName,
+        base_ref: input.mode === "detached" ? null : input.baseRef,
+      });
+      if (!verdict.ok) throw new WorktreeRefusalError(verdict.reason);
     }
 
     // Insert the row in `pending` BEFORE running git so the WS broadcast

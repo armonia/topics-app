@@ -1302,6 +1302,12 @@ A sub-agent spawned from a topic chat reports its exit into that conversation, s
 - **THEN** it SHALL open with a bold header naming that sub-agent, with the body below it
 - **AND** with no result the status note SHALL be embedded in the same shape
 
+#### Scenario: The report names the branch when the child had one
+- **GIVEN** an exit for a sub-agent that ran in a worktree of its own (WORKTREE-14)
+- **WHEN** the chat message is composed
+- **THEN** a closing line SHALL name that branch and how to read its commits
+- **AND** an exit with no branch SHALL produce exactly the message it produces today
+
 ### Requirement: SUBAGENT-05 — The child's real transcript is found, not the one it was assigned
 
 A sub-agent spawned as its own CLI does not honour the session id pre-assigned to it: it mints its own and writes the transcript under THAT name, so a read keyed by the assigned id finds no file and the parent is woken with an empty body. The system SHALL find the child's transcript by content, and SHALL prefer finding none to finding the parent's.

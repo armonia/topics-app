@@ -87,7 +87,7 @@ esegui() {
 echo "== guard rail statici =="
 for c in check:any check:any-budget check:ref-callbacks check:nul check:eslint-disable \
          check:test-skips check:emdash check:bloat check:ui-language check:comment-language \
-         check:identifier-language check:sleeps \
+         check:identifier-language check:sleeps check:tmp-canonical \
          check:untraced-tests check:spec-coverage \
          check:migrations check:security check:deadcode check:deadcode-blindspots; do
   esegui "$c" bun run "$c"

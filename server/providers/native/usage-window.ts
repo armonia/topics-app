@@ -7,21 +7,16 @@
 // published time, hours away (worth NOTHING but waiting for that time). The
 // message does not tell them apart; the usage endpoint does.
 
-import { setProviderHold, clearProviderHold, providerHold, type UsageWindowKind } from "../../lib/provider-hold";
+import { setProviderHold, clearProviderHold, providerHold, recordPlanUsage, type UsageWindowKind } from "../../lib/provider-hold";
+import type { PlanUsage, PlanUsageWindow } from "../../../shared/provider-hold";
 
 export const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 
-export interface UsageWindow {
-  /** Percent of the window already used, 0-100. */
-  utilization: number;
-  /** When the window resets (ms epoch), when the API says so. */
-  resetsAtMs: number | null;
-}
-
-export interface Usage {
-  fiveHour: UsageWindow | null;
-  sevenDay: UsageWindow | null;
-}
+// The endpoint and the CLI event describe the same two windows, so they share
+// one declaration (`shared/provider-hold.ts`). These aliases keep the local
+// names this module and its callers already use.
+export type UsageWindow = PlanUsageWindow;
+export type Usage = Omit<PlanUsage, "observedAtMs">;
 
 /** A window is spent when the next request would not fit. The API reports
  *  utilization rounded, so 100 is "at the wall" and a hair below still is. */
@@ -57,6 +52,20 @@ export function holdFromUsage(usage: Usage, nowMs: number): { untilMs: number; w
   return { untilMs: latest.w!.resetsAtMs!, window: latest.window, reason: latest.reason };
 }
 
+/**
+ * A fresh reading of the windows, from whichever source produced it: the
+ * endpoint below or the CLI's `rate_limit_event`. It records the percentage for
+ * the status bar and the dispatcher, and then asks the ONE question the hold
+ * already knows how to answer, so a window read as spent walks into the same
+ * wait whether the number came from the CLI or from the endpoint.
+ */
+export function observePlanUsage(usage: Usage | null, nowMs: number = Date.now()): void {
+  if (!usage) return;
+  recordPlanUsage(usage, nowMs);
+  const hold = holdFromUsage(usage, nowMs);
+  if (hold) setProviderHold(hold, nowMs);
+}
+
 /** Read the windows with the session's OAuth token. Never throws: a usage
  *  endpoint that is down must not decide anything. */
 export async function fetchUsage(token: string, fetchImpl: typeof fetch = fetch): Promise<Usage | null> {
@@ -80,6 +89,7 @@ export async function fetchUsage(token: string, fetchImpl: typeof fetch = fetch)
 export async function saturationHold(token: string, nowMs: number = Date.now(), fetchImpl: typeof fetch = fetch): Promise<number | null> {
   const usage = await fetchUsage(token, fetchImpl);
   if (!usage) return null;
+  recordPlanUsage(usage, nowMs);
   const hold = holdFromUsage(usage, nowMs);
   if (!hold) return null;
   setProviderHold(hold, nowMs);
@@ -97,6 +107,7 @@ export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now
   if (!providerHold(nowMs)) return false;
   const usage = await fetchUsage(token, fetchImpl);
   if (!usage) return false;
+  recordPlanUsage(usage, nowMs);
   if (holdFromUsage(usage, nowMs)) return false;
   clearProviderHold();
   return true;
