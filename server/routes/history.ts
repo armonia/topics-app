@@ -63,6 +63,18 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         : 50;
     const offsetN = Number(body?.offset ?? urlParams.get('offset') ?? '0');
     const offset = Number.isFinite(offsetN) ? Math.max(0, Math.trunc(offsetN)) : 0;
+    // `before`: only the messages that PRECEDE this id in the active thread.
+    // It is the cursor the chat pane uses for the second half of a tail-first
+    // open (`shared/history-paging.ts`): the first request asked for the last
+    // N rows, this one asks for everything before the oldest of those. An id
+    // beats an offset because the thread can grow between the two requests -
+    // a turn landing, an empty partial cleaned up - and "skip the last 40" would
+    // then skip a different 40. Absent or unknown: the request behaves exactly
+    // as before this parameter existed, and an unknown id yields the WHOLE
+    // thread rather than nothing (the client dedups by id; an empty answer
+    // would leave the pane believing the head of the chat does not exist).
+    const rawBefore = body?.before ?? urlParams.get('before');
+    const before = typeof rawBefore === 'string' && rawBefore.length > 0 ? rawBefore : null;
 
     // A CAPPED request pays for what it returns. The limit used to be applied
     // after hydrating the whole session: `SELECT *` on every row plus a
@@ -148,8 +160,12 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     }
 
     if (completeMsgs.length > 0) {
+      // `total` counts the whole thread even when `before` trims the answer:
+      // it is how the client learns whether what it holds is the whole story.
       const total = completeMsgs.length;
-      const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
+      const beforeAt = before ? completeMsgs.findIndex((m) => m.id === before) : -1;
+      const pool = beforeAt >= 0 ? completeMsgs.slice(0, beforeAt) : completeMsgs;
+      const sliced = offset > 0 ? pool.slice(0, Math.max(0, pool.length - offset)) : pool;
       const capped = wantsAll ? sliced : sliced.slice(-limit);
       const result = cappedRead ? hydrateMessageBodies(capped) : capped;
       const currentStream = isStreaming(sessionKey);
