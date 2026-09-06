@@ -68,7 +68,7 @@ export { attemptHasWork } from '../../../shared/task-attempt';
 // da lì che lo importa chi lo usa (il servizio lato server).
 export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
-import { BOOT_READ_TTL_MS, coalescedFetch } from './coalesceFetch';
+import { coalescedFetch } from './coalesceFetch';
 
 /**
  * Reserved board id for tasks created WITHOUT a project (work spanning several
@@ -935,12 +935,21 @@ export const boardApi = {
    * The global cross-project feed (GET /api/all-boards/tasks). Read-only list;
    * each task carries its own `projectId`, so per-task mutations route back
    * through the normal project-scoped endpoints via that id.
+   *
+   * `read` is the boot's opt-in to the app-wide coalescer (`BOOT_READ_TTL_MS`):
+   * the mount read and the socket-open re-read of `useGlobalBoard` land a few
+   * hundred ms apart and are the same question. WITHOUT it the read goes to the
+   * network, and that is the default on purpose: a read that answers a
+   * `task:*` event asked "what is the state AFTER this event", and an answer
+   * from before the event — however young — is the wrong one. With the TTL on
+   * every read, a burst's tail read handed back the pre-burst snapshot and the
+   * board stayed behind with no later event to correct it.
    */
-  listAll: (status?: TaskStatus) =>
+  listAll: (status?: TaskStatus, read?: { ttlMs: number }) =>
     req<{ tasks: BoardTask[] }>(
       `/all-boards/tasks${status ? `?status=${status}` : ''}`,
       undefined,
-      { ttlMs: BOOT_READ_TTL_MS },
+      read,
     ).then(r => r.tasks),
   /**
    * LA PORTA UNICA «da un id al suo task, a qualunque profondità».
