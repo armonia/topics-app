@@ -277,6 +277,8 @@ The system SHALL provide input enhancements including @mentions, slash commands,
 
 The system SHALL support creating conversation checkpoints as snapshots, displaying them in a compact timeline view, expanding to see checkpoint details, and rolling back to a previous checkpoint with confirmation.
 
+A rollback SHALL touch only the files THIS chat changed since the checkpoint, decided by a plan built before anything is written (`POST /api/topics/:id/checkpoints/:idx/plan`, `POST /api/topics/:id/turn-checkpoints/plan`). It SHALL never stash or rewrite the whole working tree, and it SHALL never move HEAD.
+
 #### Scenario: Checkpoint bar shows count and timeline dots
 - **GIVEN** a topic has one or more saved checkpoints
 - **WHEN** the checkpoint timeline component renders
@@ -306,25 +308,70 @@ The system SHALL support creating conversation checkpoints as snapshots, display
 - **WHEN** the user clicks the "Save" button with the Plus icon
 - **THEN** a new checkpoint is created via the API
 - **AND** the new checkpoint appears at the bottom of the timeline list
+- **AND** when the topic has a project folder the checkpoint also records a snapshot of the working tree (`treeCommit`), on the same ref namespace as the automatic per-turn checkpoints
 
-#### Scenario: Hovering a checkpoint reveals rollback button
+#### Scenario: Hovering a checkpoint reveals rollback button and asks for the plan
 - **GIVEN** the checkpoint timeline is expanded with entries listed
 - **WHEN** the user hovers over a checkpoint entry
 - **THEN** a rollback button (rotate-ccw icon) appears on the right side of the entry
 - **AND** the entry background highlights on hover
+- **AND** the plan preflight for that checkpoint is requested once and cached, so hovering again does not ask again
 
-#### Scenario: Clicking rollback shows confirmation dialog
-- **GIVEN** the rollback button is visible on a checkpoint entry
+#### Scenario: Rollback button is disabled with a written reason when the plan is refused
+- **GIVEN** the plan preflight answers `canProceed: false` (a turn is still running in this chat, another chat has snapshotted in the folder since, or the snapshot does not exist)
+- **WHEN** the rollback button is shown on the hovered entry
+- **THEN** the button is disabled
+- **AND** its title is the reason in the user's language, never the raw blocker code
+
+#### Scenario: Clicking rollback shows a confirmation dialog that says what the plan says
+- **GIVEN** the rollback button is enabled on a checkpoint entry
 - **WHEN** the user clicks the rollback button
-- **THEN** a browser confirmation dialog appears explaining the rollback action
-- **AND** the dialog mentions the checkpoint description and message count
-- **AND** if a git hash exists the dialog mentions the abbreviated git hash
+- **THEN** a confirmation dialog appears, mentioning the checkpoint description and the message count the conversation is cut back to
+- **AND** the dialog says how many files come back and how many files the chat created since will be deleted
+- **AND** when the plan skipped paths, one line says those paths were changed by somebody else and are left alone, naming up to five of them and folding the rest as "+N more"
+- **AND** the dialog never promises a git checkout to a hash
 
-#### Scenario: Confirming rollback truncates to checkpoint
-- **GIVEN** the rollback confirmation dialog is displayed
-- **WHEN** the user confirms the dialog
-- **THEN** the checkpoint list truncates to include only checkpoints up to and including the selected one
-- **AND** later checkpoints are removed from the timeline
+#### Scenario: Confirming rollback restores only the paths of the turn
+- **GIVEN** the user confirms a rollback on a checkpoint with a tree snapshot
+- **WHEN** the rollback runs
+- **THEN** files this chat modified or deleted since the checkpoint are written back from the snapshot
+- **AND** files this chat created since the checkpoint are deleted
+- **AND** files this chat never touched keep whatever they hold now, uncommitted edits included
+- **AND** HEAD stays on its branch and nothing is stashed
+- **AND** the conversation is truncated to the checkpoint's message count and later checkpoints are removed
+
+#### Scenario: A path changed by somebody else is skipped and named
+- **GIVEN** a path the chat changed was edited again by somebody else after the chat's last snapshot
+- **WHEN** the rollback runs
+- **THEN** that path is left as it is
+- **AND** the response lists it under `skipped` with the reason `changed-after-checkpoint`, and the UI names it
+
+#### Scenario: A refused rollback touches nothing
+- **GIVEN** the plan is refused because a turn is still running in this chat or another chat has written in the folder since
+- **WHEN** the rollback endpoint is called anyway
+- **THEN** it answers 409 with the plan and its blockers
+- **AND** no file is touched and the conversation is not truncated
+
+#### Scenario: A legacy checkpoint rolls back the conversation only
+- **GIVEN** a checkpoint saved before tree snapshots existed (no `treeCommit`), or a topic without a project folder
+- **WHEN** the user rolls back to it
+- **THEN** the conversation is truncated and later checkpoints removed
+- **AND** nothing on disk is touched
+- **AND** the plan preflight answers `canProceed: true, filesRestorable: false` with the blocker `legacy-checkpoint` (or `not-a-repo`), so the button stays enabled and the dialog says in one line that the files cannot come back
+
+#### Scenario: A turn whose end was never recorded is refused, not guessed
+- **GIVEN** a turn took its `before` snapshot and its end-of-turn mark was never written (the process died between the two)
+- **AND** the working tree has changed since that snapshot, with no turn running now
+- **WHEN** the plan is built for that checkpoint
+- **THEN** it carries the blocker `no-turn-mark` and restores nothing
+- **AND** the reason shown says the files of that turn cannot be told apart from anybody else's
+
+#### Scenario: A turn that wrote nothing still records its end
+- **GIVEN** a turn that changed no file
+- **WHEN** the turn ends
+- **THEN** an end-of-turn mark is recorded anyway, with the same tree as the snapshot before it
+- **AND** a later edit by hand does NOT make that checkpoint look like a turn whose end was lost: its plan is empty and safe
+- **AND** the checkpoint window counts restore points, so the marks do not halve how far back a chat can go
 
 #### Scenario: Cancelling rollback preserves current state
 - **GIVEN** the rollback confirmation dialog is displayed
@@ -332,15 +379,15 @@ The system SHALL support creating conversation checkpoints as snapshots, display
 - **THEN** no rollback occurs
 - **AND** the checkpoint list remains unchanged
 
-#### Scenario: Rollback failure shows error alert
+#### Scenario: Rollback failure shows an error notice
 - **GIVEN** the user confirms a rollback
 - **WHEN** the rollback API call fails
-- **THEN** an alert dialog displays a "Rollback failed" message with the error details
+- **THEN** a toast displays a "Rollback failed" message with the error details, or the translated blocker reason when the server refused the plan
 
-#### Scenario: Successful rollback with git warning shows notice
-- **GIVEN** the user confirms a rollback on a checkpoint with a git hash
-- **WHEN** the rollback succeeds but returns a git warning
-- **THEN** an alert dialog displays "Rolled back successfully" with the warning note
+#### Scenario: Successful rollback with skipped paths shows a notice
+- **GIVEN** the user confirms a rollback whose plan skipped paths
+- **WHEN** the rollback succeeds
+- **THEN** a toast says how many paths were left alone because somebody else changed them
 
 #### Scenario: Collapsing the timeline hides checkpoint details
 - **GIVEN** the checkpoint timeline is expanded

@@ -11,14 +11,14 @@
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CHECKPOINT_REF_ROOT,
   captureTurnCheckpoint,
   listTurnCheckpoints,
-  restoreTurnCheckpoint,
+  listRestorePoints,
   dropTurnCheckpoints,
   sessionRefSlug,
   runGit,
@@ -100,65 +100,94 @@ describe("cattura", () => {
     const rounds = 6;
     for (let i = 0; i < rounds; i++) {
       writeFileSync(join(dir, "f.txt"), `giro ${i}\n`);
-      await captureTurnCheckpoint(dir, SESSION, `turno ${i}`, keep);
+      await captureTurnCheckpoint(dir, SESSION, `turno ${i}`, "before", keep);
     }
     const all = await listTurnCheckpoints(dir, SESSION);
     expect(all.length).toBe(keep);
     expect(all[0].label, "il piu' recente e' il primo").toBe(`turno ${rounds - 1}`);
     expect(all[all.length - 1].label, "i giri piu' vecchi sono stati potati").toBe(`turno ${rounds - keep}`);
   });
+
+  test("the window counts restore points, not refs, so the marks do not halve it", async () => {
+    // A turn writes two refs. Counting refs would have cut how far back the
+    // net reaches in half the day the end-of-turn mark arrived, silently.
+    const dir = repo;
+    const keep = 2;
+    const rounds = 3;
+    for (let i = 0; i < rounds; i++) {
+      await captureTurnCheckpoint(dir, SESSION, `turn ${i}`, "before", keep);
+      writeFileSync(join(dir, "f.txt"), `round ${i}\n`);
+      await captureTurnCheckpoint(dir, SESSION, `turn ${i}`, "after", keep);
+    }
+    const points = await listRestorePoints(dir, SESSION);
+    expect(points.map((p) => p.label)).toEqual([`turn ${rounds - 1}`, `turn ${rounds - 2}`]);
+    const all = await listTurnCheckpoints(dir, SESSION);
+    expect(all.length, "the marks that close the kept turns stay with them").toBe(keep * 2);
+    // Six real commits on a real repository: the default 5 s is the runner's
+    // idea of a unit test, not of a git one, and this file is full of the
+    // second kind. The budget matches the one the sharded run hands out,
+    // because a cap lower than that turns a loaded machine into a red.
+  }, 60_000);
 });
 
-describe("ripristino", () => {
-  test("riporta il contenuto del file modificato dal turno", async () => {
-    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
-    writeFileSync(join(repo, "f.txt"), "scritto dal turno\n");
+describe("kinds", () => {
+  test("the kind travels in a trailer and is read back from the ref", async () => {
+    const c = await captureTurnCheckpoint(repo, SESSION, "turn 1", "before");
+    writeFileSync(join(repo, "f.txt"), "written by the turn\n");
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "after");
 
-    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
-    const out = await restoreTurnCheckpoint(repo, ckpt.commit);
-
-    expect(readFileSync(join(repo, "f.txt"), "utf8")).toBe("prima\n");
-    expect(out.restored).toBeGreaterThan(0);
+    expect(git("log", "-1", "--format=%B", c!.commit)).toContain("Topics-Kind: before");
+    const [after, before] = await listTurnCheckpoints(repo, SESSION);
+    expect(before.kind).toBe("before");
+    expect(after.kind).toBe("after");
   });
 
-  test("cancella i file che il turno ha creato", async () => {
-    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
-    mkdirSync(join(repo, "src"), { recursive: true });
-    writeFileSync(join(repo, "src", "nuovo.ts"), "export const x = 1\n");
-
-    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
-    const out = await restoreTurnCheckpoint(repo, ckpt.commit);
-
-    expect(existsSync(join(repo, "src", "nuovo.ts")), "il file nato nel turno resta indietro").toBe(false);
-    expect(out.removed).toBe(1);
+  test("a ref written before kinds existed reads as `before`", async () => {
+    // The commit message of the old format: session and time, no kind.
+    const tree = git("write-tree");
+    const commit = git("commit-tree", tree, "-m", "topics-checkpoint: old\n\nTopics-Session: x\nTopics-Time: y\n");
+    git("update-ref", `${CHECKPOINT_REF_ROOT}/${sessionRefSlug(SESSION)}/0000000000`, commit);
+    const [c] = await listTurnCheckpoints(repo, SESSION);
+    expect(c.kind).toBe("before");
   });
 
-  test("NON lascia il repository in detached HEAD", async () => {
-    // The half of the defect that shipped. `symbolic-ref` fails on a detached
-    // HEAD, so this is the assertion that catches a regression to `checkout`.
-    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
-    writeFileSync(join(repo, "f.txt"), "scritto dal turno\n");
-
-    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
-    const out = await restoreTurnCheckpoint(repo, ckpt.commit);
-
-    expect(out.branch).toBe("main");
-    expect(git("symbolic-ref", "HEAD")).toBe("refs/heads/main");
+  test("an `after` with the same bytes IS recorded: it is a mark, not a snapshot", async () => {
+    // A turn that wrote nothing still ended, and the mark is what says so. Drop
+    // it as a duplicate and a later restore can no longer tell "that turn wrote
+    // nothing" from "that turn wrote and its end was never recorded".
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "before");
+    const mark = await captureTurnCheckpoint(repo, SESSION, "turn 1", "after");
+    expect(mark, "the turn wrote nothing, and that is exactly what has to be on record").not.toBeNull();
+    expect(mark!.kind).toBe("after");
+    const all = await listTurnCheckpoints(repo, SESSION);
+    expect(all.length).toBe(2);
+    expect(await listRestorePoints(repo, SESSION), "still one place to go back to").toHaveLength(1);
   });
 
-  test("`checkout <hash>` invece STACCA la testa: la non-vacuita' del test sopra", async () => {
-    const c = await captureTurnCheckpoint(repo, SESSION, "prima del turno");
-    expect(() => git("checkout", c!.commit), "se questo non staccasse, il difetto non esisteva").not.toThrow();
-    expect(() => git("symbolic-ref", "HEAD")).toThrow();
+  test("a `before` IS recorded on top of an identical `after`: the restore point must exist", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "before");
+    writeFileSync(join(repo, "f.txt"), "written by the turn\n");
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "after");
+    const next = await captureTurnCheckpoint(repo, SESSION, "turn 2", "before");
+    expect(next, "same bytes as the end-of-turn mark, still a new restore point").not.toBeNull();
+    expect(next!.kind).toBe("before");
   });
 
-  test("dichiara che la conversazione NON torna indietro", async () => {
-    // Decision 3 on the wire. Two different promises; this module keeps one and
-    // says so, rather than letting a caller imply the other.
-    await captureTurnCheckpoint(repo, SESSION, "prima del turno");
-    writeFileSync(join(repo, "f.txt"), "scritto dal turno\n");
-    const [ckpt] = await listTurnCheckpoints(repo, SESSION);
-    expect((await restoreTurnCheckpoint(repo, ckpt.commit)).conversationRewound).toBe(false);
+  test("a `before` on top of an identical `before` is still deduplicated", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "before");
+    expect(await captureTurnCheckpoint(repo, SESSION, "turn 2", "before")).toBeNull();
+  });
+
+  test("restore points are every kind but `after`, newest first", async () => {
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "before");
+    writeFileSync(join(repo, "f.txt"), "written by the turn\n");
+    await captureTurnCheckpoint(repo, SESSION, "turn 1", "after");
+    writeFileSync(join(repo, "f.txt"), "saved by hand\n");
+    await captureTurnCheckpoint(repo, SESSION, "manual save", "manual");
+
+    expect((await listTurnCheckpoints(repo, SESSION)).length).toBe(3);
+    const points = await listRestorePoints(repo, SESSION);
+    expect(points.map((p) => p.kind)).toEqual(["manual", "before"]);
   });
 });
 
