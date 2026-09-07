@@ -85,10 +85,10 @@ export interface IcsOccurrence {
 // Zones
 // ---------------------------------------------------------------------------
 
-const formatters = new Map<string, Intl.DateTimeFormat>();
+const zoneFormats = new Map<string, Intl.DateTimeFormat>();
 
-function formatterFor(zone: string): Intl.DateTimeFormat | null {
-  const cached = formatters.get(zone);
+function zoneFormatFor(zone: string): Intl.DateTimeFormat | null {
+  const cached = zoneFormats.get(zone);
   if (cached) return cached;
   try {
     const fmt = new Intl.DateTimeFormat('en-US', {
@@ -101,7 +101,7 @@ function formatterFor(zone: string): Intl.DateTimeFormat | null {
       minute: '2-digit',
       second: '2-digit',
     });
-    formatters.set(zone, fmt);
+    zoneFormats.set(zone, fmt);
     return fmt;
   } catch {
     // An unknown zone name is not a reason to drop the event: it falls back to
@@ -112,7 +112,7 @@ function formatterFor(zone: string): Intl.DateTimeFormat | null {
 
 /** The offset, in ms, that `zone` had at the instant `ms`. */
 function zoneOffsetAt(ms: number, zone: string): number {
-  const fmt = formatterFor(zone);
+  const fmt = zoneFormatFor(zone);
   if (!fmt) return -new Date(ms).getTimezoneOffset() * 60_000;
   const parts = fmt.formatToParts(new Date(ms));
   const read = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? '0');
@@ -165,7 +165,7 @@ function unfold(text: string): string[] {
   return out;
 }
 
-function unescapeText(value: string): string {
+function decodeText(value: string): string {
   return value
     .replace(/\\n/gi, '\n')
     .replace(/\\,/g, ',')
@@ -262,7 +262,7 @@ export function parseIcs(text: string): IcsCalendar {
       continue;
     }
     if (!inEvent) {
-      if (line.name === 'X-WR-CALNAME') name = unescapeText(line.value).trim() || undefined;
+      if (line.name === 'X-WR-CALNAME') name = decodeText(line.value).trim() || undefined;
       continue;
     }
     applyProperty(current, line);
@@ -274,9 +274,9 @@ export function parseIcs(text: string): IcsCalendar {
 function applyProperty(event: Partial<IcsEvent> & { exdates: number[] }, line: IcsLine): void {
   switch (line.name) {
     case 'UID': event.uid = line.value.trim(); break;
-    case 'SUMMARY': event.summary = unescapeText(line.value).trim(); break;
-    case 'LOCATION': event.location = unescapeText(line.value).trim() || undefined; break;
-    case 'DESCRIPTION': event.description = unescapeText(line.value).trim() || undefined; break;
+    case 'SUMMARY': event.summary = decodeText(line.value).trim(); break;
+    case 'LOCATION': event.location = decodeText(line.value).trim() || undefined; break;
+    case 'DESCRIPTION': event.description = decodeText(line.value).trim() || undefined; break;
     case 'URL': event.url = line.value.trim() || undefined; break;
     case 'X-GOOGLE-CONFERENCE': event.conference = line.value.trim() || undefined; break;
     case 'RRULE': event.rrule = line.value.trim(); break;
@@ -357,7 +357,7 @@ function finishEvent(draft: Partial<IcsEvent> & { exdates: number[] }): IcsEvent
 const WEEKDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
 interface Rule {
-  freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
+  frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
   interval: number;
   count: number | null;
   until: number | null;
@@ -372,8 +372,8 @@ function parseRule(rrule: string): Rule | null {
     const eq = piece.indexOf('=');
     if (eq > 0) parts[piece.slice(0, eq).toUpperCase()] = piece.slice(eq + 1);
   }
-  const freq = parts.FREQ?.toUpperCase();
-  if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY' && freq !== 'YEARLY') return null;
+  const frequency = parts.FREQ?.toUpperCase();
+  if (frequency !== 'DAILY' && frequency !== 'WEEKLY' && frequency !== 'MONTHLY' && frequency !== 'YEARLY') return null;
   const interval = Math.max(1, Number(parts.INTERVAL ?? '1') || 1);
   const count = parts.COUNT ? Number(parts.COUNT) : null;
   let until: number | null = null;
@@ -397,7 +397,7 @@ function parseRule(rrule: string): Rule | null {
     .split(',')
     .map((v) => Number(v.trim()))
     .filter((v) => Number.isInteger(v) && v !== 0);
-  return { freq, interval, count, until, byDay, byMonthDay };
+  return { frequency, interval, count, until, byDay, byMonthDay };
 }
 
 /** A hard stop on the walk. A malformed rule (INTERVAL=0 dodged, COUNT huge,
@@ -483,12 +483,12 @@ export function occurrenceStarts(event: IcsEvent, windowEnd: number): number[] {
   };
 
   while (steps++ < MAX_STEPS) {
-    if (rule.freq === 'DAILY') {
+    if (rule.frequency === 'DAILY') {
       if (emit(cursor) === 'stop') break;
       cursor = addDays(cursor, rule.interval);
       continue;
     }
-    if (rule.freq === 'WEEKLY') {
+    if (rule.frequency === 'WEEKLY') {
       const wanted = rule.byDay.length > 0 ? rule.byDay.map((b) => b.day) : [weekdayOf(cursor)];
       const weekStart = addDays(cursor, -weekdayOf(cursor));
       let stop = false;
@@ -499,7 +499,7 @@ export function occurrenceStarts(event: IcsEvent, windowEnd: number): number[] {
       cursor = addDays(cursor, 7 * rule.interval);
       continue;
     }
-    if (rule.freq === 'MONTHLY') {
+    if (rule.frequency === 'MONTHLY') {
       const days = rule.byDay.length > 0 || rule.byMonthDay.length > 0
         ? daysMatchingInMonth(cursor, rule)
         : [event.start.day];

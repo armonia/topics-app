@@ -74,7 +74,7 @@ describe("the text format", () => {
 });
 
 describe("recurrence", () => {
-  const standup = (rule: string) => feed(
+  const dailyMeeting = (rule: string) => feed(
     "BEGIN:VEVENT",
     "UID:standup@example.com",
     "SUMMARY:Stand-up",
@@ -86,14 +86,14 @@ describe("recurrence", () => {
 
   test("a daily rule from months ago still fills this week", () => {
     const from = Date.UTC(2026, 8, 7, 6, 0);
-    const found = expandOccurrences(parseIcs(standup("FREQ=DAILY")), from, from + 3 * day);
+    const found = expandOccurrences(parseIcs(dailyMeeting("FREQ=DAILY")), from, from + 3 * day);
     expect(found.length).toBe(3);
     expect(new Date(found[0].start).toISOString()).toBe("2026-09-07T07:00:00.000Z");
   });
 
   test("weekly BYDAY expands to the named days only", () => {
     const from = Date.UTC(2026, 8, 7, 0, 0);
-    const found = expandOccurrences(parseIcs(standup("FREQ=WEEKLY;BYDAY=MO,WE,FR")), from, from + 7 * day);
+    const found = expandOccurrences(parseIcs(dailyMeeting("FREQ=WEEKLY;BYDAY=MO,WE,FR")), from, from + 7 * day);
     expect(found.map((o) => new Date(o.start).getUTCDay())).toEqual([1, 3, 5]);
   });
 
@@ -101,24 +101,24 @@ describe("recurrence", () => {
     // Italy leaves summer time on 25 October 2026: the same 09:00 is 07:00Z
     // before and 08:00Z after. A naive "add 24h" drifts by an hour here.
     const from = Date.UTC(2026, 9, 24, 0, 0);
-    const found = expandOccurrences(parseIcs(standup("FREQ=DAILY")), from, from + 3 * day);
+    const found = expandOccurrences(parseIcs(dailyMeeting("FREQ=DAILY")), from, from + 3 * day);
     expect(new Date(found[0].start).toISOString()).toBe("2026-10-24T07:00:00.000Z");
     expect(new Date(found[2].start).toISOString()).toBe("2026-10-26T08:00:00.000Z");
   });
 
   test("COUNT is spent on the whole series, so an ended series does not resurface", () => {
     const from = Date.UTC(2026, 8, 7, 0, 0);
-    expect(expandOccurrences(parseIcs(standup("FREQ=DAILY;COUNT=5")), from, from + 7 * day)).toHaveLength(0);
+    expect(expandOccurrences(parseIcs(dailyMeeting("FREQ=DAILY;COUNT=5")), from, from + 7 * day)).toHaveLength(0);
   });
 
   test("UNTIL closes the series", () => {
     const from = Date.UTC(2026, 8, 7, 0, 0);
-    expect(expandOccurrences(parseIcs(standup("FREQ=DAILY;UNTIL=20260601T000000Z")), from, from + 7 * day)).toHaveLength(0);
+    expect(expandOccurrences(parseIcs(dailyMeeting("FREQ=DAILY;UNTIL=20260601T000000Z")), from, from + 7 * day)).toHaveLength(0);
   });
 
   test("INTERVAL skips the weeks in between", () => {
     const from = Date.UTC(2026, 8, 7, 0, 0);
-    const found = expandOccurrences(parseIcs(standup("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO")), from, from + 21 * day);
+    const found = expandOccurrences(parseIcs(dailyMeeting("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO")), from, from + 21 * day);
     expect(found.length).toBe(1);
   });
 
@@ -139,7 +139,7 @@ describe("recurrence", () => {
   });
 
   test("EXDATE removes the cancelled instance and nothing else", () => {
-    const with_exdate = feed(
+    const withExclusions = feed(
       "BEGIN:VEVENT",
       "UID:standup@example.com",
       "SUMMARY:Stand-up",
@@ -150,7 +150,7 @@ describe("recurrence", () => {
       "END:VEVENT",
     );
     const from = Date.UTC(2026, 8, 7, 0, 0);
-    const found = expandOccurrences(parseIcs(with_exdate), from, from + 3 * day);
+    const found = expandOccurrences(parseIcs(withExclusions), from, from + 3 * day);
     expect(found.map((o) => new Date(o.start).getUTCDate())).toEqual([7, 9]);
   });
 
@@ -179,7 +179,7 @@ describe("recurrence", () => {
   });
 
   test("a cancelled event is not on the agenda", () => {
-    const cancelled = feed(
+    const calledOff = feed(
       "BEGIN:VEVENT",
       "UID:gone@example.com",
       "SUMMARY:Called off",
@@ -189,7 +189,7 @@ describe("recurrence", () => {
       "END:VEVENT",
     );
     const from = Date.UTC(2026, 8, 8, 0, 0);
-    expect(expandOccurrences(parseIcs(cancelled), from, from + day)).toHaveLength(0);
+    expect(expandOccurrences(parseIcs(calledOff), from, from + day)).toHaveLength(0);
   });
 });
 
