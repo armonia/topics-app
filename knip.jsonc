@@ -78,6 +78,11 @@
         // `bun scripts/webrtc-probe.ts` — la sonda del percorso WebRTC: si lancia a
         // mano quando si vuole vedere encode/trasporto dal vivo, nessuno la importa.
         "scripts/webrtc-probe.ts!",
+        // `bun run scripts/browser-qos-probe.ts` - the control measure of the
+        // shared Chromium's QoS band (card 7f4d8f32): prints the process table
+        // of the browser tree with only an agent using it and again with a
+        // person watching. Run by hand, imported by nobody.
+        "scripts/browser-qos-probe.ts!",
         // `bun run probe:gate-slots` - the control measure of the gate
         // semaphore: how many `bun test` runs are alive against how many slots
         // are declared. Run by hand while the board is busy, imported by
