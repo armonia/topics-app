@@ -7,6 +7,24 @@ import { getCompactionMarkersBySession } from "../db/compaction-markers";
 import { leanMessagesForWire, leanMessagesForHistory } from "../../shared/lean-tool-call";
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
+import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
+
+/**
+ * Keep the TAIL of `msgs` that fits in `budget` serialized bytes, never fewer
+ * than one message. Only the rows that survive are serialized twice (once here
+ * to weigh them, once by the JSON answer) plus the first one that does not fit.
+ */
+function capByBytes<T>(msgs: readonly T[], budget: number): readonly T[] {
+  let sum = 0;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    sum += JSON.stringify(msgs[i]).length;
+    if (sum > budget) {
+      const kept = msgs.length - 1 - i;
+      return kept > 0 ? msgs.slice(i + 1) : msgs.slice(i);
+    }
+  }
+  return msgs;
+}
 
 export interface HistoryDeps {
   matchHistoryRoute: (pathname: string) => string | null;
@@ -208,7 +226,17 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // intentionally left — it drives the closed-row summary label.
       // Gates: tests/integration/history-payload-weight.test.ts and
       // tests/integration/history-args-weight.test.ts.
-      const stripped = leanMessagesForHistory(lean);
+      const strippedAll = leanMessagesForHistory(lean);
+      // BYTE BUDGET of the first page. `limit` bounds the COUNT, and a count is
+      // not a size: forty messages of an agentic topic were measured at 0.66 to
+      // 1.33 MB of lean rows on 2026-09-07, against the "few tens of KB" the
+      // paging assumed. So walk the rows from the tail, sum what each one costs
+      // on the wire, and drop the head once the sum passes the budget - keeping
+      // at least one message, however fat it is. `total` is untouched, which is
+      // exactly how the client learns the page is partial and completes it with
+      // `before`. A caller that asked for the whole thread is never capped.
+      // Gate: tests/integration/history-page-bytes.test.ts.
+      const stripped = wantsAll ? strippedAll : capByBytes(strippedAll, HISTORY_PAGE_MAX_BYTES);
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.
