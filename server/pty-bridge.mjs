@@ -7,6 +7,9 @@ import fs from 'node:fs';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { userInfo } from 'node:os';
+// runtime-dep-ok: a sibling ESM import, not a spawn. Whatever runtime is
+// already executing this daemon resolves it, and the installed app does not run
+// this file at all (it ships the compiled Rust bridge).
 import { augmentedPath, pidPathFor, socketIsFile, trivialSpawn } from './pty-bridge-platform.mjs';
 
 // The user's REAL home, from the OS account db (getpwuid) not $HOME. The bridge
