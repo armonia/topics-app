@@ -846,6 +846,29 @@ chiamare il risolutore; e senza risolutore iniettato SHALL DIRLO.
 - **GIVEN** un percorso invece di un nome
 - **THEN** SHALL sollevare «non trovato»
 
+### Requirement: CTRLTOOL-02 — La rotta esegue SOLO gli strumenti di controllo che ha registrato lei
+
+Gli stessi cinque nomi vivono in due posti: la rotta li consegna al modello solo
+per i provider di passaggio, mentre ogni altro runtime li possiede attraverso la
+tavola degli strumenti e li esegue da sé. Quindi la rotta SHALL dispacciarli
+SOLO per i provider di passaggio.
+
+Un annuncio di strumento che arriva da un runtime che li esegue da sé NON SHALL
+produrre né effetto collaterale né risultato: sarebbe una seconda esecuzione
+della stessa chiamata. In particolare il runtime nativo annuncia con argomenti
+VUOTI, quindi la seconda esecuzione falliva per «argomenti mancanti» e scriveva
+un errore sopra una chiamata riuscita.
+
+#### Scenario: annuncio dal runtime nativo
+- **GIVEN** un provider che non è di passaggio
+- **WHEN** viene annunciato uno strumento di controllo
+- **THEN** la rotta NON SHALL eseguirlo e NON SHALL emettere nessun risultato
+
+#### Scenario: annuncio da un provider di passaggio
+- **GIVEN** un provider di passaggio
+- **WHEN** viene annunciato uno strumento di controllo con i suoi argomenti
+- **THEN** l'effetto collaterale SHALL avvenire e il risultato SHALL essere annunciato
+
 ### Requirement: MCPSRV-01 — Il server degli strumenti regge il protocollo VERO, come processo separato
 
 Le prove sulle funzioni esportate non toccano il processo. Questo SHALL accendere

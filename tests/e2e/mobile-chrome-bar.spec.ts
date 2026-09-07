@@ -25,6 +25,8 @@
  *                    dichiarato, non un numero scelto a mano
  *  MOBILE-CHROME-08  la porta del profilo apre la PANE Profilo — una tab, non
  *                    la modale delle Impostazioni — senza passare da nessun menu
+ *  MOBILE-CHROME-09  la riga in alto non ha fondo e sta FUORI dal flusso: le
+ *                    tab le passano dietro invece di fermarsi al suo bordo
  *
  * La fascia inferiore si FORZA (`--sab`), non si aspetta un iPhone vero: è
  * esattamente il motivo per cui quell'inset vive in una variabile CSS invece
@@ -50,14 +52,25 @@ const PROFILO = '[data-testid="mobile-chrome-profile"]';
 
 /** La fascia dell'home indicator di un iPhone in verticale. */
 const FASCIA_IPHONE = 34;
-/** Sotto questa quota, su un iPhone, c'è il gesto di sistema e non il bottone. */
-const ABSOLUTE_FLOOR = 10;
+/** IL FONDO E' IL FONDO. From card 1e015ad6 the slabs of the row go all the
+ *  way down to the edge of the glass, safe-area band included: the only thing
+ *  that lifts one is the arc of the screen corner, where the arc bites. */
+const FLOOR = 0;
 
 let topicId: string | null = null;
+/** A LIST LONG ENOUGH TO SCROLL. MOBILE-CHROME-09 measures what happens to a
+ *  row when it travels behind the top row, and a column that fits on screen has
+ *  nothing to measure. Eight is what overflows a short phone with room to
+ *  spare; they are deleted with the other one. */
+const CROWD = 8;
+let crowdIds: string[] = [];
 
 test.beforeAll(async ({ request }) => {
   const topic = await createTopic(request, "Chrome mobile");
   topicId = topic.id;
+  for (let i = 0; i < CROWD; i++) {
+    crowdIds.push((await createTopic(request, `Chrome mobile ${i}`)).id);
+  }
   // Una tab aperta: la colonna non è vuota, e l'interruttore della board ha
   // qualcosa a cui tornare.
   await resetPaneStore(request, [topic.id]);
@@ -65,6 +78,8 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   await resetPaneStore(request, []);
+  for (const id of crowdIds) await deleteTopic(request, id);
+  crowdIds = [];
   if (topicId) await deleteTopic(request, topicId);
 });
 
@@ -237,7 +252,7 @@ test.describe.serial("La chrome del telefono", () => {
     const dritta = await porte(page);
     const quote = dritta.map((p) => Math.round(p.daFondo));
     expect(new Set(quote).size).toBe(1);
-    for (const p of dritta) expect(p.daFondo).toBeGreaterThanOrEqual(ABSOLUTE_FLOOR);
+    for (const p of dritta) expect(Math.round(p.daFondo)).toBe(FLOOR);
 
     // ── Angoli tondi: gli estremi SALGONO, quelli in mezzo no.
     // Con quattro scatole i «centri» sono due, e la legge non cambia: sale chi
@@ -248,17 +263,25 @@ test.describe.serial("La chrome del telefono", () => {
     expect(curva.length).toBe(4);
     const [sx, centroSx, centroDx, dx] = curva;
 
-    // I due in mezzo stanno sul pavimento: dentro la fascia, sopra l'home
-    // indicator, e l'arco lì non arriva.
-    expect(Math.round(centroSx.daFondo)).toBe(FASCIA_IPHONE - 12);
-    expect(Math.round(centroDx.daFondo)).toBe(FASCIA_IPHONE - 12);
+    // The two in the middle reach the EDGE of the screen: they fill the bottom
+    // band instead of floating above it, and the arc does not reach them.
+    expect(Math.round(centroSx.daFondo)).toBe(FLOOR);
+    expect(Math.round(centroDx.daFondo)).toBe(FLOOR);
     // I due estremi stanno più in alto, e fra loro sono simmetrici.
     expect(sx.daFondo).toBeGreaterThan(centroSx.daFondo);
     expect(dx.daFondo).toBeGreaterThan(centroDx.daFondo);
     expect(Math.abs(sx.daFondo - dx.daFondo)).toBeLessThanOrEqual(1);
 
-    // E nessuna porta finisce sotto la quota dell'home indicator.
-    for (const p of curva) expect(p.daFondo).toBeGreaterThanOrEqual(ABSOLUTE_FLOOR);
+    // And no door goes through the bottom edge: below it there is nothing to
+    // occupy, and a button that ended up there would be clipped.
+    for (const p of curva) expect(p.daFondo).toBeGreaterThanOrEqual(FLOOR);
+
+    // ALL FOUR START ON THE SAME LINE. It is the other half of "the buttons
+    // must have the full height of the bar": what changes at the bottom is how
+    // far the arc lets them go, at the top nothing does, or the four words
+    // would sit on four different lines.
+    const tops = curva.map((p) => Math.round(p.daFondo + p.altezza));
+    expect(new Set(tops).size).toBe(1);
 
     // Il bersaglio resta da dito anche agli estremi, che sono quelli che la
     // curva sposta.
@@ -445,6 +468,35 @@ test.describe.serial("La chrome del telefono", () => {
       expect(haCampitura(p.fondo)).toBe(true);
     }
 
+    // AND THE BAR UNDER THEM IS GONE. From card 1e015ad6: "I would like the
+    // bottom bar to have no background". The four buttons stay, and they do
+    // have a ground; the strip that held them does not, nor its top hairline.
+    // The two measures go together: a row of skinless buttons on a skinless
+    // bar would be an invisible row, which is the opposite defect.
+    const strip = await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('[data-testid="mobile-chrome-bar"]')!);
+      return { fondo: s.backgroundColor, filo: parseFloat(s.borderTopWidth) || 0 };
+    });
+    expect(haCampitura(strip.fondo)).toBe(false);
+    expect(strip.filo).toBe(0);
+
+    // AND EVERY BUTTON IS AS TALL AS THE BAR, minus the air above it and minus
+    // what the arc eats at its foot: "I would like every button to have the
+    // full height of the bottom bar". The middle one, which the arc does not
+    // touch, fills all of it but that air.
+    const barra = await page.locator(BARRA).boundingBox();
+    const aria = Math.round(barra!.height - Math.max(...misure.map((p) => p.altezza)));
+    expect(aria).toBeLessThanOrEqual(6);
+
+    // THE PROOF YOU LOOK AT, for the eye that has to approve it: the foot of
+    // the screen, no ruler drawn over it (that one is MOBILE-CHROME-07). What
+    // has to be visible here is that there is no strip behind the four slabs
+    // and that they run down to the edge.
+    await page.screenshot({
+      path: "test-results/mobile-bottom-bar.png",
+      clip: { x: 0, y: 844 - 260, width: 390, height: 260 },
+    });
+
     // E il filo di luce c'è: `edge-lit` disegna il perimetro in un `::before`
     // che eredita il raggio, quindi la pelle segue la curva invece di
     // tagliarla.
@@ -470,8 +522,12 @@ test.describe.serial("La chrome del telefono", () => {
 
     /** Il raggio standard di un tasto della fila, quando nessun arco lo tocca. */
     const STANDARD = 12;
-    /** Mezza altezza: il massimo che un bottone da 44 può portare. */
-    const TETTO = 22;
+    /** Half the height: the most a button of the row can carry. It is READ off
+     *  the middle button, the only one the arc does not lift and therefore the
+     *  only one as tall as the whole slab, instead of being written by hand:
+     *  since the slabs go down to the glass (card 1e015ad6) that height depends
+     *  on the device band, and a fixed 22 described one phone only. */
+    const TETTO = (await porte(page))[1]!.altezza / 2;
 
     // ── Schermo squadrato: nessuna curva da seguire, tutti e dodici gli
     //    angoli sono quelli standard. Nessun ramo dedicato, stesso codice.
@@ -590,5 +646,80 @@ test.describe.serial("La chrome del telefono", () => {
 
     // Il menu «Topics» è rimasto chiuso per tutto il tragitto.
     await expect(page.locator('[data-testid="sidebar-system-menu"]')).toHaveCount(0);
+  });
+
+  test("MOBILE-CHROME-09 — le tab scorrono SOTTO la riga in alto, che non ha fondo", async ({ page, request }) => {
+    // THE COLUMN LISTS THE OPEN TABS, so a list long enough to scroll is a
+    // handful of open tabs, not a handful of topics. Last case of the file on
+    // purpose: it leaves the column crowded, and the ones before it want it
+    // with a single tab.
+    await resetPaneStore(request, [topicId!, ...crowdIds]);
+    await apri(page);
+
+    // THE TOP ROW IS A LAYER, NOT A STEP. From card 1e015ad6: "the top bar
+    // should have no background, so that scrolling the sidebar the tabs go
+    // under it, and under the safe area too". Three things make that true, and
+    // a screenshot cannot tell them apart, so all three are read here.
+    const riga = await page.evaluate(() => {
+      const colonna = document.querySelector('[aria-label="Topics sidebar"]')!;
+      const header = colonna.firstElementChild as HTMLElement;
+      const scroller = colonna.querySelector<HTMLElement>(".sidebar-column")!;
+      const s = getComputedStyle(header);
+      return {
+        posizione: s.position,
+        fondo: s.backgroundColor,
+        headerBottom: header.getBoundingClientRect().bottom,
+        scrollerTop: scroller.getBoundingClientRect().top,
+        padding: parseFloat(getComputedStyle(scroller).paddingTop),
+        canScroll: scroller.scrollHeight - scroller.clientHeight,
+      };
+    });
+    // 1. out of the flow, or whatever is under it would never reach it;
+    expect(riga.posizione).toBe("absolute");
+    // 2. no ground of its own;
+    expect(haCampitura(riga.fondo)).toBe(false);
+    // 3. the room it needs is INSIDE the scroll, as padding: the scroller
+    //    starts above the row and the list starts below it, which is the whole
+    //    difference between "it scrolls under" and "it starts after".
+    expect(riga.scrollerTop).toBeLessThanOrEqual(1);
+    expect(riga.padding).toBeGreaterThanOrEqual(riga.headerBottom - 1);
+
+    // And it does scroll under, measured on a row: a shorter screen so the
+    // list overflows for real (nothing is faked: if it does not overflow the
+    // case says so instead of passing).
+    await page.setViewportSize({ width: 390, height: 420 });
+    // The condition, not a nap: the column has to become scrollable before
+    // there is anything to scroll under.
+    await expect
+      .poll(async () => page.evaluate(() => {
+        const el = document.querySelector('[aria-label="Topics sidebar"]')!.querySelector<HTMLElement>(".sidebar-column")!;
+        return el.scrollHeight - el.clientHeight;
+      }))
+      .toBeGreaterThan(0);
+    const travel = await page.evaluate(() => {
+      const colonna = document.querySelector('[aria-label="Topics sidebar"]')!;
+      const scroller = colonna.querySelector<HTMLElement>(".sidebar-column")!;
+      const primo = scroller.querySelector<HTMLElement>('[role="treeitem"]');
+      const room = scroller.scrollHeight - scroller.clientHeight;
+      if (!primo || room <= 0) return { room, found: !!primo, before: 0, after: 0 };
+      const before = primo.getBoundingClientRect().top;
+      scroller.scrollTop = Math.min(40, room);
+      return { room, found: true, before, after: primo.getBoundingClientRect().top };
+    });
+    expect(travel.room, "the list must overflow, or there is nothing to scroll under").toBeGreaterThan(0);
+    expect(travel.found, "no tab row in the column: nothing to follow").toBe(true);
+    expect(travel.after).toBeLessThan(travel.before);
+    // The row is now BEHIND the top band: its top has climbed above where the
+    // header ends, which on a column that stopped at the header could not
+    // happen at all.
+    expect(travel.after).toBeLessThan(riga.headerBottom);
+
+    // THE PROOF YOU LOOK AT: the head of the column with the list scrolled, so
+    // a row is caught halfway behind the word that names the app instead of
+    // stopping under it.
+    await page.screenshot({
+      path: "test-results/mobile-top-bar.png",
+      clip: { x: 0, y: 0, width: 390, height: 260 },
+    });
   });
 });

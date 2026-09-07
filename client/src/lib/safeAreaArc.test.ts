@@ -2,7 +2,7 @@
  * @covers SAFEAREA-01
  */
 import { describe, expect, test } from 'bun:test';
-import { alzataCurva, curvaturaEsterna, formaFila, pavimentoFila, raggioSchermo } from './safeAreaArc';
+import { alzataCurva, curvaturaEsterna, formaFila, raggioSchermo } from './safeAreaArc';
 
 /** La fila vera: 44 di altezza, angoli standard da 12. */
 const ALTEZZA = 44;
@@ -83,22 +83,6 @@ describe('alzataCurva, angolo tondo: è ciò che permette di stare a filo', () =
   });
 });
 
-describe('pavimentoFila', () => {
-  test('senza fascia resta un respiro di 10px', () => {
-    expect(pavimentoFila(0)).toBe(10);
-  });
-
-  test('con la fascia dell’iPhone si abita la banda: 22 dal fondo', () => {
-    // Stessa quota a cui la barra di stato mette già il suo contenuto: dentro
-    // la fascia, sopra l'home indicator.
-    expect(pavimentoFila(34)).toBe(22);
-  });
-
-  test('non scende mai sotto i 10, nemmeno con una fascia sottile', () => {
-    expect(pavimentoFila(14)).toBe(10);
-  });
-});
-
 describe('curvaturaEsterna', () => {
   test('schermo squadrato ⇒ raggio standard, nessuna curva da seguire', () => {
     expect(curvaturaEsterna(8, 0, ALTEZZA, STANDARD)).toBe(STANDARD);
@@ -140,22 +124,24 @@ describe('formaFila', () => {
       larghezza,
       scatole: threeBoxes(larghezza),
       raggio: extra?.raggio ?? raggioSchermo(fascia),
-      pavimento: extra?.pavimento ?? pavimentoFila(fascia),
+      pavimento: extra?.pavimento ?? 0,
       altezza: ALTEZZA,
       standard: STANDARD,
     });
 
   test('schermo squadrato: la fila è DRITTA e tutta standard, senza rami dedicati', () => {
     const forme = fila(390, 0);
-    expect(forme.map((f) => f.alzata)).toEqual([10, 10, 10]);
+    // No arc and no floor: the boxes sit ON the bottom edge. It is the shape
+    // the bottom row asks for on a square screen (card 1e015ad6).
+    expect(forme.map((f) => f.alzata)).toEqual([0, 0, 0]);
     expect(forme.map((f) => f.curvatura)).toEqual([STANDARD, STANDARD, STANDARD]);
     expect(forme.map((f) => f.lato)).toEqual([null, null, null]);
   });
 
-  test('iPhone: gli estremi salgono, quello in mezzo resta sul pavimento', () => {
+  test('iPhone: gli estremi salgono, quello in mezzo non si muove', () => {
     const forme = fila(390, 34);
-    expect(forme[1].alzata).toBe(22);            // il centro non lo tocca l'arco
-    expect(forme[0].alzata).toBeGreaterThan(22); // i lati sì
+    expect(forme[1].alzata).toBe(0);            // il centro non lo tocca l'arco
+    expect(forme[0].alzata).toBeGreaterThan(0); // i lati sì
     expect(forme[0].alzata).toBe(forme[2].alzata); // ed è simmetrica
   });
 
@@ -187,7 +173,7 @@ describe('formaFila', () => {
     const forme = fila(390, 34);
     expect(forme[0].alzata).toBeCloseTo(32, 2);
     expect(forme[0].curvatura).toBe(22);
-    expect(forme[1].alzata).toBe(22);
+    expect(forme[1].alzata).toBe(0);
   });
 
   test('il pavimento è un minimo, non un addendo', () => {
@@ -197,7 +183,7 @@ describe('formaFila', () => {
 
   test('nessuna scatola finisce sotto il pavimento, su nessuna larghezza', () => {
     for (const larghezza of [320, 375, 390, 414, 430, 768]) {
-      for (const f of fila(larghezza, 34)) expect(f.alzata).toBeGreaterThanOrEqual(22);
+      for (const f of fila(larghezza, 34, { pavimento: 22 })) expect(f.alzata).toBeGreaterThanOrEqual(22);
     }
   });
 

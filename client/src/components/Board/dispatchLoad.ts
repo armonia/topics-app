@@ -42,17 +42,57 @@ export interface DispatchLoadReading {
   /** True when there IS no ceiling to fill against. */
   unbounded: boolean;
   /**
-   * The brake is the machine's pressure, not a count. The numeric cap does not
-   * apply then, so drawing a fraction against it would be a number that decides
-   * nothing: the ring stays empty and the word names the brake instead.
+   * The brake is the budget, not a count. The numeric cap does not apply then,
+   * so the fraction the ring draws is not "agents of a ceiling": it is core-
+   * units of the budget, which is the number that actually decides. The word
+   * beside it names the brake.
    */
   byResources: boolean;
+  /**
+   * In budget mode: what share of the WHOLE computer Topics is taking now, and
+   * the share it is allowed. Both 0..1, both `null` when the probe has not
+   * answered. They are what the popover turns into "Topics is using 62% of the
+   * PC on an 80% budget", and they live here so the header, the popover and the
+   * settings panel cannot disagree about the same machine.
+   */
+  usedShare: number | null;
+  budgetShare: number | null;
+  /** Check runs frozen for load right now (see the budget governor). */
+  frozen: number;
 }
 
 export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadReading {
   const running = Math.max(0, s.capacity?.running ?? 0);
-  const base = { running, fill: 0, tone: 'idle' as LoadTone, loading: false, unbounded: false, byResources: false };
-  if (s.cap && capMode(s.cap) === 'resources') return { ...base, limit: null, byResources: true };
+  const base = {
+    running, fill: 0, tone: 'idle' as LoadTone, loading: false, unbounded: false, byResources: false,
+    usedShare: null as number | null, budgetShare: null as number | null,
+    frozen: Math.max(0, s.capacity?.frozen ?? 0),
+  };
+  if (s.cap && capMode(s.cap) === 'resources') {
+    const c = s.capacity;
+    // THE RING FILLS WITH THE BUDGET. It used to stay empty in this mode, on
+    // the grounds that there was no count to be a fraction of, and the result
+    // was a gauge that said nothing precisely in the mode whose whole point is
+    // "how full is it". The fraction is use over budget; over the budget it
+    // stays full and the tone is what says "past it".
+    if (!c || c.usedCoreUnits == null || !(c.cores > 0)) {
+      return { ...base, limit: null, byResources: true, loading: !c };
+    }
+    const ceiling = c.budgetCoreUnits > 0 ? c.budgetCoreUnits : 0;
+    const fill = ceiling > 0 ? Math.min(1, c.usedCoreUnits / ceiling) : 0;
+    const tone: LoadTone = ceiling > 0 && c.usedCoreUnits > ceiling
+      ? 'over'
+      : ceiling > 0 && c.usedCoreUnits >= ceiling ? 'full' : 'idle';
+    return {
+      ...base,
+      limit: null,
+      byResources: true,
+      fill,
+      tone,
+      usedShare: c.usedCoreUnits / c.cores,
+      budgetShare: c.budgetShare,
+    };
+  }
   const limit = currentCapLimit(s);
   if (limit === null) return { ...base, limit, loading: true };
   if (!Number.isFinite(limit)) return { ...base, limit, unbounded: true };
@@ -74,7 +114,7 @@ export function loadWordKey(r: DispatchLoadReading): string {
 /** Ring stroke + word colour, one per tone. Kept next to the reading so a new
  *  tone can never be added without a colour. */
 export function loadToneClass(r: DispatchLoadReading): string {
-  if (r.loading || r.unbounded || r.byResources) return 'text-app-text-muted';
+  if (r.loading || r.unbounded) return 'text-app-text-muted';
   if (r.tone === 'over') return 'text-rose-300';
   if (r.tone === 'full') return 'text-amber-300';
   return 'text-app-text-secondary';

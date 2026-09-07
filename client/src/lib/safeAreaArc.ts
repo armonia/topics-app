@@ -134,9 +134,13 @@ export interface OptionsQueue {
   raggio: number;
   /**
    * Il pavimento: quanto sta comunque sopra il bordo inferiore chi non è
-   * toccato dall'arco. È la fascia ABITATA, non lasciata vuota — stessa legge
-   * della barra di stato: con 34px di inset il contenuto cade a 22 dal fondo,
-   * dentro la fascia e sopra l'home indicator (ultimi ~10px).
+   * toccato dall'arco.
+   *
+   * THE ROW THAT USES THIS PASSES ZERO (`MobileChromeBar`, card 1e015ad6): its
+   * buttons go down to the edge of the glass, safe-area band included, and the
+   * only thing allowed to lift one is the arc. The parameter stays because the
+   * law "the floor is a minimum, not an addend" is what makes that possible in
+   * one line, and a caller that does want a plinth has it here.
    */
   pavimento: number;
   /** Altezza delle scatole: è il tetto della curvatura (metà altezza = capsula). */
@@ -218,18 +222,4 @@ export function formaFila({ larghezza, scatole, raggio, pavimento, altezza, stan
       lato: curvatura === standard ? null : daSinistra <= daDestra ? 'sinistra' : 'destra',
     };
   });
-}
-
-/**
- * Il pavimento della fila, dalla fascia inferiore.
- *
- * Con `fascia = 34` (iPhone in verticale) dà 22, che è dove la barra di stato
- * mette già il suo contenuto; con `fascia = 0` dà 10, cioè un respiro dal bordo
- * e nient'altro. Il 10 è anche il minimo assoluto: sotto quella quota, su un
- * iPhone, c'è l'home indicator e il dito colpisce il gesto di sistema invece
- * del bottone.
- */
-export function pavimentoFila(fascia: number): number {
-  if (!Number.isFinite(fascia) || fascia <= 0) return 10;
-  return Math.max(10, fascia - 12);
 }

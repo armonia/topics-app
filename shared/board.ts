@@ -1718,6 +1718,24 @@ export interface DispatchCapacity {
   oursCores: number | null;
   budgetCores: number;
   /**
+   * THE BUDGET, as the person set it: the share of this computer Topics may
+   * use (0..1), and the same share turned into the two units the gate decides
+   * in. `usableCoreUnits` is the budget capped by what the rest of the machine
+   * leaves free, so the panel can say "budget 9.6, usable 4 right now" instead
+   * of promising a number nobody can have.
+   */
+  budgetShare: number;
+  budgetCoreUnits: number;
+  usableCoreUnits: number;
+  /** Core-units OUR whole tree is burning (agents and their gates included),
+   *  and the gigabytes it holds. `null` = not measured, never zero. */
+  usedCoreUnits: number | null;
+  usedMemGB: number | null;
+  /** Core-units everything that is not ours is burning, or `null`. */
+  otherCoreUnits: number | null;
+  /** How many check runs are frozen right now by the budget governor. */
+  frozen: number;
+  /**
    * Memory REALLY available right now, in GB, or `null` where the probe has
    * nothing to say (outside macOS). It travels with the capacity because the
    * "by resources" mode draws it live next to the threshold: without it the UI
@@ -1841,6 +1859,9 @@ export function sizingDispatchCap(cap: GlobalDispatchCap, structural: number | n
  * how two halves of one contract start drifting.
  */
 export * from './dispatch-pressure';
+// The controller of that mode (budget, admission, freeze order) is a module of
+// its own and comes out through the same door, for the same reason.
+export * from './machine-budget';
 // The type is imported too, and not only re-exported: `GlobalDispatchCap`
 // extends it right below, and `export *` does not put a name in local scope.
 import type { GlobalDispatchCapExtras } from './dispatch-pressure';

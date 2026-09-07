@@ -26,10 +26,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GlobalCapControl } from './GlobalCapControl';
-import { bandGradient } from './thresholdBand';
 import { GlobalOnlySettingsPanel, GlobalSettingsSection } from './BoardSettingsSections';
 import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
-import { LOAD_RATIO_MIN, LOAD_RATIO_MAX, loadThresholdBand } from '../../lib/board';
 import type { DispatchCapacity } from '../../lib/board';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
@@ -45,6 +43,15 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   // modalità notturna e per gli host senza sonda, non è più il freno.
   oursCores: 0,
   budgetCores: 6,
+  // The budget half of the reading: 80% of this machine, nothing of ours
+  // running yet. Every case below moves the fields it is about.
+  budgetShare: 0.8,
+  budgetCoreUnits: 9.6,
+  usableCoreUnits: 9.6,
+  usedCoreUnits: 0,
+  usedMemGB: 1,
+  otherCoreUnits: 0,
+  frozen: 0,
   reason: '12 core, base 4',
   running: 0,
   ...over,
@@ -181,115 +188,104 @@ describe('what the control draws', () => {
 });
 
 /**
- * THE OTHER BRAKE (KANBAN-75): by resources. What is drawn, what is NOT drawn,
- * and that the words follow the shared verdict and bands rather than a copy.
+ * THE OTHER BRAKE (KANBAN-75): one budget in per cent of this computer. What is
+ * drawn, what is NOT drawn, and that the numbers come from the capacity reading
+ * rather than from a copy of it.
  */
-describe('the brake by resources', () => {
-  const resources = (over: { maxLoadRatio?: number; maxMemRatio?: number } = {}) =>
-    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5, maxAgentsMode: 'resources', maxLoadRatio: 0.9, maxMemRatio: 0.85, ...over });
+describe('the brake by budget', () => {
+  const resources = (share = 0.8) =>
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5, maxAgentsMode: 'resources', budgetShare: share });
 
   test('an old server, or a fresh row, is the brake by count', () => {
     // No mode on the wire = `count` (the store's default when it has none, see
     // `globalDispatchCap.test.ts`), and NOTHING of the other brake is drawn: the
-    // sliders would be a promise the dispatcher on that server cannot keep.
+    // slider would be a promise the dispatcher on that server cannot keep.
     adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5 });
     const html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('aria-checked="true" data-testid="global-cap-brake-count"');
-    expect(html).not.toContain('data-testid="global-cap-load-slider"');
+    expect(html).not.toContain('data-testid="global-cap-budget-slider"');
     expect(html).toContain('data-testid="global-cap-max"');
   });
 
-  test('by resources the fixed number is not drawn: it does not apply, so it is not shown', () => {
+  test('by budget the fixed number is not drawn: it does not apply, so it is not shown', () => {
     resources();
     adoptDispatchCapacity(machine({ running: 3 }));
     const html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('aria-checked="true" data-testid="global-cap-brake-resources"');
     expect(html).not.toContain('data-testid="global-cap-max"');
     expect(html).not.toContain('data-testid="global-cap-mode-');
-    expect(html).toContain('data-testid="global-cap-load-slider"');
-    expect(html).toContain('data-testid="global-cap-mem-slider"');
+    expect(html).toContain('data-testid="global-cap-budget-slider"');
     // The count is still there: it is the live term, not the cap.
-    expect(words(html)).toContain('3 al lavoro, freno sulle risorse');
+    expect(words(html)).toContain('3 al lavoro');
     expect(words(html)).not.toContain('3 di 5');
   });
 
-  test('the slider shows the thresholds the gate applies, clamped and defaulted', () => {
-    // 9 is above the bound; the wire never reaches the slider unclamped.
-    resources({ maxLoadRatio: 9, maxMemRatio: undefined });
-    const html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('data-testid="global-cap-load-slider" data-band="red"');
-    expect(html).toMatch(/data-testid="global-cap-load-value">3\.00</);
-    expect(html).toMatch(/data-testid="global-cap-mem-value">85%</);
-  });
-
-  test('the band is a judgement on the threshold, in words, from both sides', () => {
-    resources({ maxLoadRatio: 0.9 });
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('Fascia consigliata');
-    resources({ maxLoadRatio: 0.3 });
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('Troppo bassa');
-    resources({ maxLoadRatio: 2.5 });
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('Troppo alta');
-    resources({ maxLoadRatio: 0.5 });
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('Prudente');
-    resources({ maxLoadRatio: 1.4 });
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('Permissiva');
-  });
-
-  test('the live reading is coloured against the chosen threshold, and says the numbers', () => {
-    resources({ maxLoadRatio: 0.9, maxMemRatio: 0.85 });
-    // load 2.5 / 12 = 0.21 -> far from 0.9 -> green. Memory 12 of 32 = 37% -> green.
-    adoptDispatchCapacity(machine({ load1: 2.5, availableMemGB: 20 }));
+  test('the knob shows the share the gate applies, clamped and defaulted', () => {
+    // 9 is far above the bound; the wire never reaches the slider unclamped.
+    resources(9);
     let html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('data-testid="global-cap-load-live" data-band="green"');
-    expect(words(html)).toContain('load 2.5 su 12 core, 0.21 per core');
-    expect(words(html)).toContain('12.0 di 32 GB usati (38%)');
-    // load 12 / 12 = 1.0 >= 0.9 -> red.
-    adoptDispatchCapacity(machine({ load1: 12 }));
+    expect(html).toMatch(/data-testid="global-cap-budget-value">95% del PC</);
+    adoptGlobalCap({ maxAgentsMode: 'resources', budgetShare: 0.8 });
     html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('data-testid="global-cap-load-live" data-band="red"');
+    expect(html).toMatch(/data-testid="global-cap-budget-value">80% del PC</);
   });
 
-  test('memory not measured is said, not shown as an empty machine', () => {
-    resources();
-    adoptDispatchCapacity(machine({ availableMemGB: null }));
+  test('the percentage is said in the units it buys, on both axes', () => {
+    resources(0.8);
+    adoptDispatchCapacity(machine({ cores: 12, totalMemGB: 32 }));
     const html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(words(html)).toContain('memoria non misurata');
-    expect(words(html)).not.toContain('0%)');
-    expect(html).toContain('data-testid="global-cap-mem-live" data-band="none"');
+    expect(words(html)).toContain('12 core');
+    expect(words(html)).toContain('9.6 core-unità');
+    expect(words(html)).toContain('26 GB');
+  });
+
+  test('the live reading is coloured against the budget, and says the numbers', () => {
+    resources(0.8);
+    // 2 core-units of a 9.6 budget: far from it, green.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
+    let html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(html).toContain('data-testid="global-cap-budget-live" data-band="green"');
+    expect(words(html)).toContain('Topics usa il 17% del PC');
+    expect(words(html)).toContain('2.0 di 9.6 core-unità');
+    // At the budget: red.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 9.6, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
+    html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(html).toContain('data-testid="global-cap-budget-live" data-band="red"');
+  });
+
+  test('a budget squeezed by the rest of the machine says so instead of promising it', () => {
+    resources(0.8);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 1, budgetCoreUnits: 9.6, usableCoreUnits: 2 }));
+    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('il resto della macchina sta lavorando');
+  });
+
+  test('not measured is said, not shown as an empty machine', () => {
+    resources();
+    adoptDispatchCapacity(machine({ usedCoreUnits: null }));
+    const html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(words(html)).toContain('Leggo la macchina');
+    expect(html).toContain('data-testid="global-cap-budget-live" data-band="none"');
   });
 
   test('the verdict line: would a new agent start right now', () => {
-    resources({ maxLoadRatio: 0.9 });
-    adoptDispatchCapacity(machine({ load1: 2.5, running: 2 }));
+    resources(0.8);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2 }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="true"');
     expect(words(html)).toContain('Adesso un agent nuovo partirebbe');
 
-    // Over the load threshold with agents running: it waits, and says which axis.
-    adoptDispatchCapacity(machine({ load1: 12, running: 2 }));
+    // At the ceiling with agents running: it waits.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 9.7, usableCoreUnits: 9.6, running: 2 }));
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-admit="false"');
-    expect(words(html)).toContain('aspetterebbe: carico sopra la soglia');
+    expect(words(html)).toContain('Topics è al suo budget');
 
-    // Over the memory threshold: the other axis is named.
-    adoptDispatchCapacity(machine({ load1: 2.5, availableMemGB: 2, running: 2 }));
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('aspetterebbe: memoria sopra la soglia');
-
-    // Over the threshold with NOBODY running: the first one starts, and the line
+    // Over the ceiling with NOBODY running: the first one starts, and the line
     // says it is an exemption rather than a free machine.
-    adoptDispatchCapacity(machine({ load1: 12, running: 0 }));
+    adoptDispatchCapacity(machine({ usedCoreUnits: 9.7, usableCoreUnits: 9.6, running: 0 }));
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-admit="true"');
     expect(words(html)).toContain('il primo parte comunque');
-  });
-
-  test('the guide bar paints the shared band function, sampled: three colours, in order', () => {
-    const g = bandGradient(LOAD_RATIO_MIN, LOAD_RATIO_MAX, loadThresholdBand);
-    const order = [...g.matchAll(/rgb\((\d+) /g)].map((m) => m[1]);
-    // red, amber, green, amber, red: the two ways a threshold can be wrong.
-    expect(order).toEqual(['244', '245', '16', '245', '244']);
-    expect(g.startsWith('linear-gradient(to right, ')).toBe(true);
-    expect(g).toContain('% 100%)');
   });
 });
 
