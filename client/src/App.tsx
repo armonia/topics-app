@@ -701,7 +701,7 @@ function App() {
     pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
     terminalOps: terminals.ops,
     isPinnedRef,
-    onWSMessage, sendWS, wsStatus, windowId,
+    onWSMessage, sendWS, windowId,
     chatStreamHandlers: {
       isOwnStream, getSessionMessages, addMessageFromWS, clearSession,
       loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
