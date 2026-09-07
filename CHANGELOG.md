@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.288 — 2026-09-07
+
+### Sotto il cofano
+- the 2.2.287 desktop run on Windows, the browser pane still does not load
+
 ## 2.2.287 — 2026-09-07
 
 ### Sotto il cofano
