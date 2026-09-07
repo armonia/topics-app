@@ -31,9 +31,18 @@ import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { useSidebarSwipe, mobileDrawerStyle } from './hooks/useSidebarSwipe';
-import { isDesktop, isTauri, isTauriWindows } from './lib/shell';
+import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
-import { TITLE_INSET_WITH_CONTROLS } from './lib/shell/windowControlsGeometry';
+import {
+  CONTENT_CHROME_INSET_PX,
+  CONTENT_CHROME_INSET_PROPERTY,
+  TITLE_INSET_WITH_CONTROLS_MAC,
+  TITLE_INSET_WITH_CONTROLS_WINDOWS,
+  TRAFFIC_LIGHT_DOT_PX,
+  TRAFFIC_LIGHTS_WIDTH_PX,
+  WINDOW_CONTROLS_INSET_PX,
+} from './lib/shell/windowControlsGeometry';
+import { windowChrome } from './lib/shell/windowChrome';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initDevHeapProbe } from './lib/devHeapProbe';
@@ -59,11 +68,10 @@ import { TopicsMenuItems } from './components/Sidebar/TopicsMenuItems';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
 import { ChangelogModal } from './components/ChangelogModal';
 
-// Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
-// default and revealed only while the Topics menu is open (the Rust shell hides
-// them on launch; `set_traffic_lights` toggles them). So — same as Electron — no
-// permanent left inset is needed; instead, while the menu is open the "Topics"
-// label is hidden so the revealed lights occupy that spot.
+// Tauri-on-macOS: the native traffic lights are permanent and the shell pins
+// their frames (`apply_traffic_lights`, lib.rs). The room the rows keep for
+// them is read from `windowChrome`, one value for every surface; this flag
+// only still drives the wider gap of the mobile title button below.
 const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
 import { useAnimationPause } from './hooks/useAnimationPause';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
@@ -385,6 +393,12 @@ function App() {
   const mainContentRef = useRef<HTMLDivElement | null>(null);
   const contentFlipRef = useRef<HTMLDivElement | null>(null);
   useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: sidebarFixed });
+  // THE ROOM FOR THE NATIVE LIGHTS, decided once. Only the Mac has native
+  // lights, only a collapsed sidebar puts the content under them, and only
+  // the desktop has a collapsible column (the phone's drawer is an overlay).
+  // Carried as a custom property, not a padding: paddingLeft on #main-content
+  // belongs to useSidebarFlipPush, which writes it imperatively.
+  const contentChromeInset = windowChrome === 'mac' && sidebarCollapsed && !isMobile ? `${CONTENT_CHROME_INSET_PX}px` : '0px';
   // IL CASSETTO SEGUE IL DITO (solo mobile): trascinamento vero, non una soglia
   // letta a gesto finito. Vive tutto in `useSidebarSwipe` perché è codice
   // imperativo su `document` — quello che React, coi suoi listener passivi, non
@@ -1477,7 +1491,15 @@ function App() {
           className={`flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
         >
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+          {/* ONE STEP FROM EDGE TO EDGE. The pair at the other end of this row
+              (search and add) sits at `gap: ROW_INSET`; the lights, the word
+              and the bell on this end use the same 6px, so a ruler across the
+              row reads one number. Mobile keeps its `gap-2`: down there the
+              row is a different composition (no lights, bell on the right). */}
+          <div
+            className={`flex items-center flex-1 min-w-0 ${isMobile ? 'gap-2' : ''}`}
+            style={isMobile ? undefined : { gap: ROW_INSET }}
+          >
             {/* NIENTE «X» accanto al titolo. Il cassetto mobile si chiude da
                 solo appena apri qualcosa (`if (isMobile) setSidebarCollapsed(true)`,
                 una dozzina di punti in usePanelLifecycle) e trascinandolo verso
@@ -1515,17 +1537,39 @@ function App() {
                 the column, which is now the single door of this chrome.
                 That dropdown was also the only reason the Mac's traffic lights
                 stayed hidden until a click: they are permanent now, and the
-                word sits to their right (`TITLE_INSET_WITH_CONTROLS`).
+                word sits to their right (`TITLE_INSET_WITH_CONTROLS_MAC` on the
+                Mac, `TITLE_INSET_WITH_CONTROLS_WINDOWS` on Windows).
                 ON THE PHONE THE MENU STAYS: down there the column is a drawer,
                 the identity band does not exist (width contract,
                 SIDEBAR-STATUS-01) and this button is the only way to archived,
                 view and settings. The rows are the SAME ones though, one
                 component (`TopicsMenuItems`), never a copy. */}
             <div
-              className={`app-no-drag relative min-w-0 ${isTauriMac || isTauriWindows ? TITLE_INSET_WITH_CONTROLS : ''}`}
+              className={`app-no-drag relative min-w-0 ${windowChrome === 'mac' ? TITLE_INSET_WITH_CONTROLS_MAC : windowChrome === 'windows' ? TITLE_INSET_WITH_CONTROLS_WINDOWS : ''}`}
               {...NO_DRAG_REGION}
               ref={topicsMenuRef}
             >
+              {/* THE LIGHTS, AS A BOX THAT CAN BE MEASURED. The Mac's three
+                  lights are native: AppKit paints them over the webview and no
+                  DOM node stands where they are, so nothing here could assert
+                  that the word starts to their right, or by how much. This is
+                  the rectangle the shell pins them to (`apply_traffic_lights`,
+                  lib.rs: x=12 in the window, 52 wide, centred on the 40px
+                  header), in the wrapper's coordinates: 6 = 12 - ROW_INSET.
+                  It paints nothing, catches nothing and is not read aloud; it
+                  only exists so a test can ask where the lights are. */}
+              {windowChrome === 'mac' && (
+                <div
+                  data-testid="traffic-lights-box"
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2"
+                  style={{
+                    left: WINDOW_CONTROLS_INSET_PX - ROW_INSET,
+                    width: TRAFFIC_LIGHTS_WIDTH_PX,
+                    height: TRAFFIC_LIGHT_DOT_PX,
+                  }}
+                />
+              )}
               {!isMobile ? (
                 <span
                   data-testid="sidebar-topics-title"
@@ -1582,7 +1626,7 @@ function App() {
                 data-testid="sidebar-topics-menu"
               >
                 {/* The room for the window commands is on the WRAPPER now
-                    (`TITLE_INSET_WITH_CONTROLS`), not on this label: the
+                    (`TITLE_INSET_WITH_CONTROLS_MAC` / `_WINDOWS`), not on this label: the
                     commands no longer come out over the word, they sit to its
                     left and stay there. */}
                 <span className="font-semibold text-app-text tracking-[-0.01em] truncate text-[17px]">Topics</span>
@@ -1915,8 +1959,20 @@ function App() {
       {/* Collapsed sidebar expand button - only when no panels are open (panels have inline button in their header) */}
       {sidebarCollapsed && visiblePanels.length === 0 && (
         <div
-          className="absolute left-2 z-30 flex items-center gap-1"
-          style={{ top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
+          // `left` is 0.5rem PLUS the room the lights take: with no pane open
+          // this is the only element in the content's top-left corner, and the
+          // collapsed sidebar leaves it under the native lights. It rides the
+          // same variable and the same 200ms as the chrome row, so it never
+          // crosses the cluster during the slide either. The variable is set
+          // HERE as well as on #main-content: this wrapper is a sibling of the
+          // content, not a child, so it inherits nothing from it. Measured
+          // before this line existed: left stayed at 8 with the sidebar away.
+          className="content-chrome-inset absolute z-30 flex items-center gap-1"
+          style={{
+            [CONTENT_CHROME_INSET_PROPERTY as string]: contentChromeInset,
+            left: `calc(0.5rem + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
+            top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem',
+          }}
         >
           {/* `RAISED_CONTROL` + `edge-lit`: lo STESSO bottone del «+» e del
               cerca, che è la parità chiesta («a questo punto fare uguale il
@@ -1941,6 +1997,10 @@ function App() {
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
+          // The room for the lights (`contentChromeInset`, above), consumed two
+          // levels down by the chrome row that owns the sidebar toggle
+          // (StandaloneChatGroup) as its own padding-left, on the slide's clock.
+          [CONTENT_CHROME_INSET_PROPERTY as string]: contentChromeInset,
           // IL FONDO NO, ed è una correzione: la prima versione metteva anche
           // qui la safe-area, cioè ALZAVA TUTTO IL CONTENUTO — «non dovevi
           // alzare tutta l'app ma solo l'input, ora la chat è tagliata nella
@@ -2152,6 +2212,12 @@ function App() {
             void popOutTopic(contextMenu.topic.id).then((opened) => {
               if (opened) handleClosePanel(contextMenu.topic.id);
             });
+          }}
+          // The SAME command the composer and the row rail fire, not a third
+          // path: the menu row exists because the rail does not reveal itself
+          // to a finger (see `onStopStreaming` in ContextMenu).
+          onStopStreaming={contextMenu.topic.isGlobalOrchestrator ? undefined : () => {
+            void stopSession(contextMenu.topic.sessionKey);
           }}
         />
       )}

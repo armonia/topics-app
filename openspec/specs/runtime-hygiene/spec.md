@@ -771,7 +771,87 @@ nessuno che siano automatizzati.
 - **THEN** ognuna SHALL rispondere 200
 - **AND** una rotta inesistente SHALL rispondere 404
 
-### Requirement: RUNTIME-18 — Dopo una riconnessione il recupero si aggancia alla SOCKET, non allo stato mostrato
+### Requirement: RUNTIME-18 — L'app installata non cerca sulla macchina un runtime che non ha portato
+
+Topics spedisce il server compilato, il ponte PTY compilato e il ponte WebRTC
+compilato proprio per non chiedere, a chi la installa, di installare prima
+altro. Quel patto NON si mantiene per intenzione: si mantiene un sito di spawn
+alla volta, e una sola riga aggiunta mesi dopo lo rompe in silenzio su ogni
+macchina tranne quella di chi l'ha scritta.
+
+Ogni comando che il server lancia SHALL appartenere a una di tre famiglie, e la
+differenza fra loro e' tutto il punto: INCLUSO NEL PACCHETTO (i sidecar, il cui
+percorso assoluto arriva dal guscio in una variabile d'ambiente), RICHIESTO
+DALLA TECNOLOGIA SCELTA (`git`, e le CLI `claude` / `codex`, che Topics guida
+per progetto), PARTE DEL SISTEMA OPERATIVO (`/bin/sh`, `ps`, `lsof`, `pkill`,
+`grep`, `open`, `vm_stat`, `scutil`, `getconf`, `security`).
+
+`node`, `bun`, `npx`, `bunx`, `deno`, `python` NON SHALL MAI comparire come
+comando, ne' come valore di ripiego di un comando risolto: il porting del guscio
+a Rust e la compilazione del server in un file solo esistono per smettere di
+chiederli.
+
+Il gestore di pacchetti con cui si installano le dipendenze o si lancia uno
+script di un PROGETTO DELL'UTENTE SHALL essere dedotto dal lockfile di quel
+progetto, mai assunto; quando non e' sul PATH il fallimento SHALL NOMINARLO,
+sullo stesso canale su cui l'operazione riporta gli altri errori, e NON SHALL
+ripiegare in silenzio su un gestore diverso.
+
+Il demone distaccato che ospita i turni di chat SHALL essere avviato dal
+PROPRIO eseguibile. In un checkout questo e' il runtime che gia' esegue il
+server, con lo script accanto; nel binario compilato lo script non esiste piu'
+come file e il binario stesso SHALL saper essere quel demone quando riceve la
+bandiera che glielo chiede. La forma precedente (eseguibile + un percorso che
+esiste solo in un checkout) non falliva: avviava un SECONDO SERVER distaccato.
+
+L'eccezione a questa regola SHALL essere una FRASE accanto alla riga che la
+prende, non una voce in un elenco altrove: la ragione per cui un binario in piu'
+e' accettabile si legge dove il binario viene lanciato.
+
+#### Scenario: un comando fuori dalle tre famiglie
+- **GIVEN** un sito di spawn nel server con un comando letterale
+- **WHEN** quel comando non e' fra quelli permessi e la riga non porta la ragione scritta
+- **THEN** il cancello SHALL fallire nominando file, riga e comando
+
+#### Scenario: un runtime come ripiego
+- **GIVEN** un comando risolto da una variabile con un valore di ripiego letterale
+- **WHEN** quel ripiego e' `node`, `bun`, `npx`, `bunx`, `deno` o `python`
+- **THEN** il cancello SHALL fallire
+
+#### Scenario: il binario compilato sa essere il demone
+- **GIVEN** il binario del server compilato
+- **WHEN** viene lanciato con la bandiera del demone e un socket
+- **THEN** SHALL mettersi in ascolto su quel socket
+- **AND** NON SHALL avviare un server
+
+### Requirement: RUNTIME-19 — Un'installazione non lascia niente in casa d'altri
+
+L'impronta di un'app installata non si verifica leggendo il codice: si verifica
+guardando cosa dice il filesystem dopo. Il server avviato su una HOME vuota,
+cablato come lo cabla il guscio desktop, e poi fermato, NON SHALL aver scritto
+niente fuori dalla propria radice dati e dalla propria casa.
+
+In particolare NON SHALL scrivere dentro la cartella di configurazione di un
+altro strumento: fino al 2026-09-07 il token degli hook finiva in `~/.claude` a
+ogni avvio. Leggere la casa di un altro strumento resta lecito ed e' il
+prodotto (le sessioni esterne si vedono perche' si leggono); scriverci no.
+
+Cio' che uno strumento terzo crea per conto proprio quando lo si interroga NON
+conta come scrittura di Topics, e SHALL essere dichiarato con la misura che lo
+dimostra invece di essere taciuto.
+
+#### Scenario: la casa dopo un avvio e una sessione
+- **GIVEN** il server avviato con una HOME vuota e usa e getta
+- **WHEN** si crea una sessione e poi lo si ferma
+- **THEN** ogni voce di primo livello rimasta nella HOME SHALL essere fra quelle dichiarate
+- **AND** la cartella `~/.claude` SHALL essere vuota o assente
+
+#### Scenario: la prova non passa a vuoto
+- **GIVEN** lo stesso avvio
+- **WHEN** si guarda la casa di Topics
+- **THEN** SHALL contenere almeno un file, perche' una HOME vuota passerebbe senza dimostrare niente
+
+### Requirement: RUNTIME-20 — Dopo una riconnessione il recupero si aggancia alla SOCKET, non allo stato mostrato
 
 Lo stato di connessione mostrato all'interfaccia e' ADDOLCITO di proposito: tiene
 «collegato» per tre secondi cosi' la barra non lampeggia su un singhiozzo. La

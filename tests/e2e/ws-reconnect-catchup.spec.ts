@@ -27,7 +27,7 @@ const BASE = E2E_BASE;
 
 test.describe("WS reconnect catch-up", () => {
   test("a dropped socket comes back and the open chat catches up", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "RUNTIME-18" });
+    test.info().annotations.push({ type: "spec", description: "RUNTIME-20" });
     test.slow(); // the reconnect backoff is real time
 
     const ts = Date.now();

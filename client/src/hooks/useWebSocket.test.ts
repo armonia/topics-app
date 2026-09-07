@@ -300,7 +300,7 @@ describe('il polso della connessione WS', () => {
  * `presence:announce` from a window that was, for it, holding no topic at all.
  *
  * The socket knows what the status hides, so the trigger is the re-open.
- * @covers RUNTIME-18
+ * @covers RUNTIME-20
  */
 describe('the catch-up after a reconnect nobody sees', () => {
   test('a one-second drop: the status never moves, the new socket catches up', () => {

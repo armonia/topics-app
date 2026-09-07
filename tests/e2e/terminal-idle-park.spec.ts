@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/terminal.fixture";
-import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { E2E_BASE, E2E_HOME, testServerEnv } from "./helpers/test-server";
 import {
   resetTerminalWorkspace,
   seedTerminalTopic,
@@ -203,8 +203,8 @@ test.describe("Parcheggio delle sessioni terminale ferme", () => {
     request: import("@playwright/test").APIRequestContext,
     session: SessionRow,
   ): Promise<void> {
-    // Il token vive nella HOME del server (isolata nei test), scritto al boot.
-    const tokenPath = join(E2E_HOME, ".claude", "topics-app", "hook-token");
+    // The token lives under the server's TOPICS_HOME (isolated in tests), written at boot.
+    const tokenPath = join(testServerEnv().TOPICS_HOME, "claude-hooks", "hook-token");
     expect(existsSync(tokenPath), `il server non ha scritto il token degli hook (${tokenPath})`).toBe(true);
     const token = readFileSync(tokenPath, "utf-8").trim();
 
