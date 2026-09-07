@@ -3,7 +3,7 @@ import { copyText } from '../../lib/clipboard';
 import { X, File, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { filesApi, getPreviewUrl } from '../../lib/api';
+import { filesApi } from '../../lib/api';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { markdownComponents } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
@@ -205,7 +205,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
     setHtmlPreviewTabs(prev => ({ ...prev, [tab.path]: !(prev[tab.path] ?? true) }));
     if (goingToSource && !tab.content && !tab.loading) {
       setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, loading: true } : t));
-      fetch(getPreviewUrl(tab.path))
+      fetch(`/preview${tab.path}`)
         .then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))
         .then(content => {
           setTabs(prev => prev.map(t => t.path === tab.path ? { ...t, content, originalContent: content, loadError: undefined, loading: false } : t));

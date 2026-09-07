@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { copyText } from '../../lib/clipboard';
 import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
-import { filesApi, getPreviewUrl, gitApi } from '../../lib/api';
+import { filesApi, gitApi } from '../../lib/api';
 import { HunkActions } from '../Git/HunkActions';
 import { basename } from '../../lib/path-utils';
 import { BreadcrumbNav } from './BreadcrumbNav';
@@ -110,7 +110,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
 
     // HTML source view: fetch via /preview/ (no 100KB limit, unlike /api/files/content)
     if (isHtml) {
-      fetch(getPreviewUrl(filePath))
+      fetch(`/preview${filePath}`)
         .then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))
         .then(text => {
           if (cancelled) return;
