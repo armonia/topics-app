@@ -78,6 +78,7 @@ import { resolve, join } from "path";
 import { tmpdir, loadavg, cpus } from "os";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
 import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
+import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 
 /**
  * How many shards, and how long a test may take, on THIS machine right now.
@@ -386,6 +387,19 @@ if (import.meta.main) {
     timeoutExplicit: Number(process.env.TOPICS_TEST_TIMEOUT_MS) > 0,
   });
   if (plan.note) console.error(`test-unit-shards: ${plan.note}`);
+  /**
+   * ONE factor for the whole round, decided here and handed down.
+   *
+   * The tests that wait inside a window read it from the env (see
+   * tests/helpers/time-slack.ts): measured here once, every shard of this run
+   * uses the SAME number instead of each file re-reading a load that moves
+   * under it - including the load this very run is producing.
+   */
+  const load1 = loadavg()[0] ?? 0;
+  const cores = cpus().length || 1;
+  const slack = timeSlack({ load: load1, cores, forced: process.env[TIME_SLACK_ENV] });
+  process.env[TIME_SLACK_ENV] = String(slack);
+  if (slack > 1) console.error(`test-unit-shards: ${timeSlackNote(slack, load1, cores)}`);
   // Said BEFORE the first shard starts, because whoever is timing this run from
   // outside has to hear it while there is still time on its cap to extend.
   if (plan.slowdown > 1) {

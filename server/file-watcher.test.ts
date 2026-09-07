@@ -21,6 +21,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles, watchedProjectPaths } from "./file-watcher";
 import type { AppContext } from "./types";
+import { slackMs } from "../tests/helpers/time-slack";
 
 type Frame = { type: string; projectPath?: string };
 
@@ -42,8 +43,13 @@ type Frame = { type: string; projectPath?: string };
  * green alone on the same commit, which is the signature of a budget that
  * measures the load instead of the code. The budget is never spent when the
  * watcher works: `until` returns on the first matching frame.
+ *
+ * Raising it by hand is what already failed here (six seconds, then thirty, red
+ * again anyway), so the number is written for a QUIET machine and widened by
+ * the load through `slackMs` - one factor for the whole run, shared with the
+ * other tests that wait on a window (tests/helpers/time-slack.ts).
  */
-const WATCHER_TEST_MS = 60_000;
+const WATCHER_TEST_MS = slackMs(60_000);
 /** Between two pokes: comfortably over the watcher's 300 ms debounce. */
 const POKE_MS = 1_500;
 
