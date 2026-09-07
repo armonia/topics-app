@@ -102,7 +102,7 @@ function subjectsOracle(
 
 /** Deterministic generator: a seeded LCG, so a red is reproducible from the
  *  seed printed in the failure instead of "it happens sometimes". */
-function rng(seed: number): () => number {
+function seededRandom(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
     s = (s * 1664525 + 1013904223) >>> 0;
@@ -113,7 +113,7 @@ function rng(seed: number): () => number {
 const PROJECTS = ["/w/alpha", "/w/beta", "/w/gamma"];
 
 function generateCase(seed: number) {
-  const rand = rng(seed);
+  const rand = seededRandom(seed);
   const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)]!;
   const topics: Record<string, Topic> = {};
   const awaitingTopics = new Set<string>();
