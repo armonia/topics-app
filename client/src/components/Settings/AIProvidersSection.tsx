@@ -13,6 +13,7 @@ import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
 import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
 import { McpFleetPanel } from './McpFleetPanel';
+import { CliAgentsPanel } from './CliAgentsPanel';
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -310,6 +311,14 @@ export function AIProvidersSection() {
           )}
         </div>
         </>}
+      </div>
+
+      {/* BELOW the list, not inside it: this does not configure a registered
+          provider, it answers the question that comes from reading the list and
+          not finding there the CLI you know you installed. Whoever has
+          everything detected reads it as a confirmation and moves on. */}
+      <div className="pt-5 border-t border-app-border">
+        <CliAgentsPanel />
       </div>
 
       {/* I consensi permanenti stanno QUI, non in una voce di menu propria: un

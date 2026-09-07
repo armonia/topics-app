@@ -18,6 +18,9 @@ import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProvider
 import { providerNameForConfig } from "./types";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
 import { warnDeprecatedEnv } from "../lib/env-alias";
+import { existsSync } from "fs";
+import { resolveClaudeBin } from "../lib/claude-bin";
+import { resolveCodexBin } from "../lib/codex-bin";
 import {
   getAppSettings,
   resolveAiProvider,
@@ -531,29 +534,35 @@ export function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
   return merged.filter((spec) => spec.name !== "jcode" || declaredByHand.has("jcode"));
 }
 
+/**
+ * IS THE CLI THERE. One question, one answer, one place that knows.
+ *
+ * These two used to carry their own shorter list of install locations: `claude`
+ * on PATH plus two paths under `$HOME`, `codex` on PATH plus the two Codex.app
+ * bundles. The provider that SPAWNS the binary, meanwhile, asks
+ * `resolveCodexBin()` / `resolveClaudeBin()`, which know about Homebrew, the bun
+ * and npm global prefixes, the Windows `.cmd` shims, and now the path somebody
+ * pointed at by hand in Settings. Two lists answering the same question drift in
+ * one direction only: registration says the provider is not there while the
+ * spawn path would have found it, so the CLI is installed and Settings shows
+ * nothing (card 38d9f64b). The resolver is a superset of what was here, so this
+ * only ever finds MORE.
+ */
 async function detectClaudeCodeCli(): Promise<boolean> {
-  // Avoid hard import cost if Bun.which already says no
-  if (Bun.which("claude")) return true;
-  // Check the version-managed install path used by claude-code provider
+  if (resolveClaudeBin()) return true;
+  // The version-managed install has no binary at a fixed path: the launcher
+  // lives under `versions/` and the resolver deliberately does not guess which
+  // one. Its presence still means the CLI is installed.
   try {
-    const { existsSync } = require("fs");
-    const home = process.env.HOME || "";
-    if (existsSync(`${home}/.local/bin/claude`)) return true;
-    if (existsSync(`${home}/.local/share/claude/versions`)) return true;
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    if (home && existsSync(`${home}/.local/share/claude/versions`)) return true;
   } catch {}
   return false;
 }
 
 async function detectCodexCli(): Promise<boolean> {
   if (process.env.CODEX_BIN) return true;
-  if (Bun.which("codex")) return true;
-  try {
-    const { existsSync } = require("fs");
-    const home = process.env.HOME || "";
-    if (existsSync("/Applications/Codex.app/Contents/Resources/codex")) return true;
-    if (existsSync(`${home}/Applications/Codex.app/Contents/Resources/codex`)) return true;
-  } catch {}
-  return false;
+  return resolveCodexBin() !== null;
 }
 
 // ---------------------------------------------------------------------------
