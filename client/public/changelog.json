@@ -11,6 +11,11 @@
           "it": "La webview grigia dopo il ripristino ha finalmente un cancello che sa fallire",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "L'aggiornamento del guscio torna a farsi vedere: il controllo gira anche in dev e l'avviso nomina il numero che e' davvero indietro",
+          "en": "",
+          "scope": null
         }
       ]
     }
