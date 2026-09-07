@@ -5,6 +5,7 @@ import { copyText } from '../../lib/clipboard';
 import { bannerMarkdown } from '../../lib/bannerShare';
 import { publicProfileUrl, type RelayEndpoint } from '../../lib/publicProfileUrl';
 import { serverHttpBase } from '../../lib/shell/net';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 /**
  * LE TUE STATISTICHE: quanto lavoro è passato davvero di qui.
@@ -122,6 +123,17 @@ export function ProfileStatsSection() {
     token,
   );
   const publicUrl = link.url;
+
+  // Absolute on purpose: under the desktop shell a relative href is normalised
+  // against `tauri://localhost`, which the OS handler refuses. `serverHttpBase()`
+  // is empty off-desktop, so the web client keeps the same-origin URL.
+  const bannerUrl = (theme?: 'light') => {
+    const params = new URLSearchParams();
+    if (theme) params.set('theme', theme);
+    if (nome) params.set('name', nome);
+    const query = params.toString();
+    return `${serverHttpBase()}/api/profile/banner.svg${query ? `?${query}` : ''}`;
+  };
 
   const togglePublishCost = useCallback(async () => {
     if (!appSettings) return;
@@ -247,17 +259,19 @@ export function ProfileStatsSection() {
                   link INLINE dentro una frase — sono bottoni a tutti gli
                   effetti, e sotto il dito devono misurare 44px come tali. */}
               <a
-                href={`/api/profile/banner.svg${nome ? `?name=${encodeURIComponent(nome)}` : ''}`}
+                href={bannerUrl()}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => { e.preventDefault(); openLink(bannerUrl(), { external: isExternalLinkGesture(e), origin: e.target }); }}
                 className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {t('profile.banner.open')}
               </a>
               <a
-                href={`/api/profile/banner.svg?theme=light${nome ? `&name=${encodeURIComponent(nome)}` : ''}`}
+                href={bannerUrl('light')}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => { e.preventDefault(); openLink(bannerUrl('light'), { external: isExternalLinkGesture(e), origin: e.target }); }}
                 className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {t('profile.banner.light')}
@@ -317,6 +331,7 @@ export function ProfileStatsSection() {
                       href={publicUrl!}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={(e) => { e.preventDefault(); openLink(publicUrl!, { external: isExternalLinkGesture(e), origin: e.target }); }}
                       className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
                     >
                       {t('profile.public.open')}

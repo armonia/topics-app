@@ -13,6 +13,7 @@
  * fences (CHAT-TOOL-04) — language derived from the file extension, plain
  * text fallback when unknown/oversize/not-yet-loaded.
  */
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
@@ -262,13 +263,21 @@ export function SearchCard({ query, content, mode, numFiles, numMatches }: {
 
 // ── Fetch (WebFetch) ────────────────────────────────────────────────────────
 
+// The fetched page opens as a pane of this topic, not as a system tab.
 export function FetchCard({ url, prompt, result, statusCode, bytes }: {
   url: string; prompt?: string; result?: string; statusCode?: number; bytes?: number;
 }) {
   return (
     <div className="space-y-1">
       <div className="flex items-baseline gap-2 min-w-0">
-        <a data-testid="tool-call-args" href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-mono text-blue-500 hover:underline break-all">
+        <a
+          data-testid="tool-call-args"
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => { e.preventDefault(); openLink(url, { external: isExternalLinkGesture(e), origin: e.target }); }}
+          className="text-[11px] font-mono text-blue-500 hover:underline break-all"
+        >
           {url}
         </a>
         {typeof statusCode === 'number' && (

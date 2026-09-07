@@ -9,6 +9,7 @@ import { useScripts } from '../../hooks/useScripts';
 import { lastFailureByScript } from '../../lib/processFailure';
 import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
+import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 
 interface ScriptRunnerProps {
   projectPath: string;
@@ -257,7 +258,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[11px] text-primary hover:underline flex-shrink-0"
-                  onClick={e => e.stopPropagation()}
+                  onClick={e => {
+                    // The dev server opens as a pane of this topic, not as a system tab.
+                    // stopPropagation stays: the row underneath opens the process log.
+                    e.stopPropagation();
+                    e.preventDefault();
+                    openLink(`http://${window.location.hostname}:${port}`, { external: isExternalLinkGesture(e), origin: e.target });
+                  }}
                 >
                   :{port}
                 </a>
@@ -316,7 +323,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[11px] text-primary hover:underline flex-shrink-0"
-                    onClick={e => e.stopPropagation()}
+                    onClick={e => {
+                      // The dev server opens as a pane of this topic, not as a system tab.
+                      // stopPropagation stays: the row underneath opens the process log.
+                      e.stopPropagation();
+                      e.preventDefault();
+                      openLink(`http://${window.location.hostname}:${port}`, { external: isExternalLinkGesture(e), origin: e.target });
+                    }}
                   >
                     :{port}
                   </a>
@@ -374,7 +387,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-[11px] text-primary hover:underline flex-shrink-0"
-                  onClick={e => e.stopPropagation()}
+                  onClick={e => {
+                    // The dev server opens as a pane of this topic, not as a system tab.
+                    // stopPropagation stays: the row underneath opens the process log.
+                    e.stopPropagation();
+                    e.preventDefault();
+                    openLink(`http://${window.location.hostname}:${port}`, { external: isExternalLinkGesture(e), origin: e.target });
+                  }}
                 >
                   :{port}
                 </a>

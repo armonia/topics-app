@@ -3,6 +3,7 @@ import { Building2, Github, Link as LinkIcon, Mail, MapPin } from 'lucide-react'
 import { useT } from '@/hooks/useT';
 import { peopleApi, type PersonWithProfile } from '@/lib/api';
 import { PersonAvatar } from './PersonAvatar';
+import { openLink, isExternalLinkGesture } from '@/lib/openLink';
 
 /**
  * THE HEADER OF A PROFILE, in the shape everybody already knows.
@@ -138,6 +139,8 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
     }
   }, [draft, persona.id, onChanged, t]);
 
+  const blogUrl = g?.blog ? absoluteUrl(g.blog) : null;
+
   return (
     <div data-testid="profile-header" className="flex flex-col gap-4 sm:flex-row sm:items-start">
       <PersonAvatar github={g} size={80} className="sm:mt-0.5" />
@@ -148,17 +151,21 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
             <h1 data-testid="profile-name" className="truncate text-[20px] font-semibold leading-tight text-app-text">
               {name}
             </h1>
-            {persona.githubLogin && (
+            {persona.githubLogin && (() => {
+              const githubUrl = g?.htmlUrl ?? `https://github.com/${persona.githubLogin}`;
+              return (
               <a
-                href={g?.htmlUrl ?? `https://github.com/${persona.githubLogin}`}
+                href={githubUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => { e.preventDefault(); openLink(githubUrl, { external: isExternalLinkGesture(e), origin: e.target }); }}
                 data-testid="profile-login"
                 className="text-[14px] leading-tight text-app-text-muted hover:text-primary"
               >
                 @{persona.githubLogin}
               </a>
-            )}
+              );
+            })()}
             {persona.followsViewer && !persona.isMe && (
               <span className="ml-2 rounded border border-app-border px-1.5 py-0.5 align-middle text-[10.5px] text-app-text-muted">
                 {t('profile.followsYou')}
@@ -191,10 +198,16 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {g?.company && <Meta icon={Building2}>{g.company}</Meta>}
           {g?.location && <Meta icon={MapPin}>{g.location}</Meta>}
-          {g?.blog && (
+          {blogUrl && (
             <Meta icon={LinkIcon}>
-              <a href={absoluteUrl(g.blog)} target="_blank" rel="noreferrer" className="hover:text-primary">
-                {linkLabel(g.blog)}
+              <a
+                href={blogUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => { e.preventDefault(); openLink(blogUrl, { external: isExternalLinkGesture(e), origin: e.target }); }}
+                className="hover:text-primary"
+              >
+                {linkLabel(g!.blog!)}
               </a>
             </Meta>
           )}
