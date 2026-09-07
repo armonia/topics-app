@@ -96,7 +96,9 @@ import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { spaceWindowId } from '../lib/windowRole';
 import { markTabRestored, restoreSlot, insertAtRestoreSlot } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
+import { subscribeLifecycle } from '../lib/wsFrameBus';
 import { useRefMirror } from './useRefMirror';
+import { useReconnectCatchUp } from './useReconnectCatchUp';
 import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import {
@@ -228,7 +230,6 @@ export interface UsePanelLifecycleArgs {
   // WS
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   sendWS: (msg: WSMessage) => void;
-  wsStatus: 'connecting' | 'connected' | 'reconnecting' | 'offline';
   windowId: string;
   // Chat
   chatStreamHandlers: ChatStreamHandlers;
@@ -342,7 +343,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic, ensureTopic,
     workspaceProjects,
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
-    onWSMessage, sendWS, wsStatus, windowId,
+    onWSMessage, sendWS, windowId,
     chatStreamHandlers,
     setSidebarCollapsed, removeClosedTab, closedTabs,
   } = args;
@@ -1391,32 +1392,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [onWSMessage, windowId, focusedPanelIdRef]);
 
   // ---- 17. Drain queue + reload histories on WS reconnect ----
-  // `prevWsStatus !== 'connected' && current === 'connected'` was ALSO true
-  // for the very first 'connecting' → 'connected' transition on page load,
-  // which made this effect pile a second loadHistory on top of ChatPane's
-  // mount-effect load — the user saw the message list flash to a skeleton
-  // and back as the second fetch's loading=true clobbered the first's
-  // loading=false. Track whether we've ever seen 'connected' so we only
-  // trigger on a real disconnect→reconnect cycle. ChatPane's mount effect
-  // and useTopics' mount effect already handle the cold-start fetch.
-  const prevWsStatus = useRef(wsStatus);
-  const everConnected = useRef(false);
-  useEffect(() => {
-    const transitionedToConnected =
-      prevWsStatus.current !== 'connected' && wsStatus === 'connected';
-    if (transitionedToConnected && everConnected.current) {
-      drainQueue();
-      loadTopics();
-      for (const panelId of openPanels) {
-        const topic = topics[panelId];
-        if (topic) {
-          loadHistory(topic.sessionKey);
-        }
-      }
-    }
-    if (wsStatus === 'connected') everConnected.current = true;
-    prevWsStatus.current = wsStatus;
-  }, [wsStatus, drainQueue, openPanels, topics, loadHistory, loadTopics]);
+  // Hung off the socket's own re-open, NOT off the connection status: that
+  // status is smoothed for three seconds to keep the status bar from
+  // blinking, and the reconnect backoff starts at one second, so the ordinary
+  // reconnection produced no edge and this catch-up never ran. The cold start
+  // stays with the mount effects of ChatPane and useTopics — piling a second
+  // loadHistory on top of them flashed the message list to a skeleton and
+  // back, which is why `subscribeReconnect` (re-opens only) is the trigger.
+  useReconnectCatchUp({ drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef });
 
   // ---- Auto-expand projects on openPanels change ----
   const [expandedProjects, setExpandedProjects] = useState<string[]>(() => {
@@ -2598,16 +2581,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     () => withExtraTopics(presenceTopicIds, extraTopicIds),
     [presenceTopicIds, extraTopicIds],
   );
-  const prevPresenceWsStatus = useRef(wsStatus);
-  useEffect(() => {
-    const reconnected =
-      prevPresenceWsStatus.current !== 'connected' && wsStatus === 'connected';
-    prevPresenceWsStatus.current = wsStatus;
-    if (wsStatus !== 'connected') return;
-    // `reconnected` is referenced only to make the reconnect edge a real dep
-    // trigger; the announce below is identical whether it's a set change or a
-    // fresh connection (full-snapshot semantics make it idempotent).
-    void reconnected;
+  // Sent on every change of the announced set AND on every socket open. The
+  // trigger used to be the smoothed connection status, which stays on
+  // `connected` through any drop shorter than three seconds: with a backoff of
+  // one second the new socket carried nothing but `hello`, so for the server
+  // this window held no topic at all and its streams were routed elsewhere.
+  // `sendWS` drops what it cannot send, so calling this while the socket is
+  // still opening costs nothing; the open below is what actually lands it.
+  // Full-snapshot semantics make both frames idempotent, so a repeat is free.
+  const announcePresence = useCallback(() => {
     sendWS({
       type: 'presence:announce',
       windowId,
@@ -2628,7 +2610,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // reading a session is not "a chat open in this window" for the peers, and
     // declaring it there would draw an "open elsewhere" marker nobody asked for.
     sendWS({ type: 'subscribe', topicIds: subscribedTopicIds });
-  }, [wsStatus, windowId, isDetached, presenceTopicIds, subscribedTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
+  }, [windowId, isDetached, presenceTopicIds, subscribedTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
+  useEffect(() => { announcePresence(); }, [announcePresence]);
+  // Mirrored so the subscription below is registered once and still sends the
+  // CURRENT snapshot: re-subscribing on every set change would tear the
+  // listener down and up dozens of times per session for nothing.
+  const announcePresenceRef = useRefMirror(announcePresence);
+  // Every open, first one included: the effect above runs at mount, when the
+  // socket is usually still handshaking, so without this the boot announce
+  // would be the one that gets dropped.
+  useEffect(() => subscribeLifecycle((event) => {
+    if (event === 'open') announcePresenceRef.current();
+  }), [announcePresenceRef]);
 
   return {
     state: {

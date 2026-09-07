@@ -51,8 +51,13 @@ export class LiveLockError extends Error {
   }
 }
 
-export function topicsHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.TOPICS_HOME || join(homedir(), ".topics");
+/**
+ * `home` is injectable only so callers that already resolved a home (and tests
+ * that must not touch the real one) can pass it down; unset it behaves exactly
+ * as before.
+ */
+export function topicsHome(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  return env.TOPICS_HOME || join(home, ".topics");
 }
 
 /**

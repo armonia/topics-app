@@ -449,9 +449,34 @@ export function stripArgsText<T extends StrippableToolCall>(tc: T): T {
   return { ...tc, args: p.value, argsBytes: p.removed } as T;
 }
 
-/** A tool call as `GET /api/history` ships it: lean `detail` AND lean `args`. */
+/**
+ * A tool call as `GET /api/history` ships it: lean `detail`, and `args` only
+ * when something reads them.
+ *
+ * With a TYPED `detail` nothing does. `resolveToolDetail` (client) returns the
+ * parsed detail as soon as its `type` is not `unknown`, and the row draws from
+ * that alone: the `args` travelling next to it are a second copy of the same
+ * command, the same path, the same new_string. Measured on a working topic on
+ * 2026-09-07: 1.163 bash calls out of 1.163 had `args.command` equal to
+ * `detail.command` byte for byte, and the first page of the thread weighed
+ * 1,33 MB.
+ *
+ * So a typed call ships `args: {}` - the key stays, no reader has to learn a
+ * new shape - while `argsBytes` keeps counting the characters the preview
+ * dropped. That counter is what keeps the chevron on the row (`toolCardHasBody`)
+ * and what makes the row fetch the whole thing from the detail route on open.
+ *
+ * An UNTYPED call (no `detail`, or `type: 'unknown'`) keeps its previewed
+ * `args`: there they are the only source the closed row has.
+ */
 export function leanToolCallForHistory<T extends StrippableToolCall>(tc: T): T {
-  return stripArgsText(stripDetailText(tc));
+  const lean = stripArgsText(stripDetailText(tc));
+  const d = lean.detail;
+  if (d && typeof d === 'object' && typeof (d as { type?: unknown }).type === 'string'
+    && (d as { type: string }).type !== 'unknown' && lean.args !== undefined) {
+    return { ...lean, args: {} } as T;
+  }
+  return lean;
 }
 
 /** `leanToolCallForHistory` on every toolCall nested in the blocks of a message. */

@@ -18,7 +18,7 @@ import {
   type Osservatore, type TipoFrameProgetto,
 } from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
-import { resolveStateDir } from "./lib/data-dir";
+import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
@@ -172,7 +172,10 @@ export function createAppContext(baseDir: string): AppContext {
   const PUBLIC_DIR = process.env.TOPICS_PUBLIC_DIR || join(baseDir, "public");
   const UPLOADS_DIR = join(STATE_DIR, "uploads");
   const CONTEXT_DIR = join(STATE_DIR, "context-files");
-  const OPENCLAW_DIR = process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
+  // The app data root (media/, workspace/, agent sessions). One rule, in
+  // lib/data-dir.ts: an explicit variable, else the legacy `~/.openclaw` when
+  // that install already has one, else the home Topics already owns.
+  const OPENCLAW_DIR = resolveAppDataDir();
   const SESSIONS_DIR = process.env.SESSIONS_DIR || `${OPENCLAW_DIR}/agents/main/sessions`;
   const MESSAGES_DIR = join(STATE_DIR, "messages");
 
@@ -2103,7 +2106,9 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Path resolution (unchanged) ---
-  const ALLOWED_FILE_BASES = [OPENCLAW_DIR, process.env.HOME ? join(process.env.HOME, ".openclaw") : null].filter(Boolean) as string[];
+  // Both roots, whichever one is live: a path saved when the root was
+  // `~/.openclaw` must stay readable on an install that resolves to `~/.topics`.
+  const ALLOWED_FILE_BASES = appDataRoots();
 
   function resolveSafePath(inputPath: string, allowedBases: string[] = ALLOWED_FILE_BASES): string | null {
     if (!inputPath) return null;
@@ -2248,17 +2253,14 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Media helpers (unchanged) ---
-  // Base media di Topics: ~/.topics (nuova, preferita) + ~/.openclaw (legacy
-  // e root CONDIVISA dell'ecosistema Jarvis — resta leggibile per i path già
-  // salvati e per i media prodotti da altri tool). NON migrare la root intera:
-  // credenziali/gateway/cron/router vivono in ~/.openclaw e non sono di Topics.
-  const TOPICS_DIR = `${process.env.HOME}/.topics`;
-  const ALLOWED_MEDIA_BASES = [
-    `${TOPICS_DIR}/media/`,
-    `${TOPICS_DIR}/workspace/`,
-    `${OPENCLAW_DIR}/media/`,
-    `${OPENCLAW_DIR}/workspace/`,
-  ];
+  // Media bases: EVERY app data root, not just the live one. A path recorded in
+  // the DB belongs to the root that was live when it was written, and the two
+  // populations coexist on the same machine — an install that predates card
+  // 211605ee keeps writing under `~/.openclaw`, a fresh one writes under
+  // `~/.topics`, and browser screenshots have gone to `~/.topics/media` all
+  // along. `~/.openclaw` also stays readable because it is a SHARED root of the
+  // surrounding tooling; the root itself is never migrated here.
+  const ALLOWED_MEDIA_BASES = appDataRoots().flatMap((root) => [`${root}/media/`, `${root}/workspace/`]);
 
   function getMimeType(filepath: string): string {
     const ext = extname(filepath).toLowerCase().replace(".", "");
@@ -2284,12 +2286,9 @@ export function createAppContext(baseDir: string): AppContext {
     return ALLOWED_MEDIA_BASES.some((base) => resolved.startsWith(base));
   }
 
-  const MEDIA_SCAN_DIRS = [
-    join(process.env.HOME || "", ".topics/media/browser"),
-    join(process.env.HOME || "", ".topics/media"),
-    join(process.env.HOME || "", ".openclaw/media/browser"),
-    join(process.env.HOME || "", ".openclaw/media"),
-  ];
+  // Same two roots as the allowlist: the media a turn produced can land in
+  // either, depending on which one this install resolved to.
+  const MEDIA_SCAN_DIRS = appDataRoots().flatMap((root) => [join(root, "media/browser"), join(root, "media")]);
   const MEDIA_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "wav", "ogg", "m4a", "aac", "opus", "webm", "mp4", "pdf"]);
 
   // Runs 1s after EVERY completed stream (chat.ts), over media dirs that are

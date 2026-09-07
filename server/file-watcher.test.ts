@@ -19,7 +19,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles } from "./file-watcher";
+import { MAX_WATCHERS, unwatchProjectFiles, watchProjectFiles, watchedProjectPaths } from "./file-watcher";
 import type { AppContext } from "./types";
 
 type Frame = { type: string; projectPath?: string };
@@ -44,12 +44,31 @@ type Frame = { type: string; projectPath?: string };
  * watcher works: `until` returns on the first matching frame.
  */
 const WATCHER_TEST_MS = 60_000;
+/** Between two pokes: comfortably over the watcher's 300 ms debounce. */
+const POKE_MS = 1_500;
 
-async function until(cond: () => boolean, budgetMs = WATCHER_TEST_MS / 2): Promise<boolean> {
+/**
+ * WAIT BY POKING, not by hoping. A recursive `fs.watch` is not armed the moment
+ * the call returns: on macOS the FSEvents stream is set up asynchronously, so a
+ * write that lands in that window produces NO event, ever - and then no budget
+ * is long enough, because nothing is on its way. That is the shape of the red
+ * seen on 2026-09-06 and again on 2026-09-07 under the sharded suite, always
+ * green alone: not a slow event, a lost one.
+ *
+ * So the write is repeated while we wait. The watcher debounces (300 ms), so
+ * the extra writes cost nothing once one has been seen, and the loop leaves on
+ * the first matching frame.
+ */
+async function until(cond: () => boolean, poke?: () => void, budgetMs = WATCHER_TEST_MS / 2): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
+  let nextPoke = 0;
   while (Date.now() < deadline) {
     if (cond()) return true;
-    await Bun.sleep(25);
+    // Never faster than POKE_MS: a write inside the debounce window RESTARTS
+    // it, so a tight loop of writes is a broadcast that never leaves. Measured
+    // here: poking every 100 ms held both cases silent for the whole budget.
+    if (Date.now() >= nextPoke) { poke?.(); nextPoke = Date.now() + POKE_MS; }
+    await Bun.sleep(50);
   }
   return cond();
 }
@@ -86,8 +105,10 @@ describe("file watcher cap", () => {
     const last = project(root, "last");
     armed(ctx, last);
 
-    writeFileSync(join(last, "a.txt"), "uno\n");
-    const arrived = await until(() => sent.some(f => f.type === "files:changed" && f.projectPath === last));
+    const arrived = await until(
+      () => sent.some(f => f.type === "files:changed" && f.projectPath === last),
+      () => writeFileSync(join(last, "a.txt"), `${Date.now()}\n`),
+    );
     expect(arrived, "the twenty-fifth project must broadcast like the first").toBe(true);
   }, WATCHER_TEST_MS);
 
@@ -109,8 +130,17 @@ describe("file watcher cap", () => {
     const newest = project(root, "newest");
     armed(ctx, newest);
 
-    writeFileSync(join(oldest, "still.txt"), "qui\n");
-    const alive = await until(() => sent.some(f => f.type === "files:changed" && f.projectPath === oldest));
-    expect(alive, "the oldest live project keeps its watcher").toBe(true);
-  }, WATCHER_TEST_MS);
+    // WHICH slot was freed is in the registry, so this reads it there. Asking
+    // the same question through a `files:changed` made the answer depend on
+    // how long twenty-five recursive watchers take to hand over one event on a
+    // loaded machine: red at 6 s, then red again at 30 s, both times on cards
+    // that had not touched the watcher (2026-09-06, 2026-09-07). The budget
+    // above is what covers the test that still waits for an event; this one no
+    // longer spends it. What a broadcast really proves - that a watcher past
+    // the cap fires at all - is the test above.
+    const watching = watchedProjectPaths();
+    expect(watching, "the deleted project gives its slot up").not.toContain(gone);
+    expect(watching, "the oldest live project keeps its watcher").toContain(oldest);
+    expect(watching, "the project past the cap got the freed slot").toContain(newest);
+  });
 });

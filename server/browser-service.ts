@@ -5,6 +5,7 @@ import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl, readLastUrlEntry, shouldForgetLastUrl, clearLastUrl, type BrowserStorageState } from "./browser-state-store";
 import { seedSharedFromNative } from "./browser-session-handoff";
 import { toServableUrl } from "./browser-local-file-url";
+import { resolveAppDataDir } from "./lib/data-dir";
 import {
   siteDataRecords as recordsFromState,
   forgetSilosInState,
@@ -511,14 +512,19 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     cdpPort = defaultCdpPort(),
   } = opts;
 
-  const cookieDir = join(process.env.HOME || "/tmp", ".openclaw", "workspace", "topics-app", ".browser-cookies");
+  // These two are the FIRST directories a boot creates in a fresh home, so they
+  // decide which root a new install appears to own: they must come from the one
+  // rule (lib/data-dir.ts), not from a hardcoded legacy name (card 211605ee).
+  const appDataDir = resolveAppDataDir();
+  const cookieDir = join(appDataDir, "workspace", "topics-app", ".browser-cookies");
   try { mkdirSync(cookieDir, { recursive: true }); } catch {}
 
   // Downloads triggered by the headless page are saved here and served at
-  // /media/browser/downloads/<file> (mediaBase = ~/.openclaw/media, see server.ts).
-  // The web streaming pane has no native download shelf, so it surfaces a
-  // user-clickable link to the saved file instead of losing the download.
-  const browserDownloadDir = join(process.env.HOME || "/tmp", ".openclaw", "media", "browser", "downloads");
+  // /media/browser/downloads/<file> (mediaBase = <app data root>/media, see
+  // server.ts). The web streaming pane has no native download shelf, so it
+  // surfaces a user-clickable link to the saved file instead of losing the
+  // download.
+  const browserDownloadDir = join(appDataDir, "media", "browser", "downloads");
   try { mkdirSync(browserDownloadDir, { recursive: true }); } catch {}
 
   const contexts = new Map<string, BrowserContextEntry>();
