@@ -26,7 +26,7 @@ import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { capMode, capThresholds, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -38,24 +38,23 @@ import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } f
  * The global cap as the client reads it, in ONE place for the GET, the PATCH
  * response and the `board:global-cap` broadcast: three copies of the field
  * names are three ways for the panel to show a mode the dispatcher is not in.
- * Mode and thresholds go through `capMode` / `capThresholds`, so what travels
- * is always the applied value (clamped, defaulted), never the raw row.
+ * Mode and budget go through `capMode` / `budgetShare`, so what travels is
+ * always the applied value (clamped, defaulted), never the raw row.
  */
 function globalCapFields(cap: GlobalDispatchCap): {
   maxAgentsAuto: boolean;
   maxAgents: number;
   maxAgentsMode: "count" | "resources";
-  maxLoadRatio: number;
-  maxMemRatio: number;
+  budgetShare: number;
 } {
-  const t = capThresholds(cap);
-  return { maxAgentsAuto: cap.auto, maxAgents: cap.max, maxAgentsMode: capMode(cap), maxLoadRatio: t.maxLoadRatio, maxMemRatio: t.maxMemRatio };
+  return { maxAgentsAuto: cap.auto, maxAgents: cap.max, maxAgentsMode: capMode(cap), budgetShare: budgetShare(cap) };
 }
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { activeFrozenCount } from "../services/budget-governor";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
 import { parkedEdgeEvent, type TaskDispatcher } from "../services/task-dispatcher";
@@ -1090,6 +1089,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
          * continua: un progresso mancato non deve poter fermare una consegna. */
         const runs = await runReviewChecks(checks, {
           cwd: ref.cwd,
+          // So a run frozen for load can say so in THIS card's thread.
+          taskId,
           onProgress: (_run, i, total) => {
             try {
               const t = svc.recordChecks({
@@ -2361,7 +2362,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // un tetto astratto. Senza dispatcher (host degradato) vale 0.
       let running = 0;
       try { running = dispatcher?.busyCount() ?? 0; } catch { /* best-effort */ }
-      return json(computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli"));
+      // The budget knob travels with the reading: the gauge, the panel and the
+      // gate have to answer from ONE number, or the slider promises a share the
+      // dispatcher is not applying.
+      return json(computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
+        share: budgetShare(svc.getGlobalCap()),
+        frozen: activeFrozenCount(),
+      }));
     }
 
     // GET /api/all-boards/publish-status — per-project "commits not yet pushed"
@@ -2667,15 +2674,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const hasAuto = typeof body?.autoDispatch === "boolean";
         const hasCapAuto = typeof body?.maxAgentsAuto === "boolean";
         const hasCapMax = Number.isFinite(body?.maxAgents);
-        // The "by resources" mode and its thresholds. Out-of-range ratios are
-        // NOT refused: `setGlobalCap` clamps them with the same reader the gate
+        // The "by resources" mode and its knob. An out-of-range share is NOT
+        // refused: `setGlobalCap` clamps it with the same reader the gate
         // applies, and the response carries the value that will actually rule.
         const hasCapMode = body?.maxAgentsMode === "count" || body?.maxAgentsMode === "resources";
-        const hasLoadRatio = Number.isFinite(body?.maxLoadRatio);
-        const hasMemRatio = Number.isFinite(body?.maxMemRatio);
+        const hasBudget = Number.isFinite(body?.budgetShare);
         const hasSpend = hasSpendCapPatch(body);
-        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasLoadRatio && !hasMemRatio && !hasSpend) {
-          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), maxLoadRatio, maxMemRatio, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
+        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasBudget && !hasSpend) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), budgetShare, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -2685,13 +2691,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }
           // The ONE machine-wide cap lives on the reserved '*' row; the dispatcher
           // reads it via getGlobalCap() and enforces it across every board.
-          if (hasCapAuto || hasCapMax || hasCapMode || hasLoadRatio || hasMemRatio) {
+          if (hasCapAuto || hasCapMax || hasCapMode || hasBudget) {
             svc.setGlobalCap({
               auto: hasCapAuto ? body.maxAgentsAuto : undefined,
               max: hasCapMax ? body.maxAgents : undefined,
               mode: hasCapMode ? body.maxAgentsMode : undefined,
-              maxLoadRatio: hasLoadRatio ? body.maxLoadRatio : undefined,
-              maxMemRatio: hasMemRatio ? body.maxMemRatio : undefined,
+              budgetShare: hasBudget ? body.budgetShare : undefined,
             });
           }
           // The spend caps are written by a PERSON, from here. Zero clears a cap.

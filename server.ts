@@ -78,8 +78,10 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
-import { fleetLoadSync, procFootprintKB } from "./server/lib/fleet-usage";
+import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
+import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
+import { machineCores } from "./server/lib/machine-cores";
+import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -182,7 +184,7 @@ import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { createNodesRouter } from "./server/routes/nodes";
-import { hostname as osHostname } from "node:os";
+import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readNodeToken } from "./server/services/node-client";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { initVapid } from "./server/push-service";
@@ -212,7 +214,7 @@ import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
-import { TURN_ERROR_PREFIX } from "./shared/board";
+import { budgetShare, capMode, machineBudget, TURN_ERROR_PREFIX } from "./shared/board";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -1477,9 +1479,23 @@ const taskDispatcher = createTaskDispatcher({
   // readers, or the settings panel could draw a load the gate did not decide on.
   // The runtime flag only shapes `recommended` (which this reader ignores); it
   // is passed anyway so the reading is the one the panel gets from the route.
-  machinePressure: () => {
-    const c = computeDispatchCapacity(turniInVolo(), undefined, resolveAgentRuntime() === "cli");
-    return { load1: c.load1, cores: c.cores, availableMemGB: c.availableMemGB, totalMemGB: c.totalMemGB, running: c.running };
+  budgetSample: () => {
+    try {
+      return budgetSample(
+        fleetLoadSync(),
+        availableMemGB(),
+        machineCores(),
+        osTotalmem() / 1e9,
+        turniInVolo(),
+      );
+    } catch { return null; }
+  },
+  // What the last agents really cost, read from the per-session CPU the fleet
+  // probe already attributes: a price list measured on this machine beats a
+  // constant, and the median of it beats the mean (one delivery running four
+  // shards would otherwise price every future agent as if it were that one).
+  agentCostSamples: () => {
+    try { return fleetSessionCoreUnits(); } catch { return []; }
   },
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -4639,6 +4655,39 @@ const staleStreamTimer = setInterval(() => {
 // "reconcile() is a no-op", e ha mandato a caccia nel posto sbagliato chi
 // cercava perché sette fantasmi `queued` non venissero mai recuperati).
 const DISPATCH_POLL_MS = 10_000;
+
+/**
+ * THE GOVERNOR OF WHAT IS ALREADY RUNNING, on the same ten-second beat as the
+ * dispatch poll.
+ *
+ * The admission gate decides what STARTS; this one decides what keeps running.
+ * Same beat on purpose: two clocks reading the same machine would take turns
+ * describing two different instants, and the freeze would fight the admission.
+ * Only in "by resources" mode, because a budget nobody set is not a budget:
+ * `read()` returning `null` means "not measurable", and a governor that cannot
+ * measure freezes nothing.
+ */
+const budgetGovernor = createBudgetGovernor({
+  read: () => {
+    try {
+      const cap = dispatcherSvc.getGlobalCap();
+      if (capMode(cap) !== "resources") return null;
+      const fleet = fleetLoadSync();
+      if (!fleet) return null;
+      const share = budgetShare(cap);
+      const sample = budgetSample(fleet, availableMemGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
+      return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
+    } catch { return null; }
+  },
+  signalTree: signalProcessTree,
+  log: (m) => console.log(`[budget] ${m}`),
+  note: (taskId, text) => {
+    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+    catch { /* a note that cannot be written must not stop the freeze */ }
+  },
+});
+setActiveBudgetGovernor(budgetGovernor);
+
 taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 const dispatchTimer = setInterval(() => {
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
@@ -4647,6 +4696,7 @@ const dispatchTimer = setInterval(() => {
   if (!dispatchReconcileHeld()) {
     taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
+  void budgetGovernor.sampleOnce().catch((err) => console.error("[budget] sample failed", err));
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno
   // compilando accanto a me») può essere cambiato. L'ambiente di un processo si
@@ -6083,6 +6133,10 @@ async function gracefulShutdown(signal: string) {
   clearInterval(relayLicenzaTimer);
   clearInterval(idleGcTimer);
   clearInterval(loopLagTimer);
+  // A process left STOPped by the governor is a process nobody will ever
+  // continue: the one thing that could send it SIGCONT is the loop that is
+  // about to stop. Thaw before anything else goes away.
+  try { await budgetGovernor.thawAll(); } catch { /* best effort on the way out */ }
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
   // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva

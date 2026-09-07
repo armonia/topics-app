@@ -58,7 +58,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
 import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch } from "../../shared/board";
-import { capThresholds } from "../../shared/board";
+import { budgetShare } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
 import { markTargetSeenAndAnnounce } from "../notification-registry";
@@ -5685,16 +5685,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         db.prepare("UPDATE board_settings SET max_agents_mode = ? WHERE project_id = ?")
           .run(patch.mode === "resources" ? "resources" : "count", GLOBAL_SETTINGS_KEY);
       }
-      // The thresholds are clamped on the way IN, with the same reader the gate
-      // and the slider use, so the value on disk is the value that applies:
-      // a field that accepts 5 and enforces 3 lies to whoever filled it in.
-      if (patch.maxLoadRatio !== undefined) {
-        db.prepare("UPDATE board_settings SET max_load_ratio = ? WHERE project_id = ?")
-          .run(capThresholds({ maxLoadRatio: patch.maxLoadRatio }).maxLoadRatio, GLOBAL_SETTINGS_KEY);
-      }
-      if (patch.maxMemRatio !== undefined) {
-        db.prepare("UPDATE board_settings SET max_mem_ratio = ? WHERE project_id = ?")
-          .run(capThresholds({ maxMemRatio: patch.maxMemRatio }).maxMemRatio, GLOBAL_SETTINGS_KEY);
+      // The budget is clamped on the way IN, with the same reader the gate and
+      // the slider use, so the value on disk is the value that applies: a field
+      // that accepts 5 and enforces 0.95 lies to whoever filled it in.
+      if (patch.budgetShare !== undefined) {
+        db.prepare("UPDATE board_settings SET machine_budget_share = ? WHERE project_id = ?")
+          .run(budgetShare({ budgetShare: patch.budgetShare }), GLOBAL_SETTINGS_KEY);
       }
       return this.getGlobalCap();
     },
