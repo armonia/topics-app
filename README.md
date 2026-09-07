@@ -9,6 +9,7 @@ Agents run inside Topics instead of one process each, so
 [![Download](https://img.shields.io/github/v/release/armonia/topics-app?label=download&style=for-the-badge)](https://github.com/armonia/topics-app/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 [![Platforms](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-lightgrey?style=for-the-badge)](https://github.com/armonia/topics-app/releases/latest)
+[![Topics on StartupScores](https://startupscores.com/badge/topics.svg?style=shield&v=combo&theme=dark)](https://startupscores.com/open-source/topics)
 
 ![Topics: three topics, an agent answering](landing/public/img/readme-topics.jpg)
 
