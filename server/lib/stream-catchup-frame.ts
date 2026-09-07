@@ -37,7 +37,7 @@ import { stripArgsText, stripDetailText } from "../../shared/lean-tool-call";
 import type { ActiveStream, StoredMessage } from "../types";
 import type { ContentBlock, ToolCall, ToolCallStatus } from "../../shared/types";
 
-/** Is this tool call over? Only then is its text a snapshot the DB can serve. */
+/** Has this tool call finished? Only then does the database hold its whole text. */
 function isFinished(status: ToolCallStatus | undefined): boolean {
   return status === "success" || status === "error";
 }
