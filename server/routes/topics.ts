@@ -914,7 +914,7 @@ export function createTopicsRouter(
    * lo compra la forma della query, non il `substr`: le righe toccate dai filtri
    * passano da tutte e 13.348 a una manciata per topic.
    */
-  function topicPreviewsQuery(): { topicId: string; sessionKey: string; role: string; text: string; at: string }[] {
+  function topicPreviewsQuery(archived: boolean): { topicId: string; sessionKey: string; role: string; text: string; at: string }[] {
     return db.prepare(`
       SELECT t.id AS topicId, t.session_key AS sessionKey,
              m.role AS role, substr(m.content, 1, ${PREVIEW_SOURCE_CHARS}) AS text, m.timestamp AS at
@@ -928,7 +928,8 @@ export function createTopicsRouter(
         ORDER BY p.sort_order DESC
         LIMIT 1
       )
-    `).all() as { topicId: string; sessionKey: string; role: string; text: string; at: string }[];
+      WHERE t.archived = ?
+    `).all(archived ? 1 : 0) as { topicId: string; sessionKey: string; role: string; text: string; at: string }[];
   }
 
   /** Le righe SUCCESSIVE alla prima, per il ripiego di {@link topicPreviewsPayload}.
@@ -960,17 +961,25 @@ export function createTopicsRouter(
    * coglie una MODIFICA in place dell'ultimo messaggio, ed è per questo che
    * sopra c'è anche un TTL: lì la finestra di staleness è al massimo di
    * {@link PREVIEW_CACHE_TTL_MS}.
+   *
+   * ONE SLOT PER VARIANT. The live previews and the archived ones are two
+   * different bodies from the same validator, so they get one entry each: a
+   * single slot would make the archived section, asked for once in a while,
+   * evict the boot photograph that every window asks for.
    */
-  let previewCache: { until: number; mx: number; n: number; body: TopicPreviewsBody } | null = null;
+  type PreviewCacheEntry = { until: number; mx: number; n: number; body: TopicPreviewsBody };
+  const previewCache = new Map<string, PreviewCacheEntry>();
 
-  function topicPreviewsPayload(): TopicPreviewsBody {
+  function topicPreviewsPayload(archived: boolean): TopicPreviewsBody {
     const stamp = db.prepare("SELECT max(rowid) AS mx, count(*) AS n FROM messages").get() as { mx: number | null; n: number };
     const mx = stamp.mx ?? 0;
-    if (previewCache && previewCache.until > Date.now() && previewCache.mx === mx && previewCache.n === stamp.n) {
-      return previewCache.body;
+    const slot = archived ? "archived" : "live";
+    const cached = previewCache.get(slot);
+    if (cached && cached.until > Date.now() && cached.mx === mx && cached.n === stamp.n) {
+      return cached.body;
     }
     const previews: TopicPreviewsBody = {};
-    for (const r of topicPreviewsQuery()) {
+    for (const r of topicPreviewsQuery(archived)) {
       let text = topicPreviewText(r.text);
       let role = r.role;
       let at = r.at;
@@ -997,7 +1006,7 @@ export function createTopicsRouter(
         at: Date.parse(at) || 0,
       };
     }
-    previewCache = { until: Date.now() + PREVIEW_CACHE_TTL_MS, mx, n: stamp.n, body: previews };
+    previewCache.set(slot, { until: Date.now() + PREVIEW_CACHE_TTL_MS, mx, n: stamp.n, body: previews });
     return previews;
   }
 
@@ -1138,9 +1147,20 @@ export function createTopicsRouter(
      *
      * Il corpo sta in {@link topicPreviewsPayload}, che tiene anche la cache: qui
      * resta solo la porta HTTP.
+     *
+     * AND IT DOES NOT CARRY THE ARCHIVE, for the same reason `GET /api/topics`
+     * stopped carrying it. Measured read-only on the production database
+     * (2026-09-07): 300,355 bytes at every boot for 1,482 previews, of which
+     * the sidebar draws 17; the live ones alone are 1,671 bytes. So the
+     * default is `?archived=0` and the archived previews come with the
+     * archived list, from the one deduplicated point the client already has
+     * (`ensureArchivedTopics`).
+     * Gate: tests/integration/topics-list-weight.test.ts.
      */
     if (method === "GET" && pathname === "/api/topics/previews") {
-      return json({ previews: topicPreviewsPayload() });
+      const wantArchived = url.searchParams.get("archived");
+      const archived = wantArchived === "1" || wantArchived === "true";
+      return json({ previews: topicPreviewsPayload(archived) });
     }
 
     // Custom slash commands + skills the user has, for composer autocomplete.

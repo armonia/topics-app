@@ -29,6 +29,19 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
 /**
+ * True when a WS close cancelled work that had not reached the server yet — a
+ * pending debounce timer, an in-flight PUT, or both. Read once on the next
+ * 'open' to re-arm the push. See the lifecycle handler in `initServerSync`.
+ */
+let pendingAfterClose = false;
+
+// Unsubscribers for what `initServerSync` wires up. Only a test teardown uses
+// them (`__stopServerSyncForTests`): in the app this middleware lives as long
+// as the page does.
+let stopLocalSeqSubscription: (() => void) | null = null;
+let stopLifecycleSubscription: (() => void) | null = null;
+
+/**
  * NOTA — QUI VIVEVA UN GATE ANTI-RISCRITTURA, ed è stato ritirato di proposito.
  *
  * L'idea era: se lo snapshot da mandare è identico all'ultimo che il server ha
@@ -422,15 +435,27 @@ export function initServerSync(): void {
     }, DEBOUNCE_MS);
   };
 
-  usePaneStore.subscribe((s: PaneStore) => s.localSeq, armaSpinta);
+  stopLocalSeqSubscription = usePaneStore.subscribe((s: PaneStore) => s.localSeq, armaSpinta);
 
   // Review-round-13: abort any inflight PUT on WS close. Rationale: when the
-  // socket drops, the connection that would deliver our PUT's ack is gone,
-  // and a retry-on-reconnect PUT would race against the fresh `ui-state:init`
-  // broadcast the server sends on WS reopen (our self-echo filter resets on
-  // 'open', so a post-reset ack could be misread as a remote frame). Simpler:
-  // abandon the in-flight write; the next `lastSeq` tick will re-push with
-  // the current state once the WS is back.
+  // socket drops, the connection that would deliver our PUT's ack is gone, so
+  // waiting on it is waiting on nothing.
+  //
+  // WHAT THE CLOSE CANCELS IS REMEMBERED, AND RE-ARMED ON THE NEXT 'open'.
+  // The original note here said "the next `lastSeq` tick will re-push", and
+  // that stopped being true when this middleware moved its subscription from
+  // `lastSeq` to `localSeq` (see the block above): `localSeq` only moves on a
+  // LOCAL edit, so with nobody touching the app after the drop there is no
+  // next tick at all. An edit made in the 500 ms before the socket died then
+  // stayed local until the user happened to dispatch again. With 10-20 WS
+  // drops a day in production that is a real window, so we do what
+  // `tombstoneSync` and `projectLayoutSync` already do on their own keys:
+  // retry on reconnect.
+  //
+  // The race the old note feared is not there: the re-armed push waits a full
+  // DEBOUNCE_MS, and the server sends `ui-state:init` immediately on reopen —
+  // so the hydrate lands, `resetSelfEcho()` has already run on 'open', and our
+  // ack arrives after it, where the self-echo ledger can recognise it.
   if (typeof window !== 'undefined') {
     // Lazily import to avoid a circular dep at module init. La destrutturazione
     // sta nell'`await` e non nel `.then` perché è l'unica forma in cui knip vede
@@ -438,8 +463,17 @@ export function initServerSync(): void {
     // modulo (`bun run check:deadcode-blindspots`).
     void (async () => {
       const { subscribeLifecycle } = await import('../../../lib/wsFrameBus');
-      subscribeLifecycle((event) => {
+      stopLifecycleSubscription = subscribeLifecycle((event) => {
+        if (event === 'open') {
+          if (!pendingAfterClose) return;
+          pendingAfterClose = false;
+          armaSpinta();
+          return;
+        }
         if (event !== 'close') return;
+        // Record BEFORE cancelling: after the two lines below there is no
+        // trace left that anything was owed to the server.
+        pendingAfterClose = timer !== null || inflight.size > 0;
         for (const entry of inflight.values()) entry.controller.abort();
         inflight.clear();
         if (timer) {
@@ -515,6 +549,26 @@ export function flushPaneStoreNow(): Promise<void> {
 /** Test/diagnostic — returns the inflight entries keyed by remote key. */
 export function __getInflightKeys(): string[] {
   return [...inflight.keys()];
+}
+/**
+ * Test-only — undo what `initServerSync` wired up.
+ *
+ * Without it a test file that calls `initServerSync` leaves a live `localSeq`
+ * subscription and a possibly-armed debounce behind for every later file of
+ * the same `bun test` process (one process per run), where a store dispatch
+ * would fire a stray PUT against whatever fetch stub is installed then.
+ */
+export function __stopServerSyncForTests(): void {
+  stopLocalSeqSubscription?.();
+  stopLocalSeqSubscription = null;
+  stopLifecycleSubscription?.();
+  stopLifecycleSubscription = null;
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  pendingAfterClose = false;
+  started = false;
 }
 /** Test-only — resets the inflight Map. */
 export function __resetInflightForTests(): void {

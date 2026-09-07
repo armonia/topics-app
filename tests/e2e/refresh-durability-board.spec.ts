@@ -13,7 +13,7 @@ import {
   seedProjectPane,
   waitForPaneStoreQuiet,
 } from "./helpers/api-fixtures";
-import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { initGitRepo, canonicalTmpRoot } from "./helpers/file-project";
 import { projectRow } from "./helpers/project-row";
 import { hermetic } from "./fixtures/hermetic";
@@ -172,7 +172,9 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     // L'allowlist di `previewImage` guarda la HOME DEL SERVER, che qui e'
     // isolata: un'immagine scritta altrove viene scartata IN SILENZIO e il test
     // misurerebbe una card senza anteprima passando lo stesso.
-    const mediaDir = `${E2E_HOME}/.topics/media`;
+    // The server's own media root is `TOPICS_HOME/media` (card 211605ee), and
+    // in this bench TOPICS_HOME is not `$HOME/.topics`.
+    const mediaDir = `${testServerEnv().TOPICS_HOME}/media`;
     mkdirSync(mediaDir, { recursive: true });
     previewPath = `${mediaDir}/e2e-refresh-board-${STAMP}.png`;
     writeFileSync(previewPath, TINY_PNG);
