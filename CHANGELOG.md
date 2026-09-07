@@ -2,10 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.285 — 2026-09-07
+
+### Sotto il cofano
+- Wait for the killed child to disappear, instead of asking once
+
 ## 2.2.284 — 2026-09-07
 
 ### Sotto il cofano
+- Fix the PTY bridge dying on Windows before it ever listens
+- l'agenda sotto la tessera fissata, e la sincronizzazione configurabile
 - Path containment: compare with the platform separator, not a hardcoded slash
+- Say why the bridge's sibling import is not a runtime dependency
+- Nomi che il cancello dell'inglese conosce, e il formato che si chiama come il suo file
 
 ## 2.2.283 — 2026-09-07
 
