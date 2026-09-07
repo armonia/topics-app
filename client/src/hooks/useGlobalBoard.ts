@@ -35,7 +35,7 @@ import type { WSMessage } from '../types';
 import { boardApi, type BoardTask, type TaskStatus } from '../lib/board';
 import { groupByStatus } from '../lib/boardOrder';
 import {
-  markBoardTasksSettled, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
+  applyBoardTaskFrame, markBoardTasksSettled, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
 } from '../lib/boardTasksStore';
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
 import { BOOT_READ_TTL_MS } from '../lib/coalesceFetch';
@@ -48,6 +48,20 @@ import { subscribeLifecycle, subscribeReconnect } from '../lib/wsFrameBus';
  * first event of a burst does not wait either way.
  */
 const COALESCE_WINDOW_MS = 400;
+
+/**
+ * How long a store fed only by frames may go without a full read.
+ *
+ * A frame the store absorbs costs no read, and that is most of the traffic:
+ * measured on the live log, 1194 reads of the feed in 95 minutes for 152 HTTP
+ * writes, because the dispatcher re-emits a row every few seconds while an
+ * agent works. But the feed is more than the rows it carries one by one:
+ * `queueReason` - why a card is waiting - is computed over the whole batch, so
+ * a SIBLING card can keep giving a reason that stopped being true, with no
+ * frame of its own coming to correct it. One read a minute, and only while
+ * frames are arriving, is what keeps that honest.
+ */
+const FULL_READ_INTERVAL_MS = 60_000;
 
 export interface GlobalBoard {
   /** Tasks not yet `done`, across every project. */
@@ -80,6 +94,9 @@ export function useGlobalBoard(
   // the tail read of a burst got the pre-burst snapshot handed back, with no
   // later event to correct it (BOARD-19, 2026-09-06).
   const changeNoticed = useRef(false);
+  // When the last full read of the feed left. Absorbed frames do not reset it:
+  // it is what makes the safety read above RARE and not per-frame.
+  const lastFullRead = useRef(0);
 
   // One coalescer per mount: `useRef` and not `useMemo`, because React is free
   // to discard a `useMemo` value whenever it likes and this one owns a timer
@@ -104,6 +121,7 @@ export function useGlobalBoard(
           // that must not be served from the window.
           const noticed = changeNoticed.current;
           changeNoticed.current = false;
+          lastFullRead.current = Date.now();
           try {
             return await boardApi.listAll(undefined, noticed ? undefined : { ttlMs: BOOT_READ_TTL_MS });
           } catch { return null; }
@@ -132,7 +150,8 @@ export function useGlobalBoard(
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
-      const t = (msg as { type?: string })?.type;
+      const m = msg as { type?: string; task?: BoardTask };
+      const t = m?.type;
       if (t !== 'task:created' && t !== 'task:updated' && t !== 'task:deleted') return;
       // Raised BEFORE the hidden gate: the one read a hidden window owes when
       // it is looked at again answers these events too.
@@ -144,6 +163,15 @@ export function useGlobalBoard(
       // pixels nobody was looking at. With bun:sqlite on Bun's single event
       // loop that read is streaming, WS, PTY and browser panes standing still.
       if (windowHidden()) { missedWhileHidden.current = true; return; }
+      // ONE READ PER EVENT IS NOT ONE READ, AND MOST EVENTS CARRY THEIR ANSWER.
+      // `task:updated` ships the whole row, built by the same code as the feed:
+      // when it lands on a row already in the store that has not changed column
+      // nor parent, writing it in IS the update, and the 73 KB re-read behind it
+      // would only confirm it. What the frame cannot say is what happened to the
+      // OTHER rows, so the read still leaves on everything else and, rarely, on
+      // a timer (see FULL_READ_INTERVAL_MS).
+      if (t === 'task:updated' && applyBoardTaskFrame(m.task)
+        && Date.now() - lastFullRead.current < FULL_READ_INTERVAL_MS) return;
       ensure().trigger();
     });
   }, [onMessage, ensure]);
