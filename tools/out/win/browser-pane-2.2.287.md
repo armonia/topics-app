@@ -9,7 +9,9 @@ asked the window tree, an HTTP witness and both capture methods instead.
 Instrument: `tools/win-browser-probe.sh` (driver) and `tools/win-browser-probe.ps1`
 (the probe, run in the interactive session through a scheduled task like the
 gate). Machine: the same Windows box, the same installed 2.2.287, nothing
-rebuilt. Artefacts in `tools/out/win/probe/`.
+rebuilt. The three captures that carry an answer are kept next to this file; the
+probe's raw output (logs, and one capture per step in both methods) lands in
+`tools/out/win/probe/`, which is gitignored and is rewritten by the next run.
 
 ## What the pane actually does
 
@@ -20,7 +22,7 @@ rebuilt. Artefacts in `tools/out/win/probe/`.
 | does it navigate? | yes, loopback and internet: `http://127.0.0.1:13333/robots.txt` and `https://example.com/` both land, `document.title` reads back through `browser_eval_js` | driven through the client's own tauri bridge |
 | does it paint? | yes: a page served solid red fills **73.6%** of the window | two captures at the same instant |
 | is `PrintWindow` blind to a second WebView2? | no: `PrintWindow(hwnd, dc, 2)` and a screen grab agree to the decimal (lum 109 / red 73.6% both, and 245/245 before the pane) | the gate's own capture next to `Graphics.CopyFromScreen` |
-| did the request really leave? | yes: a TCP witness on a port the app does not use logged `GET /red-page` with `Edg/152.0.0.0`, so it was the native pane and not the server-side headless context | `witness-red3.log` |
+| did the request really leave? | yes: a TCP witness on a port the app does not use logged `GET /red-page` with `Edg/152.0.0.0`, so it was the native pane and not the server-side headless context | the witness log of the run, `probe/witness-red3.log` |
 
 ## What fails, then
 
