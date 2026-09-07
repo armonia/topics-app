@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.276 — 2026-09-07
+
+### Sotto il cofano
+- La sonda dell'inventario apre un terminale vero invece di seminarne uno morto
+- Le spec che fanno del percorso un'identità non lo scrivono più a mano
+
 ## 2.2.275 — 2026-09-07
 
 ### Sotto il cofano
@@ -70,6 +76,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il generatore del test ha un nome che l'inglese conosce
 - I quattro lazy destrutturano l'import: knip torna a vedere gli export di quei moduli
 - Le fixture di progetto azzeravano una chiave che nessuno legge
+- Drawer subtask tree: fetch children alone, not the node's whole thread
+- rename the per-step child count to a word the identifier gate knows
 
 ## 2.2.274 — 2026-09-06
 
