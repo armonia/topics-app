@@ -112,8 +112,8 @@ export const readSelfMemory: () => Omit<LoopLagSample, "load1"> = (() => {
     // rusage_info_v2: 16 bytes of uuid, then `uint64_t` fields. Offsets from the
     // header: ri_pageins is the fifth (16 + 4*8), ri_phys_footprint the eighth
     // (16 + 7*8), the same one `fleet-usage.ts` reads.
-    const rusage = new BigUint64Array(64);
-    const rusageView = new DataView(rusage.buffer);
+    const resourceUsage = new BigUint64Array(64);
+    const resourceUsageView = new DataView(resourceUsage.buffer);
     // task_vm_info: resident_size at 16, compressed at 120, both `mach_vm_size_t`.
     const vmInfo = new BigUint64Array(120);
     const vmView = new DataView(vmInfo.buffer);
@@ -126,9 +126,9 @@ export const readSelfMemory: () => Omit<LoopLagSample, "load1"> = (() => {
       let residentMB: number | null = null;
       let compressedMB: number | null = null;
       try {
-        if (lib.symbols.proc_pid_rusage(process.pid, 2, rusage) === 0) {
-          footprintMB = Number(rusageView.getBigUint64(72, true)) / MB;
-          diskFaults = Number(rusageView.getBigUint64(48, true));
+        if (lib.symbols.proc_pid_rusage(process.pid, 2, resourceUsage) === 0) {
+          footprintMB = Number(resourceUsageView.getBigUint64(72, true)) / MB;
+          diskFaults = Number(resourceUsageView.getBigUint64(48, true));
         }
         vmCount[0] = vmInfo.byteLength / 4;
         if (lib.symbols.task_info(lib.symbols.task_self_trap(), TASK_VM_INFO, ptr(vmInfo), ptr(vmCount)) === 0) {
