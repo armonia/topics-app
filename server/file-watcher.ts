@@ -132,6 +132,16 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
   }
 }
 
+/**
+ * The projects watched right now, in eviction order (the one listed longest
+ * ago first). A read-only view of the cap: it answers WHICH slot was freed
+ * without going through a filesystem event, whose latency is the machine's and
+ * not the code's.
+ */
+export function watchedProjectPaths(): string[] {
+  return [...watchers.keys()];
+}
+
 export function unwatchProjectFiles(projectPath: string): void {
   const w = watchers.get(projectPath);
   if (w) {
