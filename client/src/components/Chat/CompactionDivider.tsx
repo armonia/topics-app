@@ -42,7 +42,7 @@ export function CompactionDivider({ marker, summary }: { marker: CompactionMarke
   const chip = (
     <>
       <Layers size={12} className="flex-shrink-0" />
-      <span className="font-medium">Contesto compattato</span>
+      <span className="font-medium">{tr('chat.compaction.title')}</span>
       {detail && <span className="text-app-text-muted">· {detail}</span>}
     </>
   );

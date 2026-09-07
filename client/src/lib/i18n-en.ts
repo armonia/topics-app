@@ -16,9 +16,11 @@
  */
 import type { Dict } from './i18n-types';
 import SPEND_EN from './i18n-spend-en';
+import CHAT_EN from './i18n-chat-en';
 
 const EN = {
   ...SPEND_EN,
+  ...CHAT_EN,
   'toolgroup.cost': 'Summed cost of the actions in the group',
 
   'app.unsent.title.one': '1 message not sent',

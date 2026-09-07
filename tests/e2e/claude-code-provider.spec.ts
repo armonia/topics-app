@@ -100,7 +100,7 @@ test.describe.serial("Claude Code Provider", () => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(testTopicName));
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     await mockChatStreamWithToolCalls(page, {
@@ -152,7 +152,7 @@ test.describe.serial("Claude Code Provider", () => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(bashTopicName));
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     await mockChatStreamWithToolCalls(page, {
@@ -219,7 +219,7 @@ test.describe.serial("Claude Code Provider", () => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(errorTopicName));
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     await mockChatStreamWithToolCalls(page, {
@@ -284,7 +284,7 @@ test.describe.serial("Claude Code Provider", () => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(multiTopicName));
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     await mockChatStreamWithToolCalls(page, {

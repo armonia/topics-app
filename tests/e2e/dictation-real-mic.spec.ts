@@ -427,7 +427,7 @@ test.describe.serial("Dettatura e nota vocale · col microfono @nightly", () => 
 
     // In registrazione il composer lascia il posto alla barra rossa col suo
     // cronometro: è la prova che getUserMedia ha aperto il microfono.
-    const recordingBar = page.getByText("Recording", { exact: true });
+    const recordingBar = page.getByText("Registrazione", { exact: true });
     await expect(recordingBar).toBeVisible({ timeout: 15_000 });
     await didascalia(page, "⌘⇧R · nota vocale in registrazione");
 

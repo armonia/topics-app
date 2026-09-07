@@ -22,16 +22,22 @@ import { ClipboardList, RefreshCw, Bug, Lightbulb, PenLine, Search, Sparkles } f
  * indovinare.
  */
 
+/**
+ * The starter chips hold KEYS, not words: the label is chrome and the message is
+ * what lands in the composer, and both have to follow the language selector. The
+ * arrays stay at module scope because the icons are the only thing in them that
+ * is not a lookup.
+ */
 const PROJECT_STARTERS = [
-  { icon: ClipboardList, label: 'Describe this project', msg: 'Give me a brief overview of this project: what it does, the tech stack, and the main files.' },
-  { icon: RefreshCw, label: 'Recent changes', msg: 'Show me the recent git changes in this project and summarize what was modified.' },
-  { icon: Bug, label: 'Find issues', msg: 'Review this project for potential bugs, code smells, or improvements.' },
+  { icon: ClipboardList, labelKey: 'chat.empty.starter.describe', msgKey: 'chat.empty.starter.describeMsg' },
+  { icon: RefreshCw, labelKey: 'chat.empty.starter.changes', msgKey: 'chat.empty.starter.changesMsg' },
+  { icon: Bug, labelKey: 'chat.empty.starter.issues', msgKey: 'chat.empty.starter.issuesMsg' },
 ];
 
 const PLAIN_STARTERS = [
-  { icon: Lightbulb, label: 'Brainstorm ideas', msg: 'Help me brainstorm some ideas.' },
-  { icon: PenLine, label: 'Write something', msg: 'Help me write ' },
-  { icon: Search, label: 'Research a topic', msg: 'Research ' },
+  { icon: Lightbulb, labelKey: 'chat.empty.starter.brainstorm', msgKey: 'chat.empty.starter.brainstormMsg' },
+  { icon: PenLine, labelKey: 'chat.empty.starter.write', msgKey: 'chat.empty.starter.writeMsg' },
+  { icon: Search, labelKey: 'chat.empty.starter.research', msgKey: 'chat.empty.starter.researchMsg' },
 ];
 
 /**
@@ -100,11 +106,11 @@ export function ChatEmptyState({
           is one. The direct field stays as the answer for a single topic. */}
       {(topic.hasSystemPrompt || topic.systemPrompt) && (
         <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
-          <Sparkles className="w-4 h-4" aria-hidden="true" /> Custom system prompt active
+          <Sparkles className="w-4 h-4" aria-hidden="true" /> {t('chat.empty.systemPrompt')}
         </p>
       )}
       {!topic.projectPath && (
-        <p className="text-[12px] text-app-text-muted mt-2">Start a conversation</p>
+        <p className="text-[12px] text-app-text-muted mt-2">{t('chat.empty.start')}</p>
       )}
       {/* Sopra le spunte e sotto il nome: e' il posto in cui si guarda per
           capire DOVE si sta scrivendo, prima di decidere cosa scrivere. Sparisce
@@ -124,28 +130,28 @@ export function ChatEmptyState({
         <div className="flex flex-wrap gap-2 justify-center mt-4">
           {starters.map(q => (
             <button
-              key={q.label}
+              key={q.labelKey}
               type="button"
-              onClick={() => onPick(q.msg)}
+              onClick={() => onPick(t(q.msgKey))}
               className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift flex items-center gap-1.5"
             >
               <q.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-              {q.label}
+              {t(q.labelKey)}
             </button>
           ))}
         </div>
       )}
       {showHints && (
         <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
-          <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('K')}</kbd> commands</span>
-          <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> slash commands</span>
-          {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> mention file</span>}
+          <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('K')}</kbd> {t('chat.empty.hint.commands')}</span>
+          <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> {t('chat.empty.hint.slash')}</span>
+          {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> {t('chat.empty.hint.mention')}</span>}
           {/* ⌘/ e non ⌘?: la scorciatoia ne accetta due (`useKeyboardShortcuts`
               ascolta sia `/` sia `?`) e questa è l'unica delle due che si
               scrive uguale su tastiere diverse. Su una tastiera italiana il `?`
               è Shift+', cioè un tasto che il promemoria non nominava: «vedo
               command punto interrogativo, ma io non ce l'ho da tastiera». */}
-          <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('/')}</kbd> all shortcuts</span>
+          <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('/')}</kbd> {t('chat.empty.hint.shortcuts')}</span>
         </div>
       )}
     </div>

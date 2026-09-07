@@ -47,7 +47,7 @@ test.describe.serial("Provider/Model picker", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Set up mock first, then add capture as a NEWER route — Playwright

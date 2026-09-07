@@ -1,0 +1,9 @@
+== topics windows desktop check, label focus, checks [abcd]
+installed 2.2.287
+PASS a  boot: client bundle served at 18.8s, window painted at 4.8s (ink 24.7%), budget 45s (marker=absent sidecar=1)
+window 1416x939 dpi 96 scale 1 client offset 8,1
+PASS b  chrome: 3 command cells (want 3) inside 16..61 CSS px (want 12..66), wordmark ink at 80 CSS px (want 80 +/-4), baseline offset 2 CSS px (want <=4)
+-- Ctrl+W x3 to clear restored panes: 10.7%, 0%, 0.5%
+-- keyboard after the closes: NO window (hwndFocus 0x0)
+FAIL c1  Ctrl+K: opened 0% (want >3%), closed back to 0% after 1 Escape (want <1.5%), keyboard on NO window (hwndFocus 0x0)
+-- stopping at the first FAIL

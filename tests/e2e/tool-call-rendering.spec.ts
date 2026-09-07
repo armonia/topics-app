@@ -54,7 +54,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     }
   });
 
-  // `getByRole("textbox", { name: /Message input/ })` è STRICT: una pane chat
+  // `getByRole("textbox", { name: /Campo del messaggio/ })` è STRICT: una pane chat
   // superstite di un file precedente (il pane-store è unico per tutta la suite
   // seriale) la fa risolvere a 2 elementi. Reset al topic di questo file.
   test.beforeEach(async ({ request }) => {
@@ -69,7 +69,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(testTopicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Set up SSE mock BEFORE sending message
@@ -130,7 +130,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(testTopicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     await mockChatStreamWithToolCalls(page, {

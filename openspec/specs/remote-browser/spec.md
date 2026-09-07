@@ -2037,3 +2037,34 @@ nulla, perche' tutto cio' che non era macOS finiva in un `let _`.
 #### Scenario: una pane aperta in un pop-out
 - **GIVEN** una pane creata in una finestra pop-out
 - **THEN** la tastiera SHALL tornare alla webview del pop-out, non a quella di `main`
+
+### Requirement: NATIVEOPS-06 — Chiudere una pane restituisce la tastiera, non la lascia a nessuno
+
+`NATIVEOPS-05` tiene il caso della nascita; questo tiene l'altro capo della vita
+della pane, ed e' peggiore. Su Windows la webview della pane e' una finestra
+figlia nativa che tiene il fuoco finche' vive: quando muore il fuoco non passa a
+nessuno — `GetGUIThreadInfo().hwndFocus` legge `0x0` — e niente nel sistema lo
+rimette a posto. Da li' in avanti i listener `keydown` del client non partono
+piu' e ogni scorciatoia e' inerte finche' chi usa l'app non clicca sulla
+finestra.
+
+Misurato sulla 2.2.287 installata (card cd040754, due run identiche): Ctrl+K
+cambiava il 55,3% della finestra nel giro dove non c'era nessuna pane
+ripristinata da chiudere, e lo 0% nel giro dove la run ne aveva appena chiusa
+una. Stessa build, stessa finestra, a minuti di distanza.
+
+La chiusura esplicita di una pane SHALL restituire la tastiera alla webview di
+interfaccia della finestra che la ospitava, e la finestra ospite SHALL essere
+letta PRIMA dello sgombero: dopo, l'etichetta della pane non e' piu' registrata
+e non c'e' piu' nessuno a cui chiedere di che finestra fosse.
+
+Lo smontaggio della finestra ospite (`evict_panes_of_window`) SHALL restare
+fuori: li' non c'e' piu' un'interfaccia a cui consegnare niente.
+
+#### Scenario: si chiude una pane e si preme una scorciatoia
+- **GIVEN** una pane browser chiusa su richiesta su Windows
+- **THEN** la tastiera SHALL tornare alla webview di interfaccia della finestra ospite
+
+#### Scenario: se ne va la finestra che ospitava le pane
+- **GIVEN** una finestra in chiusura con le sue pane
+- **THEN** lo sgombero NON SHALL spostare il fuoco

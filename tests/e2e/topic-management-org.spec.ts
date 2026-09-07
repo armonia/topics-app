@@ -164,7 +164,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     }).toPass({ timeout: 5000 });
 
     // Wait for chat input to confirm the topic is actively shown
-    const chatInput = page.locator(`[aria-label*="Message input for E2E-Alpha"]`);
+    const chatInput = page.locator(`[aria-label*="Campo del messaggio per E2E-Alpha"]`);
     await expect(chatInput).toBeVisible({ timeout: 10000 });
 
     // Open settings modal via tab right-click context menu
@@ -233,7 +233,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     }).toPass({ timeout: 5000 });
 
     // Wait for chat input
-    await expect(page.locator(`[aria-label*="Message input for E2E-Alpha"]`)).toBeVisible({ timeout: 10000 });
+    await expect(page.locator(`[aria-label*="Campo del messaggio per E2E-Alpha"]`)).toBeVisible({ timeout: 10000 });
 
     // Re-open settings via tab right-click context menu
     const mainAreaReload = page.locator('[role="main"]');
