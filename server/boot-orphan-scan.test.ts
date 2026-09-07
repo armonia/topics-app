@@ -30,18 +30,26 @@
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { encodeCol, decodeCol } from "../shared/message-blob";
+import { NOT_ARCHIVED_SQL } from "./lib/archived-scope";
 
 /** La stessa espressione di `finalizeOrphanedRunningTools`. */
 const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
 
 /** La stessa query, nella forma minima che ne conserva la selettività. */
 const SQL = `SELECT id, content, tool_calls, blocks FROM messages
-             WHERE partial = 0 AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`;
+             WHERE partial = 0 AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
+               AND ${NOT_ARCHIVED_SQL}`;
+
+/** The two tables the sweep reads: messages, plus the archived blacklist. */
+function schema(db: Database): void {
+  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, content TEXT, tool_calls BLOB, blocks BLOB, partial INTEGER DEFAULT 0)`);
+  db.run(`CREATE TABLE topics (session_key TEXT, archived INTEGER)`);
+}
 
 function dbWithRows(n: number, indiciInCorso: number[]): Database {
   const db = new Database(":memory:");
-  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT, tool_calls BLOB, blocks BLOB, partial INTEGER DEFAULT 0)`);
-  const ins = db.prepare(`INSERT INTO messages (id, content, tool_calls, blocks, partial) VALUES (?, ?, ?, ?, 0)`);
+  schema(db);
+  const ins = db.prepare(`INSERT INTO messages (id, session_key, content, tool_calls, blocks, partial) VALUES (?, 'sk-aperto', ?, ?, ?, 0)`);
   const inCorso = new Set(indiciInCorso);
   for (let i = 0; i < n; i++) {
     // Sopra i 512 byte `encodeCol` comprime davvero: è la condizione in cui la
@@ -112,11 +120,45 @@ describe("setaccio dei tool orfani al boot", () => {
     // significa lasciare l'utente davanti a un pannello che non risponde più.
     for (const stato of ["running", "pending", "waiting_for_input", "awaiting_permission"]) {
       const db = new Database(":memory:");
-      db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT, tool_calls BLOB, blocks BLOB, partial INTEGER DEFAULT 0)`);
-      db.prepare(`INSERT INTO messages VALUES (?, ?, ?, ?, 0)`).run(
+      schema(db);
+      db.prepare(`INSERT INTO messages VALUES (?, 'sk-aperto', ?, ?, ?, 0)`).run(
         "solo", "", encodeCol(JSON.stringify([{ id: "t", status: stato, pad: "y".repeat(1000) }])) as never, null as never,
       );
       expect(trovatiScorrendo(db)).toEqual(["solo"]);
     }
+  });
+
+  it("salta i topic archiviati e tiene quelli aperti", () => {
+    // 98% of the rows the boot scans belong to archived topics, and the
+    // "running" tools they carry are persistent false positives: the sweep is
+    // idempotent, so a real one would already have been closed. Reading them
+    // cost 1.76 s of blocked event loop while the server was already listening.
+    const db = new Database(":memory:");
+    schema(db);
+    const inCorso = () => encodeCol(JSON.stringify([{ id: "t", status: "running", pad: "z".repeat(1000) }])) as never;
+    const ins = db.prepare(`INSERT INTO messages VALUES (?, ?, '', ?, NULL, 0)`);
+    ins.run("archiviato", "sk-archiviato", inCorso());
+    ins.run("aperto", "sk-aperto", inCorso());
+    db.run(`INSERT INTO topics (session_key, archived) VALUES ('sk-archiviato', 1), ('sk-aperto', 0)`);
+
+    expect(trovatiScorrendo(db)).toEqual(["aperto"]);
+  });
+
+  it("una sessione senza riga in topics resta dentro: blacklist, non whitelist", () => {
+    // `archived = 0` would silently drop a just-born session that has no
+    // `topics` row yet, and its spinner would spin forever. Only what is KNOWN
+    // archived is excluded.
+    const db = new Database(":memory:");
+    schema(db);
+    const inCorso = () => encodeCol(JSON.stringify([{ id: "t", status: "running", pad: "z".repeat(1000) }])) as never;
+    const ins = db.prepare(`INSERT INTO messages VALUES (?, ?, '', ?, NULL, 0)`);
+    ins.run("nuovo", "sk-ignoto", inCorso());
+    // Same reason for a row without `session_key`, and for an archived topic
+    // that has none: `NULL NOT IN (...)` is NULL, that is falsy, and would
+    // empty the whole scan although nobody archived anything.
+    ins.run("senza-chiave", null, inCorso());
+    db.run(`INSERT INTO topics (session_key, archived) VALUES (NULL, 1)`);
+
+    expect(trovatiScorrendo(db)).toEqual(["nuovo", "senza-chiave"]);
   });
 });
