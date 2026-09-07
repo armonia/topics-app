@@ -45,7 +45,16 @@ type Frame = { type: string; projectPath?: string };
  */
 const WATCHER_TEST_MS = 60_000;
 
-async function until(cond: () => boolean, budgetMs = WATCHER_TEST_MS / 2): Promise<boolean> {
+/**
+ * The wait used HALF the test's budget, which is where it kept dying: the test
+ * may take 60 s, the condition was given 30, and on 2026-09-07 with nine agents
+ * on twelve cores the twenty-fifth watcher handed its event over later than
+ * that. Red inside the sharded suite, green alone on the same commit: the
+ * halved budget was measuring the machine. It now stops five seconds short of
+ * the test's own ceiling, so a real hang still fails as an assertion that names
+ * the missing broadcast instead of an anonymous test timeout.
+ */
+async function until(cond: () => boolean, budgetMs = WATCHER_TEST_MS - 5_000): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (cond()) return true;
