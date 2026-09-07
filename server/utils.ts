@@ -21,6 +21,8 @@ import { readMutedProjects } from "./lib/muted-projects";
 import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
+import { isInsideDir } from "./lib/path-containment";
+import { homeDir } from "./lib/broad-cwd";
 import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
 import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
 import { createProjectStore } from "./services/project-store";
@@ -2114,15 +2116,14 @@ export function createAppContext(baseDir: string): AppContext {
     if (!inputPath) return null;
     let expanded = inputPath;
     if (inputPath.startsWith("~")) {
-      const home = process.env.HOME;
+      // `homeDir()` and not `process.env.HOME`: on Windows that variable is
+      // usually unset, and a `~` path resolved to nothing every time.
+      const home = homeDir();
       if (!home) return null;
       expanded = inputPath.replace(/^~/, home);
     }
     const resolved = resolve(expanded);
-    const isAllowed = allowedBases.some(base => {
-      const normalizedBase = resolve(base);
-      return resolved === normalizedBase || resolved.startsWith(normalizedBase + "/");
-    });
+    const isAllowed = allowedBases.some(base => isInsideDir(resolved, base));
     if (!isAllowed) {
       console.warn(`[Security] Path access denied: ${inputPath} -> ${resolved}`);
       return null;
@@ -2205,7 +2206,9 @@ export function createAppContext(baseDir: string): AppContext {
     if (!inputPath) return null;
     let expanded = inputPath;
     if (inputPath.startsWith("~")) {
-      const home = process.env.HOME;
+      // `homeDir()` and not `process.env.HOME`: on Windows that variable is
+      // usually unset, and a `~` path resolved to nothing every time.
+      const home = homeDir();
       if (!home) return null;
       expanded = inputPath.replace(/^~/, home);
     }
@@ -2260,7 +2263,7 @@ export function createAppContext(baseDir: string): AppContext {
   // `~/.topics`, and browser screenshots have gone to `~/.topics/media` all
   // along. `~/.openclaw` also stays readable because it is a SHARED root of the
   // surrounding tooling; the root itself is never migrated here.
-  const ALLOWED_MEDIA_BASES = appDataRoots().flatMap((root) => [`${root}/media/`, `${root}/workspace/`]);
+  const ALLOWED_MEDIA_BASES = appDataRoots().flatMap((root) => [join(root, "media"), join(root, "workspace")]);
 
   function getMimeType(filepath: string): string {
     const ext = extname(filepath).toLowerCase().replace(".", "");
@@ -2281,9 +2284,9 @@ export function createAppContext(baseDir: string): AppContext {
 
   function isPathAllowed(filepath: string): boolean {
     const resolved = resolve(filepath);
-    if (resolved.startsWith(resolve(UPLOADS_DIR) + "/")) return true;
-    if (resolved.startsWith(resolve(CONTEXT_DIR) + "/")) return true;
-    return ALLOWED_MEDIA_BASES.some((base) => resolved.startsWith(base));
+    if (isInsideDir(resolved, UPLOADS_DIR)) return true;
+    if (isInsideDir(resolved, CONTEXT_DIR)) return true;
+    return ALLOWED_MEDIA_BASES.some((base) => isInsideDir(resolved, base));
   }
 
   // Same two roots as the allowlist: the media a turn produced can land in
