@@ -32,6 +32,8 @@
  */
 
 import { realpathSync } from "fs";
+import { basename, relative, sep } from "path";
+import { isInsideDir } from "./path-containment";
 
 export interface PorcelainEntry {
   /** Il path corrente (per un rename: quello NUOVO). */
@@ -169,10 +171,13 @@ export function repoPrefixOf(resolvedDir: string, gitRoot: string): { prefix: st
   try { real = realpathSync(resolvedDir); } catch {}
   let root = gitRoot;
   try { root = realpathSync(gitRoot); } catch {}
-  if (real === root || !real.startsWith(root + "/")) return { prefix: "", repoName: "" };
-  let prefix = real.slice(root.length + 1);
+  if (real === root || !isInsideDir(real, root)) return { prefix: "", repoName: "" };
+  // git speaks POSIX paths whatever the platform, so the prefix is built with
+  // `/` on purpose - but the SLICE that produces it starts from a real path,
+  // whose separator is the platform's.
+  let prefix = relative(root, real).split(sep).join("/");
   if (prefix && !prefix.endsWith("/")) prefix += "/";
-  return { prefix, repoName: root.split("/").filter(Boolean).pop() ?? "" };
+  return { prefix, repoName: basename(root) };
 }
 
 export function statusOfPrefix(entries: PorcelainEntry[], prefix: string): string | null {

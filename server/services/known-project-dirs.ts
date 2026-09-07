@@ -1,7 +1,8 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { scanWorkspaceProjects } from "./project-path-resolver";
-import { isBroadCwd } from "../lib/broad-cwd";
+import { isBroadCwd, homeDir } from "../lib/broad-cwd";
+import { isInsideDir } from "../lib/path-containment";
 import { resolveAppDataDir } from "../lib/data-dir";
 
 /**
@@ -72,13 +73,21 @@ function defaultWorkspaceDir(): string {
  */
 export function projectPathTokensIn(value: unknown): string[] {
   if (typeof value !== "string" || !value.includes("project:")) return [];
-  // Both encodings circulate: the pane id percent-encodes the path
-  // (`project:%2FUsers%2F…`), the sidebar keeps it raw (`project:/Users/…`).
-  const projTokenRe = /project:((?:%2[Ff]|\/)[^"\\]*)/g;
+  // Three shapes circulate, not two. The pane id percent-encodes the path
+  // (`project:%2Fhome%2F…`), the sidebar keeps it raw (`project:/home/…`), and
+  // a WINDOWS path opens with a drive letter instead of a separator
+  // (`project:C:\Users\…`, or `project:C%3A%5CUsers…` once encoded). With only
+  // the two POSIX shapes accepted this source was empty on Windows: no project
+  // opened as a pane ever entered the allowlist.
+  //
+  // The tail stops at the quote that closes the JSON string, and it takes
+  // escaped backslashes as a pair, because that is how a Windows path is
+  // written inside the stored value.
+  const projTokenRe = /project:((?:%2[Ff]|\/|[A-Za-z](?::|%3[Aa])(?:\\\\|[\\/]|%5[Cc]))(?:\\\\|[^"\\])*)/g;
   const out: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = projTokenRe.exec(value)) !== null) {
-    let p = m[1];
+    let p = m[1].replace(/\\\\/g, "\\");
     try { p = decodeURIComponent(p); } catch { /* raw token */ }
     out.push(p);
   }
@@ -91,7 +100,7 @@ export function knownProjectDirs(ctx: KnownProjectDirsCtx): Set<string> {
   // HOME, realpath'd like every entry, so the comparison in `add` is
   // symlink-proof on both sides.
   const home = (() => {
-    const h = process.env.HOME || "";
+    const h = homeDir();
     try { return h ? realpathSync(h) : ""; } catch { return h; }
   })();
   const add = (pth: unknown) => {
@@ -163,13 +172,14 @@ export function knownProjectDirs(ctx: KnownProjectDirsCtx): Set<string> {
 /**
  * `real` è dentro una delle dir note? Vale la dir stessa e qualunque cosa sotto.
  *
- * Il confronto è sul path REALE (già risolto dal chiamante) e col separatore
- * esplicito: senza, `/Users/me/proj-segreto` passerebbe per un discendente di
- * `/Users/me/proj`. È la stessa forma di `resolveSafePath` in `server/utils.ts`.
+ * The comparison is on the REAL path (already resolved by the caller) and goes
+ * through `isInsideDir`: a bare string prefix would take `/home/me/proj-secret`
+ * for a descendant of `/home/me/proj`, and a hand-written separator recognises
+ * no child at all on Windows.
  */
 export function isInsideKnownProject(real: string, allowed: Set<string>): boolean {
   for (const base of allowed) {
-    if (real === base || real.startsWith(base + "/")) return true;
+    if (isInsideDir(real, base)) return true;
   }
   return false;
 }

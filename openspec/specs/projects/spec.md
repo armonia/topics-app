@@ -352,7 +352,10 @@ SHALL entrare al giro successivo. Una risposta memorizzata lo terrebbe fuori per
 sempre.
 
 Il confronto SHALL rispettare il SEPARATORE: la cartella stessa e i suoi
-discendenti sì, un fratello che ne condivide il prefisso del nome NO.
+discendenti sì, un fratello che ne condivide il prefisso del nome NO. Il
+separatore è quello della PIATTAFORMA su cui il server gira, non un carattere
+scritto a mano: con la barra in avanti fissata nel codice, su Windows nessun
+figlio è mai dentro e il confine nega tutto ciò che sta dentro un progetto.
 
 Senza uno spazio di lavoro dichiarato SHALL essere dedotto dall'ambiente: le porte
 dei file non lo ricevono.
@@ -386,6 +389,10 @@ dispositivo per una fotografia vecchia.
 #### Scenario: un fratello con lo stesso prefisso
 - **GIVEN** una cartella accanto con un nome che comincia uguale
 - **THEN** NON SHALL essere considerata dentro
+
+#### Scenario: un figlio scritto col separatore della piattaforma
+- **GIVEN** un progetto conosciuto e un file dentro una sua sottocartella
+- **THEN** il file SHALL essere DENTRO il confine, su qualunque sistema operativo
 
 ### Requirement: PROJ-ID-01 — la cartella è il progetto, non la strada per arrivarci
 
