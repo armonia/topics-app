@@ -70,6 +70,10 @@ sotto, non prima.
   si riscrivono.
 - [ ] 5.3 Il filtro WS ri-risolve il socket quando il contatore diverge.
 - [ ] 5.4 `devices.role` smette di essere letta da qualunque riga di codice.
+  Nota (card 2c1fe1cf): la PATCH `/api/auth/devices/:id {personId}` ora riscrive
+  anche `role` derivandolo da `installation_owners` nella stessa UPDATE, quindi
+  l'unico punto runtime che faceva divergere ruolo e proprietà è chiuso. Il passo
+  resta APERTO: `server.ts:3026` legge ancora `r.role` da device-auth.
 - [x] 5.5 `tests/unit/no-org-nesting.test.ts`: fallisce se `orgs.parent_id`
   compare in una migration, e prova anche che il proprio setaccio riconosca ciò
   che cerca. È **l'unico allarme** che la decisione sulla profondità due avrà —

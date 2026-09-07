@@ -34,6 +34,7 @@ import {
 import { PAIRING_CODE_TTL_MS } from "../../server/lib/device-auth";
 import { hashToken, readSessionCookie } from "../../server/lib/device-auth";
 import { alterMigrationsAfter, TASKS_DDL } from "../../server/db/test-schema";
+import { resolveIdentity } from "../../server/lib/identity";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const MIGRAZIONI = ["080-devices.sql", "082-task-shares.sql", "083-grants.sql"];
@@ -681,6 +682,82 @@ describe("rotte auth · spostare un dispositivo su un'altra persona", () => {
     expect(db.query("SELECT person_id FROM devices WHERE id=?").get(id)).toEqual({ person_id: "p2" });
     // Le concessioni puntano a una PERSONA: spostare il ferro non le tocca.
     expect(db.query("SELECT COUNT(*) c FROM grants").get()).toEqual({ c: 1 });
+  });
+
+  /** The installation owner, as migration 084 created it. */
+  function installationOwner(db: Database): string {
+    return (db.query("SELECT person_id AS id FROM installation_owners WHERE is_default = 1")
+      .get() as { id: string }).id;
+  }
+
+  /** Live rows where `role` contradicts ownership. Must always be 0. */
+  function divergentDevices(db: Database): number {
+    return (db.query(`
+      SELECT count(*) AS c FROM devices d WHERE d.revoked_at IS NULL
+        AND ((d.role = 'guest') <> (NOT EXISTS(
+          SELECT 1 FROM installation_owners WHERE person_id = d.person_id)))
+    `).get() as { c: number }).c;
+  }
+
+  test("spostarlo su chi NON possiede l'installazione lo rende ospite davvero", async () => {
+    // The stored role was the only runtime point able to diverge from
+    // ownership: the PATCH rewrote `person_id` and left `role` alone, and the
+    // three gates read `role`. A device handed to a colleague stayed an owner
+    // and kept seeing everything, while the panel showed it as a guest: two
+    // different sentences about the same row.
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p2','Altra',1,'local',1,1)");
+
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
+    const st = await chiama(router, `/api/auth/pair/status?requestId=${a.requestId}&claim=${a.claim}`);
+    const cookie = st!.headers.get("set-cookie")!.split(";")[0];
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+
+    expect(db.query("SELECT role FROM devices WHERE id=?").get(id)).toEqual({ role: "owner" });
+    expect(resolveIdentity(db, cookie, false).confined).toBe(false);
+
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: "p2" } });
+    expect(r?.status).toBe(200);
+    expect(db.query("SELECT role FROM devices WHERE id=?").get(id)).toEqual({ role: "guest" });
+    expect(resolveIdentity(db, cookie, false).confined).toBe(true);
+    expect(divergentDevices(db)).toBe(0);
+  });
+
+  test("e nel verso opposto: un ospite spostato sul proprietario torna owner", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+
+    // Paired ONTO another person: this is how a device is born a guest, since
+    // the role descends from ownership and not from a separate choice.
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('p2','Altra',1,'local',1,1)");
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId, personId: "p2" } });
+    const st = await chiama(router, `/api/auth/pair/status?requestId=${a.requestId}&claim=${a.claim}`);
+    const cookie = st!.headers.get("set-cookie")!.split(";")[0];
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+    expect(resolveIdentity(db, cookie, false).confined).toBe(true);
+
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: installationOwner(db) } });
+    expect(r?.status).toBe(200);
+    expect(db.query("SELECT role FROM devices WHERE id=?").get(id)).toEqual({ role: "owner" });
+    expect(resolveIdentity(db, cookie, false).confined).toBe(false);
+    expect(divergentDevices(db)).toBe(0);
+  });
+
+  test("senza persona resta ospite: nessun proprietario, nessun potere", async () => {
+    const db = db084();
+    const router = createAuthRouter(creaCtx(db).ctx);
+    const a = await (await chiama(router, "/api/auth/pair/request", "POST"))!.json() as { requestId: string; claim: string };
+    await chiama(router, "/api/auth/pair/approve", "POST", { body: { requestId: a.requestId } });
+    const id = (db.query("SELECT id FROM devices").get() as { id: string }).id;
+
+    const r = await chiama(router, `/api/auth/devices/${id}`, "PATCH", { body: { personId: null } });
+    expect(r?.status).toBe(200);
+    expect(db.query("SELECT role, person_id FROM devices WHERE id=?").get(id))
+      .toEqual({ role: "guest", person_id: null });
+    expect(divergentDevices(db)).toBe(0);
   });
 
   test("una persona che non esiste è rifiutata", async () => {

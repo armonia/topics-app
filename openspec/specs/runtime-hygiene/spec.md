@@ -850,3 +850,41 @@ dimostra invece di essere taciuto.
 - **GIVEN** lo stesso avvio
 - **WHEN** si guarda la casa di Topics
 - **THEN** SHALL contenere almeno un file, perche' una HOME vuota passerebbe senza dimostrare niente
+
+### Requirement: RUNTIME-20 — Dopo una riconnessione il recupero si aggancia alla SOCKET, non allo stato mostrato
+
+Lo stato di connessione mostrato all'interfaccia e' ADDOLCITO di proposito: tiene
+«collegato» per tre secondi cosi' la barra non lampeggia su un singhiozzo. La
+ripresa automatica invece riparte dopo UN secondo, e una sonda di risveglio anche
+prima: la caduta ordinaria quindi non produce nessun fronte su quello stato.
+
+Il recupero che una connessione nuova deve al client — svuotare la coda in uscita,
+rinfrescare l'elenco delle conversazioni, ricaricare la storia delle chat aperte,
+ri-annunciare la presenza e le sottoscrizioni — NON SHALL essere agganciato a quel
+fronte. SHALL essere agganciato alla RI-APERTURA della connessione, che nessuna
+grazia nasconde.
+
+Il server NON rigioca i turni finiti a una connessione che si apre: la storia
+maturata mentre il client era staccato esiste solo su disco, quindi il recupero e'
+l'unico modo di vederla senza ricaricare la pagina.
+
+La PRIMA apertura della pagina NON SHALL far scattare il ricarico della storia: la
+partenza a freddo e' gia' servita dal montaggio della chat e dell'elenco, e
+raddoppiarla faceva lampeggiare la lista dei messaggi.
+
+L'annuncio di presenza SHALL invece partire a OGNI apertura, prima compresa: un
+annuncio spedito mentre la socket e' ancora in handshake viene lasciato cadere, e
+senza quello all'apertura la finestra resterebbe senza presenza per il server.
+
+Le conversazioni aperte SHALL essere lette al momento della ri-apertura, non
+catturate al momento dell'iscrizione: una chat aperta mentre la rete era giu' e'
+esattamente quella che deve ricaricarsi.
+
+#### Scenario: la caduta che nessuno vede
+- **GIVEN** una connessione che cade e torna entro la grazia
+- **THEN** lo stato mostrato NON SHALL muoversi
+- **AND** il recupero SHALL comunque avvenire sulla connessione nuova
+
+#### Scenario: la chat aperta durante il buco
+- **GIVEN** una chat aperta mentre la connessione era giu'
+- **THEN** alla ri-apertura SHALL essere la sua storia a essere ricaricata
