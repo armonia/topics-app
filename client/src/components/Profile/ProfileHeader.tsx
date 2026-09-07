@@ -140,6 +140,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
   }, [draft, persona.id, onChanged, t]);
 
   const blogUrl = g?.blog ? absoluteUrl(g.blog) : null;
+  const githubUrl = g?.htmlUrl ?? `https://github.com/${persona.githubLogin}`;
 
   return (
     <div data-testid="profile-header" className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -151,9 +152,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
             <h1 data-testid="profile-name" className="truncate text-[20px] font-semibold leading-tight text-app-text">
               {name}
             </h1>
-            {persona.githubLogin && (() => {
-              const githubUrl = g?.htmlUrl ?? `https://github.com/${persona.githubLogin}`;
-              return (
+            {persona.githubLogin && (
               <a
                 href={githubUrl}
                 target="_blank"
@@ -164,8 +163,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
               >
                 @{persona.githubLogin}
               </a>
-              );
-            })()}
+            )}
             {persona.followsViewer && !persona.isMe && (
               <span className="ml-2 rounded border border-app-border px-1.5 py-0.5 align-middle text-[10.5px] text-app-text-muted">
                 {t('profile.followsYou')}
