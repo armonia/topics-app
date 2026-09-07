@@ -1924,7 +1924,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
-            <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
+            {/* NO `scroll-smooth` HERE, and that is the fix for "the columns
+                jump instead of gliding" on a phone (card 1e015ad6).
+                `scroll-behavior: smooth` on a scroll-snap container hands the
+                post-swipe snap to the CSS scroll animation instead of leaving
+                it to the browser's own fling: on a touch screen the peek of the
+                neighbouring column arrived in one step. Nothing is lost by
+                dropping it, because every programmatic scroll in this file
+                already asks for `behavior: 'smooth'` on its own call, which is
+                the only place a smooth scroll was ever wanted. */}
+            <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
