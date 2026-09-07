@@ -4,8 +4,8 @@
  * On the production database 98% of the rows the boot sweeps belong to archived
  * topics, and the "running" tools they carry are persistent false positives:
  * the sweep is idempotent, so anything real there would already have been
- * closed. Reading them cost 1.763 ms of blocked event loop and 590 MB decoded
- * per pass, while `Bun.serve` was already listening.
+ * closed. Reading them cost seconds of blocked event loop and a gigabyte of
+ * decoded blobs, and the HTTP listener was already up by then.
  *
  * BLACKLIST, NOT WHITELIST. `archived = 0` would silently drop a session whose
  * `topics` row does not exist yet, and its spinner would spin forever. Only

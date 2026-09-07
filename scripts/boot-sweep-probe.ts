@@ -1,10 +1,10 @@
 /**
  * WHAT THE BOOT SWEEP COSTS, MEASURED INSTEAD OF ARGUED.
  *
- * Replays the three SELECTs of the boot sweep (two in `server.ts`, one in
- * `server/lib/verdetto-turno-interrotto.ts`) with the real `decodeCol` on every
- * row, WITH and WITHOUT the archived filter, and prints rows, decoded bytes and
- * milliseconds for each. Nothing is written: the database is opened read-only
+ * Replays the three SELECTs of the boot sweep, two of them in `server.ts` and
+ * one in the mute-turns module under `server/lib/`, decoding every row with the
+ * real `decodeCol`, WITH and WITHOUT the archived filter. Prints rows, decoded
+ * bytes and milliseconds for each. Nothing is written: the database is opened read-only
  * (`?mode=ro` plus `PRAGMA query_only`), so it can be pointed at a copy of a
  * live database without touching it.
  *
