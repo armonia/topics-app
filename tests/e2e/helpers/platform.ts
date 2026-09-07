@@ -83,11 +83,16 @@ export function killPids(pids: Array<string | number>, opts: { force?: boolean }
   const list = pids.map(String).filter((p) => /^\d+$/.test(p));
   if (!list.length) return;
   if (IS_WINDOWS) {
+    // ALWAYS `/F` here, and it is not impatience. Plain `taskkill` posts a
+    // WM_CLOSE, which only a process with a message loop answers: a console
+    // program like the test server ignores it entirely. Measured on the first
+    // Windows run: the polite kill reported success, nobody died, and the
+    // teardown then sat in `waitForServersGone` for its whole ten seconds
+    // before killing hard anyway. The polite step exists to let a server flush;
+    // on this platform it flushes nothing and only buys the wait.
     for (const pid of list) {
       try {
-        execFileSync("taskkill", [...(opts.force ? ["/F"] : []), "/PID", pid], {
-          stdio: "ignore",
-        });
+        execFileSync("taskkill", ["/F", "/PID", pid], { stdio: "ignore" });
       } catch {
         /* already gone */
       }
@@ -113,7 +118,8 @@ export function killPids(pids: Array<string | number>, opts: { force?: boolean }
 export function killProcessTree(pid: number, opts: { force?: boolean } = {}): void {
   if (IS_WINDOWS) {
     try {
-      execFileSync("taskkill", [...(opts.force ? ["/F"] : []), "/T", "/PID", String(pid)], {
+      // `/F` always, for the reason spelled out in `killPids`.
+      execFileSync("taskkill", ["/F", "/T", "/PID", String(pid)], {
         stdio: "ignore",
       });
     } catch {
