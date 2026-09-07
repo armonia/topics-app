@@ -2022,10 +2022,18 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                         // 14px buttons still fit inside the 32px strip (span 13..27px).
                         const APP_TITLEBAR_H: f64 = 40.0;
                         let center_from_top = APP_TITLEBAR_H / 2.0;
+                        // Centre the DOT, not the button frame. AppKit draws the 12px
+                        // disc at the top edge of a taller (14x16) frame, so a frame
+                        // centred on the row lands the disc ~2px above it. Measured
+                        // 2026-09-07 on the live window (v2.2.274, 40px row): discs
+                        // at y 12-25 (centre 18.5) against the wordmark's capitals at
+                        // 15-26 (centre 20.5) and the row's buttons at 20. The
+                        // client's `TRAFFIC_LIGHT_DOT_PX` is this same 12.
+                        const DOT: f64 = 12.0;
                         f.origin.y = if flipped {
-                            center_from_top - f.size.height / 2.0
+                            center_from_top - DOT / 2.0
                         } else {
-                            svb.size.height - center_from_top - f.size.height / 2.0
+                            svb.size.height - (center_from_top - DOT / 2.0) - f.size.height
                         }
                         .max(0.0);
                         // Clamp inside the container so a surprising bounds/frame

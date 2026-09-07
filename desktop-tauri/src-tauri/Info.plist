@@ -18,6 +18,17 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>Per dettare un messaggio o registrare una nota vocale al posto di scriverla. L'audio viene trascritto e non viene conservato.</string>
 
+  <!-- LA FOTOCAMERA. Qui la posta e' piu' alta che per il microfono: senza
+       questa chiave macOS non nega, UCCIDE. Una pagina aperta in una pane
+       browser che chiama `getUserMedia({video:true})` fa passare la WKWebView
+       da TCC, e TCC abortisce il processo intero con
+       «attempted to access privacy-sensitive data without a usage description»
+       (DiagnosticReports app-2026-09-07-114233.ips, v2.2.264, SIGABRT nel
+       thread di __TCCAccessRequest): tutte le tab muoiono per un sito che
+       chiede la webcam. La frase e' quella del pannello di macOS. -->
+  <key>NSCameraUsageDescription</key>
+  <string>Per le pagine aperte in una tab browser che chiedono la webcam (videochiamate, scansione di codici). Topics non registra né conserva il video.</string>
+
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key>
