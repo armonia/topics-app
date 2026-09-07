@@ -13,6 +13,8 @@
  * Everything is best-effort: a failed scan keeps the previous census rather
  * than blanking the board or (worse) telling the dispatcher "nobody's there".
  */
+import { isAbsolute } from "node:path";
+import { isInsideDir } from "../lib/path-containment";
 import { scanAllExternalSessions } from "../lib/external-sessions-registry";
 import {
   scanExternalClaudeSessions,
@@ -78,9 +80,7 @@ function fingerprint(sessions: ExternalClaudeSession[]): string {
 }
 
 function isUnder(cwd: string, path: string): boolean {
-  const p = path.replace(/\/+$/, "");
-  const c = cwd.replace(/\/+$/, "");
-  return !!p && (c === p || c.startsWith(p + "/"));
+  return !!path && !!cwd && isInsideDir(cwd, path);
 }
 
 export function createExternalSessionsService(deps: ExternalSessionsDeps): ExternalSessionsService {
@@ -143,7 +143,7 @@ export function createExternalSessionsService(deps: ExternalSessionsDeps): Exter
   }
 
   function activeAt(path: string): ExternalClaudeSession[] {
-    if (typeof path !== "string" || !path.startsWith("/")) return [];
+    if (typeof path !== "string" || !isAbsolute(path)) return [];
     return list().filter((s) => s.state === "active" && isUnder(s.cwd, path));
   }
 

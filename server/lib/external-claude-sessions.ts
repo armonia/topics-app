@@ -24,7 +24,8 @@
  */
 import { readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { isInsideDir } from "./path-containment";
 
 /** A Claude Code session running outside Topics' control. */
 export interface ExternalClaudeSession {
@@ -85,7 +86,7 @@ export function parseTranscriptFacts(text: string): TranscriptFacts {
     let obj: any;
     try { obj = JSON.parse(line); } catch { continue; }
     if (!obj || typeof obj !== "object") continue;
-    if (!sawCwd && typeof obj.cwd === "string" && obj.cwd.startsWith("/")) {
+    if (!sawCwd && typeof obj.cwd === "string" && isAbsolute(obj.cwd)) {
       cwd = obj.cwd;
       sawCwd = true;
       sidechain = obj.isSidechain === true;
@@ -109,13 +110,13 @@ export function parseTranscriptFacts(text: string): TranscriptFacts {
  * doesn't get attributed to the repo root when both are registered.
  */
 export function resolveOwningProject(cwd: string, candidatePaths: string[]): string | null {
-  const target = cwd.replace(/\/+$/, "");
   let best: string | null = null;
   for (const raw of candidatePaths) {
-    if (typeof raw !== "string" || !raw.startsWith("/")) continue;
-    const p = raw.replace(/\/+$/, "");
-    if (!p) continue;
-    if (target !== p && !target.startsWith(p + "/")) continue;
+    if (typeof raw !== "string" || !isAbsolute(raw)) continue;
+    // `resolve` drops the trailing separator, so `/a/b/` and `/a/b` are one
+    // candidate and the "longest wins" comparison stays honest.
+    const p = resolve(raw);
+    if (!isInsideDir(cwd, p)) continue;
     if (best === null || p.length > best.length) best = p;
   }
   return best;
@@ -136,9 +137,8 @@ export function isTopicsOwnedSession(opts: {
   worktreeRoot: string;
 }): boolean {
   if (opts.knownSessionIds.has(opts.sessionId)) return true;
-  const root = opts.worktreeRoot.replace(/\/+$/, "");
-  if (root && (opts.cwd === root || opts.cwd.startsWith(root + "/"))) return true;
-  return false;
+  if (!opts.worktreeRoot) return false;
+  return isInsideDir(opts.cwd, opts.worktreeRoot);
 }
 
 export interface ScanOptions {

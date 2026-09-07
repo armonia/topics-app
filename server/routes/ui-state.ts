@@ -23,7 +23,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { projectPathTokensIn } from "../services/known-project-dirs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
@@ -174,7 +174,7 @@ export function dropVanishedProjectPanes(payload: unknown, key?: string): unknow
   const PREFIX = "project:";
   const twinOf = (p: string): string | null => {
     if (existsSync(p)) return null;
-    const c = join(homedir(), "Projects", p.split("/").filter(Boolean).pop() || "");
+    const c = join(homedir(), "Projects", basename(p));
     return c !== p && existsSync(c) ? c : null;
   };
   // id → id: computed once, then rewritten everywhere it shows up.
@@ -188,7 +188,7 @@ export function dropVanishedProjectPanes(payload: unknown, key?: string): unknow
       if (g) idMap.set(s, PREFIX + encodeURIComponent(g));
       return;
     }
-    if (s.startsWith("/")) {
+    if (isAbsolute(s)) {
       const g = twinOf(s);
       if (g) idMap.set(s, g);
     }
