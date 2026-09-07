@@ -15,7 +15,7 @@
 import { test } from './fixtures/layout.fixture';
 import { expect, type Page } from '@playwright/test';
 import { projectRow } from './helpers/project-row';
-import { E2E_BASE, E2E_PORT, dataDirForPort } from './helpers/test-server';
+import { E2E_BASE, E2E_PORT, testServerEnv } from './helpers/test-server';
 import { hermetic } from './fixtures/hermetic';
 import { projectIdForPath } from '../../shared/board';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
@@ -42,7 +42,9 @@ const PROJECT_ID = projectIdForPath(PROJECT_PATH);
  *
  * La sottocartella col timestamp tiene separate le esecuzioni e permette di
  * cancellare solo la propria. */
-const MEDIA_DIR = `${dataDirForPort(E2E_PORT)}/.home/.topics/media/e2e-slide-${Date.now()}`;
+// Under the server's own media root, `TOPICS_HOME/media` (card 211605ee): in
+// this bench TOPICS_HOME is `<data dir>/.topics-home`, not `$HOME/.topics`.
+const MEDIA_DIR = `${testServerEnv(E2E_PORT).TOPICS_HOME}/media/e2e-slide-${Date.now()}`;
 
 /** Un PNG 4x3 valido, minimo: il carosello misura il DOM, non i pixel. */
 const PNG_1x1 = Buffer.from(

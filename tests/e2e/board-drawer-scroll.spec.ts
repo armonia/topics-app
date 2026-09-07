@@ -31,7 +31,7 @@ import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { deflateSync } from "zlib";
 import { canonicalTmpDir } from "./helpers/file-project";
-import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
 
@@ -246,12 +246,14 @@ test.describe("Drawer del task — un solo scroll", () => {
       `${PROJECT_PATH}/favicon.png`,
       Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64"),
     );
-    // Sotto `<E2E_HOME>/.topics/media/`, non nel progetto e non nella MIA home:
+    // Sotto la cartella media del server di test, non nel progetto e non nella MIA home:
     // l'allowlist che accetta un `previewImage` (server/utils.ts:isPathAllowed)
     // guarda la HOME DEL SERVER, che qui è isolata. Un'anteprima scritta altrove
     // viene scartata in silenzio e il test misurerebbe un drawer SENZA
     // anteprima — cioè non il caso peggiore, cioè niente.
-    const mediaDir = `${E2E_HOME}/.topics/media`;
+    // The server's own media root is `TOPICS_HOME/media` (card 211605ee), and
+    // in this bench TOPICS_HOME is not `$HOME/.topics`.
+    const mediaDir = `${testServerEnv().TOPICS_HOME}/media`;
     mkdirSync(mediaDir, { recursive: true });
     previewPath = `${mediaDir}/e2e-drawer-2200x6010-${Date.now()}.png`;
     writeFileSync(previewPath, tallPng(2200, 6010));
