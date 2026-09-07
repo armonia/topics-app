@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.276",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La sonda dell'inventario apre un terminale vero invece di seminarne uno morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le spec che fanno del percorso un'identità non lo scrivono più a mano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.275",
     "date": "2026-09-07",
     "sections": {
@@ -335,6 +356,17 @@
           "it": "Le fixture di progetto azzeravano una chiave che nessuno legge",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Drawer subtask tree: fetch children alone, not the node's whole thread",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "rename the per-step child count to a word the identifier gate knows",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
