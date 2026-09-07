@@ -898,47 +898,73 @@ test.describe("Sidebar — i due comandi in testa alla colonna", () => {
    * Il test misura quello che l'occhio misura — il vuoto fino all'INCHIOSTRO,
    * non fino al box — così una futura «pulizia» che rimette `px-2` simmetrico
    * torna rossa invece di tornare storta.
+   *
+   * WHERE IT IS MEASURED, and why not at the default width (card c50bcc81).
+   * Since 2026-09-07 a container query hides `.kbd-hint` under a 300px header
+   * row, so at the shipped 256px column the `<kbd>` is `display:none` and its
+   * rect is all zeros. Read like that, "the gap on the right" became the
+   * button's distance from the VIEWPORT's left edge: 249px against 8.67 on the
+   * left, a red that accused a pill nobody had touched. The symmetry only has a
+   * subject where the hint is drawn, so the column is opened to its drag
+   * maximum first. The threshold itself, and the rule that the hint yields
+   * before the wordmark, belong to `sidebar-header-kbd-hints.spec.ts`.
+   *
+   * AND THE PLATFORM IS PINNED. `usesCtrl` renders no `<kbd>` at all where the
+   * modifier is Ctrl, so on a Linux runner this test used to find nothing to
+   * measure and pass on an empty page. With the platform pinned to a ⌘ host the
+   * hint exists everywhere the suite runs, and a missing one is a failure with
+   * its own message instead of a silent skip.
    */
   test("SIDEBAR-CMD-01: il vuoto a sinistra e a destra della scorciatoia è lo stesso", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "platform", { get: () => "MacIntel", configurable: true });
+      Object.defineProperty(navigator, "userAgentData", { get: () => undefined, configurable: true });
+    });
     await goToApp(page);
-    const misure = await page.evaluate(() => {
-      // Due terzi del box: è la proporzione di inchiostro di un glifo lucide
-      // (tratto da 4 a 20 dentro un viewBox da 24).
+    const readings = await page.evaluate(() => {
+      const side = document.querySelector('[aria-label="Topics sidebar"]') as HTMLElement;
+      // The width is written on the node, which is what the drag does:
+      // `useSidebarAndLayout` bypasses React while the mouse is down. 400 is the
+      // column's drag maximum, i.e. as far as the hints can be from hiding.
+      side.style.transition = "none";
+      side.style.width = "400px";
+      void side.offsetWidth;
+
+      // Two thirds of the box: the ink proportion of a lucide glyph (stroke
+      // from 4 to 20 inside a 24 viewBox).
       const INK = 16 / 24;
-      const leggi = (btn: Element | null) => {
-        if (!btn) return null;
+      const read = (btn: Element | null): { left: number; right: number } | { problem: string } => {
+        if (!btn) return { problem: "bottone non trovato" };
         const b = btn.getBoundingClientRect();
         const svg = btn.querySelector("svg")?.getBoundingClientRect();
         const kbd = btn.querySelector("kbd")?.getBoundingClientRect();
-        // NO `<kbd>` = nothing to measure, and that is not a defect: where the
-        // modifier is Ctrl ("Ctrl+K" against "⌘K") the hint does not fit in the
-        // row and is not drawn, while the `title` still says it on hover. This
-        // symmetry is between the glyph and the shortcut: without the second,
-        // the question has no subject.
-        if (!svg) return null;
-        if (!kbd) return "senza-scorciatoia" as const;
-        const ariaGlyph = (svg.width * (1 - INK)) / 2;
+        if (!svg) return { problem: "bottone senza glifo" };
+        if (!kbd) return { problem: "nessun <kbd>: la piattaforma non è quella del ⌘, o la scorciatoia non c'è più" };
+        // Present but not painted: zero rect. Naming it is the whole point of
+        // this branch, because a zero rect measures as a gap of hundreds of px.
+        if (kbd.width === 0) {
+          const column = (btn.closest('[aria-label="Topics sidebar"]') as HTMLElement).getBoundingClientRect().width;
+          return { problem: `il <kbd> c'è ma non è disegnato, con la colonna larga ${column.toFixed(0)}px` };
+        }
+        const glyphAir = (svg.width * (1 - INK)) / 2;
         return {
-          sinistra: svg.x - b.x + ariaGlyph,
-          destra: b.x + b.width - (kbd.x + kbd.width),
+          left: svg.x - b.x + glyphAir,
+          right: b.x + b.width - (kbd.x + kbd.width),
         };
       };
-      const side = document.querySelector('[aria-label="Topics sidebar"]')!;
       return {
-        piu: leggi(side.querySelector('[data-testid="pane-add-menu-trigger"]')),
-        cerca: leggi(side.querySelector('button[aria-label^="Search"]')),
+        piu: read(side.querySelector('[data-testid="pane-add-menu-trigger"]')),
+        cerca: read(side.querySelector('button[aria-label^="Search"]')),
       };
     });
 
-    for (const [nome, m] of Object.entries(misure)) {
-      expect(m, `${nome}: bottone non trovato, o senza glifo`).not.toBeNull();
-      // The no-shortcut case is neither skipped nor faked: it is named, and then
-      // passed over. The button WAS found — half of what this case protects —
-      // and symmetry around something that is not there is not a measurement.
-      if (m === "senza-scorciatoia") continue;
+    for (const [name, m] of Object.entries(readings)) {
+      // A named failure, never a skip: at this width both commands carry their
+      // shortcut, so anything that is not a pair of numbers is the regression.
+      if ("problem" in m) throw new Error(`${name}: ${m.problem}`);
       expect(
-        Math.abs(m!.sinistra - m!.destra),
-        `${nome}: ${m!.sinistra.toFixed(2)}px di vuoto a sinistra contro ${m!.destra.toFixed(2)} a destra`,
+        Math.abs(m.left - m.right),
+        `${name}: ${m.left.toFixed(2)}px di vuoto a sinistra contro ${m.right.toFixed(2)} a destra`,
       ).toBeLessThanOrEqual(1);
     }
   });
