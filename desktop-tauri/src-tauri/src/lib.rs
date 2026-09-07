@@ -9762,20 +9762,6 @@ fn may_relaunch_unattended(main_window_visible: Option<bool>) -> bool {
     !main_window_visible.unwrap_or(true)
 }
 
-/// Ask the app-shell webviews to run their normal update check, which ends in the
-/// opt-in toast. Same fan-out rules as `notify_app_shell_bundle_stale`: browser
-/// panes are not the app shell, and `webview_windows()` would drop any window that
-/// hosts one.
-fn notify_app_shell_update_available(app: &tauri::AppHandle) {
-    use tauri::Manager;
-    for (label, wv) in app.webviews() {
-        if label.starts_with("browserpane-") {
-            continue;
-        }
-        let _ = wv.eval("window.dispatchEvent(new CustomEvent('topics:check-for-updates'))");
-    }
-}
-
 /// Dep-free polling watcher (the `notify` crate was dropped when assets went
 /// embed-only; a 1s recursive mtime scan is plenty for a manual dogfood loop and
 /// adds no dependency). Blocks off-thread; on a signature change it waits for the
@@ -10377,10 +10363,27 @@ pub fn run() {
                                 .and_then(|w| w.is_visible().ok());
                             if !may_relaunch_unattended(visible) {
                                 // Somebody is looking at this window. Offer, do not take.
+                                //
+                                // THE OFFER IS NOT PUSHED FROM HERE, and for a
+                                // while it was: this branch used to eval a
+                                // `topics:check-for-updates` event into every
+                                // app-shell webview. This check runs once, in
+                                // `setup`, about a second after the process
+                                // starts - the page is still loading and the
+                                // client has not attached that listener yet, so
+                                // the event was dispatched into nobody. Read in
+                                // hot-reload.log on 2026-09-07: launch 11:42:24,
+                                // "2.2.277 offered to the toast" 11:42:25, and
+                                // the person in front of the app saw nothing.
+                                //
+                                // The client runs the same check by itself a few
+                                // seconds after it mounts, with the listener in
+                                // place and the toast to draw the answer
+                                // (`lib/shell/updateCheckSchedule.ts`), so what
+                                // is left here is the honest log line.
                                 log_hot_reload_decision(&format!(
-                                    "auto-update: {v} offered to the toast (window already up)"
+                                    "auto-update: {v} available, left to the app shell (window already up)"
                                 ));
-                                notify_app_shell_update_available(&handle);
                                 return;
                             }
                             log_hot_reload_decision(&format!("auto-update: installing {v}"));

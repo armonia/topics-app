@@ -35,6 +35,7 @@ import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
 import {
   getUpdaterApi,
   readDismissedUpdateVersion,
+  shellUpdateNotice,
   shouldShowUpdaterToast,
   updateTitle,
   writeDismissedUpdateVersion,
@@ -43,6 +44,7 @@ import {
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 import { startUpdateChecks } from '@/lib/shell/updateCheckSchedule';
 import { whenDevInstallKnown } from '@/hooks/useDevInstall';
+import { getVersion } from '@/lib/shell/app';
 
 export function UpdaterToast() {
   const tr = useT();
@@ -61,6 +63,11 @@ export function UpdaterToast() {
   // change re-un-dismisses the toast, including the ones the popover's own
   // buttons cause. Suppress the toast while the popover reports itself open.
   const [versionPopoverOpen, setVersionPopoverOpen] = useState(false);
+  // The two facts the sentence needs besides the offered version: which shell
+  // is installed (the number an update actually replaces) and whether this is
+  // the machine that builds the app. See `shellUpdateNotice`.
+  const [shellVersion, setShellVersion] = useState('');
+  const [devInstall, setDevInstall] = useState(false);
   useEffect(() => {
     const onPopover = (e: Event) => {
       setVersionPopoverOpen(!!(e as CustomEvent<{ open?: boolean }>).detail?.open);
@@ -92,29 +99,28 @@ export function UpdaterToast() {
     // status arriva marcato non-silenzioso. Il controllo dal menu resta
     // rumoroso: lì l'esito l'ha chiesto l'utente, e "sei aggiornato" è la
     // risposta. (Entrambi gli host, Electron e Tauri.)
-    // AND THEN IT LOOKS AGAIN, unless this is the machine that builds the app.
-    // The boot check alone is enough for an app that gets restarted; Topics is
-    // a login item that stays open for days, so that single check was
-    // everything that ever happened. Both the repeat and the dev exemption, and
-    // the measurements behind them, live in `lib/shell/updateCheckSchedule.ts`.
+    // AND THEN IT LOOKS AGAIN, on every install, this one included. The boot
+    // check alone is enough for an app that gets restarted; Topics is a login
+    // item that stays open for days, so that single check was everything that
+    // ever happened. The repeat, and the measurement that removed the dev
+    // exemption from it, live in `lib/shell/updateCheckSchedule.ts`.
     //
-    // The answer is AWAITED, not read from state: `useDevInstall` starts at
-    // false, so a component reading it here would schedule the checks before
-    // the probe came back and the nagging would survive the fix.
-    let stopChecks = () => {};
+    // What the dev answer decides now is the SENTENCE, not the silence: on the
+    // machine that builds the app the banner has to name the installed shell,
+    // which is the number that is really behind, instead of the release number
+    // that the hot-delivered client bundle already matches (`shellUpdateNotice`).
     let alive = true;
-    void whenDevInstallKnown().then((devInstall) => {
+    void getVersion().then((v) => { if (alive && v) setShellVersion(v); }).catch(() => {});
+    void whenDevInstallKnown().then((known) => {
       if (!alive) return;
-      // THE STORED STATUS IS NOT REPLAYED ON A DEV INSTALL EITHER. The host
-      // remembers the last outcome, so an "update-available" found once comes
-      // back at every launch on its own - stopping the checks would silence the
-      // cause and leave the symptom. Outside dev it is seeded as before: a
-      // download left half-done, or a build already waiting for a restart, has
-      // to be visible without waiting for the next check.
-      if (!devInstall) api.status().then(setStatus).catch(() => {});
-      stopChecks = startUpdateChecks(() => {
-        api.checkForUpdates({ silent: true }).catch(() => {});
-      }, { devInstall });
+      setDevInstall(known);
+    });
+    // The host remembers the last outcome: a download left half-done, or a
+    // build already waiting for a restart, has to be visible without waiting
+    // for the next check.
+    api.status().then(setStatus).catch(() => {});
+    const stopChecks = startUpdateChecks(() => {
+      api.checkForUpdates({ silent: true }).catch(() => {});
     });
 
     // Native menu "Controlla aggiornamenti…" (Tauri) dispatches this DOM event.
@@ -136,16 +142,27 @@ export function UpdaterToast() {
 
   if (!shouldShowUpdaterToast(status, { dismissed, versionPopoverOpen, dismissedVersion })) return null;
 
+  // AN AVAILABLE UPDATE IS THE ONE STATE THAT NEEDS A SECOND NUMBER, so it gets
+  // its own sentence: `shellUpdateNotice` weighs the offered version against
+  // the shell that is actually installed and answers null when there is nothing
+  // to announce. Every other state (checking, downloading, ready, error) speaks
+  // about itself and keeps `updateTitle`.
+  const notice = status.state === 'update-available'
+    ? shellUpdateNotice(status.version, shellVersion, { devInstall })
+    : null;
+  if (status.state === 'update-available' && !notice) return null;
+
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
 
   // Il TITOLO in una riga, e il numero di versione dentro quando c'è: è
-  // l'informazione che distingue questo avviso dall'altro («Aggiornamento
-  // automatico», il bundle ricostruito) e prima non compariva da nessuna parte.
+  // l'informazione che distingue questo avviso dall'altro (il bundle
+  // ricostruito) e prima non compariva da nessuna parte.
   // The sentence itself comes from `updateTitle`, which is where the error is
   // turned into a key instead of being bolded verbatim.
-  const heading = updateTitle(status);
+  const heading = notice?.title ?? updateTitle(status);
   const title = tr(heading.key, heading.params);
+  const detail = notice?.detail;
 
   return (
     <SidebarUpdateBanner
@@ -174,6 +191,14 @@ export function UpdaterToast() {
             }
       }
     >
+      {detail && (
+        // THE SECOND NUMBER, on its own line. The title is one line and it
+        // truncates at the sidebar's real width: a headline carrying both
+        // versions came back from the bench cut in half, mid-number.
+        <div className="text-app-text-secondary tabular-nums" data-testid="updater-toast-detail">
+          {tr(detail.key, detail.params)}
+        </div>
+      )}
       {status.state === 'update-available' && (
         <button
           onClick={async () => {
@@ -185,7 +210,11 @@ export function UpdaterToast() {
           }}
           className="mt-1 text-app-text underline underline-offset-2 hover:no-underline"
         >
-          {tr('update.downloadInstall')}
+          {/* The verb is what tells the two sidebar notices apart: this one
+              updates the shell, the other reloads the client bundle. The
+              version popover keeps the longer "download and install" - it has
+              the room, and it is not standing next to the other one. */}
+          {tr('update.updateApp')}
         </button>
       )}
       {isReady && (

@@ -17,6 +17,21 @@
  * really is a new version. A periodic check that announced "you are up to date"
  * would be a notification nobody asked for, four times a day.
  *
+ * THE DEV MACHINE IS NOT EXEMPT, and for one day it was. A first cure for a
+ * nagging banner made this return a no-op whenever the install was a dev one
+ * (`topics-dev.json` in the state dir). Measured on that same machine on
+ * 2026-09-07: shell at 2.2.264 while 2.2.277 was published, thirteen releases
+ * with the app saying nothing, and the shell's own log claiming it had offered
+ * the update to a toast that no longer listened. It also broke an already approved
+ * requirement, STATUSLINE-03c, which says the shell's update notice must not
+ * be hushed in development mode.
+ *
+ * The nagging had a different cause and has its own cure: the banner named the
+ * RELEASE number, which the hot-delivered client bundle already matched, so it
+ * announced a version the person there had in source. What it never named was
+ * the installed SHELL, the one piece that does not arrive by itself. That is
+ * `shellUpdateNotice` in lib/updater.ts - a sentence, not a silence.
+ *
  * Lives in its own module because it is the behaviour that failed, and a
  * `setInterval` buried in a component effect cannot be measured: component
  * tests here render with `renderToStaticMarkup`, so effects never run.
@@ -43,22 +58,8 @@ export const UPDATE_RECHECK_MS = 6 * 60 * 60_000;
  */
 export function startUpdateChecks(
   check: () => void,
-  opts: { bootDelayMs?: number; periodMs?: number; devInstall?: boolean } = {},
+  opts: { bootDelayMs?: number; periodMs?: number } = {},
 ): () => void {
-  // A DEV INSTALL IS NOT OFFERED A PACKAGED BUILD.
-  //
-  // On the machine that builds the app the client bundle is hot-delivered from
-  // `public/` (that is what `topics-dev.json` and `server.devReload` mean), so
-  // the number on screen tracks the repo while the shell stays at whatever was
-  // last installed. The automatic check then announces a "new version" that the
-  // person there has already got in source, over and over. Reported twice. The
-  // second report, in the user's own words:
-  // "ancora in locale mi porta le finestrelle NUOVA VERSIONE anche se sono in dev" // allow-italian: quoted report
-  //
-  // Only the AUTOMATIC checks stop. The menu item and the version popover still
-  // check and still say what they find: asking is a deliberate gesture, and the
-  // shell really can be behind. What goes away is the nagging.
-  if (opts.devInstall) return () => {};
   const boot = setTimeout(check, opts.bootDelayMs ?? UPDATE_BOOT_DELAY_MS);
   const repeat = setInterval(check, opts.periodMs ?? UPDATE_RECHECK_MS);
   return () => {

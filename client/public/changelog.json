@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.2.279",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La webview grigia dopo il ripristino ha finalmente un cancello che sa fallire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'aggiornamento del guscio torna a farsi vedere: il controllo gira anche in dev e l'avviso nomina il numero che e' davvero indietro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.278",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-07 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il guscio dichiara l'uso della fotocamera (una tab che la chiede uccideva l'app) e centra il pallino dei semafori, non la sua cornice",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.277",
     "date": "2026-09-07",
     "sections": {

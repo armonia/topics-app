@@ -308,6 +308,31 @@ controllo periodico che annuncia «sei aggiornato» sarebbe un avviso che nessun
 ha chiesto, quattro volte al giorno. Lo smontaggio SHALL fermare il giro, o una
 pagina che rimonta ne accumulerebbe uno in piu' ogni volta.
 
+Nemmeno un'installazione di SVILUPPO SHALL essere esentata da quel controllo, e
+per un giorno lo e' stata: una prima cura contro un avviso che tornava sempre
+aveva spento i controlli automatici dove esiste `topics-dev.json`. Misurato il
+07/09/2026 sulla macchina che costruisce l'app: guscio alla 2.2.264 mentre era
+pubblicata la 2.2.277, tredici release senza che l'app dicesse niente, e il log
+del guscio che dichiarava di aver «offerto» l'aggiornamento a un toast che non
+ascoltava piu'. E' anche cio' che STATUSLINE-03c vieta gia' in parole sue.
+
+La causa dell'avviso ripetuto era un'altra: il banner nominava il numero della
+RELEASE, che sulla macchina di sviluppo il bundle client consegnato a caldo ha
+gia', quindi annunciava una versione che quella persona vedeva scritta accanto.
+Dove l'installazione e' di sviluppo l'avviso SHALL quindi nominare il GUSCIO
+installato insieme alla versione pubblicata — il numero che e' davvero indietro,
+lo stesso fatto che STATUSLINE-03c chiede accanto al chip. E una versione
+offerta che il guscio ha gia' (uguale o piu' vecchia) NON SHALL disegnare
+niente: sulla macchina che compila avanti rispetto all'ultima release, quello e'
+il caso normale.
+
+L'offerta NON SHALL essere spinta dal guscio dentro una pagina che non e'
+ancora viva: il controllo del guscio parte un secondo dopo l'avvio del
+processo, quando il client non ha ancora agganciato il suo ascoltatore, e
+l'evento finiva nel vuoto (avvio 11:42:24, «offerta» 11:42:25, e a schermo
+niente). Il controllo del client, che ha l'ascoltatore e la superficie, e'
+quello che deve annunciare.
+
 #### Scenario: la macchina resta accesa
 - **GIVEN** l'app avviata e lasciata aperta oltre il periodo di ricontrollo
 - **WHEN** viene pubblicata una versione nuova dopo il controllo di avvio
@@ -317,6 +342,14 @@ pagina che rimonta ne accumulerebbe uno in piu' ogni volta.
 - **GIVEN** il giro dei controlli avviato
 - **WHEN** viene fermato
 - **THEN** SHALL non arrivare nessun controllo successivo
+
+#### Scenario: la macchina che costruisce l'app
+- **GIVEN** un'installazione di sviluppo e il guscio installato indietro rispetto all'ultima release
+- **THEN** i controlli automatici SHALL girare lo stesso, e l'avviso SHALL nominare il numero del guscio insieme a quello pubblicato
+
+#### Scenario: la versione offerta il guscio ce l'ha gia'
+- **GIVEN** una versione offerta uguale o piu' vecchia del guscio installato
+- **THEN** NON SHALL essere disegnato nessun avviso
 
 ### Requirement: UPDATER-04 — Un controllo CHIESTO ha una risposta, «scarica» scarica, e l'errore e' una frase
 
