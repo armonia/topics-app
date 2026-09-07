@@ -148,7 +148,7 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
       const data = new DataTransfer();
       data.items.add(new File([bytes], "buona.png", { type: "image/png" }));
       data.items.add(new File([new Uint8Array([1, 2, 3, 4])], "rotta.png", { type: "image/png" }));
-      const target = document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Message input"]');
+      const target = document.querySelector<HTMLTextAreaElement>('textarea[data-testid="chat-message-input"]');
       target?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     }, readable);
 

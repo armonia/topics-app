@@ -78,7 +78,7 @@ test.describe("ConfirmDialog non blocca il thread", () => {
     };
     await expect(timer).toContainText(/s/, { timeout: 3_000 });
 
-    // Si arriva a `/clear` dal menu «Tools & commands»: la voce riempie il
+    // Si arriva a `/clear` dal menu «Strumenti e comandi»: la voce riempie il
     // composer con «/clear » e mette a fuoco la textarea (NON invia, e non apre
     // il menu slash inline). Poi Enter invia. Scritto a mano nel composer,
     // `fill("/clear")` lascerebbe il menu slash chiuso e un Escape per chiuderlo
