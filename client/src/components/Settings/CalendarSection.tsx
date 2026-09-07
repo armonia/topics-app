@@ -133,14 +133,14 @@ export function CalendarSection() {
             value={feedUrl}
             placeholder={configured ? t('calendar.feedUrl.set') : t('calendar.feedUrl.placeholder')}
             onChange={(e) => { setFeedUrl(e.target.value); setProbe(null); }}
-            className="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-2.5 py-1.5 text-[12px] text-app-text placeholder:text-app-text-muted focus:border-primary focus:outline-none"
+            className="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-2.5 py-1.5 text-[12px] text-app-text placeholder:text-app-text-muted focus:border-primary focus:outline-none coarse:min-h-11"
           />
           <button
             type="button"
             data-testid="calendar-test"
             disabled={!feedUrl.trim() || probing}
             onClick={() => { void test(); }}
-            className="flex items-center gap-1.5 rounded-md border border-app-border px-2.5 py-1.5 text-[12px] text-app-text-secondary transition-colors hover:bg-app-hover disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-md border border-app-border px-2.5 py-1.5 text-[12px] text-app-text-secondary transition-colors hover:bg-app-hover disabled:opacity-40 coarse:min-h-11 coarse:px-3"
           >
             {probing && <Loader2 size={12} className="animate-spin" />}
             {t('calendar.test')}
@@ -150,7 +150,7 @@ export function CalendarSection() {
             data-testid="calendar-save"
             disabled={!feedUrl.trim()}
             onClick={() => { void save(); }}
-            className="rounded-md bg-primary px-2.5 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="rounded-md bg-primary px-2.5 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40 coarse:min-h-11 coarse:px-3"
           >
             {t('calendar.save')}
           </button>
