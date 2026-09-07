@@ -26,7 +26,10 @@ export const OPEN_SETTINGS_EVENT = 'topics:open-settings';
  *  `organization` is here because the profile tab stopped carrying it. The
  *  group is administration, not identity, and the door to it now leads where
  *  administration lives instead of into a profile page that no longer has it. */
-export type SettingsPanelSection = 'profile' | 'devices' | 'notifications' | 'organization';
+/**  `calendar` is here because the agenda band under a pinned calendar has to
+ *  be able to send someone to the field that configures it: a band that says
+ *  "not configured" without a door is a dead end. */
+export type SettingsPanelSection = 'profile' | 'devices' | 'notifications' | 'organization' | 'calendar';
 
 export interface OpenSettingsDetail {
   section?: SettingsPanelSection;

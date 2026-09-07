@@ -6,6 +6,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { AppearanceSection } from './AppearanceSection';
 import { NotificationsSection } from './NotificationsSection';
 import { AIProvidersSection } from './AIProvidersSection';
+import { CalendarSection } from './CalendarSection';
 import { DevicesSection } from './DevicesSection';
 import { PlanSection } from './PlanSection';
 import { ProfilePage, OrganizationPage, FollowersPage, PrivacyPage } from './IdentityPages';
@@ -183,6 +184,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             {section === 'notifications' && (
               <NotificationsSection settings={localSettings} onChange={handleChange} />
             )}
+            {section === 'calendar' && <CalendarSection />}
             {section === 'providers' && <AIProvidersSection />}
             {section === 'plan' && <PlanSection />}
             {section === 'profile' && <ProfilePage />}
