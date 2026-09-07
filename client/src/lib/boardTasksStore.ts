@@ -95,6 +95,40 @@ export function patchBoardTask(id: string, patch: Partial<BoardTask>): void {
   setBoardTasks(next);
 }
 
+/**
+ * THE FRAME ALREADY CARRIES THE ROW: can the store absorb it instead of
+ * re-reading the whole feed?
+ *
+ * The server builds the task of `task:updated` with the same `rowsToTasks` +
+ * `withSubtaskCounts` as the feed, so the row that arrives IS the row a re-read
+ * would bring back. But the feed is a CUT (root rows, not archived, `done`
+ * column capped) and a row can enter or leave it: this only says whether the
+ * frame stays INSIDE the cut, which is the id being there already, the column
+ * unchanged and the parent unchanged. Everything else (creations, deletions,
+ * unknown ids, a status that moved) stays a full re-read, the only thing that
+ * knows which OTHER rows moved with it.
+ */
+export function canAbsorbBoardTaskFrame(task: BoardTask | null | undefined): boolean {
+  if (!task || typeof task.id !== 'string') return false;
+  const row = tasks.find((t) => t.id === task.id);
+  if (!row) return false;
+  if (row.status !== task.status) return false;
+  return (row.parentTaskId ?? null) === (task.parentTaskId ?? null);
+}
+
+/**
+ * Writes the frame's row over the one in the store, when it is absorbable.
+ * `false` = it is not, and the caller owes the feed a read.
+ *
+ * A merge and not a replacement: a field this server does not send (a client
+ * newer than its server) keeps the value it had instead of vanishing.
+ */
+export function applyBoardTaskFrame(task: BoardTask | null | undefined): boolean {
+  if (!canAbsorbBoardTaskFrame(task)) return false;
+  patchBoardTask(task!.id, task!);
+  return true;
+}
+
 export function subscribeBoardTasks(cb: () => void): () => void {
   listeners.add(cb);
   return () => { listeners.delete(cb); };

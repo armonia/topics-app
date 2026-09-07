@@ -7,9 +7,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { BoardTask } from './board';
 import {
-  __resetBoardTasks, getBoardTasks, hasLoadedBoardTasks, markBoardTasksSettled,
-  patchBoardTask, requestBoardTasksRefresh, setBoardTasks, setBoardTasksRefresher,
-  subscribeBoardTasks,
+  __resetBoardTasks, applyBoardTaskFrame, canAbsorbBoardTaskFrame, getBoardTasks,
+  hasLoadedBoardTasks, markBoardTasksSettled, patchBoardTask, requestBoardTasksRefresh,
+  setBoardTasks, setBoardTasksRefresher, subscribeBoardTasks,
 } from './boardTasksStore';
 
 const task = (id: string, over: Partial<BoardTask> = {}): BoardTask =>
@@ -51,6 +51,57 @@ describe('patchBoardTask', () => {
     patchBoardTask('ghost', { status: 'done' });
     expect(woken).toBe(0);
     expect(getBoardTasks()[0].status).toBe('todo');
+  });
+});
+
+/**
+ * THE FRAME IS THE ANSWER, WHEN IT STAYS INSIDE THE FEED'S CUT.
+ *
+ * `task:updated` carries the whole row, so absorbing it spares a 73 KB re-read
+ * of the cross-project feed. What must NOT be absorbed is a frame that moves
+ * the row in or out of that cut - a new id, another column, another parent -
+ * because then it is the OTHER rows that move too, and only a read knows how.
+ */
+describe('absorbing a task:updated instead of re-reading the feed', () => {
+  test('same column, same parent: the row is written in place', () => {
+    setBoardTasks([task('a'), task('b')]);
+    const applied = applyBoardTaskFrame(task('b', { text: 'renamed', priority: 3 }));
+    expect(applied).toBe(true);
+    expect(getBoardTasks().map((t) => t.text)).toEqual(['a', 'renamed']);
+  });
+
+  test('a field the frame does not carry survives the merge', () => {
+    // A client newer than its server: the row keeps what it had instead of
+    // losing it to an absent key.
+    setBoardTasks([task('a', { dispatchState: 'working' })]);
+    const frame = task('a');
+    delete (frame as { dispatchState?: unknown }).dispatchState;
+    applyBoardTaskFrame(frame);
+    expect(getBoardTasks()[0].dispatchState).toBe('working');
+  });
+
+  test('an id the store never saw is not absorbed', () => {
+    setBoardTasks([task('a')]);
+    expect(canAbsorbBoardTaskFrame(task('ghost'))).toBe(false);
+    expect(applyBoardTaskFrame(task('ghost'))).toBe(false);
+    expect(getBoardTasks()).toHaveLength(1);
+  });
+
+  test('a status that moved is not absorbed: other rows move with it', () => {
+    setBoardTasks([task('a')]);
+    expect(canAbsorbBoardTaskFrame(task('a', { status: 'done' }))).toBe(false);
+    expect(getBoardTasks()[0].status).toBe('todo');
+  });
+
+  test('a row that gained a parent is not absorbed: it leaves the columns', () => {
+    setBoardTasks([task('a')]);
+    expect(canAbsorbBoardTaskFrame(task('a', { parentTaskId: 'p1' }))).toBe(false);
+  });
+
+  test('a frame with no task at all is not absorbed', () => {
+    setBoardTasks([task('a')]);
+    expect(canAbsorbBoardTaskFrame(undefined)).toBe(false);
+    expect(applyBoardTaskFrame(null)).toBe(false);
   });
 });
 
