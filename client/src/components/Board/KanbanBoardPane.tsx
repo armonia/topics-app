@@ -1921,6 +1921,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   justMoved={justMoved}
                   justCreated={justCreated}
                   archived={showArchived}
+                  onOpenSettings={() => setShowSettings(true)}
                   draft={draft && draft.status === status && !showArchived ? draft : undefined}
                 />
               ))}

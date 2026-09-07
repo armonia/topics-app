@@ -50,6 +50,7 @@ import {
 import type { DispatchCapacity, DispatchCapMode, ThresholdBand } from '../../lib/board';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { bandGradient } from './thresholdBand';
+import { DispatchLoadReadout } from './DispatchLoadGauge';
 import {
   currentCapLimit,
   saveGlobalCap,
@@ -99,6 +100,11 @@ export function GlobalCapControl() {
       </div>
 
       {brake === 'count' ? <CountBrake /> : <ResourcesBrake />}
+
+      {/* THE SAME READING AS THE COLUMN HEADER, under the knobs: while you turn
+          one you see what you are limiting. Same store, same words, so the two
+          surfaces cannot start disagreeing about the same machine. */}
+      <DispatchLoadReadout />
     </div>
   );
 }
