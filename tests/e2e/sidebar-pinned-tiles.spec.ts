@@ -6,6 +6,7 @@ import fs from "node:fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 /**
  * Le TESSERE dei Fissati.
@@ -122,12 +123,12 @@ test.describe("Sidebar — tessere fissate", () => {
     // A PROJECT with an open chat: it is the only tile that really opens
     // (`renderExpanded` answers only for those with tabs), so it is the only
     // way to measure a REAL chevron among the pinned ones.
-    const projectDir = `/tmp/e2e-allinea-proj-${Date.now()}`;
+    const projectDir = `${canonicalTmpRoot()}/e2e-allinea-proj-${Date.now()}`;
     const childTopic = await createTopic(request, `E2E-Allinea-P-${Date.now()}`, { projectPath: projectDir });
     // A SECOND project, deliberately NOT pinned: the tree only lists what is
     // not in the pinned block, so pinning the only project would leave no row
     // with an accordion to compare the tile against.
-    const treeDir = `/tmp/e2e-allinea-albero-${Date.now()}`;
+    const treeDir = `${canonicalTmpRoot()}/e2e-allinea-albero-${Date.now()}`;
     const treeChildTopic = await createTopic(request, `E2E-Allinea-T-${Date.now()}`, { projectPath: treeDir });
     created.push(a.id, b.id, childTopic.id, treeChildTopic.id);
     const chiaveProj = `project:${projectDir}`;
@@ -230,7 +231,7 @@ test.describe("Sidebar — tessere fissate", () => {
     // contenitore VUOTO, largo zero ma con il suo `gap` ancora nel flusso -
     // ed e' li' che il 17/08 il nome stava a 16px da sinistra contro 8 a
     // destra. Verificato: senza questa riga il sabotaggio resta verde.
-    const senzaIcona = `/tmp/e2e-centro-nudo-${Date.now()}`;
+    const senzaIcona = `${canonicalTmpRoot()}/e2e-centro-nudo-${Date.now()}`;
     fs.mkdirSync(senzaIcona, { recursive: true });
     // Tre su UNA riga: e' cosi' che la tessera diventa stretta abbastanza da
     // passare in forma quadrata, che e' la forma in cui il centraggio esiste.
@@ -339,7 +340,7 @@ test.describe("Sidebar — tessere fissate", () => {
     const b2 = await createTopic(request, `E2E-Font-B-${Date.now()}`);
     const c2 = await createTopic(request, `E2E-Font-C-${Date.now()}`);
     created.push(a.id, b2.id, c2.id);
-    const nudo = `/tmp/e2e-font-nudo-${Date.now()}`;
+    const nudo = `${canonicalTmpRoot()}/e2e-font-nudo-${Date.now()}`;
     fs.mkdirSync(nudo, { recursive: true });
     const chiave = `project:${nudo}`;
     await setPins(page, [a.id, b2.id, c2.id, chiave], [[a.id, b2.id, c2.id, chiave]]);
@@ -461,7 +462,7 @@ test.describe("Sidebar — tessere fissate", () => {
     // Il pin è l'escape documentato che la tiene in lista — e la stessa chat
     // resta anche una tessera sua, che è la semantica «preferiti del Finder»
     // già scelta per i figli fissati.
-    const projectPath = "/tmp/e2e-tile-project";
+    const projectPath = `${canonicalTmpRoot()}/e2e-tile-project`;
     const chatName = `E2E-TileProjChat-${Date.now()}`;
     const chat = await createTopic(request, chatName, { projectPath });
     created.push(chat.id);
@@ -598,10 +599,10 @@ test.describe("Sidebar — tessere fissate", () => {
     // due stringhe (path grezzo vs codificato). Chi riceve `PANEL_ID` apre o
     // sposta una pane: con l'id della riga il drop cadrebbe su una pane che non
     // esiste, senza un errore.
-    // Path SUO: `/tmp/e2e-tile-project` è già di TILE-2, e `hermetic` riparte
+    // Path SUO: `e2e-tile-project` è già di TILE-2, e `hermetic` riparte
     // dalla baseline una volta per FILE, non per test — condividerlo significa
     // ereditare le pane e i gruppi che gli altri hanno lasciato aperti.
-    const projectPath = "/tmp/e2e-tile-paneid";
+    const projectPath = `${canonicalTmpRoot()}/e2e-tile-paneid`;
     const chat = await createTopic(request, `E2E-TilePaneId-${Date.now()}`, { projectPath });
     created.push(chat.id);
     await setPins(page, [`project:${projectPath}`]);
@@ -820,7 +821,7 @@ test.describe("Sidebar — fissare da fuori, e la Board", () => {
     // sezione — «cade qui dentro», non DOVE. E il drop accodava comunque, perché
     // fissare e disporre sono due scritture che riconciliano l'una sull'altra e
     // la cella della cosa appena fissata veniva scartata.
-    const projectPath = "/tmp/e2e-tile-dropin";
+    const projectPath = `${canonicalTmpRoot()}/e2e-tile-dropin`;
     const projChat = await createTopic(request, `E2E-DropIn-Proj-${Date.now()}`, { projectPath });
     const solo = await createTopic(request, `E2E-DropIn-Pinned-${Date.now()}`);
     created.push(projChat.id, solo.id);
@@ -1078,11 +1079,11 @@ test.describe("Sidebar — la tessera dice cosa fa", () => {
     // La cartella non diceva niente che il nome non dicesse già — un progetto si
     // chiama come la sua cartella — e occupava lo spazio dell'unica cosa che il
     // nome NON dice: che quella tessera si apre.
-    const projectPath = "/tmp/e2e-tile-affordance";
+    const projectPath = `${canonicalTmpRoot()}/e2e-tile-affordance`;
     const chat = await createTopic(request, `E2E-Afford-${Date.now()}`, { projectPath });
     // NON un prefisso dell'altro: `getByRole(name)` fa match per
     // SOTTOSTRINGA, e "…-affordance" pescherebbe anche "…-affordance-vuoto".
-    const vuoto = "/tmp/e2e-tile-senza-tab";
+    const vuoto = `${canonicalTmpRoot()}/e2e-tile-senza-tab`;
     const emptyChat = await createTopic(request, `E2E-AffordVuoto-${Date.now()}`, { projectPath: vuoto });
     created.push(chat.id, emptyChat.id);
 
@@ -1151,7 +1152,7 @@ test.describe("Sidebar — creare una tab da una tessera", () => {
     // Fissato un progetto, la sua riga nell'albero poteva non esserci più (una
     // tessera vive anche a tab chiuse): senza il «+» qui, creare una tab DENTRO
     // quel progetto non aveva più nessuna strada.
-    const projectPath = "/tmp/e2e-tile-plus";
+    const projectPath = `${canonicalTmpRoot()}/e2e-tile-plus`;
     const chat = await createTopic(request, `E2E-Plus-${Date.now()}`, { projectPath });
     const solo = await createTopic(request, `E2E-Plus-Solo-${Date.now()}`);
     created.push(chat.id, solo.id);
@@ -1727,7 +1728,7 @@ test.describe("Sidebar — quando una tessera è accesa", () => {
     dir: string,
     opts?: { conVicino?: boolean },
   ) {
-    const projectPath = `/tmp/${dir}`;
+    const projectPath = `${canonicalTmpRoot()}/${dir}`;
     const chat = await createTopic(request, `E2E-Rim-${Date.now()}`, { projectPath });
     created.push(chat.id);
     const fissati = [`project:${projectPath}`, chat.id];
@@ -1896,7 +1897,7 @@ test.describe("Sidebar — le distanze attorno al «+»", () => {
     //    quanto ne lascia la riga, non quanto ne chiede il bottone.
     // Si continua a non scrivere numeri a mano: si legge il rientro dalla
     // tessera stessa e lo si confronta col padding della card.
-    const projectPath = "/tmp/e2e-tile-inset";
+    const projectPath = `${canonicalTmpRoot()}/e2e-tile-inset`;
     const chat = await createTopic(request, `E2E-Inset-${Date.now()}`, { projectPath });
     created.push(chat.id);
 
@@ -2184,7 +2185,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // distinguibili. Che il titolo se ne vada quando la tessera si stringe fino
     // a diventare un quadrato lo difende TILE-26: la regola e' la forma della
     // tessera, non la presenza dell'icona.
-    const conIcona = mkdirWithIcon("/tmp/e2e-tile-favicon");
+    const conIcona = mkdirWithIcon(`${canonicalTmpRoot()}/e2e-tile-favicon`);
     const proj = await createTopic(request, `E2E-Fit-Proj-${Date.now()}`, { projectPath: conIcona });
     created.push(proj.id);
     await setPins(page, [pin.id, `project:${conIcona}`]);
@@ -2263,7 +2264,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // identica tessera torna una riga e il titolo si legge. Si misura la
     // STESSA cosa nelle due forme, cambiando solo quante ne stanno in riga:
     // cosi' il test parla della soglia e non di due tessere diverse.
-    const conIcona = mkdirWithIcon("/tmp/e2e-tile-soglia");
+    const conIcona = mkdirWithIcon(`${canonicalTmpRoot()}/e2e-tile-soglia`);
     const proj = await createTopic(request, `E2E-Soglia-Proj-${Date.now()}`, { projectPath: conIcona });
     created.push(proj.id);
     const chiaveProj = `project:${conIcona}`;
@@ -2329,7 +2330,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // due messi insieme, e l'icona finiva fuori asse di mezzo chevron piu'
     // mezzo spazio — misurati 8px su una tessera larga 56,5. Qui si misura la
     // sola cosa che conta: il centro dell'icona contro il centro della tessera.
-    const conIcona = mkdirWithIcon("/tmp/e2e-tile-centro");
+    const conIcona = mkdirWithIcon(`${canonicalTmpRoot()}/e2e-tile-centro`);
     const chat = await createTopic(request, `E2E-Centro-Chat-${Date.now()}`, { projectPath: conIcona });
     created.push(chat.id);
     const chiaveProj = `project:${conIcona}`;
@@ -2483,7 +2484,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // Non si campiona UN istante — un lampo di un frame passerebbe liscio. Si
     // registra ogni frame dall'inizio del documento e si guarda l'INSIEME degli
     // stati attraversati: se e' uno solo, non c'e' stato nessun salto.
-    const conIcona = mkdirWithIcon("/tmp/e2e-tile-lampo");
+    const conIcona = mkdirWithIcon(`${canonicalTmpRoot()}/e2e-tile-lampo`);
     const proj = await createTopic(request, `E2E-Lampo-Proj-${Date.now()}`, { projectPath: conIcona });
     created.push(proj.id);
     const chiaveProj = `project:${conIcona}`;
@@ -2545,7 +2546,7 @@ test.describe("Sidebar — la tessera ci sta dentro", () => {
     // second after the first paint — on six tiles at once, measured
     // 2026-09-03 on the desktop's own state. The first visit is where the
     // store learns the answer; the measure is the return.
-    const senzaIcona = "/tmp/e2e-tile-senza-icona";
+    const senzaIcona = `${canonicalTmpRoot()}/e2e-tile-senza-icona`;
     fs.mkdirSync(senzaIcona, { recursive: true });
     const proj = await createTopic(request, `E2E-Fermo-Proj-${Date.now()}`, { projectPath: senzaIcona });
     created.push(proj.id);

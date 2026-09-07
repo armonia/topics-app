@@ -35,6 +35,7 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { waitForLayoutSettled } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -42,7 +43,7 @@ hermetic(test);
 const UI_AUDIT_PATH = resolve(__dirname, "helpers/ui-audit.js");
 const OUT_DIR = resolve(__dirname, "../../test-results/ui-audit");
 
-const PROJECT_DIR = "/tmp/e2e-mobile-responsive-audit";
+const PROJECT_DIR = `${canonicalTmpRoot()}/e2e-mobile-responsive-audit`;
 const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_DIR)}`;
 
 type UiAuditFinding = Record<string, unknown>;

@@ -59,11 +59,12 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 hermetic(test);
 
 const STAMP = Date.now();
-const PROJECT_PATH = `/tmp/e2e-focus-bounce-${STAMP}`;
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-focus-bounce-${STAMP}`;
 /** `createPaneId('project', path)` — state/pane/adapters/paneConfig.ts:150. */
 const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_PATH)}`;
 const BOARD_PANE = "__board__";

@@ -40,7 +40,8 @@ import {
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -53,13 +54,9 @@ const BASE = E2E_BASE;
 // so that one directory reached two ways stays one project. On macOS `/tmp` is
 // a symlink to `/private/tmp`, so a pane seeded under `/tmp` is stored, and
 // mounted, under the resolved path: naming it the other way here means waiting
-// for a tab id that nobody will ever render. The directory is created HERE, at
-// module scope, because `realpathSync` can only resolve what already exists.
-const PROJECT_PATH = (() => {
-  const path = `/tmp/e2e-badge-attribuibile-${Date.now()}`;
-  mkdirSync(path, { recursive: true });
-  return realpathSync(path);
-})();
+// for a tab id that nobody will ever render. `canonicalTmpDir` resolves the
+// ROOT, which exists, so the folder itself can still be created later.
+const PROJECT_PATH = canonicalTmpDir("e2e-badge-attribuibile");
 const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 
 test.describe("Il badge di un progetto dice DI CHI è", () => {

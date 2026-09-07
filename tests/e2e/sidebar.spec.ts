@@ -14,6 +14,7 @@ import {
 import { hermetic } from "./fixtures/hermetic";
 import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, luminance, surfaceBg } from "./helpers/surfaces";
 import { openProfileMenu } from "./helpers/open-perf-panel";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -25,7 +26,7 @@ const created: { topics: string[]; terminals: string[] } = {
 };
 
 /** Il progetto a cui è legata `created.topics[0]`. */
-const PROJECT_PATH = "/tmp/e2e-sidebar-project";
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-sidebar-project`;
 
 /** Le cartelle usa-e-getta create da AC-1 (una per esecuzione), rimosse in
  *  `afterAll`: il progetto dell'accordion deve essere vergine a ogni tentativo. */
@@ -145,8 +146,8 @@ test.describe("Sidebar — Unified Timeline", () => {
     // quindi riusando lo stesso path un secondo tentativo — su CI i retry sono
     // due — ripartirebbe con le chat aperte dal primo, e la premessa «questo
     // progetto non ha chat aperte» sarebbe vera solo alla prima passata.
-    const projectPath = `/tmp/e2e-accordion-${Date.now()}`;
-    const projectName = projectPath.slice("/tmp/".length);
+    const projectPath = `${canonicalTmpRoot()}/e2e-accordion-${Date.now()}`;
+    const projectName = projectPath.split("/").pop()!;
     // Il pannello di progetto monta pane che ci entrano dentro (File, Git): la
     // cartella deve esistere davvero.
     const { mkdirSync } = await import("node:fs");
@@ -613,7 +614,7 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     page,
     request,
   }) => {
-    const projectPath = "/tmp/e2e-pin-project";
+    const projectPath = `${canonicalTmpRoot()}/e2e-pin-project`;
     const name = `E2E-PinProjChat-${Date.now()}`;
     const t = await createTopic(request, name, { projectPath });
     pinCreated.push(t.id);
@@ -669,8 +670,8 @@ test.describe("Sidebar — Project icons", () => {
   // / web manifest / index.html <link rel=icon>, resolved by GET
   // /api/projects/icon) and NOTHING otherwise — zero horizontal footprint, no
   // fake glyph, no monogram (hard product decision, Attilio 2026-07-16).
-  const ICONLESS_PROJECT = "/tmp/e2e-iconless-project";
-  const ICONFUL_PROJECT = "/tmp/e2e-iconful-project";
+  const ICONLESS_PROJECT = `${canonicalTmpRoot()}/e2e-iconless-project`;
+  const ICONFUL_PROJECT = `${canonicalTmpRoot()}/e2e-iconful-project`;
   // Smallest valid 1x1 PNG — the favicon <img> must actually decode.
   const PNG_1X1 = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",

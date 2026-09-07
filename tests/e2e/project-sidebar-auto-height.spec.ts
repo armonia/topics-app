@@ -15,7 +15,7 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
@@ -118,7 +118,7 @@ async function settledSection(win: import("@playwright/test").Locator, testid: s
 }
 
 test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
-  const POCO = `/tmp/e2e-auto-poco-${Date.now()}`;
+  const POCO = canonicalTmpDir("e2e-auto-poco");
 
   test.beforeAll(() => {
     mkdirSync(POCO, { recursive: true });

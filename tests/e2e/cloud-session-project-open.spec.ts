@@ -26,6 +26,7 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpRoot } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -37,7 +38,7 @@ test.describe("cloud session opens as a Topics project", () => {
     request,
   }) => {
     const ts = Date.now().toString(36);
-    const projectPath = `/tmp/e2e-cloud-proj-${ts}`;
+    const projectPath = `${canonicalTmpRoot()}/e2e-cloud-proj-${ts}`;
     const projectPaneId = `project:${encodeURIComponent(projectPath)}`;
 
     // Own the (single, server-synced) pane channel with a clean baseline before

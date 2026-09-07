@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpRoot } from "./helpers/file-project";
 import { clipDiConsegna, isClipRun } from "./helpers/clip";
 
 /**
@@ -38,9 +39,9 @@ import { clipDiConsegna, isClipRun } from "./helpers/clip";
 hermetic(test);
 
 /** Un nome che NON ci sta: la tessera è larga ~244px, questo ne chiede ~400. */
-const LUNGO = "/tmp/e2e-slot-progetto-dal-nome-esageratamente-lungo-che-non-entra";
+const LUNGO = `${canonicalTmpRoot()}/e2e-slot-progetto-dal-nome-esageratamente-lungo-che-non-entra`;
 /** Un nome che ci sta con l'aria che avanza: il controllo di non-regressione. */
-const CORTO = "/tmp/e2e-slot-corto";
+const CORTO = `${canonicalTmpRoot()}/e2e-slot-corto`;
 
 /** Il nome mostrato dalla tessera di un progetto è il basename della cartella. */
 const nomeDi = (path: string): string => path.split("/").pop()!;

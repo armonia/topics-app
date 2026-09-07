@@ -35,6 +35,7 @@ import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -42,7 +43,7 @@ test.use({ video: "on" });
 const BASE = E2E_BASE;
 // Una directory VERA: le pane interne di un progetto ci fanno cd dentro, e un
 // path inesistente le fa uscire subito.
-const PROJECT_PATH = `/tmp/e2e-progetto-visto-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-progetto-visto");
 const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 
 test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
