@@ -26,12 +26,12 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-rail-${Date.now()}`;
+const PROJ = canonicalTmpDir("e2e-rail");
 
 test.describe("sidebar progetto: la rail collassata", () => {
   test.beforeAll(() => {

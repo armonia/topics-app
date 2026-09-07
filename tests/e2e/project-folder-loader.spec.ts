@@ -39,6 +39,8 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, rmSync } from "node:fs";
+import { basename } from "node:path";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { projectPanesKey } from "../../shared/project-keys";
 import { goToApp } from "./helpers";
 import {
@@ -62,8 +64,8 @@ const TS = Date.now();
 /** The folder under test. A fresh path per run: the inner layout of a project is
  *  persisted server-side and re-read on open, so reusing a path would let a
  *  retry start from the first attempt's tabs. */
-const SEED_PATH = `/tmp/e2e-folder-loader-${TS}`;
-const PROJECT_NAME = SEED_PATH.slice("/tmp/".length);
+const SEED_PATH = canonicalTmpDir("e2e-folder-loader");
+const PROJECT_NAME = basename(SEED_PATH);
 const CHILD_NAME = `e2e-folder-child-${TS}`;
 const OTHER_NAME = `e2e-folder-outsider-${TS}`;
 

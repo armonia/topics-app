@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { canonicalTmpRoot } from "./helpers/file-project";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
@@ -25,10 +26,10 @@ hermetic(test);
  * @covers CMD-01
  */
 
-const PROJECT_DIR = "/tmp/e2e-search-shortcuts";
+const PROJECT_DIR = `${canonicalTmpRoot()}/e2e-search-shortcuts`;
 const PROJECT_PANE = `project:${encodeURIComponent(PROJECT_DIR)}`;
 /** The second project: it exists only for the PARTIAL results case. */
-const PROJECT_DIR_B = "/tmp/e2e-search-shortcuts-b";
+const PROJECT_DIR_B = `${canonicalTmpRoot()}/e2e-search-shortcuts-b`;
 const PROJECT_PANE_B = `project:${encodeURIComponent(PROJECT_DIR_B)}`;
 
 test.describe.serial("Ricerca — mappa dei tasti", () => {

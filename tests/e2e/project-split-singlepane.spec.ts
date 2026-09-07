@@ -36,6 +36,7 @@ import {
   resetProjectPanes,
 } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -44,7 +45,7 @@ let childChatId: string | null = null;
 // The mismatch is BUILT, not borrowed from the platform: a real directory and a
 // symlink pointing at it, so the raw path differs from the canonical one on
 // every OS (on macOS /tmp is itself a link to /private/tmp, which only adds to it).
-const BASE = `/tmp/e2e-prj-split-single-${Date.now()}`;
+const BASE = canonicalTmpDir("e2e-prj-split-single");
 const REAL_PATH = `${BASE}-real`;
 const RAW_PATH = `${BASE}-link`;
 // The canonical form the server stores the topic under.

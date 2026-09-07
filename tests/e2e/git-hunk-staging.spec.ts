@@ -17,13 +17,13 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { execFileSync } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-hunk-${Date.now()}`;
+const PROJ = canonicalTmpDir("e2e-hunk");
 const FILE = `${PROJ}/f.txt`;
 
 const base = () => Array.from({ length: 40 }, (_, i) => `riga ${i + 1}\n`);

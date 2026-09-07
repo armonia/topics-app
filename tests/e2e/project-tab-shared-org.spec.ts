@@ -28,10 +28,11 @@ import { resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJECT_PATH = `/tmp/e2e-shared-org-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-shared-org");
 const PROJECT_NAME = PROJECT_PATH.split("/").pop()!;
 const TAB = `pane-tab-project:${encodeURIComponent(PROJECT_PATH)}`;
 

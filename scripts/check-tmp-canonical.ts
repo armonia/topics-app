@@ -16,10 +16,19 @@
  * reproduces a CI failure locally meets a second, unrelated one.
  *
  * WHAT IT LOOKS AT
- * Only the files that name `projectIdForPath` or `boardIdForPath`, i.e. the
- * ones where a path IS an identity. Everywhere else `/tmp/x` is a perfectly
- * good place to write a file and this gate says nothing: it is the identity
- * that breaks, not the file I/O.
+ * Only the files where a path IS an identity, in the three shapes the app
+ * gives it:
+ *   - the HASH of the path: `projectIdForPath`, `boardIdForPath`;
+ *   - the PANE ID built out of it: `project:${...}`, `pane-tab-project:${...}`;
+ *   - the SELECTOR that reads it back off the DOM: `data-project-path`.
+ * The last two were added after the first pass left about twenty specs behind:
+ * a spec that seeds `/tmp/e2e-x` and then waits for
+ * `[data-pane-id="project:%2Ftmp%2Fe2e-x"]` is looking for a tab the client
+ * will never render, because the server serves that pane under the resolved
+ * path. Same defect as the board id, same green on Linux, and the gate could
+ * not see it.
+ * Everywhere else `/tmp/x` is a perfectly good place to write a file and this
+ * gate says nothing: it is the identity that breaks, not the file I/O.
  *
  * THE ESCAPE HATCH is a comment carrying `allow-literal-tmp: <reason>`, on the
  * line itself or on the one just above it, for the case that does exist: a spec
@@ -41,8 +50,11 @@ import { join } from "node:path";
 const REPLACEMENT =
   "canonicalTmpRoot() from tests/e2e/helpers/test-server.ts (or canonicalTmpDir() from helpers/file-project.ts)";
 
-/** A file whose paths are identities: it hashes them into a board id. */
-const ADDRESSES_A_BOARD = /projectIdForPath|boardIdForPath/;
+/**
+ * A file whose paths are identities: it hashes one into a board id, composes a
+ * `project:` pane id out of one, or looks one up in the DOM by `data-project-path`.
+ */
+const ADDRESSES_AN_IDENTITY = /projectIdForPath|boardIdForPath|project:\$\{|data-project-path/;
 
 /** The literal, inside a string or a template: `"/tmp/x"`, `'/tmp/x'`, `` `/tmp/x` ``. */
 const LITERAL_TMP = /["'`]\/tmp\//;
@@ -57,7 +69,7 @@ export type TmpLiteral = { file: string; line: number; text: string };
 
 /** The offending lines of one file, already filtered for comments and pardons. */
 export function literalsInSource(source: string): { line: number; text: string }[] {
-  if (!ADDRESSES_A_BOARD.test(source)) return [];
+  if (!ADDRESSES_AN_IDENTITY.test(source)) return [];
   const found: { line: number; text: string }[] = [];
   const lines = source.split("\n");
   lines.forEach((raw, i) => {
@@ -102,10 +114,10 @@ function main(): number {
   const root = rootArg ? rootArg.slice("--root=".length) : join(import.meta.dir, "..");
   const hits = scan(root);
   if (hits.length === 0) {
-    console.log("check:tmp-canonical: no literal /tmp/ in the specs that address a board.");
+    console.log("check:tmp-canonical: no literal /tmp/ in the specs where a path is an identity.");
     return 0;
   }
-  console.error(`check:tmp-canonical: ${hits.length} literal /tmp/ in specs that hash a path into a board id.`);
+  console.error(`check:tmp-canonical: ${hits.length} literal /tmp/ in specs where that path IS an identity (board id, project: pane id, data-project-path).`);
   for (const h of hits) console.error(`  ${h.file}:${h.line}  ${h.text.slice(0, 120)}`);
   console.error(`\nUse ${REPLACEMENT}.`);
   console.error("If the path is NOT an identity (an evidence dump, say), put `allow-literal-tmp: <reason>` on it or just above it.");

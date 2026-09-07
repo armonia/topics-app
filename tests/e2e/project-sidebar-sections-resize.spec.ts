@@ -27,12 +27,12 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-sezioni-${Date.now()}`;
+const PROJ = canonicalTmpDir("e2e-sezioni");
 
 /** Il minimo utile di ogni sezione, da `ProjectSidebar` — qui serve a sapere
  *  quanto si PUÒ tirare prima che il fermo entri in gioco. */

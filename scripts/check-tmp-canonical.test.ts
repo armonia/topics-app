@@ -49,4 +49,24 @@ describe("check:tmp-canonical", () => {
     const { code } = await run(checkoutWith("unrelated", 'writeFileSync("/tmp/evidence.json", "{}");\n'));
     expect(code).toBe(0);
   });
+
+  // The two shapes the first version of the gate could not see, and which left
+  // about twenty specs behind: the identity is not always a hash.
+  test("a pane id built out of the literal is RED", async () => {
+    const source =
+      'const PROJECT_PATH = `/tmp/e2e-sample-${Date.now()}`;\n' +
+      "const PANE = `project:${encodeURIComponent(PROJECT_PATH)}`;\n";
+    const { code, out } = await run(checkoutWith("pane-id", source));
+    expect(code).toBe(1);
+    expect(out).toContain("tests/e2e/sample.spec.ts:1");
+  });
+
+  test("a selector that reads the path back off the DOM is RED", async () => {
+    const source =
+      'const PROJECT_PATH = "/tmp/e2e-sample";\n' +
+      'page.locator(`[data-project-path="${PROJECT_PATH}"]`);\n';
+    const { code, out } = await run(checkoutWith("selector", source));
+    expect(code).toBe(1);
+    expect(out).toContain("tests/e2e/sample.spec.ts:1");
+  });
 });

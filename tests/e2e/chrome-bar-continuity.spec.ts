@@ -27,10 +27,11 @@ import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJ = `/tmp/e2e-continuita-${Date.now()}`;
+const PROJ = canonicalTmpDir("e2e-continuita");
 
 /** `rgba(...)` oppure `color(srgb ...)` → [r,g,b,a] su 0-255.
  *  Chromium calcola un `color-mix()` come `color(srgb 0.105 … / 0.72)`, non

@@ -24,11 +24,12 @@ import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helper
 import { hermetic } from "./fixtures/hermetic";
 import { collapseSidebarSections, splitViaContextMenu } from "./helpers/layout";
 import { mkdirSync, rmSync } from "fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJ_A = `/tmp/e2e-diffscope-a-${Date.now()}`;
-const PROJ_B = `/tmp/e2e-diffscope-b-${Date.now()}`;
+const PROJ_A = canonicalTmpDir("e2e-diffscope-a");
+const PROJ_B = canonicalTmpDir("e2e-diffscope-b");
 
 test.describe("open-file-diff — scoping alla finestra di progetto", () => {
   test.beforeAll(() => {
