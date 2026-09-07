@@ -25,6 +25,7 @@ import { usePaneStore } from '../../state/pane/store';
 import { parseUtilityPanelType } from '../Layout/UtilityPanel';
 import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { useBoardFeed } from '../../hooks/useBoardFeed';
+import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
   STATUS_LABEL,
@@ -888,7 +889,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         triage?: boolean; waiting?: boolean; ended?: boolean;
         lastTool?: LiveUsage['lastTool']; retry?: LiveUsage['retry'] };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
-        if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
+        // In 'all' mode the rows come from `boardTasksStore`, and a
+        // `task:updated` the store can absorb is already the whole answer:
+        // `useGlobalBoard` writes the frame's row in and wakes this pane with
+        // it. Asking for a read here would land in the same coalescer and pay
+        // the feed anyway, which is the traffic this skips.
+        const absorbed = mode === 'all' && m.type === 'task:updated' && canAbsorbBoardTaskFrame(m.task);
+        if (!absorbed && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) refetch();
         // Il lampo è il segnale «è nato un task», e non ha un autore
         // privilegiato: qui passano anche le creazioni remote (agent, MCP, un
         // altro device), che sono proprio quelle che altrimenti comparirebbero
