@@ -1,5 +1,7 @@
 import { realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { parse, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isInsideDir } from "./path-containment";
 
 /**
  * A cwd that is too broad to stand for a project.
@@ -18,9 +20,23 @@ import { resolve } from "node:path";
  * One rule, shared by both, so the HOME default written by the terminal route
  * is excluded by the same predicate wherever it is consumed.
  */
-export function isBroadCwd(cwd: string, home: string = process.env.HOME || ""): boolean {
-  if (!cwd || cwd === "/" || cwd === home) return true;
-  return home.length > 1 && home.startsWith(cwd + "/");
+export function isBroadCwd(cwd: string, home: string = homeDir()): boolean {
+  if (!cwd || isVolumeRoot(cwd) || cwd === home) return true;
+  // "Ancestor of HOME" is containment, not a string prefix: written with a
+  // hardcoded slash it answered NO to every ancestor on Windows, where the
+  // separator is a backslash, and the broad default stopped being excluded.
+  return home.length > 1 && isInsideDir(home, cwd);
+}
+
+/** HOME, with the platform's own answer when the variable is not set (Windows). */
+export function homeDir(): string {
+  return process.env.HOME || homedir();
+}
+
+/** `/` on POSIX, `C:\` on Windows: the one directory that is never a project. */
+function isVolumeRoot(p: string): boolean {
+  const abs = resolve(p);
+  return abs === parse(abs).root;
 }
 
 /**
@@ -46,7 +62,7 @@ export function isBroadCwd(cwd: string, home: string = process.env.HOME || ""): 
 export function isClientProjectPathAccepted(
   cwd: string,
   inProject: (path: string) => string | null,
-  home: string = process.env.HOME || "",
+  home: string = homeDir(),
 ): boolean {
   const expanded = cwd.startsWith("~") && home ? cwd.replace(/^~/, home) : cwd;
   let real = resolve(expanded);
