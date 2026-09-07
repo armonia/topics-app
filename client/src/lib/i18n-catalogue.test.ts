@@ -26,6 +26,7 @@ import IT from './i18n-it';
 import EN from './i18n-en';
 import { PERMISSION_HINT_KEY, PERMISSION_LABEL_KEY } from '../../../shared/permission-decision';
 import { QUEUE_REASON_KINDS, queueReasonKeys } from '../../../shared/board';
+import { DISPATCH_CHIP } from '../components/Board/constants';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -117,5 +118,29 @@ describe('queue reason chip: every branch the server can pick is writable', () =
         );
       }
     }
+  });
+});
+
+describe('dispatch chip: the card lifecycle is writable in both languages', () => {
+  // The table IS the list: `DISPATCH_CHIP` holds keys now, not words, so a new
+  // state cannot reach a card without its two catalogue entries. Deriving the
+  // keys from the data is what makes that true, rather than a list here that
+  // somebody has to remember to extend.
+  const keys = Object.values(DISPATCH_CHIP)
+    .flatMap((chip) => [chip.textKey, ...(chip.titleKey ? [chip.titleKey] : [])]);
+
+  it('every chip key exists in Italian and in English, and the two differ', () => {
+    for (const key of keys) {
+      const found = both(key);
+      expect(found.it, `${key} missing from the Italian catalogue`).toBeTruthy();
+      expect(found.en, `${key} missing from the English catalogue`).toBeTruthy();
+      expect(found.en, `${key} is the same in both languages`).not.toBe(found.it);
+    }
+  });
+
+  it('the table holds keys, never the words themselves', () => {
+    // A word written straight into the table is the defect this migration
+    // closed: it would render the same in both languages and nothing would say so.
+    for (const key of keys) expect(key, `${key} does not look like a catalogue key`).toMatch(/^board\./);
   });
 });

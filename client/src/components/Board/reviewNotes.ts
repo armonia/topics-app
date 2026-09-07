@@ -14,7 +14,14 @@ import type { DiffNote } from '../../lib/board';
 
 export type { DiffNote };
 
-export type DiffRowKind = 'hunk' | 'add' | 'del' | 'ctx' | 'meta' | 'nonewline';
+/**
+ * The caller's translate function. This module is pure (no React, no locale of
+ * its own), so the words come in from whoever is rendering, the way
+ * `taskActionError` already takes them.
+ */
+import type { Translate } from '../../../../shared/queue-reason-text';
+
+export type DiffRowKind = 'hunk' | 'add' | 'del' | 'ctx' | 'meta' | 'nonewline'; // allow-italian: 'del' is a patch row kind, not a word a reader sees
 
 export interface DiffRow {
   /** La riga del patch, marcatore incluso (`+`, `-`, ` `, `@@ …`). */
@@ -60,7 +67,7 @@ export function parseDiffRows(body: string): DiffRow[] {
     }
     const c = raw[0];
     if (c === '+') rows.push({ raw, kind: 'add', oldLine: null, newLine: newNo++ });
-    else if (c === '-') rows.push({ raw, kind: 'del', oldLine: oldNo++, newLine: null });
+    else if (c === '-') rows.push({ raw, kind: 'del', oldLine: oldNo++, newLine: null }); // allow-italian: 'del' is a patch row kind
     else if (c === '\\') rows.push({ raw, kind: 'nonewline', oldLine: null, newLine: null });
     else rows.push({ raw, kind: 'ctx', oldLine: oldNo++, newLine: newNo++ });
   }
@@ -69,7 +76,7 @@ export function parseDiffRows(body: string): DiffRow[] {
 
 /** Riga commentabile: le intestazioni e i marcatori non lo sono. */
 export function isCommentable(row: DiffRow): boolean {
-  return row.kind === 'add' || row.kind === 'del' || row.kind === 'ctx';
+  return row.kind === 'add' || row.kind === 'del' || row.kind === 'ctx'; // allow-italian: 'del' is a patch row kind
 }
 
 /** Ancora di una riga: il lato nuovo se esiste, altrimenti quello vecchio. */
@@ -103,13 +110,13 @@ function fenceFor(code: string): string {
  * review in sospeso e partono insieme, ordinate per file e per riga — l'ordine
  * in cui uno legge il diff, non quello in cui ha cliccato.
  */
-export function formatReviewNotes(notes: DiffNote[]): string {
+export function formatReviewNotes(notes: DiffNote[], tr: Translate): string {
   const sorted = [...notes].sort((a, b) =>
     a.path === b.path ? a.line - b.line : a.path.localeCompare(b.path));
   const files = new Set(sorted.map((n) => n.path)).size;
-  const head = `Revisione del diff: ${sorted.length} ${sorted.length === 1 ? 'commento' : 'commenti'} su ${files} file.`;
+  const head = tr(sorted.length === 1 ? 'board.reviewNotes.head.one' : 'board.reviewNotes.head.many', { n: sorted.length, files });
   const blocks = sorted.map((n) => {
-    const where = n.side === 'old' ? ` (riga rimossa, numerazione precedente)` : '';
+    const where = n.side === 'old' ? ` ${tr('board.reviewNotes.removedLine')}` : '';
     const fence = fenceFor(n.code);
     return [
       `**\`${n.path}:${n.line}\`**${where}`,
@@ -122,6 +129,6 @@ export function formatReviewNotes(notes: DiffNote[]): string {
   return [
     head,
     ...blocks,
-    'Rispondi punto per punto, con una modifica o con il motivo per cui resta così. Poi committa e rimetti il task in review.',
+    tr('board.reviewNotes.footer'),
   ].join('\n\n');
 }

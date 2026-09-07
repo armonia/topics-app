@@ -29,7 +29,7 @@ describe('chip di una consegna', () => {
     // DispatchChip returns null for a key that is not there: without this line
     // the refactor would show up as a missing chip, not as an error.
     expect(DISPATCH_CHIP.delivered_by_system).toBeDefined();
-    expect(DISPATCH_CHIP.delivered_by_system!.text).not.toBe(DISPATCH_CHIP.delivered!.text);
+    expect(DISPATCH_CHIP.delivered_by_system!.textKey).not.toBe(DISPATCH_CHIP.delivered!.textKey);
   });
 });
 

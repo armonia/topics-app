@@ -133,7 +133,7 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
       <Hourglass className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.movedToReviewBySystem')}</span>{' '}
-        {systemDeliveryNote(task.deliveredReason)}
+        {systemDeliveryNote(task.deliveredReason, tr)}
       </span>
     </div>
   );
@@ -382,7 +382,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
     setSendingNotes(true);
     setNotesError(null);
     try {
-      await boardApi.comment(projectId, taskId, formatReviewNotes(notes));
+      await boardApi.comment(projectId, taskId, formatReviewNotes(notes, tr));
       setNotes([]);
       onSent?.();
     } catch (e) {
@@ -1551,15 +1551,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // arriva solo quando si apre il picker, e cercarlo lì dentro voleva dire un
   // chip muto (o un «Bloccato da…» generico) su un task che un bloccante ce
   // l'aveva — e per un bloccante archiviato o di un altro taglio, per sempre.
-  const blockedChip = task ? blockedByChip(task) : null;
+  const blockedChip = task ? blockedByChip(task, tr) : null;
   // Chi lavora un sottotask che non ha un agente suo: il server lo risolve
   // risalendo i padri, qui si sceglie solo come dirlo.
-  const workChip = task ? subtaskWorkChip(task) : null;
+  const workChip = task ? subtaskWorkChip(task, tr) : null;
   const workAncestorId = task?.subtaskWork?.kind === 'parent-turn' ? task.subtaskWork.ancestor.id : null;
 
   // Aveva consegnato e non è più lì: stessa lettura del chip sulla card, qui in
   // forma di banda (chi e quando). Vive finché la card non torna a consegnare.
-  const reopened = task ? reopenedChip(task) : null;
+  const reopened = task ? reopenedChip(task, tr, locale) : null;
 
   // Overflow "⋯" menu (header): the less-frequent task config lives here instead
   // of as always-on chips in the meta row — blocked-by, plan-first, reuse
@@ -1899,13 +1899,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('thread:')) return renderThread();
     if (pane.id.startsWith('plan:') && planComment)
-      return <SurfaceContent surface={{ id: pane.id, kind: 'plan', label: 'Piano', content: planComment.content }} taskId={taskId} />;
+      return <SurfaceContent surface={{ id: pane.id, kind: 'plan', label: tr('board.plan.paneTitle'), content: planComment.content }} taskId={taskId} />;
     if (pane.id.startsWith('media:')) {
       const p = pane.id.slice('media:'.length);
       return <SurfaceContent surface={{ id: pane.id, kind: 'media', label: pane.title || 'Allegato', url: getMediaUrl(p), path: p }} taskId={taskId} />;
     }
     return null;
-  }, [renderThread, planComment, taskId]);
+  }, [renderThread, planComment, taskId, tr]);
 
   // The single GroupLayout that IS the drawer body's tab system.
   //
@@ -2099,7 +2099,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 ? tr('task.close.invisible')
                 : task.labels.some((l) => l.label === 'visibile')
                   ? tr('task.close.visible')
-                  : task.labels.some((l) => l.label === 'decisione')
+                  : task.labels.some((l) => l.label === 'decisione') // allow-italian: the label vocabulary IS the data, compared by value
                     ? tr('task.close.decision')
                     : tr('task.close.none')}
               className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
@@ -3322,7 +3322,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   // ognuno sarebbe rumore su tutta la checklist, e per giunta ridondante — il
   // padre che la lavora è il drawer che stai guardando. Resta come icona muta,
   // che risponde al passaggio del mouse.
-  const work = subtaskWorkChip(node);
+  const work = subtaskWorkChip(node, tr);
   // La ragione di coda, ma solo quando è FERMA: `subtaskQueueChip` è dove sta
   // scritto il perché del filtro.
   const stalled = subtaskQueueChip(node);

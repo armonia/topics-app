@@ -769,14 +769,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
   // drawer la conserva comunque). La regola sta in `lib/board.ts` come le altre
   // due qui sotto: dentro il JSX nessun test unitario la raggiungeva.
-  const systemDelivered = senzaConsegna ? null : systemDeliveryChip(task);
+  const systemDelivered = senzaConsegna ? null : systemDeliveryChip(task, tr);
   // Il legame, non la lista: il chip nasce da `blockedByTaskId` + il bloccante
   // risolto dal server, così vale anche quando il bloccante non è fra i task
   // fetchati (sottotask, altro progetto, archiviato).
-  const blockedChip = blockedByChip(task);
+  const blockedChip = blockedByChip(task, tr);
   // «Riaperta»: la card ERA in Done e non c'è più. Il fatto vive sulla card
   // (l'API lo dice), non solo nel thread — dalla colonna si vedeva solo il buco.
-  const reopened = reopenedChip(task);
+  const reopened = reopenedChip(task, tr, locale);
   // Quale famiglia di scelte disegna questa card (una sola, vedi taskChoices).
   const choiceState = taskChoiceState(task);
   /**
@@ -799,7 +799,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // dipendente che è un sottotask o sta in un altro progetto non è fra le card,
   // ma aspetta lo stesso. Le due frasi non condividono una parola: vedi il
   // blocco «i due versi dell'attesa» in lib/board.ts.
-  const waitingOnThis = waitingOnThisChip(task);
+  const waitingOnThis = waitingOnThisChip(task, tr);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
   // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e
@@ -1260,7 +1260,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             // card in Review. Ed è il momento giusto per dirlo — è lì che si
             // decide se approvare, e uno step «in corso» che non sta lavorando
             // nessuno è esattamente ciò che tiene aperto il task.
-            const work = subtaskWorkChip(s);
+            const work = subtaskWorkChip(s, tr);
             return (
             <button
               key={s.id}

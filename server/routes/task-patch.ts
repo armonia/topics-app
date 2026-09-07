@@ -192,7 +192,7 @@ export function parseTaskPatch(
   readPreview: (raw: unknown) => FieldRead,
 ): ParsedTaskPatch {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, errors: [{ field: "body", reason: `atteso un oggetto JSON, ricevuto ${kindOf(body)}` }] };
+    return { ok: false, errors: [{ field: "body", reason: `expected a JSON object, got ${kindOf(body)}` }] };
   }
   const known = scope === "human" ? HUMAN_FIELDS : AGENT_FIELDS;
   const errors: PatchFieldError[] = [];
@@ -210,8 +210,8 @@ export function parseTaskPatch(
     if (!spec) {
       const redirect = REDIRECTED[key];
       if (redirect) errors.push({ field: key, reason: redirect });
-      else if (HUMAN_FIELDS[key]) errors.push({ field: key, reason: "campo della board, non applicabile da questa rotta" });
-      else errors.push({ field: key, reason: "campo sconosciuto" });
+      else if (HUMAN_FIELDS[key]) errors.push({ field: key, reason: "board field, not applicable from this route" });
+      else errors.push({ field: key, reason: "unknown field" });
       continue;
     }
     const read = spec.read(raw);

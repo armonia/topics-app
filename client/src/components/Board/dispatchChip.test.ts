@@ -16,6 +16,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { DISPATCH_CHIP } from './constants';
+import IT from '../../lib/i18n-it';
 import { PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
 
 /** Ogni valore che il server può scrivere in `dispatch_state`. */
@@ -31,7 +32,7 @@ describe('DISPATCH_CHIP', () => {
   test('ogni stato che il server sa scrivere ha la sua riga: nessuna card muta', () => {
     for (const stato of STATES_OF_SERVER) {
       expect(DISPATCH_CHIP[stato], `manca la chip per '${stato}'`).toBeDefined();
-      expect(DISPATCH_CHIP[stato].text.trim().length).toBeGreaterThan(0);
+      expect(DISPATCH_CHIP[stato].textKey.trim().length).toBeGreaterThan(0);
       expect(DISPATCH_CHIP[stato].cls.trim().length).toBeGreaterThan(0);
     }
   });
@@ -39,8 +40,11 @@ describe('DISPATCH_CHIP', () => {
   test("«troppa attesa» non è «fallito»: altro testo, altra tinta, altro glifo", () => {
     const atteso = DISPATCH_CHIP[PARKED_WAITED_OUT];
     const fallito = DISPATCH_CHIP.failed;
-    expect(atteso.text).not.toBe(fallito.text);
-    expect(atteso.text.toLowerCase()).not.toContain('fallit');
+    expect(atteso.textKey).not.toBe(fallito.textKey);
+    // The words live in the catalogues now, so the difference is checked where
+    // they are: a key that resolved to the same sentence would read as one chip.
+    expect(IT[atteso.textKey]).not.toBe(IT[fallito.textKey]);
+    expect(IT[atteso.textKey]!.toLowerCase()).not.toContain('fallit'); // allow-italian: the Italian word IS what must not appear
     // La tinta del fallimento è rosa/rossa: quella qui non ci deve stare, o il
     // colore direbbe «rotto» mentre il testo dice «aspetta».
     expect(atteso.cls).not.toContain('rose');
@@ -52,11 +56,11 @@ describe('DISPATCH_CHIP', () => {
   });
 
   test('i park che portano una ragione non hanno un titolo fisso: lo coprirebbe', () => {
-    // `DispatchChip` fa `title={chip.title ?? error}`. Un titolo scritto qui
+    // `DispatchChip` fa `title={chip.titleKey ? tr(...) : error}`. Un titolo scritto qui
     // vince sempre su `task.dispatchError`, cioè nasconde PROPRIO la riga che
     // dice quante attese, per cosa e da quanto.
     for (const stato of ['failed', 'blocked', PARKED_STOPPED, PARKED_WAITED_OUT]) {
-      expect(DISPATCH_CHIP[stato].title, `'${stato}' ha un titolo fisso`).toBeUndefined();
+      expect(DISPATCH_CHIP[stato].titleKey, `'${stato}' ha un titolo fisso`).toBeUndefined();
     }
   });
 });

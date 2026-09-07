@@ -32,8 +32,8 @@ describe('taskActionErrorMessage', () => {
     // `force: true`, which a card cannot pass. The check's name stays (it says
     // what to look at); the JSON field and the timestamp do not.
     const detto = taskActionErrorMessage(new Error(
-      'i checks pre-review sono ROSSI (`lint`). La strada normale e\' rimandarlo all\'agent; '
-      + 'per accettarlo comunque usa il bottone «comunque» della card.',
+      'the pre-review checks are RED (`lint`). The normal road is to send it back to the agent; '
+      + 'to accept it anyway use the card button that says "anyway".',
     ), tr);
     expect(detto).not.toMatch(/force/i);
     expect(detto).not.toMatch(/\d{4}-\d{2}-\d{2}T/);

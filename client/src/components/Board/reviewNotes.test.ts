@@ -6,6 +6,12 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, formatReviewNotes, type DiffNote } from './reviewNotes';
+import { t } from '../../lib/i18n';
+
+// The words come from the catalogue now, so the test reads them from there: an
+// assertion on a literal would pass while the key is missing and the reader
+// sees the key itself.
+const tr = (key: string, vars?: Record<string, string | number>): string => t(key, 'it', vars);
 
 // Un patch vero, con due hunk, un'aggiunta, una rimozione e contesto attorno.
 const PATCH = `diff --git a/src/foo.ts b/src/foo.ts
@@ -125,29 +131,29 @@ describe('formatReviewNotes', () => {
   ];
 
   it('ordina per file e per riga, non per ordine di click', () => {
-    const out = formatReviewNotes(notes);
+    const out = formatReviewNotes(notes, tr);
     expect(out.indexOf('a.ts:42')).toBeLessThan(out.indexOf('a.ts:88'));
     expect(out.indexOf('a.ts:88')).toBeLessThan(out.indexOf('b.ts:10'));
   });
 
   it('conta commenti e file nell\'intestazione', () => {
-    expect(formatReviewNotes(notes).split('\n')[0]).toBe('Revisione del diff: 3 commenti su 2 file.');
-    expect(formatReviewNotes([notes[0]]).split('\n')[0]).toBe('Revisione del diff: 1 commento su 1 file.');
+    expect(formatReviewNotes(notes, tr).split('\n')[0]).toBe('Revisione del diff: 3 commenti su 2 file.');
+    expect(formatReviewNotes([notes[0]], tr).split('\n')[0]).toBe('Revisione del diff: 1 commento su 1 file.');
   });
 
   it('segnala le righe rimosse: quel numero non esiste nel file di adesso', () => {
-    expect(formatReviewNotes([notes[2]])).toContain('(riga rimossa, numerazione precedente)');
-    expect(formatReviewNotes([notes[0]])).not.toContain('riga rimossa');
+    expect(formatReviewNotes([notes[2]], tr)).toContain('(riga rimossa, numerazione precedente)');
+    expect(formatReviewNotes([notes[0]], tr)).not.toContain('riga rimossa');
   });
 
   it('cita il codice in un fence che il codice non può sfondare', () => {
-    const out = formatReviewNotes([{ ...notes[0], code: '+const md = ```x```;' }]);
+    const out = formatReviewNotes([{ ...notes[0], code: '+const md = ```x```;' }], tr);
     expect(out).toContain('````diff');
     // Il fence chiude: numero pari di recinti da 4 backtick.
     expect((out.match(/^````$/gm) ?? []).length).toBe(1);
   });
 
   it('chiude dicendo all\'agente cosa fare dopo', () => {
-    expect(formatReviewNotes(notes).trimEnd().endsWith('rimetti il task in review.')).toBe(true);
+    expect(formatReviewNotes(notes, tr).trimEnd().endsWith('rimetti il task in review.')).toBe(true);
   });
 });

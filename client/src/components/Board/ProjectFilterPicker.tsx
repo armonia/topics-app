@@ -131,9 +131,9 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
   const projectOptions = useMemo(() => {
     const refs = resolveProjectRefs(taskProjectIds.filter((id) => !isProjectlessId(id)), projectIndex);
     return unassignedIds.length
-      ? [{ projectId: UNASSIGNED_PROJECT_ID, name: 'Senza progetto', path: '' }, ...refs]
+      ? [{ projectId: UNASSIGNED_PROJECT_ID, name: tr('board.filter.noProject'), path: '' }, ...refs]
       : refs;
-  }, [taskProjectIds, unassignedIds, projectIndex]);
+  }, [taskProjectIds, unassignedIds, projectIndex, tr]);
   const showProjects = mode === 'all' && projectOptions.length > 0;
 
   // The ids the «No project» row really stands for.

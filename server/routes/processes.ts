@@ -1697,11 +1697,11 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         // peggio — due idee diverse di «script consentito» nello stesso server.
         const rilevati = detectScripts(projectPath);
         if (rilevati.found.length === 0) {
-          return json({ error: `Nessun manifest di script in ${projectPath} (guardati: ${MANIFESTS.join(", ")})` }, 400);
+          return json({ error: `No script manifest in ${projectPath} (looked at: ${MANIFESTS.join(", ")})` }, 400);
         }
         if (!resolveScript(rilevati, scriptName)) {
           return json({
-            error: `Lo script "${scriptName}" non e dichiarato in questo progetto`,
+            error: `The script "${scriptName}" is not declared in this project`,
             available: rilevati.scripts.map(x => x.id),
           }, 400);
         }
@@ -1748,7 +1748,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       if (!killRunningScript(sp)) {
         // Shell dell'agente di cui non abbiamo ancora trovato il processo: il
         // «no» esplicito è meglio di un ok che non ferma niente.
-        return json({ error: "shell_pid_unknown", message: "Processo non ancora individuato: fermala dalla chat con KillShell." }, 409);
+        return json({ error: "shell_pid_unknown", message: "Process not located yet: stop it from the chat with KillShell." }, 409);
       }
       return json({ ok: true });
     }
@@ -1851,7 +1851,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
           return json({ error: "Process not found in this project or already stopped" }, 404);
         }
         if (!killRunningScript(sp)) {
-          return json({ error: "shell_pid_unknown", message: "Processo non ancora individuato: usa KillShell sull'id della shell." }, 409);
+          return json({ error: "shell_pid_unknown", message: "Process not located yet: use KillShell on the shell id." }, 409);
         }
         return json({ ok: true });
       }
