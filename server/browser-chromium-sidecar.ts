@@ -20,6 +20,7 @@ import { browserMarkArg } from "./lib/browser-orphan-sweep";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveAppDataDir } from "./lib/data-dir";
 
 /** Opaque timer handle — normalises the DOM/Node `setTimeout` return-type union. */
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -187,8 +188,11 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
   const discover = opts.discover ?? (() => discoverChromiumEngines());
   const launcher = opts.launcher ?? defaultLauncher();
   const port = opts.port ?? 19333;
+  // App data root, not a hardcoded `~/.openclaw`: on an install that never had
+  // the legacy root this profile is the difference between Topics owning one
+  // home and silently creating a second one (card 211605ee).
   const userDataDir =
-    opts.userDataDir ?? join(homedir(), ".openclaw", "chromium-sidecar");
+    opts.userDataDir ?? join(resolveAppDataDir(), "chromium-sidecar");
   const loadExtensionsOpt = opts.loadExtensions ?? [];
   const resolveLoadExtensions = (): string[] =>
     typeof loadExtensionsOpt === "function" ? loadExtensionsOpt() : loadExtensionsOpt;
