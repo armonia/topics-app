@@ -567,7 +567,10 @@ export function IdentitySection() {
                   data-testid={`org-member-profile-${m.id}`}
                   title={t('identity.openProfile')}
                   aria-label={t('identity.openProfile')}
-                  className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:min-h-11"
+                  // `min-w-11` next to `min-h-11`: with a 13px icon and `p-1`
+                  // the box was 21 wide and 44 tall, which clears the threshold
+                  // on one axis only. A tap target is an AREA.
+                  className="flex-shrink-0 rounded p-1 text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:flex coarse:min-h-11 coarse:min-w-11 coarse:items-center coarse:justify-center"
                 >
                   <UserRound size={13} />
                 </button>

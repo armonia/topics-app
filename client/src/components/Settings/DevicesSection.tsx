@@ -587,12 +587,12 @@ export function DevicesSection() {
                 onChange={(e) => setNodeAddress(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void startPairing(); }}
                 placeholder={t('settings.machines.pair.addressPlaceholder')}
-                className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary"
+                className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary coarse:min-h-11"
               />
               <button
                 onClick={() => void startPairing()}
                 disabled={pairBusy || !nodeAddress.trim()}
-                className="flex-shrink-0 rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
+                className="flex-shrink-0 rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
               >
                 {t('settings.machines.pair.add')}
               </button>
