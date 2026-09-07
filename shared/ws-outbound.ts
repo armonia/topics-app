@@ -1049,14 +1049,13 @@ const boardGlobalCapSchema = z.looseObject({
   // must read "no cap" instead of failing to update.
   agentCostCapCents: z.optional(z.number()),
   agentCostCapCents24h: z.optional(z.number()),
-  // The "by resources" mode and its two thresholds (`load1 / cores`, `used /
-  // total`), same row again. Optional for the same reason as the spend caps: a
-  // server that predates the mode does not send them, and the panel reads
-  // "count mode, default thresholds" (`capMode` / `capThresholds`) instead of
+  // The "by resources" mode and its one knob (the share of this computer Topics
+  // may use, 0..1), same row again. Optional for the same reason as the spend
+  // caps: a server that predates the mode does not send them, and the panel
+  // reads "count mode, default budget" (`capMode` / `budgetShare`) instead of
   // dropping the whole announcement.
   maxAgentsMode: z.optional(z.enum(['count', 'resources'])),
-  maxLoadRatio: z.optional(z.number()),
-  maxMemRatio: z.optional(z.number()),
+  budgetShare: z.optional(z.number()),
 });
 
 const boardSettingsSchema = z.looseObject({

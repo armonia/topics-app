@@ -3273,7 +3273,7 @@ in it/en.
 - **GIVEN** un commento umano su una card `done` senza busta
 - **THEN** nessun chip
 
-### Requirement: KANBAN-75 — Il tetto sa contare gli agenti O misurare la macchina, e sono due domande diverse
+### Requirement: KANBAN-75 — Il tetto sa contare gli agenti O dare a Topics una fetta del PC, e sono due domande diverse
 
 Il freno globale del dispatch SHALL avere DUE modalità, e la scelta fra le due
 SHALL essere esplicita e persistente per macchina (riga riservata
@@ -3281,74 +3281,123 @@ SHALL essere esplicita e persistente per macchina (riga riservata
 
 1. **Per numero** (`count`) — quella di sempre, e SHALL restare il DEFAULT:
    quanti agenti insieme (`auto`, numero fisso, nessun tetto).
-2. **Per risorse** (`resources`) — quanto di questa macchina possono prendersi:
-   un agente nuovo SHALL partire solo se la pressione sta sotto DUE soglie,
-   `load1 / core` e `memoria usata / totale`. In questa modalità il tetto
-   NUMERICO non si applica: è l'alternativa, non un secondo freno sovrapposto.
+2. **A budget** (`resources`) — UNA manopola: «Topics può usare fino al N% di
+   questo computer» (default 60%). La percentuale SHALL valere su ENTRAMBI gli
+   assi: budget di CPU = `N% × core` in core-unità, budget di RAM = `N% × RAM`.
+   In questa modalità il tetto NUMERICO non si applica: è l'alternativa, non un
+   secondo freno sovrapposto.
 
-Perché non è l'`auto` di oggi sotto un altro nome: `auto` guarda apposta soltanto
-il carico NOSTRO, perché una flotta che frena sul carico dell'intera macchina
-frena su sé stessa e si stabilizza a un agente (misurato il 12/08/2026, e il
-perché sta in testa a `server/services/dispatch-capacity.ts`). Questa modalità
-guarda la macchina INTERA, browser e videochiamata di chi ci lavora sopra
-compresi, perché esiste per tenerla usabile. È la politica opposta, dichiarata,
-ed è esattamente il motivo per cui è opt-in.
+**COSA SI MISURA: il nostro albero, non il carico della macchina.** La misura
+SHALL essere l'uso dei processi di Topics — server, sidecar, ponte PTY, ogni
+agente e i suoi figli (tsc, eslint, bun test, vite, il Chromium degli e2e) —
+campionato per differenza di CPU, mai un load average. Il `load1` descrive
+soprattutto le app di chi sta al computer e non dice quanto stiamo prendendo noi.
+
+**IL BUDGET È UN TETTO, NON UN DIRITTO.** L'usabile SHALL essere
+`min(budget, quello che gli altri lasciano libero)`. Su una macchina ferma i due
+numeri coincidono; su una macchina occupata da altri la nostra fetta si stringe,
+e l'interfaccia SHALL dirlo invece di promettere un numero che nessuno può avere.
+
+**AMMISSIONE UNO PER TICK, CON ISTERESI.** Si ammette UN agente per giro, e solo
+se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la MEDIANA
+degli ultimi agenti misurati, mai una costante. Una volta trattenuta, la coda
+SHALL ripartire sotto l'80% del budget e non alla soglia stessa: fra un dispatch
+e la lettura che lo vede passano secondi, e senza quel salto la coda si svuota
+tutta contro una misura vecchia (misurato il 07/09/2026: otto card in un tick a
+load 12 su 12 core, e dieci minuti dopo load 155 con 13,4 GB di swap).
+
+**IL CONTROLLO DINAMICO: si congela l'eccesso.** Rifiutare il prossimo agente non
+fa niente per una macchina che è già oltre. Quando l'uso supera il budget per DUE
+letture di fila SHALL essere congelato (SIGSTOP all'albero) UN solo bersaglio per
+lettura, dal meno costoso da perdere: i check runner, il più recente per primo.
+Si scongela (SIGCONT) in ordine inverso dopo due letture sotto il 70% del budget.
+NON SHALL essere congelato niente altro: server, sidecar, ponte PTY e i browser
+dell'utente restano vivi sempre. Un check congelato SHALL fermare anche il PROPRIO
+orologio, perché un'attesa nostra non è uno stallo, e SHALL essere detto nel
+thread della card («congelata per carico, riprende da sola»).
+
+Gli AGENTI non si congelano con un segnale, ed è una decisione: un CLI fermato a
+metà stream API può perdere la connessione, e la CPU non è lì — con otto agenti in
+volo gli agenti stessi valevano il 5,7% della macchina mentre i loro cancelli
+tenevano il resto. Quello che li trattiene è l'ammissione.
 
 **L'ECCEZIONE, e sta nel contratto.** A zero agenti vivi si ammette SEMPRE, per
 quanto carica sia la macchina, e il verdetto lo DICHIARA (`firstAgentExempt`).
-Senza, chi lavora sul proprio Mac tiene la soglia superata da solo, la coda non
+Senza, chi lavora sul proprio Mac tiene il budget superato da solo, la coda non
 parte mai, e il modo in cui lo si scopre è che qualcuno guarda dodici card ferme
 e conclude che il dispatcher è rotto.
 
 **Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
-il pavimento) vale in ENTRAMBE le modalità e vince sulla pressione: un disco
-pieno non si riassorbe da solo, il carico sì. Per questo il motivo di coda della
-pressione è un tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
+il pavimento) vale in ENTRAMBE le modalità e vince sul budget: un disco pieno non
+si riassorbe da solo, il carico sì. Per questo il motivo di coda del budget è un
+tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
 (`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
 una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
 non dire.
 
-**I colori sono un giudizio sulla SOGLIA, non la temperatura della macchina.**
-Una soglia si sbaglia in DUE versi: troppo bassa e la coda non parte mai, troppo
-alta e la macchina è già inusabile quando il freno morde. Verde è la fascia
-consigliata in mezzo, giallo la fascia usabile fuori dal consiglio, rosso i due
-estremi. La misura VIVA si colora invece contro la soglia scelta
-(`livePressureBand`), che è una terza domanda: quanto manca prima di aspettare.
+**UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
+(`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
+tutta la macchina, oltre al conteggio degli slot: tre worktree che consegnano
+insieme facevano partire tre `eslint` (1,3 GB in due, misurato), e serializzare
+due corse dello stesso cancello non costa lavoro in più.
+
+**L'INTERFACCIA parla in percentuale di PC.** Nelle impostazioni la manopola è UN
+cursore in %, che dice anche cosa compra sui due assi. L'anello della colonna si
+riempie con `uso / budget` (non resta vuoto: in questa modalità «quanto è pieno»
+è esattamente la domanda) e il popover legge «Topics usa il N% del PC su un
+budget del M%», più i check congelati quando ce ne sono.
 
 **Le impostazioni della board stanno in UN dropdown**, ancorato al ⚙ della
 toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
 flip/clamp, Escape, esclusività fra popover). Resta valido KANBAN-12: una sola
 porta alle impostazioni, e nessuna riga sotto la toolbar.
 
-MISURA: `shared/dispatch-pressure.test.ts` per la funzione pura (i due assi, il
-confine inclusivo, la sonda di memoria assente, l'esenzione del primo agente, le
-tre fasce di colore); test di integrazione del dispatcher con carico iniettato
-per i due versi; e2e sul dropdown (apertura, cambio modalità, persistenza al
-ricarico).
+MISURA: `shared/machine-budget.test.ts` per il controllore puro (budget contro
+libero, ammissione uno per tick con isteresi, ordine di congelamento, due
+letture per decidere, e il rigioco delle otto card del 07/09);
+`server/services/budget-governor.test.ts` per il congelamento vero;
+`server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
+dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
+`bun run probe:budget` come banco sintetico su processi veri (bruciatore, `ps
+-o stat` che dice `T`); e2e sul dropdown e sull'anello.
 
-#### Scenario: sopra la soglia il secondo agente aspetta
-- **GIVEN** la modalità «per risorse» con soglia di carico 0,9
-- **AND** un agente già in volo su una macchina a load 11 su 10 core
+#### Scenario: sopra il budget il secondo agente aspetta
+- **GIVEN** la modalità «a budget» al 50% su 12 core (6 core-unità)
+- **AND** un agente già in volo mentre Topics tiene 5,8 core-unità
 - **WHEN** il dispatcher fa il suo giro
 - **THEN** nessun dispatch nuovo parte
-- **AND** le card in coda portano il motivo `resource_pressure` con i numeri, e il tono dice che riparte da sola
+- **AND** le card in coda portano il motivo `resource_pressure` con la % del PC e le core-unità, e il tono dice che riparte da sola
+
+#### Scenario: non si riparte dove ci si è fermati
+- **GIVEN** la coda trattenuta dal budget
+- **WHEN** l'uso scende sotto il budget ma resta sopra l'80% di esso
+- **THEN** non parte ancora niente: si riprende solo sotto la linea di rientro
 
 #### Scenario: a coda vuota il primo parte comunque
 - **GIVEN** la stessa macchina carica e ZERO agenti vivi
 - **WHEN** il dispatcher fa il suo giro
 - **THEN** un agente parte, e il verdetto dichiara l'esenzione invece di sostenere che la macchina è libera
 
-#### Scenario: la memoria non misurata non blocca niente
-- **GIVEN** una macchina dove la sonda della memoria risponde `null`
-- **THEN** il verdetto SHALL guardare il solo carico: «non lo so» non è «zero»
+#### Scenario: quello che prendono gli altri stringe il budget
+- **GIVEN** un budget dell'80% su 12 core e altri processi che ne tengono 10
+- **THEN** l'usabile SHALL essere 2 core-unità, non 9,6, e la riga sulla card SHALL dire perché
+
+#### Scenario: sopra il budget si congela un check, e riparte da solo
+- **GIVEN** due check runner vivi e l'uso sopra il budget per due letture
+- **THEN** UNO solo viene congelato, il più recente, e la sua card lo dice
+- **AND** quando l'uso torna sotto il 70% del budget per due letture il check viene scongelato, con l'orologio del suo timeout fermo per tutta la pausa
+
+#### Scenario: la misura non presa non blocca niente
+- **GIVEN** una macchina dove la sonda non risponde
+- **THEN** il budget SHALL restare intero: «non lo so» non è «zero», e un governor che non misura non congela niente
 
 #### Scenario: «per numero» non cambia comportamento
 - **GIVEN** la modalità di default
-- **THEN** il tetto resta quello di prima e nessuna soglia di pressione entra nella decisione
+- **THEN** il tetto resta quello di prima e nessun budget entra nella decisione
 
-#### Scenario: una soglia fuori scala si stringe, non si rifiuta
-- **GIVEN** un valore scritto fuori dai limiti, o illeggibile
-- **THEN** vale il limite (o il default), e il numero mostrato è quello applicato
+#### Scenario: una manopola fuori scala si stringe, non si rifiuta
+- **GIVEN** un valore scritto fuori dai limiti (10%-95%), o illeggibile
+- **THEN** vale il limite (o il default 60%), e la percentuale mostrata è quella applicata
 
 ### Requirement: KANBAN-76 — Una card scelta per un nodo gira LÀ, e torna qui come una card locale
 

@@ -343,8 +343,12 @@ export function PaneAddMenu({
     // fra i suoi quattro, e un tasto che si tenesse la sua misura lascerebbe
     // agli altri il resto — cioè quattro bersagli disuguali per quattro porte
     // che valgono uguale.
+    // `h-full` and not `h-11`: since card 1e015ad6 every button of the row is
+    // as tall as the strip and reaches the edge of the screen. The band it is
+    // READ in stays 44 and stays at the TOP (the span below), so the four
+    // words keep sitting on one line.
     triggerVariant === 'bar'
-      ? `edge-lit flex flex-1 min-w-0 h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
+      ? `edge-lit flex flex-1 min-w-0 h-full flex-col items-center justify-start rounded-xl px-1 ${RAISED_CONTROL} text-app-text transition-colors`
       : triggerVariant === 'header'
       ? `edge-lit ${isMobile ? 'h-11 w-11 justify-center' : 'h-7'} flex items-center gap-1.5 rounded-lg ${RAISED_CONTROL} text-app-text transition-colors flex-shrink-0`
       : triggerVariant === 'ghost'
@@ -386,17 +390,26 @@ export function PaneAddMenu({
         aria-expanded={open}
         data-testid="pane-add-menu-trigger"
       >
-        <Plus size={triggerIconSize} aria-hidden="true" />
-        {triggerLabel && (
-          <span className={triggerVariant === 'bar' ? 'text-[10px] font-medium leading-none' : 'text-[13px] font-medium'}>
-            {triggerLabel}
+        {/* The 'bar' variant keeps glyph and word inside a 44 band at the top
+            of the button: the button is as tall as the strip, what you read is
+            not. The other variants are as tall as their content, so there is
+            nothing to frame. */}
+        {triggerVariant === 'bar' ? (
+          <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">
+            <Plus size={triggerIconSize} aria-hidden="true" />
+            {triggerLabel && <span className="text-[10px] font-medium leading-none">{triggerLabel}</span>}
           </span>
-        )}
-        {triggerKbd && !isMobile && (
-          // `kbd-hint`: same mark as the Search button's ⌘K next door. It means
-          // nothing on its own; inside `.sidebar-header` a container query hides
-          // it as soon as the row cannot hold the wordmark whole beside it.
-          <kbd className="kbd kbd-hint flex-shrink-0 hidden md:inline" aria-hidden="true">{triggerKbd}</kbd>
+        ) : (
+          <>
+            <Plus size={triggerIconSize} aria-hidden="true" />
+            {triggerLabel && <span className="text-[13px] font-medium">{triggerLabel}</span>}
+            {triggerKbd && !isMobile && (
+              // `kbd-hint`: same mark as the Search button's ⌘K next door. It means
+              // nothing on its own; inside `.sidebar-header` a container query hides
+              // it as soon as the row cannot hold the wordmark whole beside it.
+              <kbd className="kbd kbd-hint flex-shrink-0 hidden md:inline" aria-hidden="true">{triggerKbd}</kbd>
+            )}
+          </>
         )}
       </button>
 

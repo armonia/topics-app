@@ -24,6 +24,7 @@
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 import { parseSlotAcquired } from "../../shared/slot-acquired";
+import { registerFreezableRun } from "./budget-governor";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
@@ -204,6 +205,9 @@ interface RunOpts {
    * never touch a real filesystem. Defaults to the real probe below.
    */
   missingInstallRoots?: (cwd: string) => string[];
+  /** The card these checks belong to. It travels so a run frozen for load can
+   *  say so in the right thread; absent = no note, everything else unchanged. */
+  taskId?: string;
 }
 
 /**
@@ -305,7 +309,7 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   if (slack > 1) console.log(`[review-checks] ${timeSlackNote(slack, load1, cores)}`);
   for (const [i, check] of checks.entries()) {
     if (opts.signal?.aborted) break;
-    const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal, env });
+    const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId });
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
@@ -324,12 +328,16 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
  */
 async function runOne(
   check: ReviewCheck,
-  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal; env?: Record<string, string> },
+  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal; env?: Record<string, string>; taskId?: string },
 ): Promise<CheckRun> {
   const started = Date.now();
   let proc: ReturnType<typeof Bun.spawn> | null = null;
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** Deregistration from the freeze registry, hoisted so the `finally` can call
+   *  it: a registry entry that outlives its process would send signals to a
+   *  recycled pid. */
+  let releaseFreezable: () => void = () => {};
   /**
    * TUTTO L'ALBERO, non il solo `/bin/sh`. Il comando dichiarato e' una riga di
    * shell (`bun run typecheck && bun test`), e chi lavora davvero e' un nipote:
@@ -382,6 +390,31 @@ async function runOne(
       timer = setTimeout(() => { timedOut = true; killTree(); }, left);
     };
     armTimer();
+    /* THE CLOCK STOPS WHILE THE RUN IS FROZEN, and this is the whole reason the
+     * governor takes callbacks instead of just sending a signal.
+     *
+     * A run paused for load is OUR OWN wait, not a hung command: letting its
+     * deadline keep running would turn a deliberate pause into a red gate, and
+     * a red gate that nobody caused is the worst kind of noise on a delivery.
+     * Same rule the board already applies to the slot queue, which is why
+     * `clockFrom` exists here at all. */
+    let frozenAt = 0;
+    releaseFreezable = proc.pid
+      ? registerFreezableRun({
+          id: `${opts.taskId ?? "check"}:${check.name}:${proc.pid}`,
+          pid: proc.pid,
+          name: check.name,
+          taskId: opts.taskId,
+          startedAt: started,
+          onFreeze: () => { frozenAt = Date.now(); },
+          onThaw: () => {
+            if (!frozenAt) return;
+            clockFrom += Date.now() - frozenAt;
+            frozenAt = 0;
+            armTimer();
+          },
+        })
+      : () => {};
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";
@@ -445,6 +478,7 @@ async function runOne(
     };
   } finally {
     if (timer) clearTimeout(timer);
+    releaseFreezable();
     opts.signal?.removeEventListener("abort", onAbort);
   }
 }

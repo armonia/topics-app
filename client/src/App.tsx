@@ -109,7 +109,7 @@ import { DEFAULT_SPACE_ID } from './state/pane/types';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
-import { GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './lib/selectionStyles';
+import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
 import { initEdgeSwipeGuard } from './lib/edgeSwipeGuard';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
 import { popOutTopic } from './lib/popOutTopic';
@@ -1413,6 +1413,12 @@ function App() {
         ref={sidebarRef}
         role="navigation"
         aria-label="Topics sidebar"
+        // The column declares itself so CSS can name it. What it names today is
+        // the rule that stops a finger from turning a drag into a text
+        // selection (`index.css`, `@media (pointer: coarse)`): the drawer
+        // swipe, the pinned tiles and the topic rows are all born from a still
+        // finger on a line of text, which is what iOS reads as "select this".
+        data-sidebar=""
         // `group/sidebar`: alcune affordance della sidebar si accendono solo
         // quando ci passi sopra (il "+" dei gruppi in fondo). Il gruppo di
         // hover sta QUI e non sulla singola barra perché il bersaglio nascosto
@@ -1464,7 +1470,21 @@ function App() {
           // opened in a plain mobile browser tab (e.g. over Tailscale, where
           // display-mode is 'browser', not 'standalone'). The mobile sidebar is
           // `position: fixed inset-y-0`, so it escapes the root and needs its own.
-          paddingTop: 'env(safe-area-inset-top, 0px)',
+          //
+          // ON A PHONE THE COLUMN IS NOT PUSHED DOWN, IT IS PADDED FROM INSIDE.
+          // Asked from a phone (card 1e015ad6): the top row should have no
+          // ground of its own, "so that scrolling the sidebar the tabs go under
+          // it, and under the safe area too". A padding on THIS element cannot
+          // do that: it moves the scroller down, so the list ends where the row
+          // begins and nothing ever passes behind it. So down there the inset
+          // (plus the height of the row) becomes `--sidebar-scroll-top`, which
+          // the scrolling column takes as its own padding-top: at rest nothing
+          // is hidden, and what scrolls travels behind the row and behind the
+          // status bar, the way a native list does.
+          paddingTop: isMobile ? 0 : 'env(safe-area-inset-top, 0px)',
+          [SIDEBAR_SCROLL_TOP_PROPERTY as string]: isMobile
+            ? `calc(env(safe-area-inset-top, 0px) + ${MOBILE_SIDEBAR_HEADER_H}px)`
+            : '0px',
           // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
           // quindi la banda della fila in basso se la riserva da sé. Stessa
           // variabile, stesso valore, un posto solo a deciderlo.
@@ -1500,8 +1520,24 @@ function App() {
           // width can decide what stays in it. What it decides today is the
           // keyboard hints (`kbd-hint`), which go before the wordmark shrinks
           // — the threshold and the sum behind it are in index.css.
-          className={`sidebar-header flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
-          style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
+          //
+          // ON A PHONE THIS ROW HAS NO GROUND AND IS NOT IN THE FLOW: it is a
+          // layer over the list, sitting at the safe-area inset (card
+          // 1e015ad6). The tabs travel BEHIND it instead of stopping at its
+          // edge, and the band under the status bar stops being a dead strip.
+          // `pointer-events: none` on the row and `auto` on its two commands:
+          // where there is nothing to press the finger belongs to the list
+          // scrolling underneath, or the column would carry 56px of glass at
+          // the top that stop a scroll without saying why.
+          className={`sidebar-header flex items-center justify-between flex-shrink-0 app-drag-region ${
+            isMobile ? 'pointer-events-none absolute inset-x-0 z-10 h-14 [&>*]:pointer-events-auto' : 'h-10'
+          }`} {...DRAG_REGION}
+          style={{
+            paddingRight: ROW_INSET,
+            paddingLeft: ROW_INSET,
+            gap: ROW_INSET,
+            ...(isMobile ? { top: 'env(safe-area-inset-top, 0px)' } : null),
+          }}
         >
           {/* ONE STEP FROM EDGE TO EDGE. The pair at the other end of this row
               (search and add) sits at `gap: ROW_INSET`; the lights, the word
@@ -1766,7 +1802,7 @@ function App() {
               nessun posto separato dove i gruppi «vivono». */}
           <ErrorBoundary fallbackMessageKey="crash.sidebar">
           {topicsLoading && Object.keys(topics).length === 0 ? (
-            <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
+            <div className="overflow-y-auto sidebar-scroll" style={{ paddingTop: `var(${SIDEBAR_SCROLL_TOP_PROPERTY}, 0px)` }}><SkeletonTopicList count={5} /></div>
           ) : (
           // `openPanels={openPanels}`: TUTTE le tab aperte, non solo quelle del
           // gruppo attivo — perché la sidebar mostra TUTTI i gruppi insieme, e

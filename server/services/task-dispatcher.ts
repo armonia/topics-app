@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, capMode, capThresholds, hasDeliveredWork, machinePressureVerdict, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type GlobalDispatchCap, type MachinePressure, type PressureVerdict } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
@@ -160,17 +160,25 @@ export interface DispatcherDeps {
    */
   resourceBlock?: () => string | null;
   /**
-   * THE MACHINE'S PRESSURE, for the cap "by resources": load average, cores,
-   * memory and the agents already in flight, read NOW. Only consulted when the
-   * '*' row says `mode = resources`; in count mode it is never called.
+   * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
+   * core-units and gigabytes, what the others are taking, and the agents
+   * already in flight, read NOW. Only consulted when the '*' row says
+   * `mode = resources`; in count mode it is never called.
    *
    * It is a dependency and not a call to `computeDispatchCapacity` because the
-   * test that matters ("over the threshold, nothing starts; under it, it
-   * starts") has to fix the load, and a real reading would assert on whatever
-   * the suite is running next to. `null` or absent = not measurable, and a
-   * gate that cannot measure does not close: it reads as "admit".
+   * test that matters ("over the budget nothing starts, under it it does") has
+   * to fix the measure, and a real reading would assert on whatever the suite
+   * is running next to. `null` or absent = not measurable, and a gate that
+   * cannot measure does not close: it reads as "admit".
    */
-  machinePressure?: () => MachinePressure | null;
+  budgetSample?: () => MachineBudgetSample | null;
+  /**
+   * What the last few agents actually cost, in core-units, gates included. The
+   * median of these is the price of admission (`estimatedAgentCost`): a fixed
+   * number would price a compiling agent like one waiting on the API. Absent =
+   * no history, and the estimate falls back to its floor, never to zero.
+   */
+  agentCostSamples?: () => number[];
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -802,37 +810,37 @@ const itNumber = (n: number, digits = 1): string => n.toFixed(digits).replace(".
 const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
 /**
- * "Over the threshold", written on the card WITH the numbers that produced it:
- * the reading, the core count or the total, the threshold the person chose.
- * Without them the line is "in coda" again, which is the sentence the chip
- * already says and the one that made a paused board look like a broken one.
+ * "OVER THE BUDGET", written on the card WITH the numbers that produced it: how
+ * much of this computer Topics is taking, the budget it was given, and the
+ * usable share when the rest of the machine has squeezed it. Without them the
+ * line is "in coda" again, which is the sentence the chip already says and the
+ * one that made a paused board look like a broken one.
  *
- * It says the wait ends by itself. That is the difference from the floor's
- * line (which does not promise it) and from the spend cap's (which says what
- * to do instead): three brakes, three sentences, and each one true about its
- * own way of ending.
+ * It says the wait ends by itself. That is the difference from the floor's line
+ * (which does not promise it) and from the spend cap's (which says what to do
+ * instead): three brakes, three sentences, and each one true about its own way
+ * of ending.
  *
  * Exported for the test, which asserts on the numbers and not on the prose.
  */
-export function machinePressureMessage(
-  probe: MachinePressure,
-  verdict: PressureVerdict,
-  thresholds: { maxLoadRatio: number; maxMemRatio: number },
-): string {
-  const cores = probe.cores > 0 ? probe.cores : 1;
-  const agents = probe.running === 1 ? "1 agent al lavoro" : `${Math.max(0, probe.running)} agent al lavoro`;
+export function machineBudgetMessage(verdict: AdmissionVerdict, cores: number, share: number): string {
+  const c = cores > 0 ? cores : 1;
   if (verdict.blockedBy === "memory") {
-    const usedGB = Math.max(0, probe.totalMemGB - (probe.availableMemGB ?? 0));
     return (
-      `Memoria oltre la soglia: ${itNumber(usedGB)} GB usati su ${itNumber(probe.totalMemGB)} ` +
-      `(${asPercent(verdict.memRatio ?? 0)}, soglia ${asPercent(thresholds.maxMemRatio)}). ` +
-      `Con ${agents} non ne parte un altro finché la memoria non si libera: riparte da sé, niente è andato perso.`
+      `Topics è al tetto di memoria che gli hai dato, il ${asPercent(share)} di questa macchina. ` +
+      `Non ne parte un altro finché non si libera: riparte da sé, niente è andato perso.`
     );
   }
+  // The usable ceiling is said ONLY when it is lower than the budget, and then
+  // it says why: a number smaller than the one on the slider, with nothing next
+  // to it, reads as the setting not being honoured.
+  const squeezed = verdict.usableCoreUnits < verdict.budgetCoreUnits - 0.05
+    ? `, e adesso ne sono libere ${itNumber(verdict.usableCoreUnits)} perché il resto della macchina sta lavorando`
+    : "";
   return (
-    `Carico oltre la soglia: ${itNumber(Math.max(0, probe.load1))} su ${cores} core ` +
-    `(${asPercent(verdict.loadRatio)} della macchina, soglia ${asPercent(thresholds.maxLoadRatio)}). ` +
-    `Con ${agents} non ne parte un altro finché il carico non scende: riparte da sé, niente è andato perso.`
+    `Topics usa il ${asPercent(verdict.usedCoreUnits / c)} del PC su un budget del ${asPercent(share)} ` +
+    `(${itNumber(verdict.usedCoreUnits)} core-unità su ${itNumber(verdict.budgetCoreUnits)}${squeezed}). ` +
+    `Non ne parte un altro finché non scende: riparte da sé, niente è andato perso.`
   );
 }
 
@@ -981,48 +989,60 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
-   * THE CAP "BY RESOURCES", read NOW: why the machine is over the threshold the
-   * person chose, or `null` when it is under it, when the mode is off, or when
-   * nothing can be measured.
+   * THE CAP "BY RESOURCES", read NOW: why Topics is over the budget it was
+   * given, or `null` when it is under it, when the mode is off, or when nothing
+   * can be measured.
    *
    * It sits next to the floor and not inside it because they answer different
    * questions and end differently. The floor is a fixed line under which the
    * machine breaks (a full disk fails the DB's writes) and it is not a setting;
-   * this is a preference, on a threshold the person moves, and it lifts by
-   * itself as soon as the load drops. That difference is why the two publish
-   * as two different kinds and why the floor wins when both hold.
+   * this is a preference, on a knob the person moves, and it lifts by itself as
+   * soon as the use drops. That difference is why the two publish as two
+   * different kinds and why the floor wins when both hold.
    *
-   * The one exception (`firstAgentExempt`) is decided in `shared/board.ts`:
-   * with no agent running the first one starts even on a loaded machine, or a
-   * developer who keeps their own Mac over the threshold would own a board
-   * that never starts and looks broken.
+   * The one exception (`firstAgentExempt`) is decided in
+   * `shared/machine-budget.ts`: with no agent running the first one starts even
+   * on a loaded machine, or a developer who keeps their own Mac busy would own
+   * a board that never starts and looks broken.
    *
    * Said once per EPISODE in the log, like the floor: the numbers change at
    * every reading, so the comparison is on which axis said no, not on the text.
    */
-  let lastPressureAxis: PressureVerdict["blockedBy"] = null;
+  let lastPressureAxis: AdmissionVerdict["blockedBy"] = null;
   let firstAgentExemptNoted = false;
+  /**
+   * THE HYSTERESIS STATE, and it has to live across ticks or it is not one.
+   *
+   * The gate does not resume where it stopped: once holding, it admits again
+   * only under 80% of the budget (`ADMIT_RESUME_FRACTION`). The gap is the time
+   * a `ps` sample needs to catch up with agents that have already started, and
+   * without it the queue drains against one stale reading: eight cards in one
+   * tick, measured on 2026-09-07.
+   */
+  let budgetGate: BudgetGateState = "admitting";
   function pressureBlock(): string | null {
     try {
       let gcap: GlobalDispatchCap;
       try { gcap = deps.svc.getGlobalCap(); } catch { return null; }
-      if (capMode(gcap) !== "resources") { lastPressureAxis = null; return null; }
-      const probe = deps.machinePressure?.() ?? null;
-      if (!probe) return null;
-      const thresholds = capThresholds(gcap);
-      const verdict = machinePressureVerdict(probe, thresholds);
+      if (capMode(gcap) !== "resources") { lastPressureAxis = null; budgetGate = "admitting"; return null; }
+      const sample = deps.budgetSample?.() ?? null;
+      if (!sample) return null;
+      const share = budgetShare(gcap);
+      const cost = estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })());
+      const verdict = admissionVerdict(sample, share, cost, budgetGate);
+      budgetGate = verdict.state;
       if (verdict.firstAgentExempt) {
         // Not a block, but not a free machine either: the log says why the
         // first one went through, once, or the next "why did that start on a
         // loaded Mac" costs somebody a read of the shared contract.
-        if (!firstAgentExemptNoted) log("pressione sopra la soglia ma nessun agent al lavoro: il primo parte comunque");
+        if (!firstAgentExemptNoted) log("budget superato ma nessun agent al lavoro: il primo parte comunque");
         firstAgentExemptNoted = true;
       } else {
         firstAgentExemptNoted = false;
       }
-      const reason = verdict.admit ? null : machinePressureMessage(probe, verdict, thresholds);
-      if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per pressione: ${reason}`);
-      else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: la pressione della macchina è scesa sotto la soglia");
+      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share);
+      if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
+      else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
       lastPressureAxis = reason ? verdict.blockedBy : null;
       return reason;
     } catch { return null; }

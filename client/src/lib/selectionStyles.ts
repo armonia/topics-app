@@ -436,6 +436,27 @@ export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
 export const ROW_INSET = 6;
 
 /**
+ * THE TOP ROW OF THE PHONE FLOATS OVER THE LIST, so the list needs to know how
+ * much room to leave for it before it starts.
+ *
+ * Asked from a phone (card 1e015ad6): the top row must have no ground of its
+ * own, so that the tabs scroll UNDER it and under the safe-area band, the way a
+ * native list does. That only works if the row is out of the flow and the room
+ * it needs lives INSIDE the scroller, as its padding: a padding on the column
+ * itself would move the scroller down, and nothing would ever pass behind.
+ *
+ * Two names, one number, and the number is only ever written here: the sidebar
+ * declares the property, the scrolling column reads it. On a desktop it is
+ * `0px` and the row is back in the flow, where it has a ground and nothing
+ * passes behind it.
+ *
+ * 56 is `h-14`, the height the header row has on a touch screen: two 44px
+ * commands plus {@link ROW_INSET} above and below.
+ */
+export const SIDEBAR_SCROLL_TOP_PROPERTY = '--sidebar-scroll-top';
+export const MOBILE_SIDEBAR_HEADER_H = 56;
+
+/**
  * THE GLYPH BOX OF THE IDENTITY BAND, one measure for all three subjects.
  *
  * The band at the bottom of the sidebar answers three questions - me, my

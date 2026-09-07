@@ -833,7 +833,6 @@
       "SOPRA",
       "attivo",
       "forma",
-      "massima",
       "radice",
       "raggio",
       "scatole"
@@ -1744,7 +1743,6 @@
       "formaFila",
       "gioco",
       "lontano",
-      "pavimentoFila",
       "raggioSchermo",
       "scarto",
       "vicino"

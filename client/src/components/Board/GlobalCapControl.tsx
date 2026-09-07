@@ -18,19 +18,22 @@
  * bug. Above the cap the line switches phrasing and says why it will settle.
  *
  * TWO BRAKES, NOT ONE (KANBAN-75). "By count" is the one above and the default.
- * "By resources" asks a question the number cannot express — how much of THIS
- * machine may the agents take — and answers it with two thresholds, load per
- * core and memory used over total. The two are an alternative, not two brakes
- * stacked: in `resources` the fixed number does not apply, so the number box
- * and the three count states are NOT drawn, rather than drawn and ignored.
+ * "By resources" asks a question the number cannot express, which is how much
+ * of THIS computer Topics may take, and it answers with ONE percentage. The two
+ * are an alternative, not two brakes stacked: in `resources` the fixed number
+ * does not apply, so the number box and the three count states are NOT drawn,
+ * rather than drawn and ignored.
  *
- * THE COLOURS ARE A JUDGEMENT ON THE THRESHOLD, not the machine's temperature.
- * A threshold can be wrong in two directions: too low and the queue never
- * starts, too high and the machine is unusable before the brake bites. The band
- * functions in `shared/board.ts` say which, and the slider paints THEM (sampled,
- * not copied): a number repeated here is a number that drifts. The live reading
- * is coloured against the chosen threshold instead (`livePressureBand`), which
- * is the third question: how far from waiting are we right now.
+ * ONE KNOB, TWO AXES. The percentage is applied to the cores AND to the memory,
+ * so there is nothing to keep in agreement: 80% of a 12-core, 32 GB machine is
+ * 9.6 core-units and 25.6 GB. What used to be here (two thresholds against the
+ * whole machine's load average) admitted the entire queue the moment the
+ * average dipped, and never touched what was already running.
+ *
+ * THE COLOUR IS ON THE LIVE READING, not on the setting: how far from waiting
+ * we are right now (`livePressureBand`, the same function the gauge uses). A
+ * percentage of your own computer cannot be "wrong" the way a load threshold
+ * could, so there is no band to paint on the track any more.
  *
  * ONE COMPONENT, EVERY SURFACE. The title menu and the settings panel mount
  * THIS, not two copies: state lives in `state/globalDispatchCap.ts` and every
@@ -42,14 +45,11 @@ import { useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import {
   GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF,
-  capMode, capThresholds, machinePressureVerdict,
-  loadThresholdBand, memThresholdBand, livePressureBand,
-  LOAD_RATIO_MIN, LOAD_RATIO_MAX, LOAD_RATIO_DEFAULT,
-  MEM_RATIO_MIN, MEM_RATIO_MAX, MEM_RATIO_DEFAULT,
+  budgetShare, capMode, livePressureBand,
+  BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
 } from '../../lib/board';
-import type { DispatchCapacity, DispatchCapMode, ThresholdBand } from '../../lib/board';
+import type { DispatchCapMode, ThresholdBand } from '../../lib/board';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import { bandGradient } from './thresholdBand';
 import { DispatchLoadSummary } from './DispatchLoadGauge';
 import {
   currentCapLimit,
@@ -213,33 +213,25 @@ function CountBrake() {
   );
 }
 
-/** `used / total`, or `null` where the probe did not answer. Mirrors the
- *  formula inside `machinePressureVerdict` so the reading and the verdict
- *  cannot disagree about the same gigabytes. */
-function memUsedRatio(cap: DispatchCapacity): number | null {
-  if (cap.availableMemGB == null || !Number.isFinite(cap.availableMemGB) || !(cap.totalMemGB > 0)) return null;
-  return Math.max(0, Math.min(1, 1 - cap.availableMemGB / cap.totalMemGB));
-}
-
 /**
- * The other brake: how much of the machine, as two thresholds against two live
- * readings, and one verdict line that says what would happen to a new agent
- * right now. The fixed number is not drawn here because it does not apply.
+ * The other brake: ONE percentage of this computer, the live reading against
+ * it, and a verdict line that says what would happen to a new agent right now.
+ * The fixed number is not drawn here because it does not apply.
  */
 function ResourcesBrake() {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const cap = s.capacity;
+  const share = budgetShare(s.cap ?? {});
+  const used = cap?.usedCoreUnits ?? null;
+  const budget = cap?.budgetCoreUnits ?? 0;
+  const usable = cap?.usableCoreUnits ?? 0;
+  // "Would a new agent start" is answered from the SAME two numbers the gate
+  // decides on: used against usable. The cost of the one to admit is the gate's
+  // business (it has the measured history); here it is enough that the machine
+  // is at its ceiling, which is what the person is looking at.
+  const atCeiling = used != null && used >= usable;
   const running = cap?.running ?? 0;
-  const thresholds = capThresholds(s.cap ?? {});
-  const loadRatio = cap ? Math.max(0, cap.load1) / (cap.cores > 0 ? cap.cores : 1) : null;
-  const memRatio = cap ? memUsedRatio(cap) : null;
-  const verdict = cap
-    ? machinePressureVerdict(
-        { load1: cap.load1, cores: cap.cores, availableMemGB: cap.availableMemGB, totalMemGB: cap.totalMemGB, running },
-        thresholds,
-      )
-    : null;
 
   return (
     <>
@@ -249,65 +241,32 @@ function ResourcesBrake() {
       <p className="text-[11px] leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
       <p className="text-[11px] leading-snug text-app-text-faint">{tr('board.dispatch.resourcesHint')}</p>
 
-      <ThresholdSlider
-        testId="global-cap-load"
-        label={tr('board.dispatch.loadThreshold')}
-        min={LOAD_RATIO_MIN}
-        max={LOAD_RATIO_MAX}
-        step={0.05}
-        fallback={LOAD_RATIO_DEFAULT}
-        value={thresholds.maxLoadRatio}
-        band={loadThresholdBand}
-        format={(v) => v.toFixed(2)}
-        live={loadRatio}
-        liveText={cap && loadRatio != null
-          ? tr('board.dispatch.liveLoad', { load: cap.load1.toFixed(1), cores: cap.cores, ratio: loadRatio.toFixed(2) })
-          : tr('board.dispatch.liveLoading')}
-        onCommit={(maxLoadRatio) => { void saveGlobalCap({ maxLoadRatio }); }}
-      />
-      <ThresholdSlider
-        testId="global-cap-mem"
-        label={tr('board.dispatch.memThreshold')}
-        min={MEM_RATIO_MIN}
-        max={MEM_RATIO_MAX}
-        step={0.01}
-        fallback={MEM_RATIO_DEFAULT}
-        value={thresholds.maxMemRatio}
-        band={memThresholdBand}
-        format={(v) => `${Math.round(v * 100)}%`}
-        live={memRatio}
-        liveText={!cap
-          ? tr('board.dispatch.liveLoading')
-          : memRatio == null
-            // `null` is "not measured", and the verdict ignores it: say so,
-            // instead of printing 0% and letting it read as an empty machine.
-            ? tr('board.dispatch.liveMemUnknown')
-            : tr('board.dispatch.liveMem', {
-                used: (cap.totalMemGB - (cap.availableMemGB ?? 0)).toFixed(1),
-                total: cap.totalMemGB.toFixed(0),
-                pct: Math.round(memRatio * 100),
-              })}
-        onCommit={(maxMemRatio) => { void saveGlobalCap({ maxMemRatio }); }}
+      <BudgetSlider
+        share={share}
+        used={used}
+        budget={budget}
+        usable={usable}
+        cores={cap?.cores ?? 0}
+        totalMemGB={cap?.totalMemGB ?? 0}
+        onCommit={(budgetShareNext) => { void saveGlobalCap({ budgetShare: budgetShareNext }); }}
       />
 
       {/* THE VERDICT, in words, and the exemption said out loud: a pass earned
           only because nobody is running yet is not a free machine, and the line
           must not claim it is. */}
-      {verdict && (
+      {cap && (
         <p
           data-testid="global-cap-verdict"
-          data-admit={verdict.admit}
+          data-admit={!atCeiling || running <= 0}
           className={`text-[11px] font-medium leading-snug ${
-            !verdict.admit ? DANGER_TEXT : verdict.firstAgentExempt ? WARNING_TEXT : SUCCESS_TEXT
+            !atCeiling ? SUCCESS_TEXT : running <= 0 ? WARNING_TEXT : DANGER_TEXT
           }`}
         >
-          {!verdict.admit
-            ? tr('board.dispatch.verdictWait', {
-                axis: tr(verdict.blockedBy === 'memory' ? 'board.dispatch.axisMem' : 'board.dispatch.axisLoad'),
-              })
-            : verdict.firstAgentExempt
+          {!atCeiling
+            ? tr('board.dispatch.verdictGo')
+            : running <= 0
               ? tr('board.dispatch.verdictFirst')
-              : tr('board.dispatch.verdictGo')}
+              : tr('board.dispatch.verdictWait')}
         </p>
       )}
     </>
@@ -315,69 +274,58 @@ function ResourcesBrake() {
 }
 
 /**
- * One threshold: the slider, the band it sits in (painted and then said in
- * words), and the live reading coloured against it.
+ * THE ONE KNOB: a percentage of this computer, what it means in the two units,
+ * and the live reading coloured against it.
  *
  * WRITES ON RELEASE, NOT ON EVERY PIXEL. A drag fires an `input` event per
- * step; one PATCH each would be fifty writes and fifty broadcasts for one
+ * step; one PATCH each would be twenty writes and twenty broadcasts for one
  * gesture. While the pointer is down the value is a local draft; the write
  * happens on release. A change that arrives with no pointer down (arrow keys,
  * a test's `fill`) has no release to wait for and is written at once.
  */
-function ThresholdSlider({ testId, label, min, max, step, fallback, value, band, format, live, liveText, onCommit }: {
-  testId: string;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  /** Where the band's "low side" ends and its "high side" begins: the default. */
-  fallback: number;
-  value: number;
-  band: (ratio: number) => ThresholdBand;
-  format: (v: number) => string;
-  /** The machine right now, on the same scale, or `null` when not measured. */
-  live: number | null;
-  liveText: string;
-  onCommit: (v: number) => void;
+function BudgetSlider({ share, used, budget, usable, cores, totalMemGB, onCommit }: {
+  share: number;
+  /** Core-units Topics is taking now, or `null` when not measured. */
+  used: number | null;
+  budget: number;
+  usable: number;
+  cores: number;
+  totalMemGB: number;
+  onCommit: (share: number) => void;
 }) {
   const tr = useT();
   const [draft, setDraft] = useState<number | null>(null);
   const dragging = useRef(false);
-  const shown = draft ?? value;
-  const chosen = band(shown);
-  const liveBand = live == null ? null : livePressureBand(live, shown);
+  const shown = draft ?? share;
+  const liveBand: ThresholdBand | null = used == null ? null : livePressureBand(used, usable || budget);
   const commit = (v: number) => {
     setDraft(null);
-    if (v !== value) onCommit(v);
+    if (v !== share) onCommit(v);
   };
-  const words = chosen === 'green'
-    ? 'board.dispatch.band.green'
-    : shown < fallback
-      ? (chosen === 'amber' ? 'board.dispatch.band.amberLow' : 'board.dispatch.band.redLow')
-      : (chosen === 'amber' ? 'board.dispatch.band.amberHigh' : 'board.dispatch.band.redHigh');
+  // What the percentage buys, in the units the gate decides in. It is drawn
+  // from the DRAFT, so the two numbers move under the finger.
+  const units = (cores * shown).toFixed(1);
+  const mem = Math.round(totalMemGB * shown);
+  const squeezed = usable > 0 && usable < budget - 0.05;
 
   return (
-    <div className="space-y-0.5 pt-1" data-testid={testId}>
+    <div className="space-y-0.5 pt-1" data-testid="global-cap-budget">
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="text-app-text-muted">{label}</span>
-        <span className={`font-medium ${BAND_TEXT[chosen]}`} data-testid={`${testId}-value`}>{format(shown)}</span>
+        <span className="text-app-text-muted">{tr('board.dispatch.budget')}</span>
+        <span className="font-medium text-app-text-heading" data-testid="global-cap-budget-value">
+          {tr('board.dispatch.budgetOfPc', { pct: Math.round(shown * 100) })}
+        </span>
       </div>
       <input
         type="range"
-        data-testid={`${testId}-slider`}
-        data-band={chosen}
-        aria-label={label}
-        aria-valuetext={format(shown)}
-        min={min}
-        max={max}
-        step={step}
+        data-testid="global-cap-budget-slider"
+        aria-label={tr('board.dispatch.budget')}
+        aria-valuetext={tr('board.dispatch.budgetOfPc', { pct: Math.round(shown * 100) })}
+        min={BUDGET_SHARE_MIN}
+        max={BUDGET_SHARE_MAX}
+        step={0.05}
         value={shown}
-        // The band IS the track: `index.css` already strips the native look
-        // from every range input and paints the thumb, so what is left to
-        // paint is the 6px track, and it is painted with the shared band
-        // function. Same height and radius as the app's other sliders.
-        style={{ background: bandGradient(min, max, band) }}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-white/10"
         onPointerDown={() => { dragging.current = true; }}
         onPointerUp={() => { dragging.current = false; if (draft != null) commit(draft); }}
         onPointerCancel={() => { dragging.current = false; if (draft != null) commit(draft); }}
@@ -387,12 +335,25 @@ function ThresholdSlider({ testId, label, min, max, step, fallback, value, band,
           else commit(v);
         }}
       />
-      <p className={`text-[11px] leading-snug ${BAND_TEXT[chosen]}`} data-testid={`${testId}-band`}>{tr(words)}</p>
+      {cores > 0 && (
+        <p className="text-[11px] leading-snug text-app-text-faint" data-testid="global-cap-budget-units">
+          {tr('board.dispatch.budgetHint', { cores, units, mem })}
+        </p>
+      )}
       <p
         className={`text-[11px] leading-snug ${liveBand ? BAND_TEXT[liveBand] : 'text-app-text-faint'}`}
-        data-testid={`${testId}-live`}
+        data-testid="global-cap-budget-live"
         data-band={liveBand ?? 'none'}
-      >{liveText}</p>
+      >
+        {used == null || cores <= 0
+          ? tr('board.dispatch.liveLoading')
+          : tr(squeezed ? 'board.dispatch.liveUseSqueezed' : 'board.dispatch.liveUse', {
+              pct: Math.round((used / cores) * 100),
+              used: used.toFixed(1),
+              budget: budget.toFixed(1),
+              usable: usable.toFixed(1),
+            })}
+      </p>
     </div>
   );
 }
