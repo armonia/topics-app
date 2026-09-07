@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.285",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Wait for the killed child to disappear, instead of asking once",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.284",
     "date": "2026-09-07",
     "sections": {
@@ -8,7 +24,28 @@
       "perf": [],
       "internal": [
         {
+          "it": "Fix the PTY bridge dying on Windows before it ever listens",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "l'agenda sotto la tessera fissata, e la sincronizzazione configurabile",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Path containment: compare with the platform separator, not a hardcoded slash",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Say why the bridge's sibling import is not a runtime dependency",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi che il cancello dell'inglese conosce, e il formato che si chiama come il suo file",
           "en": "",
           "scope": null
         }
