@@ -142,4 +142,16 @@ describe('cablaggio del prune nelle due superfici', () => {
     expect(LIFECYCLE).toContain('onUpdate: setParked');
     expect(LIFECYCLE).toMatch(/\}, \[sessionsRef, dormantGuard, parked\]\);/);
   });
+
+  test('un roster VUOTO ma riconciliato è autorevole: le pane cadavere si potano', () => {
+    // `sessionIds.size > 0` alone left a hole and the panes fell into it: with
+    // EVERY session gone (machine rebooted, bridge restarted) the roster stays
+    // empty forever, so nothing was ever pruned and four dead panes came back
+    // at each launch, reattaching every 3 s. `reconciled` says the list was
+    // compared with the bridge.
+    expect(SYNC).toContain('sessionIds.size > 0 || lastRosterReconciledRef.current');
+    // And the bit arrives both ways: a header on REST, a field on the broadcast.
+    expect(SYNC).toContain('ROSTER_RECONCILED_HEADER');
+    expect(SYNC).toContain('syncTerminals(sessions, reconciled)');
+  });
 });

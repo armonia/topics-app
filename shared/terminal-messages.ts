@@ -46,3 +46,17 @@ export const TERMINAL_INPUT_DROPPED = "input-dropped";
  * stayed open.
  */
 export const TERMINAL_WS_CLOSE_DORMANT = 4001;
+
+/**
+ * Response header of `GET /api/terminal/sessions`: `"1"` when the roster has
+ * been compared with the PTY bridge, so an EMPTY list means "no session" and
+ * not "you asked before the reconcile finished".
+ *
+ * Why a header and not a field. The bit already travels in the
+ * `terminal:sessions` broadcast, whose body is an object with room for it. The
+ * REST body is a BARE ARRAY, read that way by MCP, by the phone client and by
+ * the tests, so wrapping it to carry one boolean would break every reader for
+ * the benefit of one. A header carries it without touching the body, and a
+ * client that ignores it behaves exactly as before.
+ */
+export const ROSTER_RECONCILED_HEADER = "X-Roster-Reconciled";

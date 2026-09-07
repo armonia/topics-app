@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
-import { STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
+import { ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -2678,7 +2678,15 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // Authoritative busy snapshot — see broadcastTerminalSessions.
         busy: terminalActivity.get(s.id)?.busy ?? false,
       }));
-      return json(list);
+      // `reconciled` also travels over REST, as a HEADER: the body stays a bare
+      // array (MCP, mobile and the tests read it that way), but a client can now
+      // tell "there is no session" from "I asked too early". Without it a client
+      // that only ever reads REST never promotes an empty roster to
+      // authoritative, so an orphaned terminal pane never declares itself
+      // expired and retries its attach forever.
+      const res = json(list);
+      if (rosterReconciled) res.headers.set(ROSTER_RECONCILED_HEADER, "1");
+      return res;
     }
 
     if (method === "POST" && (pathname === "/api/terminal/sessions" || pathname === "/api/terminal/create")) {
