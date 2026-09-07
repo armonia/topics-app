@@ -32,11 +32,31 @@
 
 /**
  * Messages in the first page. Forty: more than a screen of any chat on any
- * viewport, so the reveal never shows an empty top; a few tens of KB of lean
- * rows even on agentic turns, so the page answers in the time the curtain's
- * floor already grants (80 ms).
+ * viewport, so the reveal never shows an empty top.
+ *
+ * A count alone is NOT a budget. Measured in read-only on this machine's own
+ * state on 2026-09-07, forty messages of an agentic topic weigh 0.66 to 1.33 MB
+ * of LEAN rows - 30x to 60x the "few tens of KB" this number used to assume -
+ * so the byte cap below is what actually bounds the first page; the count only
+ * bounds it from above.
  */
 export const HISTORY_FIRST_PAGE = 40;
+
+/**
+ * Byte budget of the FIRST page of `/api/history`: the server walks the lean
+ * rows from the tail and stops once the serialized size passes this, always
+ * keeping at least one message. `total` still counts the whole thread, so the
+ * client sees `messages.length < total`, marks the history partial and
+ * completes it with `before` using the code it already has
+ * (`useChat.completeHistory`).
+ *
+ * 256 KB, the same number as `CACHE_MAX_BYTES` in `client/src/hooks/useChat.ts`:
+ * the first page and the local copy hold the same tail, so one budget for both
+ * is one thing to reason about instead of two. A request that asks for the
+ * whole thread (`limit: 0`) is never capped - the callers that need it need all
+ * of it.
+ */
+export const HISTORY_PAGE_MAX_BYTES = 256 * 1024;
 
 /**
  * The `limit` that means "no cap, the whole thread" to `/api/history` (see
