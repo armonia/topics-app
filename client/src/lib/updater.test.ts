@@ -6,12 +6,13 @@
  * boot piazzava un toast di errore a ogni avvio dell'app — per qualcosa che
  * l'utente non ha chiesto e non può risolvere. Un aggiornamento davvero
  * disponibile deve invece uscire SEMPRE, anche se il controllo era silenzioso.
-  * @covers UPDATER-01
+  * @covers UPDATER-01, STATUSLINE-03c
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { shouldShowUpdaterToast, updateTitle, type UpdaterStatus } from './updater';
+import { shellUpdateNotice, shouldShowUpdaterToast, updateTitle, type UpdaterStatus } from './updater';
+import { ensureLocaleLoaded, t } from './i18n';
 
 const quiet = { dismissed: false, versionPopoverOpen: false };
 
@@ -173,14 +174,58 @@ describe('"you are up to date" is an answer, "idle" is not', () => {
   });
 });
 
+describe('an available update, and the number the sentence names', () => {
+  // The three outcomes of the comparison, and the sentence each one puts on
+  // screen. The case that produced the card: a shell at 2.2.264 on a machine
+  // whose client bundle already read 2.2.277, so the release number alone said
+  // nothing the person did not already believe they had.
+  test('the published release is NEWER than the installed shell: the release sentence', () => {
+    const notice = shellUpdateNotice('2.2.277', '2.2.264');
+    expect(notice?.title).toEqual({ key: 'update.title.available', params: { v: ' v2.2.277' } });
+    expect(notice?.detail).toBeUndefined();
+    expect(t(notice!.title.key, 'it', notice!.title.params)).toBe('Aggiornamento v2.2.277 disponibile');
+  });
+
+  test('on a dev install the notice carries the SHELL number too, on its own line', async () => {
+    await ensureLocaleLoaded('en');
+    const notice = shellUpdateNotice('2.2.277', '2.2.264', { devInstall: true });
+    expect(t(notice!.title.key, 'it', notice!.title.params)).toBe('Aggiornamento v2.2.277 disponibile');
+    expect(t(notice!.detail!.key, 'it', notice!.detail!.params)).toBe('Guscio installato v2.2.264');
+    expect(t(notice!.detail!.key, 'en', notice!.detail!.params)).toBe('Installed shell v2.2.264');
+  });
+
+  test('the same version, or an older one: nothing to say, on either install', () => {
+    expect(shellUpdateNotice('2.2.277', '2.2.277')).toBeNull();
+    expect(shellUpdateNotice('2.2.277', '2.2.277', { devInstall: true })).toBeNull();
+    // The dev machine builds ahead of the last release all day: an endpoint
+    // offering an OLDER version must not produce a banner.
+    expect(shellUpdateNotice('2.2.276', '2.2.277', { devInstall: true })).toBeNull();
+  });
+
+  test('an unknown shell number does not buy silence: the update is real', () => {
+    expect(shellUpdateNotice('2.2.277', undefined)?.title.key).toBe('update.title.available');
+    expect(shellUpdateNotice('2.2.277', '0.0.0')?.title.key).toBe('update.title.available');
+    // …and with nothing offered there is nothing to announce.
+    expect(shellUpdateNotice(undefined, '2.2.264')).toBeNull();
+  });
+
+  test('the comparison is numeric, not alphabetical', () => {
+    // '2.2.9' > '2.2.10' as strings, which would hide a real update.
+    expect(shellUpdateNotice('2.2.10', '2.2.9')?.title.key).toBe('update.title.available');
+    expect(shellUpdateNotice('2.2.9', '2.2.10')).toBeNull();
+  });
+});
+
 describe('the keys exist in both dictionaries', () => {
   // A key with no sentence behind it renders as the key itself, which is how a
   // banner ends up saying "update.err.network" to a person.
   const KEYS = [
     'update.title.checking', 'update.title.upToDate', 'update.title.available',
     'update.title.downloading', 'update.title.ready', 'update.title.idle',
+    'update.detail.localShell',
     'update.err.network', 'update.err.endpoint', 'update.err.generic',
-    'update.downloadInstall',
+    'update.downloadInstall', 'update.updateApp', 'dev.reload',
+    'banner.eyebrow.build', 'banner.eyebrow.release',
   ];
   // A path string, not `new URL('./i18n-it.ts', import.meta.url)`: knip reads
   // a `new URL(…, import.meta.url)` as a module edge, and a catalogue reached
