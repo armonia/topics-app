@@ -861,3 +861,37 @@ Le RISPOSTE non cambiano: archiviati fuori da entrambi gli aggregati,
 #### Scenario: le stesse risposte della scansione piena
 - **GIVEN** stati generati con attese, richieste di input, «visto», archiviati e standalone mescolati
 - **THEN** tier e soggetti SHALL essere identici a quelli della scansione sull'intera mappa
+
+### Requirement: LOOPLAG-01 — A stopped event loop SHALL leave a line, and a healthy one SHALL leave none
+
+The server SHALL sample its own event loop and, whenever a tick arrives more
+than one second after it was due, SHALL write ONE line naming the lag and what
+was true of the process at that instant: `phys_footprint`, the compressed size
+of the task, the resident size, the page-ins taken DURING the stall, and the
+one-minute load average.
+
+The lag SHALL be measured against the instant the tick was DUE, not against the
+previous tick: a loop that was gone for six seconds SHALL read as six seconds.
+
+The page-in figure SHALL be a DELTA. The cumulative count is a state and says
+nothing about the window that just closed; the delta is the only one of the five
+numbers that separates "the process was waiting for the disk" from "the process
+was queued behind other work", and those two have different remedies.
+
+A number that could not be read SHALL print as unknown, NEVER as zero: on a
+memory figure, zero is an assertion and it is false.
+
+Below the threshold the sampler SHALL print NOTHING. A stall line is worth
+reading only in a file where a healthy minute leaves no line at all.
+
+#### Scenario: the loop keeps its schedule
+- **GIVEN** a tick late by 40 ms
+- **THEN** nothing SHALL be written
+
+#### Scenario: a stall of six seconds
+- **GIVEN** a tick that arrives 6,508 ms after it was due
+- **THEN** one line SHALL carry the lag, the footprint, the compressed size and the page-ins taken during it
+
+#### Scenario: a figure the platform cannot answer
+- **GIVEN** a process where `phys_footprint` is not readable
+- **THEN** the line SHALL say unknown, and SHALL NOT print zero megabytes
