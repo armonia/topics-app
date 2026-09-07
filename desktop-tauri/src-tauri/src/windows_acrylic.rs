@@ -56,6 +56,8 @@
 //! type-checking these bodies as dead code is the only compile proof there is,
 //! and it is worth more than a `#[cfg]` that hides them.
 
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use tauri::utils::config::WindowEffectsConfig;
 use tauri::window::{Color, Effect, EffectState, EffectsBuilder};
 
 /// Acrylic or Mica: the whole decision, in one line. See the header for why it
@@ -69,6 +71,59 @@ const BACKDROP: Effect = Effect::Acrylic;
 /// blur behind it is invisible, which is the same as having no backdrop.
 const TINT_LIGHT: Color = Color(244, 244, 246, 140);
 const TINT_DARK: Color = Color(20, 21, 23, 140);
+
+/// IS FLOATING MODE ON, as the client last said.
+///
+/// It lives here because it decides ONE thing: whether this window asks DWM for
+/// a backdrop at all. In floating mode the page detaches every split into a card
+/// and leaves real holes between them; a whole-window backdrop fills those holes
+/// with blur, so on Windows the gaps read as frosted glass while on macOS (where
+/// vibrancy is per region) they show the live desktop. Reported from a Windows
+/// build (card 6df97deb): the blur stays between the floating windows too. The
+/// only lever Windows gives us is the whole window, so floating mode turns the
+/// backdrop OFF and the page pays for it by painting its cards opaque
+/// (`html.windows-acrylic .floating-splits` in `client/src/index.css`).
+///
+/// An atomic and not a window field: the flag is a property of the APP (one
+/// setting, every window follows it), and it is read from the same main thread
+/// that applies the effect.
+static FLOATING: AtomicBool = AtomicBool::new(false);
+
+/// The theme mode the client last pinned, so a floating toggle can re-apply the
+/// backdrop with the SAME tint the theme command would have used. Without it,
+/// turning floating off would have to guess, and guessing "light" is how a dark
+/// window comes back frosted white.
+static THEME_MODE: AtomicU8 = AtomicU8::new(MODE_SYSTEM);
+/// Follow the OS: no pin. The three values are the same three-way the client
+/// sends to `set_theme`.
+const MODE_SYSTEM: u8 = 0;
+const MODE_DARK: u8 = 1;
+const MODE_LIGHT: u8 = 2;
+
+fn remember_theme(dark: Option<bool>) {
+    THEME_MODE.store(
+        match dark {
+            Some(true) => MODE_DARK,
+            Some(false) => MODE_LIGHT,
+            None => MODE_SYSTEM,
+        },
+        Ordering::Relaxed,
+    );
+}
+
+fn remembered_theme() -> Option<bool> {
+    match THEME_MODE.load(Ordering::Relaxed) {
+        MODE_DARK => Some(true),
+        MODE_LIGHT => Some(false),
+        _ => None,
+    }
+}
+
+/// Should this window carry the DWM backdrop right now? The rule is one line and
+/// it is pure, so it can be tested from any platform.
+fn backdrop_wanted() -> bool {
+    !FLOATING.load(Ordering::Relaxed)
+}
 
 /// The windows that are the APP shell, and therefore the ones that carry the
 /// app's chrome: `main`, every pop-out (`detach-*`) and every group window
@@ -114,6 +169,10 @@ pub(crate) fn is_app_shell(label: &str) -> bool {
 /// (`Message::Task(task) => task()`) instead of posting it to a loop that has
 /// not started.
 pub(crate) fn apply_backdrop(window: &tauri::Window, dark: Option<bool>) {
+    // Remembered on EVERY platform, and before the platform split, so the value
+    // is written by the one function everybody already calls and a Mac
+    // `cargo check` still reads this line.
+    remember_theme(dark);
     #[cfg(target_os = "windows")]
     apply_backdrop_win(window, dark);
     #[cfg(not(target_os = "windows"))]
@@ -142,6 +201,18 @@ fn apply_backdrop_win(window: &tauri::Window, dark: Option<bool>) {
         Some(d) => d,
         None => matches!(window.theme(), Ok(tauri::Theme::Dark)),
     };
+    // FLOATING MODE: no backdrop, so the holes between the cards are holes.
+    // `set_effects(None)` routes to `clear_blur` + `clear_acrylic` + `clear_mica`
+    // in tauri's Windows vibrancy arm, and `clear_acrylic` writes
+    // `DWMSBT_DISABLE` on Windows 11 and `ACCENT_DISABLED` on the legacy path, so
+    // the effect really goes away instead of being overwritten by the next one.
+    // The theme pin above is applied either way: it is what carries dark mode to
+    // the page (`prefers-color-scheme`), and that must not depend on a layout
+    // setting.
+    if !backdrop_wanted() {
+        let _ = window.set_effects(None::<WindowEffectsConfig>);
+        return;
+    }
     let _ = window.set_effects(
         EffectsBuilder::new()
             .effect(BACKDROP)
@@ -182,6 +253,35 @@ fn wire_win(app: &tauri::AppHandle) {
     }
 }
 
+/// Floating mode went on or off: remember it and redo the backdrop on every
+/// app-shell window with the theme the client last pinned.
+///
+/// Client-driven, like the theme: the setting lives in the app's settings and
+/// the shell has no way to read it. Idempotent, so the client can call it on
+/// every mount without checking what it sent last time.
+///
+/// The flag is stored on every platform (one line, no window touched) so the
+/// static is not a Windows-only symbol and a Mac `cargo check` keeps reading it;
+/// only the re-apply is behind the platform gate.
+pub(crate) fn set_floating(app: &tauri::AppHandle, floating: bool) {
+    FLOATING.store(floating, Ordering::Relaxed);
+    #[cfg(target_os = "windows")]
+    reapply_win(app);
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+fn reapply_win(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let dark = remembered_theme();
+    for (label, win) in app.windows() {
+        if !is_app_shell(&label) {
+            continue;
+        }
+        apply_backdrop(&win, dark);
+    }
+}
+
 /// The Windows half of the `set_theme` command: re-tint every app-shell window
 /// for the theme MODE the client just chose.
 ///
@@ -212,7 +312,10 @@ fn apply_theme_mode_win(app: &tauri::AppHandle, mode: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::is_app_shell;
+    use super::{
+        backdrop_wanted, is_app_shell, remember_theme, remembered_theme, FLOATING, THEME_MODE,
+    };
+    use std::sync::atomic::Ordering;
 
     /// Every window that paints the app must be in, and nothing else. A browser
     /// pane leaking in would put a DWM backdrop behind the open web; an app
@@ -226,5 +329,29 @@ mod tests {
         assert!(is_app_shell("space-0123456789abcdef-0"));
         assert!(!is_app_shell("browserpane-1"));
         assert!(!is_app_shell("maintenance"));
+    }
+
+    /// The whole point of the floating flag: with it on, no window asks DWM for
+    /// a backdrop, because a whole-window backdrop is exactly what fills the
+    /// gaps the feature opens between the cards.
+    #[test]
+    fn floating_mode_asks_for_no_backdrop() {
+        FLOATING.store(false, Ordering::Relaxed);
+        assert!(backdrop_wanted());
+        FLOATING.store(true, Ordering::Relaxed);
+        assert!(!backdrop_wanted());
+        FLOATING.store(false, Ordering::Relaxed);
+    }
+
+    /// Turning floating off has to bring back the tint the theme command chose,
+    /// not a guessed one: the round trip is what makes that possible.
+    #[test]
+    fn the_theme_mode_survives_a_floating_toggle() {
+        let before = THEME_MODE.load(Ordering::Relaxed);
+        for mode in [Some(true), Some(false), None] {
+            remember_theme(mode);
+            assert_eq!(remembered_theme(), mode);
+        }
+        THEME_MODE.store(before, Ordering::Relaxed);
     }
 }

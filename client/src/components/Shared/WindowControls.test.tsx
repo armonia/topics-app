@@ -36,6 +36,7 @@ import {
   TRAFFIC_LIGHT_DOT_PX,
   TRAFFIC_LIGHT_GAP_PX,
   WINDOW_CONTROLS_INSET_PX,
+  WINDOW_CONTROL_CELL_GAP_PX,
   CONTENT_CHROME_INSET_PX,
   CONTENT_CHROME_INSET_PROPERTY,
 } from '../../lib/shell/windowControlsGeometry';
@@ -177,12 +178,26 @@ describe('the reserved room', () => {
 
   test('Windows cells and anchor are the ones the arithmetic assumes', () => {
     const html = renderToStaticMarkup(<WindowControls visible />);
-    // 3 cells of 18 anchored at 6 = the group ends at 60 inside the wrapper,
-    // then one ROW_INSET of air: 66. The cells are hit targets and stay 18.
+    // 3 cells of 18 with 4 of air between them, anchored at 6 = the group ends at
+    // 68 inside the wrapper, then one ROW_INSET of air: 74. The cells are hit
+    // targets and stay 18.
     expect((html.match(/h-\[18px\] w-\[18px\]/g) || []).length).toBe(3);
     expect(html).toContain(`left-[${WINDOW_CONTROLS_INSET_PX - ROW_INSET}px]`);
-    expect(TITLE_INSET_WINDOWS_PX).toBe(6 + 18 * 3 + ROW_INSET);
-    expect(TITLE_INSET_WINDOWS_PX).toBe(66);
+    expect(TITLE_INSET_WINDOWS_PX).toBe(6 + 18 * 3 + 4 * 2 + ROW_INSET);
+    expect(TITLE_INSET_WINDOWS_PX).toBe(74);
+  });
+
+  /**
+   * THE AIR IS DRAWN, not only declared. The inset above is arithmetic on a
+   * constant; what the eye sees is the `gap` class on the group, and the two can
+   * drift apart in silence (they did: the group had no gap at all while the
+   * inset already claimed a cluster width). Pin the class to the constant.
+   */
+  test('the cells are drawn with exactly the air the inset reserves', () => {
+    const html = renderToStaticMarkup(<WindowControls visible />);
+    const root = html.slice(0, html.indexOf('<button'));
+    expect(root).toContain(`gap-[${WINDOW_CONTROL_CELL_GAP_PX}px]`);
+    expect(WINDOW_CONTROL_CELL_GAP_PX).toBe(4);
   });
 
   test('the title wrapper reserves it whenever the commands are on screen', () => {

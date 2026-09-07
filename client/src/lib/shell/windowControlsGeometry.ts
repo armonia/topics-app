@@ -29,8 +29,9 @@
  *
  *     mac:      lights at window x=12, 52 wide, then one ROW_INSET of air
  *               12 + 52 - ROW_INSET + ROW_INSET   =  64
- *     windows:  cells at `left-[6px]`, 3 x 18, then one ROW_INSET of air
- *               6 + 54 + ROW_INSET                =  66
+ *     windows:  cells at `left-[6px]`, 3 x 18 with 4 of air between them,
+ *               then one ROW_INSET of air
+ *               6 + 54 + 8 + ROW_INSET            =  74
  *
  * The air between the commands and the word is ROW_INSET on purpose: it is the
  * same step the search and add pair keeps at the other end of the row, so the
@@ -60,6 +61,22 @@ const GAP_PX = ROW_INSET;
 
 /** One Windows command cell, `h-[18px] w-[18px]` in `WindowControls.tsx`. */
 const CELL_PX = 18;
+/**
+ * THE AIR BETWEEN TWO WINDOWS CELLS, and it used to be zero.
+ *
+ * At rest that reads fine: the ink is a 10px glyph inside an 18px cell, so two
+ * glyphs sit 8px apart, the same air the Mac keeps between two dots. The cell is
+ * not only ink, though: it is a hit target that FILLS with colour on hover, and
+ * three 18px rectangles with nothing between them stop being three buttons the
+ * moment one lights up. That is what was reported from a Windows build
+ * (card 6df97deb): the commands are not spaced.
+ *
+ * 4px is the air, not more: the cluster grows from 54 to 62 and the word next to
+ * it moves by eight pixels, which keeps this group roughly the size of the Mac's
+ * (52) instead of drifting towards the Windows 11 caption bar, whose three cells
+ * are 46 wide each and would be a 138px slab over the row.
+ */
+export const WINDOW_CONTROL_CELL_GAP_PX = 4;
 /** The Windows group's `left-[6px]`, which puts the first cell at
  *  WINDOW_CONTROLS_INSET_PX in the window: the Mac's anchor. */
 const LEFT_PX = WINDOW_CONTROLS_INSET_PX - ROW_INSET;
@@ -74,9 +91,10 @@ export const TITLE_INSET_MAC_PX =
 
 /**
  * Where the word «Topics» starts on Windows, in wrapper coordinates:
- * 6 + 18 x 3 + 6 = 66. The cells stay 18px: they are hit targets.
+ * 6 + 18 x 3 + 4 x 2 + 6 = 74. The cells stay 18px: they are hit targets.
  */
-export const TITLE_INSET_WINDOWS_PX = LEFT_PX + CELL_PX * CONTROLS + GAP_PX;
+export const TITLE_INSET_WINDOWS_PX =
+  LEFT_PX + CELL_PX * CONTROLS + WINDOW_CONTROL_CELL_GAP_PX * (CONTROLS - 1) + GAP_PX;
 
 /**
  * The same numbers as classes, written out in full because Tailwind scans the
@@ -84,7 +102,7 @@ export const TITLE_INSET_WINDOWS_PX = LEFT_PX + CELL_PX * CONTROLS + GAP_PX;
  * generated. The test in `WindowControls.test.tsx` keeps each pair in step.
  */
 export const TITLE_INSET_WITH_CONTROLS_MAC = 'pl-[64px]';
-export const TITLE_INSET_WITH_CONTROLS_WINDOWS = 'pl-[66px]';
+export const TITLE_INSET_WITH_CONTROLS_WINDOWS = 'pl-[74px]';
 
 /**
  * THE ROOM THE CONTENT KEEPS WHEN THE SIDEBAR IS AWAY, on the Mac only.

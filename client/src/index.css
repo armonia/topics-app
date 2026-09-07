@@ -378,7 +378,14 @@
    * piano INTERMEDIO — o stava col chrome o spariva nel bianco. In scuro sono
    * 1,076 e 1,061, cioè due gradini pari. La pagina scende a 96% di lightness:
    * chrome↔pagina 1,075:1 (lo scuro fa 1,076) e pagina↔pane 1,098:1. */
-  --bg: hsl(220 5.6% 96%);
+  /* `--bg-solid` is the SAME colour, kept under a name the frost never
+   * overrides: `html.native-frost` rewrites `--bg` to a translucent veil, and a
+   * surface that must stay readable with no backdrop behind it (Windows,
+   * floating mode, where the DWM backdrop is off) has to be able to ask for the
+   * flat one. Declared as the source and `--bg` derived from it, so the two
+   * cannot drift into two greys. */
+  --bg-solid: hsl(220 5.6% 96%);
+  --bg: var(--bg-solid);
   --bg-surface: #ffffff;
   /* IL CHROME — la superficie della NAVIGAZIONE (sidebar: header, albero,
    * barra di stato). Un gradino SOTTO la pagina, non sopra: il chrome
@@ -549,7 +556,10 @@
    * coi numeri, accanto a `color-scheme: light` sopra. */
   color-scheme: dark;
 
-  --bg: hsl(222 5.6% 8.5%);
+  /* The dark twin of `--bg-solid` on `:root`: same colour, a name the frost
+   * override cannot reach. See the light one for why it exists. */
+  --bg-solid: hsl(222 5.6% 8.5%);
+  --bg: var(--bg-solid);
   --bg-surface: hsl(222 4.9% 11%);
   /* Il chrome in dark è il GEMELLO OPACO del vetro che l'app desktop mostra
    * già da sempre (`hsl(224 26% 4.5% / .55)` più sotto): stessa tinta, senza
@@ -3638,6 +3648,45 @@ html.native-frost .floating-splits [role="navigation"][aria-label="Topics sideba
  * spot would make a project panel darker than everything around it, which is
  * the compounding the `#main-content` block above exists to prevent. */
 .floating-splits [data-split-card] [data-split-card] {
+  background-color: transparent;
+}
+
+/* WINDOWS IN FLOATING MODE: THE CARDS GO OPAQUE, BECAUSE THE GROUND IS GONE.
+ *
+ * The block above hands the veil to the cards, and a veil is a translucent
+ * colour: it only reads as a surface because something frosted sits behind it.
+ * On macOS that something is the per-region vibrancy, which covers the cards and
+ * stops at their edges, so the gaps are holes onto the live desktop. Windows has
+ * no per-region anything: DWM gives ONE backdrop for the whole window, and it
+ * fills the gaps too. Reported from a Windows build (card 6df97deb): the blur
+ * stays between the floating windows as well, which is floating mode with
+ * nothing floating.
+ *
+ * The only lever Windows has is the whole window, so the shell now drops the
+ * backdrop while floating is on (`window_set_floating` -> `windows_acrylic.rs`)
+ * and the gaps become real holes. That leaves the cards with nothing behind
+ * them, and 72% of a colour over a wallpaper is not a surface, it is a stain:
+ * they take the flat `--bg-solid`, which is the app's own background when there
+ * is no frost to ride. What Windows trades away is the frost ON the cards; what
+ * it gets is the feature it did not have.
+ *
+ * Keyed on `windows-acrylic`, the per-OS class (see the block at the top of the
+ * frost section), so macOS and the web are not touched by a single declaration.
+ * The sidebar rule carries `html.windows-acrylic.native-frost` because it has to
+ * beat TWO `!important` declarations on the same element (the `transparent` one
+ * that kills compounding and the `var(--bg)` one right above): one class more
+ * than either, so it wins on weight and not on where it happens to sit. */
+html.windows-acrylic .floating-splits [data-split-card],
+html.windows-acrylic .floating-splits [data-testid="space-switcher"] {
+  background-color: var(--bg-solid);
+}
+html.windows-acrylic.native-frost .floating-splits [role="navigation"][aria-label="Topics sidebar"] {
+  background-color: var(--bg-solid) !important;
+}
+/* Same exception as the veil's: a card inside a card paints nothing. With an
+ * opaque colour it would not compound, but it would hide the parent's rounded
+ * corner under a square one. */
+html.windows-acrylic .floating-splits [data-split-card] [data-split-card] {
   background-color: transparent;
 }
 
