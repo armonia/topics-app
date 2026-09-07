@@ -287,3 +287,47 @@ revoca fallita SHALL lasciare il link esattamente com'era.
 - **WHEN** si preme «Revoca»
 - **THEN** SHALL comparire il motivo accanto al bottone
 - **AND** il link SHALL essere ancora in elenco
+
+### Requirement: CLIADD-01 — Chi ha la CLI installata deve poterlo DIRE
+
+Topics non porta con sé le righe di comando degli agenti: esegue quelle che
+trova, e per trovarle guarda nelle disposizioni note di ogni modo di
+installarle. Quella lista non può essere completa (un prefisso npm personale, un
+gestore di versioni, una copia su un altro disco), e finché è stata l'unica voce
+in capitolo chi aveva Codex installato altrove leggeva «non c'è» senza nulla da
+premere.
+
+Le impostazioni dei fornitori SHALL mostrare l'elenco delle righe di comando
+degli agenti con il loro stato: dove sono state trovate, oppure che mancano.
+
+Per ognuna SHALL essere offerto un gesto per indicare il percorso A MANO, e per
+quelle assenti SHALL essere mostrato anche il comando di installazione, pronto da
+copiare.
+
+#### Scenario: l'elenco degli agenti nelle impostazioni
+- **GIVEN** la scheda dei fornitori aperta
+- **THEN** SHALL comparire l'elenco delle righe di comando con il loro stato
+- **AND** ognuna SHALL avere il gesto per indicare il percorso
+
+### Requirement: CLIADD-02 — Il percorso indicato si verifica PRIMA di crederci, e vale subito
+
+Un percorso indicato a mano SHALL essere verificato prima di essere scritto: uno
+che non esiste, o che non è eseguibile, SHALL essere rifiutato con una frase che
+dice cosa non va, accanto al campo in cui è stato scritto. Scriverlo e scoprirlo
+dopo significa un fornitore registrato che non può rispondere, e il guasto
+ricompare come un pannello vuoto molto più tardi.
+
+Una cartella NON SHALL essere rifiutata: SHALL essere cercato dentro il binario
+dell'agente, perché è quello che un selettore di file restituisce più spesso del
+binario stesso.
+
+Un percorso accettato SHALL valere SUBITO: i fornitori SHALL essere registrati di
+nuovo nella stessa richiesta, senza che serva riavviare l'applicazione.
+
+#### Scenario: un percorso che non esiste
+- **GIVEN** un percorso indicato a mano che non punta a niente
+- **THEN** SHALL essere rifiutato con il motivo, e NON SHALL essere scritto
+
+#### Scenario: una cartella al posto del binario
+- **GIVEN** una cartella che contiene la riga di comando dell'agente
+- **THEN** SHALL essere accettato il binario trovato dentro

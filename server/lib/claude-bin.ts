@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
 import { join } from "path";
+import { agentBinPath } from "./agent-bin-paths";
 
 /**
  * Resolve the Anthropic `claude` (Claude Code) CLI binary by absolute path.
@@ -66,11 +67,16 @@ let cached: string | null = null;
 
 /**
  * Absolute path to the claude binary, or `null` if it can't be found anywhere.
- * Honors `$CLAUDE_BIN` first, then PATH (`Bun.which`), then the known install
+ * Honors the path chosen in Settings first, then `$CLAUDE_BIN`, then PATH (`Bun.which`), then the known install
  * locations above. Result is memoized.
  */
 export function resolveClaudeBin(): string | null {
   if (cached) return cached;
+
+  // The path somebody pointed at in Settings wins over every guess: it is the
+  // one answer that is not a probe. See `agent-bin-paths.ts`.
+  const chosen = agentBinPath("claude-code");
+  if (chosen) return (cached = chosen);
 
   const envBin = process.env.CLAUDE_BIN;
   if (envBin && existsSync(envBin)) return (cached = envBin);
