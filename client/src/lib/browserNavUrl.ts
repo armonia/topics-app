@@ -17,6 +17,28 @@
  * (Electron desktop, or a web client served from localhost) the original URL is
  * directly reachable and must be left untouched — including its scheme.
  */
+import { serverHttpBase } from './shell/net';
+
+/**
+ * The origin that actually SERVES this app's paths, which is not always the
+ * origin the UI is displayed from.
+ *
+ * On the web the two are the same and this returns `location.origin`, exactly
+ * as before. Inside the desktop shell they are not: the UI is served by the
+ * asset protocol (`tauri://localhost`), and that origin has no HTTP server
+ * behind it at all — the data server is reached through the shell's cleartext
+ * loopback proxy. So resolving `/api/media?path=…` against `location.origin`
+ * there produced `tauri://localhost/api/media?path=…`: a URL the asset protocol
+ * cannot answer, a webview that never leaves `about:blank`, and the white pane
+ * of the report. `getMediaUrl` (lib/api.ts) had already learnt this for
+ * `<img src>`; navigation had not.
+ */
+function servedOrigin(): string {
+  const base = serverHttpBase();
+  if (base) return base;
+  return typeof window === 'undefined' ? '' : window.location.origin;
+}
+
 export function resolveBrowserNavigateUrl(raw: string): string {
   if (typeof window === 'undefined') return raw;
 
@@ -28,7 +50,7 @@ export function resolveBrowserNavigateUrl(raw: string): string {
   // LAN sees. An absolute decided over there is right for exactly one of them.
   if (raw.startsWith('/api/media?path=')) {
     try {
-      return new URL(raw, window.location.origin).toString();
+      return new URL(raw, servedOrigin()).toString();
     } catch {
       return raw;
     }
@@ -87,7 +109,7 @@ export function toNavigableUrl(input: string): string {
   const ref = `/api/media?path=${encodeURIComponent(path)}`;
   if (typeof window === 'undefined') return ref;
   try {
-    return new URL(ref, window.location.origin).toString();
+    return new URL(ref, servedOrigin()).toString();
   } catch {
     return ref;
   }
@@ -255,10 +277,7 @@ function sameOriginPath(s: string, origin: string): string | null {
   return origin ? `${origin}${s}` : s;
 }
 
-export function normalizeUrl(
-  input: string,
-  origin = typeof location === 'undefined' ? '' : location.origin,
-): string {
+export function normalizeUrl(input: string, origin = servedOrigin()): string {
   const s = input.trim();
   if (!s) return 'about:blank';
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return httpsFirstUrl(s);

@@ -43,6 +43,7 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { makeOpenPaneFlow } from "./browser-open-pane-flow";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { resolveAgentNavUrl } from "../browser-tools-handler";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
@@ -211,135 +212,9 @@ export function createBrowserBridgeRouter(
     }
   }
 
-  /**
-   * IL RIPIEGO CHE NON ESISTEVA. `browser:force-open` aveva tipo, schema Zod e
-   * handler nel client (`usePanelLifecycle`) — documentato come «quando il
-   * broadcast normale non ha montato NESSUNA pane visibile» — ma NESSUNO lo
-   * emetteva (`tests/unit/ws-outbound-coverage.test.ts` lo annotava:
-   * «emissione server assente»). Risultato osservato l'11/08/2026: contesto
-   * vivo, pane mai montata, l'utente non vede niente e il tool risponde
-   * «Opened browser pane at …» lo stesso.
-   *
-   * Qui il ripiego viene finalmente armato: dopo il broadcast normale si
-   * aspetta che una pane si agganci al contextId; se nessuna lo fa si chiede
-   * alla finestra primaria di aprirne una a forza, e si aspetta ancora. Il
-   * booleano che torna è ciò che rende ONESTA la risposta della rotta.
-   *
-   * Perché due attese e non un ack esplicito: l'aggancio del socket
-   * `/ws/browser/<ctx>` è già il segnale che la pane esiste ED è viva (lo apre
-   * sia la pane nativa che quella web), quindi non serve un protocollo nuovo
-   * che poi vivrebbe non provato accanto a questo.
-   */
-  async function forceOpenAndWait(contextId: string, url: string): Promise<boolean> {
-    broadcastToAll({ type: "browser:force-open", contextId, url });
-    return waitForAttachedPane(contextId, PANE_WAIT_MS);
-  }
-
-  /**
-   * THE OPENING SEQUENCE, WRITTEN ONCE, FOR ALL THREE BRANCHES.
-   *
-   * `open-pane` has three origins (chat, board task, terminal) and each one had
-   * written its own sequence. The task branch had dropped two steps along the
-   * way: it waited for no pane and it never navigated, so it answered "Opened"
-   * while the tab sat on `about:blank` and the agent had to force the load by
-   * hand with `location.replace` (card 05105d29). Patching the third branch
-   * would only have been waiting for the fourth branch to be born with the same
-   * hole, so the sequence lives here and the three branches CALL it:
-   *
-   *   1. ANNOUNCE   the broadcast that mounts/updates the pane. It is the only
-   *                 thing that differs between branches (layout pane, drawer
-   *                 tab, near-terminal pane);
-   *   2. WAIT       for someone to attach to the contextId, BEFORE navigating:
-   *                 this is the window in which a native pane can register as
-   *                 the delegate, and therefore take the navigation itself
-   *                 instead of leaving it to a headless phantom;
-   *   3. NAVIGATE   a `browser_open` on the context. It reaches the native pane
-   *                 if one registered, otherwise the headless context, which is
-   *                 where observe/act will land anyway. This is the step that
-   *                 was missing, and it is also what re-navigates an ALREADY
-   *                 mounted tab (the client reads `initialUrl` only at mount);
-   *   4. RE-ANNOUNCE  if the navigation redirected, so the pane follows the
-   *                 final URL instead of staying on the starting one;
-   *   5. FALLBACK   if nobody attached, `browser:force-open` with the FINAL URL
-   *                 (a forced pane loads its initialUrl and nothing else:
-   *                 handing it the starting URL would leave it on the wrong
-   *                 page), then wait again.
-   *
-   * The `visible` boolean that comes out is what makes the answer HONEST: a
-   * tool that says "Opened" when it opened nothing is not a navigation defect,
-   * it is a tool lying to a caller who has no way to check.
-   *
-   * The differences between branches stay, but DECLARED as parameters instead
-   * of forgotten: `forceOpen` (the task branch turns it off, because a forced
-   * standalone pane would take the tab OUTSIDE the drawer, away from where the
-   * reviewer looks for it) and `title` (the name prescribed for the tab, or the
-   * page title when there is none).
-   */
-  async function openPaneFlow(opts: {
-    contextId: string;
-    url: string;
-    /** Title to report to the agent; absent = the navigated page's own title. */
-    title?: string;
-    projectPath: string | null;
-    service: BrowserService;
-    /** The branch's broadcast. Called again with the final URL on a redirect. */
-    announce: (url: string) => void;
-    /** `browser:force-open` fallback when no pane attaches (defaults to yes). */
-    forceOpen?: boolean;
-    /**
-     * Does a failed navigation kill the whole call? Yes by default: a chat pane
-     * that could not load has produced nothing, and an error is the truth. The
-     * task branch says no, because there the tab RECORD is the deliverable and
-     * it was already written and announced: answering 500 would tell the agent
-     * the tab does not exist while it sits in the drawer. It gets a 200 with
-     * the failure in `warning` instead, which is the same information without
-     * the lie.
-     */
-    navigationFatal?: boolean;
-  }): Promise<Response> {
-    const { contextId, url, projectPath, service, announce } = opts;
-    announce(url);
-    const attached = await waitForAttachedPane(contextId, PANE_WAIT_MS);
-    let resolvedUrl = url;
-    let pageTitle = "";
-    let navError = "";
-    try {
-      const result = (await dispatchBrowserToolCallByContext(
-        "browser_open",
-        { url },
-        contextId,
-        service,
-      )) as { url?: string; title?: string; error?: string };
-      if (result?.error) {
-        if (opts.navigationFatal !== false) return json({ error: result.error }, 502);
-        navError = result.error;
-      }
-      if (typeof result?.url === "string" && result.url) resolvedUrl = result.url;
-      pageTitle = typeof result?.title === "string" ? result.title : "";
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (opts.navigationFatal !== false) return json({ error: msg }, 500);
-      navError = msg;
-    }
-    if (resolvedUrl !== url) announce(resolvedUrl);
-    const visible = navError
-      ? false
-      : attached
-        ? true
-        : opts.forceOpen === false
-          ? false
-          : await forceOpenAndWait(contextId, resolvedUrl);
-    const portWarning = await portOwnershipWarning(resolvedUrl, projectPath);
-    const warning = [navError ? `navigation failed: ${navError}` : "", portWarning ?? ""]
-      .filter(Boolean)
-      .join(" ");
-    return json({
-      url: resolvedUrl,
-      title: opts.title ?? pageTitle,
-      visible,
-      ...(warning ? { warning } : {}),
-    });
-  }
+  const openPaneFlow = makeOpenPaneFlow({
+    json, broadcastToAll, waitForAttachedPane, paneWaitMs: PANE_WAIT_MS, portOwnershipWarning,
+  });
 
   /**
    * Build the injected deps for the tab inventory (browser-tab-inventory.ts)
