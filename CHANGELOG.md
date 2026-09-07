@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.284 — 2026-09-07
+
+### Sotto il cofano
+- Path containment: compare with the platform separator, not a hardcoded slash
+
 ## 2.2.283 — 2026-09-07
 
 ### Sotto il cofano

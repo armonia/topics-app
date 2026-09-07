@@ -17,6 +17,8 @@ import { TopicItem } from './TopicItem';
 import { topicsApi, projectsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
+import { CalendarAgendaBand } from './CalendarAgendaBand';
+import { isCalendarPageUrl } from '../../../../shared/calendar';
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
 import { DND_TYPES } from '@/lib/dndTypes';
@@ -1676,6 +1678,16 @@ export function TopicTree({
         // due superfici possono dire cose diverse; una sola non può.
         // `null` ⇒ la tessera non si espande e il click porta alla board.
         if (item.id === BOARD_ID) return null;
+        // THE PINNED CALENDAR OPENS ON THE AGENDA (card aa641133). Pinning the
+        // calendar page is already the statement "I look at this every day",
+        // and what is actually looked at is two lines: the next meeting and the
+        // link to join it. The band gives those two lines where the pin already
+        // is, instead of behind a page load. Any other pinned page keeps
+        // opening nothing, which is why the check is on the URL and not on the
+        // type.
+        if (item.type === 'browser') {
+          return isCalendarPageUrl(item.browser?.url) ? <CalendarAgendaBand /> : null;
+        }
         if (item.type !== 'project') return null;
         const children = item.children ?? [];
         // Zero tab aperte ⇒ NIENTE fascia, e quindi niente chevron sulla
