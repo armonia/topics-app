@@ -49,7 +49,7 @@ import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
-import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { dispatchBrowserToolCall, providerRunsBrowserToolsItself, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { decodeCol } from "../../shared/message-blob";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
@@ -2439,7 +2439,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // (try/finally guaranteed unlock even if it throws). Result is fed back
               // through the same onToolResult update path used by every other tool, so
               // the chat UI shows identical lifecycle (running -> success/error).
-              if (name.startsWith('browser_') && matchedTopic && browserService && !globalOrchestrator) {
+              //
+              // ...AND ONLY FOR THE PROVIDERS THAT DO NOT RUN IT THEMSELVES.
+              // The route dispatches what the ROUTE registered (the passthrough
+              // tool list a few hundred lines below); a runtime that carries its
+              // own browser surface already executed the call, so dispatching
+              // here would run it TWICE -- and, on the native runtime, the copy
+              // the route sees has EMPTY args, because the announcement comes
+              // before the arguments are streamed. See
+              // `providerRunsBrowserToolsItself` for the measure.
+              if (name.startsWith('browser_') && matchedTopic && browserService && !globalOrchestrator
+                  && !providerRunsBrowserToolsItself(topicProvider.name)) {
                 // The route runs it itself: here announcing and starting ARE the
                 // same instant, so the suspension is earned.
                 markToolExecuting(toolCallId);
