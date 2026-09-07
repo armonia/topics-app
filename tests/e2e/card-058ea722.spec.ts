@@ -17,7 +17,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
@@ -207,7 +207,7 @@ test.describe("card 058ea722: spacing, pinned names, attachments, ghost card", (
       await deleteTask(request, pid!, tid!).catch(() => {});
     }
     for (const id of topics) await deleteTopic(request, id).catch(() => {});
-    for (const dir of [...WITH_ICON, NO_ICON]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [...WITH_ICON, NO_ICON]) removeTmpDir(dir);
   });
 
   test("058-1/2: no empty glyph box in the tree; packed tiles show the name whole or the icon alone", async ({ page, request }) => {

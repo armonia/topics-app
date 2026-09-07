@@ -26,8 +26,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -113,7 +113,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
     mkdirSync(PROJ, { recursive: true });
     writeFileSync(`${PROJ}/README.md`, "uno\n");
   });
-  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true }));
+  test.afterAll(() => removeTmpDir(PROJ));
 
   test.beforeEach(async ({ page, request }) => {
     await resetPaneStore(request, []);

@@ -21,7 +21,7 @@
  * @covers LAYOUT-30
  */
 import { test, expect } from "@playwright/test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { goToApp } from "./helpers";
@@ -34,6 +34,7 @@ import {
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { SIDEBAR_LABEL_GUTTER_MAX, SIDEBAR_INDENT_STEP } from "../../client/src/lib/selectionStyles";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -120,7 +121,7 @@ test.describe("sidebar: the air left of a label", () => {
 
   test.afterAll(async ({ request }) => {
     if (nestedChatId) await deleteTopic(request, nestedChatId).catch(() => {});
-    rmSync(NESTED_PROJECT, { recursive: true, force: true });
+    removeTmpDir(NESTED_PROJECT);
   });
 
   // Both cases get the SAME world, retries included: the top-level budget is

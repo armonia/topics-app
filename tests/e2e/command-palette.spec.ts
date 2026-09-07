@@ -5,6 +5,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { ensureTopicVisible, goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -754,7 +755,7 @@ test.describe("Command Palette", () => {
     // projectPath (CommandPalette.tsx:275), whose basename shares the "E2E-Cmd"
     // prefix with the seeded topics — so one query lights up BOTH columns.
     const projectHost = await createTopic(request, `E2E-CmdProjHost-${TS}`, {
-      projectPath: `/tmp/E2E-CmdProj-${TS}`,
+      projectPath: canonicalTmpDir("E2E-CmdProj"),
     });
     topicIds.push(projectHost.id);
     await resetPaneStore(request, [...seededPaneIds, projectHost.id]);

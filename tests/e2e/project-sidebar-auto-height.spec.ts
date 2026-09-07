@@ -15,8 +15,8 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
 
 hermetic(test);
 
@@ -128,7 +128,7 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
     // di vuoto dentro un pannello da 200.
     writeFileSync(`${POCO}/a.txt`, "due\n");
   });
-  test.afterAll(() => { rmSync(POCO, { recursive: true, force: true }); });
+  test.afterAll(() => { removeTmpDir(POCO); });
 
   test("AUTOH-1: con poco contenuto la sezione non tiene più l'altezza fissa, e sta sotto il tetto", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "AUTOH-01" });

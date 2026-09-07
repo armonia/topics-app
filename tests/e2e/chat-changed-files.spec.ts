@@ -28,6 +28,8 @@ import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
+import { canonicalTmpRoot } from "./helpers/file-project";
+import { join } from "path";
 
 hermetic(test);
 
@@ -45,7 +47,7 @@ async function sessionKeyOf(request: import("@playwright/test").APIRequestContex
 /** Where the seeded tool calls claim to have written. The folder does not need
  *  to exist: outside a repository the panel answers from the tool calls alone,
  *  which is the degraded shape this spec walks through. */
-const WORK_DIR = "/tmp/e2e-changed-files";
+const WORK_DIR = join(canonicalTmpRoot(), "e2e-changed-files");
 
 test.describe("I file che questa conversazione ha toccato", () => {
   const topics: string[] = [];

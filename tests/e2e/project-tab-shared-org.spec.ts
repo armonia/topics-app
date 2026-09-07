@@ -27,8 +27,8 @@ import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -82,7 +82,7 @@ test.describe("Il marchio dell'organizzazione sulla tab di progetto", () => {
 
   test.afterAll(async ({ request }) => {
     if (projectId) await request.delete(`${E2E_BASE}/api/projects/${projectId}`).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {

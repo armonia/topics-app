@@ -32,12 +32,12 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { PREVIEW_CARD_MAX_RATIO, projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -283,8 +283,8 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
       await request.delete(`${BASE}/api/boards/${PROJECT_ID}/tasks/${id}`).catch(() => {});
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
-    rmSync(MEDIA_DIR, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
+    removeTmpDir(MEDIA_DIR);
   });
 
   test.beforeEach(async ({ page }) => {

@@ -9,8 +9,8 @@
  * percorsi vengono da `helpers/test-server.ts`, che li deriva da `E2E_PORT`.
  */
 
-import { spawn, execFileSync, execSync, type ChildProcess } from "child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
+import { spawn, type ChildProcess } from "child_process";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import {
@@ -23,9 +23,17 @@ import {
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
+import {
+  IS_WINDOWS,
+  killPids,
+  killProcessTree,
+  listenerPids,
+  playwrightChromiumPids,
+} from "./helpers/platform";
 // Same question the build, the land and the runtime probe ask: one authority.
 import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
+import { removeTmpDir } from "./helpers/file-project";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
@@ -122,11 +130,12 @@ async function snapshotBundle(): Promise<string> {
     // ricominciato da capo. Con un bundle esterno non c'è nessun watcher da
     // aspettare: la coerenza si verifica lo stesso, sulla copia, qui sotto.
     if (!override) await waitForFreshBundle(src);
-    rmSync(dest, { recursive: true, force: true });
+    removeTmpDir(dest);
     mkdirSync(dest, { recursive: true });
-    // execFileSync, non execSync: niente shell di mezzo, quindi un percorso con
-    // uno spazio o un apice non diventa una riga di comando diversa.
-    execFileSync("cp", ["-R", `${src}/.`, `${dest}/`]);
+    // `cpSync` and not `cp -R`: no shell, no `cp` binary to exist, and a path
+    // with a space or a quote in it stays one path on every platform. It is
+    // also the same call on Windows, where `cp` is not a command at all.
+    cpSync(src, dest, { recursive: true });
     const missing = missingBundleAssets(dest);
     if (missing.length === 0) {
       console.log(`[global-setup] Bundle congelato in ${dest}`);
@@ -264,25 +273,6 @@ let runLockHeld = false;
 let foreignChromiumPids: Set<string> = new Set();
 
 /**
- * PIDs of every Chromium our cleanup code considers fair game, machine-wide.
- * MUST stay in sync with the match used by global-teardown.ts — the whole point
- * is that the "spare" snapshot and the kill see the same population.
- */
-function listPlaywrightChromiumPids(): string[] {
-  try {
-    return execSync(
-      'ps ax -o pid=,command= | grep -E "ms-playwright|mcp-chrome" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\'',
-    )
-      .toString()
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Attende che la porta del server di test si apra. Il tetto arriva da
  * `E2E_SERVER_START_TIMEOUT_MS` perché quanto serve dipende da quanti shard
  * stanno bootando insieme: `scripts/e2e-shards.sh` lo alza, un run singolo tiene
@@ -311,11 +301,22 @@ async function waitForServer(
 }
 
 async function startTestServer(): Promise<void> {
-  const scriptPath = resolve(__dirname, "../../scripts/start-test-server.sh");
+  // Two launchers, one per platform, and the reason is written at the top of
+  // `scripts/start-test-server.win.mjs`: a Windows DATA_DIR handed to bash has
+  // its backslashes eaten as escapes, so the server ends up writing its
+  // database next to where the bench is looking.
+  const scriptPath = resolve(
+    __dirname,
+    IS_WINDOWS ? "../../scripts/start-test-server.win.mjs" : "../../scripts/start-test-server.sh",
+  );
 
-  serverProcess = spawn("bash", [scriptPath], {
+  serverProcess = spawn(IS_WINDOWS ? "node" : "bash", [scriptPath], {
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
+    // A process group of its own, so the whole tree dies with one signal. On
+    // Windows `detached` means something else (a new console, which orphans the
+    // child from our kill entirely), and the tree is reached with
+    // `killProcessTree` instead.
+    detached: !IS_WINDOWS,
     env: {
       ...process.env,
       // Porta, DATA_DIR, TOPICS_HOME, OPENCLAW_DIR e i socket del PTY-bridge /
@@ -466,7 +467,7 @@ async function globalSetup() {
 
   // Snapshot foreign Chromiums BEFORE we launch any of our own, so the
   // emergency kill can tell them apart (see emergencyCleanup).
-  foreignChromiumPids = new Set(listPlaywrightChromiumPids());
+  foreignChromiumPids = new Set(playwrightChromiumPids());
   // global-teardown.ts runs in this same process but as a separate module, so
   // it can't see the Set — hand the list over via env, as we already do for
   // __TEST_SERVER_PID.
@@ -500,16 +501,14 @@ async function globalSetup() {
   // `-sTCP:LISTEN`: senza, lsof elenca anche i socket che hanno questa porta
   // come capo REMOTO — cioè i client. Vogliamo chi TIENE la porta, non chi la
   // sta usando (vedi killServer in terminal-session-resume.spec.ts).
-  try {
-    const stalePids = execSync(
-      `lsof -ti :${TEST_SERVER_PORT} -sTCP:LISTEN 2>/dev/null || true`
-    ).toString().trim();
-    if (stalePids) {
-      execSync(`kill ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
+  {
+    const stalePids = listenerPids(TEST_SERVER_PORT);
+    if (stalePids.length) {
+      killPids(stalePids);
       console.log(`[global-setup] Killed stale test processes on port ${TEST_SERVER_PORT}`);
       await new Promise((r) => setTimeout(r, 1000));
     }
-  } catch {}
+  }
 
   // Pulizia dello stato browser della run PRECEDENTE — SOLO sotto la cartella
   // dati di test, mai `<repo>/data`.
@@ -540,7 +539,7 @@ async function globalSetup() {
   for (const dir of [join(TEST_DATA_DIR, "browser-state")]) {
     try {
       if (existsSync(dir)) {
-        rmSync(dir, { recursive: true, force: true });
+        removeTmpDir(dir);
         console.log(`[global-setup] Wiped stale browser-state: ${dir}`);
       }
     } catch (err) {
@@ -769,14 +768,12 @@ function emergencyCleanup() {
     runLockHeld = false;
     try { releaseRunLock(TEST_SERVER_PORT); } catch {}
   }
-  try {
-    if (serverProcess?.pid) process.kill(-serverProcess.pid, 'SIGTERM');
-  } catch {}
+  if (serverProcess?.pid) killProcessTree(serverProcess.pid);
   try {
     // `-sTCP:LISTEN` o si ammazzano anche i CLIENT della porta: senza il filtro
     // lsof elenca i Chromium connessi al server di test, e questo kill li porta
     // via insieme al server (il fallimento poi esce altrove, come flake).
-    execSync(`lsof -ti :${TEST_SERVER_PORT} -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true`);
+    killPids(listenerPids(TEST_SERVER_PORT));
     // Kill only the Chromiums THIS run is responsible for. The previous version
     // killed every ms-playwright Chromium on the machine, which reaches across
     // repos: a concurrent E2E run in another project (and its results) died
@@ -785,10 +782,10 @@ function emergencyCleanup() {
     // più, ma da sola non basta con più shard in parallelo (i browser degli
     // altri nascono DOPO la fotografia).
     const mine = descendantsOf(process.pid);
-    const ours = listPlaywrightChromiumPids().filter(
+    const ours = playwrightChromiumPids().filter(
       (pid) => !foreignChromiumPids.has(pid) && mine.has(pid) && /^\d+$/.test(pid),
     );
-    if (ours.length) execSync(`kill -9 ${ours.join(" ")} 2>/dev/null || true`);
+    if (ours.length) killPids(ours, { force: true });
   } catch {}
 }
 process.on('SIGINT', emergencyCleanup);

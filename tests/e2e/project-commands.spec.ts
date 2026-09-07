@@ -12,10 +12,11 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { existsSync, realpathSync, rmSync } from "fs";
+import { existsSync, realpathSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -183,7 +184,7 @@ test.describe.serial("Project Commands", () => {
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
     if (existsSync(testProjectDir)) {
-      rmSync(testProjectDir, { recursive: true, force: true });
+      removeTmpDir(testProjectDir);
     }
   });
 

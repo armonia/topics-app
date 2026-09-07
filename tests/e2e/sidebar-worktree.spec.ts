@@ -17,11 +17,12 @@
  * @covers TOPIC-WT-02
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { createTopic, deleteTopic, patchTopic, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
-import { initGitRepo } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { basename } from "path";
 
 hermetic(test);
 
@@ -58,8 +59,8 @@ async function makeWorktree(request: APIRequestContext, projectId: string): Prom
   return ready;
 }
 
-const repoRaw = `/tmp/topics-e2e-sidebar-wt-${Date.now()}`;
-const projectName = repoRaw.slice("/tmp/".length);
+const repoRaw = canonicalTmpDir("topics-e2e-sidebar-wt");
+const projectName = basename(repoRaw);
 /**
  * The CANONICAL path (`/private/tmp/…` on macOS), for the project row and the
  * topics alike. The topics route stores a topic's `projectPath` resolved, the
@@ -146,7 +147,7 @@ test.describe("Sidebar — worktree of a topic", () => {
     for (const wt of [alpha, beta]) {
       if (wt) await request.delete(`${API}/worktrees/${wt.id}`).catch(() => {});
     }
-    rmSync(repoRaw, { recursive: true, force: true });
+    removeTmpDir(repoRaw);
   });
 
   test("TOPIC-WT-02: two worktrees give two sections and a header action; one worktree gives the chip alone", async ({ page, request }) => {

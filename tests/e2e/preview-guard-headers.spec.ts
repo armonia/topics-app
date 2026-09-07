@@ -16,12 +16,13 @@
  *
  * @covers MEDIA-01
  */
-import { mkdtempSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -63,7 +64,7 @@ test.describe("the guards on a file served from the app's own origin", () => {
       if (topicId) {
         await request.delete(`${E2E_BASE}/api/topics/${topicId}`, { failOnStatusCode: false }).catch(() => {});
       }
-      rmSync(dir, { recursive: true, force: true });
+      removeTmpDir(dir);
     }
   });
 });

@@ -3,6 +3,8 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { TERMINAL_AGENT_TYPES } from "../../shared/terminal-session-types";
+import { canonicalTmpRoot } from "./helpers/file-project";
+import { join } from "path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -56,7 +58,7 @@ async function cleanApp(page: import("@playwright/test").Page) {
   }).toPass({ timeout: 15_000 });
 }
 
-const PROJECT_DIR = "/tmp/e2e-add-menu";
+const PROJECT_DIR = join(canonicalTmpRoot(), "e2e-add-menu");
 
 test.describe.serial("Add menu — sistema", () => {
   let topicId: string | null = null;
