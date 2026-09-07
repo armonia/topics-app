@@ -90,7 +90,7 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
           {error ? (
             <span className="block text-[11px] text-amber-600 dark:text-amber-400">{error}</span>
           ) : body === null ? (
-            <span className="block text-[11px] italic opacity-70">Leggo il file…</span>
+            <span className="block text-[11px] italic opacity-70">{tr('chat.command.readingFile')}</span>
           ) : (
             <pre
               data-testid="invoked-command-body"

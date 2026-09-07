@@ -120,7 +120,7 @@ test.describe("Chat — superfici e affordance, misurate", () => {
 
     // L'area input CRESCE (è lo stesso percorso del banner di compattazione:
     // inputAreaHeight → Footer di Virtuoso).
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.click();
     await textarea.fill("riga1\nriga2\nriga3\nriga4\nriga5\nriga6");
     await page.waitForTimeout(700);
@@ -158,7 +158,7 @@ test.describe("Chat — superfici e affordance, misurate", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const input = page.getByRole("textbox", { name: /Message input/ });
+    const input = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await input.waitFor({ state: "visible", timeout: 15_000 });
 
     const striscia = page.getByTestId("goal-bar");

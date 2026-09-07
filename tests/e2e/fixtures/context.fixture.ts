@@ -181,7 +181,7 @@ export class ContextPage {
 
     // Wait for chat textarea to confirm topic opened
     await this.page
-      .getByRole("textbox", { name: /Message input/ })
+      .getByRole("textbox", { name: /Campo del messaggio/ })
       .waitFor({ state: "visible", timeout: 10_000 });
 
     // Open the Context Inspector. The trigger depends on layout:

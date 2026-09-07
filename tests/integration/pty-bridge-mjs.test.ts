@@ -16,6 +16,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { testTmpDir, PROJECT_ROOT } from "./helpers";
 import { resolveNodeBin, nodeMancanteMessage } from "../../server/lib/test-node-bin";
+// Every window below is written for a quiet machine and widened with the load:
+// in the four-shard round the SIGTERM case went red twice on 2026-09-07 with a
+// fixed 5 s for the child to die, and was green alone (5/5 in 7 s) each time.
+import { slackMs } from "../helpers/time-slack";
 
 const ROOT = testTmpDir("pty-bridge-mjs");
 const BRIDGE = path.join(PROJECT_ROOT, "server", "pty-bridge.mjs");
@@ -99,7 +103,7 @@ class Client {
   close(): void { try { this.sock.destroy(); } catch { /* già chiuso */ } }
 
   /** Il primo frame che soddisfa `pred`, o `null` allo scadere. */
-  async waitFor(pred: (f: Frame) => boolean, timeoutMs = 10_000): Promise<Frame | null> {
+  async waitFor(pred: (f: Frame) => boolean, timeoutMs = slackMs(10_000)): Promise<Frame | null> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const hit = this.frames.find(pred);
@@ -118,7 +122,7 @@ class Client {
   async list(): Promise<string[]> {
     this.frames = this.frames.filter((f) => f.type !== "list");
     this.send({ type: "list" });
-    const l = await this.waitFor((f) => f.type === "list", 5_000);
+    const l = await this.waitFor((f) => f.type === "list", slackMs(5_000));
     const sessions = (l?.sessions ?? []) as Array<{ id: string }>;
     return sessions.map((s) => s.id);
   }
@@ -153,8 +157,14 @@ function pidAlive(pid: number): boolean {
  * has nothing to do with the bridge (seen on a shard running eight files at
  * once, with the same commit green when run alone). Waiting for the condition
  * rather than for the clock keeps the contract and drops the race.
+ *
+ * The five seconds this started with were still an idle-machine number: the
+ * same test came back red from a delivery run of `test:unit:shards` and green
+ * on its own on the same commit. The deadline is a ceiling on a wait that ends
+ * as soon as the pid is gone, so a wider one costs nothing when nothing is
+ * wrong, and the test's own 40s timeout is still the real bound.
  */
-async function waitForPidGone(pid: number, timeoutMs = 5_000): Promise<boolean> {
+async function waitForPidGone(pid: number, timeoutMs = slackMs(20_000)): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!pidAlive(pid)) return true;
@@ -191,11 +201,11 @@ describe("kill finisce con un figlio MORTO, non con un frame ottimista", () => {
 
     c.send({ type: "kill", id: "s1" });
     // `killed` acka la RICHIESTA, non la morte: la morte è l'`exit`.
-    expect(await c.waitFor((f) => f.type === "killed" && f.id === "s1", 5_000)).not.toBeNull();
+    expect(await c.waitFor((f) => f.type === "killed" && f.id === "s1", slackMs(5_000))).not.toBeNull();
     expect(await c.waitFor((f) => f.type === "exit" && f.id === "s1")).not.toBeNull();
     expect(await waitForPidGone(pid)).toBe(true);
     expect(await c.list()).not.toContain("s1");
-  }, 40_000);
+  }, slackMs(40_000));
 
   /**
    * L'altra metà: finché il figlio è vivo la voce RESTA. È ciò che rende la
@@ -208,12 +218,12 @@ describe("kill finisce con un figlio MORTO, non con un frame ottimista", () => {
     create(c, "s2", 'trap "" HUP; echo PRONTO; sleep 300');
     expect(await c.waitFor((f) => f.type === "data" && f.id === "s2" && String(f.data).includes("PRONTO"))).not.toBeNull();
     c.send({ type: "kill", id: "s2" });
-    expect(await c.waitFor((f) => f.type === "killed" && f.id === "s2", 5_000)).not.toBeNull();
+    expect(await c.waitFor((f) => f.type === "killed" && f.id === "s2", slackMs(5_000))).not.toBeNull();
     // Ackato il kill, il figlio è ancora vivo e la voce c'è: nessuno l'ha persa.
     expect(await c.list()).toContain("s2");
-    expect(await c.waitFor((f) => f.type === "exit" && f.id === "s2", 15_000)).not.toBeNull();
+    expect(await c.waitFor((f) => f.type === "exit" && f.id === "s2", slackMs(15_000))).not.toBeNull();
     expect(await c.list()).not.toContain("s2");
-  }, 40_000);
+  }, slackMs(40_000));
 });
 
 describe("un id, un PTY", () => {
@@ -228,13 +238,13 @@ describe("un id, un PTY", () => {
     create(c, "dup1", "sleep 300");
     create(c, "dup1", "sleep 300");
     expect(await c.countIn(1_500, (f) => f.type === "created" && f.id === "dup1")).toBe(1);
-    const err = await c.waitFor((f) => f.type === "error" && f.id === "dup1", 3_000);
+    const err = await c.waitFor((f) => f.type === "error" && f.id === "dup1", slackMs(3_000));
     // `code: 'exists'` non è cosmetica: il server conta i frame `error`
     // consecutivi come guasti di spawn e a tre ricicla l'intero ponte, e questo
     // non è un guasto di spawn.
     expect(err?.code).toBe("exists");
     expect((await c.list()).filter((id) => id === "dup1").length).toBe(1);
-  }, 30_000);
+  }, slackMs(30_000));
 });
 
 describe("lo shutdown non lascia niente indietro", () => {
@@ -257,7 +267,7 @@ describe("lo shutdown non lascia niente indietro", () => {
     expect(await waitForPidGone(pid)).toBe(true);
     expect(fs.existsSync(b.socketPath)).toBe(false);
     expect(fs.existsSync(b.pidPath)).toBe(false);
-  }, 40_000);
+  }, slackMs(40_000));
 
   /**
    * IL SOSPETTO, misurato invece che creduto: «lo shutdown differisce l'uscita
@@ -287,5 +297,5 @@ describe("lo shutdown non lascia niente indietro", () => {
     // Il figlio, lui, sopravvive a questa finestra: è il prezzo del SIGKILL sul
     // daemon, non un difetto del ponte. Si ripulisce qui.
     try { process.kill(-pid, "SIGKILL"); } catch { try { process.kill(pid, "SIGKILL"); } catch { /* già uscito */ } }
-  }, 40_000);
+  }, slackMs(40_000));
 });

@@ -466,7 +466,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </>
           ) : isWaiting && !sessionKey ? (
             <div className="text-[11px] text-amber-600 bg-amber-500/10 rounded px-2 py-1">
-              The agent is asking for input but this view has no session context. Reload to answer.
+              {tr('chat.tool.noSessionContext')}
             </div>
           ) : (
             <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />

@@ -194,7 +194,7 @@ test.describe("Command Palette", () => {
     await expect(commandPalettePage.overlay).toBeHidden();
     // Scoped al PANNELLO della nuova chat, non alla pagina.
     //
-    // «Start a conversation» è il vuoto di QUALUNQUE chat senza messaggi: se
+    // «Comincia una conversazione» è il vuoto di QUALUNQUE chat senza messaggi: se
     // un'altra chat vuota è aperta accanto — cosa che dipende da cosa ha
     // lasciato la spec precedente — il locator sulla pagina ne trova due e
     // Playwright fallisce per strict mode. Misurato il 04/08: la spec da sola è
@@ -205,7 +205,7 @@ test.describe("Command Palette", () => {
     // Quello che vuole sapere è «la NUOVA chat si è aperta», e scoprirlo dentro
     // il suo pannello lo rende vero indipendentemente da cosa c'è accanto.
     await expect(
-      page.getByLabel("New Chat panel").getByText("Start a conversation")
+      page.getByLabel("New Chat panel").getByText("Comincia una conversazione")
     ).toBeVisible({ timeout: 10000 });
   });
 

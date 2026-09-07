@@ -216,7 +216,7 @@ test.describe("@nightly BENCH - AI response time, our overhead separated from th
 
     const panel = page.locator(`[data-testid="chat-panel"][aria-label="${topicName} panel"]`).first();
     await expect(panel).toBeVisible({ timeout: 20_000 });
-    const composer = panel.getByRole("textbox", { name: `Message input for ${topicName}` });
+    const composer = panel.getByRole("textbox", { name: `Campo del messaggio per ${topicName}` });
     await expect(composer).toBeVisible({ timeout: 20_000 });
     // The seeded transcript must be PAINTED before anything is timed. Until the
     // reveal floor elapses the list is there but hidden, and a first sample

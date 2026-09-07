@@ -336,6 +336,7 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
    */
   isRunning?: boolean;
 }) {
+  const tr = useT();
   return (
     <div className="space-y-1.5">
       {(subAgentType || description) && (
@@ -347,12 +348,12 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
       )}
       {actions.length === 0 ? (
         <div className="text-[11px] italic text-app-text-muted">
-          {isRunning ? 'Sub-agent starting…' : (result ? null : 'No activity captured.')}
+          {isRunning ? tr('chat.tool.subAgentStarting') : (result ? null : tr('chat.tool.noActivity'))}
         </div>
       ) : (
         <div>
           <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
-            Activity · {actions.length} step{actions.length === 1 ? '' : 's'}
+            {tr(actions.length === 1 ? 'chat.tool.activityOne' : 'chat.tool.activityMany', { n: actions.length })}
           </div>
           <ul className="space-y-0.5 max-h-72 overflow-auto bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-purple-500/40">
             {actions.map((a) => (
@@ -376,7 +377,7 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
       )}
       {result && (
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Final result</div>
+          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">{tr('chat.tool.finalResult')}</div>
           <ClampedPre text={result} />
         </div>
       )}
@@ -657,11 +658,12 @@ export function NotebookEditCard({ notebookPath, cellId, editMode, cellType }: {
  * card vuota — e vuota resta, senza il segnaposto.
  */
 export function SkillCard({ result }: { result?: string }) {
+  const tr = useT();
   const body = skillInstructions(result);
   if (!body) return null;
   return (
     <div className="space-y-1">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Istruzioni caricate</div>
+      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">{tr('chat.tool.skillInstructions')}</div>
       <ClampedPre text={body} />
     </div>
   );

@@ -60,7 +60,7 @@ test.describe("Settings shortcut, comma", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const composer = page.getByRole("textbox", { name: /Message input/ }).first();
+    const composer = page.getByRole("textbox", { name: /Campo del messaggio/ }).first();
     await composer.waitFor({ state: "visible", timeout: 15_000 });
     await composer.click();
     await expect(composer).toBeFocused();

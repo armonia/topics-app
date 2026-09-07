@@ -73,7 +73,7 @@ test.describe("System & Infrastructure", () => {
     await openTopic(page, /Web Search Test/);
 
     // Ensure the page is focused and ready before triggering keyboard shortcut
-    await expect(page.getByRole("textbox", { name: /Message input/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("textbox", { name: /Campo del messaggio/ })).toBeVisible({ timeout: 10000 });
     await page.keyboard.press("Meta+k");
 
     // Wait for dialog/palette to appear
@@ -144,7 +144,7 @@ test.describe("System & Infrastructure", () => {
       await goToApp(page);
       await openTopic(page, /E2E-NonHexTest/);
 
-      const textarea = page.getByRole("textbox", { name: /Message input/ });
+      const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
       await expect(textarea).toBeVisible({ timeout: 10000 });
       // Verify the chat input is functional (can type without errors)
       await textarea.fill("ping");
@@ -164,6 +164,6 @@ test.describe("System & Infrastructure", () => {
     // Go back and verify app works
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
-    await expect(page.getByRole("textbox", { name: /Message input/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("textbox", { name: /Campo del messaggio/ })).toBeVisible({ timeout: 10000 });
   });
 });

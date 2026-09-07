@@ -34,7 +34,7 @@ test.describe.serial("Chat", () => {
     await page.keyboard.press("Escape");
     // Use the fresh test topic (no history) so mocked response is visible
     await openTopic(page, new RegExp(testTopicName));
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Set up SSE mock AFTER navigation to avoid interfering with page load
@@ -117,7 +117,7 @@ test.describe.serial("Chat", () => {
     await openTestChat(page);
 
     // Send a prompt that triggers a long streaming response (real server)
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.click();
     await textarea.fill(
       "Write a very long paragraph of 500 words about the history of computing"
@@ -129,9 +129,9 @@ test.describe.serial("Chat", () => {
 
     // Click the composer's stop button to abort. Since 2026-09-07 the loader is
     // a sign and not a button: the tab and sidebar rails carry their own named
-    // stop (`pane-tab-stop`), the composer keeps "Stop streaming".
+    // stop (`pane-tab-stop`), the composer keeps its stop button.
     const stopBtn = page
-      .getByRole("button", { name: /Stop streaming/ })
+      .getByRole("button", { name: /Ferma la risposta/ })
       .first();
     await expect(stopBtn).toBeVisible({ timeout: 5_000 });
     await stopBtn.click();
@@ -229,7 +229,7 @@ test.describe.serial("Chat", () => {
     // Open test topic (created in beforeAll)
     await openTopic(page, new RegExp(testTopicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Mock SSE to return a long response that will extend the message list
@@ -279,10 +279,10 @@ test.describe.serial("Chat", () => {
     // sciolto — sta nel «+», che è l'unico posto da cui si aggiunge qualcosa
     // alla conversazione. Il microfono sì: è la seconda strada per riempire il
     // campo, e sta dove il campo finisce di riempirsi.
-    const addMenu = page.getByRole("button", { name: "Tools & commands" });
+    const addMenu = page.getByRole("button", { name: "Strumenti e comandi" });
     await expect(addMenu).toBeVisible({ timeout: 10_000 });
     await expect(
-      page.getByRole("button", { name: /Record voice/ })
+      page.getByRole("button", { name: /Registra la voce/ })
     ).toBeVisible({ timeout: 5_000 });
     // Il piano non è più un interruttore accanto alla graffetta: è un LIVELLO
     // di autonomia, e questo è il controllo che lo porta. C'erano due modi di
@@ -292,13 +292,13 @@ test.describe.serial("Chat", () => {
       page.getByRole("button", { name: /Autonomia/ })
     ).toBeVisible({ timeout: 5_000 });
     await expect(
-      page.getByRole("button", { name: /Send message/ })
+      page.getByRole("button", { name: /Invia il messaggio/ })
     ).toBeVisible({ timeout: 5_000 });
 
     // …e la graffetta è dentro il «+», con la sua scorciatoia.
     await addMenu.click();
     await expect(
-      page.getByRole("button", { name: /Attach file/ })
+      page.getByRole("button", { name: /Allega un file/ })
     ).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press("Escape");
   });
@@ -414,7 +414,7 @@ test.describe("Chat — Rich Content Rendering", () => {
     await chatItem.waitFor({ state: "visible", timeout: 10_000 });
     await chatItem.click({ force: true });
     await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 10_000 });
 
     await textarea.fill("Fix the code");
@@ -451,9 +451,9 @@ test.describe("Message Action Toolbar", () => {
 
     // Verify action buttons become visible after hover
     // Multiple messages → multiple toolbars; use .first() for the hovered one
-    const copyBtn = page.getByRole("button", { name: "Copy message" }).first();
-    const pinBtn = page.getByRole("button", { name: "Pin message" }).first();
-    const replyBtn = page.getByRole("button", { name: "Reply" }).first();
+    const copyBtn = page.getByRole("button", { name: "Copia il messaggio" }).first();
+    const pinBtn = page.getByRole("button", { name: "Appunta il messaggio" }).first();
+    const replyBtn = page.getByRole("button", { name: "Rispondi" }).first();
 
     await expect(copyBtn).toBeVisible({ timeout: 5_000 });
     await expect(pinBtn).toBeVisible({ timeout: 5_000 });
@@ -474,7 +474,7 @@ test.describe("Message Action Toolbar", () => {
     await firstMessage.hover();
     await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }));
 
-    await page.getByRole("button", { name: "Copy message" }).first().click();
+    await page.getByRole("button", { name: "Copia il messaggio" }).first().click();
     await expect(page.getByTestId("toast").filter({ hasText: "Non è stato possibile copiare" })).toBeVisible();
   });
 
@@ -489,13 +489,13 @@ test.describe("Message Action Toolbar", () => {
 
     // REAL hover + REAL click (CHAT-REL-01 regression guard — see toolbar test).
     await firstMessage.hover();
-    const pinBtn = page.getByRole("button", { name: "Pin message" }).first();
+    const pinBtn = page.getByRole("button", { name: "Appunta il messaggio" }).first();
     await expect(pinBtn).toBeVisible({ timeout: 5_000 });
     await pinBtn.click();
 
     // Visual verification: pin button should have yellow color class
     await firstMessage.hover();
-    const pinBtnAfterPin = page.getByRole("button", { name: "Pin message" }).first();
+    const pinBtnAfterPin = page.getByRole("button", { name: "Appunta il messaggio" }).first();
     await expect(pinBtnAfterPin).toBeVisible({ timeout: 5_000 });
     // Pinned state: class contains "text-yellow-500" (not "hover:text-yellow-500")
     await expect(pinBtnAfterPin).toHaveClass(/(?<!hover:)text-yellow-500/, { timeout: 5_000 });
@@ -520,7 +520,7 @@ test.describe("Message Action Toolbar", () => {
     // Visual verification: pin button should return to muted (no yellow)
     await firstMessage.dispatchEvent("mouseenter");
     await firstMessage.dispatchEvent("mouseover");
-    const pinBtnAfterUnpin = page.getByRole("button", { name: "Pin message" }).first();
+    const pinBtnAfterUnpin = page.getByRole("button", { name: "Appunta il messaggio" }).first();
     await expect(pinBtnAfterUnpin).toBeVisible({ timeout: 5_000 });
     // Unpinned state: no active "text-yellow-500" (allow "hover:text-yellow-500")
     await expect(pinBtnAfterUnpin).not.toHaveClass(/(?<!hover:)text-yellow-500/, { timeout: 5_000 });
@@ -594,8 +594,8 @@ test.describe("Message Branching", () => {
 
       // Branch navigation renders on the user message whenever siblingCount > 1
       // (not hover-gated — MessageBubble.tsx:240). Prev is disabled on branch 0.
-      const prevBranchBtn = page.getByRole("button", { name: "Previous branch" });
-      const nextBranchBtn = page.getByRole("button", { name: "Next branch" });
+      const prevBranchBtn = page.getByRole("button", { name: "Ramo precedente" });
+      const nextBranchBtn = page.getByRole("button", { name: "Ramo successivo" });
       await expect(prevBranchBtn.first()).toBeVisible({ timeout: 10_000 });
       await expect(nextBranchBtn.first()).toBeVisible({ timeout: 10_000 });
 
@@ -660,7 +660,7 @@ test.describe.serial("Chat Input Features", () => {
     // matches both → ensureTopicVisible seeds both → strict-mode violation.
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Scope to THIS topic's pane: a baseline "Web Search Test" pane persists in
@@ -691,7 +691,7 @@ test.describe.serial("Chat Input Features", () => {
     // matches both → ensureTopicVisible seeds both → strict-mode violation.
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // PATCH topic to add projectPath for @-mention support (CHAT-09)
@@ -701,7 +701,7 @@ test.describe.serial("Chat Input Features", () => {
     // Wait for the placeholder to change (indicates projectPath was received)
     await expect(textarea).toHaveAttribute(
       "placeholder",
-      /@ to mention files/,
+      /@ per citare un file/,
       { timeout: 10_000 }
     );
 
@@ -732,7 +732,7 @@ test.describe.serial("Chat Input Features", () => {
     // matches both → ensureTopicVisible seeds both → strict-mode violation.
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Type / to trigger slash command menu
@@ -789,7 +789,7 @@ test.describe.serial("Chat Input Features", () => {
     // matches both → ensureTopicVisible seeds both → strict-mode violation.
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Verify ContextPills renders with the context file name
@@ -832,7 +832,7 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
       const delBtn = page.getByTestId("msg-action-delete").last();
       await expect(delBtn).toBeVisible({ timeout: 5_000 });
       await delBtn.click();
-      await expect(delBtn).toContainText("Delete?", { timeout: 3_000 });
+      await expect(delBtn).toContainText("Elimino?", { timeout: 3_000 });
       await delBtn.click();
 
       await expect(target).toHaveCount(0, { timeout: 10_000 });
@@ -883,7 +883,7 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
 
       // CHAT-CONV-03: composer ⋯ menu → Export conversation → a .md download
       // whose content carries the whole active thread.
-      await page.getByRole("button", { name: "Tools & commands" }).click();
+      await page.getByRole("button", { name: "Strumenti e comandi" }).click();
       const exportBtn = page.getByTestId("chat-export-conversation");
       await expect(exportBtn).toBeVisible({ timeout: 5_000 });
       const downloadP = page.waitForEvent("download", { timeout: 10_000 });
@@ -903,7 +903,7 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
 
   // Le manopole che si cambiano IN CORSO di conversazione hanno una superficie
   // nel composer. Prima l'effort stava dentro il popover provider/modello
-  // (dietro un trigger "Provider & model", sotto un campo di ricerca).
+  // (dietro un trigger «Provider e modello», sotto un campo di ricerca).
   //
   // L'AUTONOMIA non c'e' piu': mostrava "Chiedi — Approvi ogni azione"
   // selezionato su ogni topic mentre lo spawn usa `bypassPermissions`, e non e'
