@@ -60,6 +60,23 @@ async function garantisciAperta(header: Locator, chi: string) {
   await expect(header, `${chi} deve risultare aperta`).toHaveAttribute("aria-expanded", "true", { timeout: 5000 });
 }
 
+/** Waits until a box has STOPPED MOVING: two consecutive reads that agree. A
+ *  fixed wait in its place is a bet, and this file was losing it. The content
+ *  of the sections lands at two different moments (`git:status` from the
+ *  server, the process panel from its own chunk) and a quarter of a second
+ *  covers neither reliably. */
+async function settled(box: Locator, chi: string) {
+  let previous = -1;
+  await expect
+    .poll(async () => {
+      const h = Math.round((await box.boundingBox())?.height ?? 0);
+      const quiet = h === previous && h > 0;
+      previous = h;
+      return quiet;
+    }, { timeout: 10000, message: `${chi}: la scatola non ha mai smesso di muoversi` })
+    .toBe(true);
+}
+
 /** Trascina un divisore in verticale. Il codice ignora i primi `DRAG_SLOP_PX`
  *  (4) e poi applica il delta pieno, quindi si passa dalla soglia con un
  *  movimento solo e si misura ciò che ne esce. */
@@ -145,7 +162,24 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     await expect
       .poll(async () => Math.round((await boxGitPerFermarsi.boundingBox())?.height ?? 0), { timeout: 10000 })
       .toBeGreaterThan(MIN.git);
-    await page.waitForTimeout(250);
+
+    // AND IT HOLDS FOR PROCESSES TOO, which is where the premise had been
+    // dropped. `ScriptRunner` is `lazy()` inside a `Suspense` whose fallback is
+    // `null`: until that chunk mounts the section is an EMPTY box, so on
+    // automatic height it is worth its `min-height` (96) and not one pixel
+    // more. Then the panel mounts, says it found no manifest, and the box grows
+    // to 164: 68 measured pixels. Measuring before that moment read two
+    // falsehoods at once. Processes already at its own floor, with nothing left
+    // to give (RESIZE-3 saw "96 to 96"), and a splitter that had meanwhile
+    // travelled 68px up, so the `mousedown` landed INSIDE Processes and no drag
+    // ever started (RESIZE-4 read 405, which is the spontaneous growth of the
+    // layout and not a gesture). So we wait for the panel, empty or full.
+    await expect(
+      win.locator('[data-testid="script-runner-empty"], [data-testid="script-runner"]').first(),
+      "il pannello dei processi deve essere montato prima di misurare",
+    ).toBeVisible({ timeout: 15000 });
+    await settled(win.getByTestId("project-sidebar-processes").locator("xpath=.."), "processi");
+    await settled(boxGitPerFermarsi, "git");
 
     return {
       win,
@@ -229,7 +263,9 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     const primaGit = await riquadro(boxGit, "git");
     const primaProc = await riquadro(boxProcessi, "processi");
 
-    // Processi parte da 150 e il suo minimo è 96: 40 in giù ci stanno.
+    // Processes no longer starts from a fixed number: since 10/08 its height is
+    // decided by its content. With the panel mounted it still starts above its
+    // own floor (96), so 40 pixels down fit.
     await trascina(page, divisore, 40);
 
     const afterGit = await riquadro(boxGit, "git");
@@ -253,8 +289,8 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     const primaProc = await riquadro(boxProcessi, "processi");
     const sommaPrima = primaGit.height + primaProc.height;
 
-    // Una tirata assurda verso l'alto: Git (minimo 160, parte da 200) può
-    // cedere 40 e non un pixel di più.
+    // An absurd pull upwards: Git gives way down to its own floor (160) and not
+    // one pixel more, whatever height it started from.
     await trascina(page, divisore, -400);
 
     const afterGit = await riquadro(boxGit, "git");
