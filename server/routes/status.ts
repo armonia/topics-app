@@ -291,8 +291,13 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       let topProcesses: { pid: number; cpu: number; command: string }[] = [];
       // Everything the SERVER side really costs: this process plus the detached
       // sidecars and their trees (the `claude` CLIs, MCP servers and headless
-      // Chromes under the pty-bridge). `memoryMB` above is this process alone —
-      // measured, ~87 MB against ~5 GB for the fleet it drives.
+      // Chromes under the pty-bridge). `memoryMB` above is this process alone,
+      // and it is NOT small: measured 2026-09-07 on a server up for hours under
+      // a working fleet, 564 MB of `phys_footprint` with 384 MB of it already
+      // compressed by the kernel, against ~5 GB for the fleet it drives. The
+      // "~87 MB" this comment claimed until then was off by 6x and made the
+      // server look like a rounding error next to its own sidecars, which is
+      // exactly the reading that kept a memory question from being asked.
       let fleet: Awaited<ReturnType<typeof getFleetUsage>> | null = null;
       try {
         [ports, topProcesses, fleet] = await Promise.all([
