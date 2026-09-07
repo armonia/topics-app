@@ -191,8 +191,8 @@ test.describe.serial("Board · il pannello Modifiche", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [taskId, landedTaskId, orphanTaskId]) if (id) await deleteTask(request, PROJECT_ID, id);
     for (const id of [topicId, landedTopicId, orphanTopicId]) if (id) await deleteTopic(request, id);
-    for (const p of [worktreePath, landedPath]) if (p && existsSync(p)) rmSync(p, { recursive: true, force: true });
-    rmSync(REPO, { recursive: true, force: true });
+    for (const p of [worktreePath, landedPath]) if (p && existsSync(p)) rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

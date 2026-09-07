@@ -283,8 +283,8 @@ test.describe("Kanban — il tetto dell'anteprima è un rapporto", () => {
       await request.delete(`${BASE}/api/boards/${PROJECT_ID}/tasks/${id}`).catch(() => {});
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
-    rmSync(MEDIA_DIR, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(MEDIA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

@@ -25,6 +25,7 @@ import { initGitRepo, canonicalTmpRoot } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { join } from "path";
 
 hermetic(test);
 
@@ -113,7 +114,7 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {
@@ -188,7 +189,7 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     if (process.env.E2E_EVIDENCE === "1") {
       const [d, r] = [await drawer.boundingBox(), await row.boundingBox()];
       // allow-literal-tmp: an evidence dump read by hand, not a path hashed into a board id.
-      if (d && r) writeFileSync("/tmp/e2e-subwork-crop.json", JSON.stringify({ drawer: d, row: r }));
+      if (d && r) writeFileSync(join(canonicalTmpRoot(), "e2e-subwork-crop.json"), JSON.stringify({ drawer: d, row: r }));
     }
     await beat(page, 2600);
 

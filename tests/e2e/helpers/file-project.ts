@@ -159,5 +159,5 @@ export async function cleanupFileProject(
 ): Promise<void> {
   if (!project) return;
   if (project.topicId) await deleteTopic(request, project.topicId).catch(() => {});
-  rmSync(project.tmpDir, { recursive: true, force: true });
+  rmSync(project.tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }

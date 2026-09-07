@@ -130,7 +130,7 @@ test.describe("Done: ordine e lampo", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

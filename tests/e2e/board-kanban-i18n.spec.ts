@@ -89,7 +89,7 @@ test.describe.serial("Kanban in inglese", () => {
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId).catch(() => {});
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(REPO, { recursive: true, force: true });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     // La lingua è preferenza di UTENTE, condivisa da tutta la suite attraverso
     // `ui_state`: lasciarla in inglese renderebbe rosse le spec italiane dopo.
     await request.put(`${API}/ui-state/settings`, { data: { language: "auto" } });

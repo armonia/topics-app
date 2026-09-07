@@ -101,7 +101,7 @@ test.describe("Chip «N la aspettano» · dipendenti fuori dalla lista", () => {
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

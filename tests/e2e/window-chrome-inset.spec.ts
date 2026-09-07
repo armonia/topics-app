@@ -268,7 +268,7 @@ test.describe("The room for the native lights", () => {
       if (video) {
         await video.saveAs(join(MEDIA_DIR, VIDEO_NAME));
       }
-      rmSync(videoTmp, { recursive: true, force: true });
+      rmSync(videoTmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

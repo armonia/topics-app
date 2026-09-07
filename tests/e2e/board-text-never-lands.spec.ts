@@ -150,8 +150,8 @@ test.describe("Una frase scritta su una card in review non fonde il ramo", () =>
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (topicId) await deleteTopic(request, topicId);
-    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
-    rmSync(REPO, { recursive: true, force: true });
+    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

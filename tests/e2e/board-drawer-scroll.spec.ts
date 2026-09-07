@@ -270,7 +270,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     if (sessionTopicId) await deleteTopic(request, sessionTopicId);
     if (liveTopicId) await deleteTopic(request, liveTopicId);
     if (steerTopicId) await deleteTopic(request, steerTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     if (previewPath) rmSync(previewPath, { force: true });
   });
 

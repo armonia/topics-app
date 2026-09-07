@@ -138,7 +138,7 @@ test.describe("Kanban — il volume di una colonna", () => {
       await Promise.all(createdTasks.slice(i, i + 20).map((id) => deleteTask(request, PROJECT_ID, id)));
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

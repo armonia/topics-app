@@ -146,7 +146,7 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     if (previewPath) rmSync(previewPath, { force: true });
   });
 

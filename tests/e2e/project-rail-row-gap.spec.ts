@@ -56,7 +56,7 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
     initGitRepo(PROJ, "primo");
     writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
   });
-  test.afterAll(() => { rmSync(PROJ, { recursive: true, force: true }); });
+  test.afterAll(() => { rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
   test("RAILGAP-1: i comandi non si portano dietro nessuna riga", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "RAILGAP-01" });

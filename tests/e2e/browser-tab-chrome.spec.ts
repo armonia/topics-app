@@ -414,7 +414,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
     } finally {
       await resetProjectPanes(request, project).catch(() => {});
-      rmSync(project, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
   /**
@@ -631,7 +631,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         },
       });
     } finally {
-      rmSync(project, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -790,6 +790,6 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
       .toEqual([`file://${file}`]);
 
-    rmSync(mediaDir, { recursive: true, force: true });
+    rmSync(mediaDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 });

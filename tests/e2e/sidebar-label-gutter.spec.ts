@@ -120,7 +120,7 @@ test.describe("sidebar: the air left of a label", () => {
 
   test.afterAll(async ({ request }) => {
     if (nestedChatId) await deleteTopic(request, nestedChatId).catch(() => {});
-    rmSync(NESTED_PROJECT, { recursive: true, force: true });
+    rmSync(NESTED_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // Both cases get the SAME world, retries included: the top-level budget is

@@ -113,7 +113,7 @@ test.describe("L'ultimo scambio, visto dalla review", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id).catch(() => {});
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(REPO, { recursive: true, force: true });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // UN SOLO GIRO DI APERTURA, e le due asserzioni dentro. Aprire il pane a ogni

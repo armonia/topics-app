@@ -159,7 +159,7 @@ export async function clipDiConsegna(opts: OptionsClip): Promise<Clip | null> {
   }
 
   await browser.close().catch(() => {});
-  rmSync(temporaryDir, { recursive: true, force: true });
+  rmSync(temporaryDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 
   // L'errore della scena viene PRIMA del cancello sul tempo: un test rotto non
   // va rietichettato come «clip troppo lunga».

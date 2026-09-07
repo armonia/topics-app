@@ -55,7 +55,7 @@ test.describe("stage di un blocco alla volta", () => {
     git(["checkout", "--", "."]);
     writeThreeBlocks();
   });
-  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true }));
+  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   test("elenca i blocchi e ne mette in stage uno solo, senza toccare il file", async ({ page, request }) => {
     await resetPaneStore(request, []);

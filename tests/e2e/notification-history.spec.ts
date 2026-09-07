@@ -81,7 +81,7 @@ test.describe("Cronologia notifiche", () => {
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

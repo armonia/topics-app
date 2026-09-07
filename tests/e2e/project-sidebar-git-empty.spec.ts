@@ -34,7 +34,7 @@ test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
     initGitRepo(PROJECT_DIR, "primo");
   });
   test.afterAll(() => {
-    rmSync(PROJECT_DIR, { recursive: true, force: true });
+    rmSync(PROJECT_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("pulito non ha sezione ne' bottone, e la prima modifica la riporta", async ({ page, request }) => {

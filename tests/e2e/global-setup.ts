@@ -129,7 +129,7 @@ async function snapshotBundle(): Promise<string> {
     // ricominciato da capo. Con un bundle esterno non c'è nessun watcher da
     // aspettare: la coerenza si verifica lo stesso, sulla copia, qui sotto.
     if (!override) await waitForFreshBundle(src);
-    rmSync(dest, { recursive: true, force: true });
+    rmSync(dest, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     mkdirSync(dest, { recursive: true });
     // `cpSync` and not `cp -R`: no shell, no `cp` binary to exist, and a path
     // with a space or a quote in it stays one path on every platform. It is
@@ -538,7 +538,7 @@ async function globalSetup() {
   for (const dir of [join(TEST_DATA_DIR, "browser-state")]) {
     try {
       if (existsSync(dir)) {
-        rmSync(dir, { recursive: true, force: true });
+        rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
         console.log(`[global-setup] Wiped stale browser-state: ${dir}`);
       }
     } catch (err) {

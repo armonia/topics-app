@@ -3,7 +3,7 @@ import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -11,7 +11,7 @@ hermetic(test);
 
 test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
   let topicId: string;
-  const tmpDir = `/tmp/e2e-ctx-menu-${Date.now()}`;
+  const tmpDir = canonicalTmpDir("e2e-ctx-menu");
   const topicName = `e2e-ctx-menu-${Date.now()}`;
 
   test.beforeAll(async ({ request }) => {
@@ -41,7 +41,7 @@ test.describe("File Context Menu (FILE-03) & Script Runner (FILE-04)", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
-    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("FILE-03-01: context menu shows Show in Finder for file", async ({ fileExplorerPage, page }) => {

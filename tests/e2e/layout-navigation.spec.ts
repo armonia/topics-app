@@ -4,6 +4,7 @@ import { goToApp, openTestChat } from "./helpers";
 import { seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -14,7 +15,7 @@ hermetic(test);
 // the isolated test env (which has no registered "topics-app"). The tab-driven
 // sidebar only surfaces a project row while its `project:<path>` pane is open,
 // so each such test seeds that pane BEFORE goToApp (see seedProjectPane).
-const LAYOUT_PROJECT = `/tmp/e2e-layout-topics-app-${Date.now()}`;
+const LAYOUT_PROJECT = canonicalTmpDir("e2e-layout-topics-app");
 
 test.describe("Layout & Navigation", () => {
   test.beforeAll(() => {
@@ -31,7 +32,7 @@ test.describe("Layout & Navigation", () => {
   });
 
   test.afterAll(() => {
-    rmSync(LAYOUT_PROJECT, { recursive: true, force: true });
+    rmSync(LAYOUT_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   test("LAYOUT-01: pane tab bar close and right-click context menu", async ({
     page,

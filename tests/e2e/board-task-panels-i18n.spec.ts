@@ -185,8 +185,8 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId);
     for (const id of [topicA, topicB, projectTopicId]) if (id) await deleteTopic(request, id);
-    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
-    rmSync(REPO, { recursive: true, force: true });
+    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     // La lingua torna com'era: è preferenza di UTENTE, condivisa da tutta la
     // suite attraverso `ui_state`, e lasciarla in inglese renderebbe rosse le
     // spec italiane che girano dopo.

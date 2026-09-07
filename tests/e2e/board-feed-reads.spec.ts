@@ -106,7 +106,7 @@ test.describe("Kanban board — letture del feed", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // Workspace ermetico per OGNI test: si azzerano ENTRAMBI i canali di stato

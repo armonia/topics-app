@@ -183,7 +183,7 @@ test.describe.serial("Project Commands", () => {
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
     if (existsSync(testProjectDir)) {
-      rmSync(testProjectDir, { recursive: true, force: true });
+      rmSync(testProjectDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

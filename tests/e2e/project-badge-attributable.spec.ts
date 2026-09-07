@@ -90,7 +90,7 @@ test.describe("Il badge di un progetto dice DI CHI è", () => {
 
   test.afterAll(async ({ request }) => {
     if (chatId) await deleteTopic(request, chatId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ request }) => {

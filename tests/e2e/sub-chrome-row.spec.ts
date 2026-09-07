@@ -34,6 +34,7 @@ import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { waitForLayoutSettled } from "./helpers/layout";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -42,7 +43,7 @@ const PASSO = 6;
 /** `CHROME_ROW_SUB_H` = box desktop (28) + ROW_INSET (6). */
 const SUB_H = 34;
 
-const PROJ = `/tmp/e2e-sub-${Date.now()}`;
+const PROJ = canonicalTmpDir("e2e-sub");
 
 interface Misura {
   barre: { y: number; h: number; ink: { top: number; bottom: number } | null }[];

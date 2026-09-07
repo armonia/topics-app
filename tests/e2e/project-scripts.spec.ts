@@ -76,8 +76,8 @@ test.describe("script del progetto", () => {
     writeFileSync(`${NUDA}/README.md`, "# niente da lanciare\n");
   });
   test.afterAll(() => {
-    rmSync(RUST, { recursive: true, force: true });
-    rmSync(NUDA, { recursive: true, force: true });
+    rmSync(RUST, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(NUDA, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("un progetto Rust con Makefile mostra i comandi di tutt'e due", async ({ page, request }) => {

@@ -60,7 +60,7 @@ test.describe.serial("Due pane browser nello stesso gruppo", () => {
   });
 
   test.afterAll(() => {
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("barra standalone: il secondo «+ → Browser» apre una seconda tab", async ({ page }) => {

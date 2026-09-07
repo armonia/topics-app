@@ -95,7 +95,7 @@ test.describe("Copia task · il contenuto della card negli appunti", () => {
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // I permessi di clipboard (che servono alla LETTURA del test, non al bottone)

@@ -75,7 +75,7 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
-  rmSync(PROJECT_PATH, { recursive: true, force: true });
+  rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 /** Apre la board del progetto di prova dal menu «+» della sua finestra. */

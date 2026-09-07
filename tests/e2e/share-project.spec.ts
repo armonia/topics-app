@@ -19,10 +19,11 @@ import { projectRow } from "./helpers/project-row";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJECT_PATH = `/tmp/e2e-share-project-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-share-project");
 const PROJECT_NAME = PROJECT_PATH.split("/").pop()!;
 
 test.describe("Condividere un progetto", () => {
@@ -37,7 +38,7 @@ test.describe("Condividere un progetto", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("SHAREPRJ-01: il tasto destro sul progetto offre di condividerlo", async ({ page }) => {

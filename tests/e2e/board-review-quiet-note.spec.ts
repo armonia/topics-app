@@ -123,7 +123,7 @@ test.describe("Una nota su una card in review non la rigetta", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (topicId) await deleteTopic(request, topicId);
-    rmSync(REPO, { recursive: true, force: true });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

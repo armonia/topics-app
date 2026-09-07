@@ -127,7 +127,7 @@ test.describe("Fan-out: scelta del tentativo", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id);
     for (const id of [topicA, topicB, projectTopicId]) if (id) await deleteTopic(request, id);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

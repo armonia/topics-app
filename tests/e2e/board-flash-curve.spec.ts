@@ -175,7 +175,7 @@ test.describe("Il lampo di una card", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("FLASH-01: sta nella colonna, sale e tiene, e prende il colore dove arriva", async ({ browser, request }) => {

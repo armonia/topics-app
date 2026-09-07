@@ -196,7 +196,7 @@ test.describe("Top bar della kanban — una sola altezza", () => {
       await deleteTask(request, projectId!, id!).catch(() => {});
     }
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(ROOT, { recursive: true, force: true });
+    rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

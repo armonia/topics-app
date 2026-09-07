@@ -18,6 +18,7 @@ import {
   splitViaContextMenu,
 } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -59,7 +60,7 @@ let projectTopicId: string | null = null;
 // A REAL directory (created in beforeAll): project panes probe the path
 // (file tree, shell cwd) — a phantom `/Users/...` path left the window in
 // "directory not found" and pane adds misbehaving.
-const PROJECT_PATH = `/tmp/e2e-split-sync-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-split-sync");
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       await deleteTopic(request, id);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // 2.1-2.4 MERGED AWAY (top-level Split Right / Split Down / split survives

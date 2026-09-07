@@ -66,7 +66,7 @@ test.describe("In-project split (card c2984ce2)", () => {
   test.afterAll(async ({ request }) => {
     if (childChatId) await deleteTopic(request, childChatId).catch(() => {});
     rmSync(RAW_PATH, { force: true });
-    rmSync(REAL_PATH, { recursive: true, force: true });
+    rmSync(REAL_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function projectWindow(page: import("@playwright/test").Page) {

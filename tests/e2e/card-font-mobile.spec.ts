@@ -119,7 +119,7 @@ test.describe("Kanban card — mobile font legibility", () => {
   test.afterAll(async ({ request }) => {
     for (const tid of createdTasks) await deleteTask(request, PROJECT_ID, tid);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

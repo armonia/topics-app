@@ -63,7 +63,7 @@ test.describe("the guards on a file served from the app's own origin", () => {
       if (topicId) {
         await request.delete(`${E2E_BASE}/api/topics/${topicId}`, { failOnStatusCode: false }).catch(() => {});
       }
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

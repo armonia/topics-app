@@ -120,7 +120,7 @@ test.describe.serial("Composer della board — non sparisce", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJ_ID, id).catch(() => {});
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(PROJ, { recursive: true, force: true });
+    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

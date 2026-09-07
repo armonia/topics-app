@@ -4,6 +4,7 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -14,7 +15,7 @@ let projectTopicId: string | null = null;
 // so a non-existent path makes them exit code 1 ("failed launch") within ms —
 // the pane vanishes before a split can build a 2-tab group. Unique folder name
 // keeps its own sidebar button.
-const PROJECT_PATH = `/tmp/e2e-project-tabs-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-project-tabs");
 
 test.describe("Project Tabs", () => {
   test.beforeAll(async ({ request }) => {
@@ -33,7 +34,7 @@ test.describe("Project Tabs", () => {
     if (projectTopicId) {
       await deleteTopic(request, projectTopicId);
     }
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

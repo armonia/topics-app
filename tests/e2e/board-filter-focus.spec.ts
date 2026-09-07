@@ -81,7 +81,7 @@ test.describe("il fuoco su un filtro della board", () => {
       await request.delete(`${BASE}/api/boards/${PROJECT_ID}/tasks/${id}`).catch(() => {});
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

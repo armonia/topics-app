@@ -170,7 +170,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
 
   test.afterAll(async ({ request }) => {
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(ROOT, { recursive: true, force: true });
+    rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

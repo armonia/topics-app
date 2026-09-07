@@ -181,8 +181,8 @@ test.describe("Kanban — l'anteprima video si muove solo in vista", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(MEDIA_DIR, { recursive: true, force: true });
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(MEDIA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

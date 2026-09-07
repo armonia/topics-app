@@ -155,7 +155,7 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (topicId) await deleteTopic(request, topicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

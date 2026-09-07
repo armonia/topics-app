@@ -26,14 +26,15 @@ import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
 const STAMP = Date.now();
 /** Un progetto la cui cartella porta una favicon vera. */
-const WITH_ICON = `/tmp/e2e-rotte-con-${STAMP}`;
+const WITH_ICON = canonicalTmpDir("e2e-rotte-con");
 /** E uno che non ce l'ha: è il caso del difetto. */
-const WITHOUT_ICON = `/tmp/e2e-rotte-senza-${STAMP}`;
+const WITHOUT_ICON = canonicalTmpDir("e2e-rotte-senza");
 
 const PNG_1x1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

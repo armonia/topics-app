@@ -112,7 +112,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     for (let i = 0; i < 10; i++) writeFileSync(`${PROJ}/f${i}.txt`, `riga ${i}\n`);
   });
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true });
+    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   /** Apre la finestra di progetto con Git e Processi ESPANSE: nascono chiuse

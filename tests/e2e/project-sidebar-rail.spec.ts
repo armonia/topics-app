@@ -44,7 +44,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
   });
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true });
+    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("chiusa, la barra è una fila di card DENTRO la riga delle tab", async ({ page, request }) => {

@@ -125,7 +125,7 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
-  rmSync(PROJECT_PATH, { recursive: true, force: true });
+  rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 /** The rows of a list, as `mark path` pairs, in the order they are drawn. */

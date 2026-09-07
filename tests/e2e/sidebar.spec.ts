@@ -74,7 +74,7 @@ test.describe("Sidebar — Unified Timeline", () => {
       await deleteTerminalSession(request, id);
     }
     const { rmSync } = await import("node:fs");
-    for (const dir of accordionDirs) rmSync(dir, { recursive: true, force: true });
+    for (const dir of accordionDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // AC-1: Timeline view — all items in a single flat list
@@ -696,8 +696,8 @@ test.describe("Sidebar — Project icons", () => {
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     const { rmSync } = await import("node:fs");
-    rmSync(ICONLESS_PROJECT, { recursive: true, force: true });
-    rmSync(ICONFUL_PROJECT, { recursive: true, force: true });
+    rmSync(ICONLESS_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(ICONFUL_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("icon-less project row renders NO icon element at all (zero footprint)", async ({ page }) => {

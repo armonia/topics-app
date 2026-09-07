@@ -128,7 +128,7 @@ test.describe("colonna di progetto: altezza delle sezioni aperte", () => {
     // di vuoto dentro un pannello da 200.
     writeFileSync(`${POCO}/a.txt`, "due\n");
   });
-  test.afterAll(() => { rmSync(POCO, { recursive: true, force: true }); });
+  test.afterAll(() => { rmSync(POCO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
   test("AUTOH-1: con poco contenuto la sezione non tiene più l'altezza fissa, e sta sotto il tetto", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "AUTOH-01" });

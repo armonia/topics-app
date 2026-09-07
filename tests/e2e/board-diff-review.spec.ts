@@ -179,8 +179,8 @@ test.describe("Board · revisione del diff riga per riga", () => {
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId);
     if (topicId) await deleteTopic(request, topicId);
-    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
-    rmSync(REPO, { recursive: true, force: true });
+    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

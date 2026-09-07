@@ -82,7 +82,7 @@ test.describe("Il marchio dell'organizzazione sulla tab di progetto", () => {
 
   test.afterAll(async ({ request }) => {
     if (projectId) await request.delete(`${E2E_BASE}/api/projects/${projectId}`).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

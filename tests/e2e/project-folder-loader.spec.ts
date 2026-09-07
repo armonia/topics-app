@@ -118,7 +118,7 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   for (const id of [childId, outsiderId]) if (id) await deleteTopic(request, id).catch(() => {});
-  rmSync(SEED_PATH, { recursive: true, force: true });
+  rmSync(SEED_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 /**

@@ -111,8 +111,8 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
-  rmSync(PROJECT_PATH, { recursive: true, force: true });
-  rmSync(MEDIA_DIR, { recursive: true, force: true });
+  rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  rmSync(MEDIA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 async function apriBoard(page: Page): Promise<void> {

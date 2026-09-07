@@ -32,7 +32,7 @@ test.describe("git: cartella non tracciata dal repo che la contiene", () => {
     writeFileSync(`${INNER}/a.txt`, "uno\n");
     writeFileSync(`${INNER}/b.txt`, "due\n");
   });
-  test.afterAll(() => rmSync(REPO, { recursive: true, force: true }));
+  test.afterAll(() => rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   test("lo dice, offre di creare un repo qui, e non presta i controlli del repo ospite", async ({ page, request }) => {
     await resetPaneStore(request, []);

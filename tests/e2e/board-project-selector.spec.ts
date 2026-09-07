@@ -106,7 +106,7 @@ test.describe("Selettore progetto della board", () => {
       await deleteTask(request, projectId!, id!).catch(() => {});
     }
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    for (const dir of [PROJ_A, PROJ_B]) rmSync(dir, { recursive: true, force: true });
+    for (const dir of [PROJ_A, PROJ_B]) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     // Il progetto creato DALLA UI vive nel workspace del server di test: si
     // ritrova per nome nell'indice e si cancella dal suo `path`.
     if (createdViaUi) {
@@ -114,7 +114,7 @@ test.describe("Selettore progetto della board", () => {
         projects: Array<{ name: string; path: string }>;
       };
       const made = idx.projects.find((p) => p.name === createdViaUi);
-      if (made) rmSync(made.path, { recursive: true, force: true });
+      if (made) rmSync(made.path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

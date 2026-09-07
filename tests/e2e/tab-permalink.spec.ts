@@ -509,7 +509,7 @@ test.describe("Permalink di una tab — il consumatore a freddo", () => {
       const chat = await request.get("/api/tabs/resolve?ref=/tab/chat/22222222-2222-4222-8222-222222222222");
       expect((await chat.json()).state).toBe("unknown");
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

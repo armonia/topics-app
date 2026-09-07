@@ -156,7 +156,7 @@ test.describe("Kanban board", () => {
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // A hermetic workspace for EVERY test: BOTH state channels are cleared, then

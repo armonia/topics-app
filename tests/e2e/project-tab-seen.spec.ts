@@ -84,7 +84,7 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     for (const id of [chatId, elsewhereId]) {
       if (id) await deleteTopic(request, id).catch(() => {});
     }
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ request }) => {

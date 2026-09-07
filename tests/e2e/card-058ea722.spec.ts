@@ -207,7 +207,7 @@ test.describe("card 058ea722: spacing, pinned names, attachments, ghost card", (
       await deleteTask(request, pid!, tid!).catch(() => {});
     }
     for (const id of topics) await deleteTopic(request, id).catch(() => {});
-    for (const dir of [...WITH_ICON, NO_ICON]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [...WITH_ICON, NO_ICON]) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("058-1/2: no empty glyph box in the tree; packed tiles show the name whole or the icon alone", async ({ page, request }) => {

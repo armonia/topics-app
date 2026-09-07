@@ -37,10 +37,11 @@ import {
 import { splitViaContextMenu } from "./helpers/layout";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJECT_PATH = `/tmp/e2e-dndmatrix-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-dndmatrix");
 
 /** djb2-xor -> base36, mirroring `client/src/lib/dndTypes.ts` paneTabScopeType. */
 function paneTabScopeType(scope: string): string {

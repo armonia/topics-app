@@ -232,10 +232,10 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     if (mutedSeeded) await deleteTopic(request, mutedSeeded.topicId);
     for (const w of [wt, mutedWt]) {
       if (w) await request.delete(`${API}/worktrees/${w.id}`).catch(() => {});
-      if (w && existsSync(w.absPath)) rmSync(w.absPath, { recursive: true, force: true });
+      if (w && existsSync(w.absPath)) rmSync(w.absPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
-    rmSync(REPO, { recursive: true, force: true });
-    rmSync(MUTED_REPO, { recursive: true, force: true });
+    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(MUTED_REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

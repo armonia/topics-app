@@ -19,6 +19,7 @@ import {
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -94,7 +95,7 @@ async function ensureTopicVisible(
 
 // Cartella VERA: la riga di progetto in sidebar risolve il nome dal path e
 // `/api/projects/icon` va a guardarci dentro. Nome unico → riga propria.
-const PROJECT_PATH = `/tmp/e2e-topic-org-project-${TS}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-topic-org-project");
 const PROJECT_NAME = PROJECT_PATH.split("/").pop()!;
 const PROJECT_CHAT_NAME = `E2E-InProject-${TS}`;
 
@@ -124,7 +125,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await deleteTopic(request, betaId).catch(() => {});
     await deleteTopic(request, gammaId).catch(() => {});
     await deleteTopic(request, projectChatId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // Il reset era in UN solo test (TOPIC-10, sotto): serve a tutti. Il pane-store

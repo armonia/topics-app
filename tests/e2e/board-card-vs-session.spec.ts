@@ -112,7 +112,7 @@ test.describe("Scheda del task e sessione dell'agente", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     for (const id of [topicMorto, aliveTopic, projectTopicId]) if (id) await deleteTopic(request, id);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("dalla board alla scheda, dalla scheda alla sessione, e ritorno — e la sessione finita lo dice", async ({ page, request }) => {

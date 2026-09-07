@@ -86,7 +86,7 @@ test.describe("Tab focus survives a reload", () => {
   });
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(PROJECT, { recursive: true, force: true });
+    rmSync(PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);

@@ -101,7 +101,7 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     // In ordine INVERSO: il figlio prima del padre.
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {

@@ -227,7 +227,7 @@ test.describe("The keyboard hints yield before the wordmark", () => {
     } finally {
       await ctx.close();
       if (video) await video.saveAs(join(MEDIA_DIR, "sidebar-kbd-hints-resize.webm"));
-      rmSync(videoTmp, { recursive: true, force: true });
+      rmSync(videoTmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

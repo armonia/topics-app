@@ -113,7 +113,7 @@ test.describe("continuità: le righe di chrome e il contenuto", () => {
     mkdirSync(PROJ, { recursive: true });
     writeFileSync(`${PROJ}/README.md`, "uno\n");
   });
-  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true }));
+  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
 
   test.beforeEach(async ({ page, request }) => {
     await resetPaneStore(request, []);

@@ -36,7 +36,7 @@ test.describe("open-file-diff — scoping alla finestra di progetto", () => {
     for (const p of [PROJ_A, PROJ_B]) mkdirSync(p, { recursive: true });
   });
   test.afterAll(() => {
-    for (const p of [PROJ_A, PROJ_B]) rmSync(p, { recursive: true, force: true });
+    for (const p of [PROJ_A, PROJ_B]) rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("il diff del progetto B non compare nella finestra di A", async ({ page, request }) => {

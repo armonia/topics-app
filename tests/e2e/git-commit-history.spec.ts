@@ -113,8 +113,8 @@ test.describe("cronologia dei commit", () => {
   });
 
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true });
-    rmSync(REMOTE, { recursive: true, force: true });
+    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(REMOTE, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test("elenca i commit, e ogni commit dice quali file e quante righe", async ({ page, request }) => {
@@ -341,7 +341,7 @@ test.describe("cronologia dei commit", () => {
       // La cronologia no.
       await expect(pannello.locator('[data-testid="commit-history"]')).toHaveCount(0);
     } finally {
-      rmSync(VUOTO, { recursive: true, force: true });
+      rmSync(VUOTO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 

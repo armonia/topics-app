@@ -166,7 +166,7 @@ test.describe.serial("Una card che gira su un nodo", () => {
       if (id) await request.delete(`${API}/machines/${id}`).catch(() => {});
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   test.beforeEach(async ({ page }) => {
