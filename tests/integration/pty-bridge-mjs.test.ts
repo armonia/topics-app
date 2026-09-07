@@ -144,6 +144,25 @@ function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+/**
+ * The child is dead WITHIN a deadline, which is not the same claim as "dead at
+ * the instant the daemon exited" and is the only one the OS lets us make: after
+ * a SIGTERM shutdown the child outlives its killer as a zombie until init reaps
+ * it, and `kill -0` says "alive" for the whole of that window. On a loaded
+ * machine that window is long enough to fail the assertion for a reason that
+ * has nothing to do with the bridge (seen on a shard running eight files at
+ * once, with the same commit green when run alone). Waiting for the condition
+ * rather than for the clock keeps the contract and drops the race.
+ */
+async function waitForPidGone(pid: number, timeoutMs = 5_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!pidAlive(pid)) return true;
+    await Bun.sleep(25);
+  }
+  return !pidAlive(pid);
+}
+
 afterEach(() => { for (const c of clients.splice(0)) c.close(); });
 afterAll(() => { for (const b of bridges.splice(0)) b.stop(); });
 
@@ -174,7 +193,7 @@ describe("kill finisce con un figlio MORTO, non con un frame ottimista", () => {
     // `killed` acka la RICHIESTA, non la morte: la morte è l'`exit`.
     expect(await c.waitFor((f) => f.type === "killed" && f.id === "s1", 5_000)).not.toBeNull();
     expect(await c.waitFor((f) => f.type === "exit" && f.id === "s1")).not.toBeNull();
-    expect(pidAlive(pid)).toBe(false);
+    expect(await waitForPidGone(pid)).toBe(true);
     expect(await c.list()).not.toContain("s1");
   }, 40_000);
 
@@ -235,7 +254,7 @@ describe("lo shutdown non lascia niente indietro", () => {
 
     b.proc.kill("SIGTERM");
     await b.proc.exited;
-    expect(pidAlive(pid)).toBe(false);
+    expect(await waitForPidGone(pid)).toBe(true);
     expect(fs.existsSync(b.socketPath)).toBe(false);
     expect(fs.existsSync(b.pidPath)).toBe(false);
   }, 40_000);
