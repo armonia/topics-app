@@ -37,10 +37,31 @@ function rootBlock(): string {
 }
 const ROOT = rootBlock();
 
+/**
+ * A token's value in `:root`, following an alias to the colour.
+ *
+ * The hop is not decoration: a token can be DECLARED as another one when the
+ * two must not drift apart (`--bg: var(--bg-solid)`, so the flat background and
+ * the frost veil that overrides `--bg` cannot become two different greys). Read
+ * literally, that value is the string "var(--bg-solid)" and the parser below
+ * throws on it, which reads as a broken palette instead of an indirection. The
+ * cascade-aware resolver further down already does exactly this.
+ */
 function token(name: string): string {
-  const m = ROOT.match(new RegExp(`--${name}:\\s*([^;]+);`));
-  if (!m) throw new Error(`token --${name} not found in :root`);
-  return m[1].trim();
+  const declared = (want: string): string | null => {
+    const m = ROOT.match(new RegExp(`--${want}:\\s*([^;]+);`));
+    return m ? m[1].trim() : null;
+  };
+  let value = declared(name);
+  if (value === null) throw new Error(`token --${name} not found in :root`);
+  for (let hop = 0; hop < 5; hop++) {
+    const alias = value.match(/^var\(\s*--([\w-]+)\s*\)$/);
+    if (!alias) return value;
+    const next = declared(alias[1]);
+    if (next === null) throw new Error(`token --${name} points at --${alias[1]}, which :root does not declare`);
+    value = next;
+  }
+  throw new Error(`token --${name} loops through var() without reaching a colour`);
 }
 
 /** `hsl(H S% L%)` o `#rrggbb` → canali 0-255. */
