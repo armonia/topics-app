@@ -4236,7 +4236,6 @@
     "server/routes/people.ts": [
       "OpzioniGitHub",
       "RigaPersona",
-      "github",
       "inst",
       "mieOrg",
       "puo",

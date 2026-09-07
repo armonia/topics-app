@@ -48,12 +48,18 @@ test.use({ video: "on" });
 const BASE = E2E_BASE;
 // Una directory VERA: le pane interne di un progetto ci fanno cd dentro, e un
 // path inesistente le fa uscire subito.
-// `/tmp` is a symlink to `/private/tmp` on macOS, and the server resolves the
-// link when a project path COMES IN (`canonicalProjectPath`: two roads to one
-// directory used to be two projects). So the pane id is born from the CANONICAL
-// spelling, not from the one we called it by, and starting there is the only
-// way the tab locator finds anything on this machine.
-const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-badge-attribuibile-${Date.now()}`;
+// A project's identity is the RESOLVED directory: `canonicalProjectPath`
+// (server/lib/canonical-project-path.ts) realpaths the path when it comes in,
+// so that one directory reached two ways stays one project. On macOS `/tmp` is
+// a symlink to `/private/tmp`, so a pane seeded under `/tmp` is stored, and
+// mounted, under the resolved path: naming it the other way here means waiting
+// for a tab id that nobody will ever render. The directory is created HERE, at
+// module scope, because `realpathSync` can only resolve what already exists.
+const PROJECT_PATH = (() => {
+  const path = `/tmp/e2e-badge-attribuibile-${Date.now()}`;
+  mkdirSync(path, { recursive: true });
+  return realpathSync(path);
+})();
 const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 
 test.describe("Il badge di un progetto dice DI CHI è", () => {

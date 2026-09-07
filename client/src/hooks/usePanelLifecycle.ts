@@ -1191,6 +1191,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // idratazione una chat ferma da ieri resterebbe muta finché non le arriva un
   // messaggio nuovo — cioè per sempre, che è esattamente il buco da chiudere.
   // UNA richiesta per tutte le chat: il server risponde con una query batch.
+  //
+  // THE LIVE ONES ONLY. The archived previews come with the archived list,
+  // from `ensureArchivedTopics` (useTopics): the boot draws open rows.
   useEffect(() => { void hydrateTopicPreviews(); }, []);
 
   // WS Cluster 2: message sync (notifications, media, clear, agents-spawned)

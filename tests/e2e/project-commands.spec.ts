@@ -30,6 +30,27 @@ const WORKSPACE_DIR = join(
   "workspace"
 );
 
+/**
+ * The same directory, spelled the way the SERVER spells it back.
+ *
+ * `canonicalProjectPath` (server/lib/canonical-project-path.ts) realpaths a
+ * project path when it comes in, so one directory reached two ways stays one
+ * project. The isolated test data dir lives under `/tmp`, which on macOS is a
+ * symlink to `/private/tmp`: the binding therefore comes back resolved. It only
+ * comes back resolved once the directory EXISTS, though, because a path that is
+ * not there yet is kept as-is, and `/project create` binds around the moment it
+ * creates it. Comparing both sides resolved is what makes the assertion say
+ * "the same directory" instead of "the same string".
+ */
+function resolvedPath(path: string | null | undefined): string {
+  if (!path) return "";
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 /** Apre la topic dalla sidebar, se ci compare. `true` se ci è riuscita. */
 async function openTopicFromSidebar(
   page: import("@playwright/test").Page,
@@ -236,11 +257,11 @@ test.describe.serial("Project Commands", () => {
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          return data.topics[topicId]?.projectPath;
+          return resolvedPath(data.topics[topicId]?.projectPath);
         },
         { timeout: 10_000 }
       )
-      .toBe(testProjectDir);
+      .toBe(resolvedPath(testProjectDir));
 
     expect(existsSync(testProjectDir)).toBe(true);
     expect(existsSync(join(testProjectDir, "CLAUDE.md"))).toBe(true);
@@ -288,11 +309,11 @@ test.describe.serial("Project Commands", () => {
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          return data.topics[topicId]?.projectPath;
+          return resolvedPath(data.topics[topicId]?.projectPath);
         },
         { timeout: 10_000 }
       )
-      .toBe(testProjectDir);
+      .toBe(resolvedPath(testProjectDir));
   });
 
   test("PROJCMD-4: /project open binds by absolute path", async ({ page, request }) => {
@@ -308,24 +329,15 @@ test.describe.serial("Project Commands", () => {
     // `/project open <abs path>` binds + FOCUSES the project, transforming the
     // pane and unmounting the transient banner. Assert the durable binding — the
     // real proof of "bind by absolute path".
-    //
-    // The path comes back CANONICAL: an absolute argument goes through
-    // `canonicalProjectPath`, which resolves the symlink so that two spellings
-    // of one directory cannot become two projects. On macOS the data dir lives
-    // under `/tmp`, a link to `/private/tmp`, so the two spellings differ here
-    // and nowhere else. What this test is about is the BINDING, not the
-    // spelling: it asserts the directory, resolved the same way on both sides.
-    const boundDir = realpathSync(testProjectDir);
     await expect
       .poll(
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          const bound = data.topics[topicId]?.projectPath;
-          return typeof bound === "string" && existsSync(bound) ? realpathSync(bound) : bound;
+          return resolvedPath(data.topics[topicId]?.projectPath);
         },
         { timeout: 10_000 }
       )
-      .toBe(boundDir);
+      .toBe(resolvedPath(testProjectDir));
   });
 });
