@@ -104,6 +104,12 @@ export interface ChromeBarSurface {
    * (`terminal:<id>`, `browser:<id>`, `__dashboard__`, ...) or `runtime` when the
    * spec has to create the pane itself (a chat topic). `null` means the family
    * is not measurable from the web shell, and then `contrast` has to say so.
+   *
+   * A `terminal:` id is the SESSION NAME, not a session that exists: the spec
+   * opens a live one under that name and seeds the id the server mints for it.
+   * Seeding a made-up session id instead is what made the terminal rows flaky
+   * on CI, and rightly so - a pane whose session no roster lists is a corpse,
+   * and the app prunes it (see the note in the spec).
    */
   probe: string | null;
   /** Last recorded worst-case reading, or `null` if it was never measured. */
