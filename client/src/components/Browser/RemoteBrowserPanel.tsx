@@ -449,15 +449,33 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // replaced came back and stayed. Same distinction `showChrome` makes below.
   // Measured 2026-08-26 under `--workers=4`: one reveal, from here, with
   // `storeHasSpoken` true and `knownUrl` set. Not a race: the wrong question.
+  //
+  // AND IT HAS TO BE ASKED AGAIN ONCE THE NATIVE VIEW EXISTS. The first focus
+  // happens while the pane is still only DOM; the native webview is created a
+  // moment later and, on Windows, takes the window's keyboard with it. What is
+  // left is a caret nobody can see: measured on the real machine on 2026-09-07
+  // (card 99a9a8bd), `document.activeElement` is BODY 1.2s, 2.5s and 5s after a
+  // fresh pane opens, so the address a user types goes to a page parked
+  // off-screen and the pane looks dead. The shell now hands the keyboard back
+  // to this webview when it creates the pane (browser_open, NATIVEOPS-05), and
+  // this is the other half: a window with the focus and no focused element is
+  // still a window where typing does nothing. Re-armed on the `ready`
+  // TRANSITION, not on every render, and the pane has to be empty anyway, so it
+  // cannot steal the caret from a page somebody is reading.
   const urlBarAutoFocusedRef = useRef(false);
+  const nativeReadyRef = useRef(browser.ready);
   useEffect(() => {
     const empty = !isRealUrl(browser.url) && !isRealUrl(knownPaneUrl);
     if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
+    if (nativeReadyRef.current !== browser.ready) {
+      nativeReadyRef.current = browser.ready;
+      urlBarAutoFocusedRef.current = false;
+    }
     if (urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
-  }, [isVisible, browser.url, knownPaneUrl, focusUrlBar]);
+  }, [isVisible, browser.url, knownPaneUrl, browser.ready, focusUrlBar]);
 
   // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
   // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·

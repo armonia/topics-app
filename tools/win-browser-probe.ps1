@@ -41,7 +41,12 @@ param(
   [double]$BarX = 0.613,
   [double]$BarY = 0.504,
   # Internal: run as the TCP witness instead of as the probe.
-  [switch]$Witness
+  [switch]$Witness,
+  # Report the window tree and the WebView2 processes as they are RIGHT NOW and
+  # exit, touching nothing. This is how the pane is read after something else
+  # drove it (a CDP session, a hand on the keyboard): the state has to be
+  # sampled from the interactive session, and driving it again would change it.
+  [switch]$Dump
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,12 +61,21 @@ $stopFile = Join-Path $Out "witness-$Label.stop"
 # cheaper than that ambiguity. The page it serves is solid red end to end, so a
 # screen capture of a window that loaded it cannot be mistaken for a blank one.
 if ($Witness) {
+  # The witness must survive its own log file being read while it writes: with
+  # `Stop` in force, a single "file in use" from an Add-Content collided with a
+  # reader killed the listener mid-run, and the next navigation came back
+  # "connection refused" - which reads exactly like a pane that cannot reach
+  # loopback. Measured on 2026-09-07, and it cost a whole arm.
+  $ErrorActionPreference = "Continue"
   $body = "<!doctype html><html><head><meta charset=utf-8><title>witness</title></head>" +
     "<body style='margin:0;background:#e00'><div style='height:100vh;display:flex;" +
     "align-items:center;justify-content:center;font:700 64px sans-serif;color:#fff'>WITNESS</div></body></html>"
   $bytes = [Text.Encoding]::UTF8.GetBytes($body)
   $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $Port)
-  $listener.Start()
+  try { $listener.Start() } catch {
+    "could not listen on $Port : $($_.Exception.Message)" | Add-Content $witnessLog
+    exit 3
+  }
   "listening on 127.0.0.1:$Port at $(Get-Date -Format o)" | Add-Content $witnessLog
   $deadline = (Get-Date).AddSeconds(240)
   while ((Get-Date) -lt $deadline -and -not (Test-Path $stopFile)) {
@@ -111,6 +125,10 @@ public class BrowserProbe {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int max);
+  [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+  [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
+    public int cbSize; public int flags; public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret; public RECT rcCaret;
+  }
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
 }
 "@
@@ -170,6 +188,31 @@ function Dump-Children($h, $tag) {
     Say ("   {0,-30} pid={1,-6} {2,-16} {3,-20} visible={4}" -f $k.Class, $k.Pid, $k.Proc, $k.Rect, $k.Visible)
   }
   return $script:kids
+}
+
+# WHERE THE KEYBOARD ACTUALLY GOES. `SendKeys` posts to whatever has the focus
+# inside the foreground window, and on Windows the pane is a native WebView2
+# CHILD: if it holds the focus, every key the probe sends lands in the page
+# instead of the client, and a gate reading "the pane never loaded" would in
+# truth be reading "the probe typed into the wrong window". So the focused HWND
+# is reported at every step, with the process that owns it.
+function FocusedChild($tag) {
+  $gti = New-Object BrowserProbe+GUITHREADINFO
+  $gti.cbSize = [Runtime.InteropServices.Marshal]::SizeOf($gti)
+  $fg = [BrowserProbe]::GetForegroundWindow()
+  $fgPid = 0
+  $thread = [BrowserProbe]::GetWindowThreadProcessId($fg, [ref]$fgPid)
+  if (-not [BrowserProbe]::GetGUIThreadInfo($thread, [ref]$gti)) { Say "-- focus $tag : GetGUIThreadInfo refused"; return }
+  $f = $gti.hwndFocus
+  if ($f -eq [IntPtr]::Zero) { Say "-- focus $tag : nothing focused"; return }
+  $sb = New-Object Text.StringBuilder 256
+  [BrowserProbe]::GetClassName($f, $sb, 256) | Out-Null
+  $owner = 0
+  [BrowserProbe]::GetWindowThreadProcessId($f, [ref]$owner) | Out-Null
+  $p = Get-Process -Id $owner -ErrorAction SilentlyContinue
+  $r = New-Object BrowserProbe+RECT
+  [BrowserProbe]::GetWindowRect($f, [ref]$r) | Out-Null
+  Say ("-- focus {0} : {1} pid={2} {3} at {4},{5} {6}x{7}" -f $tag, $sb.ToString(), $owner, $(if ($p) { $p.ProcessName } else { "?" }), $r.L, $r.T, ($r.R - $r.L), ($r.B - $r.T))
 }
 
 function Focus($h) {
@@ -279,6 +322,21 @@ function Webview2Processes($tag) {
 
 # --------------------------------------------------------------------- run ---
 
+if ($Dump) {
+  Say "== topics windows browser probe, DUMP only, label $Label"
+  $h = Find-AppWindow $ProcName
+  if ($h -eq [IntPtr]::Zero) { Say "FAIL no visible window for process $ProcName"; exit 2 }
+  $r = Rect $h
+  Say "window $h at $($r.L),$($r.T) $($r.R - $r.L)x$($r.B - $r.T)"
+  Dump-Children $h "now" | Out-Null
+  FocusedChild "now"
+  Webview2Processes "now"
+  if (-not (Focus $h)) { Say "!! the window refused the foreground: the screen capture may show something else" }
+  Capture $h "30-dump-$Label"
+  Say "== done"
+  exit 0
+}
+
 Say "== topics windows browser probe, label $Label, port $Port"
 Remove-Item $stopFile -ErrorAction SilentlyContinue
 Remove-Item $witnessLog -ErrorAction SilentlyContinue
@@ -287,23 +345,27 @@ $witnessProc = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentL
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath,
   "-Witness", "-Port", $Port, "-Out", $Out, "-Label", $Label
 )
-Start-Sleep 2
 
 # THE WITNESS IS TESTED BEFORE IT IS TRUSTED. A listener that never came up
 # would answer "the pane did not navigate" for every arm, which is the exact
 # wrong answer this probe exists to avoid.
-try {
-  $c = New-Object Net.Sockets.TcpClient("127.0.0.1", $Port)
-  $s = $c.GetStream()
-  $req = [Text.Encoding]::ASCII.GetBytes("GET /probe-selftest HTTP/1.1`r`nHost: 127.0.0.1:$Port`r`nUser-Agent: probe-selftest`r`nConnection: close`r`n`r`n")
-  $s.Write($req, 0, $req.Length)
-  $s.Flush()
-  Start-Sleep -Milliseconds 400
-  $c.Close()
-  Say "-- witness selftest: $(@(WitnessHits).Count) request(s) logged (want 1)"
-} catch {
-  Say "!! witness selftest failed: $($_.Exception.Message)"
+# A powershell cold start is seconds, not milliseconds, so the selftest is
+# retried rather than asked once: a listener that was not up YET is not a
+# listener that will not come.
+for ($try = 1; $try -le 8; $try++) {
+  Start-Sleep -Milliseconds 1500
+  try {
+    $c = New-Object Net.Sockets.TcpClient("127.0.0.1", $Port)
+    $s = $c.GetStream()
+    $req = [Text.Encoding]::ASCII.GetBytes("GET /probe-selftest HTTP/1.1`r`nHost: 127.0.0.1:$Port`r`nUser-Agent: probe-selftest`r`nConnection: close`r`n`r`n")
+    $s.Write($req, 0, $req.Length)
+    $s.Flush()
+    Start-Sleep -Milliseconds 400
+    $c.Close()
+  } catch { }
+  if (@(WitnessHits).Count -ge 1) { break }
 }
+Say "-- witness selftest: $(@(WitnessHits).Count) request(s) logged after $try attempt(s) (want 1)"
 if (@(WitnessHits).Count -lt 1) { Say "FAIL the witness never answered: nothing below would mean anything"; exit 2 }
 
 $h = Find-AppWindow $ProcName
@@ -321,6 +383,7 @@ Send "^n"
 Send "b"
 Start-Sleep 6
 $kidsAfter = Dump-Children $h "with the pane open"
+FocusedChild "with the pane open"
 Webview2Processes "with the pane open"
 Capture $h "21-pane-open"
 
@@ -331,6 +394,7 @@ Start-Sleep -Milliseconds 400
 Start-Sleep 7
 $hitsAfterKeyboard = @(WitnessHits).Count
 Say "-- after the keyboard arm: $hitsAfterKeyboard request(s) total"
+FocusedChild "after the keyboard arm"
 Dump-Children $h "after the keyboard arm" | Out-Null
 Capture $h "22-after-keyboard"
 
@@ -342,6 +406,7 @@ Click $h $BarX $BarY
 Start-Sleep 7
 $hitsAfterMouse = @(WitnessHits).Count
 Say "-- after the mouse arm: $hitsAfterMouse request(s) total"
+FocusedChild "after the mouse arm"
 Dump-Children $h "after the mouse arm" | Out-Null
 Webview2Processes "after the mouse arm"
 Capture $h "23-after-mouse"
