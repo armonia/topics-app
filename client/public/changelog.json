@@ -1,5 +1,51 @@
 [
   {
+    "version": "2.2.283",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Run the shipped Windows build on a real desktop, and measure it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The Windows report and its captures land in the repo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il separatore di un percorso e' due caratteri: su Windows l'id di board era la strada intera, non la cartella",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi inglesi per l'anello: CIRCUMFERENCE e DispatchLoadSummary",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco della migration parla inglese anche nei nomi: POSIX non e' una parola che il cancello conosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La CLI installata si puo' dichiarare: elenco degli agenti e percorso a mano nelle Impostazioni",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una sola porta alle impostazioni: il gesto e' dichiarato una volta, il ⚙ e il popover ci si appoggiano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.282",
     "date": "2026-09-07",
     "sections": {
@@ -9,6 +55,11 @@
       "internal": [
         {
           "it": "Il presidio del teardown cerca listenerPids invece di un lsof scritto a mano: quello che difende resta l'ordine fra domanda al lock e kill sulla porta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il carico del dispatcher si legge anche quando va tutto bene",
           "en": "",
           "scope": null
         }
