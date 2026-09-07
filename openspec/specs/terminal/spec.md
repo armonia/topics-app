@@ -553,3 +553,43 @@ scartati.
 - **GIVEN** l'avviso mostrato
 - **WHEN** arriva la prima uscita vera dal terminale
 - **THEN** l'avviso SHALL sparire da sé
+
+### Requirement: TERM-10 — A Bridge Ack That Arrives Too Late SHALL Cost A Terminal, Not The Server
+
+A pending terminal create parks until the pty bridge acknowledges it, and that
+wait has a deadline. The deadline SHALL be delivered to whoever is still
+waiting for it, and to nobody otherwise: a verdict that arrives after the
+caller has given up SHALL NOT reach the process as an unhandled rejection.
+
+The measured incident: on Windows, with the bridge unreachable, the write of
+the create message throws synchronously. `POST /api/terminal/sessions` answers
+502 correctly and returns, so the `await` on the ack is never reached; five
+seconds later the deadline rejects a promise nobody holds and Bun exits the
+process. One unreachable bridge therefore cost every terminal, every chat and
+every open topic on that machine, and in the e2e run that revealed it, 163
+specs that never ran and were reported red with ECONNREFUSED.
+
+The register of pending creates SHALL make this structural rather than a rule
+each caller remembers: the promise it hands out is created already handled, so
+no path (deadline, superseded create, bridge error) can raise an orphan
+rejection. A caller that gives up SHALL additionally cancel its wait, so the
+countdown stops instead of firing into the void.
+
+#### Scenario: the write fails and the deadline fires with nobody waiting
+- **GIVEN** a create whose message to the bridge could not be written
+- **WHEN** the ack deadline elapses
+- **THEN** the rejection SHALL NOT reach the process
+- **AND** the server SHALL still be serving requests
+
+#### Scenario: a second create for the same session supersedes the first
+- **GIVEN** a create already waiting for an ack on a session id
+- **WHEN** a second create is started for the same id
+- **THEN** the first waiter SHALL be failed explicitly
+- **AND** that failure SHALL NOT reach the process
+- **AND** the ack SHALL settle the second waiter
+
+#### Scenario: whoever is waiting still hears the deadline
+- **GIVEN** a create whose message reached the bridge
+- **WHEN** the bridge never answers within the deadline
+- **THEN** the awaiting caller SHALL receive the timeout error
+- **AND** the API SHALL answer 502
