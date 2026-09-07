@@ -37,13 +37,13 @@ import {
   waitForProjectPaneType,
 } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -232,10 +232,10 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     if (mutedSeeded) await deleteTopic(request, mutedSeeded.topicId);
     for (const w of [wt, mutedWt]) {
       if (w) await request.delete(`${API}/worktrees/${w.id}`).catch(() => {});
-      if (w && existsSync(w.absPath)) rmSync(w.absPath, { recursive: true, force: true });
+      if (w && existsSync(w.absPath)) removeTmpDir(w.absPath);
     }
-    rmSync(REPO, { recursive: true, force: true });
-    rmSync(MUTED_REPO, { recursive: true, force: true });
+    removeTmpDir(REPO);
+    removeTmpDir(MUTED_REPO);
   });
 
   test.beforeEach(async ({ page }) => {

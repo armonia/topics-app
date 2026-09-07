@@ -18,8 +18,9 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -76,8 +77,8 @@ test.describe("script del progetto", () => {
     writeFileSync(`${NUDA}/README.md`, "# niente da lanciare\n");
   });
   test.afterAll(() => {
-    rmSync(RUST, { recursive: true, force: true });
-    rmSync(NUDA, { recursive: true, force: true });
+    removeTmpDir(RUST);
+    removeTmpDir(NUDA);
   });
 
   test("un progetto Rust con Makefile mostra i comandi di tutt'e due", async ({ page, request }) => {

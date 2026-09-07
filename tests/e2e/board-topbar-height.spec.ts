@@ -32,13 +32,13 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { projectRow } from "./helpers/project-row";
 import { apiCreateTask, stubProbes } from "./helpers/board-topbar";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -196,7 +196,7 @@ test.describe("Top bar della kanban — una sola altezza", () => {
       await deleteTask(request, projectId!, id!).catch(() => {});
     }
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(ROOT, { recursive: true, force: true });
+    removeTmpDir(ROOT);
   });
 
   test.beforeEach(async ({ page }) => {

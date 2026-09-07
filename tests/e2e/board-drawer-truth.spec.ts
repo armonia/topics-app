@@ -29,7 +29,7 @@ import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -146,7 +146,7 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
       await deleteTask(request, pid, tid);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
     if (previewPath) rmSync(previewPath, { force: true });
   });
 

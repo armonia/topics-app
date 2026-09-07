@@ -21,10 +21,11 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -32,7 +33,7 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const TEST_HOME = E2E_HOME;
-const PROJECT_PATH = `/tmp/e2e-extsess-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-extsess");
 /** Il server usa questa, e la usa anche il fixture: una regola sola. */
 const encodedDir = claudeProjectDirName(PROJECT_PATH);
 const TRANSCRIPT_DIR = `${TEST_HOME}/.claude/projects/${encodedDir}`;
@@ -71,8 +72,8 @@ test.describe("Sessioni Claude fuori dalla kanban", () => {
 
   test.afterAll(async ({ request }) => {
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(TRANSCRIPT_DIR, { recursive: true, force: true });
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(TRANSCRIPT_DIR);
+    removeTmpDir(PROJECT_PATH);
   });
 
 

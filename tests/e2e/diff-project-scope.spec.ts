@@ -23,8 +23,8 @@ import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { collapseSidebarSections, splitViaContextMenu } from "./helpers/layout";
-import { mkdirSync, rmSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -36,7 +36,7 @@ test.describe("open-file-diff — scoping alla finestra di progetto", () => {
     for (const p of [PROJ_A, PROJ_B]) mkdirSync(p, { recursive: true });
   });
   test.afterAll(() => {
-    for (const p of [PROJ_A, PROJ_B]) rmSync(p, { recursive: true, force: true });
+    for (const p of [PROJ_A, PROJ_B]) removeTmpDir(p);
   });
 
   test("il diff del progetto B non compare nella finestra di A", async ({ page, request }) => {

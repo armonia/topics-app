@@ -23,7 +23,7 @@
 import { projectRow } from "./project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./api-fixtures";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./test-server";
 import { projectIdForPath as boardIdForPath } from "../../../shared/board";

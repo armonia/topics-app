@@ -34,8 +34,8 @@ import {
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -84,7 +84,7 @@ test.describe("Tab «Progetto»: si spegne quando l'hai guardata", () => {
     for (const id of [chatId, elsewhereId]) {
       if (id) await deleteTopic(request, id).catch(() => {});
     }
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ request }) => {

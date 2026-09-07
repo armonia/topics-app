@@ -16,11 +16,12 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectPane, seedProjectInnerChats } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync, appendFileSync, utimesSync } from "fs";
+import { mkdirSync, writeFileSync, appendFileSync, utimesSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -124,7 +125,7 @@ function forkSession(cwd: string, parentSid: string, childSid: string): string {
 test.describe("Sessione adottata: i turni dal terminale continuano ad arrivare", () => {
   test.describe.configure({ timeout: 90_000 });
 
-  const CWD = `/tmp/e2e-live-import-${Date.now()}`;
+  const CWD = canonicalTmpDir("e2e-live-import");
   const SID = "ad0d7000-9999-8888-7777-666666666666";
 
   test.beforeAll(async ({ request }) => {
@@ -135,8 +136,8 @@ test.describe("Sessione adottata: i turni dal terminale continuano ad arrivare",
   });
 
   test.afterAll(async () => {
-    rmSync(`${TEST_HOME}/.claude/projects/${encode(CWD)}`, { recursive: true, force: true });
-    rmSync(CWD, { recursive: true, force: true });
+    removeTmpDir(`${TEST_HOME}/.claude/projects/${encode(CWD)}`);
+    removeTmpDir(CWD);
   });
 
   test.beforeEach(async ({ page }) => {
@@ -170,7 +171,7 @@ test.describe("Sessione adottata: la chat SEGUE il fork del transcript", () => {
   // Clip di consegna: sotto la soglia di taglio della card (760/1440 = 0.528).
   test.use({ viewport: { width: 1440, height: 760 } });
 
-  const CWD = `/tmp/e2e-fork-import-${Date.now()}`;
+  const CWD = canonicalTmpDir("e2e-fork-import");
   const SID = "bb0d7000-1111-2222-3333-444444444444";
   const CHILD_SID = "ff0d7000-5555-6666-7777-888888888888";
 
@@ -182,8 +183,8 @@ test.describe("Sessione adottata: la chat SEGUE il fork del transcript", () => {
   });
 
   test.afterAll(async () => {
-    rmSync(`${TEST_HOME}/.claude/projects/${encode(CWD)}`, { recursive: true, force: true });
-    rmSync(CWD, { recursive: true, force: true });
+    removeTmpDir(`${TEST_HOME}/.claude/projects/${encode(CWD)}`);
+    removeTmpDir(CWD);
   });
 
   test.beforeEach(async ({ page }) => {

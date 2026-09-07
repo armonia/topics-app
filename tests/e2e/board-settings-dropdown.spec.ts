@@ -45,9 +45,10 @@ import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -170,7 +171,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
 
   test.afterAll(async ({ request }) => {
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(ROOT, { recursive: true, force: true });
+    removeTmpDir(ROOT);
   });
 
   test.beforeEach(async ({ page }) => {

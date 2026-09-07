@@ -28,11 +28,11 @@ import {
   resetProjectPanes,
   seedProjectPane,
 } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -127,7 +127,7 @@ test.describe("Fan-out: scelta del tentativo", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id);
     for (const id of [topicA, topicB, projectTopicId]) if (id) await deleteTopic(request, id);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {
