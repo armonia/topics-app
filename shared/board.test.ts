@@ -86,7 +86,7 @@ describe("projectIdForPath", () => {
     expect(projectIdForPath("C:\\p\\proj\\").startsWith("proj-")).toBe(true);
   });
 
-  test("the POSIX vector does not move (no tasks row already written is orphaned)", () => {
+  test("the slash-only vector does not move (no tasks row already written is orphaned)", () => {
     expect(projectIdForPath("/x/proj")).toBe("proj-xwac8t");
     expect(projectIdForPath("/Users/someone/Projects/topics-app").startsWith("topics-app-")).toBe(true);
   });
