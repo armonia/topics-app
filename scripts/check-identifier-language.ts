@@ -104,6 +104,10 @@ export const PROJECT_WORDS = new Set([
   // (`TASKS_DDL`, `APP_SETTINGS_DDL`). Spelling it out in an identifier would
   // be longer and less recognisable than the acronym everybody reads.
   "ddl",
+  // `changelog` is the name of the surface itself (`ChangelogModal`, the "what
+  // is new" sheet behind the version chip) and of the file it renders. The 1934
+  // list predates the word; every release process in use spells it this way.
+  "changelog",
   // Same hole, five more: `online` and `primaries` are everyday English, `fps`
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.

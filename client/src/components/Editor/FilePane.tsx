@@ -1,13 +1,9 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { copyText } from '../../lib/clipboard';
 import { GitBranch, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
 import { filesApi, gitApi } from '../../lib/api';
 import { HunkActions } from '../Git/HunkActions';
 import { basename } from '../../lib/path-utils';
-import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 import { createPaneId } from '../../state/pane/adapters';
@@ -16,6 +12,9 @@ import { readFileContentCache, writeFileContentCache } from '../../lib/fileConte
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
+// The Markdown preview drags parse5 in through `rehype-raw` — see the header
+// of MarkdownPreview.tsx. Lazy so a plain file open doesn't pay for it.
+const MarkdownPreview = lazy(() => import('./MarkdownPreview'));
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -252,17 +251,9 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
             />
           </Suspense>
         ) : mdPreview && isMd ? (
-          <MarkdownBaseDirContext.Provider value={mdBaseDir}>
-            <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={markdownComponents}
-              >
-                {content}
-              </ReactMarkdown>
-            </div>
-          </MarkdownBaseDirContext.Provider>
+          <Suspense fallback={<SpinnerFallback />}>
+            <MarkdownPreview content={content} baseDir={mdBaseDir} />
+          </Suspense>
         ) : htmlPreview && isHtml ? (
           <HtmlPreview filePath={filePath} filename={filename} />
         ) : (

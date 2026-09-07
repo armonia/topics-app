@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-06",
+  "generated": "2026-09-07",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -243,7 +243,6 @@
       "PANE_CONTEXT_TAKE_EXPR"
     ],
     "client/src/components/ChangelogModal.tsx": [
-      "ChangelogModal",
       "isSel"
     ],
     "client/src/components/Chat/ChatEmptyState.tsx": [
