@@ -58,15 +58,27 @@ describe("le dipendenze del client arrivano col worktree", () => {
     // Un `bun install` dentro un worktree symlinkato scriverebbe nel checkout
     // principale. Se un giorno qualcuno prova la scorciatoia, questo caso lo
     // ferma prima che il danno diventi «dipendenze sbagliate, in silenzio».
-    expect(corpo()).toContain('"bun", "install"');
+    expect(corpo()).toContain("Bun.spawn(installArgv(dir)");
     expect(corpo()).not.toContain("symlink");
   });
 
-  test("`--frozen-lockfile`: il worktree usa il lockfile del SUO ramo", () => {
-    // Senza, un ramo che cambia le dipendenze si ritroverebbe un lockfile
-    // riscritto sotto i piedi, e il diff della card porterebbe roba che
-    // l'agente non ha deciso.
-    expect(corpo()).toContain("--frozen-lockfile");
+  test("the manager is the PROJECT's, from its lockfile: no hardcoded `bun`", () => {
+    // An installed Topics.app runs where `bun` is not on PATH, and a pnpm or
+    // npm project would not want it anyway. `installArgv` carries the
+    // per-manager "do not rewrite the lockfile" flag, so a branch that changes
+    // the dependencies still gets the lockfile of ITS branch.
+    expect(corpo()).not.toContain('"bun"');
+    expect(corpo()).toContain("installArgv(dir)");
+  });
+
+  test("a missing manager is SAID on the same channel, not spawned into an ENOENT", () => {
+    // The warn is what the person reads; a spawn that throws on a missing
+    // binary would land in the same `catch` as a network failure and read as
+    // "install failed" with no hint of why.
+    const c = corpo();
+    expect(c).toContain("missingPackageManager(dir)");
+    expect(c.indexOf("missingPackageManager(dir)")).toBeLessThan(c.indexOf("Bun.spawn("));
+    expect(c).toMatch(/console\.warn\(`\[WorktreeManager\] deps NON installate in \$\{dir\}: \$\{missing\}`\)/);
   });
 
   test("best-effort: un install fallito NON impedisce la nascita del worktree", () => {

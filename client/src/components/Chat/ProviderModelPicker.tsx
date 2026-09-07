@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { Search, Settings, X, RefreshCw, Check } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useDismissable } from '../../hooks/useDismissable';
-import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
 import { resolveEffectiveProvider } from '@/lib/effortTiers';
 import { splitModelId } from '@/lib/modelLabel';
@@ -156,7 +156,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     const rect = btnRef.current.getBoundingClientRect();
     return {
       bottom: window.innerHeight - rect.top + 6,
-      left: Math.min(rect.left, window.innerWidth - 340),
+      // The panel is w-[320px]: clamp it to the shared popover margin on BOTH
+      // sides instead of a hand-written 340 that left 20px on the right and
+      // could go negative on the left.
+      left: Math.max(POPOVER_MARGIN, Math.min(rect.left, window.innerWidth - 320 - POPOVER_MARGIN)),
     };
   })() : null;
 

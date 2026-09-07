@@ -45,10 +45,24 @@ The system SHALL maintain a single canonical `ClaudeSession` record per Claude C
 
 The system SHALL expose `POST /api/claude-hooks/:event` that accepts Claude Code hook payloads, authenticates them with a per-install bearer token, enforces localhost-only access, and deduplicates rapid duplicates.
 
+The token SHALL be written under Topics' OWN home (`${TOPICS_HOME:-~/.topics}/claude-hooks/hook-token`, mode 0600) and NEVER under the user's Claude configuration directory. A token left by an older version at `~/.claude/topics-hook-token` or `~/.claude/topics-app/hook-token` SHALL still be READ, so that a wrapper already installed keeps authenticating, and SHALL NOT be rewritten.
+
 #### Scenario: Unauthenticated request rejected
 - **GIVEN** the hook endpoint is registered
-- **WHEN** a POST arrives without `Authorization: Bearer <token>` matching `~/.claude/topics-app/hook-token`
+- **WHEN** a POST arrives without `Authorization: Bearer <token>` matching the token file
 - **THEN** the server responds 401 and the session state is unchanged
+
+#### Scenario: The token is created in Topics' own home
+- **GIVEN** an installation with no token anywhere
+- **WHEN** the server resolves the hook token
+- **THEN** it SHALL be written under `${TOPICS_HOME:-~/.topics}/claude-hooks/`
+- **AND** nothing SHALL be created under `~/.claude`
+
+#### Scenario: A legacy token is adopted, not rewritten
+- **GIVEN** a token file left by an older version under `~/.claude`
+- **WHEN** the server resolves the hook token
+- **THEN** that value SHALL be adopted and persisted in Topics' own home
+- **AND** the legacy directory SHALL be left exactly as it was
 
 #### Scenario: Non-localhost request rejected
 - **GIVEN** the hook endpoint is registered
@@ -151,7 +165,7 @@ The system SHALL provide a script that installs Topics App hook wrappers into `~
 - **WHEN** the user runs `bun run hooks:install`
 - **THEN** `~/.claude/topics-hooks/` exists with ONE shared wrapper script (`post-hook.sh`), registered for 7 hook events (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop` — `SubagentStop` intentionally dropped, a no-op in `applyHook`)
 - **AND** `~/.claude/settings.json` contains a `hooks` block referencing that wrapper with the event name as argument
-- **AND** `~/.claude/topics-app/hook-token` exists with mode 0600
+- **AND** the hook token exists with mode 0600 under `${TOPICS_HOME:-~/.topics}/claude-hooks/`
 
 #### Scenario: Re-running installer is idempotent
 - **GIVEN** the installer was already run successfully
