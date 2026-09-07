@@ -374,3 +374,8 @@ CONSEGNA-*.md
 # vedere quanto e' invecchiata, e le card di backlog che ne escono la citano per
 # id. Su un disco solo sarebbe l'opinione di una sera.
 !docs/coverage-vs-competitors.md
+
+# Raw captures from tools/win-desktop-check.sh: one per arm, per run, and they
+# pile up. The curated evidence lives in tools/out/win/topics-desktop-<ver>/
+# next to its report, and that folder IS committed.
+tools/out/win/*.png
