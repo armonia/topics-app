@@ -198,15 +198,24 @@ export function runHookCommand(
     child.on("error", (err) => {
       proceedWithWarning(`could not start: ${err.message}`);
     });
-    child.on("exit", (code) => {
+    // THE VERDICT IS SETTLED ON `close`, NOT ON `exit`. `exit` fires when the
+    // process is gone, and the last chunks of its stderr can still be in
+    // flight: settling there loses exactly the message the refusal is made of,
+    // and the person reads "exited 2 with no message" for a hook that did
+    // explain itself. `close` fires once the pipes are drained too. A child
+    // that leaves the pipes open to a grandchild never closes them, and that
+    // case is already covered by the ceiling.
+    let exitCode: number | null = null;
+    child.on("exit", (code) => { exitCode = code; });
+    child.on("close", () => {
       if (timedOut) {
         // The kill got through before the grace elapsed: same answer, just
         // sooner. The warning was written when the ceiling fired.
         finish({ ok: true });
         return;
       }
-      if (code === 0) { finish({ ok: true }); return; }
-      const reason = errText.trim() || outText.trim() || `${label} exited ${code === null ? "by signal" : code} with no message`;
+      if (exitCode === 0) { finish({ ok: true }); return; }
+      const reason = errText.trim() || outText.trim() || `${label} exited ${exitCode === null ? "by signal" : exitCode} with no message`;
       finish({ ok: false, reason });
     });
     // The payload goes in and the pipe closes: a command that reads stdin to
