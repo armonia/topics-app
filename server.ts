@@ -2,6 +2,7 @@ import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
+import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
@@ -4365,7 +4366,8 @@ function finalizeOrphanedRunningTools() {
     const rowIter = db.prepare(
       `SELECT id, session_key, content, tool_calls, blocks FROM messages
        WHERE timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
+         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
+         AND ${NOT_ARCHIVED_SQL}`
     ).iterate() as Iterable<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
     const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
     const rows: Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }> = [];
@@ -4438,7 +4440,8 @@ function finalizeOrphanedRunningTools() {
       `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
          AND (content IS NULL OR trim(content) = '')
          AND timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
+         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
+         AND ${NOT_ARCHIVED_SQL}`
     ).iterate() as Iterable<{ id: string; tool_calls: unknown; blocks: unknown }>;
     const INTERROTTO_RE = /Interrotto/;
     let explainCount = 0;

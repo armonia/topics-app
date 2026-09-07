@@ -104,13 +104,16 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 
 function dbDiProva(): Database {
   const db = new Database(":memory:");
-  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, role TEXT, blocks BLOB, partial INTEGER, timestamp TEXT)`);
+  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, partial INTEGER, timestamp TEXT)`);
+  // The sweep skips the archived topics: without this table it has nothing to
+  // ask and the query fails.
+  db.run(`CREATE TABLE topics (session_key TEXT, archived INTEGER)`);
   return db;
 }
 const ora = new Date().toISOString();
-const inserisci = (db: Database, id: string, blocks: unknown[], extra: Partial<{ role: string; partial: number; timestamp: string }> = {}) =>
-  db.prepare(`INSERT INTO messages (id, role, blocks, partial, timestamp) VALUES (?,?,?,?,?)`).run(
-    id, extra.role ?? "assistant", encodeCol(JSON.stringify(blocks)) ?? null, extra.partial ?? 0, extra.timestamp ?? ora,
+const inserisci = (db: Database, id: string, blocks: unknown[], extra: Partial<{ role: string; partial: number; timestamp: string; sessionKey: string }> = {}) =>
+  db.prepare(`INSERT INTO messages (id, session_key, role, blocks, partial, timestamp) VALUES (?,?,?,?,?,?)`).run(
+    id, extra.sessionKey ?? "sk-aperto", extra.role ?? "assistant", encodeCol(JSON.stringify(blocks)) ?? null, extra.partial ?? 0, extra.timestamp ?? ora,
   );
 
 describe("bonifica dei turni muti", () => {
@@ -145,6 +148,25 @@ describe("bonifica dei turni muti", () => {
     expect(leggi("gia-spiegato").filter((b) => b.kind === "error")).toHaveLength(1);
     expect(leggi("in-volo").some((b) => b.kind === "error")).toBe(false);
     expect(leggi("vecchio").some((b) => b.kind === "error")).toBe(false);
+  });
+
+  test("il topic archiviato non si scorre nemmeno, quello aperto sì", () => {
+    // 98% of the rows this pass scans belong to archived topics, and their
+    // "interrupted" tools are false positives nobody will ever see: reading
+    // them was 1.76 s of boot with the server already listening.
+    const db = dbDiProva();
+    const silent = () => [
+      { kind: "tool", toolCall: { id: "a", name: "bash", args: {}, status: "error", error: "Interrotto: il turno è terminato senza risultato" } },
+    ];
+    inserisci(db, "archiviato", silent(), { sessionKey: "sk-archiviato" });
+    inserisci(db, "aperto", silent(), { sessionKey: "sk-aperto" });
+    db.run(`INSERT INTO topics (session_key, archived) VALUES ('sk-archiviato', 1), ('sk-aperto', 0)`);
+
+    expect(bonificaTurniMuti(db as never, "TESTO DEL CARTELLO")).toBe(1);
+    const leggi = (id: string) =>
+      JSON.parse(decodeCol((db.query(`SELECT blocks FROM messages WHERE id=?`).get(id) as { blocks: unknown }).blocks) || "[]") as ContentBlock[];
+    expect(leggi("aperto").some((b) => b.kind === "error")).toBe(true);
+    expect(leggi("archiviato").some((b) => b.kind === "error")).toBe(false);
   });
 
   test("ripassare non accumula: il secondo giro non tocca niente", () => {

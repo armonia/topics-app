@@ -27,6 +27,7 @@
  */
 import type { ContentBlock } from "../types";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
+import { NOT_ARCHIVED_SQL } from "./archived-scope";
 
 /**
  * Come si riconosce un tool che è morto CON il turno, e non per colpa sua.
@@ -83,7 +84,8 @@ export function bonificaTurniMuti(db: DbLike, testo: string): number {
   const iter = db.prepare(
     `SELECT id, blocks FROM messages WHERE role = 'assistant'
        AND blocks IS NOT NULL AND partial = 0
-       AND timestamp >= date('now', '-30 days')`,
+       AND timestamp >= date('now', '-30 days')
+       AND ${NOT_ARCHIVED_SQL}`,
   ).iterate() as Iterable<{ id: string; blocks: unknown }>;
   // Si raccoglie PRIMA di scrivere: aggiornare la tabella che si sta scorrendo
   // è un comportamento che SQLite non definisce.
