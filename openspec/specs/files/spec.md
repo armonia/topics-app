@@ -992,3 +992,29 @@ markup lo rompe, e con i caratteri giusti fa di più.
 #### Scenario: in tema scuro
 - **GIVEN** la preferenza scura
 - **THEN** la pagina d'errore NON SHALL sbiancare
+
+### Requirement: FILEPREVIEW-01 — The preview of a file points at the DATA SERVER, not at the shell origin
+
+A file opened from the explorer (a PDF, an image, a video, an audio file, an
+HTML page) is drawn by an element whose `src` the browser resolves on its own:
+an `<iframe>`, an `<img>`, a `<video>`. Those requests do NOT go through the
+`fetch` shim, which only rewrites `fetch` and `EventSource`.
+
+The address of that preview SHALL therefore carry the data server origin
+whenever the UI is not served by the data server itself. On the desktop shell
+the UI comes from `tauri://localhost`, where an unknown path is answered with
+the SPA `index.html`: a relative `/preview/<path>` there did not fail loudly,
+it drew a SECOND FULL COPY of the app inside the tab that was supposed to show
+the document.
+
+On the web the UI and the server share one origin, so the address SHALL stay
+relative and the behaviour SHALL be unchanged.
+
+#### Scenario: a PDF opened in the desktop shell
+- **GIVEN** the UI is served by the shell and the data server lives on the loopback proxy
+- **WHEN** a PDF is opened from the file tree
+- **THEN** the preview address SHALL start with the data server origin
+
+#### Scenario: the same PDF on the web
+- **GIVEN** the UI is served by the data server itself
+- **THEN** the preview address SHALL stay relative
