@@ -71,7 +71,11 @@ describe("the teardown asks before killing", () => {
       "utf8",
     ) as string;
     const call = src.indexOf("liveLockHolder(TEST_PORT)");
-    const kill = src.indexOf("lsof -ti :${TEST_PORT}");
+    // `listenerPids` and no longer a hand-written `lsof`: the question "who
+    // holds this port" has a different answer per platform and lives in
+    // tests/e2e/helpers/platform.ts. What this test guards is unchanged - the
+    // ORDER between asking the lock and killing.
+    const kill = src.indexOf("listenerPids(TEST_PORT)");
     expect(call, "the teardown does not consult the lock").toBeGreaterThan(-1);
     expect(kill).toBeGreaterThan(-1);
     expect(call, "consults the lock AFTER killing: useless").toBeLessThan(kill);
