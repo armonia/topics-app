@@ -185,7 +185,7 @@ describe("usePaneStore.dispatch (lastSeq monotonicity)", () => {
     expect(s.lastServerSeq).toBe(serverSeq);
   });
 
-  test("SET_ACTIVE_SPACE is a plain local dispatch (bumps lastSeq — FOCUS_PANE precedent)", () => {
+  test("SET_ACTIVE_SPACE still bumps lastSeq (persistLocal watches it)", () => {
     usePaneStore.setState({
       spaces: { "space:a": { id: "space:a", name: "A", order: 0, updatedAt: 1 } },
     });
@@ -197,5 +197,58 @@ describe("usePaneStore.dispatch (lastSeq monotonicity)", () => {
     const s = usePaneStore.getState();
     expect(s.activeSpaceId).toBe("space:a");
     expect(s.lastSeq).toBe(before + 1);
+  });
+
+  test("changing tab does not arm the outbound PUT (FOCUS_PANE leaves localSeq alone)", () => {
+    // Measured on the running app: 8 alternating clicks between two tabs sent
+    // 8 PUT /api/ui-state/pane-store-v2 of 68,820 B each, ~470 ms after every
+    // click, all with the same body hash. Focus is device-local
+    // (`selectSyncableSnapshot` strips `focusedPaneId`), so every one of those
+    // writes shipped a byte-identical body, hit SQLite, recomputed the cascade
+    // server-side and broadcast a HYDRATE to every other client.
+    //
+    // `lastSeq` MUST still move: persistLocal subscribes to it and writes the
+    // focused id to localStorage synchronously, and syncServer's re-arm after a
+    // WS drop reads it. `localSeq` must NOT: that is the counter syncServer
+    // subscribes to, and it is what "someone on THIS device edited the shared
+    // state" means.
+    usePaneStore.getState().dispatch({
+      type: "OPEN_PANE",
+      payload: { id: "chat:a", type: "chat", title: "A", groupId: "g1" },
+    });
+    usePaneStore.getState().dispatch({
+      type: "OPEN_PANE",
+      payload: { id: "chat:b", type: "chat", title: "B", groupId: "g1" },
+    });
+
+    const beforeLocal = usePaneStore.getState().localSeq;
+    const beforeLast = usePaneStore.getState().lastSeq;
+
+    usePaneStore.getState().dispatch({ type: "FOCUS_PANE", payload: { id: "chat:a" } });
+    usePaneStore.getState().dispatch({ type: "FOCUS_PANE", payload: { id: "chat:b" } });
+    usePaneStore.getState().dispatch({ type: "FOCUS_PANE", payload: { id: "chat:a" } });
+
+    const s = usePaneStore.getState();
+    expect(s.focusedPaneId).toBe("chat:a");
+    expect(s.localSeq).toBe(beforeLocal);
+    expect(s.lastSeq).toBeGreaterThan(beforeLast);
+  });
+
+  test("switching space does not arm the outbound PUT either", () => {
+    // Same class as FOCUS_PANE: the SET_ACTIVE_SPACE reducer mutates only
+    // `activeSpaceId` and `focusedPaneId`, and `selectSyncableSnapshot` keeps
+    // both out of the body. The `spaces` registry it does NOT touch is the one
+    // thing in that action's blast radius that syncs.
+    usePaneStore.setState({
+      spaces: {
+        "space:a": { id: "space:a", name: "A", order: 0, updatedAt: 1 },
+        "space:b": { id: "space:b", name: "B", order: 1, updatedAt: 1 },
+      },
+    });
+    usePaneStore.getState().dispatch({ type: "SET_ACTIVE_SPACE", payload: { id: "space:a" } });
+    const beforeLocal = usePaneStore.getState().localSeq;
+    usePaneStore.getState().dispatch({ type: "SET_ACTIVE_SPACE", payload: { id: "space:b" } });
+    expect(usePaneStore.getState().activeSpaceId).toBe("space:b");
+    expect(usePaneStore.getState().localSeq).toBe(beforeLocal);
   });
 });
