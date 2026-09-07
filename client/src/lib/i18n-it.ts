@@ -1221,6 +1221,7 @@ const IT: Dict = {
   'board.projectPicker.newProject': 'Nuovo progetto…',
   'board.filter.noProject': 'Senza progetto',
   'board.composer.projectListLabel': 'Progetto del task',
+  'board.composer.projectAuto': 'Progetto auto',
   'board.label.invisibleWhy': 'Non tocca nessuna riga di client/src: con la barra verde la può chiudere il conduttore.',
   'board.label.visibleWhy': 'Tocca una superficie che si vede: resta in review finché non la guarda un umano.',
   'board.label.decisionWhy': 'Un piano, una ricerca, un documento, o nessun codice affatto: la decide un umano, sempre.',

@@ -1040,6 +1040,7 @@ const EN = {
   'board.projectPicker.newProject': 'New project…',
   'board.filter.noProject': 'No project',
   'board.composer.projectListLabel': 'Project of the task',
+  'board.composer.projectAuto': 'Auto project',
   'board.label.invisibleWhy': 'It touches no line of client/src: with the bar green the conductor can close it.',
   'board.label.visibleWhy': 'It touches a surface people see: it stays in review until a human looks at it.',
   'board.label.decisionWhy': 'A plan, a piece of research, a document, or no code at all: a human decides it, always.',
