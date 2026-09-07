@@ -103,9 +103,11 @@ export const isProjectlessId = (projectId: string): boolean =>
 /**
  * The caller's translate function. The chip builders below are PURE (no React,
  * no locale of their own): the words live in the catalogues and whoever renders
- * hands its `tr` over, the way `taskChoices` already takes its `t`.
+ * hands its `tr` over, the way `taskChoices` already takes its `t`. Declared
+ * once in `shared/`, where the queue-reason writer already needed it.
  */
-export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+export type { Translate } from '../../../shared/queue-reason-text';
+import type { Translate } from '../../../shared/queue-reason-text';
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',

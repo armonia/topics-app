@@ -19,7 +19,7 @@ export type { DiffNote };
  * its own), so the words come in from whoever is rendering, the way
  * `taskActionError` already takes them.
  */
-type Translate = (key: string, vars?: Record<string, string | number>) => string;
+import type { Translate } from '../../../../shared/queue-reason-text';
 
 export type DiffRowKind = 'hunk' | 'add' | 'del' | 'ctx' | 'meta' | 'nonewline'; // allow-italian: 'del' is a patch row kind, not a word a reader sees
 
