@@ -26,6 +26,7 @@ import { DeliveryFiles } from './DeliveryFiles';
 import { isDeliverySheetPath } from '../../../../shared/media-kind';
 import { TaskChoiceMenu, TaskChoiceRow } from './TaskChoiceRow';
 import { LandingNotice } from './LandingNotice';
+import { DispatchLoadGauge } from './DispatchLoadGauge';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
@@ -46,7 +47,7 @@ import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -75,6 +76,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   /** The card the floating composer is about to create HERE: drawn as a ghost
    *  at the top of the column while it is being written (see `DraftCard`). */
   draft?: DraftPreview;
+  /** Opens the board settings, where the cap actually is: the load gauge in the
+   *  In progress header offers the door, it does not hold a second knob. */
+  onOpenSettings?: () => void;
 }) {
   const tr = useT();
   const { setNodeRef, isOver } = useDroppable({ id: status });
@@ -157,7 +161,13 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
         {/* Il TOTALE della colonna, non quante card se ne disegnano: sfogliare
             Done non deve accorciarne la storia. La testid esiste perché il
             numero è il solo posto in cui i due valori si potrebbero confondere. */}
-        <span data-testid={`kanban-column-count-${status}`} className="rounded bg-white/10 px-1.5 text-xs text-app-text-secondary">{tasks.length}</span>
+        <span className="flex items-center gap-1">
+          {/* THE DISPATCHER LOAD, and only here: this is the column those agents
+              are working in, so it is the one place where "why is nothing
+              starting?" gets asked. Beside the count, never instead of it. */}
+          {status === 'in_progress' && !archived && <DispatchLoadGauge onOpenSettings={onOpenSettings} />}
+          <span data-testid={`kanban-column-count-${status}`} className="rounded bg-white/10 px-1.5 text-xs text-app-text-secondary">{tasks.length}</span>
+        </span>
       </div>
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
           so the column FRAME reaches the bottom of the pane, while a full column's
