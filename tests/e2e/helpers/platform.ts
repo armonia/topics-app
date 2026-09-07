@@ -190,3 +190,22 @@ export function isAlive(pid: number): boolean {
     return false;
   }
 }
+
+/**
+ * Every Chromium the bench's cleanup considers fair game, machine-wide.
+ *
+ * It lives here because BOTH the emergency cleanup in global-setup and the
+ * teardown reap with it, and until now each carried its own copy of the rule
+ * with a comment saying it had to stay identical to the other. The rule itself
+ * is unchanged: a command line naming ms-playwright or mcp-chrome that also
+ * names chromium or chrome. Who is OURS among them is decided by the caller
+ * (`descendantsOf`), not here.
+ */
+export function playwrightChromiumPids(): string[] {
+  return processRows()
+    .filter(
+      (row) => /ms-playwright|mcp-chrome/.test(row.command) && /chromium|chrome/i.test(row.command),
+    )
+    .map((row) => row.pid)
+    .filter((pid) => /^\d+$/.test(pid));
+}

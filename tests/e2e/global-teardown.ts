@@ -6,7 +6,14 @@
 
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
-import { isAlive, killPids, killProcessTree, listenerPids, processRows } from "./helpers/platform";
+import {
+  isAlive,
+  killPids,
+  killProcessTree,
+  listenerPids,
+  playwrightChromiumPids,
+  processRows,
+} from "./helpers/platform";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
 import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
 
@@ -183,15 +190,9 @@ async function globalTeardown() {
     // resta come cintura in più, ma da sola non basterebbe più: con gli shard in
     // parallelo i browser degli altri nascono DOPO la nostra fotografia.
     const mine = descendantsOf(process.pid);
-    // Same rule as global-setup's `listPlaywrightChromiumPids`, in JavaScript so
-    // it also holds where `ps`, `grep` and `awk` do not exist.
-    const ours = processRows()
-      .filter(
-        (row) =>
-          /ms-playwright|mcp-chrome/.test(row.command) && /chromium|chrome/i.test(row.command),
-      )
-      .map((row) => row.pid)
-      .filter((pid: string) => /^\d+$/.test(pid) && !spared.has(pid) && mine.has(pid));
+    const ours = playwrightChromiumPids().filter(
+      (pid: string) => !spared.has(pid) && mine.has(pid),
+    );
     if (ours.length) {
       killPids(ours, { force: true });
       console.log(`[global-teardown] Killed ${ours.length} orphaned Chromium process(es) from this run` +

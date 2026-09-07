@@ -23,7 +23,13 @@ import {
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
-import { IS_WINDOWS, killPids, killProcessTree, listenerPids, processRows } from "./helpers/platform";
+import {
+  IS_WINDOWS,
+  killPids,
+  killProcessTree,
+  listenerPids,
+  playwrightChromiumPids,
+} from "./helpers/platform";
 // Same question the build, the land and the runtime probe ask: one authority.
 import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
@@ -266,25 +272,6 @@ let runLockHeld = false;
 let foreignChromiumPids: Set<string> = new Set();
 
 /**
- * PIDs of every Chromium our cleanup code considers fair game, machine-wide.
- * MUST stay in sync with the match used by global-teardown.ts — the whole point
- * is that the "spare" snapshot and the kill see the same population.
- */
-function listPlaywrightChromiumPids(): string[] {
-  // The match moved from a pipeline of greps into JavaScript so that the SAME
-  // rule applies on a machine without `ps`, `grep` or `awk`. The rule itself is
-  // unchanged, word for word: an ms-playwright or mcp-chrome command line that
-  // also names chromium or chrome.
-  return processRows()
-    .filter(
-      (row) =>
-        /ms-playwright|mcp-chrome/.test(row.command) && /chromium|chrome/i.test(row.command),
-    )
-    .map((row) => row.pid)
-    .filter(Boolean);
-}
-
-/**
  * Attende che la porta del server di test si apra. Il tetto arriva da
  * `E2E_SERVER_START_TIMEOUT_MS` perché quanto serve dipende da quanti shard
  * stanno bootando insieme: `scripts/e2e-shards.sh` lo alza, un run singolo tiene
@@ -479,7 +466,7 @@ async function globalSetup() {
 
   // Snapshot foreign Chromiums BEFORE we launch any of our own, so the
   // emergency kill can tell them apart (see emergencyCleanup).
-  foreignChromiumPids = new Set(listPlaywrightChromiumPids());
+  foreignChromiumPids = new Set(playwrightChromiumPids());
   // global-teardown.ts runs in this same process but as a separate module, so
   // it can't see the Set — hand the list over via env, as we already do for
   // __TEST_SERVER_PID.
@@ -794,7 +781,7 @@ function emergencyCleanup() {
     // più, ma da sola non basta con più shard in parallelo (i browser degli
     // altri nascono DOPO la fotografia).
     const mine = descendantsOf(process.pid);
-    const ours = listPlaywrightChromiumPids().filter(
+    const ours = playwrightChromiumPids().filter(
       (pid) => !foreignChromiumPids.has(pid) && mine.has(pid) && /^\d+$/.test(pid),
     );
     if (ours.length) killPids(ours, { force: true });
