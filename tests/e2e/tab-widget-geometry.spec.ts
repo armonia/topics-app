@@ -169,20 +169,20 @@ test.describe("I widget in coda a una tab", () => {
     await page.waitForTimeout(200);
     const sopra = await misura(page, a.id);
 
-    // L'ULTIMO segnale quieto della coda è quello che il comando copre. Dal
-    // 2026-09-07 la coda finisce con il loader (badge · pin · tempo · loader,
-    // «l'icona del loading a destra»), quindi su una tab che lavora è il loader
-    // a fermarsi a ROW_PX e il badge sta un passo prima; su una tab ferma resta
-    // il badge. La promessa misurata è la stessa: chi sta in fondo si ferma a
-    // ROW_PX e il cerchio atterra esattamente lì.
+    // THE LAST quiet signal of the trail is the one the command covers. Since
+    // 2026-09-07 the trail ends with the loader (badge, pin, time, loader: the
+    // loading glyph sits at the right), so on a working tab the loader is what
+    // stops at ROW_PX and the badge sits one step before it; on an idle tab the
+    // badge is still last. The measured promise is unchanged: whatever is last
+    // stops at ROW_PX and the ring lands exactly there.
     const ultimo = riposo.loader ?? riposo.badge;
     expect(ultimo, "in coda alla tab c'è un segnale quieto").not.toBeNull();
     expect(ultimo!.dx, "l'ultimo segnale si ferma a ROW_PX dal bordo").toBe(ROW_PX);
     expect(riposo.badge!.dx, "il badge sta un passo prima del loader, mai sotto").toBeGreaterThanOrEqual(ROW_PX);
-    // La scatola del comando è più grande del suo glifo: è l'incasso del GLIFO
-    // che deve valere ROW_PX, non quello della scatola. E su una tab che lavora
-    // il binario porta DUE comandi (ferma, poi chiudi): quello che copre
-    // l'ultimo segnale è l'ultimo figlio, il cerchio.
+    // The command's box is larger than its glyph: it is the GLYPH inset that
+    // must equal ROW_PX, not the box's. And on a working tab the rail carries
+    // TWO commands (stop, then close): the one covering the last signal is the
+    // last child, the ring.
     const cerchio = sopra.comandoUltimo!;
     const glyphDx = cerchio.dx + (cerchio.w - GLIFO) / 2;
     expect(glyphDx, "il glifo del comando si ferma dove si ferma l'ultimo segnale").toBe(ROW_PX);
