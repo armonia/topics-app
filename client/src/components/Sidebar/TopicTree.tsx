@@ -41,7 +41,7 @@ import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, SECTION_H, ROW_INSET, COLUMN_GAP, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, SIDEBAR_INDENT_STEP, SIDEBAR_SCROLL_TOP_PROPERTY, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SIDEBAR_HOVER, TAB_LABEL, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { startDragPreview } from '@/lib/dragPreview';
 import { useLongPress, openContextMenuAt } from '@/hooks/useLongPress';
 import { SessionActivity, ProjectElapsed } from '@/components/Shared/SessionActivity';
@@ -1854,7 +1854,13 @@ export function TopicTree({
       <div
         ref={colonna}
         className="flex flex-col flex-1 min-h-0 overflow-y-auto sidebar-scroll sidebar-column"
-        style={{ paddingTop: 0, paddingBottom: COLUMN_GAP / 2 }}
+        // `--sidebar-scroll-top` and not a zero: on a phone the top row of the
+        // column has no ground and floats over this list (card 1e015ad6), so
+        // the room it needs is the padding of the SCROLLER - inside the scroll,
+        // which is what lets the tabs travel behind it and behind the
+        // safe-area band. On a desktop the property is `0px` and this is the
+        // zero it has always been. See `SIDEBAR_SCROLL_TOP_PROPERTY`.
+        style={{ paddingTop: `var(${SIDEBAR_SCROLL_TOP_PROPERTY}, 0px)`, paddingBottom: COLUMN_GAP / 2 }}
         // IL GESTO INVERSO: una tessera lasciata sulla LISTA torna una riga.
         //
         // Sta qui, sul contenitore che scorre, e non su ogni vista: le viste

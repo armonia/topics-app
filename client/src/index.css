@@ -1479,6 +1479,47 @@ audio::-webkit-media-controls-panel {
   }
 }
 
+/**
+ * THE FINGER DRAGS, IT DOES NOT SELECT.
+ *
+ * Reported from a phone (card 1e015ad6): "sometimes when I drag it starts
+ * selecting text, and everything gets messed up". It is not a stray gesture, it
+ * is how iOS reads a slow press on selectable text: the magnifier comes up, the
+ * selection handles appear, and from that moment the finger belongs to the
+ * selection instead of to the surface it was moving. Every drag in this app
+ * starts exactly that way, with a still finger on a row of text - the sidebar
+ * drawer swipe, the pinned tiles, the board cards, all of which lift after
+ * 200-500ms of pressure (useTouchDrag, PoliteTouchSensor).
+ *
+ * So on a coarse pointer the DRAGGABLE SURFACES stop being text to select. Not
+ * the whole app: only the two places a drag is born. The text that people
+ * actually copy - a message, a task description in the drawer, anything in a
+ * field - is untouched, and so is every mouse.
+ *
+ * `-webkit-touch-callout: none` is the second half of the same gesture: without
+ * it the long press still raises the iOS callout menu over the card it has just
+ * lifted.
+ */
+@media (pointer: coarse) {
+  [data-sidebar],
+  [data-task-card] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* A field inside those surfaces is still a field: renaming a topic means
+     putting the caret in the middle of a word. */
+  [data-sidebar] input,
+  [data-sidebar] textarea,
+  [data-sidebar] [contenteditable="true"],
+  [data-task-card] input,
+  [data-task-card] textarea,
+  [data-task-card] [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
 /* macOS titlebar spacing — push content below traffic lights */
 .titlebar-inset {
   padding-top: env(titlebar-area-height, 0px);

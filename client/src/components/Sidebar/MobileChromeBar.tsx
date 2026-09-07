@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
-import { formaFila, pavimentoFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
+import { formaFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
 import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
 import { iniziali, useProfileIdentity } from './useProfileIdentity';
 
@@ -34,6 +34,22 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * tab aperte. Serve anche a una cosa che prima non si poteva fare affatto: «non
  * vedo la possibilità di aprire la Kanban, non vedo il tasto» (chi usa la app, da
  * PWA). Un link solo-andata avrebbe risposto a metà della frase.
+ *
+ * ── THE ROW HAS NO BAR UNDER IT, AND THE BUTTONS GO ALL THE WAY DOWN ───────
+ * Asked from a phone (card 1e015ad6): "I would like every button of the bottom
+ * bar to reach the bottom, to have the full height of the bar, for the bar to
+ * have no background, and for the first and the last to follow the edge of the
+ * safe area". Three sentences, one shape.
+ *
+ * So the strip paints NOTHING: no ground, no top hairline. What you see is four
+ * slabs, each of them the full height of the strip, each reaching the bottom
+ * edge of the screen - the safe-area band included, which used to be an empty
+ * margin under them. The band is not a place buttons must stay out of: under it
+ * there is glass, and the only thing that lives there is the home indicator,
+ * which draws itself over whatever is below.
+ *
+ * The GLYPH and the WORD stay in the top 44 of each slab, all four on the same
+ * line: what grew is the painted surface, not the place the eye reads.
  *
  * ── LA FILA ARRIVA AL BORDO DEL TELEFONO, E NE SEGUE LA CURVA ──────────────
  * Il primo e l'ultimo tasto hanno il bordo esterno SUL bordo dello schermo:
@@ -73,8 +89,8 @@ export const MOBILE_CHROME_H_VAR = '--mobile-chrome-h';
 const PASSO = 6;
 /** Aria sopra le scatole, dentro la barra. */
 const SOPRA = 6;
-/** Altezza di un bottone della fila (h-11). Serve al calcolo della curvatura:
- *  mezza altezza è il massimo raggio che quel bottone può portare. */
+/** The band a button reads in: glyph over word, 44 tall, the finger target.
+ *  It sits at the TOP of the slab; what is under it is painted surface. */
 const ALTEZZA = 44;
 /** Il raggio che ha un tasto quando l'arco non lo tocca — `rounded-xl`. */
 const RADIUS_STANDARD = 12;
@@ -131,6 +147,11 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
   const [forme, setForme] = useState<FormaScatola[]>([]);
 
   const attivo = isMobile && !keyboardVisible;
+  // How tall a slab is: the 44 band it is read in, plus the safe-area strip it
+  // now covers instead of floating above. It is also what the arc is given as
+  // the box height, so the outer corner can be as round as the glass is: half
+  // of 78 leaves room for the concentric radius, half of 44 did not.
+  const buttonHeight = ALTEZZA + Math.max(0, safeAreaInsets.bottom);
 
   // Le alzate si ricalcolano quando cambia la LARGHEZZA (rotazione, finestra
   // ridimensionata) o la fascia inferiore. Si leggono i rettangoli veri e non
@@ -153,8 +174,12 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       larghezza: largo,
       scatole,
       raggio,
-      pavimento: pavimentoFila(safeAreaInsets.bottom),
-      altezza: ALTEZZA,
+      // NO FLOOR. A slab goes down to the bottom edge of the screen and the
+      // only thing that lifts it is the arc, where the arc actually bites: that
+      // is the whole difference between "the buttons drift towards the safe
+      // area" and "the buttons fill the bar".
+      pavimento: 0,
+      altezza: buttonHeight,
       standard: RADIUS_STANDARD,
     });
     setForme((prec) => (
@@ -163,7 +188,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
         ? prec
         : next
     ));
-  }, [safeAreaInsets.bottom]);
+  }, [safeAreaInsets.bottom, buttonHeight]);
 
   useLayoutEffect(() => {
     if (!attivo) return;
@@ -196,12 +221,9 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
 
   if (!attivo) return null;
 
-  const massima = forme.length
-    ? Math.max(...forme.map((f) => f.alzata))
-    : pavimentoFila(safeAreaInsets.bottom);
   // Prima della prima misura non si inventa una curva: raggio standard e
-  // pavimento minimo, cioè la fila dritta di uno schermo squadrato.
-  const forma = (i: number): FormaScatola => forme[i] ?? { alzata: 10, curvatura: RADIUS_STANDARD, lato: null };
+  // nessuna alzata, cioè la fila dritta di uno schermo squadrato.
+  const forma = (i: number): FormaScatola => forme[i] ?? { alzata: 0, curvatura: RADIUS_STANDARD, lato: null };
 
   return (
     <div
@@ -209,12 +231,17 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       data-testid="mobile-chrome-bar"
       role="toolbar"
       aria-label="Comandi"
-      // `bg-app-chrome` si può dipingere QUI e non dentro la sidebar: questa
-      // barra è un fratello della colonna, non un suo figlio, quindi non
-      // compone la sua trasparenza con quella del vetro (la trappola descritta
-      // su `--chrome-bg`). E comunque esiste solo sotto i 768px, dove la shell
-      // mac non arriva: la soglia di LAYOUT, che arriva dalla prop `mobile`.
-      className="fixed bottom-0 left-0 right-0 flex items-end bg-app-chrome border-t border-app-border"
+      // NO GROUND AND NO HAIRLINE. The strip used to paint `bg-app-chrome` plus
+      // a top border, so the four buttons floated on a bar that was itself a
+      // surface; asked from a phone (card 1e015ad6), the bar goes away and the
+      // buttons stay. They carry their own skin (`RAISED_CONTROL` + `edge-lit`),
+      // which is what made them readable in the first place, and what scrolls
+      // past underneath is the app: exactly like the header at the other end.
+      //
+      // `items-stretch` (the default, and it is the point): every slab is as
+      // tall as the strip minus the air above it, and it is `marginBottom` that
+      // lifts the two ends by however much the arc eats there.
+      className="fixed bottom-0 left-0 right-0 flex"
       style={{
         zIndex: 60,
         // A FILO. Nessun rientro scelto a mano: resta solo la fascia di
@@ -224,7 +251,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
         paddingRight: 'var(--sar)',
         paddingTop: SOPRA,
         gap: `${PASSO}px`,
-        height: `${Math.round(SOPRA + 44 + massima)}px`,
+        height: `${Math.round(SOPRA + buttonHeight)}px`,
       }}
     >
       {/* Le quattro caselle. Il `ref` che le misura sta DENTRO questo componente e
@@ -362,13 +389,19 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
       data-testid={testId}
       title={titolo ?? etichetta}
       aria-label={titolo ?? etichetta}
-      className={`edge-lit flex flex-1 min-w-0 h-11 flex-col items-center justify-center gap-0.5 px-1 transition-colors ${
+      // `h-full`, not `h-11`: the slab is as tall as the strip. The reading
+      // band stays 44 and stays at the TOP (`justify-start` plus the inner
+      // box), so the four words keep sitting on one line while the surface
+      // under them runs down to the glass.
+      className={`edge-lit flex flex-1 min-w-0 h-full flex-col items-center justify-start px-1 transition-colors ${
         attivo ? `${SIDEBAR_ACTIVE} text-primary` : `${RAISED_CONTROL} text-app-text`
       }`}
       style={cornersQueue(forma)}
     >
-      {children}
-      <span className="text-[10px] font-medium leading-none">{etichetta}</span>
+      <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">
+        {children}
+        <span className="text-[10px] font-medium leading-none">{etichetta}</span>
+      </span>
     </button>
   );
 }
