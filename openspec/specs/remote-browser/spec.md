@@ -356,6 +356,13 @@ pane in live clients on a remote close.
 - **THEN** the provider request carries at least the tools `browser_open`, `browser_observe`, `browser_act`, `browser_extract`, `browser_screenshot` and `browser_point`
 - **AND** on any other provider the scenario does not apply — the tool surface is upstream-managed
 
+#### Scenario: The route dispatches a browser tool only for the providers that do not run it themselves
+- **GIVEN** a topic on the native runtime, whose agent executes `browser_*` in-process and announces each call before its arguments are streamed
+- **WHEN** four such calls are announced in a turn with empty arguments
+- **THEN** the route dispatches none of them — the BrowserService is not touched
+- **AND** the four calls are still shown in the transcript, since only the second execution is removed
+- **AND** on a passthrough provider (`claude`, `openai`), whose tool surface the route itself registered, all four are dispatched
+
 #### Scenario: The agent-controlling overlay follows the agent_active broadcast
 - **GIVEN** a mounted browser pane connected to its socket
 - **THEN** the agent-controlling overlay is hidden

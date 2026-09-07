@@ -49,7 +49,7 @@ import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
-import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { dispatchBrowserToolCall, providerRunsBrowserToolsItself, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { decodeCol } from "../../shared/message-blob";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
@@ -1089,7 +1089,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             reattachSnapshot: () => reattachSnapshot,
           });
           const persistTurnBody = (withText: boolean, force = false) => turnBody.request(withText, blocksBytes, force);
-          const persistBlocks = (force = false) => persistTurnBody(false, force);
+          // A turn already finalized has no write budget left to save: whatever
+          // still arrives (a tool result that came back after the end) is
+          // written NOW. Deferring it would leave the row without it until an
+          // event that will never come, and would put the write on a timer
+          // outliving the turn that owns it.
+          const persistBlocks = (force = false) => persistTurnBody(false, force || streamState === "finalized");
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
             blocksBytes += JSON.stringify(tc).length;
@@ -2083,6 +2088,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               cacheCreationTokens,
               cacheCreation1hTokens,
             });
+            // THE ROW IS NOW WHOLE: nothing may still owe it a write.
+            // `clearAllTimers` runs at the TOP of this function, and everything
+            // between there and here keeps touching the timeline (every tool
+            // still tracked is closed through `updateBlockTool`), so the
+            // throttle schedules a fresh deferred write DURING the finalize --
+            // one that fires a second later and rewrites what the line above
+            // has just written whole. Harmless while the server is up, not
+            // harmless when the turn is the last thing that happens: measured
+            // on 2026-09-07 (card 9ef72908) as a write landing on an already
+            // closed database, in a test file that had ended.
+            turnBody.dispose();
             // "Un turno che non ha prodotto niente non lascia niente": stop
             // premuto prima che il modello dicesse qualsiasi cosa. Il segnaposto
             // creato all'inizio dello stream restava in chat finalizzato vuoto —
@@ -2439,7 +2455,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // (try/finally guaranteed unlock even if it throws). Result is fed back
               // through the same onToolResult update path used by every other tool, so
               // the chat UI shows identical lifecycle (running -> success/error).
-              if (name.startsWith('browser_') && matchedTopic && browserService && !globalOrchestrator) {
+              //
+              // ...AND ONLY FOR THE PROVIDERS THAT DO NOT RUN IT THEMSELVES.
+              // The route dispatches what the ROUTE registered (the passthrough
+              // tool list a few hundred lines below); a runtime that carries its
+              // own browser surface already executed the call, so dispatching
+              // here would run it TWICE -- and, on the native runtime, the copy
+              // the route sees has EMPTY args, because the announcement comes
+              // before the arguments are streamed. See
+              // `providerRunsBrowserToolsItself` for the measure.
+              if (name.startsWith('browser_') && matchedTopic && browserService && !globalOrchestrator
+                  && !providerRunsBrowserToolsItself(topicProvider.name)) {
                 // The route runs it itself: here announcing and starting ARE the
                 // same instant, so the suspension is earned.
                 markToolExecuting(toolCallId);
