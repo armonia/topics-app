@@ -30,7 +30,7 @@
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { unreachableAssets } from "../server/lib/client-bundle";
+import { precompressedOrigin, unreachableAssets } from "../server/lib/client-bundle";
 import { SWEEP_MIN_AGE_MS } from "./build-client-publish";
 
 const PUBLIC_DIR = "public";
@@ -173,6 +173,12 @@ export function totalAssetsRaw(exclude: Set<string> = new Set(), dir = ASSETS_DI
   let raw = 0;
   for (const f of readdirSync(dir)) {
     if (exclude.has(f)) continue;
+    // The `.br`/`.gz` siblings are the SAME content in another encoding: adding
+    // them would inflate the budget by a third and would move every time the
+    // compressor changes its mind, describing zlib instead of the bundle. What
+    // the budget is about - a heavy dependency added as a lazy chunk - is
+    // already in the raw bytes.
+    if (precompressedOrigin(f) !== null) continue;
     const p = join(dir, f);
     const st = statSync(p);
     if (st.isFile()) raw += st.size;

@@ -1708,6 +1708,37 @@ decidono cosa viene servito dopo, e fissarli congela il prossimo dispiegamento.
 - **GIVEN** una chiave che contiene un punto
 - **THEN** NON SHALL essere trattato come artefatto
 
+### Requirement: STATIC-02 — Gli artefatti di testo si servono già compressi
+
+Chi entra dal ponte esterno riceve gli artefatti compressi al bordo. Chi entra
+direttamente dalla rete di casa li scaricava INTERI: due milioni di byte contro
+mezzo milione, una volta per dispositivo dopo ogni rilascio.
+
+Quando il richiedente dichiara di accettare una codifica e il fratello già
+compresso esiste accanto all'artefatto, SHALL essere servito quel fratello, con
+la codifica dichiarata nella risposta. La preferenza SHALL essere per la
+codifica più efficace fra quelle accettate.
+
+Il tipo di contenuto SHALL restare quello dell'artefatto ORIGINALE: un artefatto
+compresso resta ciò che era, solo codificato. La memoria del browser SHALL
+restare quella di prima.
+
+La codifica dichiarata SHALL essere riconosciuta come PAROLA e non come pezzo di
+parola, e ogni risposta di artefatto SHALL dichiarare che varia con la codifica
+accettata: una memoria condivisa non SHALL consegnare la copia intera a chi
+aveva chiesto quella compressa, né il contrario.
+
+Senza fratello compresso, o senza dichiarazione del richiedente, SHALL essere
+servito l'artefatto originale.
+
+#### Scenario: chi accetta la codifica migliore
+- **GIVEN** un artefatto di testo con entrambi i fratelli compressi
+- **THEN** SHALL ricevere il fratello più efficace, dichiarato nella risposta
+
+#### Scenario: chi non dichiara nulla
+- **GIVEN** un artefatto di testo chiesto senza dichiarare codifiche
+- **THEN** SHALL ricevere l'artefatto originale
+
 ### Requirement: RAILGAP-01 — Una barra riservata DUE volte lascia una fascia vuota
 
 «C'era però una riga extra a caso». Non era una riga: era l'altezza della barra

@@ -5120,6 +5120,36 @@ fn browser_open_inner(
     if let Some(wv) = app.get_webview(&label) {
         chords_win::install(&app, &wv, window.label());
     }
+    // AND THE KEYBOARD GOES BACK TO THE CLIENT, WHICH IS WHAT A NEW PANE IS FOR.
+    //
+    // A WebView2 created as a child takes the keyboard the moment it exists. The
+    // client had just focused the address bar of the new tab (`focusUrlBar`,
+    // 50ms after mount) and that focus becomes void: the UI webview lost the
+    // window's focus, its `document.activeElement` falls back to BODY, and every
+    // key from there on is delivered to a page nobody can see, because a brand
+    // new pane is parked off-screen until it has a url.
+    //
+    // That is the whole "the pane opens and stays empty" report on Windows: you
+    // open a browser pane, you type an address, and nothing appears. Measured on
+    // 2026-09-07 on the real machine (card 99a9a8bd): the same build navigates
+    // and paints - 73.6% of the window - when the address is delivered through a
+    // channel that does not depend on the window focus, and the typed one never
+    // reaches the client at all.
+    //
+    // `window`, not `host_label`, for the same reason as the hook above: a
+    // pop-out must get its own keyboard back, not main's.
+    //
+    // `Webview::set_focus` and not a hand-written per-engine call: wry maps it to
+    // exactly `MoveFocus(PROGRAMMATIC)` on WebView2 and to `grab_focus` on
+    // WebKitGTK, which is the whole content this would have had. macOS is left
+    // out on purpose: nothing there was ever reported, and the pane creation is
+    // not the place to start moving the first responder around.
+    #[cfg(not(target_os = "macos"))]
+    if let Some(ui) = app.get_webview(window.label()) {
+        if let Err(e) = ui.set_focus() {
+            eprintln!("[browser_open] {id}: keyboard not returned to the client: {e}");
+        }
+    }
     // Structural FPS fix: make the pane's frame changes instant (no implicit CA
     // animation to stack during a divider/sidebar/window-resize move).
     #[cfg(target_os = "macos")]
@@ -7317,8 +7347,28 @@ fn browser_release_focus_inner(app: tauri::AppHandle, window_label: Option<Strin
             });
         }
     }
+    // Windows had the same problem and worse: there is no ambient rule that hands
+    // the keyboard back, so once the pane's WebView2 holds it only the app can
+    // move it, and until this arm existed nothing did. The tab strip called this
+    // command on pointer-down and it did exactly nothing, because everything
+    // that was not macOS fell into a single discard.
+    //
+    // A `SetFocus` on the client's child HWND is NOT the same thing and does not
+    // work: tried from outside on the real machine on 2026-09-07, the focus
+    // moved and the client still received nothing, because a WebView2 keeps its
+    // own focus state inside the controller. `set_focus` is wry's word for
+    // `MoveFocus(PROGRAMMATIC)` there and for `grab_focus` on WebKitGTK.
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, window_label);
+    {
+        use tauri::Manager;
+        let host_label = window_label.as_deref().unwrap_or("main");
+        if let Some(ui) = app
+            .get_webview(host_label)
+            .or_else(|| app.get_webview("main"))
+        {
+            ui.set_focus().map_err(|e| e.to_string())?;
+        }
+    }
     Ok(())
 }
 

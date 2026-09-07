@@ -22,7 +22,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { missingBundleAssets } from "../server/lib/client-bundle";
+import { mismatchedPrecompressedSiblings, missingBundleAssets } from "../server/lib/client-bundle";
 import { publishBundle } from "./build-client-publish";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -61,6 +61,12 @@ function buildInto(outDir: string): void {
   const missing = missingBundleAssets(outDir);
   if (missing.length > 0) {
     fail(`the build ended 0 but produced no servable bundle (${missing.slice(0, 5).join(", ")}) - public/ untouched.`);
+  }
+  // The compressed half of the bundle is the half most clients actually get,
+  // and a sibling that decodes to something else is invisible from the sizes.
+  const mismatched = mismatchedPrecompressedSiblings(join(outDir, "assets"));
+  if (mismatched.length > 0) {
+    fail(`precompressed siblings do not match their asset (${mismatched.slice(0, 5).join(", ")}) - public/ untouched.`);
   }
 }
 

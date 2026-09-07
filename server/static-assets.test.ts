@@ -1,8 +1,8 @@
 /**
- * @covers STATIC-01
+ * @covers STATIC-01, STATIC-02
  */
 import { describe, test, expect } from "bun:test";
-import { classifyStaticAsset } from "./static-assets";
+import { classifyStaticAsset, pickPrecompressed } from "./static-assets";
 import { buildTabPath } from "../shared/tab-link";
 
 const PUBLIC = "/srv/topics/public";
@@ -87,6 +87,52 @@ describe("classifyStaticAsset — cache", () => {
     // vecchio — è la stessa classe di guasto dello «still on 2.1.57».
     for (const p of ["/boot.js", "/sw.js", "/manifest.json", "/changelog.json"]) {
       expect(classifyStaticAsset(p, PUBLIC)!.cacheControl).toBe("no-cache");
+    }
+  });
+});
+
+describe("pickPrecompressed - quale fratello si serve", () => {
+  const ASSET = `${PUBLIC}/assets/index-a1b2c3.js`;
+  const both = (p: string) => p === `${ASSET}.br` || p === `${ASSET}.gz`;
+
+  test("brotli vince su gzip quando il client accetta entrambi", () => {
+    const pick = pickPrecompressed(ASSET, "gzip, deflate, br, zstd", both);
+    expect(pick).toEqual({ filePath: `${ASSET}.br`, encoding: "br" });
+  });
+
+  test("senza brotli si ripiega su gzip", () => {
+    const pick = pickPrecompressed(ASSET, "gzip, deflate", both);
+    expect(pick).toEqual({ filePath: `${ASSET}.gz`, encoding: "gzip" });
+  });
+
+  test("il fratello che non c'e' non si serve: si ripiega su quello che c'e'", () => {
+    const onlyGz = (p: string) => p === `${ASSET}.gz`;
+    expect(pickPrecompressed(ASSET, "br, gzip", onlyGz)).toEqual({ filePath: `${ASSET}.gz`, encoding: "gzip" });
+    // No sibling on disk: the original is served, not a 404.
+    expect(pickPrecompressed(ASSET, "br, gzip", () => false)).toBeNull();
+  });
+
+  test("senza Accept-Encoding si serve l'originale", () => {
+    expect(pickPrecompressed(ASSET, null, both)).toBeNull();
+    expect(pickPrecompressed(ASSET, "", both)).toBeNull();
+    expect(pickPrecompressed(ASSET, "identity", both)).toBeNull();
+  });
+
+  test("la codifica e' una PAROLA, non un pezzo di parola", () => {
+    // `brotli` and `xbr` contain `br` without being `br`; `x-gzip` is another
+    // name for the same scheme, which we do not promise here.
+    expect(pickPrecompressed(ASSET, "brotli", both)).toBeNull();
+    expect(pickPrecompressed(ASSET, "xbr, x-gzip", both)).toBeNull();
+    // A declared weight still leaves a token.
+    expect(pickPrecompressed(ASSET, "br;q=1.0", both)!.encoding).toBe("br");
+  });
+
+  test("solo i formati di testo hanno un fratello", () => {
+    for (const p of [`${PUBLIC}/assets/font-x.woff2`, `${PUBLIC}/icons/icon-192.png`, `${PUBLIC}/assets/x.wasm`]) {
+      expect(pickPrecompressed(p, "br, gzip", () => true)).toBeNull();
+    }
+    for (const p of [`${PUBLIC}/assets/x.css`, `${PUBLIC}/assets/x.svg`, `${PUBLIC}/boot.js`, `${PUBLIC}/assets/x.js.map`]) {
+      expect(pickPrecompressed(p, "br", () => true)).not.toBeNull();
     }
   });
 });

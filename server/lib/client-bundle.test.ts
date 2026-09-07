@@ -3,9 +3,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { brotliCompressSync, gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bundleBreakageReason, missingBundleAssets, unreachableAssets } from "./client-bundle";
+import { bundleBreakageReason, mismatchedPrecompressedSiblings, missingBundleAssets, unreachableAssets } from "./client-bundle";
 
 function bundleDir(build: (dir: string) => void): string {
   const dir = mkdtempSync(join(tmpdir(), "bundle-check-"));
@@ -113,7 +114,67 @@ describe("unreachableAssets", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test("un fratello precompresso vive quanto l'artefatto che codifica", () => {
+    // Nothing NAMES `index-aaa.js.br`: the server picks it from Accept-Encoding.
+    // Counted as an orphan, the publish sweep would delete half the bundle it
+    // had just published.
+    const dir = assets({
+      "index-aaa.js": "export default 1",
+      "index-aaa.js.br": "brotli",
+      "index-aaa.js.gz": "gzip",
+      "leftover-ccc.js": "export default 2",
+      "leftover-ccc.js.br": "brotli",
+    });
+    expect(unreachableAssets(dir, ["/assets/index-aaa.js"])).toEqual(["leftover-ccc.js", "leftover-ccc.js.br"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("a directory that is not there gives no orphans, not an exception", () => {
     expect(unreachableAssets(join(tmpdir(), "reach-nope-9999"), ["a.js"])).toEqual([]);
+  });
+});
+
+describe("mismatchedPrecompressedSiblings", () => {
+  const dirWith = (files: Record<string, Buffer | string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), "sibling-"));
+    for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
+    return dir;
+  };
+
+  test("un fratello che decodifica all'originale non e' un problema", () => {
+    const code = "export default 1;".repeat(50);
+    const dir = dirWith({
+      "index-aaa.js": code,
+      "index-aaa.js.br": brotliCompressSync(Buffer.from(code)),
+      "index-aaa.js.gz": gzipSync(Buffer.from(code)),
+    });
+    expect(mismatchedPrecompressedSiblings(dir)).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("il guasto misurato: il fratello codifica un'ALTRA versione dell'artefatto", () => {
+    const dir = dirWith({
+      "index-aaa.js": "export default 1;",
+      "index-aaa.js.br": brotliCompressSync(Buffer.from("export default 2;")),
+    });
+    expect(mismatchedPrecompressedSiblings(dir)).toEqual(["index-aaa.js.br"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("un fratello senza artefatto, e uno illeggibile, si nominano", () => {
+    const dir = dirWith({
+      "orphan-bbb.js.gz": gzipSync(Buffer.from("x")),
+      "index-aaa.js": "export default 1;",
+      "index-aaa.js.gz": "not gzip at all",
+    });
+    expect(mismatchedPrecompressedSiblings(dir)).toEqual([
+      "index-aaa.js.gz (unreadable)",
+      "orphan-bbb.js.gz (nothing to encode)",
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("una cartella che non c'e' non e' un guasto", () => {
+    expect(mismatchedPrecompressedSiblings(join(tmpdir(), "sibling-nope-9999"))).toEqual([]);
   });
 });
