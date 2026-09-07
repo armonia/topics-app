@@ -257,9 +257,10 @@ function SessionElapsedTicking({ subjectId, onFill, className = '' }: SessionAct
   if (time.kind === 'working' && time.ms < WORK_ELAPSED_AFTER_MS) return null;
   const label = formatElapsedCompact(time.ms);
   if (!label) return null;
-  // A tab has no sentence around the number, so the tone IS the sentence: the
-  // primary sweep of the loader while the turn runs, amber while it waits for
-  // you, the quiet grey once it is only a receipt. See timeTone.
+  // A tab has no sentence around the number, so the treatment IS the sentence:
+  // the shimmer travelling through the text ink while the turn runs, amber
+  // while it waits for you, a still quiet grey once it is only a receipt. See
+  // timeTone.
   const voice = timeVoice(time.kind === 'working', activity?.tier === 'input');
   const tone = timeToneClass(voice, onFill);
   return (

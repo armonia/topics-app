@@ -1207,16 +1207,133 @@ export function useBrowserLoading(paneId: string | undefined): boolean {
  *  So the COUNT — the one consumer that reads the Sets without a surface behind
  *  it — applies the gate here instead. An id whose topic no longer exists is
  *  dropped too: a deleted topic must not keep nagging from the status bar. */
+export function visibleTopicSignalIds(
+  ids: ReadonlySet<string>,
+  topics: Record<string, Topic>,
+): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    const t = topics[id];
+    if (t && !t.archived) out.push(id);
+  }
+  return out;
+}
+
+/** The count is the list's length: one gate, one place. A consumer that needs
+ *  the number reads this, one that needs the rows reads `visibleTopicSignalIds`,
+ *  and the two cannot disagree. */
 export function visibleTopicSignalCount(
   ids: ReadonlySet<string>,
   topics: Record<string, Topic>,
 ): number {
-  let n = 0;
-  for (const id of ids) {
-    const t = topics[id];
-    if (t && !t.archived) n++;
+  return visibleTopicSignalIds(ids, topics).length;
+}
+
+/** One agent that is doing something right now, with the words to name it:
+ *  a terminal by its name, a chat by its title. `kind` says which id space the
+ *  id belongs to. */
+export interface ActiveAgentRow {
+  id: string;
+  kind: 'terminal' | 'topic';
+  label: string;
+}
+
+/** The minimum a roster entry has to carry to be turned into a row. It is a
+ *  subset of `TerminalSessionInfo`, so App's list fits without a cast. */
+export type AgentRosterEntry = { id: string; type: string; name: string };
+
+/** The slice of the store both agent hooks read. One selector so the two hooks
+ *  subscribe to the same fields and re-run on the same changes. */
+type AgentActivitySlice = {
+  active: Set<string>;
+  resting: Set<string>;
+  busy: Set<string>;
+  awaitingTerm: Set<string>;
+  awaitingInputTerm: Set<string>;
+  liveStream: Set<string>;
+  hydratedStream: Set<string>;
+  awaitingTopics: Set<string>;
+  awaitingInputTopics: Set<string>;
+  finishedTerms: Set<string>;
+};
+
+function useAgentActivitySlice(): AgentActivitySlice {
+  return useSignalsStore(
+    useShallow((s) => ({
+      active: s.claudePhaseActiveTermIds,
+      resting: s.claudePhaseRestingTermIds,
+      busy: s.terminalBusyIds,
+      awaitingTerm: s.claudePhaseAwaitingTermIds,
+      awaitingInputTerm: s.claudePhaseAwaitingInputTermIds,
+      liveStream: s.liveStreamTopics,
+      hydratedStream: s.hydratedStreamTopics,
+      awaitingTopics: s.awaitingFeedbackTopics,
+      awaitingInputTopics: s.awaitingInputTopics,
+      // The FINISHED claude-code turns: they used to count nowhere while the
+      // tooltip called something else "turn finished" (see the counts hook).
+      finishedTerms: s.terminalFinishedIds,
+    })),
+  );
+}
+
+/**
+ * Pure: the agents WORKING and the agents WAITING FOR AN ANSWER, as rows.
+ *
+ * This is the one place that decides who counts as an active agent. The
+ * profile menu lists these rows, the card badges their number, and the status
+ * counts are their `.length`: a session cannot be in the number and missing
+ * from the list, because there is no second predicate to drift.
+ *
+ *   - working: a non-shell terminal that `terminalLoadingFrom` calls loading
+ *     (phase-active OR pty-busy-and-not-resting), plus every chat topic mid
+ *     stream (live or hydrated) that is on screen (not archived, not deleted).
+ *   - awaitingInput: the LOUD tier (`awaiting-approval`) on both surfaces.
+ *     Terminals are read through the roster so each row has a name: an id
+ *     whose session is gone has no row and no tab, and its "1" would be
+ *     unanswerable from anywhere (same gate as the finished terminals below).
+ *
+ * Exported for its unit test; the two hooks under it are the callers.
+ */
+export function activeAgentRowsFrom(
+  roster: ReadonlyArray<AgentRosterEntry>,
+  topics: Record<string, Topic>,
+  sig: Pick<AgentActivitySlice, 'active' | 'resting' | 'busy' | 'awaitingInputTerm' | 'liveStream' | 'hydratedStream' | 'awaitingInputTopics'>,
+): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[] } {
+  const working: ActiveAgentRow[] = [];
+  const awaitingInput: ActiveAgentRow[] = [];
+  for (const t of roster) {
+    // The exclusion is THE SHELL, not "everything but the three I remember":
+    // written as a negated list it had already left out 'opencode', which
+    // worked without ever showing among the active agents (the data was
+    // there: useSignalsSync fills terminalBusyIds for every session, no type
+    // filter).
+    if (t.type === 'shell') continue;
+    if (terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting)) {
+      working.push({ id: t.id, kind: 'terminal', label: t.name });
+    }
+    if (sig.awaitingInputTerm.has(t.id)) {
+      awaitingInput.push({ id: t.id, kind: 'terminal', label: t.name });
+    }
   }
-  return n;
+  // Chat sessions mid-reply (distinct id space from terminals: no overlap).
+  const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
+  for (const id of visibleTopicSignalIds(streamingTopics, topics)) {
+    working.push({ id, kind: 'topic', label: topics[id].name });
+  }
+  for (const id of visibleTopicSignalIds(sig.awaitingInputTopics, topics)) {
+    awaitingInput.push({ id, kind: 'topic', label: topics[id].name });
+  }
+  return { working, awaitingInput };
+}
+
+/** The rows behind the "Active agents" submenu and the card badge. See
+ *  `activeAgentRowsFrom` for the rule. */
+export function useActiveAgentRows(
+  roster: ReadonlyArray<AgentRosterEntry>,
+  topics: Record<string, Topic>,
+): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[] } {
+  const sig = useAgentActivitySlice();
+  return useMemo(() => activeAgentRowsFrom(roster, topics, sig), [roster, topics, sig]);
 }
 
 /**
@@ -1241,40 +1358,15 @@ export function visibleTopicSignalCount(
  * `topics` is App's topic map, the authority on what is archived.
  */
 export function useAgentActivityCounts(
-  roster: ReadonlyArray<{ id: string; type: string }>,
+  roster: ReadonlyArray<AgentRosterEntry>,
   topics: Record<string, Topic>,
 ): { working: number; awaiting: number; awaitingInput: number } {
-  const sig = useSignalsStore(
-    useShallow((s) => ({
-      active: s.claudePhaseActiveTermIds,
-      resting: s.claudePhaseRestingTermIds,
-      busy: s.terminalBusyIds,
-      awaitingTerm: s.claudePhaseAwaitingTermIds,
-      awaitingInputTerm: s.claudePhaseAwaitingInputTermIds,
-      liveStream: s.liveStreamTopics,
-      hydratedStream: s.hydratedStreamTopics,
-      awaitingTopics: s.awaitingFeedbackTopics,
-      awaitingInputTopics: s.awaitingInputTopics,
-      // I turni claude-code FINITI. Erano fuori dal conteggio, e il tooltip
-      // intanto chiamava «con il turno finito» un'altra cosa — vedi sotto.
-      finishedTerms: s.terminalFinishedIds,
-    })),
-  );
+  const sig = useAgentActivitySlice();
   return useMemo(() => {
-    let working = 0;
-    for (const t of roster) {
-      // L'esclusione voluta e' la SHELL, non «tutto tranne i tre che mi
-      // ricordo»: scritta come lista negata, aveva gia' lasciato fuori
-      // 'opencode', che quindi lavorava senza comparire fra gli agenti attivi
-      // (il dato c'era: useSignalsSync popola terminalBusyIds per ogni
-      // sessione, senza filtrare sul tipo).
-      if (t.type === 'shell') continue;
-      if (terminalLoadingFrom(t.id, sig.active, sig.busy, sig.resting)) working++;
-    }
-    // Chat sessions mid-reply (distinct id space from terminals → no overlap).
-    const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
-    working += visibleTopicSignalCount(streamingTopics, topics);
-    // Awaiting = the blue-fill set across both surfaces, and its loud subset.
+    // `working` and `awaitingInput` are the LENGTH of the rows the menu lists,
+    // never a second count: see `activeAgentRowsFrom`.
+    const rows = activeAgentRowsFrom(roster, topics, sig);
+    // Awaiting = the blue-fill set across both surfaces.
     //
     // Ai terminali si aggiungono i turni FINITI (`terminalFinishedIds`), che
     // prima non contavano da nessuna parte. È la stessa cosa che badgia la loro
@@ -1292,9 +1384,7 @@ export function useAgentActivityCounts(
     // archiviati in `visibleTopicSignalCount`).
     for (const t of roster) if (sig.finishedTerms.has(t.id)) awaitingTermIds.add(t.id);
     const awaiting = awaitingTermIds.size + visibleTopicSignalCount(sig.awaitingTopics, topics);
-    const awaitingInput =
-      sig.awaitingInputTerm.size + visibleTopicSignalCount(sig.awaitingInputTopics, topics);
-    return { working, awaiting, awaitingInput };
+    return { working: rows.working.length, awaiting, awaitingInput: rows.awaitingInput.length };
   }, [roster, topics, sig]);
 }
 

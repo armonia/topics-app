@@ -253,12 +253,17 @@ function openCardMenuAt(target: LongPressTarget): void {
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-// Memoized: the board re-renders every 4s as the live-usage ticker rebuilds
-// `liveById`. Without memo every card re-renders on each tick; with it only the
-// cards whose `live` prop actually changed (the working ones) do. All handler
-// props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
-// (useCallback / state setters), and task/parentTitle come from tasks-keyed
-// memos, so the shallow prop compare holds for idle cards.
+// Memoized: the board re-renders on every live-usage frame (one per working
+// card every 4 s) as the ticker rebuilds `liveById`. Without memo every card
+// re-renders on each frame; with it only the cards whose `live` prop actually
+// changed (the working ones) do. All handler props from the parent
+// (onOpen/onError/onRefetch/onOpenTopic) are stable (useCallback / state
+// setters), and task/parentTitle come from tasks-keyed memos, so the shallow
+// prop compare holds for idle cards. The compare is NOT the only gate: every
+// card also reads dnd-kit's InternalContext through `useSortable`, so the
+// sensors passed to DndContext must be referentially stable across renders
+// (see the module-level sensor options in KanbanBoardPane) or the memo is
+// bypassed by the context, which is exactly what happened until 2026-09-07.
 export const Card = memo(function Card({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false }: {
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,

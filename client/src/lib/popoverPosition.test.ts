@@ -93,3 +93,59 @@ describe('il tetto d\'altezza', () => {
     expect(p.maxHeight).toBeGreaterThan(300);
   });
 });
+
+describe('side=right, the submenu placement', () => {
+  // A submenu sits BESIDE its row, not under it: the top edges align and the
+  // horizontal flip is the one that matters. Nothing here changes the default
+  // side, which the tests above keep pinned.
+  const row = { top: 300, bottom: 330, left: 200, right: 400 };
+
+  test('opens to the right of the row, top edges aligned, when there is room', () => {
+    const p = computeMenuPosition(row, { width: 180, height: 200 }, { ...vp, side: 'right' });
+    expect(p.left).toBe(404); // row.right + gap(4)
+    expect(p.top).toBe(300); // row.top, untouched
+    expect(p.placement).toBe('below');
+    // Room from the top down to the bottom margin: 800 - 8 - 300
+    expect(p.maxHeight).toBe(492);
+  });
+
+  test('flips to the left edge of the row against the right viewport edge', () => {
+    const nearEdge = { top: 300, bottom: 330, left: 700, right: 900 };
+    const p = computeMenuPosition(nearEdge, { width: 180, height: 200 }, { ...vp, side: 'right' });
+    expect(p.left).toBe(516); // row.left - width - gap = 700 - 180 - 4
+    expect(p.top).toBe(300);
+  });
+
+  test('when neither side fits it takes the roomier one, clamped inside the viewport', () => {
+    // 100 to the left, 96 to the right (1000 - 8 - 896): left wins, clamped to the margin.
+    const wide = { top: 300, bottom: 330, left: 112, right: 892 };
+    const p = computeMenuPosition(wide, { width: 300, height: 200 }, { ...vp, side: 'right' });
+    expect(p.left).toBe(8);
+  });
+
+  test('near the bottom edge the top is pushed up just enough, and says so', () => {
+    const low = { top: 700, bottom: 730, left: 200, right: 400 };
+    const p = computeMenuPosition(low, { width: 180, height: 200 }, { ...vp, side: 'right' });
+    expect(p.top).toBe(592); // vh - margin - height = 800 - 8 - 200
+    expect(p.left).toBe(404); // the horizontal rule is unchanged by the push
+    expect(p.placement).toBe('above');
+    expect(p.maxHeight).toBe(200);
+  });
+
+  test('a level taller than the viewport pins to the top margin and scrolls', () => {
+    const p = computeMenuPosition(row, { width: 180, height: 2000 }, { ...vp, side: 'right' });
+    expect(p.top).toBe(8);
+    expect(p.maxHeight).toBe(800 - 16);
+  });
+
+  test('the height floor holds beside the row too', () => {
+    const p = computeMenuPosition(row, { width: 180, height: 200 }, { viewportWidth: 1000, viewportHeight: 320, side: 'right' });
+    expect(p.maxHeight).toBeGreaterThanOrEqual(160);
+  });
+
+  test('align is a bottom-side concept and does not move a side placement', () => {
+    const a = computeMenuPosition(row, { width: 180, height: 200 }, { ...vp, side: 'right', align: 'left' });
+    const b = computeMenuPosition(row, { width: 180, height: 200 }, { ...vp, side: 'right', align: 'right' });
+    expect(a).toEqual(b);
+  });
+});

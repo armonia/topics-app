@@ -9,13 +9,61 @@
  *
  * @covers PROCESS-01
  */
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, afterAll } from "bun:test";
 import {
   pickPackageManager, parsePackageScripts, parseMakefileTargets, parseTomlTables,
   parseCargoBins, parsePyprojectTasks, stripJsonComments, parseDenoTasks,
   parseComposerScripts, parseJustRecipes, parseTaskfileTasks,
   detectScripts, resolveScript, type Fs,
+  packageManagerFor, installArgv, runScriptArgv, missingPackageManager,
 } from "./project-scripts";
+import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+// ── The argv Topics spawns on a project it did not write ────────────────────
+
+describe("the package manager Topics spawns is the project's, never its own", () => {
+  const dirs: string[] = [];
+  const projectWith = (...lockfiles: string[]) => {
+    const dir = mkdtempSync(join(tmpdir(), "pm-"));
+    for (const f of lockfiles) writeFileSync(join(dir, f), "");
+    dirs.push(dir);
+    return dir;
+  };
+  afterAll(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
+
+  test("the manager is read from the lockfile on disk", () => {
+    expect(packageManagerFor(projectWith("bun.lockb"))).toBe("bun");
+    expect(packageManagerFor(projectWith("pnpm-lock.yaml"))).toBe("pnpm");
+    expect(packageManagerFor(projectWith("yarn.lock"))).toBe("yarn");
+    expect(packageManagerFor(projectWith())).toBe("npm");
+  });
+
+  test("install: each manager's own 'do not rewrite the lockfile' spelling", () => {
+    expect(installArgv(projectWith("bun.lock"))).toEqual(["bun", "install", "--frozen-lockfile"]);
+    expect(installArgv(projectWith("pnpm-lock.yaml"))).toEqual(["pnpm", "install", "--frozen-lockfile"]);
+    expect(installArgv(projectWith("yarn.lock"))).toEqual(["yarn", "install", "--immutable"]);
+    expect(installArgv(projectWith())).toEqual(["npm", "ci"]);
+  });
+
+  test("run: `<pm> run <script>`, and yarn without `run`", () => {
+    expect(runScriptArgv(projectWith("bun.lock"), ["build:client"])).toEqual(["bun", "run", "build:client"]);
+    expect(runScriptArgv(projectWith("pnpm-lock.yaml"), ["x", "--flag"])).toEqual(["pnpm", "run", "x", "--flag"]);
+    expect(runScriptArgv(projectWith(), ["x"])).toEqual(["npm", "run", "x"]);
+    expect(runScriptArgv(projectWith("yarn.lock"), ["x"])).toEqual(["yarn", "x"]);
+  });
+
+  test("a manager not on PATH is named in the failure, with no fallback to another", () => {
+    const dir = projectWith("pnpm-lock.yaml");
+    const missing = missingPackageManager(dir, () => null);
+    expect(missing).toContain("pnpm is not installed");
+    expect(missing).toContain(dir);
+    expect(missing).not.toMatch(/\bnpm\b/);
+    // Present on PATH: nothing to report.
+    expect(missingPackageManager(dir, () => "/usr/local/bin/pnpm")).toBeNull();
+  });
+});
 
 // ── package.json ────────────────────────────────────────────────────────────
 
