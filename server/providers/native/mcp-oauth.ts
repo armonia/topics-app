@@ -39,6 +39,7 @@
 import { readFileSync, writeFileSync, renameSync, chmodSync, mkdirSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
 import { resolveInheritedMcp } from "../mcp-inheritance";
+import { resolveAppDataDir } from "../../lib/data-dir";
 
 /** How long a person is given to finish the sign-in before the listener gives up. */
 const AUTHORIZATION_WINDOW_MS = 5 * 60 * 1000;
@@ -73,19 +74,13 @@ interface TokenStore {
 }
 
 /**
- * The same resolution as `server/utils.ts:145` (`APP_DATA_DIR`, then
- * `OPENCLAW_DIR`, then `~/.openclaw`). Duplicated rather than imported because
- * that one lives inside the `createUtils` closure and is not an export, which
- * is the reason `server/services/known-project-dirs.ts` duplicates it too.
- *
- * Resolved on every call and not once at module load, so a test can point
- * `APP_DATA_DIR` at a temp directory in `beforeAll` and never touch the real
- * store.
+ * The app data root, resolved by the one function that owns that rule
+ * (`server/lib/data-dir.ts`). Resolved on every call and not once at module
+ * load, so a test can point `APP_DATA_DIR` at a temp directory in `beforeAll`
+ * and never touch the real store.
  */
 function storePath(): string {
-  const dir =
-    process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || join(process.env.HOME ?? ".", ".openclaw");
-  return join(dir, "mcp-oauth.json");
+  return join(resolveAppDataDir(), "mcp-oauth.json");
 }
 
 function readStore(): TokenStore {
