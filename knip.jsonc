@@ -88,6 +88,11 @@
         // are declared. Run by hand while the board is busy, imported by
         // nobody but its own bench.
         "scripts/probe-gate-concurrency.ts!",
+        // `bun run probe:budget` - the synthetic bench of the CPU budget: it
+        // starts a real burner, checks that one card per tick is admitted and
+        // that a check runner really stops (`ps -o stat` = T) and starts again.
+        // Run by hand, imported by nobody.
+        "scripts/probe-dispatch-budget.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
         // `bun run scripts/merge-shard-reports.ts <dir> --out <file>` — fonde i
         // report-N.json dei quattro shard in un report solo. Lo chiama

@@ -52,13 +52,13 @@ import os from "node:os";
 import { statfsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
-import { fleetLoadSync } from "../lib/fleet-usage";
+import { fleetLoadSync, type FleetLoadReading } from "../lib/fleet-usage";
 import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
-import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras } from "../../shared/board";
-import { clampGlobalCap } from "../../shared/board";
+import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
+import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, machineBudget } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -80,18 +80,17 @@ export function readGlobalCap(db: Database): GlobalDispatchCap {
     max_agents?: number | null;
     max_agents_auto?: number | null;
     max_agents_mode?: string | null;
-    max_load_ratio?: number | null;
-    max_mem_ratio?: number | null;
+    machine_budget_share?: number | null;
   };
   let r: Row | undefined;
   try {
     r = db
       .prepare(
-        "SELECT max_agents, max_agents_auto, max_agents_mode, max_load_ratio, max_mem_ratio FROM board_settings WHERE project_id = ?",
+        "SELECT max_agents, max_agents_auto, max_agents_mode, machine_budget_share FROM board_settings WHERE project_id = ?",
       )
       .get(GLOBAL_SETTINGS_KEY) as Row | undefined;
   } catch {
-    // The three "by resources" columns are absent (a db older than their
+    // The two "by resources" columns are absent (a db older than their
     // migration, a minimal test harness): read the two the row has always had.
     // Falling back instead of throwing, for the same reason `readSpendCaps`
     // does: this runs inside the dispatcher tick, and a tick that dies over a
@@ -103,15 +102,16 @@ export function readGlobalCap(db: Database): GlobalDispatchCap {
   // Auto è il default finché non si sceglie un numero a mano (NULL = mai
   // impostato → auto), così un'installazione nuova protegge la macchina da sé.
   const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
-  // The mode and the two thresholds travel only when the row SAYS them: this
-  // function returns the cap "as written", and the contract in
-  // `shared/board.ts` reads an absent field as "count, default threshold"
-  // (`capMode`, `capThresholds`). Filling the defaults here would be a second
-  // copy of them, and the value a caller uses must come from one reader.
+  // The mode and the knob travel only when the row SAYS them: this function
+  // returns the cap "as written", and the contract in `shared/board.ts` reads
+  // an absent field as "count, default budget" (`capMode`, `budgetShare`).
+  // Filling the defaults here would be a second copy of them, and the value a
+  // caller uses must come from one reader.
   const extras: GlobalDispatchCapExtras = {};
   if (r?.max_agents_mode === "resources") extras.mode = "resources";
-  if (typeof r?.max_load_ratio === "number" && Number.isFinite(r.max_load_ratio)) extras.maxLoadRatio = r.max_load_ratio;
-  if (typeof r?.max_mem_ratio === "number" && Number.isFinite(r.max_mem_ratio)) extras.maxMemRatio = r.max_mem_ratio;
+  if (typeof r?.machine_budget_share === "number" && Number.isFinite(r.machine_budget_share)) {
+    extras.budgetShare = r.machine_budget_share;
+  }
   // `clampGlobalCap`, non il clamp locale: quello stringeva a 1..20 e avrebbe
   // riletto lo zero di «nessun tetto» come 1, cioè come il tetto più stretto
   // possibile. Il sentinella deve sopravvivere al giro attraverso il DB.
@@ -499,9 +499,14 @@ function loadAverageSlots(cores: number, load1: number): number {
  */
 export function computeDispatchCapacity(
   running = 0,
-  probe: () => { coreUnits: number; cores: number } | null = fleetLoadSync,
+  probe: () => FleetLoadReading | null = fleetLoadSync,
   agentsAreProcesses = true,
   readAvailMemGB: () => number | null = availableMemGB,
+  /** The knob of the "by resources" mode and how many runs the governor has
+   *  frozen right now. They travel through the capacity because the panel, the
+   *  gauge and the gate must read ONE reading: a second probe for the same
+   *  question is two numbers that disagree on screen. */
+  budgetKnob: { share: number; frozen: number } = { share: BUDGET_SHARE_DEFAULT, frozen: 0 },
 ): DispatchCapacity {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
@@ -530,10 +535,20 @@ export function computeDispatchCapacity(
     (budget
       ? live < structural
         ? `, ridotto a ${live}: gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
-        : `; gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota (il resto del carico non è nostro)`
+        // WITHOUT "the rest of the load is not ours" (card 363bbbc8): it was
+        // true and it explained nothing to whoever read it, because in this
+        // mode nobody else's load enters the decision at all.
+        : `; gli agent tengono ${fleet!.coreUnits.toFixed(1)} core sui ${budget.budgetCores.toFixed(0)} di quota`
       : live < structural
         ? `, ridotto per carico (load ${load1.toFixed(1)})`
         : "");
+  // The budget half of the answer, from the SAME reading: what we may take,
+  // what is left of it once the rest of the machine has taken its share, and
+  // what we are taking now (agents and their gates together).
+  const share = clamp(budgetKnob.share, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX);
+  const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
+  const budgetNow = machineBudget(sample, share);
+  const round = (n: number) => Math.round(n * 10) / 10;
   return {
     recommended,
     cores,
@@ -541,8 +556,43 @@ export function computeDispatchCapacity(
     load1: Math.round(load1 * 100) / 100,
     oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
     budgetCores: Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
+    budgetShare: share,
+    budgetCoreUnits: round(budgetNow.cpuCoreUnits),
+    usableCoreUnits: round(budgetNow.usableCoreUnits),
+    usedCoreUnits: fleet ? round(sample.ourCoreUnits) : null,
+    usedMemGB: fleet ? round(sample.ourMemGB) : null,
+    otherCoreUnits: fleet ? round(fleet.otherCoreUnits) : null,
+    frozen: Math.max(0, budgetKnob.frozen),
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
     reason,
+    running,
+  };
+}
+
+/**
+ * The measure the budget decides on, assembled once from the fleet reading.
+ *
+ * OUR SHARE INCLUDES THE SCRIPTS. `coreUnits` alone is the fleet without the
+ * work the agents launched, which is the number the count cap has always read;
+ * for a budget that would exclude precisely what costs (a `tsc`, an `eslint`, a
+ * `bun test`, the Chromium of an e2e run). Without the probe every one of our
+ * own terms is `null` or zero, and `machineBudget` then reads the budget as the
+ * whole answer: not measured must never be able to shrink it.
+ */
+export function budgetSample(
+  fleet: FleetLoadReading | null,
+  availMemGB: number | null,
+  cores: number,
+  totalMemGB: number,
+  running: number,
+): MachineBudgetSample {
+  return {
+    cores,
+    totalMemGB,
+    ourCoreUnits: fleet ? fleet.coreUnits + fleet.scriptsCoreUnits : 0,
+    otherCoreUnits: fleet ? fleet.otherCoreUnits : null,
+    ourMemGB: fleet ? fleet.memGB : 0,
+    availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? availMemGB : null,
     running,
   };
 }

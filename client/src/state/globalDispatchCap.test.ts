@@ -38,6 +38,13 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   // Vedi `GlobalCapControl.test.tsx`: il freno vivo è la CPU della flotta sulla
   // quota che le spetta, non più il load average della macchina intera.
   oursCores: 0,
+  budgetShare: 0.8,
+  budgetCoreUnits: 9.6,
+  usableCoreUnits: 9.6,
+  usedCoreUnits: 1,
+  usedMemGB: 2,
+  otherCoreUnits: 1,
+  frozen: 0,
   budgetCores: 6,
   reason: '12 core, base 4',
   running: 0,
@@ -52,7 +59,7 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
  * altrimenti si somigliano.
  */
 function stubFetch(
-  echo?: { maxAgentsAuto: boolean; maxAgents: number; maxAgentsMode?: 'count' | 'resources'; maxLoadRatio?: number; maxMemRatio?: number },
+  echo?: { maxAgentsAuto: boolean; maxAgents: number; maxAgentsMode?: 'count' | 'resources'; budgetShare?: number },
   opts: { knowsMode?: boolean } = {},
 ): { patched: Array<Record<string, unknown>> } {
   const patched: Array<Record<string, unknown>> = [];
@@ -72,7 +79,7 @@ function stubFetch(
         if (typeof body.maxAgentsAuto === 'boolean') auto = body.maxAgentsAuto;
         if (typeof body.maxAgents === 'number') max = clampGlobalCap(body.maxAgents);
         if (opts.knowsMode) {
-          for (const k of ['maxAgentsMode', 'maxLoadRatio', 'maxMemRatio']) if (k in body) extras[k] = body[k];
+          for (const k of ['maxAgentsMode', 'budgetShare']) if (k in body) extras[k] = body[k];
         }
       }
       return new Response(
@@ -94,9 +101,9 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   // Ogni prova riparte da un tetto noto: lo store è di modulo, quindi vive
   // fra un test e l'altro come vive fra un componente e l'altro.
-  // The mode and the thresholds too: a frame that does not carry them KEEPS
-  // the ones already there, so a test that switched would leak into the next.
-  adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5, maxAgentsMode: 'count', maxLoadRatio: 0.9, maxMemRatio: 0.85 });
+  // The mode and the budget too: a frame that does not carry them KEEPS the
+  // ones already there, so a test that switched would leak into the next.
+  adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 5, maxAgentsMode: 'count', budgetShare: 0.6 });
   adoptDispatchCapacity(machine());
 });
 
@@ -251,26 +258,28 @@ describe('the broadcast actually arrives', () => {
 
 /**
  * THE OTHER BRAKE (KANBAN-75), on the wire and in the store: the mode and the
- * two thresholds ride the same row, the same PATCH and the same frame as the
- * cap, and a server that predates them must not be able to break the client.
+ * budget ride the same row, the same PATCH and the same frame as the cap, and a
+ * server that predates them must not be able to break the client.
  */
-describe('the brake by resources', () => {
-  test('nothing on the wire = count with the default thresholds, never undefined', () => {
+describe('the brake by budget', () => {
+  test('nothing on the wire = count with the default budget, never undefined', () => {
     adoptGlobalCap({ maxAgentsAuto: true, maxAgents: 3 });
     // The beforeEach wrote `count` already; what is asserted is that the store
-    // ALWAYS carries the three fields resolved, so no reader has to default them.
-    expect(getGlobalDispatchCapState().cap).toEqual({ auto: true, max: 3, mode: 'count', maxLoadRatio: 0.9, maxMemRatio: 0.85 });
+    // ALWAYS carries the fields resolved, so no reader has to default them.
+    expect(getGlobalDispatchCapState().cap).toEqual({ auto: true, max: 3, mode: 'count', budgetShare: 0.6 });
   });
 
-  test('the frame carries the mode and the thresholds, clamped to the shared bounds', () => {
-    adoptGlobalCap({ maxAgentsMode: 'resources', maxLoadRatio: 9, maxMemRatio: 0.1 });
-    expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'resources', maxLoadRatio: 3, maxMemRatio: 0.5 });
+  test('the frame carries the mode and the budget, clamped to the shared bounds', () => {
+    adoptGlobalCap({ maxAgentsMode: 'resources', budgetShare: 9 });
+    expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'resources', budgetShare: 0.95 });
+    adoptGlobalCap({ budgetShare: 0.01 });
+    expect(getGlobalDispatchCapState().cap).toMatchObject({ budgetShare: 0.1 });
   });
 
   test('a frame WITHOUT the mode keeps the one it has: an old server never resets a choice', () => {
-    adoptGlobalCap({ maxAgentsMode: 'resources', maxLoadRatio: 1.1 });
+    adoptGlobalCap({ maxAgentsMode: 'resources', budgetShare: 0.8 });
     adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 4 });
-    expect(getGlobalDispatchCapState().cap).toMatchObject({ auto: false, max: 4, mode: 'resources', maxLoadRatio: 1.1 });
+    expect(getGlobalDispatchCapState().cap).toMatchObject({ auto: false, max: 4, mode: 'resources', budgetShare: 0.8 });
   });
 
   test('an unreadable mode is count, not the stricter brake', () => {
@@ -285,13 +294,13 @@ describe('the brake by resources', () => {
     expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'resources', auto: false, max: 5 });
   });
 
-  test('a threshold moves under the finger already clamped, then the server answer lands', async () => {
+  test('the budget moves under the finger already clamped, then the server answer lands', async () => {
     const { patched } = stubFetch(undefined, { knowsMode: true });
-    const inFlight = saveGlobalCap({ maxLoadRatio: 7 });
-    expect(getGlobalDispatchCapState().cap?.maxLoadRatio).toBe(3);
+    const inFlight = saveGlobalCap({ budgetShare: 7 });
+    expect(getGlobalDispatchCapState().cap?.budgetShare).toBe(0.95);
     await inFlight;
-    expect(patched).toEqual([{ maxLoadRatio: 7 }]);
-    expect(getGlobalDispatchCapState().cap?.maxLoadRatio).toBe(3);
+    expect(patched).toEqual([{ budgetShare: 7 }]);
+    expect(getGlobalDispatchCapState().cap?.budgetShare).toBe(0.95);
   });
 
   test('an OLD server answers without the mode: the choice under the finger is kept, not snapped back', async () => {
@@ -300,14 +309,14 @@ describe('the brake by resources', () => {
     // one round trip after the click. The answer goes through `adoptGlobalCap`
     // instead, which keeps what a frame does not carry.
     stubFetch(undefined, { knowsMode: false });
-    await saveGlobalCap({ mode: 'resources', maxMemRatio: 0.9 });
-    expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'resources', maxMemRatio: 0.9 });
+    await saveGlobalCap({ mode: 'resources', budgetShare: 0.9 });
+    expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'resources', budgetShare: 0.9 });
   });
 
   test('a NEW server that disagrees wins: the answer is authoritative', async () => {
-    stubFetch({ maxAgentsAuto: false, maxAgents: 5, maxAgentsMode: 'count', maxLoadRatio: 1.2 });
-    await saveGlobalCap({ mode: 'resources', maxLoadRatio: 0.7 });
-    expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'count', maxLoadRatio: 1.2 });
+    stubFetch({ maxAgentsAuto: false, maxAgents: 5, maxAgentsMode: 'count', budgetShare: 0.35 });
+    await saveGlobalCap({ mode: 'resources', budgetShare: 0.7 });
+    expect(getGlobalDispatchCapState().cap).toMatchObject({ mode: 'count', budgetShare: 0.35 });
   });
 
   test('a failed write goes back to the brake that was there', async () => {

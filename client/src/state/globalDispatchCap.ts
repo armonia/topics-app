@@ -26,7 +26,7 @@
  * girava una per ogni chip del carico montato.
  */
 import { useSyncExternalStore } from 'react';
-import { boardApi, capMode, capThresholds, clampGlobalCap, effectiveDispatchCap } from '../lib/board';
+import { boardApi, budgetShare, capMode, clampGlobalCap, effectiveDispatchCap } from '../lib/board';
 import type { DispatchCapacity, DispatchCapMode, GlobalCapPatch, GlobalDispatchCap } from '../lib/board';
 import { subscribeFrames } from '../lib/wsFrameBus';
 
@@ -91,19 +91,16 @@ export function getGlobalDispatchCapState(): GlobalDispatchCapState {
  */
 export function adoptGlobalCap(next: {
   maxAgentsAuto?: boolean; maxAgents?: number;
-  maxAgentsMode?: DispatchCapMode; maxLoadRatio?: number; maxMemRatio?: number;
+  maxAgentsMode?: DispatchCapMode; budgetShare?: number;
 }): void {
   const auto = typeof next.maxAgentsAuto === 'boolean' ? next.maxAgentsAuto : state.cap?.auto ?? true;
   const max = typeof next.maxAgents === 'number' ? clampGlobalCap(next.maxAgents) : state.cap?.max ?? 3;
-  // The mode and the two thresholds (KANBAN-75) are OPTIONAL on the wire: a
-  // server without them answers without, and this reads as "count, defaults".
+  // The mode and the budget (KANBAN-75) are OPTIONAL on the wire: a server
+  // without them answers without, and this reads as "count, default budget".
   // A frame that omits them keeps what was here, like `maxAgentsAuto` does.
   const mode = capMode({ mode: next.maxAgentsMode ?? state.cap?.mode });
-  const { maxLoadRatio, maxMemRatio } = capThresholds({
-    maxLoadRatio: next.maxLoadRatio ?? state.cap?.maxLoadRatio,
-    maxMemRatio: next.maxMemRatio ?? state.cap?.maxMemRatio,
-  });
-  const cap: GlobalDispatchCap = { auto, max, mode, maxLoadRatio, maxMemRatio };
+  const share = budgetShare({ budgetShare: next.budgetShare ?? state.cap?.budgetShare });
+  const cap: GlobalDispatchCap = { auto, max, mode, budgetShare: share };
   if (state.cap && sameCap(state.cap, cap)) return;
   publish({ ...state, cap });
 }
@@ -111,8 +108,7 @@ export function adoptGlobalCap(next: {
 /** Field-by-field, so a broadcast that changes nothing does not re-render every
  *  surface that mounts the control. */
 function sameCap(a: GlobalDispatchCap, b: GlobalDispatchCap): boolean {
-  return a.auto === b.auto && a.max === b.max && a.mode === b.mode
-    && a.maxLoadRatio === b.maxLoadRatio && a.maxMemRatio === b.maxMemRatio;
+  return a.auto === b.auto && a.max === b.max && a.mode === b.mode && a.budgetShare === b.budgetShare;
 }
 
 /**
@@ -209,10 +205,7 @@ export async function saveGlobalCap(patch: GlobalCapPatch): Promise<void> {
     // through: the slider must never show, even for one round trip, a value
     // the gate would not apply.
     mode: capMode({ mode: patch.mode ?? before?.mode }),
-    ...capThresholds({
-      maxLoadRatio: patch.maxLoadRatio ?? before?.maxLoadRatio,
-      maxMemRatio: patch.maxMemRatio ?? before?.maxMemRatio,
-    }),
+    budgetShare: budgetShare({ budgetShare: patch.budgetShare ?? before?.budgetShare }),
   };
   publish({ ...state, cap: next, saving: true });
   try {
@@ -252,7 +245,7 @@ function start(): void {
     (frame) => {
       const f = frame as {
         type?: string; maxAgentsAuto?: boolean; maxAgents?: number;
-        maxAgentsMode?: DispatchCapMode; maxLoadRatio?: number; maxMemRatio?: number;
+        maxAgentsMode?: DispatchCapMode; budgetShare?: number;
         agentCostCapCents?: number; agentCostCapCents24h?: number;
       } | null;
       if (!f || f.type !== 'board:global-cap') return;

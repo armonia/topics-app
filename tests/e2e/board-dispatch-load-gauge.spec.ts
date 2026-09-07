@@ -21,6 +21,10 @@
  *  - GAUGE-05  the settings panel shows the SAME reading under the cap knobs:
  *    "{running} di {limit}" with the same tone and fill as the header. Two
  *    surfaces built from one store cannot disagree; this is where it is checked.
+ *  - GAUGE-06  on the budget brake the ring fills with USE OVER BUDGET (it used
+ *    to stay empty in that mode, which is a gauge saying nothing in the mode
+ *    whose whole question is "how full is it"), and the popover reads "Topics
+ *    usa il 40% del PC su un budget del 60%" plus the frozen check runs. allow-italian: quotes the sentence the popover shows
  *
  * The cap is left in its default (by count, auto): the derivation line only
  * exists when the machine is what produced the limit, and auto is what the
@@ -60,6 +64,10 @@ async function stubMachine(page: Page, running: number, recommended = 4) {
       body: JSON.stringify({
         recommended, cores: 12, totalMemGB: 32, availableMemGB: 18, load1: 3.2, running,
         oursCores: running * 0.6, budgetCores: 6,
+        // The budget half of the reading: 60% of twelve cores, and our tree
+        // taking 0.6 core-units per agent in flight.
+        budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 7.2,
+        usedCoreUnits: running * 0.6, usedMemGB: 4, otherCoreUnits: 1, frozen: 0,
         reason: "12 core, base 4",
       }),
     }));
@@ -206,8 +214,6 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await expect(popover).toContainText("Tetto automatico");
     await expect(popover.getByTestId("dispatch-load-derivation")).toContainText("12 core → 4");
     await expect(popover).toContainText("2 agent in volo");
-    await expect(popover).toContainText("load macchina 3.2 su 12 core");
-    await expect(popover).toContainText("18 GB liberi su 32");
     await page.screenshot({ path: join(SHOTS, "04-popover.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
 
     // The door to the knob: the popover closes, the settings dropdown opens,
@@ -232,6 +238,53 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     const line = summary.locator("[data-tone]");
     await expect(line).toHaveAttribute("data-tone", "idle");
     await expect(line).toHaveAttribute("data-fill", "0.50");
-    await expect(summary).toContainText("load macchina 3.2 su 12 core");
+  });
+
+  test("GAUGE-06: a budget, l'anello si riempie sul budget e il popover dice la % del PC", async ({ page }) => {
+    // The machine of the card: Topics taking 4.8 core-units of a 7.2 budget on
+    // twelve cores, that is 40% of the PC against a 60% budget, and two check
+    // runs frozen for load.
+    await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          recommended: 4, cores: 12, totalMemGB: 32, availableMemGB: 18, load1: 9.1, running: 3,
+          oursCores: 4.8, budgetCores: 6,
+          budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 7.2,
+          usedCoreUnits: 4.8, usedMemGB: 6, otherCoreUnits: 3, frozen: 2,
+          reason: "12 core, base 4",
+        }),
+      }));
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    await page.getByTestId("global-cap-brake-resources").click();
+    await page.keyboard.press("Escape");
+
+    // The ring is not empty any more in this mode: it fills with use over
+    // budget, 4.8 of 7.2 = two thirds.
+    const g = gauge(page);
+    await expect(word(page)).toHaveText("a budget");
+    await expect(g).toHaveAttribute("data-fill", "0.67");
+    await expect(g).toHaveAttribute("aria-label", /Topics usa il 40% del PC su un budget del 60%/);
+
+    await g.click();
+    const popover = page.getByTestId("dispatch-load-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover).toContainText("Topics usa il 40% del PC su un budget del 60%");
+    await expect(popover).toContainText("4.8 core-unità su 7.2 di budget");
+    await expect(popover).toContainText("2 check congelati per carico");
+    await page.screenshot({ path: join(SHOTS, "06-a-budget.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
+
+    // THE BRAKE IS PER MACHINE AND IT PERSISTS: left on "resources", the next
+    // scenario in this file would read a budget where it expects a count, and
+    // the failure would land on THAT test instead of this one. Measured here:
+    // GAUGE-05 went red once and green on the retry, because the retry resets
+    // the server.
+    await page.keyboard.press("Escape");
+    await gear(page).click();
+    await page.getByTestId("global-cap-brake-count").click();
+    await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
   });
 });

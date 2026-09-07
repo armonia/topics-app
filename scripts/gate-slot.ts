@@ -125,6 +125,29 @@ function takeFile(path: string): (() => void) | null {
   } catch { return null; }
 }
 
+/**
+ * ONE RUN PER CHECK NAME, MACHINE-WIDE, on top of the count of slots.
+ *
+ * The numbered slots bound HOW MANY expensive commands run together; they say
+ * nothing about WHICH. With three slots that means three `eslint` at once, from
+ * three worktrees that each think they are alone: measured 2026-09-07, two
+ * concurrent lints held 1.3 GB and a `tsc` 550 MB each, and none of them was
+ * any faster for having started early.
+ *
+ * Two runs of the same gate are also the case where waiting costs nothing: they
+ * do identical work on different trees, so serialising them gives each one back
+ * its normal duration instead of making both take twice as long.
+ *
+ * FAILS OPEN like everything else here: if the name lock cannot be taken within
+ * the deadline, the command runs anyway. And it is taken BEFORE the numbered
+ * slot, never after: a caller queueing for a name while holding a slot would be
+ * parking one of the few slots the machine has.
+ */
+function nameLockPath(dir: string, label: string): string {
+  const key = createHash("sha1").update(label.trim().toLowerCase()).digest("hex").slice(0, 12);
+  return join(dir, `name-${key}.pid`);
+}
+
 interface AcquireOptions {
   /** How long to queue before giving up and running unthrottled. */
   maxWaitMs?: number;
@@ -144,14 +167,38 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
     mkdirSync(dir, { recursive: true });
     const deadline = Date.now() + maxWaitMs;
     let announced = false;
+    // The name lock comes first (see `nameLockPath`), and it is released with
+    // the numbered slot: two files, one lifetime, so a caller cannot end up
+    // holding half the pair.
+    let releaseName: (() => void) | null = null;
+    let announcedName = false;
+    for (;;) {
+      reapStale(dir);
+      releaseName = takeFile(nameLockPath(dir, label));
+      if (releaseName) break;
+      if (Date.now() >= deadline) {
+        notify(`[slot] ${label}: another ${label} has been running for ${Math.round(maxWaitMs / 60_000)} min, running alongside it.`);
+        break;
+      }
+      if (!announcedName) {
+        announcedName = true;
+        notify(`[slot] ${label}: another ${label} is already running on this machine, waiting for it.`);
+      }
+      Bun.sleepSync(POLL_MS);
+    }
+    const withName = (release: () => void): (() => void) => () => { release(); releaseName?.(); };
     for (;;) {
       reapStale(dir);
       for (let i = 0; i < slots; i++) {
         const release = takeFile(join(dir, `${i}.pid`));
-        if (release) return release;
+        if (release) return withName(release);
       }
       if (Date.now() >= deadline) {
         notify(`[slot] ${label}: ${Math.round(maxWaitMs / 60_000)} min of waiting, running anyway (unthrottled).`);
+        // The name lock still has to come back: giving up on the COUNT is not
+        // giving up on "one lint at a time", and a leaked name file would stop
+        // the next run of this gate for as long as this process lives.
+        releaseName?.();
         return null;
       }
       if (!announced) {

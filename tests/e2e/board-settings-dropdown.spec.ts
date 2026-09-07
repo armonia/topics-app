@@ -60,7 +60,7 @@ const DIR = `${ROOT}/${NAME}`;
 const SHOTS = join(process.cwd(), "test-results", "settings-dropdown");
 const topicIds: string[] = [];
 
-/** The machine, stubbed: over the load threshold, under the memory one. */
+/** The machine, stubbed: Topics over its own budget, on a busy machine. */
 async function stubMachine(page: Page) {
   await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
     route.fulfill({
@@ -69,6 +69,10 @@ async function stubMachine(page: Page) {
       body: JSON.stringify({
         recommended: 2, cores: 12, totalMemGB: 32, availableMemGB: 9.5, load1: 15.4, running: 1,
         oursCores: 1.2, budgetCores: 6,
+        // 7.4 core-units of ours on a 7.2 budget (60% of twelve cores): over
+        // it, which is what makes the verdict and the colour assertable.
+        budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 7.2,
+        usedCoreUnits: 7.4, usedMemGB: 8, otherCoreUnits: 2, frozen: 0,
         reason: "12 core, base 4",
       }),
     }));
@@ -96,7 +100,7 @@ async function stubBrakeServer(page: Page) {
       writes.push(body);
       const rest: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(body)) {
-        if (k === "maxAgentsMode" || k === "maxLoadRatio" || k === "maxMemRatio") extras[k] = v;
+        if (k === "maxAgentsMode" || k === "budgetShare") extras[k] = v;
         else rest[k] = v;
       }
       if (Object.keys(rest).length > 0 || !last) {
@@ -278,8 +282,9 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(language).toBeVisible();
   });
 
-  test("DROP-04: per risorse: cursori con la fascia, misura viva, verdetto, e niente numero fisso", async ({ page }) => {
+  test("DROP-04: a budget: una manopola in % del PC, misura viva, verdetto, e niente numero fisso", async ({ page }) => {
     const writes = await stubBrakeServer(page);
+    await stubMachine(page);
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
@@ -299,49 +304,37 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(page.getByTestId("global-cap-mode-fixed")).toHaveCount(0);
     await expect(control.getByTestId("global-cap-running")).toContainText("freno sulle risorse");
 
-    // Default thresholds in the recommended band, said in words.
-    const load = page.getByTestId("global-cap-load-slider");
-    const mem = page.getByTestId("global-cap-mem-slider");
-    await expect(load).toHaveAttribute("data-band", "green");
-    await expect(mem).toHaveAttribute("data-band", "green");
-    await expect(page.getByTestId("global-cap-load-value")).toHaveText("0.90");
-    await expect(page.getByTestId("global-cap-mem-value")).toHaveText("85%");
-    await expect(page.getByTestId("global-cap-load-band")).toContainText("Fascia consigliata");
+    // ONE knob, and it says what the percentage buys on both axes.
+    const budget = page.getByTestId("global-cap-budget-slider");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("60% del PC");
+    await expect(page.getByTestId("global-cap-budget-units")).toContainText("12 core");
+    await expect(page.getByTestId("global-cap-budget-units")).toContainText("7.2 core-unità");
 
-    // The live reading against the threshold: 15.4 / 12 = 1.28 over 0.9 (red),
-    // 22.5 of 32 GB = 70% under 85% but past three quarters of it (amber).
-    await expect(page.getByTestId("global-cap-load-live")).toHaveAttribute("data-band", "red");
-    await expect(page.getByTestId("global-cap-load-live")).toContainText("1.28 per core");
-    await expect(page.getByTestId("global-cap-mem-live")).toHaveAttribute("data-band", "amber");
-    await expect(page.getByTestId("global-cap-mem-live")).toContainText("22.5 di 32 GB");
+    // The live reading, in per cent of the PC: 7.4 core-units of twelve cores.
+    const live = page.getByTestId("global-cap-budget-live");
+    await expect(live).toHaveAttribute("data-band", "red");
+    await expect(live).toContainText("Topics usa il 62% del PC");
+    await expect(live).toContainText("7.4 di 7.2 core-unità");
 
-    // The verdict names the axis: with one agent running, a new one waits on load.
+    // The verdict: at the budget with an agent running, a new one waits.
     const verdict = page.getByTestId("global-cap-verdict");
     await expect(verdict).toHaveAttribute("data-admit", "false");
-    await expect(verdict).toContainText("carico sopra la soglia");
-    await page.screenshot({ path: join(SHOTS, "per-risorse.png"), clip: { x: 0, y: 0, width: 1280, height: 700 } });
+    await expect(verdict).toContainText("al suo budget");
+    await page.screenshot({ path: join(SHOTS, "a-budget.png"), clip: { x: 0, y: 0, width: 1280, height: 700 } });
 
-    // Moving the load threshold: the band follows from both sides, and ONE write
-    // per move goes out in the wire name.
-    await load.fill("0.3");
-    await expect(load).toHaveAttribute("data-band", "red");
-    await expect(page.getByTestId("global-cap-load-band")).toContainText("Troppo bassa");
-    await expect.poll(() => writes.filter((w) => "maxLoadRatio" in w).map((w) => w.maxLoadRatio)).toEqual([0.3]);
+    // Moving the knob: the two units follow under the finger, ONE write per
+    // move goes out in the wire name, and at 80% the machine is back inside.
+    await budget.fill("0.8");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("80% del PC");
+    await expect(page.getByTestId("global-cap-budget-units")).toContainText("9.6 core-unità");
+    await expect.poll(() => writes.filter((w) => "budgetShare" in w).map((w) => w.budgetShare)).toEqual([0.8]);
 
-    await load.fill("2.5");
-    await expect(page.getByTestId("global-cap-load-band")).toContainText("Troppo alta");
-    await expect(page.getByTestId("global-cap-load-value")).toHaveText("2.50");
-    // 1.28 is now well under 2.5: the live reading turns green and a new agent would start.
-    await expect(page.getByTestId("global-cap-load-live")).toHaveAttribute("data-band", "green");
-    await expect(verdict).toHaveAttribute("data-admit", "true");
-    await expect(verdict).toContainText("partirebbe");
-
-    await mem.fill("0.65");
-    await expect(page.getByTestId("global-cap-mem-band")).toContainText("Prudente");
-    await expect.poll(() => writes.filter((w) => "maxMemRatio" in w).map((w) => w.maxMemRatio)).toEqual([0.65]);
+    await budget.fill("0.15");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("15% del PC");
+    await expect.poll(() => writes.filter((w) => "budgetShare" in w).map((w) => w.budgetShare)).toEqual([0.8, 0.15]);
   });
 
-  test("DROP-05: la modalita' e la soglia scelte tornano dopo il ricarico", async ({ page }) => {
+  test("DROP-05: la modalita' e il budget scelti tornano dopo il ricarico", async ({ page }) => {
     // NO STUB HERE, and that is the whole point of this scenario: persistence
     // is what the real row does. Answered from memory, a reload would only
     // prove that the client re-reads what the test itself just made up. The
@@ -351,21 +344,21 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await openBoard(page);
     await gear(page).click();
     await page.getByTestId("global-cap-brake-resources").click();
-    const load = page.getByTestId("global-cap-load-slider");
-    await expect(load).toBeVisible();
-    await load.fill("1.1");
-    await expect(page.getByTestId("global-cap-load-value")).toHaveText("1.10");
+    const budget = page.getByTestId("global-cap-budget-slider");
+    await expect(budget).toBeVisible();
+    await budget.fill("0.85");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del PC");
 
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
     await gear(page).click();
     await expect(page.getByTestId("global-cap-brake-resources")).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("global-cap-load-value")).toHaveText("1.10");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del PC");
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);
 
     // Back to "by count": the three states and the number are back.
     await page.getByTestId("global-cap-brake-count").click();
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
-    await expect(page.getByTestId("global-cap-load-slider")).toHaveCount(0);
+    await expect(page.getByTestId("global-cap-budget-slider")).toHaveCount(0);
   });
 });
