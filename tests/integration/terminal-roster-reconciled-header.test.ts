@@ -5,11 +5,11 @@
  *
  * `GET /api/terminal/sessions` answers `200 []` in two situations that mean
  * opposite things: there really is no terminal session, or the reconcile
- * against the PTY bridge has not finished yet (it is fire-and-forget, and
- * `Bun.serve` does not wait for it). The client cannot tell them apart, so it
- * refuses to believe any empty list; and a pane whose session no longer exists
- * therefore never declares itself expired, reattaching every 3 s for as long as
- * the tab is open.
+ * against the PTY bridge has not finished yet. That reconcile is
+ * fire-and-forget and the HTTP layer does not wait for it, so a client cannot
+ * tell the two apart and refuses to believe any empty list. A pane whose
+ * session no longer exists therefore never declares itself expired, and
+ * reattaches every 3 s for as long as the tab is open.
  *
  * The bit already existed server-side (`rosterReconciled`) but left the process
  * only as a field of the `terminal:sessions` broadcast. This is the REST door
