@@ -18,6 +18,7 @@ import {
   type BucketsKnown,
   type TopicBuckets,
 } from './topicBuckets';
+import { hydrateTopicPreviews } from '../state/topicPreviews';
 
 /**
  * The caches of this hook go through a throttled writer, and it is not a
@@ -126,6 +127,12 @@ export function useTopics() {
    * The archive, once. Deduplicated: every surface that needs the archived
    * topics (the sidebar's archived section, the search palette, the idle load
    * after boot) calls this and the first call is the only request.
+   *
+   * Their SUBLINES come from here too. `/api/topics/previews` no longer
+   * carries the archive at boot, and an archived row draws the same preview an
+   * open one draws: this is the one place that knows the archive is being
+   * asked for, so the previews follow the rows instead of needing a second
+   * rule about when the archived section opens.
    */
   const ensureArchivedTopics = useCallback((): Promise<void> => {
     if (knownRef.current.archived) return Promise.resolve();
@@ -135,6 +142,9 @@ export function useTopics() {
         const data = await topicsApi.getArchived();
         knownRef.current.archived = true;
         setBuckets(prev => replaceArchived(prev, data.topics));
+        // Best-effort and after the rows: a preview that does not arrive
+        // leaves a mute subline, a list that does not arrive leaves no row.
+        void hydrateTopicPreviews({ archived: true });
       } catch (err) {
         console.error('Failed to load archived topics:', err);
       } finally {

@@ -166,3 +166,89 @@ describe("weight of GET /api/topics", () => {
     expect(data.topics["orphan-live"]?.parentId).toBeNull();
   });
 });
+
+/**
+ * The SAME cut, on the endpoint that stayed behind.
+ *
+ * `GET /api/topics/previews` is the other boot photograph: the last message of
+ * every chat, so a sidebar row that is not streaming still says something. It
+ * joined `topics` to `messages` with no filter on `archived`, so it answered
+ * for the whole history. Measured read-only on the production database
+ * (2026-09-07): 300,355 bytes for 1,482 previews at every boot, 106 KB gzipped
+ * towards a phone on the LAN, to draw the 17 rows the sidebar shows. The live
+ * ones alone came to 1,671 bytes.
+ *
+ * Two properties, the mirror of the two above:
+ *
+ *  1. WEIGHT: a thousand archived chats WITH messages cost the boot preview
+ *     call nothing, and every key that comes back is a live topic.
+ *  2. THE ARCHIVE IS STILL SERVED: `?archived=1` carries their previews, so
+ *     the archived section of the sidebar draws its sublines like before. A
+ *     cut that also cut the answer would pass 1 and be a regression.
+ *
+ * @covers TOPIC-01
+ */
+describe("weight of GET /api/topics/previews", () => {
+  const PREVIEW_LIVE = 17;
+  const MESSAGE = "the run finished and here is what it found, in prose long enough to fill a subline. ".repeat(4);
+
+  /** One concluded message per topic: the row the endpoint picks as preview. */
+  function seedMessages(ctx: Awaited<ReturnType<typeof createTestAppContext>>, ids: string[]): void {
+    const insert = ctx.db.prepare(
+      "INSERT OR REPLACE INTO messages (id, session_key, role, content, partial, timestamp, sort_order) VALUES (?, ?, 'assistant', ?, 0, ?, 1)",
+    );
+    const at = new Date().toISOString();
+    for (const id of ids) insert.run(`msg-${id}`, `topic:${id}`, MESSAGE, at);
+  }
+
+  test("a thousand archived chats with messages do not travel with the boot previews", async () => {
+    const { createTopicsRouter } = await import("../../server/routes/topics");
+    const ctx = await createTestAppContext();
+    const router = createTopicsRouter(ctx);
+
+    const archivedIds: string[] = [];
+    for (let i = 0; i < ARCHIVED; i++) {
+      const id = `prev-arch-${i}`;
+      ctx.saveSingleTopic(seedTopic(id, true));
+      archivedIds.push(id);
+    }
+    const liveIds: string[] = [];
+    for (let i = 0; i < PREVIEW_LIVE; i++) {
+      const id = `prev-live-${i}`;
+      ctx.saveSingleTopic(seedTopic(id, false));
+      liveIds.push(id);
+    }
+    seedMessages(ctx, [...archivedIds, ...liveIds]);
+
+    const body = await (await call(router, "/api/topics/previews")).text();
+    const { previews } = JSON.parse(body) as { previews: Record<string, { text: string }> };
+
+    // Every live chat that has a message is there, with its text.
+    for (const id of liveIds) expect(previews[id]?.text).toBeTruthy();
+    // And not one archived key: the check is on the whole set, not on a sample,
+    // so a filter that leaks a subset cannot pass.
+    const archivedInBody = Object.keys(previews).filter((id) => ctx.getTopicById(id)?.archived);
+    expect(archivedInBody).toEqual([]);
+
+    // The bar is bytes. On the production database this call was 300,355 for
+    // 1,482 previews; seventeen live rows are about 3 KB here.
+    console.log(`[topics-list-weight] GET /api/topics/previews with ${PREVIEW_LIVE} live + ${ARCHIVED} archived: ${body.length} bytes`);
+    expect(body.length).toBeLessThan(5_000);
+  });
+
+  test("the archived previews are still served, behind ?archived=1", async () => {
+    const { createTopicsRouter } = await import("../../server/routes/topics");
+    const ctx = await createTestAppContext();
+    const router = createTopicsRouter(ctx);
+
+    const body = await (await call(router, "/api/topics/previews?archived=1")).text();
+    const { previews } = JSON.parse(body) as { previews: Record<string, { text: string }> };
+
+    // The rows the archived section of the sidebar draws.
+    expect(previews["prev-arch-7"]?.text).toBeTruthy();
+    expect(Object.keys(previews).length).toBeGreaterThanOrEqual(ARCHIVED);
+    // And the live ones are not repeated here: the two calls are disjoint.
+    expect(previews["prev-live-1"]).toBeUndefined();
+    console.log(`[topics-list-weight] GET /api/topics/previews?archived=1: ${body.length} bytes`);
+  });
+});
