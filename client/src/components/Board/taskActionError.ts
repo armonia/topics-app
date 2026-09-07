@@ -33,7 +33,7 @@ export function taskActionErrorMessage(raw: unknown, tr: Translate, fallback?: s
   // where that field does not exist. Here it names the remedy that is actually
   // under the thumb: the button that says "anyway". The red check's name is
   // kept, because it is the only part that says what to look at.
-  if (/checks pre-review sono ROSSI/i.test(text)) {
+  if (/pre-review checks are RED/i.test(text)) {
     const red = /`([^`]+)`/.exec(text)?.[1];
     return tr('board.actionError.checksRed', { red: red ? ` (${red})` : '' });
   }

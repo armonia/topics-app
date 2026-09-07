@@ -1212,6 +1212,8 @@ const IT: Dict = {
   'board.publish.andMore': '…e altri {n}',
   'board.publish.done': '{name}: pubblicato',
   'board.publish.error': 'errore',
+  'board.publish.notFound': 'progetto non trovato',
+  'board.publish.detachedHead': 'HEAD staccato: niente da pubblicare.',
   'board.publish.truncated': '…troncato a 50',
   'board.delivery.unlandedTitle': '{n} task chiusi con lavoro non su main',
   'board.delivery.toPublishTitle': '{n} commit su main da pubblicare',

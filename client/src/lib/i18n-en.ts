@@ -1031,6 +1031,8 @@ const EN = {
   'board.publish.andMore': '…and {n} more',
   'board.publish.done': '{name}: published',
   'board.publish.error': 'error',
+  'board.publish.notFound': 'project not found',
+  'board.publish.detachedHead': 'detached HEAD: nothing to publish.',
   'board.publish.truncated': '…truncated at 50',
   'board.delivery.unlandedTitle': '{n} closed tasks whose work is not on main',
   'board.delivery.toPublishTitle': '{n} commits on main to publish',

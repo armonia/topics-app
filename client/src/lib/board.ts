@@ -1054,7 +1054,7 @@ export const boardApi = {
     req<{ projects: PublishProject[] }>('/all-boards/publish-status').then(r => r.projects),
   /** Push a project's current branch to its remote (triggers deploy CI where configured). */
   publish: (projectId: string) =>
-    req<{ ok: boolean; branch: string; output?: string; error?: string }>(`/boards/${enc(projectId)}/publish`, { method: 'POST', body: JSON.stringify({}) }),
+    req<{ ok: boolean; branch: string; output?: string; error?: string; code?: string }>(`/boards/${enc(projectId)}/publish`, { method: 'POST', body: JSON.stringify({}) }),
   /** Unified diff of the commits a publish would push (what ships). */
   publishDiff: (projectId: string) =>
     req<DiffBundle>(`/boards/${enc(projectId)}/publish-diff`),

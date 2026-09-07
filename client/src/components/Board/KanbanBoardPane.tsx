@@ -114,6 +114,17 @@ interface Props {
  * SEMPRE in barra, anche a zero, perché «Pubblica» è anche il posto dove si va a
  * verificare che non ci sia niente da pubblicare.
  */
+/**
+ * The publish failures the server names with a `code`, in the reader's
+ * language. The server sentence is English and stays as the fallback: a code
+ * this table does not know still reaches the reader as a sentence, not as a
+ * silence.
+ */
+const PUBLISH_ERROR_KEY: Record<string, string> = {
+  not_found: 'board.publish.notFound',
+  detached_head: 'board.publish.detachedHead',
+};
+
 function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: (id: string) => void }) {
   const tr = useT();
   const [projects, setProjects] = useState<PublishProject[] | null>(null);
@@ -165,7 +176,9 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
     setBusy(p.projectId); setMsg(null);
     try {
       const r = await boardApi.publish(p.projectId);
-      setMsg(r.ok ? tr('board.publish.done', { name: p.name }) : `${p.name}: ${r.error ?? tr('board.publish.error')}`);
+      const key = r.code ? PUBLISH_ERROR_KEY[r.code] : undefined;
+      const why = key ? tr(key) : r.error ?? tr('board.publish.error');
+      setMsg(r.ok ? tr('board.publish.done', { name: p.name }) : `${p.name}: ${why}`);
       refresh();
     } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
     finally { setBusy(null); }
