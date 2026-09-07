@@ -422,6 +422,12 @@ SECOND tab in the same strip: the pane that asked SHALL keep the page it is show
 - **WHEN** a link is clicked
 - **THEN** it opens in the system browser rather than doing nothing at all
 
+#### Scenario: An anchor of the app's own UI with `target="_blank"` opens a pane
+- **GIVEN** an anchor rendered by the app itself carrying a bare `target="_blank"` (the changelog footer, a dev-server port, a fetched URL, a profile link)
+- **WHEN** the user clicks it with no modifier
+- **THEN** a pane root marked `[data-browser-pane]` becomes visible in that window
+- **AND** no page is opened outside the app, which under the desktop shell is what made the click a silent no-op
+
 #### Scenario: `target=_blank` inside a pane becomes a second tab
 - **GIVEN** a page in a browser pane whose link carries `target="_blank"`
 - **WHEN** the link is followed
