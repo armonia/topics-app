@@ -73,6 +73,12 @@ export interface AppSettings {
    *  objects into somebody else's repository on every turn, so it has to arrive
    *  without touching anyone until they switch it on. */
   turnCheckpointsEnabled: boolean | null;
+  /** Where an agent CLI lives when the automatic probe cannot find it: a JSON
+   *  object keyed by agent id, `{"codex": "/abs/path"}` (migration
+   *  `agent-bin-paths`). NULL = nothing was ever pointed at by hand, which is
+   *  the normal case. Written by `POST /api/providers/cli/configure`, which
+   *  validates the path before it lands here. */
+  agentBinPaths: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -94,6 +100,7 @@ const EMPTY: AppSettings = {
   profilePublishCost: null,
   profileShareToken: null,
   turnCheckpointsEnabled: null,
+  agentBinPaths: null,
 };
 
 interface Row {
@@ -115,6 +122,7 @@ interface Row {
   profile_publish_cost: number | null;
   profile_share_token: string | null;
   turn_checkpoints_enabled: number | null;
+  agent_bin_paths: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -141,6 +149,7 @@ function rowToSettings(r: Row): AppSettings {
     profileShareToken: r.profile_share_token ?? null,
     turnCheckpointsEnabled:
       r.turn_checkpoints_enabled == null ? null : r.turn_checkpoints_enabled === 1,
+    agentBinPaths: r.agent_bin_paths ?? null,
   };
 }
 
@@ -160,7 +169,7 @@ export function getAppSettings(): AppSettings {
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
                 output_language, discord_presence_enabled, discord_detail_level,
                 agent_runtime, profile_publish_cost, profile_share_token,
-                turn_checkpoints_enabled
+                turn_checkpoints_enabled, agent_bin_paths
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -191,6 +200,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   profilePublishCost: "profile_publish_cost",
   profileShareToken: "profile_share_token",
   turnCheckpointsEnabled: "turn_checkpoints_enabled",
+  agentBinPaths: "agent_bin_paths",
 };
 
 /**
