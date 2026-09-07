@@ -127,9 +127,11 @@ test.describe.serial("Chat", () => {
     // Wait for streaming indicator to appear (real server streaming)
     await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
 
-    // Click stop button to abort (use first match; sidebar and tab bar both have one)
+    // Click the composer's stop button to abort. Since 2026-09-07 the loader is
+    // a sign and not a button: the tab and sidebar rails carry their own named
+    // stop (`pane-tab-stop`), the composer keeps "Stop streaming".
     const stopBtn = page
-      .getByRole("button", { name: /Stop generating/ })
+      .getByRole("button", { name: /Stop streaming/ })
       .first();
     await expect(stopBtn).toBeVisible({ timeout: 5_000 });
     await stopBtn.click();

@@ -90,6 +90,8 @@ interface Misura {
   badge: Riquadro | null;
   badgeInk: Ink | null;
   comando: Riquadro | null;
+  /** The last command in the rail: the close ring, whatever rides before it. */
+  comandoUltimo: Riquadro | null;
 }
 interface Riquadro { w: number; h: number; sx: number; dx: number; dCentro: number }
 interface Ink { dCentro: number; inkSx: number; inkDx: number }
@@ -148,6 +150,10 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
       badge: box(badge),
       badgeInk: ink(badge),
       comando: box(tab.querySelector(".row-actions")),
+      // The rail can hold more than one command (stop, then close): the ring
+      // that covers the trailing signal is always its LAST child, so that is
+      // the box whose glyph inset is measured.
+      comandoUltimo: box(tab.querySelector(".row-actions > :last-child")),
     };
   }, paneId);
 }
@@ -163,14 +169,26 @@ test.describe("I widget in coda a una tab", () => {
     await page.waitForTimeout(200);
     const sopra = await misura(page, a.id);
 
-    expect(riposo.badge!.dx, "il badge si ferma a ROW_PX dal bordo").toBe(ROW_PX);
+    // L'ULTIMO segnale quieto della coda è quello che il comando copre. Dal
+    // 2026-09-07 la coda finisce con il loader (badge · pin · tempo · loader,
+    // «l'icona del loading a destra»), quindi su una tab che lavora è il loader
+    // a fermarsi a ROW_PX e il badge sta un passo prima; su una tab ferma resta
+    // il badge. La promessa misurata è la stessa: chi sta in fondo si ferma a
+    // ROW_PX e il cerchio atterra esattamente lì.
+    const ultimo = riposo.loader ?? riposo.badge;
+    expect(ultimo, "in coda alla tab c'è un segnale quieto").not.toBeNull();
+    expect(ultimo!.dx, "l'ultimo segnale si ferma a ROW_PX dal bordo").toBe(ROW_PX);
+    expect(riposo.badge!.dx, "il badge sta un passo prima del loader, mai sotto").toBeGreaterThanOrEqual(ROW_PX);
     // La scatola del comando è più grande del suo glifo: è l'incasso del GLIFO
-    // che deve valere ROW_PX, non quello della scatola.
-    const glyphDx = sopra.comando!.dx + (sopra.comando!.w - GLIFO) / 2;
-    expect(glyphDx, "il glifo del comando si ferma dove si ferma il badge").toBe(ROW_PX);
+    // che deve valere ROW_PX, non quello della scatola. E su una tab che lavora
+    // il binario porta DUE comandi (ferma, poi chiudi): quello che copre
+    // l'ultimo segnale è l'ultimo figlio, il cerchio.
+    const cerchio = sopra.comandoUltimo!;
+    const glyphDx = cerchio.dx + (cerchio.w - GLIFO) / 2;
+    expect(glyphDx, "il glifo del comando si ferma dove si ferma l'ultimo segnale").toBe(ROW_PX);
     // …e allora i due occupano lo STESSO rettangolo: niente salto sotto il dito.
-    expect(glyphDx).toBe(riposo.badge!.dx);
-    expect(sopra.comando!.dCentro, "comando centrato in verticale").toBe(0);
+    expect(glyphDx).toBe(ultimo!.dx);
+    expect(cerchio.dCentro, "comando centrato in verticale").toBe(0);
   });
 
   test("GEO-2: nessuna riga di testo nasce su un frammento di pixel", async ({ page, request }) => {
