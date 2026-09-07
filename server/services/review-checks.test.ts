@@ -8,6 +8,7 @@ import { join } from "path";
 import { readFileSync } from "fs";
 import { slotAcquiredLine } from "../../shared/slot-acquired";
 import { gateSlowdownLine } from "../../shared/gate-slowdown";
+import { slackMs } from "../../tests/helpers/time-slack";
 import {
   formatChecksComment,
   formatChecksWait,
@@ -22,6 +23,25 @@ import {
   type CheckRun,
   checksVerdict,
 } from "./review-checks";
+
+/**
+ * THE WINDOWS BELOW ARE RATIOS, AND THE RATIO IS WHAT THEY PROVE.
+ *
+ * Each timing case pits a sleep against a cap - 1,5 s of work under a 2 s cap
+ * that restarted, 3 s in all under the same cap without the line - and the
+ * claim is which side of the cap the work falls on, not the seconds. Written
+ * as bare constants they were sized on a quiet box: under the fleet the spawn
+ * plus the sleep drifted past a 2 s cap and this file went red on a change that
+ * never touched it (measured 2026-09-08).
+ *
+ * So both sides are stretched by the SAME factor: the ratio, which is the
+ * claim, survives, and the window, which is the machine, follows the machine.
+ * Stretching only the cap would be the other bug - a cap wide enough to hold
+ * the 3 s total no longer proves that anything restarted it.
+ */
+const stretched = (ms: number): number => slackMs(ms);
+/** The same window as the argument of `sleep`, in seconds. */
+const sleepFor = (ms: number): string => (stretched(ms) / 1000).toFixed(2);
 
 describe("parseReviewChecks", () => {
   test("forma lunga: nome e comando", () => {
@@ -186,8 +206,8 @@ describe("runReviewChecks", () => {
     // of real work fit. The queue time is reported apart.
     const line = slotAcquiredLine("test:unit", 1500);
     const runs = await runReviewChecks(
-      [{ name: "in coda", cmd: `sleep 1.5; echo '${line}' 1>&2; sleep 1.5` }],
-      { cwd, timeoutMs: 2000 },
+      [{ name: "in coda", cmd: `sleep ${sleepFor(1500)}; echo '${line}' 1>&2; sleep ${sleepFor(1500)}` }],
+      { cwd, timeoutMs: stretched(2000) },
     );
     expect(runs[0].timedOut).toBe(false);
     expect(runs[0].ok).toBe(true);
@@ -200,8 +220,8 @@ describe("runReviewChecks", () => {
     // becomes 2 s and the work fits. The factor is reported.
     const line = gateSlowdownLine(2, "2 shard invece di 4 sotto carico");
     const runs = await runReviewChecks(
-      [{ name: "piano ridotto", cmd: `echo '${line}' 1>&2; sleep 1.5` }],
-      { cwd, timeoutMs: 1000 },
+      [{ name: "piano ridotto", cmd: `echo '${line}' 1>&2; sleep ${sleepFor(1500)}` }],
+      { cwd, timeoutMs: stretched(1000) },
     );
     expect(runs[0].timedOut).toBe(false);
     expect(runs[0].ok).toBe(true);
@@ -209,7 +229,7 @@ describe("runReviewChecks", () => {
   }, 20_000);
 
   test("without the declaration the same 1.5 s against a 1 s cap is a timeout (control)", async () => {
-    const runs = await runReviewChecks([{ name: "senza piano", cmd: "sleep 1.5" }], { cwd, timeoutMs: 1000 });
+    const runs = await runReviewChecks([{ name: "senza piano", cmd: `sleep ${sleepFor(1500)}` }], { cwd, timeoutMs: stretched(1000) });
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].slowdown).toBeUndefined();
   }, 20_000);
@@ -222,8 +242,8 @@ describe("runReviewChecks", () => {
     const slot = slotAcquiredLine("test:unit", 2000);
     const slowdownLine = gateSlowdownLine(2, "2 shard invece di 4");
     const runs = await runReviewChecks(
-      [{ name: "coda e piano", cmd: `sleep 0.6; echo '${slot}' 1>&2; echo '${slowdownLine}' 1>&2; sleep 1.5` }],
-      { cwd, timeoutMs: 1000 },
+      [{ name: "coda e piano", cmd: `sleep ${sleepFor(600)}; echo '${slot}' 1>&2; echo '${slowdownLine}' 1>&2; sleep ${sleepFor(1500)}` }],
+      { cwd, timeoutMs: stretched(1000) },
     );
     expect(runs[0].timedOut).toBe(false);
     expect(runs[0].queuedMs).toBe(2000);
@@ -231,7 +251,7 @@ describe("runReviewChecks", () => {
   }, 20_000);
 
   test("without the slot line the same 3 s against a 2 s cap is a timeout (control)", async () => {
-    const runs = await runReviewChecks([{ name: "senza riga", cmd: "sleep 1.5; sleep 1.5" }], { cwd, timeoutMs: 2000 });
+    const runs = await runReviewChecks([{ name: "senza riga", cmd: `sleep ${sleepFor(1500)}; sleep ${sleepFor(1500)}` }], { cwd, timeoutMs: stretched(2000) });
     expect(runs[0].timedOut).toBe(true);
     expect(runs[0].queuedMs).toBeUndefined();
   }, 20_000);
