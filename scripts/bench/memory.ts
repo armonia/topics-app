@@ -252,6 +252,7 @@ async function main(): Promise<number> {
     "../../tests/e2e/helpers/api-fixtures"
   );
   const { testServerEnv, dataDirForPort } = await import("../../tests/e2e/helpers/test-server");
+  const { E2E_DEFAULT_PORT } = await import("../../tests/e2e/helpers/worktree-port");
   const { chromium, request } = await import("@playwright/test");
 
   const base = `http://127.0.0.1:${opts.port}`;
@@ -282,9 +283,11 @@ async function main(): Promise<number> {
 
   // A bench starts from zero topics or its first row is a lie, so the data dir
   // is wiped. Which is exactly why the default e2e port is refused: on 13334
-  // `dataDirForPort` returns the SHARED /tmp/topics-test-data, and this line
-  // would delete the suite's baseline out from under whoever is running it.
-  if (dataDir === "/tmp/topics-test-data") {
+  // `dataDirForPort` returns the SHARED data dir of the suite, and this line
+  // would delete its baseline out from under whoever is running it. Asked to
+  // `dataDirForPort` and not compared to a literal: the root is resolved
+  // (`/private/tmp` on macOS), so a literal would silently stop matching.
+  if (dataDir === dataDirForPort(E2E_DEFAULT_PORT)) {
     console.error(
       `bench:memory — refusing to run on the default e2e port.\n` +
         `  Its data dir is shared with the Playwright suite and this bench wipes the one it uses.\n` +

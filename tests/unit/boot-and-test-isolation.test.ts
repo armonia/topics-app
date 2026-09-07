@@ -19,9 +19,11 @@
  * swallows in silence is how the defect comes back unseen.
  */
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
 import { join } from "path";
 import { resolveDataDir, resolveStateDir } from "../../server/lib/data-dir";
+import { dataDirForPort } from "../e2e/helpers/test-server";
+import { E2E_DEFAULT_PORT } from "../e2e/helpers/worktree-port";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const START_TEST_SERVER = readFileSync(join(ROOT, "scripts/start-test-server.sh"), "utf8");
@@ -40,6 +42,24 @@ describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
 
   test("IL DIFETTO: senza NESSUNA delle due lo stato cade sul REPO", () => {
     expect(resolveStateDir(ROOT, {} as NodeJS.ProcessEnv)).toBe(ROOT);
+  });
+
+  test("la radice dati del banco e' CANONICA da entrambe le porte d'ingresso", () => {
+    // `${OPENCLAW_DIR}/workspace` hangs off this directory, and the server does
+    // not spell a project the same way twice: reached by bare name it keeps the
+    // raw path of the workspace scan, reached by absolute path it goes through
+    // `canonicalProjectPath`. On macOS `/tmp` is a link to `/private/tmp`, so a
+    // raw root makes the same folder answer under two names — PROJCMD-4 asserted
+    // one and got the other, on both benches, while CI (real `/tmp`) stayed green.
+    const root = realpathSync("/tmp");
+    expect(dataDirForPort(E2E_DEFAULT_PORT)).toBe(`${root}/topics-test-data`);
+    expect(dataDirForPort(13805)).toBe(`${root}/topics-test-data-13805`);
+    // The shell fallback is the OTHER door into the same bench: a literal here
+    // would put a hand-started server on a different spelling of one directory.
+    expect(
+      START_TEST_SERVER.includes("TMP_ROOT=\"$(cd /tmp && pwd -P)\""),
+      "start-test-server.sh non risolve piu' la radice: il default torna grezzo",
+    ).toBe(true);
   });
 
   test("start-test-server.sh isola con una variabile sola, e non ha piu' bisogno del ponte", () => {

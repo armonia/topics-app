@@ -27,6 +27,7 @@
  */
 
 import { execSync } from "child_process";
+import { realpathSync } from "fs";
 import { homedir } from "os";
 import { resolve } from "path";
 import { defaultE2EPort, E2E_DEFAULT_PORT } from "./worktree-port";
@@ -82,15 +83,51 @@ export const E2E_TUNNEL_BASE = `http://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
 export const E2E_TUNNEL_WS_BASE = `ws://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
 
 /**
+ * The scratch ROOT, canonical: `/private/tmp` on macOS, `/tmp` on Linux.
+ *
+ * A FUNCTION and not a constant because a spec composes its paths at module
+ * level, before anything is on disk, and only the root can be resolved that
+ * early. `scripts/check-tmp-canonical.ts` is what keeps the literal from
+ * coming back; `helpers/file-project.ts` builds `canonicalTmpDir()` on top.
+ *
+ * It lives HERE, next to the bench paths, because the bench root itself has to
+ * obey the rule: see `dataDirForPort` below.
+ */
+export function canonicalTmpRoot(): string {
+  try {
+    return realpathSync("/tmp");
+  } catch {
+    return "/tmp";
+  }
+}
+
+/**
  * Dove vive lo stato del server di test per una data porta.
  *
  * La porta di default tiene il percorso storico: script, `.gitignore` e memoria
  * muscolare puntano lì, e uno shard singolo non deve cambiare nulla.
+ *
+ * CANONICAL ROOT, and it is the whole reason `canonicalTmpRoot` sits in this
+ * file. `${OPENCLAW_DIR}/workspace` hangs off this directory, so every project
+ * created inside it is named by this string on BOTH sides of the bench — and
+ * the server does not spell it the same way twice: a project reached by BARE
+ * NAME keeps the raw path the workspace scan produced, while one reached by
+ * ABSOLUTE PATH goes through `canonicalProjectPath` (server/routes/topics.ts,
+ * `resolveProjectRef`). On macOS `/tmp` is a link to `/private/tmp`, so with a
+ * raw root those two spellings disagree and the SAME folder answers under two
+ * names: measured on PROJCMD-4, which asserted the binding of
+ * `/tmp/…/workspace/e2e-test-proj-…` and got `/private/tmp/…` back, while
+ * PROJCMD-1 and PROJCMD-3 (bare name) stayed green next to it. On the Linux
+ * runner the two spellings are the same string, so CI never saw it.
+ *
+ * Resolving the root once removes the whole class from the bench instead of
+ * teaching each spec which of its own paths the server will rewrite.
  */
 export function dataDirForPort(port: number): string {
+  const root = canonicalTmpRoot();
   return port === E2E_DEFAULT_PORT
-    ? "/tmp/topics-test-data"
-    : `/tmp/topics-test-data-${port}`;
+    ? `${root}/topics-test-data`
+    : `${root}/topics-test-data-${port}`;
 }
 
 /**

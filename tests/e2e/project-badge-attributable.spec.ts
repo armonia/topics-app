@@ -38,7 +38,7 @@ import {
   seedProjectInnerChats,
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
@@ -48,7 +48,16 @@ test.use({ video: "on" });
 const BASE = E2E_BASE;
 // Una directory VERA: le pane interne di un progetto ci fanno cd dentro, e un
 // path inesistente le fa uscire subito.
-const PROJECT_PATH = `/tmp/e2e-badge-attribuibile-${Date.now()}`;
+//
+// And a CANONICAL root, which is what the tab id below turns into an identity.
+// The server serves a `project:` pane under the realpath of its folder
+// (`canonicalPaneSnapshot`, 7cd202448) and tombstones the raw id, so on macOS —
+// where `/tmp` is a link to `/private/tmp` — a pane seeded as
+// `project:%2Ftmp%2F…` comes back as `project:%2Fprivate%2Ftmp%2F…` and this
+// locator matches nothing: the window is on screen the whole time, under the
+// other name. On the Linux runner the two spellings coincide, so CI stayed
+// green while both local benches were red.
+const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-badge-attribuibile-${Date.now()}`;
 const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 
 test.describe("Il badge di un progetto dice DI CHI è", () => {

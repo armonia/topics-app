@@ -38,7 +38,8 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 /** The helper every offender should be using instead. */
-const REPLACEMENT = "canonicalTmpRoot() / canonicalTmpDir() from tests/e2e/helpers/file-project.ts";
+const REPLACEMENT =
+  "canonicalTmpRoot() from tests/e2e/helpers/test-server.ts (or canonicalTmpDir() from helpers/file-project.ts)";
 
 /** A file whose paths are identities: it hashes them into a board id. */
 const ADDRESSES_A_BOARD = /projectIdForPath|boardIdForPath/;
