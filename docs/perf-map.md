@@ -254,10 +254,12 @@ wrong, it just paid too much for it.
 
 *The database, 888 MB of which 778 in `blocks` + `tool_calls` against 19 MB of
 message text.* Not old rot to prune — 648 of those MB are from THIS month. The
-waste is elsewhere and simpler: `shared/message-blob.ts` compresses those two
-columns with zstd, every reader already goes through `decodeCol` (checked: all
-five files that SELECT them), but the codec acts on WRITE, so it only ever
-touched rows written after it existed:
+waste is elsewhere and simpler: `shared/message-blob.ts` knows how to compress
+those two columns with zstd, every reader already goes through `decodeCol`
+(checked: all five files that SELECT them), but the codec was wired on the READ
+side only. `encodeCol` sat on none of the writers of `messages`, so every new
+row was born in plaintext and the only compressed rows were the ones a backfill
+had touched:
 
     blocks      273 rows compressed (4 MB)  ·  4,131 plaintext (481 MB)
     tool_calls  291 rows compressed (4 MB)  ·  8,762 plaintext (288 MB)
@@ -282,6 +284,18 @@ a live database and found TWO differences — real ones: a row the server was
 rewriting mid-copy. A `cp` of a SQLite file in use is not a snapshot, and
 treating it as one would have filed that noise as data loss, or (worse) real
 loss as noise. The rerun used `.backup`.
+
+**A backfill without a writer is a saving with an expiry date**, and this one
+expired the day after: on 2026-09-07 the same database had **976 rows of
+`blocks` back in plaintext above the threshold, 117 MB that compress to 28**,
+all written since the 20/08 backfill, at 12-15 MB a day. The fix is one line
+where the column is built (`metaParams` in `server/utils.ts`): `blocks` now goes
+through `encodeCol` on every insert and every update, so a streaming turn, which
+rewrites that row dozens of times through `persistBlocks`, pays a quarter of the
+bytes on the file AND on the WAL. `tests/integration/message-blocks-compressed-on-write.test.ts`
+holds it: `typeof(blocks)` = `blob`, and `rowToMessage` reads it back identical.
+`tool_calls` is still born in plaintext, and it is a smaller column since the
+timeline became its home.
 
 The script does NOT touch production on its own and says so: it is a `db:*`
 command, not a migration, because a `server/db/migrations/*.sql` file gets
