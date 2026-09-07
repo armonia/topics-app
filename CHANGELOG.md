@@ -12,6 +12,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il banco della migration parla inglese anche nei nomi: POSIX non e' una parola che il cancello conosce
 - La CLI installata si puo' dichiarare: elenco degli agenti e percorso a mano nelle Impostazioni
 - Una sola porta alle impostazioni: il gesto e' dichiarato una volta, il ⚙ e il popover ci si appoggiano
+- Un ack del ponte che arriva dopo il 502 non deve uccidere il server
 
 ## 2.2.282 — 2026-09-07
 

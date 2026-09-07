@@ -41,6 +41,11 @@
           "it": "Una sola porta alle impostazioni: il gesto e' dichiarato una volta, il ⚙ e il popover ci si appoggiano",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Un ack del ponte che arriva dopo il 502 non deve uccidere il server",
+          "en": "",
+          "scope": null
         }
       ]
     }
