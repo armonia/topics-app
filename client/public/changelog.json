@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.277",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La simmetria si misura dove la scorciatoia è disegnata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il divisore si misura dopo che il pannello dei processi e' montato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.276",
     "date": "2026-09-07",
     "sections": {

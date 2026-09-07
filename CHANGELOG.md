@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.277 — 2026-09-07
+
+### Sotto il cofano
+- La simmetria si misura dove la scorciatoia è disegnata
+- Il divisore si misura dopo che il pannello dei processi e' montato
+
 ## 2.2.276 — 2026-09-07
 
 ### Sotto il cofano
