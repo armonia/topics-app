@@ -2,10 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.283 — 2026-09-07
+
+### Sotto il cofano
+- Run the shipped Windows build on a real desktop, and measure it
+- The Windows report and its captures land in the repo
+- Il separatore di un percorso e' due caratteri: su Windows l'id di board era la strada intera, non la cartella
+- Nomi inglesi per l'anello: CIRCUMFERENCE e DispatchLoadSummary
+- Il banco della migration parla inglese anche nei nomi: POSIX non e' una parola che il cancello conosce
+- La CLI installata si puo' dichiarare: elenco degli agenti e percorso a mano nelle Impostazioni
+- Una sola porta alle impostazioni: il gesto e' dichiarato una volta, il ⚙ e il popover ci si appoggiano
+
 ## 2.2.282 — 2026-09-07
 
 ### Sotto il cofano
 - Il presidio del teardown cerca listenerPids invece di un lsof scritto a mano: quello che difende resta l'ordine fra domanda al lock e kill sulla porta
+- Il carico del dispatcher si legge anche quando va tutto bene
 
 ## 2.2.281 — 2026-09-07
 
