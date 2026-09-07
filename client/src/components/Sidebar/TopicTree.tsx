@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect, useRef, useMemo, type HTMLAttributes } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, type HTMLAttributes } from 'react';
 import { useT } from '../../hooks/useT';
 import { boardIdForPath } from '../../lib/board';
-import { ShareControl } from '../Share/ShareControl';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
@@ -123,6 +122,12 @@ const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
  *  contrario di `file`/`git`/`kanban` — che nascono con un uuid diverso a ogni
  *  apertura — questa stringa è la STESSA fra sessioni e fra device, che è
  *  esattamente ciò che rende la board fissabile. */
+// The share popover is a click away and nothing else in the sidebar needs it,
+// so it leaves the entry. TaskDetail and TopicSettingsModal already live in
+// lazy chunks and import the same component: Rollup gives the three of them a
+// shared chunk instead of three copies.
+const ShareControl = lazy(() => import('../Share/ShareControl').then(m => ({ default: m.ShareControl })));
+
 const BOARD_ID = utilityPanelId('board');
 /** Nome e glifo NON si riscrivono qui: `PANE_CONFIG` li espone già, ed è la
  *  stessa fonte da cui la barra delle tab e il builder pescano i propri. La
@@ -2209,7 +2214,9 @@ export function TopicTree({
             <p className="mb-2 truncate text-[12px] font-medium text-app-text-heading">
               {progettoDaCondividere.nome}
             </p>
-            <ShareControl resourceType="project" resourceId={progettoDaCondividere.id} />
+            <Suspense fallback={null}>
+              <ShareControl resourceType="project" resourceId={progettoDaCondividere.id} />
+            </Suspense>
           </div>
         </div>
       )}

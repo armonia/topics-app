@@ -12,7 +12,7 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { existsSync, rmSync } from "fs";
+import { existsSync, realpathSync, rmSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -29,6 +29,27 @@ const WORKSPACE_DIR = join(
   process.env.OPENCLAW_DIR || join(process.env.HOME || "/tmp", ".openclaw"),
   "workspace"
 );
+
+/**
+ * The same directory, spelled the way the SERVER spells it back.
+ *
+ * `canonicalProjectPath` (server/lib/canonical-project-path.ts) realpaths a
+ * project path when it comes in, so one directory reached two ways stays one
+ * project. The isolated test data dir lives under `/tmp`, which on macOS is a
+ * symlink to `/private/tmp`: the binding therefore comes back resolved. It only
+ * comes back resolved once the directory EXISTS, though, because a path that is
+ * not there yet is kept as-is, and `/project create` binds around the moment it
+ * creates it. Comparing both sides resolved is what makes the assertion say
+ * "the same directory" instead of "the same string".
+ */
+function resolvedPath(path: string | null | undefined): string {
+  if (!path) return "";
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
 
 /** Apre la topic dalla sidebar, se ci compare. `true` se ci è riuscita. */
 async function openTopicFromSidebar(
@@ -236,11 +257,11 @@ test.describe.serial("Project Commands", () => {
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          return data.topics[topicId]?.projectPath;
+          return resolvedPath(data.topics[topicId]?.projectPath);
         },
         { timeout: 10_000 }
       )
-      .toBe(testProjectDir);
+      .toBe(resolvedPath(testProjectDir));
 
     expect(existsSync(testProjectDir)).toBe(true);
     expect(existsSync(join(testProjectDir, "CLAUDE.md"))).toBe(true);
@@ -288,11 +309,11 @@ test.describe.serial("Project Commands", () => {
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          return data.topics[topicId]?.projectPath;
+          return resolvedPath(data.topics[topicId]?.projectPath);
         },
         { timeout: 10_000 }
       )
-      .toBe(testProjectDir);
+      .toBe(resolvedPath(testProjectDir));
   });
 
   test("PROJCMD-4: /project open binds by absolute path", async ({ page, request }) => {
@@ -313,10 +334,10 @@ test.describe.serial("Project Commands", () => {
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          return data.topics[topicId]?.projectPath;
+          return resolvedPath(data.topics[topicId]?.projectPath);
         },
         { timeout: 10_000 }
       )
-      .toBe(testProjectDir);
+      .toBe(resolvedPath(testProjectDir));
   });
 });

@@ -7,11 +7,15 @@
  * (`it`) copy — the public English rendering lives on the landing site.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { openLink, isExternalLinkGesture } from '../lib/openLink';
 import { useT } from '../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Wrench, Zap, Cog, ChevronRight } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';
 import { useModalDialog } from '@/hooks/useModalDialog';
+
+// The public changelog page, opened as a pane of the app rather than outside it.
+const CHANGELOG_URL = 'https://topics.armonia.io/changelog.html';
 
 interface Entry {
   it: string;
@@ -220,9 +224,11 @@ export function ChangelogModal({
         {/* Footer — link to the full public changelog */}
         <div className="h-9 shrink-0 border-t border-app-border flex items-center px-4">
           <a
-            href="https://topics.armonia.io/changelog.html"
+            href={CHANGELOG_URL}
             target="_blank"
             rel="noopener"
+            data-testid="changelog-full-link"
+            onClick={(e) => { e.preventDefault(); openLink(CHANGELOG_URL, { external: isExternalLinkGesture(e), origin: e.target }); }}
             className="text-[11px] text-app-text-muted hover:text-primary transition-colors"
           >
             {tr('changelog.full')}

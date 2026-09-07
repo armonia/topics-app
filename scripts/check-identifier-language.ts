@@ -150,6 +150,11 @@ export const PROJECT_WORDS = new Set([
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
   "ffmpeg",
+  // Three names of things, not jargon: `changelog` is the page this app links
+  // to and the file it renders, `github` and `blog` are the two profile fields
+  // GitHub's own API returns under those exact keys. A URL built from one of
+  // them can only be named after it.
+  "changelog", "github", "blog",
   // Same hole again (2026-09-04): `coordinator` names the global Kanban
   // coordinator throughout the orchestrator feature, and `denied` is the
   // past participle the list stops short of.

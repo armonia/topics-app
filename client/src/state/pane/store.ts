@@ -30,6 +30,27 @@ function isServerAuthoritativeAction(action: PaneAction): boolean {
   return action.type === 'HYDRATE_FROM_SNAPSHOT';
 }
 
+/**
+ * Actions that move ONLY device-local state. `focusedPaneId` and
+ * `activeSpaceId` are both stripped from the outbound snapshot by
+ * `selectSyncableSnapshot`, so the body a PUT would carry after one of these is
+ * byte-identical to the one the server already holds.
+ *
+ * They still bump `lastSeq` (persistLocal subscribes to it, and writes the new
+ * focus / active space to localStorage synchronously; syncServer's re-arm after
+ * a WS drop reads it too) but NOT `localSeq`, which is the counter syncServer
+ * watches to decide "this device edited the shared state, push it".
+ *
+ * Why it matters, measured on the running app: 8 alternating clicks between two
+ * tabs produced 8 PUT /api/ui-state/pane-store-v2 of 68,820 B each, ~470 ms
+ * after every click, all with the same body hash. Each one is a SQLite write, a
+ * cascade recompute server-side and a HYDRATE broadcast to every other client,
+ * bought for a change no peer can even observe.
+ */
+function isDeviceLocalAction(action: PaneAction): boolean {
+  return action.type === 'FOCUS_PANE' || action.type === 'SET_ACTIVE_SPACE';
+}
+
 // Dev-only: dedupe the "no pane entity for id" warning by paneId. A throttled
 // scroll handler firing at 250 ms during a racy mount would otherwise spam the
 // console on every tick until OPEN_PANE dispatches. The whole block is tree-
@@ -98,11 +119,19 @@ export const usePaneStore = create<PaneStore>()(
           // seq the server considers fresh; we just don't increment when
           // the reducer already installed a server-authoritative value.
           if (isServerAuthoritativeAction(action)) return;
-          // Qui siamo su una modifica di QUESTO dispositivo: e' l'unico punto
-          // in cui `localSeq` sale, ed e' quello che il middleware di sync
-          // osserva. Un `HYDRATE_FROM_SNAPSHOT` esce alla riga sopra e non lo
-          // tocca, che e' precisamente cio' che spezza il ciclo fra pari
-          // (vedi il commento di `localSeq` in types.ts).
+          // A device-local action moves the local clock (persistLocal needs the
+          // tick) but leaves `localSeq` alone, so the sync middleware is never
+          // woken for a change that would ship an identical body.
+          if (isDeviceLocalAction(action)) {
+            draft.lastSeq = ++_seq;
+            return;
+          }
+          // Past this point the action changed state THIS device shares: this
+          // is the only place `localSeq` moves, and it is what the sync
+          // middleware subscribes to. A `HYDRATE_FROM_SNAPSHOT` left two
+          // branches above without touching it, which is precisely what breaks
+          // the peer-to-peer write loop (see the `localSeq` comment in
+          // types.ts).
           draft.localSeq += 1;
           draft.lastSeq = ++_seq;
         });

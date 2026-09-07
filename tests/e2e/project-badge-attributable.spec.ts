@@ -38,9 +38,9 @@ import {
   seedProjectInnerChats,
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
-import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
+import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -48,16 +48,18 @@ test.use({ video: "on" });
 const BASE = E2E_BASE;
 // Una directory VERA: le pane interne di un progetto ci fanno cd dentro, e un
 // path inesistente le fa uscire subito.
-//
-// And a CANONICAL root, which is what the tab id below turns into an identity.
-// The server serves a `project:` pane under the realpath of its folder
-// (`canonicalPaneSnapshot`, 7cd202448) and tombstones the raw id, so on macOS —
-// where `/tmp` is a link to `/private/tmp` — a pane seeded as
-// `project:%2Ftmp%2F…` comes back as `project:%2Fprivate%2Ftmp%2F…` and this
-// locator matches nothing: the window is on screen the whole time, under the
-// other name. On the Linux runner the two spellings coincide, so CI stayed
-// green while both local benches were red.
-const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-badge-attribuibile-${Date.now()}`;
+// A project's identity is the RESOLVED directory: `canonicalProjectPath`
+// (server/lib/canonical-project-path.ts) realpaths the path when it comes in,
+// so that one directory reached two ways stays one project. On macOS `/tmp` is
+// a symlink to `/private/tmp`, so a pane seeded under `/tmp` is stored, and
+// mounted, under the resolved path: naming it the other way here means waiting
+// for a tab id that nobody will ever render. The directory is created HERE, at
+// module scope, because `realpathSync` can only resolve what already exists.
+const PROJECT_PATH = (() => {
+  const path = `/tmp/e2e-badge-attribuibile-${Date.now()}`;
+  mkdirSync(path, { recursive: true });
+  return realpathSync(path);
+})();
 const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 
 test.describe("Il badge di un progetto dice DI CHI è", () => {

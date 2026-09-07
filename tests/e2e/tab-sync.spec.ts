@@ -33,8 +33,28 @@ test.describe("Tab Sync & Persistence", () => {
     // Then open second topic
     await openTopic(page, /Best Ramen/);
 
-    // Wait for the debounced sync to fire
-    await tabSyncPage.waitForSyncPut("pane-store-v2");
+    // WAIT FOR THE STORE, NOT FOR A PUT. Since 59ec7538 a tab focus is
+    // device-local and ships nothing, so the only PUT an open produces is its
+    // own debounced one (~470 ms), and a waiter registered after the action
+    // can miss it (4 timeouts of 4 on CI, 2026-09-07; the stray focus PUTs
+    // used to hide the race). Arming the waiter first is not enough here
+    // either: the second open can reload the page (`ensureTopicVisible` goes
+    // through about:blank when the topic is not on screen), which cuts the
+    // first open's debounce and flushes it as a pagehide beacon, a POST.
+    // What the reload below needs is the pinned pane on the server, so that
+    // is what is read (the single-click pane is a draft: same-device only).
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const res = await fetch("/api/ui-state/pane-store-v2");
+            if (!res.ok) return 0;
+            const body = await res.json();
+            return (body?.value?.groups?.["group:default"]?.paneIds ?? []).length;
+          }),
+        { message: "the pinned pane never reached the server", timeout: 10_000 },
+      )
+      .toBeGreaterThanOrEqual(1);
 
     // Record tab labels before reload
     const labelsBefore = await tabSyncPage.getTabLabels();
@@ -125,8 +145,23 @@ test.describe("Tab Sync & Persistence", () => {
       )
       .toBe(0);
 
-    // Wait for sync
-    await tabSyncPage.waitForSyncPut("pane-store-v2");
+    // Wait for the CLOSE to reach the server, read from the store itself rather
+    // than from a PUT waiter registered after the fact: the commit's PUT can
+    // complete while the poll above is still reading the DOM, and a waiter
+    // armed afterwards would then wait for a PUT that is never coming (a tab
+    // switch ships nothing since 59ec7538).
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const res = await fetch("/api/ui-state/pane-store-v2");
+            if (!res.ok) return -1;
+            const body = await res.json();
+            return (body?.value?.groups?.["group:default"]?.paneIds ?? []).length;
+          }),
+        { message: "il server doveva registrare una pane in meno", timeout: 10_000 },
+      )
+      .toBeLessThan(labelsBefore.length);
 
     // Reload
     await page.reload({ waitUntil: "load" });
@@ -286,11 +321,11 @@ test.describe("Tab Sync & Persistence", () => {
       }
     });
 
-    // Open a topic to trigger a tab state change
+    // Open a topic to trigger a tab state change, with the waiter for its
+    // debounced PUT armed first (see TAB-SYNC-01 for why).
+    const synced = tabSyncPage.waitForSyncPut();
     await openTopic(page, /Web Search Test/);
-
-    // Wait for the debounced sync PUT
-    await tabSyncPage.waitForSyncPut();
+    await synced;
 
     // Verify at least one PUT was sent to ui-state
     expect(putRequests.length).toBeGreaterThanOrEqual(1);
@@ -329,16 +364,17 @@ test.describe("Tab Sync & Persistence", () => {
         pageB.locator('[data-testid="connection-status"]')
       ).toBeVisible({ timeout: 10000 });
 
-      // Open a topic in context A
-      await openTopic(pageA, /Web Search Test/);
-
-      // Wait for context A's sync PUT to complete (client persists pane-store-v2)
-      await pageA.waitForResponse(
+      // Open a topic in context A, with the waiter for its sync PUT armed
+      // first (see TAB-SYNC-01 for why), then let the PUT complete: the client
+      // persists pane-store-v2 and context B reads it back.
+      const putA = pageA.waitForResponse(
         (resp) =>
           resp.url().includes("/api/ui-state/pane-store-v2") &&
           resp.request().method() === "PUT",
         { timeout: 10000 }
       );
+      await openTopic(pageA, /Web Search Test/);
+      await putA;
 
       // Context B reads the shared server pane-store that A's live-persist wrote.
       // The store was reset to [] at the start, so any pane in group:default here
@@ -378,14 +414,27 @@ test.describe("Tab Sync & Persistence", () => {
 
     try {
       // Load both, open a topic in A
+      // The store is emptied first so the open below is a real change: the
+      // previous test leaves this very topic pinned on the shared server
+      // store, and opening an already-open tab is a focus, which ships
+      // nothing since 59ec7538 (one 10 s timeout, then green on retry,
+      // 2026-09-07). Then the server is read for the pane rather than the
+      // wire for a PUT (see TAB-SYNC-01 for why).
+      await resetPaneStore(pageA.request, []);
       await goToApp(pageA);
       await openTopic(pageA, /Web Search Test/);
-      await pageA.waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/ui-state/pane-store-v2") &&
-          resp.request().method() === "PUT",
-        { timeout: 10000 }
-      );
+      await expect
+        .poll(
+          () =>
+            pageA.evaluate(async () => {
+              const res = await fetch("/api/ui-state/pane-store-v2");
+              if (!res.ok) return 0;
+              const body = await res.json();
+              return (body?.value?.groups?.["group:default"]?.paneIds ?? []).length;
+            }),
+          { message: "the opened pane never reached the server", timeout: 10_000 },
+        )
+        .toBeGreaterThanOrEqual(1);
 
       await goToApp(pageB);
 

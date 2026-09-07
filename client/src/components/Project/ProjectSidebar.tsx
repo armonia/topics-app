@@ -7,7 +7,6 @@ import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE } from '../../lib/selectionStyles';
 import { capSezione } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { ScriptRunner } from './ScriptRunner';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
 import { useGitStatus } from '../../hooks/useGitStatus';
@@ -19,6 +18,11 @@ import { useHoverReveal } from '../../hooks/useHoverReveal';
 
 // Git is heavy (diff rendering) — keep lazy
 const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.GitChanges })));
+// Same treatment for the process runner: it only mounts inside
+// `expandedSections.processes`, and it carries `useDetectedScripts` and the
+// relay crypto helpers with it. One const for BOTH mount sites below, so the
+// mobile and desktop layouts resolve the same module and the same chunk.
+const ScriptRunner = lazy(() => import('./ScriptRunner').then(m => ({ default: m.ScriptRunner })));
 
 interface ProjectSidebarProps {
   projectPath: string;
@@ -943,7 +947,9 @@ export function ProjectSidebar({
               </button>
               {expandedSections.processes && (
                 <div className="flex-1 min-h-0 overflow-y-auto">
-                  <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+                  <Suspense fallback={null}>
+                    <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+                  </Suspense>
                 </div>
               )}
             </div>
@@ -1230,7 +1236,9 @@ export function ProjectSidebar({
           </button>
           {expandedSections.processes && (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+              <Suspense fallback={null}>
+                <ScriptRunner projectPath={projectPath} onOpenProcessLog={onOpenProcessLog} />
+              </Suspense>
             </div>
           )}
         </div>
