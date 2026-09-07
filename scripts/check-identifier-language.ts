@@ -114,6 +114,11 @@ export const PROJECT_WORDS = new Set([
   // it reads. `scp` is git's own short remote syntax (`git@host:owner/repo`),
   // the shape the node comparison has to recognise.
   "cookie", "scp",
+  // `encoding` is the word the HTTP headers themselves use (`Accept-Encoding`,
+  // `Content-Encoding`, RFC 9110 8.4): the constant that holds the order in
+  // which the server prefers them cannot be named after anything else without
+  // losing the header it describes. The 1934 list carries `encode`, not this.
+  "encoding",
   // `ics` is the name of the format itself: the file extension of an iCalendar
   // feed (RFC 5545) and what every calendar provider calls the address it
   // publishes. The reader of that format (`parseIcs`, `IcsEvent`) is named

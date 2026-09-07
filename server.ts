@@ -16,7 +16,7 @@ import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
-import { classifyStaticAsset } from "./server/static-assets";
+import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
@@ -3322,7 +3322,20 @@ const opzioniServer = {
       if (asset) {
         const file = Bun.file(asset.filePath);
         if (await file.exists()) {
-          return new Response(file, { headers: { "Content-Type": getMimeType(asset.filePath), "Cache-Control": asset.cacheControl, "Content-Disposition": "inline" } });
+          // Precompressed siblings, built by the vite plugin next to each asset.
+          // The Content-Type stays the one of the ORIGINAL file (an `.js.br` is
+          // still JavaScript, only encoded), and `Vary` goes out on every reply,
+          // compressed or not: a shared cache that stored the raw answer must
+          // not hand it to a client that asked for brotli, and vice versa.
+          const encoded = pickPrecompressed(asset.filePath, req.headers.get("accept-encoding"), existsSync);
+          const headers: Record<string, string> = {
+            "Content-Type": getMimeType(asset.filePath),
+            "Cache-Control": asset.cacheControl,
+            "Content-Disposition": "inline",
+            "Vary": "Accept-Encoding",
+          };
+          if (encoded) headers["Content-Encoding"] = encoded.encoding;
+          return new Response(encoded ? Bun.file(encoded.filePath) : file, { headers });
         }
       }
     }

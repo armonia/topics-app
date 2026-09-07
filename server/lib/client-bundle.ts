@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { join, relative, sep } from "node:path";
 
 /**
@@ -35,6 +36,36 @@ export function missingBundleAssets(dir: string): string[] {
   return [...refs].filter((ref) => !existsSync(join(dir, ref.replace(/^\//, ""))));
 }
 
+/**
+ * Precompressed siblings whose content does NOT decode back to the file they
+ * sit next to. Empty answer = the compressed half of the bundle is the same
+ * bundle.
+ *
+ * Measured while building this: compressing in the wrong rollup hook produced
+ * `.br` siblings 2.032 bytes shorter than the file finally written, i.e. a
+ * bundle that only the clients accepting brotli would ever see, and only some
+ * of them. Nothing else notices - the sizes look right, the page loads - so the
+ * check is here, on the artifact, run by the build before it publishes.
+ */
+export function mismatchedPrecompressedSiblings(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const bad: string[] = [];
+  for (const rel of filesUnder(dir)) {
+    const origin = precompressedOrigin(rel);
+    if (!origin) continue;
+    const originPath = join(dir, origin.split("/").join(sep));
+    if (!existsSync(originPath)) { bad.push(`${rel} (nothing to encode)`); continue; }
+    try {
+      const encoded = readFileSync(join(dir, rel.split("/").join(sep)));
+      const decoded = rel.endsWith(".br") ? brotliDecompressSync(encoded) : gunzipSync(encoded);
+      if (!decoded.equals(readFileSync(originPath))) bad.push(rel);
+    } catch {
+      bad.push(`${rel} (unreadable)`);
+    }
+  }
+  return bad.sort();
+}
+
 /** Every file under `dir`, as slash-separated paths relative to it. */
 function filesUnder(dir: string, base = dir): string[] {
   const out: string[] = [];
@@ -65,6 +96,21 @@ function filesUnder(dir: string, base = dir): string[] {
  * `assets/` is stripped, and a bare basename resolves to whatever matches it
  * in the tree.
  */
+/**
+ * `index-abc.js` for `index-abc.js.br`, `null` for anything else.
+ *
+ * The build emits a precompressed sibling next to every text asset (see
+ * `precompressAssets` in client/vite.config.ts) and NOTHING references it by
+ * name: the server picks it from `Accept-Encoding`. Without this, every sibling
+ * looks like a leftover of an older build - the publish sweep would delete the
+ * whole compressed half of a bundle it had just published, and the size gate
+ * would call a fresh build unmeasurable.
+ */
+export function precompressedOrigin(name: string): string | null {
+  const m = /^(.*)\.(?:br|gz)$/.exec(name);
+  return m ? m[1] : null;
+}
+
 export function unreachableAssets(assetsDir: string, roots: Iterable<string>): string[] {
   if (!existsSync(assetsDir)) return [];
   const all = filesUnder(assetsDir);
@@ -100,7 +146,14 @@ export function unreachableAssets(assetsDir: string, roots: Iterable<string>): s
     }
     for (const m of text.matchAll(token)) reach(m[0]);
   }
-  return all.filter((f) => !reachable.has(f)).sort();
+  // A sibling inherits the fate of the file it encodes: reachable when the
+  // original is, a leftover when the original is one too.
+  const alive = (f: string): boolean => {
+    if (reachable.has(f)) return true;
+    const origin = precompressedOrigin(f);
+    return origin !== null && reachable.has(origin);
+  };
+  return all.filter((f) => !alive(f)).sort();
 }
 
 /** One line, for a log or a comment on a card. `null` when the bundle is whole. */
