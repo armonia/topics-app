@@ -33,6 +33,7 @@ import {
   resolveAgentNavUrl,
 } from "./browser-tools-handler";
 import type { BrowserActAction } from "./browser-tools";
+import { isPassthroughProvider } from "./browser-tools-adapters";
 import { describeImage, pointObject } from "./integrations/moondream-client";
 import { basename, extname } from "node:path";
 import { realpathSync } from "node:fs";
@@ -53,6 +54,29 @@ export function setUploadRootsProvider(fn: () => string[]): void {
 }
 
 export type ToolCallArgs = Record<string, unknown>;
+
+/**
+ * Does this provider's runtime execute the `browser_*` calls it announces?
+ *
+ * WHO REGISTERED THE TOOLS IS WHO RUNS THEM. The chat route hands the browser
+ * schemas only to the passthrough providers (`isPassthroughProvider`, the ones
+ * whose sendChat takes an inline tool list): for those the model asks and
+ * nobody else answers, so the route dispatches. Every other runtime carries its
+ * own browser surface -- the native one calls the same handlers in-process
+ * (`executeTopicsTool`), the CLIs get them over the MCP bridge -- and there the
+ * route's dispatch is not a fallback, it is a SECOND execution.
+ *
+ * THE MEASURE (2026-09-07, card 9ef72908). On the native runtime a tool call is
+ * announced at `content_block_start`, when its arguments have not been streamed
+ * yet: `agent-loop.ts` fires `onToolStart(id, name, {})`. The route dispatched
+ * those empty copies -- four browser calls in a turn, four extra touches on the
+ * BrowserService with `{}` -- while the runtime ran the real ones right after.
+ * Not just wasted work: a `browser_act` with no args, or a `browser_open` with
+ * no url, acts on the pane the user is watching. With the guard, zero.
+ */
+export function providerRunsBrowserToolsItself(providerName: string): boolean {
+  return !isPassthroughProvider(providerName);
+}
 
 /** Upload payload: the file already read + base64-encoded server-side (the page —
  *  WKWebView or Playwright — can't read local disk), plus the target input ref. */
