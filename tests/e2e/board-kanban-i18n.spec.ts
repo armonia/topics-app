@@ -25,11 +25,11 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -89,7 +89,7 @@ test.describe.serial("Kanban in inglese", () => {
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId).catch(() => {});
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(REPO);
     // La lingua è preferenza di UTENTE, condivisa da tutta la suite attraverso
     // `ui_state`: lasciarla in inglese renderebbe rosse le spec italiane dopo.
     await request.put(`${API}/ui-state/settings`, { data: { language: "auto" } });

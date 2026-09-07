@@ -2,9 +2,9 @@ import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";
 import { seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -32,7 +32,7 @@ test.describe("Layout & Navigation", () => {
   });
 
   test.afterAll(() => {
-    rmSync(LAYOUT_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(LAYOUT_PROJECT);
   });
   test("LAYOUT-01: pane tab bar close and right-click context menu", async ({
     page,

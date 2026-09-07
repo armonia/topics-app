@@ -14,7 +14,7 @@ import {
 import { hermetic } from "./fixtures/hermetic";
 import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, luminance, surfaceBg } from "./helpers/surfaces";
 import { openProfileMenu } from "./helpers/open-perf-panel";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -74,7 +74,7 @@ test.describe("Sidebar — Unified Timeline", () => {
       await deleteTerminalSession(request, id);
     }
     const { rmSync } = await import("node:fs");
-    for (const dir of accordionDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    for (const dir of accordionDirs) removeTmpDir(dir);
   });
 
   // AC-1: Timeline view — all items in a single flat list
@@ -696,8 +696,8 @@ test.describe("Sidebar — Project icons", () => {
   test.afterAll(async ({ request }) => {
     for (const id of created) await deleteTopic(request, id).catch(() => {});
     const { rmSync } = await import("node:fs");
-    rmSync(ICONLESS_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(ICONFUL_PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(ICONLESS_PROJECT);
+    removeTmpDir(ICONFUL_PROJECT);
   });
 
   test("icon-less project row renders NO icon element at all (zero footprint)", async ({ page }) => {

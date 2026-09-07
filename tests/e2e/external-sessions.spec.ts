@@ -21,11 +21,11 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -72,8 +72,8 @@ test.describe("Sessioni Claude fuori dalla kanban", () => {
 
   test.afterAll(async ({ request }) => {
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(TRANSCRIPT_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(TRANSCRIPT_DIR);
+    removeTmpDir(PROJECT_PATH);
   });
 
 

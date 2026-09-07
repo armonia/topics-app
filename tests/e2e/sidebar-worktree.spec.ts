@@ -17,11 +17,11 @@
  * @covers TOPIC-WT-02
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { createTopic, deleteTopic, patchTopic, seedProjectInnerChats, seedProjectPane } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { basename } from "path";
 
 hermetic(test);
@@ -147,7 +147,7 @@ test.describe("Sidebar — worktree of a topic", () => {
     for (const wt of [alpha, beta]) {
       if (wt) await request.delete(`${API}/worktrees/${wt.id}`).catch(() => {});
     }
-    rmSync(repoRaw, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(repoRaw);
   });
 
   test("TOPIC-WT-02: two worktrees give two sections and a header action; one worktree gives the chip alone", async ({ page, request }) => {

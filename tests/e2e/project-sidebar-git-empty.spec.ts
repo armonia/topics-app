@@ -16,8 +16,8 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
 
 hermetic(test);
 
@@ -34,7 +34,7 @@ test.describe("sidebar progetto: la sezione git quando non c'e' niente", () => {
     initGitRepo(PROJECT_DIR, "primo");
   });
   test.afterAll(() => {
-    rmSync(PROJECT_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_DIR);
   });
 
   test("pulito non ha sezione ne' bottone, e la prima modifica la riporta", async ({ page, request }) => {

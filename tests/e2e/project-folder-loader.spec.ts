@@ -38,9 +38,9 @@
  * @covers LAYOUT-33
  */
 import { test, expect, type Page } from "@playwright/test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { projectPanesKey } from "../../shared/project-keys";
 import { goToApp } from "./helpers";
 import {
@@ -118,7 +118,7 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   for (const id of [childId, outsiderId]) if (id) await deleteTopic(request, id).catch(() => {});
-  rmSync(SEED_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  removeTmpDir(SEED_PATH);
 });
 
 /**

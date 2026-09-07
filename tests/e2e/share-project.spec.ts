@@ -18,8 +18,8 @@ import { goToApp } from "./helpers";
 import { projectRow } from "./helpers/project-row";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -38,7 +38,7 @@ test.describe("Condividere un progetto", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test("SHAREPRJ-01: il tasto destro sul progetto offre di condividerlo", async ({ page }) => {

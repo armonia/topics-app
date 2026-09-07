@@ -16,12 +16,12 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectPane, seedProjectInnerChats } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync, appendFileSync, utimesSync } from "fs";
+import { mkdirSync, writeFileSync, appendFileSync, utimesSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -136,8 +136,8 @@ test.describe("Sessione adottata: i turni dal terminale continuano ad arrivare",
   });
 
   test.afterAll(async () => {
-    rmSync(`${TEST_HOME}/.claude/projects/${encode(CWD)}`, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(CWD, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(`${TEST_HOME}/.claude/projects/${encode(CWD)}`);
+    removeTmpDir(CWD);
   });
 
   test.beforeEach(async ({ page }) => {
@@ -183,8 +183,8 @@ test.describe("Sessione adottata: la chat SEGUE il fork del transcript", () => {
   });
 
   test.afterAll(async () => {
-    rmSync(`${TEST_HOME}/.claude/projects/${encode(CWD)}`, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(CWD, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(`${TEST_HOME}/.claude/projects/${encode(CWD)}`);
+    removeTmpDir(CWD);
   });
 
   test.beforeEach(async ({ page }) => {

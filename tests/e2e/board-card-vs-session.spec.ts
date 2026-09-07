@@ -29,11 +29,11 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, deleteTask } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -112,7 +112,7 @@ test.describe("Scheda del task e sessione dell'agente", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     for (const id of [topicMorto, aliveTopic, projectTopicId]) if (id) await deleteTopic(request, id);
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test("dalla board alla scheda, dalla scheda alla sessione, e ritorno — e la sessione finita lo dice", async ({ page, request }) => {

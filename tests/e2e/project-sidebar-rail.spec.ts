@@ -26,8 +26,8 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
 
 hermetic(test);
 
@@ -44,7 +44,7 @@ test.describe("sidebar progetto: la rail collassata", () => {
     writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
   });
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJ);
   });
 
   test("chiusa, la barra è una fila di card DENTRO la riga delle tab", async ({ page, request }) => {

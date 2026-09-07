@@ -46,9 +46,10 @@
  *     E2E_CLIP=1 ./client/node_modules/.bin/playwright test -g "RECAPTURE-01"
  */
 import { chromium, type BrowserContextOptions, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, rmSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { misuraWebmFile, type MisuraWebm } from "./webm-duration";
+import { removeTmpDir } from "./file-project";
 
 /** Il tetto del protocollo board per un'anteprima video. */
 export const CLIP_BUDGET_MS = 20_000;
@@ -159,7 +160,7 @@ export async function clipDiConsegna(opts: OptionsClip): Promise<Clip | null> {
   }
 
   await browser.close().catch(() => {});
-  rmSync(temporaryDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  removeTmpDir(temporaryDir);
 
   // L'errore della scena viene PRIMA del cancello sul tempo: un test rotto non
   // va rietichettato come «clip troppo lunga».

@@ -17,9 +17,9 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { execFileSync } from "child_process";
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync } from "fs";
 
 hermetic(test);
 
@@ -55,7 +55,7 @@ test.describe("stage di un blocco alla volta", () => {
     git(["checkout", "--", "."]);
     writeThreeBlocks();
   });
-  test.afterAll(() => rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  test.afterAll(() => removeTmpDir(PROJ));
 
   test("elenca i blocchi e ne mette in stage uno solo, senza toccare il file", async ({ page, request }) => {
     await resetPaneStore(request, []);

@@ -32,11 +32,11 @@ import {
   seedProjectPane,
 } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -179,8 +179,8 @@ test.describe("Board · revisione del diff riga per riga", () => {
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId);
     if (topicId) await deleteTopic(request, topicId);
-    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    if (worktreePath && existsSync(worktreePath)) removeTmpDir(worktreePath);
+    removeTmpDir(REPO);
   });
 
   test.beforeEach(async ({ page }) => {

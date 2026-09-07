@@ -15,9 +15,9 @@ import { test, expect, type Locator } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { execFileSync } from "child_process";
-import { mkdirSync, rmSync, writeFileSync, unlinkSync } from "fs";
+import { mkdirSync, writeFileSync, unlinkSync } from "fs";
 
 hermetic(test);
 
@@ -113,8 +113,8 @@ test.describe("cronologia dei commit", () => {
   });
 
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(REMOTE, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJ);
+    removeTmpDir(REMOTE);
   });
 
   test("elenca i commit, e ogni commit dice quali file e quante righe", async ({ page, request }) => {
@@ -341,7 +341,7 @@ test.describe("cronologia dei commit", () => {
       // La cronologia no.
       await expect(pannello.locator('[data-testid="commit-history"]')).toHaveCount(0);
     } finally {
-      rmSync(VUOTO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      removeTmpDir(VUOTO);
     }
   });
 

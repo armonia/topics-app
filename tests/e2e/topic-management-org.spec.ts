@@ -8,7 +8,7 @@
  * CONVENTION: No waitForTimeout() usage.
  */
 import { test, expect } from "@playwright/test";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync } from "fs";
 import { goToApp, openTopic } from "./helpers";
 import {
   createTopic,
@@ -19,7 +19,7 @@ import {
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -125,7 +125,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     await deleteTopic(request, betaId).catch(() => {});
     await deleteTopic(request, gammaId).catch(() => {});
     await deleteTopic(request, projectChatId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_PATH);
   });
 
   // Il reset era in UN solo test (TOPIC-10, sotto): serve a tutti. Il pane-store

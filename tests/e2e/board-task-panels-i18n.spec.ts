@@ -34,8 +34,8 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -185,8 +185,8 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
   test.afterAll(async ({ request }) => {
     if (taskId) await deleteTask(request, PROJECT_ID, taskId);
     for (const id of [topicA, topicB, projectTopicId]) if (id) await deleteTopic(request, id);
-    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    if (worktreePath && existsSync(worktreePath)) removeTmpDir(worktreePath);
+    removeTmpDir(REPO);
     // La lingua torna com'era: è preferenza di UTENTE, condivisa da tutta la
     // suite attraverso `ui_state`, e lasciarla in inglese renderebbe rosse le
     // spec italiane che girano dopo.

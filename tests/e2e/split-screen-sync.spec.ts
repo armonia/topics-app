@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
@@ -18,7 +18,7 @@ import {
   splitViaContextMenu,
 } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -82,7 +82,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       await deleteTopic(request, id);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_PATH);
   });
 
   // 2.1-2.4 MERGED AWAY (top-level Split Right / Split Down / split survives

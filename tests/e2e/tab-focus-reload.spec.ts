@@ -14,13 +14,14 @@
  * @covers CHROME-11b
  */
 import { test, expect, type Page } from "@playwright/test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -86,7 +87,7 @@ test.describe("Tab focus survives a reload", () => {
   });
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(PROJECT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT);
   });
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);

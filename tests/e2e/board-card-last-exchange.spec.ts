@@ -26,8 +26,8 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -113,7 +113,7 @@ test.describe("L'ultimo scambio, visto dalla review", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJECT_ID, id).catch(() => {});
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
-    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(REPO);
   });
 
   // UN SOLO GIRO DI APERTURA, e le due asserzioni dentro. Aprire il pane a ogni

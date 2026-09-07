@@ -20,7 +20,7 @@ import { hermetic } from './fixtures/hermetic';
 import { projectIdForPath } from '../../shared/board';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -111,8 +111,8 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
-  rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-  rmSync(MEDIA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  removeTmpDir(PROJECT_PATH);
+  removeTmpDir(MEDIA_DIR);
 });
 
 async function apriBoard(page: Page): Promise<void> {

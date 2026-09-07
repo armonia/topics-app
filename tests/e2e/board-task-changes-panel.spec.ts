@@ -26,8 +26,8 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -191,8 +191,8 @@ test.describe.serial("Board · il pannello Modifiche", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [taskId, landedTaskId, orphanTaskId]) if (id) await deleteTask(request, PROJECT_ID, id);
     for (const id of [topicId, landedTopicId, orphanTopicId]) if (id) await deleteTopic(request, id);
-    for (const p of [worktreePath, landedPath]) if (p && existsSync(p)) rmSync(p, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    for (const p of [worktreePath, landedPath]) if (p && existsSync(p)) removeTmpDir(p);
+    removeTmpDir(REPO);
   });
 
   test.beforeEach(async ({ page }) => {

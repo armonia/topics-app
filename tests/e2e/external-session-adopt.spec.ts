@@ -23,11 +23,11 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -87,8 +87,8 @@ test.describe("Handoff: adottare una sessione Claude Code viva", () => {
   });
 
   test.afterAll(async () => {
-    rmSync(`${TEST_HOME}/.claude/projects/${encode(API_PATH)}`, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(API_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(`${TEST_HOME}/.claude/projects/${encode(API_PATH)}`);
+    removeTmpDir(API_PATH);
   });
 
 

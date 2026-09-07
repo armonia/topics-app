@@ -15,10 +15,10 @@
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { basename } from "path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -132,7 +132,7 @@ test.describe("cloud session ↔ project (server e2e)", () => {
 
     await deleteTopic(request, cloud.id);
     await deleteTopic(request, anchor.id);
-    rmSync(projectDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(projectDir);
   });
 
   test("explicit '/project open <absolute path>' is trusted (trustRawPaths) and resolves", async ({
@@ -154,7 +154,7 @@ test.describe("cloud session ↔ project (server e2e)", () => {
     expect((await res.json()).path).toBe(dir);
 
     await deleteTopic(request, cloud.id);
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(dir);
   });
 
   test("adopting a gateway session opens it as an interactive openclaw chat (idempotent)", async ({

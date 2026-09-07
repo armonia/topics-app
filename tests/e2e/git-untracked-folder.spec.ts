@@ -12,8 +12,8 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
 
 hermetic(test);
 
@@ -32,7 +32,7 @@ test.describe("git: cartella non tracciata dal repo che la contiene", () => {
     writeFileSync(`${INNER}/a.txt`, "uno\n");
     writeFileSync(`${INNER}/b.txt`, "due\n");
   });
-  test.afterAll(() => rmSync(REPO, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  test.afterAll(() => removeTmpDir(REPO));
 
   test("lo dice, offre di creare un repo qui, e non presta i controlli del repo ospite", async ({ page, request }) => {
     await resetPaneStore(request, []);

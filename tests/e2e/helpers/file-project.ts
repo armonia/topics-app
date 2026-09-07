@@ -28,6 +28,7 @@
 import type { APIRequestContext } from "@playwright/test";
 import { execFileSync } from "child_process";
 import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "fs";
+import { join } from "path";
 import { createTopic, deleteTopic } from "./api-fixtures";
 import { canonicalTmpRoot } from "./test-server";
 
@@ -54,7 +55,29 @@ export type FileProject = {
  * `realpathSync` on a missing path throws.
  */
 export function canonicalTmpDir(prefix: string): string {
-  return `${canonicalTmpRoot()}/${prefix}-${Date.now()}`;
+  return join(canonicalTmpRoot(), `${prefix}-${Date.now()}`);
+}
+
+/**
+ * Delete a scratch folder, and do not fail the run if the system refuses.
+ *
+ * On Windows a directory cannot be removed while any process still holds a
+ * handle inside it, and the server holds one for as long as it watches the
+ * project. The retries cover the common case (the handle is closing right now);
+ * what they cannot cover is a watcher that is still alive, and there the honest
+ * answer is a leftover folder under the system scratch root, not a red on a
+ * file whose tests all passed. Measured on the first Windows run: 18 spec files
+ * failed in their cleanup, every test inside them green.
+ *
+ * On POSIX nothing changes: the delete succeeds on the first try, exactly as
+ * `rmSync` did before.
+ */
+export function removeTmpDir(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (err) {
+    console.warn(`[bench] scratch folder left behind: ${path} (${(err as Error).message})`);
+  }
 }
 
 /**

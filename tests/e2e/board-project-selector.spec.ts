@@ -21,11 +21,11 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, deleteTask } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -106,7 +106,7 @@ test.describe("Selettore progetto della board", () => {
       await deleteTask(request, projectId!, id!).catch(() => {});
     }
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    for (const dir of [PROJ_A, PROJ_B]) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    for (const dir of [PROJ_A, PROJ_B]) removeTmpDir(dir);
     // Il progetto creato DALLA UI vive nel workspace del server di test: si
     // ritrova per nome nell'indice e si cancella dal suo `path`.
     if (createdViaUi) {
@@ -114,7 +114,7 @@ test.describe("Selettore progetto della board", () => {
         projects: Array<{ name: string; path: string }>;
       };
       const made = idx.projects.find((p) => p.name === createdViaUi);
-      if (made) rmSync(made.path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      if (made) removeTmpDir(made.path);
     }
   });
 

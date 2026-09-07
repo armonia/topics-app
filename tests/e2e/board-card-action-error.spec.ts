@@ -35,8 +35,8 @@ import {
   seedProjectPane,
   waitForProjectPaneType,
 } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
@@ -146,7 +146,7 @@ test.describe("Board · l'errore di un'azione sta sulla card che l'ha presa", ()
     // In ordine INVERSO: il figlio prima del padre.
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (topicId) await deleteTopic(request, topicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {

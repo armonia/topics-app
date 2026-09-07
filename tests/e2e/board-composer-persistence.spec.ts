@@ -24,11 +24,11 @@ import { expect, type Page, type Locator } from "@playwright/test";
 import {
   createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask,
 } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -120,7 +120,7 @@ test.describe.serial("Composer della board — non sparisce", () => {
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJ_ID, id).catch(() => {});
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(PROJ, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJ);
   });
 
   test.beforeEach(async ({ page }) => {

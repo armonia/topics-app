@@ -24,11 +24,12 @@
  * @covers WINCTL-03
  */
 import { test, expect, type Browser, type Page } from "@playwright/test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -227,7 +228,7 @@ test.describe("The keyboard hints yield before the wordmark", () => {
     } finally {
       await ctx.close();
       if (video) await video.saveAs(join(MEDIA_DIR, "sidebar-kbd-hints-resize.webm"));
-      rmSync(videoTmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      removeTmpDir(videoTmp);
     }
   });
 });

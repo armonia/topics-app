@@ -40,8 +40,8 @@ import {
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -90,7 +90,7 @@ test.describe("Il badge di un progetto dice DI CHI è", () => {
 
   test.afterAll(async ({ request }) => {
     if (chatId) await deleteTopic(request, chatId).catch(() => {});
-    rmSync(PROJECT_PATH, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ request }) => {

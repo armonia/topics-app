@@ -33,6 +33,7 @@ import {
 // Same question the build, the land and the runtime probe ask: one authority.
 import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
+import { removeTmpDir } from "./helpers/file-project";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
@@ -129,7 +130,7 @@ async function snapshotBundle(): Promise<string> {
     // ricominciato da capo. Con un bundle esterno non c'è nessun watcher da
     // aspettare: la coerenza si verifica lo stesso, sulla copia, qui sotto.
     if (!override) await waitForFreshBundle(src);
-    rmSync(dest, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeTmpDir(dest);
     mkdirSync(dest, { recursive: true });
     // `cpSync` and not `cp -R`: no shell, no `cp` binary to exist, and a path
     // with a space or a quote in it stays one path on every platform. It is
@@ -538,7 +539,7 @@ async function globalSetup() {
   for (const dir of [join(TEST_DATA_DIR, "browser-state")]) {
     try {
       if (existsSync(dir)) {
-        rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        removeTmpDir(dir);
         console.log(`[global-setup] Wiped stale browser-state: ${dir}`);
       }
     } catch (err) {
