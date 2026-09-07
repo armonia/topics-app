@@ -151,6 +151,7 @@ import { recordAndAnnounce } from "./server/notification-registry";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
+import { createCalendarRouter } from "./server/routes/calendar";
 import {
   resolveAiProvider,
   resolveClaudeModel,
@@ -2429,6 +2430,8 @@ const uiStateRouter = createUiStateRouter(ctx, {
 const openRouter = createOpenRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
+// L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
+const calendarRouter = createCalendarRouter(ctx);
 const profileRouter = createProfileRouter(ctx);
 // Pagina pubblica del profilo — senza autenticazione, prima del gate.
 const publicProfileHandler = createPublicProfileHandler(ctx);
@@ -3488,6 +3491,7 @@ const opzioniServer = {
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)
+        || await calendarRouter(req, url, pathname, method)
         || await tabsRouter(req, url, pathname, method)
         || await claudeHooksRouter(req, url, pathname, method)
         || await e2eRouter(req, url, pathname, method)

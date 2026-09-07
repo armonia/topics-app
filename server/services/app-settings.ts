@@ -73,6 +73,17 @@ export interface AppSettings {
    *  objects into somebody else's repository on every turn, so it has to arrive
    *  without touching anyone until they switch it on. */
   turnCheckpointsEnabled: boolean | null;
+  /** The calendar feed the sidebar reads (card aa641133). NULL = never touched
+   *  = OFF, and nothing is fetched: see the migration on why an integration
+   *  cannot start reading a calendar just because the app was installed. */
+  calendarEnabled: boolean | null;
+  /** The iCalendar address. A SECRET (whoever holds it reads that calendar),
+   *  so it stays in the local database and never travels in an agenda. */
+  calendarFeedUrl: string | null;
+  /** Maximum age of the cached agenda, in minutes. NULL = the code default. */
+  calendarRefreshMinutes: number | null;
+  /** How far ahead the agenda looks, in days. NULL = the code default. */
+  calendarHorizonDays: number | null;
 }
 
 const EMPTY: AppSettings = {
@@ -94,6 +105,10 @@ const EMPTY: AppSettings = {
   profilePublishCost: null,
   profileShareToken: null,
   turnCheckpointsEnabled: null,
+  calendarEnabled: null,
+  calendarFeedUrl: null,
+  calendarRefreshMinutes: null,
+  calendarHorizonDays: null,
 };
 
 interface Row {
@@ -115,6 +130,10 @@ interface Row {
   profile_publish_cost: number | null;
   profile_share_token: string | null;
   turn_checkpoints_enabled: number | null;
+  calendar_enabled: number | null;
+  calendar_feed_url: string | null;
+  calendar_refresh_minutes: number | null;
+  calendar_horizon_days: number | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -141,6 +160,10 @@ function rowToSettings(r: Row): AppSettings {
     profileShareToken: r.profile_share_token ?? null,
     turnCheckpointsEnabled:
       r.turn_checkpoints_enabled == null ? null : r.turn_checkpoints_enabled === 1,
+    calendarEnabled: r.calendar_enabled == null ? null : r.calendar_enabled === 1,
+    calendarFeedUrl: r.calendar_feed_url ?? null,
+    calendarRefreshMinutes: r.calendar_refresh_minutes ?? null,
+    calendarHorizonDays: r.calendar_horizon_days ?? null,
   };
 }
 
@@ -160,7 +183,8 @@ export function getAppSettings(): AppSettings {
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
                 output_language, discord_presence_enabled, discord_detail_level,
                 agent_runtime, profile_publish_cost, profile_share_token,
-                turn_checkpoints_enabled
+                turn_checkpoints_enabled, calendar_enabled, calendar_feed_url,
+                calendar_refresh_minutes, calendar_horizon_days
            FROM app_settings WHERE id = 1`,
       )
       .get() as Row | null;
@@ -191,6 +215,10 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   profilePublishCost: "profile_publish_cost",
   profileShareToken: "profile_share_token",
   turnCheckpointsEnabled: "turn_checkpoints_enabled",
+  calendarEnabled: "calendar_enabled",
+  calendarFeedUrl: "calendar_feed_url",
+  calendarRefreshMinutes: "calendar_refresh_minutes",
+  calendarHorizonDays: "calendar_horizon_days",
 };
 
 /**
@@ -213,7 +241,8 @@ export function updateAppSettings(patch: Partial<AppSettings>): AppSettings {
       key === "claudeCodeEnabled" ||
       key === "discordPresenceEnabled" ||
       key === "profilePublishCost" ||
-      key === "turnCheckpointsEnabled"
+      key === "turnCheckpointsEnabled" ||
+      key === "calendarEnabled"
     ) {
       values.push(v == null ? null : v ? 1 : 0);
     } else {
