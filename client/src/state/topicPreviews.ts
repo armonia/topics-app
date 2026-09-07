@@ -287,10 +287,18 @@ export function clearTopicPreview(topicId: string): void {
  * UNA richiesta per tutte le chat: il server risponde con una query batch. Al
  * meglio che può — se fallisce, le righe restano come prima e il WS le
  * riempirà via via.
+ *
+ * TWO CALLS, NOT ONE, for the same reason the topics list has two: the boot
+ * takes the live chats only (1,671 bytes on the machine this was measured on,
+ * 2026-09-07, against 300,355 for the whole history) and the archived previews
+ * ride with the archived list, from `ensureArchivedTopics` — the one
+ * deduplicated point every surface that wants the archive already goes
+ * through. The store is the same on both sides: whichever call lands writes
+ * into it, and a row drawn for an archived topic finds its subline there.
  */
-export async function hydrateTopicPreviews(): Promise<void> {
+export async function hydrateTopicPreviews(opts?: { archived?: boolean }): Promise<void> {
   try {
-    const res = await fetch('/api/topics/previews');
+    const res = await fetch(`/api/topics/previews${opts?.archived ? '?archived=1' : ''}`);
     if (!res.ok) return;
     const data = (await res.json()) as {
       previews?: Record<string, { text?: string; role?: string; at?: number }>;

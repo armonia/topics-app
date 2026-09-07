@@ -59,7 +59,21 @@ type Reading = { width: number; word: number; hintsVisible: number };
 
 /** The app with the Mac chrome forced: the hints only exist where the
  *  modifier is ⌘ (`usesCtrl`), and that is also where the lights cost 64px. */
+/**
+ * The hints exist only on a Mac-keyed platform. `usesCtrl`
+ * (`client/src/lib/shortcutLabel.ts`) reads `navigator.userAgentData.platform`
+ * then `navigator.platform`, and where it says Ctrl the app renders no
+ * `.kbd-hint` at all (measured on CI, Linux, 2026-09-07: 0 hints at 299px and
+ * titles «Search (Ctrl+K)»). This spec is about the Mac chrome, so it pins the
+ * platform the same way it pins `windowChrome=mac`.
+ */
+const PLATFORM = "MacIntel";
+
 async function loadMacChrome(page: Page): Promise<void> {
+  await page.addInitScript((platform) => {
+    Object.defineProperty(navigator, "platform", { get: () => platform, configurable: true });
+    Object.defineProperty(navigator, "userAgentData", { get: () => undefined, configurable: true });
+  }, PLATFORM);
   await page.goto(`${E2E_BASE}/?windowChrome=mac`);
   await page.waitForSelector(SIDEBAR, { state: "visible", timeout: 15_000 });
   await page.waitForSelector(WORD, { state: "visible", timeout: 15_000 });
