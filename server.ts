@@ -52,6 +52,7 @@ import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
+import { startLoopLagSampler } from "./server/lib/loop-lag-sampler";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter, activeContentGuardHeaders, PREVIEW_SANDBOX_FLAGS } from "./server/routes/media";
@@ -6035,6 +6036,18 @@ const idleGcTimer = setInterval(() => {
 }, IDLE_GC_EVERY_MS);
 idleGcTimer.unref?.();
 
+/**
+ * WHEN THIS PROCESS STOPS ANSWERING, ONE LINE SAYS WHAT WAS TRUE OF IT.
+ *
+ * The `[HTTP]` line above measures a request from the moment the loop is free
+ * to take it, so a route that never got a turn looks slow and a route that made
+ * everyone wait looks normal. On 2026-09-07 that hid a whole shape: 22 windows
+ * of 2.5 to 12.5 seconds in which nothing was served, and the blame landed on
+ * `/api/people`, which is four queries over ten rows. The rest of the reasoning
+ * is in `server/lib/loop-lag-sampler.ts`.
+ */
+const loopLagTimer = startLoopLagSampler({ log: (line) => console.log(line) });
+
 // Graceful shutdown
 let shutdownInProgress = false;
 async function gracefulShutdown(signal: string) {
@@ -6056,6 +6069,7 @@ async function gracefulShutdown(signal: string) {
   clearInterval(landingAuditTimer);
   clearInterval(relayLicenzaTimer);
   clearInterval(idleGcTimer);
+  clearInterval(loopLagTimer);
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
   // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva
