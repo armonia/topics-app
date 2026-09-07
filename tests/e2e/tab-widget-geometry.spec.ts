@@ -183,12 +183,12 @@ test.describe("I widget in coda a una tab", () => {
     // must equal ROW_PX, not the box's. And on a working tab the rail carries
     // TWO commands (stop, then close): the one covering the last signal is the
     // last child, the ring.
-    const cerchio = sopra.comandoUltimo!;
-    const glyphDx = cerchio.dx + (cerchio.w - GLIFO) / 2;
+    const ring = sopra.comandoUltimo!;
+    const glyphDx = ring.dx + (ring.w - GLIFO) / 2;
     expect(glyphDx, "il glifo del comando si ferma dove si ferma l'ultimo segnale").toBe(ROW_PX);
     // …e allora i due occupano lo STESSO rettangolo: niente salto sotto il dito.
     expect(glyphDx).toBe(ultimo!.dx);
-    expect(cerchio.dCentro, "comando centrato in verticale").toBe(0);
+    expect(ring.dCentro, "comando centrato in verticale").toBe(0);
   });
 
   test("GEO-2: nessuna riga di testo nasce su un frammento di pixel", async ({ page, request }) => {
