@@ -2350,6 +2350,7 @@ const IT: Dict = {
   'crash.panel': 'Questo pannello si è rotto',
   'crash.settings': 'Le impostazioni si sono rotte',
   'crash.pane': 'Questa pane si è rotta',
+  'crash.toolInput': 'Il modulo di risposta si è rotto',
 
   'code.lineCount.one': '1 riga',
   'code.lineCount.many': '{n} righe',

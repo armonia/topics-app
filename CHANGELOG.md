@@ -2,6 +2,75 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.275 — 2026-09-07
+
+### Sotto il cofano
+- Un'installazione di Topics non cerca piu' un runtime sulla macchina
+- Le pastiglie del Mac stanno al passo di sistema: 20px fra le origini, non 18
+- La geometria delle pastiglie ha una sorgente sola, un riquadro misurabile e il contenuto le rispetta a ogni fotogramma
+- WINCTL-02: la geometria delle pastiglie e' un requisito con una spec che campiona ogni fotogramma
+- Menu utente: i livelli si aprono di lato, gli agenti si contano dal pulsante
+- Stop before close: the loader goes back to being a signal
+- I nomi della spec parlano inglese: WORDMARK e sel non stanno nel vocabolario
+- submenu fra le parole del progetto, nomi e commenti in inglese nella spec
+- Le fixture di project-scripts stanno dove il server le riconosce
+- Il test del watchdog aspetta la condizione, non 400ms di orologio
+- The spec's headline is English, like every other comment in the repo
+- Chiudi i fix banali dell'audit: memo delle card che tiene, icone al posto dei glifi, rete attorno a onError
+- I test del file watcher hanno il tetto di tempo che il loro lavoro chiede
+- La build non emette più i 40 font KaTeX legacy, e la policy dei backup dice come copiare
+- L'attesa del watchdog non interroga il database in ciclo
+- Il codec dei messaggi era montato solo in lettura, ora scrive
+- Lo sweep di boot non legge piu' i topic archiviati: 5,1 s di event loop bloccato diventano 67 ms
+- La cronologia non spedisce gli args di una tool call che ha gia' un detail tipizzato
+- Nomi inglesi anche nella sonda: il cancello identifier-language li guarda tutti
+- Il catch-up di un turno in volo non ripete le tool call e alleggerisce solo quelle finite
+- Aggancia il recupero post-riconnessione alla socket invece che allo stato mostrato
+- Il test di isolamento della home conosce le case che le CLI e il runtime si fanno da soli (.bun su Linux, .gemini dove è installata)
+- Il Chromium condiviso scende in background quando lo usano solo gli agenti
+- Le due righe che il cancello leggeva come italiane, riscritte
+- Il commento del catch-up si legge in inglese anche per il cancello della lingua
+- Il controllo negativo di turn-write-cost misurava la sua imbottitura
+- Una card che mostra i suoi step non scarica piu' il thread del padre
+- Il gate del cap dei watcher legge il registro invece di aspettare un evento
+- Le spec seguono la coda nuova della tab: il cerchio copre l'ultimo segnale (il loader), lo stop è quello del compositore, l'arco è l'SVG di lucide
+- la caduta di una socket e il recupero sulla socket nuova
+- I commenti nuovi della spec della geometria parlano inglese
+- Il cerchio di chiusura si chiama ring: il nome nuovo arrivato con main non era inglese e teneva rosso il cancello
+- Il banco dei watcher aspetta POKANDO, non sperando
+- Anche l'ultima occorrenza del nome vecchio diventa ring
+- L'identificatore del cerchio di chiusura si chiama ring: il cancello della lingua dei nomi lo fermava sul ramo
+- L'attesa del watcher usa il budget del test, non la meta': il rosso misurava il carico
+- Nome inglese nella spec della geometria e cricchetti della lingua abbassati alla misura
+- Il budget della prima pagina di /api/history si misura in byte, non in messaggi
+- Il cambio proprietario riscrive anche devices.role: badge e cancelli tornano a dire la stessa cosa
+- La radice dati non nasce piu' come .openclaw: una regola, legacy rispettato
+- re-arm the pane-store push on the WS 'open' after a drop
+- Le ancore target="_blank" della UI aprono una pane invece di non fare nulla
+- La clip prova la meta' che il server non puo' provare da solo
+- Le spec delle anteprime scrivono nella cartella media del server (TOPICS_HOME), non in HOME/.topics
+- Gli hint da tastiera cedono prima del wordmark, a soglia misurata
+- Cambiare scheda non manda piu' 69 KB di stato identico al server
+- Le anteprime al boot sono quelle dei topic aperti, non di tutta la storia
+- Il test del re-arm di syncServer conta solo i PUT del pane store e importa in una forma che knip vede
+- Il contatore di spawn del test git-status conta solo git: in un processo condiviso spawnano anche gli altri
+- Il chunk di un file aperto non porta piu' un parser HTML che nessuno ha chiesto
+- Sonda e2e: otto click alternati fra due schede, zero PUT del pane store
+- I 3 e2e di progetto cercavano una cartella con il nome che il server non usa piu'
+- La spec degli hint da tastiera forza la piattaforma Mac: su Linux gli hint non esistono per costruzione
+- Tre spec asserivano la scrittura del path con cui avevano chiamato, non quella con cui il progetto esiste
+- L'attenzione di un progetto legge i suoi figli, non tutto l'archivio
+- Ordina gli import del changelog e togli la IIFE dal link GitHub del profilo
+- one load-driven factor for the time windows the tests wait in
+- La radice del banco e' canonica: /tmp e /private/tmp non sono due progetti
+- La soglia degli hint copre il font più largo (Linux) e tab-sync aspetta lo stato sul server, non una PUT che il focus non manda più
+- TAB-SYNC-02b svuota lo store prima di aprire: riaprire una scheda già aperta è un focus e non spedisce nulla
+- Scrive nella mappa delle prestazioni la misura del rollup di attenzione
+- Togli il doppione di changelog dalla lista delle parole del progetto
+- Il generatore del test ha un nome che l'inglese conosce
+- I quattro lazy destrutturano l'import: knip torna a vedere gli export di quei moduli
+- Le fixture di progetto azzeravano una chiave che nessuno legge
+
 ## 2.2.274 — 2026-09-06
 
 ### Sotto il cofano

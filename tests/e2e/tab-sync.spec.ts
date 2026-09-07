@@ -414,16 +414,27 @@ test.describe("Tab Sync & Persistence", () => {
 
     try {
       // Load both, open a topic in A
+      // The store is emptied first so the open below is a real change: the
+      // previous test leaves this very topic pinned on the shared server
+      // store, and opening an already-open tab is a focus, which ships
+      // nothing since 59ec7538 (one 10 s timeout, then green on retry,
+      // 2026-09-07). Then the server is read for the pane rather than the
+      // wire for a PUT (see TAB-SYNC-01 for why).
+      await resetPaneStore(pageA.request, []);
       await goToApp(pageA);
-      // Waiter armed before the open (see TAB-SYNC-01 for why).
-      const putA = pageA.waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/ui-state/pane-store-v2") &&
-          resp.request().method() === "PUT",
-        { timeout: 10000 }
-      );
       await openTopic(pageA, /Web Search Test/);
-      await putA;
+      await expect
+        .poll(
+          () =>
+            pageA.evaluate(async () => {
+              const res = await fetch("/api/ui-state/pane-store-v2");
+              if (!res.ok) return 0;
+              const body = await res.json();
+              return (body?.value?.groups?.["group:default"]?.paneIds ?? []).length;
+            }),
+          { message: "the opened pane never reached the server", timeout: 10_000 },
+        )
+        .toBeGreaterThanOrEqual(1);
 
       await goToApp(pageB);
 

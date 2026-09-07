@@ -6,6 +6,7 @@ import net from "node:net";
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { slackMs } from "../tests/helpers/time-slack";
 
 // Who owns the broker socket, and who is allowed to take it away.
 //
@@ -168,7 +169,10 @@ function diagnose(racers: Daemon[], answering: boolean, reachCeilingMs: number):
   return "one owner listening, four losers gone";
 }
 
-function someoneListening(sock: string, timeoutMs = 1_000): Promise<boolean> {
+// One second is plenty to open a unix socket and nowhere near enough proof that
+// nobody is there when the machine is buried, so the ceiling follows the load
+// (tests/helpers/time-slack.ts). It is never spent when a daemon answers.
+function someoneListening(sock: string, timeoutMs = slackMs(1_000)): Promise<boolean> {
   return new Promise((res) => {
     if (!existsSync(sock)) { res(false); return; }
     const c = net.connect(sock);

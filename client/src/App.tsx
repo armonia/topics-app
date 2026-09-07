@@ -66,7 +66,6 @@ import { POPOVER_SURFACE, POPOVER_MARGIN, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SC
 import { SidebarSystemMenu } from './components/Sidebar/SidebarSystemMenu';
 import { TopicsMenuItems } from './components/Sidebar/TopicsMenuItems';
 import { TopicsLoadDot } from './components/Sidebar/TopicsLoadDot';
-import { ChangelogModal } from './components/ChangelogModal';
 
 // Tauri-on-macOS: the native traffic lights are permanent and the shell pins
 // their frames (`apply_traffic_lights`, lib.rs). The room the rows keep for
@@ -124,6 +123,10 @@ import { useSidebarBottomInset } from './hooks/useSidebarBottomInset';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
+const ChangelogModal = lazy(async () => {
+  const { ChangelogModal: C } = await import('./components/ChangelogModal');
+  return { default: C };
+});
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })));
 // Shared factory so the idle prefetch (App mount) and the `lazy()` boundary
 // resolve the SAME module — a first ⌘K then finds the chunk already parsed
@@ -2391,7 +2394,9 @@ function App() {
           Stessa modale del desktop: sul Mac ci si arriva dal numero nella
           barra di stato, che sotto i 768px non esiste più. */}
       {showChangelogFromMenu !== null && (
-        <ChangelogModal currentVersion={showChangelogFromMenu} onClose={() => setShowChangelogFromMenu(null)} />
+        <Suspense fallback={null}>
+          <ChangelogModal currentVersion={showChangelogFromMenu} onClose={() => setShowChangelogFromMenu(null)} />
+        </Suspense>
       )}
     </div>
     </PendingActionProvider>

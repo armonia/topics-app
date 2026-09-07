@@ -2027,6 +2027,7 @@ const EN = {
   'crash.panel': 'This panel broke',
   'crash.settings': 'Settings broke',
   'crash.pane': 'This pane broke',
+  'crash.toolInput': 'This answer form broke',
 
   'code.lineCount.one': '1 line',
   'code.lineCount.many': '{n} lines',
