@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
-import { join } from "path";
+import { homedir } from "os";
+import { join, relative, sep } from "path";
+import { isInsideDir } from "../lib/path-containment";
 import type { AppContext, RouteHandler } from "../types";
 import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-cursor";
 import { detectScripts, resolveScript, MANIFESTS } from "../lib/project-scripts";
@@ -1160,9 +1162,12 @@ const OWN_PORT = Number(process.env.BUN_PORT) || 3333;
 // projects, so we don't surface the long-running services living there (the
 // Claude config tree holds the user's router / vector DB / memory daemons). A
 // session in a real project dir (Projects/, Sites/, …) is detected normally.
-const INFRA_CWD_PREFIXES = [`${process.env.HOME || ""}/.claude`].filter(p => p.length > 1);
+// Built with `join`, not by gluing `HOME` to a slash: on Windows the variable
+// is `USERPROFILE` and the separator is a backslash, so the glued string named
+// no directory at all and every infra session was surfaced as a dev server.
+const INFRA_CWD_PREFIXES = [join(homedir(), ".claude")].filter(p => p.length > 1);
 function isInfraCwd(cwd: string): boolean {
-  return INFRA_CWD_PREFIXES.some(p => cwd === p || cwd.startsWith(p + "/"));
+  return INFRA_CWD_PREFIXES.some(p => isInsideDir(cwd, p));
 }
 // A session cwd that is HOME (or an ancestor of it, or `/`) is too broad: cwd
 // attribution would then claim EVERY listening process under home (infra,
@@ -1189,7 +1194,7 @@ async function getProcessCwds(pids: number[]): Promise<Map<number, string>> {
 }
 
 function isWithin(child: string, parent: string): boolean {
-  return child === parent || child.startsWith(parent.endsWith("/") ? parent : parent + "/");
+  return isInsideDir(child, parent);
 }
 
 async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
@@ -1309,13 +1314,11 @@ async function runDetectionCycle(ctx: AppContext): Promise<boolean> {
 async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
   const GHOST_REAP_ARMED = process.env.TOPICS_GHOST_REAP === "1";
   const wtBase = ctx.worktreeManager.worktreesDir();
-  const wtBaseSlash = wtBase.endsWith("/") ? wtBase : wtBase + "/";
 
   // Candidati: script registrati con projectPath sotto la base dei worktree
   const candidates = [...runningScripts.values()].filter(sp => {
     if ((sp.source !== "script" && sp.source != null) || sp.status !== "running" || !sp.pid) return false;
-    const p = sp.projectPath;
-    return p === wtBase || p.startsWith(wtBaseSlash);
+    return isInsideDir(sp.projectPath, wtBase);
   });
   if (candidates.length === 0) return false;
 
@@ -1332,14 +1335,13 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
     try { cwdReal = realpathSync(rawCwd); } catch { /* cartella sparita: il path e' gia' il vero */ }
 
     // Verifica: il cwd deve stare DENTRO la base
-    if (!cwdReal.startsWith(wtBaseSlash)) continue;
+    if (!isInsideDir(cwdReal, wtBase)) continue;
 
     // La root della worktree e' il secondo componente dopo la base:
     // ~/.topics/worktrees/<project-slug>/<worktree-name>
-    const rel = cwdReal.slice(wtBaseSlash.length);
-    const parts = rel.split("/");
+    const parts = relative(wtBase, cwdReal).split(sep).filter(Boolean);
     if (parts.length < 2) continue;
-    const worktreeRoot = wtBaseSlash + parts[0] + "/" + parts[1];
+    const worktreeRoot = join(wtBase, parts[0]!, parts[1]!);
 
     if (existsSync(worktreeRoot)) continue; // ancora viva
 

@@ -25,6 +25,7 @@
  * signal open-pane can always get, so a `null` cwd (permission denied, pid
  * gone by the time we ask) means "can't tell" — and we never warn on a guess.
  */
+import { isInsideDir } from "./path-containment";
 
 /** Who (if anyone) is listening on the port right now. */
 export interface PortListener {
@@ -63,21 +64,18 @@ export function parseLoopbackPort(url: string): number | null {
   return Number.isFinite(port) && port > 0 ? port : null;
 }
 
-/** Strip a trailing slash so `/a/b/` and `/a/b` compare equal. */
-function norm(p: string): string {
-  return p.replace(/\/+$/, "");
-}
-
 /**
  * Same project? Either directory containing the other counts as "same": the
  * owner may run from the repo root while the caller's topic is bound to a
  * subdirectory (a client/ workspace), or the reverse.
+ *
+ * Containment goes through `isInsideDir`, never through a string prefix: the
+ * separator of a child is `\` on Windows, and a hand-appended `"/"` would put
+ * every subdirectory of the caller's own project in a foreign one.
  */
 export function isSameProject(ownerCwd: string, callerProjectPath: string): boolean {
-  const a = norm(ownerCwd);
-  const b = norm(callerProjectPath);
-  if (a === b) return true;
-  return a.startsWith(b + "/") || b.startsWith(a + "/");
+  if (!ownerCwd || !callerProjectPath) return false;
+  return isInsideDir(ownerCwd, callerProjectPath) || isInsideDir(callerProjectPath, ownerCwd);
 }
 
 /**
