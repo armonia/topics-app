@@ -8,6 +8,7 @@ import { resolveStateDir } from "../lib/data-dir";
 import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, gitRead, parsePorcelainZ, repoPrefixOf } from "../lib/git-porcelain";
 import { moveToTrash } from "../lib/trash";
+import { isInsideDir } from "../lib/path-containment";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
@@ -861,7 +862,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             // `??`), ma una cancellazione non deve appoggiarsi a una barriera
             // di rimbalzo.
             const assoluto = resolve(resolvedDir, file);
-            if (assoluto !== resolvedDir && !assoluto.startsWith(resolvedDir + "/")) { failed.push(file); continue; }
+            if (assoluto === resolvedDir || !isInsideDir(assoluto, resolvedDir)) { failed.push(file); continue; }
             const esito = await moveToTrash(assoluto);
             if (!esito.ok) failed.push(file);
           } else {
@@ -1576,8 +1577,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Containment guard: reject any client-supplied path that escapes resolvedDir.
         const containmentRoot = resolve(resolvedDir);
         function isContained(p: string): boolean {
-          const r = resolve(p);
-          return r === containmentRoot || r.startsWith(containmentRoot + "/");
+          return isInsideDir(p, containmentRoot);
         }
         function hasDotDotSegment(rel: string): boolean {
           return rel.split(/[\\/]/).some((seg) => seg === "..");

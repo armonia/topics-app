@@ -31,13 +31,13 @@
  * e la decisione è la parte che va provata.
  */
 import { resolve, sep } from "path";
+import { isInsideDir } from "./path-containment";
 
-/** Un path è dentro una radice? Contenimento vero, non prefisso di stringa. */
+/** Un path è dentro una radice? Contenimento vero, non prefisso di stringa.
+ *  The decision lives in `isInsideDir`: one shape for the whole server, and the
+ *  only one that knows the separator of the platform it runs on. */
 export function isInsideRoot(candidate: string, root: string): boolean {
-  const p = resolve(candidate);
-  const r = resolve(root);
-  if (p === r) return true;
-  return p.startsWith(r.endsWith(sep) ? r : r + sep);
+  return isInsideDir(candidate, root);
 }
 
 export interface UploadRootsInput {
