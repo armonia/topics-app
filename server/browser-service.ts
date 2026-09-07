@@ -24,6 +24,8 @@ import {
 } from "./browser-dom-walker";
 import { browserMarkArg } from "./lib/browser-orphan-sweep";
 import { reapOrphanBrowsersAtBoot } from "./services/browser-orphan-reap";
+import { setBackgroundTree, type AgentOwnerTest, type BrowserContextOwner } from "./lib/low-priority";
+import { createBrowserQosGovernor, markedBrowserPid } from "./lib/browser-qos";
 
 interface BrowserContextEntry {
   context: BrowserContext;
@@ -119,6 +121,21 @@ interface BrowserServiceOptions {
    * per chi ce l'ha già acceso, è `TOPICS_BROWSER_SWEEP=0` (o `=dry`).
    */
   sweepOrphansAtBoot?: boolean;
+  /**
+   * QoS governor (card 7f4d8f32): who owns a live context, so the shared
+   * Chromium can be put in the macOS background band while only agents use
+   * it. Injected by server.ts, which is the only side that can see the
+   * topics, the dispatch bindings and the streaming viewers. Absent = the
+   * service knows no owner, every context reads as a person's and the
+   * browser stays at normal priority (except when it holds no context).
+   */
+  resolveContextOwner?: (contextId: string) => Omit<BrowserContextOwner, "contextId">;
+  /** The agent/person criterion itself, shared with the CLI governor. */
+  agentOwnerTest?: AgentOwnerTest;
+  /** The toggle, injectable so the governor is testable without a Chromium. */
+  applyBackground?: (pid: number, on: boolean) => Promise<number[]>;
+  /** How the browser process's pid is found (default: the process table). */
+  browserPid?: () => Promise<number | null>;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
@@ -368,6 +385,11 @@ export interface BrowserService {
    *  the immutability note on resize()'s impl. */
   resize(id: string, width: number, height: number, deviceScaleFactor?: number): Promise<void>;
   isLaunched(): boolean;
+  /** Recompute the shared Chromium's QoS band (card 7f4d8f32) after something
+   *  that changed WHO is using it and that this module cannot see itself: a
+   *  streaming viewer attaching or leaving, an orphan browser re-attached.
+   *  Cheap and idempotent - it spawns nothing unless the verdict flipped. */
+  refreshBackgroundPriority(reason: string): void;
   saveCookies(id: string): Promise<void>;
   loadCookies(id: string): Promise<void>;
   /** Restore BrowserContext for every topic with browserState. Best-effort — never throws. */
@@ -561,6 +583,25 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // window, the Chromium process is closed (it relaunches lazily on next use).
   let lastActivityAt = Date.now();
 
+  // ── The shared Chromium's QoS band (card 7f4d8f32) ────────────────────────
+  // WHY it is a toggle and not a demotion at spawn: server/lib/browser-qos.ts.
+  // Here there is only the wiring - who the contexts belong to, and when the
+  // question is asked again.
+  const qos = createBrowserQosGovernor({
+    listOwners: () => [...contexts.keys()].map((contextId) => ({ contextId, ...(opts.resolveContextOwner?.(contextId) ?? {}) })),
+    // Without an injected criterion the service knows no agent, so every
+    // context reads as a person's and the browser keeps normal priority.
+    ownerTest: opts.agentOwnerTest ?? { isDispatched: () => false, isAgentCwd: () => false },
+    browserPid: opts.browserPid ?? (() => markedBrowserPid(browserMarkArg("agent", process.pid).replace(/^-+/, ""))),
+    apply: opts.applyBackground ?? ((pid, on) => setBackgroundTree(pid, on)),
+  });
+
+  /** Ask the band again after something that changed who is using the browser. */
+  function refreshBackgroundPriority(reason: string): void {
+    if (!browser?.isConnected()) return;
+    qos.refresh(reason);
+  }
+
   async function ensureBrowser(): Promise<Browser> {
     if (browser && browser.isConnected()) return browser;
     // Coalesce concurrent cold-starts. After a server restart every WS browser
@@ -685,12 +726,18 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
+    // A fresh process starts in the normal band whatever the previous one was.
+    qos.reset();
+    refreshBackgroundPriority("launch");
     // Recovery: if Chromium dies (crash/OOM/GPU), every context+page it owns is
     // dead. Purge the maps so getOrCreate() recreates on the relaunched browser
     // (ensureBrowser is lazy — it checks isConnected()) instead of handing back
     // corpses, and so their autosave timers stop. Without this, dead entries
     // linger AND touchActivity() keeps refreshing them, starving the idle reaper.
     browser.on("disconnected", () => {
+      // The band belonged to a process that no longer exists: forget it, so
+      // the relaunch decides from scratch instead of trusting a stale verdict.
+      qos.reset();
       if (contexts.size) {
         console.warn(`[BrowserService] Chromium disconnected — purging ${contexts.size} stale context(s)`);
       }
@@ -732,6 +779,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     try { opts.onDestroy?.(id); } catch (err: any) {
       console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
     }
+    // The context that left may have been the only person's one - or the last
+    // one at all, which is also a reason to step aside.
+    refreshBackgroundPriority(`context gone: ${id}`);
   }
 
   function touchActivity(entry: BrowserContextEntry) {
@@ -980,6 +1030,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // it lazily on the next navigate/createContext, so this is recoverable.
       // (contexts mutate async from the loop above, so a just-emptied map is
       // caught on the next tick — that's fine, it's a slow reaper.)
+      // Safety net for the one direction that must never stick: a pane
+      // somebody is watching left in the background band because a viewer
+      // arrived through a path that forgot to tell us. Costs one pure
+      // recompute per tick and spawns nothing unless the verdict moved.
+      refreshBackgroundPriority("sweep");
+
       if (browser && browser.isConnected() && contexts.size === 0 &&
           now - lastActivityAt > browserIdleTimeoutMs) {
         const idleMin = Math.round((now - lastActivityAt) / 60000);
@@ -1337,6 +1393,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           await service.loadCookies(id);
         }
         console.log(`[BrowserService] Context created: ${id} (total: ${contexts.size}, persisted=${persistedState ? "yes" : "no"})`);
+        refreshBackgroundPriority(`context created: ${id}`);
       } catch (err) {
         // Cleanup on failure: drop the (possibly already-set) context entry +
         // targetId, close the context. A throw after contexts.set() (setupPage,
@@ -1727,6 +1784,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
     isLaunched() {
       return browser !== null && browser.isConnected();
+    },
+
+    refreshBackgroundPriority(reason) {
+      refreshBackgroundPriority(reason);
     },
 
     async getTargetId(id) {

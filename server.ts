@@ -43,6 +43,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
 import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
@@ -102,6 +103,7 @@ import { createDetachedTopic, DETACHED_TOPIC_AUTONOMY } from "./server/lib/sessi
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
 import { createBrowserService } from "./server/browser-service";
+import { agentOwnerTest } from "./server/providers/agent-cli-priority";
 import { createWebrtcBridge } from "./server/webrtc-bridge";
 import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
@@ -513,6 +515,38 @@ if (aiProvider.name === 'openclaw') {
 
 console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiProvider.capabilities].join(', ')})`);
 
+// ── Whose browser context is this? (card 7f4d8f32) ────────────────────────────
+// The one headless Chromium is shared by the agents and by the browser panes
+// of whoever uses the app, so its scheduling band is decided per context: a
+// context of a dispatched card (or of a session working in an agent worktree)
+// is an agent's, anything else - including a context nobody here can name - is
+// treated as a person's. `watchers` is read live: a pane streaming frames is
+// somebody looking at the screen right now.
+const browserOwnerCache = new Map<string, { sessionKey?: string; workspace?: string }>();
+function resolveBrowserContextOwner(contextId: string): { sessionKey?: string; workspace?: string; watchers: number } {
+  let known = browserOwnerCache.get(contextId);
+  if (!known) {
+    known = {};
+    try {
+      // Same resolution chain as onNavigate below: the indexed session-key
+      // lookup first, the scan only when it misses.
+      let topic = ctx.getTopicBySessionKey("topic:" + contextId);
+      if (!topic || topic.id.slice(0, 8) !== contextId) {
+        const topics = Object.values(ctx.loadTopics().topics);
+        topic = topics.find(t => t.id === contextId)
+          ?? topics.find(t => t.browserState?.contextId === contextId)
+          ?? topics.find(t => t.id.slice(0, 8) === contextId)
+          ?? null;
+      }
+      if (topic) known = { sessionKey: topic.sessionKey, workspace: topic.projectPath };
+    } catch { /* an owner we cannot read is an owner we do not claim */ }
+    // Only a resolved owner is remembered: a context created before its topic
+    // row exists must be asked again, not written off as anonymous forever.
+    if (known.sessionKey) browserOwnerCache.set(contextId, known);
+  }
+  return { ...known, watchers: browserWsClients.get(contextId)?.size ?? 0 };
+}
+
 // Init browser service (lazy — Chromium launched on first use)
 const browserService = await createBrowserService({
   // Questa è l'unica accensione della spazzata degli orfani: il posto dove il
@@ -569,10 +603,14 @@ const browserService = await createBrowserService({
   // the vision budget counter when a context is torn down, so a recreated
   // same-id context can't act on stale refs/bboxes and per-context maps don't
   // grow unbounded across many topics.
-  onDestroy: (contextId) => { clearBrowserCaches(contextId); resetMoondreamCounter(contextId); },
+  onDestroy: (contextId) => { clearBrowserCaches(contextId); resetMoondreamCounter(contextId); browserOwnerCache.delete(contextId); },
   // Phase 30 BROWSER-CHAT-03 — wire agent_active broadcast through the
   // /ws/browser/:contextId registry maintained in this module.
   broadcastToBrowserWs,
+  // QoS band of the shared Chromium (card 7f4d8f32): the service knows its
+  // contexts, only this module can say whose they are.
+  resolveContextOwner: resolveBrowserContextOwner,
+  agentOwnerTest: agentOwnerTest(),
 });
 
 // Init usage tracking (still uses JSON files — will be migrated in a future phase)
@@ -3518,6 +3556,9 @@ const opzioniServer = {
           browserWsClients.set(ctxId, bset);
         }
         bset.add(ws);
+        // A person just attached to this context: whatever the band was, the
+        // shared Chromium goes back to normal priority (card 7f4d8f32).
+        browserService.refreshBackgroundPriority(`viewer joined: ${ctxId}`);
         // Tell the newcomer where the count stands, then the others that it
         // moved. The direct send covers the one case the broadcast cannot: a
         // socket joining a context whose count did not change.
@@ -3732,21 +3773,13 @@ const opzioniServer = {
         // Dalla stessa porta della raffica: questo frame porta il TESTO di un
         // turno a metà, ed è quello che un ospite non deve vedere per una chat
         // che non è sua.
-        inviaIniziale({
-          type: "stream:catchup",
-          sessionKey,
-          topicId,
-          messageId: stream.messageId,
-          content: stream.content,
-          thinking: stream.thinking,
-          isThinking: stream.isThinking,
-          toolCalls: partial.toolCalls,
-          blocks: partial.blocks,
-          // The wait the turn is in, if any: `stream:retry` / `stream:slow`
-          // were broadcast before this client existed (`ActiveStream.retry`).
-          ...(stream.retry ? { retry: stream.retry } : {}),
-          ...(stream.slow ? { slow: true } : {}),
-        });
+        //
+        // The shape of the payload lives in `buildStreamCatchupFrame`: the
+        // legacy `toolCalls` bucket is dropped when the blocks carry the same
+        // calls, and the calls that are OVER travel with their large text
+        // blanked. Why, and what stays whole, is documented there; the budget
+        // is tests/integration/catchup-payload-weight.test.ts.
+        inviaIniziale(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
       }
     },
     message(ws, message) {
@@ -4180,6 +4213,7 @@ const opzioniServer = {
             viewerCountPublisher.publish(ws.data.browserContextId);
           }
         }
+        browserService.refreshBackgroundPriority(`viewer left: ${ws.data.browserContextId}`);
         // T1 DOM co-browse — if this was the last DOM-mode viewer, stop emission
         // (the page keeps recording cheaply; no wasted `dom_event` fan-out).
         if (ws.data._domRender) {

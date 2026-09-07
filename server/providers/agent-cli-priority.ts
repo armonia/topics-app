@@ -21,7 +21,7 @@
  */
 import { homedir } from "os";
 import { getDatabase } from "../db";
-import { isAgentWorkspace, lowerPriority } from "../lib/low-priority";
+import { isAgentWorkspace, lowerPriority, type AgentOwnerTest } from "../lib/low-priority";
 import { readDispatchBinding } from "../services/agent-job-quota";
 
 export interface AgentCliPriorityDeps {
@@ -33,14 +33,24 @@ export interface AgentCliPriorityDeps {
   demote: (pid: number) => void;
 }
 
-function defaultDeps(): AgentCliPriorityDeps {
+/**
+ * The criterion itself, on its own: is this session an agent's, or is a
+ * person waiting on it? The CLI governor demotes on it, and the shared
+ * Chromium's QoS band (card 7f4d8f32) is decided on the very same reading -
+ * two doors, one rule, so a card cannot be an agent for one and a person for
+ * the other.
+ */
+export function agentOwnerTest(): AgentOwnerTest {
   return {
     isDispatched: (sessionKey) => {
       try { return readDispatchBinding(getDatabase(), sessionKey).dispatched; } catch { return false; }
     },
     isAgentCwd: (cwd) => isAgentWorkspace(cwd, undefined, homedir()),
-    demote: (pid) => lowerPriority(pid),
   };
+}
+
+function defaultDeps(): AgentCliPriorityDeps {
+  return { ...agentOwnerTest(), demote: (pid) => lowerPriority(pid) };
 }
 
 /**
