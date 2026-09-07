@@ -154,6 +154,7 @@ import m20260906004423_board_cap_resources_mode from "./migrations/2026090600442
 import m20260906115130_task_machine_id from "./migrations/20260906115130-task-machine-id.sql" with { type: "text" };
 import m20260906115131_machine_base_url from "./migrations/20260906115131-machine-base-url.sql" with { type: "text" };
 import m20260907120000_agent_bin_paths from "./migrations/20260907120000-agent-bin-paths.sql" with { type: "text" };
+import m20260907132557_board_id_windows_path from "./migrations/20260907132557-board-id-windows-path.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -312,4 +313,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260906115130, name: "20260906115130-task-machine-id.sql", sql: m20260906115130_task_machine_id },
   { version: 20260906115131, name: "20260906115131-machine-base-url.sql", sql: m20260906115131_machine_base_url },
   { version: 20260907120000, name: "20260907120000-agent-bin-paths.sql", sql: m20260907120000_agent_bin_paths },
+  { version: 20260907132557, name: "20260907132557-board-id-windows-path.sql", sql: m20260907132557_board_id_windows_path },
 ];

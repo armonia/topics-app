@@ -487,6 +487,41 @@ percorsi cambierebbe l'identità delle board e orfanerebbe i task.
 - **WHEN** il server parte
 - **THEN** il pannello è canonico, la riga è sotto `<hash(cartella vera)>`, e un secondo avvio non cambia nulla
 
+### Requirement: PROJ-ID-05 — Il separatore di percorso è DUE caratteri, e su Windows l'id non è la strada
+
+L'id di board è `<cartella>-<hash>`. Il nome della cartella SHALL essere ricavato
+tagliando il percorso sia sulla barra sia sulla CONTROBARRA: un percorso di Windows non
+contiene barre, quindi tagliando sulla sola barra il «nome della cartella» diventa il
+percorso INTERO e l'id diventa `C:\Users\...\Temp\board-yv2opn`. Misurato sul PC alla
+prima esecuzione della suite e2e (card 9ff7427c): quell'id viaggia dentro il percorso di
+una URL (`/api/boards/<id>/tasks`), dove il parser WHATWG riscrive `\` in `/`, quindi
+client e server smettono di nominare la stessa board e la board si apre VUOTA.
+
+L'HASH NON SHALL cambiare: gira sulla stringa intera del percorso, che non si tocca.
+Cambia solo il pezzo davanti, e solo per i percorsi che contengono una controbarra —
+nessuno di quelli scritti su macOS o Linux, quindi nessuna riga `tasks` già scritta lì si
+orfana. Questo è il confine con la frase di PROJ-ID-04: lì `projectIdForPath` non si
+tocca perché cambierebbe l'identità delle board esistenti; qui l'identità cambia SOLO
+dove era già rotta.
+
+Gli id già scritti col percorso intero SHALL essere riportati sotto l'id giusto da una
+migration, in tutte le tabelle che li tengono (`tasks`, `board_settings`, `board_memory`),
+tagliando nello stesso punto in cui taglia la funzione. Dove l'id giusto esiste già
+(`board_settings` ha il percorso come chiave primaria) SHALL restare la riga già giusta,
+e il gemello rotto SHALL sparire invece di restare irraggiungibile.
+
+#### Scenario: una board nata su Windows
+- **GIVEN** il percorso `C:\Users\<utente>\Projects\topics-app`
+- **THEN** l'id è `topics-app-<hash>`, e non contiene nessuna controbarra
+
+#### Scenario: un id POSIX non si muove
+- **GIVEN** un id calcolato da un percorso senza controbarre
+- **THEN** è identico a prima della modifica, e la migration non lo tocca
+
+#### Scenario: il gemello rotto nelle impostazioni di board
+- **GIVEN** `board_settings` con la riga giusta e quella scritta col percorso intero
+- **THEN** dopo la migration resta la sola riga giusta, con i propri valori
+
 ### Requirement: PROJECT-12 — Zero modifiche git non è un numero da mostrare: è una sezione che non c'è
 
 Le superfici che raccontano le modifiche git NON SHALL comparire quando le modifiche

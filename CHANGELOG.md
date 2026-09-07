@@ -2,15 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.282 — 2026-09-07
+
+### Sotto il cofano
+- Il presidio del teardown cerca listenerPids invece di un lsof scritto a mano: quello che difende resta l'ordine fra domanda al lock e kill sulla porta
+
 ## 2.2.281 — 2026-09-07
 
 ### Sotto il cofano
+- Le spec non scrivono piu' in un /tmp letterale (su Windows e' C:\tmp, fuori dall'isolamento) e le pulizie sopravvivono a un handle ancora aperto
+- Una pulizia che il sistema rifiuta non e' un rosso: removeTmpDir al posto di 137 rmSync copiati
 - Il picker pesa dove gira la macinata, non che esista
+- Anche la pulizia del progetto di file passa da removeTmpDir: era l'ultima rmSync che faceva cadere il file di spec sulla cartella occupata
+- La ricetta Windows entra nel repo: docs/ e' ignorata per default e una procedura che vive su un portatile solo va ricomprata dal prossimo
 
 ## 2.2.279 — 2026-09-07
 
 ### Sotto il cofano
 - La webview grigia dopo il ripristino ha finalmente un cancello che sa fallire
+- Il banco e2e sa dove sta girando: lsof, ps e kill hanno un gemello Windows, e il server di test un lanciatore che non passa da bash
+- Su Windows si ammazza con /F: il kill garbato non lo riceve nessuno (console senza message loop) e il teardown aspettava i suoi dieci secondi per niente
+- topwin ricostruisce il bundle a ogni sync: tar timbra i sorgenti con l'ora della copia, quindi public/ nasce gia' vecchio e il global-setup aspetta un watcher che li' non c'e'
+- La ricetta e2e su Windows, e il giro senza tetto ai fallimenti: con il tetto a otto la prima passata ha lasciato 315 spec non eseguite
+- La regola dei Chromium da raccogliere sta in un posto solo: era copiata a mano nei due file con un commento che chiedeva di tenerle identiche
 - L'aggiornamento del guscio torna a farsi vedere: il controllo gira anche in dev e l'avviso nomina il numero che e' davvero indietro
 
 ## 2.2.278 — 2026-09-07
