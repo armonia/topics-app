@@ -725,6 +725,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     return () => cancelAnimationFrame(raf);
   }, [selectedId]);
   const [showSettings, setShowSettings] = useState(false);
+  // ONE door to the settings panel, two handles on it: the gear in the toolbar
+  // and the "Settings" line of the load gauge popover. What KANBAN-12 removed
+  // was a second entrance holding its OWN copy of the auto-dispatch state; a
+  // shared gesture on the shared state is the opposite of that.
+  const toggleSettings = useCallback(() => setShowSettings((s) => !s), []);
   /** The ⚙, which the settings dropdown anchors to (KANBAN-75). */
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   // Per-board dispatch settings, owned HERE (not by the settings panel) so the
@@ -1821,7 +1826,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               with the ▾ as its only way to see the limit. */}
           <button
             ref={settingsBtnRef}
-            onClick={() => setShowSettings((s) => !s)}
+            onClick={toggleSettings}
             aria-expanded={showSettings}
             aria-haspopup="menu"
             className={`grid ${TOOLBAR_CONTROL_H} w-6 place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
@@ -1921,7 +1926,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   justMoved={justMoved}
                   justCreated={justCreated}
                   archived={showArchived}
-                  onOpenSettings={() => setShowSettings(true)}
+                  onOpenSettings={toggleSettings}
                   draft={draft && draft.status === status && !showArchived ? draft : undefined}
                 />
               ))}
