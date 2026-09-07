@@ -58,12 +58,28 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
  * base36 del valore assoluto, troncato a 6 caratteri. NON cambiarlo: ogni
  * modifica orfanerebbe ogni riga `tasks` già scritta nel DB.
  *
+ * The SEPARATOR, instead, is TWO characters and not one: `\` as well as `/`.
+ * Until 06/09 the basename was cut on `/` alone, and a Windows path contains
+ * none: `dirName` became the WHOLE path, so the id was
+ * `C:\Users\...\Temp\e2e-archrestore-123-yv2opn` instead of
+ * `e2e-archrestore-123-yv2opn`. Measured on the Windows PC on the first e2e
+ * run (card 9ff7427c). That id ends up inside a URL path
+ * (`/api/boards/<id>/tasks`, where the WHATWG parser rewrites backslashes into
+ * slashes: client and server stop naming the same board), in DOM attributes
+ * and in the `tasks` rows; the board opened empty.
+ *
+ * The hash does NOT change (it runs on the whole string, which is untouched):
+ * only the part in front moves, and only for paths containing a backslash,
+ * that is none of the ones written on macOS or Linux. The ids already written
+ * with the whole path (boards born on Windows) are rewritten by the migration
+ * `20260907132557-board-id-windows-path`, which cuts at the same point.
+ *
  * Parente ma NON la stessa cosa di `shared/project-keys.ts:projectHash`, che
  * gira lo stesso djb2 sulle chiavi `ui_state` ma restituisce l'hash intero e
  * senza prefisso: identità diversa, store diverso, resta separata.
  */
 export function projectIdForPath(projectPath: string): string {
-  const parts = projectPath.replace(/\/+$/, '').split('/');
+  const parts = projectPath.replace(/[\\/]+$/, '').split(/[\\/]/);
   const dirName = parts[parts.length - 1] || 'project';
   let hash = 0;
   for (let i = 0; i < projectPath.length; i++) {
