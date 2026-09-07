@@ -5629,9 +5629,41 @@ fn evict_panes_of_window(app: &tauri::AppHandle, window_label: &str) {
 /// id crea una vista nuova invece di riusare quella morta.
 fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
+    // WHO HOSTED IT, ASKED WHILE THERE IS STILL SOMEBODY TO ASK. After the
+    // eviction the pane's label is gone from the manager, so the window it
+    // belonged to is no longer nameable from the id: the keyboard handover
+    // below would have nowhere to send the focus.
+    #[cfg(not(target_os = "macos"))]
+    let host_of_pane = app
+        .get_webview(&browser_label(&id))
+        .map(|wv| wv.window().label().to_string());
     // `purge_cache: false` di proposito: qui la cache la svuota il client, che
     // chiama `browser_purge_cache` per conto suo alla morte della pane.
     browser_evict_pane(&app, &id, true, false);
+    // AND THE KEYBOARD COMES BACK, which nothing did when the pane died.
+    //
+    // The twin of the handover in `browser_open_inner`, on the other end of the
+    // pane's life. On Windows the pane is a native WebView2 child that holds the
+    // window's focus while it lives; destroying it leaves the focus on NO window
+    // at all - `GetGUIThreadInfo().hwndFocus` reads 0x0 - and nothing in the
+    // system moves it back, so the client's `window` keydown listeners never
+    // fire again and every shortcut is inert until the user clicks the window.
+    //
+    // Measured on the real machine on 2026-09-08 (card cd040754) against the
+    // installed 2.2.287: Ctrl+K changed 55.3% of the window in the arm where no
+    // restored pane had to be closed, and 0% in the arm where the run had just
+    // closed one. Same build, same window, minutes apart.
+    //
+    // Only the explicit close, which is the one a person asks for. The window
+    // teardown path (`evict_panes_of_window`) is deliberately not here: there
+    // the host window is on its way out and there is no interface left to hand
+    // anything to.
+    #[cfg(not(target_os = "macos"))]
+    if let Some(ui) = host_of_pane.as_deref().and_then(|l| app.get_webview(l)) {
+        if let Err(e) = ui.set_focus() {
+            eprintln!("[browser_close] {id}: keyboard not returned to the client: {e}");
+        }
+    }
     // La vista è ancora registrata? Allora non è morta.
     let label = browser_label(&id);
     let survivor = app.get_webview(&label);
