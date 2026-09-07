@@ -52,7 +52,7 @@ export class LayoutPage {
       await item.click();
       // Wait for message input to appear (confirms a chat opened)
       const textarea = this.page.getByRole("textbox", {
-        name: /Message input/,
+        name: /Campo del messaggio/,
       });
       const visible = await textarea
         .waitFor({ state: "visible", timeout: 5000 })

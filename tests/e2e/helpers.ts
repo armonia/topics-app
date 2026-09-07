@@ -153,7 +153,7 @@ export async function openTopicByDoubleClick(page: Page, name: string | RegExp) 
 /** Open the default test chat (Web Search Test) and wait for textarea */
 export async function openTestChat(page: Page) {
   await openTopic(page, /Web Search Test/);
-  const textarea = page.getByRole("textbox", { name: /Message input/ });
+  const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
   await textarea.waitFor({ state: "visible", timeout: 10000 });
   return textarea;
 }

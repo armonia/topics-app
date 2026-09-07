@@ -183,7 +183,7 @@ test.describe("Tab System Reliability", () => {
       // this focus must NOT suppress the increment; the barrier below makes the
       // "a client is focused" precondition deterministic so the assertion is
       // meaningful rather than accidentally passing on an un-focused topic.
-      const input = page.getByRole("textbox", { name: /Message input/ });
+      const input = page.getByRole("textbox", { name: /Campo del messaggio/ });
       if (!(await input.isVisible().catch(() => false))) {
         await page.getByRole("treeitem", { name: /FocusedUnreadTest/ }).first().click().catch(() => {});
       }

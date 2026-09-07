@@ -83,7 +83,7 @@ test.describe("ConfirmDialog non blocca il thread", () => {
     // il menu slash inline). Poi Enter invia. Scritto a mano nel composer,
     // `fill("/clear")` lascerebbe il menu slash chiuso e un Escape per chiuderlo
     // cadrebbe sul gestore globale che INTERROMPE il turno — svuotando la lista.
-    await page.getByRole("button", { name: "Tools & commands" }).click();
+    await page.getByRole("button", { name: "Strumenti e comandi" }).click();
     // Match the COMMAND `/clear`, not its description. The composer's slash
     // entries render through `tr(cmd.descriptionKey)` since they were
     // translated, and Italian is the base catalogue, so that row now reads

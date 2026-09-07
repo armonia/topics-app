@@ -259,7 +259,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
     await textarea.click();
     await textarea.fill("Read the file package.json and tell me the name field");

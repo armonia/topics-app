@@ -524,7 +524,7 @@ test.describe("Context, Memory & Settings", () => {
 
       // Wait for chat input to appear
       await page
-        .getByRole("textbox", { name: /Message input/ })
+        .getByRole("textbox", { name: /Campo del messaggio/ })
         .waitFor({ state: "visible", timeout: 10_000 });
 
       // Verify context pills are rendered (context-pill class spans)

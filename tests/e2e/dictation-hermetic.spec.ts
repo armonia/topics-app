@@ -171,7 +171,7 @@ test.describe.serial("Dettatura ermetica — cursore e testo esatto", () => {
     await page.keyboard.press("Meta+Shift+R");
 
     // La barra rossa di registrazione e' la prova che getUserMedia e' aperto.
-    const recordingBar = page.getByText("Recording", { exact: true });
+    const recordingBar = page.getByText("Registrazione", { exact: true });
     await expect(recordingBar).toBeVisible({ timeout: 15_000 });
 
     // Chiude la registrazione e spedisce al server.

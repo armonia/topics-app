@@ -214,9 +214,9 @@ function ChatPaneComponent({
     // con un numero diverso. `saveDraftAttachments` risponde `false` solo in
     // quel caso, e cancella la riga invece di tenerne una a meta'.
     void saveDraftAttachments(topic.id, pendingImages, pendingFiles).then((ok) => {
-      if (!ok) toast.error('Attachment too large to keep across a reload: send it now, or it will be lost if you refresh.');
+      if (!ok) toast.error(tr('chat.attachment.tooLarge'));
     });
-  }, [topic.id, pendingImages, pendingFiles, toast]);
+  }, [topic.id, pendingImages, pendingFiles, toast, tr]);
   const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   // Una BOZZA vuota si chiude da sé quando smetti di guardarla, e questa riga
   // è la sola cosa che le impedisce di portarsi via del lavoro: allegati e
@@ -1073,7 +1073,7 @@ function ChatPaneComponent({
       window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
         detail: { topicId: topic.id, url: normalized },
       }));
-      setCommandResult({ type: 'success', message: `Opening browser → ${normalized}` });
+      setCommandResult({ type: 'success', message: tr('chat.command.openingBrowser', { url: normalized }) });
       return true;
     }
 

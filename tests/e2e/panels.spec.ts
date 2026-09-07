@@ -200,7 +200,7 @@ test.describe("Panels & Views", () => {
     await openTopic(page, /Web Search Test/);
 
     // Ensure app is ready before triggering shortcut
-    await expect(page.getByRole("textbox", { name: /Message input/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("textbox", { name: /Campo del messaggio/ })).toBeVisible({ timeout: 10000 });
     await page.keyboard.press("Meta+k");
 
     // Wait for dialog/palette to appear

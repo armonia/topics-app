@@ -77,7 +77,7 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
 
     // The action bar shows up on bubble hover.
     await bubble.hover();
-    await bubble.getByRole("button", { name: "Save to memory" }).click();
+    await bubble.getByRole("button", { name: "Salva nella memoria" }).click();
 
     await expect(errorToast(page)).toBeVisible({ timeout: 10_000 });
   });

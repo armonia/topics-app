@@ -203,7 +203,7 @@ test.describe("Layout & Navigation", () => {
     await openTestChat(page);
 
     // Verify message input textbox is visible (chat pane rendered)
-    const textarea = page.getByRole("textbox", { name: /Message input/ }).first();
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ }).first();
     await expect(textarea).toBeVisible({ timeout: 10000 });
 
     // Verify tab bar is visible for the standalone chat group

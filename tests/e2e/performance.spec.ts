@@ -391,7 +391,7 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     await mainArea.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
     // Type a message using the same input selector as chat.spec.ts
-    const input = page.getByRole('textbox', { name: /Message input/ });
+    const input = page.getByRole('textbox', { name: /Campo del messaggio/ });
     await expect(input).toBeVisible({ timeout: 10_000 });
 
     // Set up CLS measurement before sending
