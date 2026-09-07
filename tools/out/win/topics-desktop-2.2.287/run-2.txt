@@ -1,0 +1,52 @@
+==> release tauri-v2.2.287, asset Topics_2.2.287_x64-setup.exe
+==> downloading on the machine and checking the digest
+    sha256 75b17c7500eeb2285359e82eb3d31f637f9e2e0659c09b2cb727e5eb57fe0f1b matches the release, signature: NotSigned
+==> installing 2.2.287
+    19:11:47.297 before: 2.2.287
+    19:11:50.440 stopped: app=0 server=0
+    19:11:55.701 installer exit 0
+    19:11:55.709 after: 2.2.287
+    19:11:55.943 launched C:\Users\<user>\AppData\Local\Topics\app.exe
+    19:12:10.983 running: app=1 server=0
+    19:12:10.984 OK
+==> arm wrongkey (expecting exit 1)
+    == topics windows desktop check, label wrongkey, checks [abc]
+    installed 2.2.287
+    PASS a  boot: client bundle served at 19.5s, window painted at 4.6s (ink 100%), budget 45s (marker=absent sidecar=1)
+    window 1416x939 dpi 96 scale 1 client offset 8,1
+    PASS b  chrome: 3 command cells (want 3) inside 16..61 CSS px (want 12..66), wordmark ink at 80 CSS px (want 80 +/-4), baseline offset 2 CSS px (want <=4)
+    -- Ctrl+W x3 to clear restored panes: 0%, 0%, 0%
+    arm: sending an unbound combination instead of Ctrl+K
+    FAIL c1  Ctrl+K: opened 0% (want >3%), closed back to 0% after 1 Escape (want <1.5%)
+    -- stopping at the first FAIL
+    exit 1
+==> arm noremedy (expecting exit 1)
+    == topics windows desktop check, label noremedy, checks [ad]
+    installed 2.2.287
+    arm: webview rebuild remedy OFF
+    PASS a  boot: client bundle served at 19.6s, window painted at 4.6s (ink 100%), budget 45s (marker=absent sidecar=1)
+    FAIL d  restore: 0/3 repainted [cycle 1: ink 1.3% diff 90%; cycle 2: ink 1.3% diff 0%; cycle 3: ink 1.3% diff 0%]
+    -- stopping at the first FAIL
+    exit 1
+==> arm browser (expecting exit 0)
+    == topics windows desktop check, label browser, checks [e]
+    installed 2.2.287
+    PASS a  boot: client bundle served at 19.6s, window painted at 4.6s (ink 100%), budget 45s (marker=absent sidecar=1)
+    -- Ctrl+W x3 to clear restored panes: 0%, 0%, 0%
+    -- Ctrl+K with the pane focused: 58.9% (it read >3% in (c) on the bare window)
+    FAIL e  browser pane: opened 11%, navigation changed 0% (want >5%), page ink 23.4% after the second URL (want >=30%), first URL ink 23.4%, Ctrl+K with the pane focused 58.9%
+    -- stopping at the first FAIL
+    exit 1
+!! arm browser answered 1, expected 0
+==> arm full (expecting exit 0)
+    == topics windows desktop check, label full, checks [abcd]
+    installed 2.2.287
+    PASS a  boot: client bundle served at 18.9s, window painted at 4.8s (ink 24.7%), budget 45s (marker=absent sidecar=1)
+    window 1416x939 dpi 96 scale 1 client offset 8,1
+    PASS b  chrome: 3 command cells (want 3) inside 16..61 CSS px (want 12..66), wordmark ink at 80 CSS px (want 80 +/-4), baseline offset 2 CSS px (want <=4)
+    -- Ctrl+W x3 to clear restored panes: 10.7%, 0%, 0%
+    FAIL c1  Ctrl+K: opened 0% (want >3%), closed back to 0% after 1 Escape (want <1.5%)
+    -- stopping at the first FAIL
+    exit 1
+!! arm full answered 1, expected 0
+==> artefacts in tools/out/win/
