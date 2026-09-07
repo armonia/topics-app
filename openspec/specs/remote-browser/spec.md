@@ -1077,6 +1077,42 @@ legge da qualunque macchina, ed è tutto quello che questo requisito pretende.
 - **GIVEN** un motore che non può portare quell'operazione, e il motivo scritto accanto
 - **THEN** SHALL essere accettato, e il motivo SHALL restare leggibile
 
+### Requirement: NATIVEOPS-04 — Chi costruisce una webview non gira dentro la callback IPC
+
+Un `#[tauri::command]` sincrono viene eseguito DENTRO la callback IPC della
+webview che l'ha chiamato: su Windows è una callback COM di WebView2. Costruire
+lì una webview è il blocco che tauri documenta sul proprio `WebviewBuilder::new`
+(«on Windows, this function deadlocks when used in a synchronous command or
+event handlers»): wry aspetta la creazione dell'ambiente e del controller con un
+ciclo di messaggi ANNIDATO, che continua a pompare — la finestra resta viva, le
+scorciatoie rispondono — mentre la callback di completamento non può essere
+consegnata finché la chiamata COM esterna è sullo stack. L'attesa non finisce
+mai, il comando non risponde, e il client resta sullo spinner: misurato sulla
+2.2.281 installata dalla release, con la barra degli indirizzi che accettava
+l'URL e la vista che non partiva.
+
+Un comando che può raggiungere la costruzione di una webview NON SHALL essere
+sincrono. SHALL uscire dalla callback IPC prima di costruire: un comando `async`
+(o `#[tauri::command(async)]`, che è il pool bloccante) oppure un thread proprio.
+Chi deve poi lavorare sul main thread SHALL arrivarci con `run_on_main_thread`,
+dove un pump annidato è ordinario.
+
+Il requisito parla della FORMA del comando, non del comportamento a runtime: il
+motore che si blocca è WebView2, che da un Mac non si misura. La forma invece si
+legge da qualunque macchina, e la forma è ciò che ha permesso il guasto.
+
+#### Scenario: un comando sincrono che costruisce una webview
+- **GIVEN** un `#[tauri::command]` senza `async` che raggiunge `WebviewBuilder::new`, `WebviewWindowBuilder::new` o `add_child`
+- **THEN** SHALL essere respinto
+
+#### Scenario: lo stesso comando, fuori dalla callback IPC
+- **GIVEN** lo stesso comando dichiarato `async`, che passa al main thread con `run_on_main_thread` e aspetta l'esito
+- **THEN** SHALL essere accettato
+
+#### Scenario: un salto di thread rompe la catena
+- **GIVEN** una funzione che costruisce la webview su un thread proprio (`std::thread::spawn`)
+- **THEN** chi la chiama NON SHALL essere considerato in violazione
+
 ### Requirement: ZOOM-01 — Lo zoom vive su una SCALA, e sopravvive a una navigazione
 
 I livelli di zoom SHALL formare una scala di percentuali INTERE, strettamente
