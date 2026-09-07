@@ -220,10 +220,18 @@ test.describe("Dimentica questo sito — pane condivisa", () => {
       },
       scena: async (page) => {
         await goToApp(page);
-        // WHERE WE ARE is written on the TAB, which is where the address lives
-        // now: the bar hides itself as soon as the page is loaded.
-        const host = new URL(origine).host;
-        await expect(page.getByRole("tab", { name: new RegExp(host.replace(".", "\\.")) }).first())
+        // THE TAB IS THERE AND IT IS ON THE SITE, which is the precondition the
+        // scene needs before it can film anything.
+        //
+        // Read off the page TITLE, and not off the address: since
+        // `browserTabLabel` a browser tab writes the title like every browser on
+        // earth, and the address moved into the dropdown that opens under the
+        // tab. This line used to look for the host and could not match any more,
+        // so the test was red on a change that had nothing to do with forgetting
+        // a site (found delivering card 99a9a8bd). Not opening the dropdown to
+        // read the address there: this scene is being FILMED, and a dropdown
+        // opened for the sake of an assertion is a dropdown in the clip.
+        await expect(page.getByRole("tab", { name: /SEI DENTRO/ }).first())
           .toBeVisible({ timeout: 30_000 });
 
         // ── 1. La pane condivisa è dentro il sito ────────────────────────────
