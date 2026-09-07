@@ -126,7 +126,10 @@ const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
 // so it leaves the entry. TaskDetail and TopicSettingsModal already live in
 // lazy chunks and import the same component: Rollup gives the three of them a
 // shared chunk instead of three copies.
-const ShareControl = lazy(() => import('../Share/ShareControl').then(m => ({ default: m.ShareControl })));
+const ShareControl = lazy(async () => {
+  const { ShareControl: C } = await import('../Share/ShareControl');
+  return { default: C };
+});
 
 const BOARD_ID = utilityPanelId('board');
 /** Nome e glifo NON si riscrivono qui: `PANE_CONFIG` li espone già, ed è la

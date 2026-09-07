@@ -22,7 +22,10 @@ const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.Git
 // `expandedSections.processes`, and it carries `useDetectedScripts` and the
 // relay crypto helpers with it. One const for BOTH mount sites below, so the
 // mobile and desktop layouts resolve the same module and the same chunk.
-const ScriptRunner = lazy(() => import('./ScriptRunner').then(m => ({ default: m.ScriptRunner })));
+const ScriptRunner = lazy(async () => {
+  const { ScriptRunner: C } = await import('./ScriptRunner');
+  return { default: C };
+});
 
 interface ProjectSidebarProps {
   projectPath: string;

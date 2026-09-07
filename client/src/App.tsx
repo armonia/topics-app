@@ -123,7 +123,10 @@ import { useSidebarBottomInset } from './hooks/useSidebarBottomInset';
 
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
-const ChangelogModal = lazy(() => import('./components/ChangelogModal').then(m => ({ default: m.ChangelogModal })));
+const ChangelogModal = lazy(async () => {
+  const { ChangelogModal: C } = await import('./components/ChangelogModal');
+  return { default: C };
+});
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })));
 // Shared factory so the idle prefetch (App mount) and the `lazy()` boundary
 // resolve the SAME module — a first ⌘K then finds the chunk already parsed
