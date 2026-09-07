@@ -6,6 +6,7 @@
  * @covers PROJECT-11
  */
 import { describe, it, expect } from "bun:test";
+import { readFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { isInsideDir } from "./path-containment";
 import { isInsideKnownProject, projectPathTokensIn } from "../services/known-project-dirs";
@@ -69,4 +70,40 @@ describe("isBroadCwd", () => {
     expect(isBroadCwd(join(sep, "home"), join(sep, "home", "me"))).toBe(true);
     expect(isBroadCwd(join(sep, "home", "me", "proj"), join(sep, "home", "me"))).toBe(false);
   });
+});
+
+/**
+ * The bug class does not stay inside the file routes. The same shape --
+ * `startsWith(root + "/")`, `startsWith("/")` as the absolute-path test --
+ * decided which project owns a port, which external sessions belong to a repo
+ * and which directories the project picker offers. On Windows every one of
+ * them answered "outside" for a path that was inside.
+ *
+ * Unit tests do not run on Windows in CI, so behaviour alone cannot measure
+ * this here: what CAN be measured on any platform is that these decisions go
+ * through the shared predicates instead of being rebuilt by hand. The list is
+ * explicit on purpose: it is the set of modules that decide containment on a
+ * FILESYSTEM path, not every file that happens to hold a slash.
+ */
+describe("no module rebuilds path containment by hand", () => {
+  const MODULES = [
+    "lib/port-project-owner.ts",
+    "lib/external-claude-sessions.ts",
+    "services/external-sessions.ts",
+    "services/project-path-resolver.ts",
+  ];
+  // `x + "/"` glued onto a root, and `startsWith("/")` used as "is absolute".
+  const HAND_BUILT = /startsWith\((?:`|")\//;
+  const GLUED_ROOT = /\+\s*"\/"\)/;
+
+  for (const relative of MODULES) {
+    it(`${relative} uses isInsideDir / isAbsolute`, () => {
+      const source = readFileSync(join(import.meta.dir, "..", relative), "utf8");
+      const offenders = source
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("*") && !line.trimStart().startsWith("//"))
+        .filter((line) => HAND_BUILT.test(line) || GLUED_ROOT.test(line));
+      expect(offenders).toEqual([]);
+    });
+  }
 });

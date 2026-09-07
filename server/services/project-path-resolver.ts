@@ -24,7 +24,8 @@
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
 import { existsSync, readdirSync } from "fs";
-import { join } from "path";
+import { dirname, isAbsolute, join, resolve, sep } from "path";
+import { isInsideDir } from "../lib/path-containment";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
 
@@ -76,20 +77,20 @@ export function isSelectableProjectDir(
   path: string,
   deps: { workspaceDir: string; homeDir: string; exists?: (p: string) => boolean },
 ): boolean {
-  if (typeof path !== "string" || !path.startsWith("/")) return false;
-  const p = path.replace(/\/+$/, "");
-  if (!p) return false;
+  if (typeof path !== "string" || !isAbsolute(path)) return false;
+  const p = resolve(path);
   const generale = join(deps.workspaceDir, "generale");
   const tasksDir = join(deps.workspaceDir, "tasks");
-  if (p === generale) return false;
-  if (p === tasksDir || p.startsWith(tasksDir + "/")) return false;
-  if (p === deps.homeDir.replace(/\/+$/, "")) return false;
+  if (p === resolve(generale)) return false;
+  if (isInsideDir(p, tasksDir)) return false;
+  if (p === resolve(deps.homeDir)) return false;
   if (NON_PROJECT_DOTDIR.test(p)) return false;
   const exists = deps.exists ?? existsSync;
   if (!exists(p)) return false;
   // Workspace-nested dir → must look like a real project, not a runtime husk.
-  const ws = deps.workspaceDir.replace(/\/+$/, "");
-  if (p.startsWith(ws + "/") && !PROJECT_MARKERS.some((m) => exists(join(p, m)))) return false;
+  // The workspace root itself is not "nested", so it keeps the plain check.
+  const ws = resolve(deps.workspaceDir);
+  if (p !== ws && isInsideDir(p, ws) && !PROJECT_MARKERS.some((m) => exists(join(p, m)))) return false;
   return true;
 }
 
@@ -145,8 +146,8 @@ export function buildProjectCandidates(deps: {
     let extras: string[] = [];
     try { extras = deps.extraPaths(); } catch { /* best-effort source */ }
     for (const path of extras) {
-      if (typeof path !== "string" || !path.startsWith("/")) continue;
-      pathOnly(path.replace(/\/+$/, ""));
+      if (typeof path !== "string" || !isAbsolute(path)) continue;
+      pathOnly(resolve(path));
     }
   }
   return out;
@@ -186,24 +187,31 @@ export function buildProjectCandidates(deps: {
  * Resta una DEDUZIONE, quindi chi la usa deve MOSTRARE la cartella scelta
  * prima di creare: il client la stampa sulla riga «Crea "x"… in <cartella>».
  */
+/** Any segment starting with a dot: a worktree, a cache or a config tree. */
+function hasHiddenSegment(p: string): boolean {
+  return p.split(sep).some((segment) => segment.length > 1 && segment.startsWith("."));
+}
+
 export function newProjectParentDir(
   dirs: readonly string[],
   deps: { workspaceDir: string; homeDir: string; exists?: (p: string) => boolean },
 ): string {
-  const ws = deps.workspaceDir.replace(/\/+$/, "");
-  const home = deps.homeDir.replace(/\/+$/, "");
+  const ws = resolve(deps.workspaceDir);
+  const home = resolve(deps.homeDir);
   const exists = deps.exists ?? existsSync;
   const counts = new Map<string, number>();
   const seen = new Set<string>();
   for (const raw of dirs) {
-    if (typeof raw !== "string" || !raw.startsWith("/")) continue;
-    const p = raw.replace(/\/+$/, "");
-    if (!p || seen.has(p)) continue;
+    if (typeof raw !== "string" || !isAbsolute(raw)) continue;
+    const p = resolve(raw);
+    if (seen.has(p)) continue;
     seen.add(p);
-    if (p === ws || p.startsWith(ws + "/")) continue;
-    const parent = p.slice(0, p.lastIndexOf("/")) || "/";
-    if (parent === "/" || parent === home) continue;
-    if (parent.includes("/.")) continue; // dot-dir: worktree, cache, config
+    if (isInsideDir(p, ws)) continue;
+    const parent = dirname(p);
+    // `dirname` of a volume root is the root itself: `/` and `C:\\` are both
+    // too broad to hold a new project, and so is the bare home dir.
+    if (dirname(parent) === parent || parent === home) continue;
+    if (hasHiddenSegment(parent)) continue; // dot-dir: worktree, cache, config
 
     counts.set(parent, (counts.get(parent) ?? 0) + 1);
   }
