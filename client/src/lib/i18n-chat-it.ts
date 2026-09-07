@@ -49,6 +49,7 @@ const CHAT_IT: Dict = {
   'chat.composer.placeholder': 'Messaggio…',
   'chat.composer.placeholderProject': 'Messaggio… (@ per citare un file)',
   'chat.composer.placeholderReply': 'Rispondi…',
+  'chat.composer.hint': 'Invio per mandare il messaggio, Shift+Invio per andare a capo. Scrivi / per i comandi.',
 
   // Voice call: the menu entry and the banner with its three states.
   'chat.call.start': 'Chiamata vocale',

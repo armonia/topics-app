@@ -36,6 +36,7 @@ const CHAT_EN: Dict = {
   'chat.composer.placeholder': 'Message...',
   'chat.composer.placeholderProject': 'Message... (@ to mention files)',
   'chat.composer.placeholderReply': 'Reply...',
+  'chat.composer.hint': 'Press Enter to send, Shift+Enter for new line. Type / for commands.',
 
   'chat.call.start': 'Voice call',
   'chat.call.end': 'End call',

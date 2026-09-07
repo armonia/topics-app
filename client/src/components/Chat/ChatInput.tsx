@@ -1400,7 +1400,7 @@ export function ChatInput({
                 rows={1}
                 disabled={uploading}
               />
-              <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
+              <span id="chat-input-hint" className="sr-only">{tr('chat.composer.hint')}</span>
 
               {/* In coda alla riga: il microfono e l'invio, e nient'altro.
                   `flex-shrink-0`: questi due non si stringono MAI. */}
