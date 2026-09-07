@@ -269,6 +269,23 @@ describe('leanToolCallForHistory / leanMessagesForHistory', () => {
     expect(JSON.stringify(lean).length).toBeLessThan(3 * WIRE_STRING_PREVIEW_CHARS);
   });
 
+  test('a TYPED detail travels alone: args go empty, the counter stays', () => {
+    const lean = leanToolCallForHistory(heavy());
+    // The renderer reads a typed `detail` in exclusive, so `args` would be a
+    // second copy of the same command. `argsBytes` survives: it is what tells
+    // the row it has a body to fetch.
+    expect(lean.args).toEqual({});
+    expect(lean.argsBytes).toBe(SCRIPT.length - WIRE_STRING_PREVIEW_CHARS);
+    expect((lean.detail as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+  });
+
+  test('an UNTYPED call keeps the head of its args: there is nothing else to draw the row with', () => {
+    const noDetail: WireCall = { id: 'a', name: 'Bash', args: { command: SCRIPT } };
+    expect((leanToolCallForHistory(noDetail).args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    const unknown: WireCall = { id: 'a', name: 'Bash', args: { command: SCRIPT }, detail: { type: 'unknown', raw: {} } };
+    expect((leanToolCallForHistory(unknown).args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+  });
+
   test('blocks: the nested toolCall is trimmed, the text block next to it is the same reference', () => {
     const text = { kind: 'text', text: 'hello' };
     const msgs = [{ id: 'm', blocks: [text, { kind: 'tool', toolCall: heavy() }] }];
@@ -277,14 +294,15 @@ describe('leanToolCallForHistory / leanMessagesForHistory', () => {
     expect(lean[0].blocks[0]).toBe(text);
     const tc = (lean[0].blocks[1] as { toolCall: WireCall }).toolCall;
     expect(tc.argsBytes).toBeGreaterThan(0);
-    expect((tc.args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(tc.args).toEqual({});
+    expect((tc.detail as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
   });
 
   test('the legacy toolCalls bucket is trimmed too: a message from before blocks has its calls only there', () => {
     const msgs = [{ id: 'm', toolCalls: [heavy()] }];
     const lean = leanMessagesForHistory(msgs);
     expect(lean[0].toolCalls![0].argsBytes).toBeGreaterThan(0);
-    expect((lean[0].toolCalls![0].args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
+    expect(lean[0].toolCalls![0].args).toEqual({});
   });
 
   test('a PARTIAL message is left whole: streaming is still writing into it', () => {
@@ -293,7 +311,9 @@ describe('leanToolCallForHistory / leanMessagesForHistory', () => {
   });
 
   test('nothing to trim: same reference all the way down', () => {
-    const light: WireCall = { id: 'a', name: 'Read', args: { file_path: '/x' }, detail: { type: 'read', filePath: '/x' } };
+    // No `args` at all: a typed call that carries some would be copied to drop
+    // them, which is the rule the two tests above cover.
+    const light: WireCall = { id: 'a', name: 'Read', detail: { type: 'read', filePath: '/x' } };
     const msgs = [{ id: 'm', blocks: [{ kind: 'tool', toolCall: light }] }];
     expect(leanMessagesForHistory(msgs)).toBe(msgs);
   });

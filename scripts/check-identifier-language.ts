@@ -118,6 +118,12 @@ export const PROJECT_WORDS = new Set([
   // `emitted` and `supplied` above. It names what `git bundle verify` answered
   // before the branch of a node is planted here, and the verb is git's own.
   "verified",
+  // `untyped` is the word the wire contract itself uses: a tool call whose
+  // `detail` the server could not type (absent, or `type: 'unknown'`) is the
+  // one case where the history payload still ships its `args`. The rule is
+  // written in those terms in `shared/lean-tool-call.ts`, so the fixture that
+  // gates it reads the same way.
+  "untyped",
   // The other half of `online`: the browser event is literally named
   // `offline` (`window.addEventListener('offline', …)`), and a handler for it
   // is called after the event it handles.
