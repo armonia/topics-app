@@ -3328,7 +3328,9 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   const stalled = subtaskQueueChip(node);
   const toggle = async () => {
     if (!open && kids === null) {
-      try { const { children } = await boardApi.get(projectId, node.id); setKids(children ?? []); }
+      // Only the children: this row draws the checklist and its chips, never a
+      // comment. The whole body would carry the node's entire thread with it.
+      try { setKids(await boardApi.getChildren(projectId, node.id)); }
       catch { setKids([]); }
     }
     setOpen((o) => !o);
