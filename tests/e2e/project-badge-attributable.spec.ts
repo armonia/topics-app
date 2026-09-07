@@ -40,7 +40,7 @@ import {
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -48,7 +48,12 @@ test.use({ video: "on" });
 const BASE = E2E_BASE;
 // Una directory VERA: le pane interne di un progetto ci fanno cd dentro, e un
 // path inesistente le fa uscire subito.
-const PROJECT_PATH = `/tmp/e2e-badge-attribuibile-${Date.now()}`;
+// `/tmp` is a symlink to `/private/tmp` on macOS, and the server resolves the
+// link when a project path COMES IN (`canonicalProjectPath`: two roads to one
+// directory used to be two projects). So the pane id is born from the CANONICAL
+// spelling, not from the one we called it by, and starting there is the only
+// way the tab locator finds anything on this machine.
+const PROJECT_PATH = `${realpathSync("/tmp")}/e2e-badge-attribuibile-${Date.now()}`;
 const PROJECT_PANE_ID = `project:${encodeURIComponent(PROJECT_PATH)}`;
 
 test.describe("Il badge di un progetto dice DI CHI è", () => {

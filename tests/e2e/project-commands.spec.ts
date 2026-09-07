@@ -12,7 +12,7 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
-import { existsSync, rmSync } from "fs";
+import { existsSync, realpathSync, rmSync } from "fs";
 import { join } from "path";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -308,15 +308,24 @@ test.describe.serial("Project Commands", () => {
     // `/project open <abs path>` binds + FOCUSES the project, transforming the
     // pane and unmounting the transient banner. Assert the durable binding — the
     // real proof of "bind by absolute path".
+    //
+    // The path comes back CANONICAL: an absolute argument goes through
+    // `canonicalProjectPath`, which resolves the symlink so that two spellings
+    // of one directory cannot become two projects. On macOS the data dir lives
+    // under `/tmp`, a link to `/private/tmp`, so the two spellings differ here
+    // and nowhere else. What this test is about is the BINDING, not the
+    // spelling: it asserts the directory, resolved the same way on both sides.
+    const boundDir = realpathSync(testProjectDir);
     await expect
       .poll(
         async () => {
           const res = await page.request.get(`${BASE}/api/topics`);
           const data = await res.json();
-          return data.topics[topicId]?.projectPath;
+          const bound = data.topics[topicId]?.projectPath;
+          return typeof bound === "string" && existsSync(bound) ? realpathSync(bound) : bound;
         },
         { timeout: 10_000 }
       )
-      .toBe(testProjectDir);
+      .toBe(boundDir);
   });
 });
