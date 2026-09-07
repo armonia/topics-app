@@ -53,6 +53,13 @@ case "${1:-help}" in
     echo "> bun install..."
     win "$BUN install --frozen-lockfile" || { echo "x install failed on the PC" >&2; exit 1; }
     win "cd client && $BUN install --frozen-lockfile" || { echo "x client install failed on the PC" >&2; exit 1; }
+    # The bundle is rebuilt on every sync, and it is not zeal: `tar -x` stamps
+    # the extracted sources with the time of the sync, so a `public/` built
+    # before it is OLDER than every file it came from. The global setup reads
+    # exactly that and waits ninety seconds for a watcher that does not exist on
+    # that machine, then gives up. Twenty seconds of vite here, or a run that
+    # never starts there.
+    "$0" build
     ;;
   build)
     # The bundle is built THERE and not shipped from here: `public/` is a build
