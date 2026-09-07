@@ -192,7 +192,7 @@ test.describe("INK — click → ink on the three most frequent gestures", () =>
     await page.locator(`[data-pane-id="${topicA.id}"]`).first().click();
     const panelA = page.locator(panelOf(topicA.name)).first();
     await expect(panelA).toBeVisible({ timeout: 20_000 });
-    const composer = panelA.getByRole("textbox", { name: `Message input for ${topicA.name}` });
+    const composer = panelA.getByRole("textbox", { name: `Campo del messaggio per ${topicA.name}` });
     await expect(composer).toBeVisible({ timeout: 20_000 });
 
     const sendSamples: InkSample[] = [];

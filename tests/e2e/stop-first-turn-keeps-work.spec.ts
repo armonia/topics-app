@@ -106,7 +106,7 @@ test.describe.serial("Stop sul primo turno che ha già lavorato", () => {
     inject!(JSON.stringify({ type: "stream:content_chunk", sessionKey, topicId, content: "Sto rigenerando il report" }));
     await expect(assistantBubbles(page).last()).toContainText("Sto rigenerando il report", { timeout: 10_000 });
 
-    const stop = page.getByRole("button", { name: /Stop streaming/ }).first();
+    const stop = page.getByRole("button", { name: /Ferma la risposta/ }).first();
     await expect(stop).toBeVisible({ timeout: 10_000 });
     await stop.click();
 

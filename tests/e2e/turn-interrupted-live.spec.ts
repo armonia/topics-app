@@ -113,7 +113,7 @@ test.describe.serial("Turno interrotto dal vivo: il banner compare da solo", () 
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
-    await page.getByRole("textbox", { name: /Message input/ }).waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByRole("textbox", { name: /Campo del messaggio/ }).waitFor({ state: "visible", timeout: 15_000 });
     await expect.poll(() => inject !== null, { timeout: 10_000 }).toBe(true);
     return (frame: Record<string, unknown>) => inject!(JSON.stringify({ sessionKey, topicId, ...frame }));
   }

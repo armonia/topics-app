@@ -4,7 +4,7 @@ export class ChatPage {
   constructor(private page: Page) {}
 
   get messageInput() {
-    return this.page.getByRole("textbox", { name: /Message input/ });
+    return this.page.getByRole("textbox", { name: /Campo del messaggio/ });
   }
 
   get messageList() {

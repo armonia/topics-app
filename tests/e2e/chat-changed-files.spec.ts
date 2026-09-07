@@ -161,7 +161,7 @@ test.describe("I file che questa conversazione ha toccato", () => {
      *  the bare testid resolves to two textareas: the accessible name carries
      *  the topic's name and tells them apart. */
     const composerOf = (p: Page, name: string) =>
-      p.getByRole("textbox", { name: new RegExp(`Message input for ${name}`) });
+      p.getByRole("textbox", { name: new RegExp(`Campo del messaggio per ${name}`) });
 
     async function boxOf(locator: ReturnType<Page["locator"]>): Promise<{ top: number; bottom: number; left: number; right: number }> {
       const box = await locator.boundingBox();

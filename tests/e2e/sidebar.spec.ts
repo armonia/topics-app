@@ -411,7 +411,7 @@ test.describe("Sidebar — Unified Timeline", () => {
     await openTopic(page, /E2E-StandaloneChat/);
 
     // Wait for textarea to confirm the panel loaded
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await expect(textarea).toBeVisible({ timeout: 10000 });
   });
 });

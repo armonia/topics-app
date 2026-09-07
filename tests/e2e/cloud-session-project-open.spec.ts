@@ -76,7 +76,7 @@ test.describe("cloud session opens as a Topics project", () => {
     ).toBeVisible({ timeout: 10000 });
     // ...and renders as an interactive chat inside the project window.
     await expect(
-      page.getByRole("textbox", { name: /Message input/ }),
+      page.getByRole("textbox", { name: /Campo del messaggio/ }),
     ).toBeVisible({ timeout: 10000 });
 
     await deleteTopic(request, topic.id);
