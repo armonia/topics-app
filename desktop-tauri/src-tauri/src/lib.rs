@@ -4766,7 +4766,30 @@ fn no_abort<T>(label: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, 
 /// creation only: an already-open pane keeps whatever store it was built with
 /// (the WKWebViewConfiguration is consumed inside wry) until closed + reopened.
 // ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: data store identifier on WKWebView, per-pane data directory on the other two.
-#[tauri::command]
+///
+/// ── WHY THIS COMMAND IS `async` AND HOPS TO THE MAIN THREAD ────────────────
+///
+/// A SYNC `#[tauri::command]` runs INSIDE the IPC callback of the webview that
+/// called it, which on Windows is a WebView2 COM callback. Building a webview
+/// from there is the documented deadlock: tauri's own `WebviewBuilder::new`
+/// says "on Windows, this function deadlocks when used in a synchronous command
+/// or event handlers, you should use `async` commands and separate threads".
+/// wry waits for `CreateCoreWebView2Environment/Controller` with
+/// `webview2_com::wait_with_pump`, a NESTED message loop: it keeps pumping, so
+/// the window stays alive and shortcuts keep working, but the completion
+/// callback cannot be delivered while the outer COM call is on the stack and
+/// the wait never ends. That is exactly the shape measured on 2.2.281: the pane
+/// opens, the URL bar accepts the address, `browser_open` never answers, and
+/// the client sits on `browser.native.initializing` forever because nothing
+/// rejects either (`attemptNativeOpen` only sees resolve/reject).
+///
+/// `(async)` on a sync fn puts the body on the blocking pool, and
+/// `run_on_main_thread` hands the real work back to the event loop, where a
+/// nested pump is ordinary. Same medicine as `window_detach_space`, opposite
+/// reason: there the hop was to REACH the main thread from a tokio worker, here
+/// it is to reach it OUTSIDE the IPC callback. The body still runs on the main
+/// thread, in the same order as before, so macOS behaviour is unchanged.
+#[tauri::command(async)]
 fn browser_open(
     app: tauri::AppHandle,
     id: String,
@@ -4782,9 +4805,22 @@ fn browser_open(
     // = `main`, il vecchio comportamento).
     window_label: Option<String>,
 ) -> Result<(), String> {
-    no_abort("browser_open", move || {
-        browser_open_inner(app, id, url, x, y, width, height, isolate, window_label)
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let app_for_main = app.clone();
+    app.run_on_main_thread(move || {
+        let out = no_abort("browser_open", move || {
+            browser_open_inner(app_for_main, id, url, x, y, width, height, isolate, window_label)
+        });
+        // The receiver is gone only if this command was cancelled; nobody to tell.
+        let _ = tx.send(out);
     })
+    .map_err(|e| format!("browser_open: {e}"))?;
+    // Blocking is allowed here and nowhere else in this file: `(async)` on a sync
+    // fn means the blocking pool, not a tokio worker. The answer is the real
+    // outcome of the creation, so the client's promise still settles on the
+    // truth - which is what keeps the spinner honest.
+    rx.recv()
+        .map_err(|_| "browser_open: the main thread dropped the task".to_string())?
 }
 
 #[allow(clippy::too_many_arguments)]
