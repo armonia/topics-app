@@ -52,6 +52,7 @@ import {
   type StorageOrigin,
   type StorageState,
 } from './browserLoginState';
+import { serverHttpBase } from './net';
 
 export type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -93,18 +94,24 @@ async function takeSnapshot(id: string, invoke: Invoke, max: number): Promise<Sn
 const REF_ACTION_SET = new Set<string>(REF_ACTIONS);
 
 /**
- * Un file locale non arriva mai come `file://` — arriva come `/api/media?path=…`,
- * cioè un riferimento da risolvere sulla NOSTRA origine (server/browser-local-file-url.ts).
+ * A local file never arrives as `file://`: it arrives as `/api/media?path=…`, a
+ * reference to be resolved on the origin that SERVES us
+ * (server/browser-local-file-url.ts).
  *
- * Risolverlo qui e non sul server è il punto: la stessa app si serve su porte
- * diverse a seconda di chi guarda — il proxy in chiaro del guscio desktop, il
- * server in TLS, l'host che vede un telefono in LAN. `window.location.origin` è
- * l'unica risposta giusta per QUESTO client, e la sa solo lui.
+ * Resolved here and not on the server because the same app answers on different
+ * ports depending on who is looking: the desktop shell's cleartext proxy, the
+ * TLS server, the host a phone on the LAN sees. Only this client knows which.
+ *
+ * `serverHttpBase()` and not `window.location.origin`: this code runs INSIDE the
+ * desktop shell, where the UI is served by the asset protocol and
+ * `location.origin` is `tauri://localhost`. That origin has no HTTP server
+ * behind it, so the reference resolved into an address WKWebView cannot fetch,
+ * the pane stayed on `about:blank`, and the op still answered `ok`.
  */
 function absolutizeMediaRef(url: string): string {
   if (!url.startsWith('/api/media?path=')) return url;
   try {
-    return new URL(url, window.location.origin).toString();
+    return new URL(url, serverHttpBase() || window.location.origin).toString();
   } catch {
     return url;
   }
@@ -118,28 +125,43 @@ function absolutizeMediaRef(url: string): string {
  * eval failure just retries. Best-effort: on timeout the caller proceeds anyway
  * (mirrors the server's catch-and-continue around goto).
  *
- * Returns whether the document really settled: a caller that reports readiness
- * to an agent must be able to tell "loaded" from "gave up waiting".
+ * Returns whether the document really settled AND the address the view ended
+ * up on: a caller that reports readiness to an agent must be able to tell
+ * "loaded" from "gave up waiting", and to say WHERE the pane actually is.
  */
 async function waitForPaneLoad(
   id: string,
   invoke: Invoke,
   origin: string | null,
   timeoutMs: number,
-): Promise<boolean> {
-  const probeJs = 'JSON.stringify({origin:location.origin,ready:document.readyState})';
+): Promise<PaneLoadOutcome> {
+  const probeJs = 'JSON.stringify({origin:location.origin,href:location.href,ready:document.readyState})';
   const deadline = Date.now() + timeoutMs;
+  let href = '';
   for (;;) {
     try {
       const raw = await invoke<string>('browser_eval_js', { id, js: probeJs });
-      const s = JSON.parse(raw || '{}') as { origin?: string; ready?: string };
-      if ((!origin || s.origin === origin) && s.ready && s.ready !== 'loading') return true;
+      const s = JSON.parse(raw || '{}') as { origin?: string; href?: string; ready?: string };
+      if (typeof s.href === 'string' && s.href) href = s.href;
+      if ((!origin || s.origin === origin) && s.ready && s.ready !== 'loading') return { ready: true, href };
     } catch {
       /* execution context mid-swap — retry */
     }
-    if (Date.now() >= deadline) return false;
+    if (Date.now() >= deadline) return { ready: false, href };
     await new Promise((r) => setTimeout(r, 250));
   }
+}
+
+/**
+ * What the wait actually observed: settled or not, and the address the view was
+ * on at the last probe. The second half is the honest half — a navigation that
+ * never happened leaves the pane on `about:blank`, and until this came back the
+ * caller had no way to know.
+ */
+interface PaneLoadOutcome {
+  ready: boolean;
+  /** `location.href` at the last successful probe; '' when nothing answered. */
+  href: string;
 }
 
 /** How long `browser_open` waits for the pane's document before answering. */
@@ -225,8 +247,16 @@ export async function executeNativeBrowserOp(
         // Best-effort and bounded: on timeout we answer anyway (same contract
         // as the server's catch-and-continue around goto), with `ready` saying
         // which of the two happened instead of hiding it.
-        const ready = await waitForPaneLoad(id, invoke, originOf(url), NAV_SETTLE_MS);
-        return { result: { ok: true, url, ready } };
+        //
+        // AND THEN ASK WHERE IT ENDED UP, instead of echoing what was asked.
+        // The `url` this op returned used to be the REQUESTED one, whatever the
+        // view did with it: an address WKWebView refused left the pane on
+        // `about:blank` while the answer said `ok` with the requested URL, and
+        // the caller (open_browser_pane) repeated that to the agent. Reporting
+        // `location.href` is what turns a silent white pane into a visible
+        // failure — nothing else on this seam can see it.
+        const { ready, href } = await waitForPaneLoad(id, invoke, originOf(url), NAV_SETTLE_MS);
+        return { result: { ok: true, url: href || url, requested: url, ready } };
       }
       case 'browser_observe': {
         const max =
