@@ -25,11 +25,19 @@
  *              alone, with HOME pointed at an empty directory, creates
  *              `~/.codex/tmp/arg0/...`. The CLI manages its own home; Topics
  *              only asks it its version.
+ *   .gemini    Same shape, measured on 2026-09-07: `gemini --version` alone
+ *              under an empty HOME creates `~/.gemini`. It shows up only on a
+ *              machine where that CLI is installed (this one), which is why
+ *              the first CI run of this test never saw it. `claude --version`
+ *              under the same empty HOME creates NOTHING, so `.claude` stays
+ *              exactly the finding described below.
  *
- * And `Library/`, which on macOS holds Bun's transpiler cache for `bun run
- * server.ts`. The shipped server is a compiled single file: it transpiles
- * nothing and writes none of this. It is an artefact of running the test from
- * source, so it is excluded by name rather than pretended away.
+ * And the runtime's own cache for `bun run server.ts`: `Library/` on macOS,
+ * `.bun/` on Linux (measured on the CI runner, 2026-09-07: the first run of
+ * this test there failed on exactly that one entry). The shipped server is a
+ * compiled single file: it transpiles nothing and writes none of this. It is
+ * an artefact of running the test from source, so both names are excluded
+ * explicitly rather than pretended away.
  *
  * ANYTHING ELSE IS A FINDING. In particular `.claude`: until 2026-09-07 the
  * server wrote its hook token into the user's Claude config dir on every boot.
@@ -48,7 +56,7 @@ const ROOT = testTmpDir("home-isolation");
 const HOME = path.join(ROOT, "home");
 
 /** Top-level names allowed to exist in HOME afterwards. See the note above. */
-const ALLOWED_IN_HOME = new Set([".topics", ".openclaw", ".codex", "Library"]);
+const ALLOWED_IN_HOME = new Set([".topics", ".openclaw", ".codex", ".gemini", "Library", ".bun"]);
 
 /** Everything the run left in HOME, one entry per top-level name. */
 function homeEntries(): string[] {

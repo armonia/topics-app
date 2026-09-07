@@ -27,7 +27,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
-import { TITLE_INSET_PX, TITLE_INSET_WITH_CONTROLS } from '../../lib/shell/windowControlsGeometry';
+import {
+  TITLE_INSET_MAC_PX,
+  TITLE_INSET_WINDOWS_PX,
+  TITLE_INSET_WITH_CONTROLS_MAC,
+  TITLE_INSET_WITH_CONTROLS_WINDOWS,
+  TRAFFIC_LIGHTS_WIDTH_PX,
+  TRAFFIC_LIGHT_DOT_PX,
+  TRAFFIC_LIGHT_GAP_PX,
+  WINDOW_CONTROLS_INSET_PX,
+  CONTENT_CHROME_INSET_PX,
+  CONTENT_CHROME_INSET_PROPERTY,
+} from '../../lib/shell/windowControlsGeometry';
+import { ROW_INSET } from '../../lib/selectionStyles';
 
 // ONE EXPORT IS OVERRIDDEN, and the rest of the facade is left ALONE. Faking the
 // host is not enough: `isTauriWindows` is a module CONSTANT, computed the first
@@ -119,38 +131,105 @@ describe('where they are mounted', () => {
     for (const c of ['app-no-drag', 'relative', 'min-w-0']) expect(tag).toContain(c);
   });
 
-  test('the "Topics" label sits next to them, on both systems', () => {
-    expect(app()).toContain('isTauriMac || isTauriWindows ? TITLE_INSET_WITH_CONTROLS');
+  test('the "Topics" label sits next to them, with the inset of its own system', () => {
+    expect(app()).toContain(
+      "windowChrome === 'mac' ? TITLE_INSET_WITH_CONTROLS_MAC : windowChrome === 'windows' ? TITLE_INSET_WITH_CONTROLS_WINDOWS",
+    );
   });
 });
 
 /**
  * THE ROOM BETWEEN THE TWO GROUPS, which is a number and not an impression.
  *
- * The commands are absolute: they reserve nothing, so what keeps them off the
- * Topics chevron is the width of the word underneath - a system font, i.e. not a
- * layout contract. On Windows 11 (Segoe UI) it left two or three pixels and the
- * two groups read as one (card 3198947b). The width is now DECLARED, and these
- * three facts are what the declaration is computed from: change a cell size or
- * the anchor and the arithmetic has to be redone here first.
+ * The commands are absolute on Windows and native on the Mac: they reserve
+ * nothing, so what keeps them off the word is an inset DECLARED per system.
+ * These facts are what the declaration is computed from: change a cell size,
+ * a dot, a gap or the anchor and the arithmetic has to be redone here first.
+ * The Mac's anchor and pitch are ALSO pinned in Rust (`LEFT_INSET`, `PITCH` in
+ * `desktop-tauri/src-tauri/src/lib.rs`), which is why the numbers are asserted
+ * as literals and not only against each other.
  */
 describe('the reserved room', () => {
-  test('the inset and its class say the same number', () => {
-    expect(TITLE_INSET_WITH_CONTROLS).toBe(`pl-[${TITLE_INSET_PX}px]`);
+  test('each inset and its class say the same number', () => {
+    expect(TITLE_INSET_WITH_CONTROLS_MAC).toBe(`pl-[${TITLE_INSET_MAC_PX}px]`);
+    expect(TITLE_INSET_WITH_CONTROLS_WINDOWS).toBe(`pl-[${TITLE_INSET_WINDOWS_PX}px]`);
   });
 
-  test('cells and anchor are the ones the arithmetic assumes', () => {
+  test('the Mac cluster is three 12px dots with 8px gaps, anchored at 12', () => {
+    expect(TRAFFIC_LIGHT_DOT_PX).toBe(12);
+    expect(TRAFFIC_LIGHT_GAP_PX).toBe(8);
+    expect(TRAFFIC_LIGHTS_WIDTH_PX).toBe(52);
+    expect(WINDOW_CONTROLS_INSET_PX).toBe(12);
+    // Window x=12, 52 wide, ends at 64; in wrapper coordinates that is 58,
+    // then one ROW_INSET of air: 64.
+    expect(TITLE_INSET_MAC_PX).toBe(WINDOW_CONTROLS_INSET_PX + TRAFFIC_LIGHTS_WIDTH_PX);
+    expect(TITLE_INSET_MAC_PX).toBe(64);
+  });
+
+  test('the Rust shell pins the same anchor and pitch', () => {
+    const rs = readFileSync(
+      join(import.meta.dir, '..', '..', '..', '..', 'desktop-tauri', 'src-tauri', 'src', 'lib.rs'),
+      'utf8',
+    );
+    expect(rs).toContain(`const LEFT_INSET: f64 = ${WINDOW_CONTROLS_INSET_PX}.0;`);
+    expect(rs).toContain(`const PITCH: f64 = ${TRAFFIC_LIGHT_DOT_PX + TRAFFIC_LIGHT_GAP_PX}.0;`);
+  });
+
+  test('Windows cells and anchor are the ones the arithmetic assumes', () => {
     const html = renderToStaticMarkup(<WindowControls visible />);
-    // 3 cells of 18 anchored at 6 = the group ends at 60 inside the wrapper.
+    // 3 cells of 18 anchored at 6 = the group ends at 60 inside the wrapper,
+    // then one ROW_INSET of air: 66. The cells are hit targets and stay 18.
     expect((html.match(/h-\[18px\] w-\[18px\]/g) || []).length).toBe(3);
-    expect(html).toContain('left-[6px]');
-    expect(TITLE_INSET_PX).toBe(72);
+    expect(html).toContain(`left-[${WINDOW_CONTROLS_INSET_PX - ROW_INSET}px]`);
+    expect(TITLE_INSET_WINDOWS_PX).toBe(6 + 18 * 3 + ROW_INSET);
+    expect(TITLE_INSET_WINDOWS_PX).toBe(66);
   });
 
   test('the title wrapper reserves it whenever the commands are on screen', () => {
     const s = readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
-    expect(s).toContain('isTauriMac || isTauriWindows ? TITLE_INSET_WITH_CONTROLS');
+    expect(s).toContain("windowChrome === 'mac' ? TITLE_INSET_WITH_CONTROLS_MAC");
+    expect(s).toContain("windowChrome === 'windows' ? TITLE_INSET_WITH_CONTROLS_WINDOWS");
     // Not conditioned on a menu: the commands are permanent now, so is the room.
     expect(s).not.toContain('showTopicsMenu ? TITLE_INSET_WITH_CONTROLS');
+  });
+});
+
+/**
+ * THE CONTENT'S ROOM AND ITS CLOCK. When the sidebar collapses the content's
+ * top bar slides under the native lights; it keeps 70px (lights + one
+ * ROW_INSET) and eases that padding on the SAME 200ms ease as the slide. The
+ * equality is the whole guarantee, and no compiler checks a CSS duration
+ * against a TS constant: this does.
+ */
+describe('the room the content keeps under the lights', () => {
+  const css = () => readFileSync(join(import.meta.dir, '..', '..', 'index.css'), 'utf8');
+  const hook = () => readFileSync(join(import.meta.dir, '..', '..', 'hooks', 'useSidebarFlipPush.ts'), 'utf8');
+
+  test('lights, anchor and one ROW_INSET of air: 70', () => {
+    expect(CONTENT_CHROME_INSET_PX).toBe(WINDOW_CONTROLS_INSET_PX + TRAFFIC_LIGHTS_WIDTH_PX + ROW_INSET);
+    expect(CONTENT_CHROME_INSET_PX).toBe(70);
+  });
+
+  test('the padding eases on the same clock as the slide', () => {
+    const slideMs = Number(hook().match(/const SLIDE_MS = (\d+);/)?.[1]);
+    expect(slideMs).toBe(200);
+    const rule = css().match(/\.content-chrome-inset\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toContain(`padding-left ${slideMs}ms ease`);
+    expect(rule).toContain(`left ${slideMs}ms ease`);
+    expect(css()).toContain(`transition: width ${slideMs}ms ease, transform ${slideMs}ms ease`);
+  });
+
+  test('the property is set on #main-content and read only by the toggle cell', () => {
+    const s = readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
+    expect(s).toContain(`[${'CONTENT_CHROME_INSET_PROPERTY'} as string]:`);
+    expect(s).toContain("const contentChromeInset = windowChrome === 'mac' && sidebarCollapsed && !isMobile");
+    // Twice on purpose: the floating toggle is a SIBLING of #main-content.
+    expect(s.split('[CONTENT_CHROME_INSET_PROPERTY as string]: contentChromeInset').length - 1).toBe(2);
+    const group = readFileSync(
+      join(import.meta.dir, '..', 'Layout', 'StandaloneChatGroup.tsx'),
+      'utf8',
+    );
+    expect(group).toContain("onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined");
+    expect(CONTENT_CHROME_INSET_PROPERTY).toBe('--content-chrome-inset');
   });
 });
