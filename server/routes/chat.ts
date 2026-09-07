@@ -2527,7 +2527,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // shared onToolResult update path so the chat UI shows the normal
               // running→success/error lifecycle. Fire-and-forget: single-turn SDK
               // providers don't need the result back to continue.
-              if (isControlTool(name) && matchedTopic && !globalOrchestrator) {
+              //
+              // THE ROUTE EXECUTES ONLY WHAT THE ROUTE REGISTERED. These five
+              // names are handed to the model by `sendOptions.tools` for the
+              // passthrough providers alone (see `isPassthroughProvider` below);
+              // every other runtime already owns them through the MCP table
+              // (`TOOL_HANDLERS`) and runs them itself. Dispatching here for
+              // those runtimes is a second execution of the same call: on the
+              // native runtime the announcement carries no arguments
+              // (`agent-loop.ts` emits `onToolStart(id, name, {})`), so the
+              // route re-ran the tool with `{}` and painted a bogus "argument
+              // required" error over a call that had in fact succeeded.
+              if (isControlTool(name) && matchedTopic && !globalOrchestrator && isPassthroughProvider(topicProvider.name)) {
                 markToolExecuting(toolCallId);
                 dispatchControlToolCall(name, args || {}, matchedTopic, controlDispatchDeps)
                   .then((confirmation) => {
