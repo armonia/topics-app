@@ -117,8 +117,34 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId("sidebar-topics-menu")).toBeVisible({ timeout: 15_000 });
 });
 
-/** Le cinque schede del pannello, nell'ordine in cui la nav le elenca. */
-const SCHEDE = ["Aspetto", "Notifiche", "Provider AI", "Profilo", "Piano"];
+/**
+ * Every entry of the panel, in the order the nav lists them
+ * (`client/src/components/Settings/sections.ts`).
+ *
+ * IT USED TO BE FIVE, and the panel had ten: Calendar, Followers, Privacy,
+ * Organization and Devices arrived after this file was written and none of
+ * them ever went through the 44px/overflow audit below. A fixed list does not
+ * go red when the panel grows, it just measures less of it while the comment
+ * keeps saying "all of them" - which is why the count assertion in the test is
+ * part of the measurement and not decoration.
+ */
+const SCHEDE = [
+  "Aspetto",
+  "Notifiche",
+  "Calendario",
+  "Provider AI",
+  "Profilo",
+  "Follower",
+  "Privacy",
+  "Organizzazione",
+  "Dispositivi",
+  "Piano",
+];
+
+/** The tab strip, which is also the only place these labels are buttons: the
+ *  pages themselves carry buttons that repeat some of those words. */
+const panelNav = (page: Page) =>
+  page.getByTestId("settings-panel").locator("nav").first();
 
 test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", async ({ page }) => {
   test.info().annotations.push({ type: "spec", description: "SETMOB-01" });
@@ -135,9 +161,8 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
     const nodi = [panel, ...Array.from(panel.querySelectorAll("*"))] as HTMLElement[];
     return nodi
       .filter((el) => el.scrollWidth - el.clientWidth > 1)
-      // La riga delle schede scorre in orizzontale DI PROPOSITO: è la
-      // navigazione, e il suo scorrimento è il modo in cui cinque schede
-      // stanno su uno schermo da 390.
+      // The tab strip scrolls horizontally ON PURPOSE: it is the navigation,
+      // and that scroll is how ten entries fit on a 390px screen.
       .filter((el) => el.tagName !== "NAV")
       .map((el) => ({
         tag: el.tagName.toLowerCase(),
@@ -169,22 +194,40 @@ test("a 390px il pannello sta nello schermo e non ha bersagli sotto i 44px", asy
   //    Si inietta come <script>, non con `eval`: il file è un IIFE che installa
   //    `window.__uiAudit`, ed è esattamente il modo in cui è pensato per essere
   //    caricato.
-  //    E si passa per TUTTE E CINQUE le schede: la prima è «Aspetto», e
-  //    fermarsi lì misurerebbe un quinto del pannello dichiarando di averlo
-  //    misurato tutto.
+  //    And it walks EVERY entry: the first one is "Aspetto", and stopping
+  //    there would measure a tenth of the panel while claiming the whole of it.
+  //
+  //    The count comes first, and it is the assertion that keeps the rest
+  //    honest: the list above is written by hand, so the day an eleventh
+  //    section appears this line goes red instead of the audit quietly
+  //    skipping it. Labels and order are compared too - a renamed entry would
+  //    otherwise make the click below fail with "locator not found", which
+  //    names the test instead of the change.
+  const nav = panelNav(page);
+  const labels = (await nav.getByRole("button").allInnerTexts()).map((s) => s.trim());
+  expect(labels, "the panel nav and the list this spec walks").toEqual(SCHEDE);
+
+  //    EVERY section is measured before anything is asserted. Failing inside
+  //    the loop stops at the first bad entry and hides the others, which turns
+  //    one audit into as many runs as there are defects: with ten sections
+  //    that is the difference between one report and five.
   await page.addScriptTag({ content: AUDIT_JS });
+  const belowThreshold: Record<string, unknown> = {};
+  const horizontalScroll: string[] = [];
   for (const scheda of SCHEDE) {
-    await page.getByTestId("settings-panel").getByRole("button", { name: scheda, exact: true }).click();
+    await nav.getByRole("button", { name: scheda, exact: true }).click();
     await page.waitForTimeout(200);
     const audit = await page.evaluate(() => {
       const fn = (window as unknown as { __uiAudit: (o: unknown) => string }).__uiAudit;
       return JSON.parse(fn({ scope: '[data-testid="settings-panel"]', minTap: 44 }));
     });
     const tap = (audit.findings?.tapTargets ?? []) as Array<{ el: string; w: number; h: number }>;
-    expect(tap, `«${scheda}» — bersagli sotto i 44px: ${JSON.stringify(tap)}`).toEqual([]);
-    expect(audit.overflowX?.present, `«${scheda}» — scorrimento orizzontale`).toBe(false);
+    if (tap.length > 0) belowThreshold[scheda] = tap;
+    if (audit.overflowX?.present) horizontalScroll.push(scheda);
   }
-  await page.getByTestId("settings-panel").getByRole("button", { name: "Aspetto", exact: true }).click();
+  expect(belowThreshold, "bersagli sotto i 44px, per scheda").toEqual({});
+  expect(horizontalScroll, "schede con scorrimento orizzontale").toEqual([]);
+  await nav.getByRole("button", { name: "Aspetto", exact: true }).click();
 
   // Le due schermate della consegna: STESSA scheda, due larghezze. Solo sotto
   // `E2E_EVIDENCE=1`, come le clip — nella passata veloce la suite non paga i
