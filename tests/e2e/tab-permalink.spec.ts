@@ -44,7 +44,7 @@
  */
 import { test } from "./fixtures/test-fixtures";
 import { expect, type Page } from "@playwright/test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTopic, cleanupAll, resetPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
@@ -52,6 +52,7 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { buildTabPath } from "../../shared/tab-link";
+import { removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -509,7 +510,7 @@ test.describe("Permalink di una tab — il consumatore a freddo", () => {
       const chat = await request.get("/api/tabs/resolve?ref=/tab/chat/22222222-2222-4222-8222-222222222222");
       expect((await chat.json()).state).toBe("unknown");
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeTmpDir(scratch);
     }
   });
 

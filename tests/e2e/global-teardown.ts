@@ -4,8 +4,16 @@
  * Also cleans up any stale processes on the test port.
  */
 
-import { execSync, execFileSync } from "child_process";
+import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
+import {
+  isAlive,
+  killPids,
+  killProcessTree,
+  listenerPids,
+  playwrightChromiumPids,
+  processRows,
+} from "./helpers/platform";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
 import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
 
@@ -41,19 +49,14 @@ function bankBridgePids(socket: string, pidFile: string): number[] {
   // 2. Cintura: un ponte morto male può non aver lasciato il pidfile, e un ponte
   //    RINATO dopo la scrittura può averlo lasciato stantio. Si cerca per riga
   //    di comando, ancorata al path ESATTO del socket del banco.
-  try {
-    const rows = execSync("ps ax -o pid=,command= 2>/dev/null || true").toString();
-    for (const row of rows.split("\n")) {
-      if (!row.includes(socket)) continue;
-      const pid = Number(row.trim().split(/\s+/)[0]);
-      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
-    }
-  } catch { /* ps non disponibile */ }
+  for (const row of processRows()) {
+    if (!row.command.includes(socket)) continue;
+    const pid = Number(row.pid);
+    if (Number.isInteger(pid) && pid > 0) pids.add(pid);
+  }
 
   // Vivi soltanto: un pid morto nel pidfile non è un orfano da riportare.
-  return [...pids].filter((pid) => {
-    try { process.kill(pid, 0); return true; } catch { return false; }
-  });
+  return [...pids].filter(isAlive);
 }
 
 /**
@@ -67,12 +70,7 @@ function bankBridgePids(socket: string, pidFile: string): number[] {
  * senza questa attesa il teardown correva contro la resurrezione — e la perdeva.
  */
 async function waitForServersGone(port: number, timeoutMs = 10_000): Promise<void> {
-  const listeners = () => {
-    try {
-      return execSync(`lsof -ti :${port} -sTCP:LISTEN 2>/dev/null || true`)
-        .toString().trim().split("\n").filter(Boolean);
-    } catch { return []; }
-  };
+  const listeners = () => listenerPids(port);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!listeners().length) return;
@@ -83,9 +81,7 @@ async function waitForServersGone(port: number, timeoutMs = 10_000): Promise<voi
   const rimasti = listeners();
   if (rimasti.length) {
     console.warn(`[global-teardown] Server ancora in ascolto su ${port} (PID ${rimasti.join(", ")}): SIGKILL.`);
-    for (const pid of rimasti) {
-      try { process.kill(Number(pid), "SIGKILL"); } catch { /* già morto */ }
-    }
+    killPids(rimasti, { force: true });
     await new Promise((r) => setTimeout(r, 500));
   }
 }
@@ -104,9 +100,8 @@ async function killBankPtyBridge(port: number): Promise<void> {
   for (let pass = 0; pass < 4; pass++) {
     const pids = bankBridgePids(socket, pidFile);
     if (!pids.length) break;
-    for (const pid of pids) {
-      try { process.kill(pid, "SIGTERM"); killed.add(pid); } catch { /* già morto */ }
-    }
+    for (const pid of pids) killed.add(pid);
+    killPids(pids);
     await new Promise((r) => setTimeout(r, 400));
   }
 
@@ -132,16 +127,10 @@ async function globalTeardown() {
 
   if (pid) {
     console.log(`[global-teardown] Killing test server (PID: ${pid})...`);
-    try {
-      // Kill the process group (negative PID kills the group)
-      process.kill(-Number(pid), "SIGTERM");
-    } catch {
-      try {
-        process.kill(Number(pid), "SIGTERM");
-      } catch {
-        // Already dead
-      }
-    }
+    // The whole tree: a process group signal on POSIX, `taskkill /T` on Windows
+    // (see helpers/platform.ts), then the process itself as a fallback.
+    killProcessTree(Number(pid));
+    killPids([pid]);
   }
 
   // Also kill any stale processes on the test port.
@@ -170,18 +159,12 @@ async function globalTeardown() {
     console.log("[global-teardown] Test server stopped.");
     return;
   }
-  try {
-    const pids = execSync(
-      `lsof -ti :${TEST_PORT} -sTCP:LISTEN 2>/dev/null || true`
-    )
-      .toString()
-      .trim();
-    if (pids) {
-      execSync(`kill ${pids.split("\n").join(" ")} 2>/dev/null || true`);
-      console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.replace(/\n/g, ", ")}`);
+  {
+    const pids = listenerPids(TEST_PORT);
+    if (pids.length) {
+      killPids(pids);
+      console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.join(", ")}`);
     }
-  } catch {
-    // No stale processes
   }
 
   console.log("[global-teardown] Test server stopped.");
@@ -207,15 +190,11 @@ async function globalTeardown() {
     // resta come cintura in più, ma da sola non basterebbe più: con gli shard in
     // parallelo i browser degli altri nascono DOPO la nostra fotografia.
     const mine = descendantsOf(process.pid);
-    const chromiumPids = execSync(
-      'ps ax -o pid=,command= | grep -E "ms-playwright|mcp-chrome" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\' 2>/dev/null || true'
-    ).toString().trim();
-    const ours = chromiumPids
-      .split("\n")
-      .map((s: string) => s.trim())
-      .filter((pid: string) => /^\d+$/.test(pid) && !spared.has(pid) && mine.has(pid));
+    const ours = playwrightChromiumPids().filter(
+      (pid: string) => !spared.has(pid) && mine.has(pid),
+    );
     if (ours.length) {
-      execSync(`kill -9 ${ours.join(' ')} 2>/dev/null || true`);
+      killPids(ours, { force: true });
       console.log(`[global-teardown] Killed ${ours.length} orphaned Chromium process(es) from this run` +
         (spared.size ? `; spared ${spared.size} pre-existing` : ""));
     } else {

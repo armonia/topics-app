@@ -24,8 +24,8 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -56,7 +56,7 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
     initGitRepo(PROJ, "primo");
     writeFileSync(`${PROJ}/README.md`, "uno\ndue\n");
   });
-  test.afterAll(() => { rmSync(PROJ, { recursive: true, force: true }); });
+  test.afterAll(() => { removeTmpDir(PROJ); });
 
   test("RAILGAP-1: i comandi non si portano dietro nessuna riga", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "RAILGAP-01" });

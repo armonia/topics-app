@@ -2,10 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.281 — 2026-09-07
+
+### Sotto il cofano
+- Il picker pesa dove gira la macinata, non che esista
+
 ## 2.2.279 — 2026-09-07
 
 ### Sotto il cofano
 - La webview grigia dopo il ripristino ha finalmente un cancello che sa fallire
+- L'aggiornamento del guscio torna a farsi vedere: il controllo gira anche in dev e l'avviso nomina il numero che e' davvero indietro
 
 ## 2.2.278 — 2026-09-07
 

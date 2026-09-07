@@ -18,7 +18,7 @@
  * @covers BROWSER-CHAT-04
  */
 import { test, expect } from "@playwright/test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { goToApp } from "./helpers";
@@ -33,6 +33,7 @@ import {
   waitForTopicVisible,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -61,7 +62,7 @@ test.describe("open_browser_pane monta un pannello anche fuori da un progetto", 
   test.afterAll(async ({ request }) => {
     await closeAllBrowserContexts(request);
     if (topicId) await deleteTopic(request, topicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test("topic senza progetto + tab di progetto aperta: il pannello compare, e la risposta dice visible", async ({ page }) => {

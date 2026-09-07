@@ -15,12 +15,13 @@
  * @covers BROWSER-CHAT-04
  */
 import { test, expect, type Page } from "@playwright/test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { goToApp } from "./helpers";
 import { resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -60,7 +61,7 @@ test.describe.serial("Due pane browser nello stesso gruppo", () => {
   });
 
   test.afterAll(() => {
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test("barra standalone: il secondo «+ → Browser» apre una seconda tab", async ({ page }) => {

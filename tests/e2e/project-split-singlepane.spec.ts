@@ -36,7 +36,7 @@ import {
   resetProjectPanes,
 } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -66,7 +66,7 @@ test.describe("In-project split (card c2984ce2)", () => {
   test.afterAll(async ({ request }) => {
     if (childChatId) await deleteTopic(request, childChatId).catch(() => {});
     rmSync(RAW_PATH, { force: true });
-    rmSync(REAL_PATH, { recursive: true, force: true });
+    removeTmpDir(REAL_PATH);
   });
 
   function projectWindow(page: import("@playwright/test").Page) {

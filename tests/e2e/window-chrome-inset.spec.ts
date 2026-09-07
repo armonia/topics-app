@@ -23,13 +23,14 @@
  * @covers WINCTL-02
  */
 import { test, expect, type Browser, type Page } from "@playwright/test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_BASE } from "./helpers/test-server";
 import { openTestChat } from "./helpers";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -268,7 +269,7 @@ test.describe("The room for the native lights", () => {
       if (video) {
         await video.saveAs(join(MEDIA_DIR, VIDEO_NAME));
       }
-      rmSync(videoTmp, { recursive: true, force: true });
+      removeTmpDir(videoTmp);
     }
   });
 

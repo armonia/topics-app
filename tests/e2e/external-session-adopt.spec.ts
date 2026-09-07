@@ -23,10 +23,11 @@
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { claudeProjectDirName } from "../../server/lib/claude-transcript-path";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -75,7 +76,7 @@ async function waitForCensus(request: import("@playwright/test").APIRequestConte
 test.describe("Handoff: adottare una sessione Claude Code viva", () => {
   test.describe.configure({ timeout: 90_000 });
 
-  const API_PATH = `/tmp/e2e-adopt-api-${Date.now()}`;
+  const API_PATH = canonicalTmpDir("e2e-adopt-api");
   const API_SID = "ad0d7000-1111-2222-3333-444444444444";
 
   test.beforeAll(async ({ request }) => {
@@ -86,8 +87,8 @@ test.describe("Handoff: adottare una sessione Claude Code viva", () => {
   });
 
   test.afterAll(async () => {
-    rmSync(`${TEST_HOME}/.claude/projects/${encode(API_PATH)}`, { recursive: true, force: true });
-    rmSync(API_PATH, { recursive: true, force: true });
+    removeTmpDir(`${TEST_HOME}/.claude/projects/${encode(API_PATH)}`);
+    removeTmpDir(API_PATH);
   });
 
 

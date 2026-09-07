@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.281",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il picker pesa dove gira la macinata, non che esista",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.279",
     "date": "2026-09-07",
     "sections": {
@@ -9,6 +25,11 @@
       "internal": [
         {
           "it": "La webview grigia dopo il ripristino ha finalmente un cancello che sa fallire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'aggiornamento del guscio torna a farsi vedere: il controllo gira anche in dev e l'avviso nomina il numero che e' davvero indietro",
           "en": "",
           "scope": null
         }

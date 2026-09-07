@@ -42,7 +42,7 @@ import { hermetic } from './fixtures/hermetic';
 import { projectIdForPath } from '../../shared/board';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -75,7 +75,7 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
-  rmSync(PROJECT_PATH, { recursive: true, force: true });
+  removeTmpDir(PROJECT_PATH);
 });
 
 /** Apre la board del progetto di prova dal menu «+» della sua finestra. */

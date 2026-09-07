@@ -33,10 +33,12 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { longPress } from "./helpers/long-press";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
+import { join } from "path";
 
 hermetic(test);
 
@@ -124,7 +126,7 @@ test.describe("Fermare un task senza archiviarlo", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {
@@ -197,7 +199,7 @@ test.describe("Fermare un task senza archiviarlo", () => {
     await expect(card).toBeVisible({ timeout: 10000 });
     await expect(card.getByTestId("dispatch-chip")).toHaveAttribute("data-state", "stopped", { timeout: 10000 });
     // allow-literal-tmp: an evidence dump read by hand, not a path hashed into a board id.
-    if (shot) writeFileSync("/tmp/e2e-cardstop-crop.json", JSON.stringify({ ...shot, cardAfter: await card.boundingBox() }));
+    if (shot) writeFileSync(join(canonicalTmpRoot(), "e2e-cardstop-crop.json"), JSON.stringify({ ...shot, cardAfter: await card.boundingBox() }));
     await beat(page, 2500);
 
     // 2) E il DB dice la stessa cosa, compreso il conto dei tentativi: fermare

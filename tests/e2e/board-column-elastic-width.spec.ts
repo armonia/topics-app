@@ -21,12 +21,13 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-const PROJECT_PATH = `/tmp/e2e-column-elastic-${Date.now()}`;
+const PROJECT_PATH = canonicalTmpDir("e2e-column-elastic");
 
 let projectTopicId: string | null = null;
 
@@ -203,7 +204,7 @@ test.describe("Kanban — larghezza elastica delle colonne", () => {
 
   test.afterAll(async ({ request }) => {
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {

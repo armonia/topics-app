@@ -128,6 +128,12 @@ docs/*
 !docs/webkit-localstorage-wal.md
 !docs/pane-first-frame-inventory.md
 !docs/drag-preview.md
+# e2e-on-windows.md e' la RICETTA per far girare la suite su una macchina
+# Windows: il prodotto ha un guscio Windows e utenti Windows, e la prima
+# esecuzione ha trovato quattro difetti che ne' il Mac ne' il runner Linux
+# possono vedere. Una procedura che vive sul portatile di chi l'ha scritta
+# costringe il prossimo a ricomprarla.
+!docs/e2e-on-windows.md
 !docs/tunnel.md
 # licenze-rilascio.md dice DOVE vive la chiave privata con cui si firmano le
 # licenze e come si ruota. Non contiene nessun segreto — contiene la procedura,

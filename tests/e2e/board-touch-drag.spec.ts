@@ -28,10 +28,11 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
 import { grabPoint, measureTargets, touchDrag } from "./helpers/hit-area";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -107,7 +108,7 @@ test.describe("La board col dito", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {

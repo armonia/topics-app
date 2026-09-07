@@ -30,7 +30,7 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { deflateSync } from "zlib";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -270,7 +270,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     if (sessionTopicId) await deleteTopic(request, sessionTopicId);
     if (liveTopicId) await deleteTopic(request, liveTopicId);
     if (steerTopicId) await deleteTopic(request, steerTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
     if (previewPath) rmSync(previewPath, { force: true });
   });
 

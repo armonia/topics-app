@@ -23,8 +23,8 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { execFileSync } from "child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpDir } from "./helpers/file-project";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -168,8 +168,8 @@ test.describe("Scelte sempre presenti sulla card", () => {
   test.afterAll(async ({ request }) => {
     for (const id of [...createdTasks].reverse()) await deleteTask(request, PROJECT_ID, id);
     if (topicId) await deleteTopic(request, topicId);
-    if (worktreePath && existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
-    rmSync(REPO, { recursive: true, force: true });
+    if (worktreePath && existsSync(worktreePath)) removeTmpDir(worktreePath);
+    removeTmpDir(REPO);
   });
 
   test.beforeEach(async ({ page }) => {
