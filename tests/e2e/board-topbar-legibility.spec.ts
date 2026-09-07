@@ -49,12 +49,13 @@
  */import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
 // The world the bar is measured in — four throwaway projects, the stubbed
 // system probes, and the readers that turn the bar into numbers.
+import { removeTmpDir } from "./helpers/file-project";
 import {
   SHOTS, STAMP, ROOT, PROJECTS, dirOf, unlandedTitles,
   apiCreateTask, stubProbes, openProjectBoard, openGlobalBoard,
@@ -124,7 +125,7 @@ test.describe("Top bar della kanban — si legge da sola", () => {
       await deleteTask(request, projectId!, id!).catch(() => {});
     }
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(ROOT, { recursive: true, force: true });
+    removeTmpDir(ROOT);
   });
 
   test.beforeEach(async ({ page }) => {

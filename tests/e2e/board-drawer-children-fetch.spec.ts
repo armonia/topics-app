@@ -27,8 +27,8 @@ import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, holdDispatchReconcile, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { canonicalTmpRoot } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -177,7 +177,7 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
       await deleteTask(request, pid!, tid!);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
-    rmSync(PROJECT_PATH, { recursive: true, force: true });
+    removeTmpDir(PROJECT_PATH);
   });
 
   test.beforeEach(async ({ page }) => {

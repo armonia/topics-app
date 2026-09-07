@@ -15,9 +15,11 @@
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
+import { basename } from "path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -93,8 +95,10 @@ test.describe("cloud session ↔ project (server e2e)", () => {
     request,
   }) => {
     const ts = Date.now().toString(36);
-    const projectDir = `/tmp/e2e-cloud-proj-${ts}`;
-    const projectName = `e2e-cloud-proj-${ts}`;
+    const projectDir = canonicalTmpDir("e2e-cloud-proj");
+    // The name is read BACK off the directory: it is the same string only as
+    // long as nobody builds it twice, and the timestamp lives inside the helper.
+    const projectName = basename(projectDir);
     mkdirSync(projectDir, { recursive: true });
 
     // Anchor topic registers projectDir as a project Topics knows about.
@@ -128,14 +132,14 @@ test.describe("cloud session ↔ project (server e2e)", () => {
 
     await deleteTopic(request, cloud.id);
     await deleteTopic(request, anchor.id);
-    rmSync(projectDir, { recursive: true, force: true });
+    removeTmpDir(projectDir);
   });
 
   test("explicit '/project open <absolute path>' is trusted (trustRawPaths) and resolves", async ({
     request,
   }) => {
     const ts = Date.now().toString(36);
-    const dir = `/tmp/e2e-cloud-abs-${ts}`;
+    const dir = canonicalTmpDir("e2e-cloud-abs");
     mkdirSync(dir, { recursive: true });
     const cloud = await createTopic(request, `CloudAbs-${ts}`);
     const sessionKey = `topic:${cloud.id.slice(0, 8)}`;
@@ -150,7 +154,7 @@ test.describe("cloud session ↔ project (server e2e)", () => {
     expect((await res.json()).path).toBe(dir);
 
     await deleteTopic(request, cloud.id);
-    rmSync(dir, { recursive: true, force: true });
+    removeTmpDir(dir);
   });
 
   test("adopting a gateway session opens it as an interactive openclaw chat (idempotent)", async ({

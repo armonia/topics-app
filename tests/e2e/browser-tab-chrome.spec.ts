@@ -42,12 +42,13 @@ import {
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
 import { projectPanesKey } from "../../shared/project-keys";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat } from "./helpers/evidence";
 import { hermetic } from "./fixtures/hermetic";
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -414,7 +415,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
     } finally {
       await resetProjectPanes(request, project).catch(() => {});
-      rmSync(project, { recursive: true, force: true });
+      removeTmpDir(project);
     }
   });
   /**
@@ -631,7 +632,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         },
       });
     } finally {
-      rmSync(project, { recursive: true, force: true });
+      removeTmpDir(project);
     }
   });
 
@@ -790,6 +791,6 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
       .toEqual([`file://${file}`]);
 
-    rmSync(mediaDir, { recursive: true, force: true });
+    removeTmpDir(mediaDir);
   });
 });

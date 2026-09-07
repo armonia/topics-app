@@ -27,8 +27,8 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
-import { canonicalTmpDir, initGitRepo } from "./helpers/file-project";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
+import { mkdirSync, writeFileSync } from "fs";
 
 hermetic(test);
 
@@ -112,7 +112,7 @@ test.describe("sidebar progetto: i divisori fra le sezioni", () => {
     for (let i = 0; i < 10; i++) writeFileSync(`${PROJ}/f${i}.txt`, `riga ${i}\n`);
   });
   test.afterAll(() => {
-    rmSync(PROJ, { recursive: true, force: true });
+    removeTmpDir(PROJ);
   });
 
   /** Apre la finestra di progetto con Git e Processi ESPANSE: nascono chiuse

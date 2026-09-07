@@ -24,6 +24,7 @@ import { E2E_BASE } from './helpers/test-server';
 import { projectIdForPath } from '../../shared/board';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
@@ -125,7 +126,7 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   if (topicId) await deleteTopic(request, topicId).catch(() => undefined);
-  rmSync(PROJECT_PATH, { recursive: true, force: true });
+  removeTmpDir(PROJECT_PATH);
 });
 
 /** The rows of a list, as `mark path` pairs, in the order they are drawn. */

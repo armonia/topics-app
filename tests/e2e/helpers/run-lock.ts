@@ -27,6 +27,8 @@
  */
 
 import { readFileSync, unlinkSync, writeFileSync } from "fs";
+import { join } from "path";
+import { canonicalTmpRoot } from "./test-server";
 
 export interface LockRecord {
   pid: number;
@@ -50,8 +52,13 @@ export interface LockFs {
  */
 export const LOCK_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * The lock lives in the scratch root of THIS platform, not in a literal `/tmp`:
+ * on Windows that string resolves to `C:\tmp`, a directory the machine does not
+ * have and the bench would silently create at the root of the system drive.
+ */
 export function lockPathForPort(port: number): string {
-  return `/tmp/topics-e2e-run-${port}.lock`;
+  return join(canonicalTmpRoot(), `topics-e2e-run-${port}.lock`);
 }
 
 export type LockDecision =

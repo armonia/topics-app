@@ -12,6 +12,8 @@ import {
   splitViaContextMenu,
 } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
+import { canonicalTmpRoot } from "./helpers/file-project";
+import { join } from "path";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -58,7 +60,7 @@ async function openAnyTopic(page: Page) {
 /** Open a project window by clicking its sidebar entry. The tab-driven
  *  sidebar only shows the row while the `project:<path>` pane is open — if a
  *  previous test's seeding wiped openPanels, re-open the pane and reload. */
-async function openProject(page: Page, name: string | RegExp, projectPath = "/tmp/e2e-grid") {
+async function openProject(page: Page, name: string | RegExp, projectPath = join(canonicalTmpRoot(), "e2e-grid")) {
   const projectBtn = typeof name === 'string'
     ? page.locator(`button:has-text("${name}")`)
     : page.locator('button').filter({ hasText: name });
@@ -94,9 +96,9 @@ test.describe("Grid Split System", () => {
     // Create a project-linked topic so the "Projects" section has an entry
     // Real directory — a phantom path leaves the project window in
     // "directory not found" and pane adds misbehave.
-    mkdirSync("/tmp/e2e-grid", { recursive: true });
+    mkdirSync(join(canonicalTmpRoot(), "e2e-grid"), { recursive: true });
     const topic = await createTopic(request, "E2E-GridProject", {
-      projectPath: "/tmp/e2e-grid",
+      projectPath: join(canonicalTmpRoot(), "e2e-grid"),
     });
     projectTopicId = topic.id;
     // Open the project WINDOW pane: a project-linked topic id seeded into
@@ -104,7 +106,7 @@ test.describe("Grid Split System", () => {
     // project window), and the tab-driven sidebar only shows a project row
     // while its `project:<path>` pane is open. Without this every
     // `openProject(page, /e2e-grid/)` call times out on a missing button.
-    await seedProjectPane(request, "/tmp/e2e-grid");
+    await seedProjectPane(request, join(canonicalTmpRoot(), "e2e-grid"));
   });
 
   test.afterAll(async ({ request }) => {

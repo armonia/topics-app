@@ -14,7 +14,7 @@ import {
   waitForPaneStoreQuiet,
 } from "./helpers/api-fixtures";
 import { E2E_BASE, testServerEnv } from "./helpers/test-server";
-import { initGitRepo, canonicalTmpRoot } from "./helpers/file-project";
+import { canonicalTmpRoot, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { projectRow } from "./helpers/project-row";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
@@ -208,7 +208,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   test.afterAll(async ({ request }) => {
     for (const id of createdTasks) await deleteTask(request, PROJ_ID, id).catch(() => {});
     for (const id of topicIds) await deleteTopic(request, id).catch(() => {});
-    rmSync(PROJ, { recursive: true, force: true });
+    removeTmpDir(PROJ);
     if (previewPath) rmSync(previewPath, { force: true });
   });
 

@@ -30,8 +30,8 @@
  * cosa non verificata della catena.
  */
 
-import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
+import { listenerPids, processRows } from "./platform";
 import { E2E_PORT } from "./test-server";
 import { isPidAlive, lockPathForPort } from "./run-lock";
 
@@ -77,9 +77,9 @@ export const SERVER_DEATH_GRACE_MS = 15_000;
 /**
  * Chi ascolta sulla porta, adesso.
  *
- * `execFileSync` e non `execSync`: niente shell, quindi niente da citare e
- * niente `|| true` — l'uscita non-zero di lsof («nessuno tiene la porta») è già
- * gestita dal catch.
+ * `listenerPids` e non `lsof` a mano: la stessa domanda ha due risposte diverse
+ * a seconda del sistema (`lsof -sTCP:LISTEN` o `netstat -ano`), e il posto dove
+ * si scelgono è helpers/platform.ts.
  *
  * `-sTCP:LISTEN`: `lsof -ti :PORT` da solo elenca ogni socket con quella porta
  * a UNO QUALSIASI dei due capi, quindi anche i CLIENT — i Chromium di
@@ -90,25 +90,17 @@ export const SERVER_DEATH_GRACE_MS = 15_000;
  */
 export function portHolders(port: number = E2E_PORT): PortHolder[] {
   const holders: PortHolder[] = [];
-  try {
-    const pids = execFileSync("lsof", ["-ti", `:${port}`, "-sTCP:LISTEN"], { stdio: ["ignore", "pipe", "ignore"] })
-      .toString()
-      .trim();
-    for (const raw of pids.split("\n").filter(Boolean)) {
-      const pid = Number(raw);
-      if (!Number.isFinite(pid)) continue;
-      let cmd = "?";
-      try {
-        cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], {
-          stdio: ["ignore", "pipe", "ignore"],
-        })
-          .toString()
-          .trim()
-          .slice(0, 120);
-      } catch { /* il processo può sparire fra le due chiamate */ }
-      holders.push({ pid, cmd });
-    }
-  } catch { /* nessuno sulla porta (lsof esce 1), o niente lsof: si diagnostica lo stesso */ }
+  const pids = listenerPids(port);
+  if (!pids.length) return holders;
+  // The command line comes from ONE process-table read, not one `ps` per PID:
+  // on Windows that table costs a CIM query, and paying it per holder would
+  // turn a diagnosis into a wait. There are never many holders anyway.
+  const byPid = new Map(processRows().map((row) => [row.pid, row.command]));
+  for (const raw of pids) {
+    const pid = Number(raw);
+    if (!Number.isFinite(pid)) continue;
+    holders.push({ pid, cmd: (byPid.get(raw) ?? "?").slice(0, 120) });
+  }
   return holders;
 }
 

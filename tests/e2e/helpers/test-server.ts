@@ -26,10 +26,10 @@
  * volte in rossi finti).
  */
 
-import { execSync } from "child_process";
 import { realpathSync } from "fs";
-import { homedir } from "os";
-import { resolve } from "path";
+import { homedir, tmpdir } from "os";
+import { join, resolve } from "path";
+import { IS_WINDOWS, processRows } from "./platform";
 import { defaultE2EPort, E2E_DEFAULT_PORT } from "./worktree-port";
 
 /**
@@ -94,10 +94,16 @@ export const E2E_TUNNEL_WS_BASE = `ws://127.0.0.1:${tunnelPortFor(E2E_PORT)}`;
  * obey the rule: see `dataDirForPort` below.
  */
 export function canonicalTmpRoot(): string {
+  // Windows has no `/tmp`, and `os.tmpdir()` is NOT the answer on POSIX: on
+  // macOS it points at the per-user `/var/folders/...` sandbox, so reading it
+  // here would move DATA_DIR away from the path `.gitignore`, the scripts and
+  // muscle memory all point at. The rule below is therefore per platform, not
+  // "the portable call everywhere".
+  const root = IS_WINDOWS ? tmpdir() : "/tmp";
   try {
-    return realpathSync("/tmp");
+    return realpathSync(root);
   } catch {
-    return "/tmp";
+    return root;
   }
 }
 
@@ -125,9 +131,11 @@ export function canonicalTmpRoot(): string {
  */
 export function dataDirForPort(port: number): string {
   const root = canonicalTmpRoot();
-  return port === E2E_DEFAULT_PORT
-    ? `${root}/topics-test-data`
-    : `${root}/topics-test-data-${port}`;
+  // `join` and not a `/` template: on Windows the root is a drive path and the
+  // mixed separator that came out of the template travelled into DATA_DIR, into
+  // every path a spec compares against, and into the server's own canonical
+  // spelling - three places that then disagreed on the same folder.
+  return join(root, port === E2E_DEFAULT_PORT ? "topics-test-data" : `topics-test-data-${port}`);
 }
 
 /**
@@ -141,14 +149,30 @@ export function dataDirForPort(port: number): string {
  * pagina. `global-setup.ts` copia il bundle qui una volta e ci punta il server.
  */
 export function publicDirForPort(port: number): string {
-  return `${dataDirForPort(port)}/public`;
+  return join(dataDirForPort(port), "public");
+}
+
+/**
+ * The bench's own IPC endpoint for a bridge, per port.
+ *
+ * A Unix socket is a FILE and a Windows named pipe is not: `\\.\pipe\<name>` is
+ * the only spelling `net.connect` accepts there, and a `/tmp/...sock` handed to
+ * a Windows server fails with ENOENT, which the terminal route reads as "no
+ * bridge" - terminals that simply never open. The server derives exactly this
+ * shape when nothing overrides it (`getSocketPath` in server/routes/terminal.ts);
+ * the bench has to speak the same dialect or its isolation is a broken pipe.
+ */
+function bridgeSocket(kind: "pty-bridge" | "ai-bridge", port: number): string {
+  return IS_WINDOWS
+    ? `\\\\.\\pipe\\topics-${kind}-e2e-${port}`
+    : `/tmp/topics-${kind}-e2e-${port}.sock`;
 }
 
 /** La `DATA_DIR` di QUESTO processo — le spec la leggono per ispezionare i file scritti dal server. */
 export const E2E_DATA_DIR = process.env.DATA_DIR || dataDirForPort(E2E_PORT);
 
 /** La HOME isolata del server (`start-test-server.sh` la esporta, alcune spec ci seminano dentro). */
-export const E2E_HOME = `${E2E_DATA_DIR}/.home`;
+export const E2E_HOME = join(E2E_DATA_DIR, ".home");
 
 /**
  * L'ambiente completo di un server di test.
@@ -165,16 +189,16 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     DATA_DIR: dataDir,
     // TOPICS_HOME dedicata: il lock del daemon (`daemon-process.lock`) è per-home,
     // e quello vero ce l'ha il server di sviluppo.
-    TOPICS_HOME: `${dataDir}/.topics-home`,
+    TOPICS_HOME: join(dataDir, ".topics-home"),
     // Config e sessioni OpenClaw dell'utente vero fuori dai piedi: SESSIONS_DIR
     // deriva da OPENCLAW_DIR, quindi questa sola variabile copre entrambi.
-    OPENCLAW_DIR: `${dataDir}/.openclaw`,
+    OPENCLAW_DIR: join(dataDir, ".openclaw"),
     // Socket del PTY-bridge: senza, viene derivato dalla cwd — che il server di
     // test CONDIVIDE con quello di sviluppo — e il reconcile del test vedrebbe
     // le PTY Claude vive dello sviluppo come orfane, ammazzandole.
-    TOPICS_PTY_SOCKET: `/tmp/topics-pty-bridge-e2e-${port}.sock`,
+    TOPICS_PTY_SOCKET: bridgeSocket("pty-bridge", port),
     // Stessa storia per il broker stream-json.
-    TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-e2e-${port}.sock`,
+    TOPICS_AI_BRIDGE_SOCKET: bridgeSocket("ai-bridge", port),
     // Il bundle servito è la fotografia fatta dal globalSetup, non `public/` del
     // repo: vedi publicDirForPort qui sopra.
     TOPICS_PUBLIC_DIR: publicDirForPort(port),
@@ -225,15 +249,10 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
  */
 export function descendantsOf(root: number): Set<string> {
   const children = new Map<string, string[]>();
-  try {
-    for (const row of execSync("ps ax -o pid=,ppid=").toString().trim().split("\n")) {
-      const [pid, ppid] = row.trim().split(/\s+/);
-      if (!pid || !ppid) continue;
-      if (!children.has(ppid)) children.set(ppid, []);
-      children.get(ppid)!.push(pid);
-    }
-  } catch {
-    return new Set();
+  for (const { pid, ppid } of processRows()) {
+    if (!pid || !ppid) continue;
+    if (!children.has(ppid)) children.set(ppid, []);
+    children.get(ppid)!.push(pid);
   }
   const out = new Set<string>();
   const queue = [String(root)];

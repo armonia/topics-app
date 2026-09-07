@@ -8,9 +8,9 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
-import { initGitRepo } from "./helpers/file-project";
+import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -18,7 +18,7 @@ hermetic(test);
 
 test.describe("External File Drop", () => {
   let topicId: string;
-  const tmpDir = `/tmp/e2e-external-drop-${Date.now()}`;
+  const tmpDir = canonicalTmpDir("e2e-external-drop");
   const topicName = "e2e-external-drop-test";
 
   test.beforeAll(async ({ request }) => {
@@ -33,7 +33,7 @@ test.describe("External File Drop", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
-    rmSync(tmpDir, { recursive: true, force: true });
+    removeTmpDir(tmpDir);
   });
 
   test("EXTDROP-01: dragover on directory shows visual indicator", async ({ fileExplorerPage, page }) => {
