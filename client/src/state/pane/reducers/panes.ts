@@ -326,26 +326,29 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       break;
     }
     case 'FOCUS_PANE': {
-      // FOCALIZZARE CIO' CHE E' GIA' FOCALIZZATO NON E' UN CAMBIAMENTO.
+      // FOCUSING WHAT IS ALREADY FOCUSED IS NOT A CHANGE.
       //
-      // Stessa forma della guardia in `UPDATE_PANE`, e come quella costa un
-      // confronto per evitare un dispatch a vuoto: `lastSeq` sale a OGNI
-      // dispatch, e chi guarda quel contatore (il middleware di sync) manda un
-      // PUT da 75 KB anche quando non c'e' un byte di differenza — `focusedPaneId`
-      // e' device-local e `selectSyncableSnapshot` lo toglie dallo snapshot,
-      // quindi una rifocalizzazione a vuoto e' rumore puro sul filo.
+      // WHAT THIS GUARD DOES, NARROWLY. It saves a state write and the
+      // subscriber notifications that follow it (persistLocal writes the
+      // focused id to localStorage on every `lastSeq` tick, synchronously).
+      // It does NOT save an outbound PUT, and the note that used to stand here
+      // claimed it did: at the time every dispatch bumped `localSeq`, so a
+      // re-focus onto a DIFFERENT pane still shipped a 69 KB body the peers
+      // could not observe, because `focusedPaneId` is device-local and
+      // `selectSyncableSnapshot` strips it. The write is gone since FOCUS_PANE
+      // became a device-local action in the dispatcher (`isDeviceLocalAction`
+      // in ../store.ts): that is where the PUT is spared, not here.
       //
-      // ONESTA' SU COSA QUESTA RIGA NON RISOLVE. L'ho scritta credendo fosse la
-      // causa di un ciclo di PUT ricomparso dopo il rimedio a `UPDATE_PANE` (17
-      // scritture in 25 s a schermo fermo, `scripts/check-idle-writes.mjs`).
-      // NON lo era: strumentando il dispatcher ho contato **zero azioni** in
-      // quella finestra, con quindici PUT partiti lo stesso. Quel ciclo non
-      // nasce da qui e resta aperto — vedi la nota in `middleware/syncWS.ts`.
+      // Kept honest for the next reader: a loop of idle PUTs reappeared after
+      // the `UPDATE_PANE` fix (17 writes in 25 s on a still screen,
+      // `scripts/check-idle-writes.mjs`) and this line was written believing it
+      // was the cause. It was not: instrumenting the dispatcher counted ZERO
+      // actions in that window with fifteen PUTs going out anyway.
       //
-      // `Object.is` e non `===`: `null` e `undefined` significano entrambi
-      // «nessuna pane focalizzata» ma non sono lo stesso valore, e trattarli
-      // come diversi rimetterebbe un dispatch a vuoto ogni volta che il boot
-      // passa dall'uno all'altro.
+      // `Object.is` rather than `===`: `null` and `undefined` both mean "no
+      // focused pane" but are not the same value, and treating them as
+      // different would put an empty dispatch back on every boot that goes
+      // from one to the other.
       if (Object.is(state.focusedPaneId, action.payload.id)) break;
       state.focusedPaneId = action.payload.id;
       break;
