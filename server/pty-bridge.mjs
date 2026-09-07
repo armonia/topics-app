@@ -7,6 +7,10 @@ import fs from 'node:fs';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { userInfo } from 'node:os';
+// runtime-dep-ok: a sibling ESM import, not a spawn. Whatever runtime is
+// already executing this daemon resolves it, and the installed app does not run
+// this file at all (it ships the compiled Rust bridge).
+import { augmentedPath, pidPathFor, socketIsFile, trivialSpawn } from './pty-bridge-platform.mjs';
 
 // The user's REAL home, from the OS account db (getpwuid) not $HOME. The bridge
 // can be (re)spawned by a server whose $HOME was clobbered by a sandbox ancestor
@@ -29,7 +33,7 @@ function argOf(flag) {
 }
 
 const socketPath = argOf('--socket') || getDefaultSocketPath();
-const pidPath = socketPath.replace(/\.sock$/, '.pid');
+const pidPath = pidPathFor(socketPath);
 const MAX_BUFFER_SIZE = 100 * 1024; // 100KB ring buffer per session
 
 /**
@@ -132,10 +136,14 @@ function handleMessage(msg, client) {
         mergedEnv.LANG = 'en_US.UTF-8';
         mergedEnv.LC_CTYPE = 'en_US.UTF-8';
       }
+      // A launchd/sidecar minimal PATH still has to find the user's tools. The
+      // separator, the directories and even the KEY differ on Windows (see
+      // augmentedPath), and using the unix ones there is how `powershell.exe`
+      // stopped being findable.
       const home = mergedEnv.HOME || realHome();
-      const extraPaths = [`${home}/.local/bin`, `${home}/.bun/bin`, '/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
-      const currentPath = mergedEnv.PATH || '';
-      mergedEnv.PATH = [...extraPaths, currentPath].filter(Boolean).join(':');
+      const augmented = augmentedPath(mergedEnv, home);
+      for (const key of augmented.drop) delete mergedEnv[key];
+      mergedEnv[augmented.key] = augmented.value;
       const p = pty.spawn(shell, args, {
         name: 'xterm-256color',
         cols: cols || 120,
@@ -266,7 +274,7 @@ function pidAlive(pid) {
 
 function probeBridge(timeoutMs = 1500) {
   return new Promise((resolve) => {
-    if (!fs.existsSync(socketPath)) { resolve({ ok: false, reason: 'no-socket' }); return; }
+    if (socketIsFile() && !fs.existsSync(socketPath)) { resolve({ ok: false, reason: 'no-socket' }); return; }
     const conn = net.connect(socketPath);
     let buffer = '';
     let resolved = false;
@@ -284,14 +292,17 @@ function probeBridge(timeoutMs = 1500) {
       // take over". A simple {type:'ping'} would say {type:'pong'}
       // even from such a degraded bridge.
       const probeId = `__probe-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      // The trivial-exit spawn is per platform (see trivialSpawn): asking a
+      // healthy Windows bridge for `/bin/sh -c :` in `/tmp` gets an `error`
+      // frame back, which reads here as "degraded" — so the probe would kill
+      // the very bridge it was checking, every single time.
+      const cmd = trivialSpawn();
       conn.write(JSON.stringify({
         type: 'create',
         id: probeId,
-        // `/bin/sh -c :` — the most portable trivial-exit spawn. /bin/true was
-        // dropped on macOS 26 (only /usr/bin/true remains); /bin/sh is universal.
-        shell: '/bin/sh',
-        args: ['-c', ':'],
-        cwd: '/tmp',
+        shell: cmd.shell,
+        args: cmd.args,
+        cwd: cmd.cwd,
         cols: 80,
         rows: 24,
       }) + '\n');
@@ -356,7 +367,8 @@ async function selfTest() {
   // we saw on a long-running orphan), we exit so the parent server
   // respawns us with a fresh process state.
   try {
-    const p = pty.spawn('/bin/true', [], { name: 'xterm-256color', cols: 80, rows: 24, cwd: '/tmp', env: process.env });
+    const probe = trivialSpawn();
+    const p = pty.spawn(probe.shell, probe.args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: probe.cwd, env: process.env });
     await new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('self-test timeout')), 2000);
       p.onExit(() => { clearTimeout(t); resolve(); });

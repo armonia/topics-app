@@ -114,6 +114,13 @@ export const PROJECT_WORDS = new Set([
   // it reads. `scp` is git's own short remote syntax (`git@host:owner/repo`),
   // the shape the node comparison has to recognise.
   "cookie", "scp",
+  // `ics` is the name of the format itself: the file extension of an iCalendar
+  // feed (RFC 5545) and what every calendar provider calls the address it
+  // publishes. The reader of that format (`parseIcs`, `IcsEvent`) is named
+  // after it; spelling it "iCalendar" in identifiers would stop matching the
+  // `.ics` the URL ends with. `exdate` is one of that RFC's property names,
+  // quoted as such in a fixture.
+  "ics", "exdate",
   // Another regular past participle the 1934 list does not carry, next to
   // `emitted` and `supplied` above. It names what `git bundle verify` answered
   // before the branch of a node is planted here, and the verb is git's own.

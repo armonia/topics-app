@@ -1418,6 +1418,17 @@ export interface AppBehaviorSettings {
    *  `null` or `false` = OFF: it writes objects into the user's repository on
    *  every turn, so it is turned on by hand or not at all. */
   turnCheckpointsEnabled: boolean | null;
+  /** The calendar sync (card aa641133). `null` or `false` = off, and nothing
+   *  is fetched. */
+  calendarEnabled: boolean | null;
+  /** The iCalendar feed address. It is a SECRET -- whoever holds it reads that
+   *  calendar -- so it is shown masked and never leaves this machine. */
+  calendarFeedUrl: string | null;
+  /** Maximum age of the cached agenda, in minutes. `null` = the server's
+   *  default. */
+  calendarRefreshMinutes: number | null;
+  /** How far ahead the agenda looks, in days. `null` = the server's default. */
+  calendarHorizonDays: number | null;
 }
 
 /**
@@ -1468,6 +1479,37 @@ export const appSettingsApi = {
   async revokeProfile(): Promise<void> {
     await request<{ ok: boolean }>('/app-settings/profile-token', {
       method: 'DELETE',
+    });
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The calendar. The agenda is READ from here and configured through
+// `appSettingsApi`: the feed address goes in one way and never comes back out,
+// so nothing on this side ever holds it except the field being typed.
+// ─────────────────────────────────────────────────────────────────────────────
+export type { CalendarAgenda } from '../../../shared/calendar';
+import type { CalendarAgenda } from '../../../shared/calendar';
+
+export interface CalendarProbe {
+  ok: boolean;
+  name?: string;
+  events?: number;
+  error?: string;
+}
+
+export const calendarApi = {
+  /** `force` is the refresh gesture: it skips the freshness check, not the
+   *  rest of the path. */
+  async agenda(force = false): Promise<CalendarAgenda> {
+    return await request<CalendarAgenda>(`/calendar/agenda${force ? '?force=1' : ''}`);
+  },
+  /** Test an address BEFORE saving it: the answer is the calendar's own name,
+   *  or the reason it did not answer. */
+  async probe(url: string): Promise<CalendarProbe> {
+    return await request<CalendarProbe>('/calendar/probe', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
     });
   },
 };

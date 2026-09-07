@@ -173,6 +173,11 @@
         // imported except by its own bench.
         "scripts/test-junit.ts!",
     "scripts/disk-report.ts!",        // `bun run report:disk`
+        // Does the PTY bridge boot and open a terminal on THIS platform?
+        // `node scripts/pty-bridge-probe.mjs`, or on the Windows PC
+        // `tools/topwin run "node scripts\\pty-bridge-probe.mjs"`. Run by hand:
+        // it starts a real daemon and a real shell, which is the whole point.
+        "scripts/pty-bridge-probe.mjs!",
         // Verdetto sui rami PER CONTENUTO: `bun run report:branches`, e
         // `--delete-landed` per cancellare quelli che main ha già dentro.
         "scripts/branch-audit.ts!",

@@ -29,6 +29,7 @@ import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 import { knownProjectDirs } from "../services/known-project-dirs";
+import { isInsideDir } from "../lib/path-containment";
 import { osservatoreDaDispositivo, vedeProgetto, visibilitaDi } from "../lib/project-visibility";
 import { resolveOsOpenPath, fsProbe } from "../lib/os-open-path";
 import { installationOrgId, actingPersonId } from "../lib/orgs";
@@ -219,7 +220,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       // Containment: a resolved icon FILE must live inside the project dir.
       let realIcon: string;
       try { realIcon = realpathSync(resolved.path); } catch { return new Response(null, { status: 404 }); }
-      if (realIcon !== realDir && !realIcon.startsWith(realDir + "/")) return new Response(null, { status: 403 });
+      if (realIcon === realDir || !isInsideDir(realIcon, realDir)) return new Response(null, { status: 403 });
       const ct = ICON_CONTENT_TYPE[extname(realIcon).toLowerCase()];
       if (!ct) return new Response(null, { status: 404 });
       try {

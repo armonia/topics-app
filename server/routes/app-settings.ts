@@ -3,6 +3,8 @@ import { getAppSettings, updateAppSettings, type AppSettings } from "../services
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
 import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
+import { CALENDAR_HORIZON_CHOICES, CALENDAR_REFRESH_CHOICES } from "../../shared/calendar";
+import { normalizeFeedUrl, resetCalendarCache } from "../services/calendar-feed";
 import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
 
 /**
@@ -58,8 +60,8 @@ type ValidationError = { field: string; message: string };
 /** Come si valida UN campo: stringa (con eventuale allow-set, fisso o risolto
  *  al momento della richiesta), intero, booleano. */
 type FieldRule =
-  | { kind: "string"; allow?: Set<string>; allowFrom?: () => Set<string> }
-  | { kind: "int" }
+  | { kind: "string"; allow?: Set<string>; allowFrom?: () => Set<string>; normalize?: (v: string) => string | null }
+  | { kind: "int"; allow?: Set<number> }
   | { kind: "bool" };
 
 /**
@@ -106,6 +108,19 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // also the default: it writes git objects into the user's repository on every
   // turn, so it is turned on by hand or not at all.
   turnCheckpointsEnabled: { kind: "bool" },
+  // The calendar (card aa641133). The switch and the address are two settings
+  // on purpose: turning the sync off must not throw away the URL, or every
+  // pause costs a trip back to the calendar provider to copy the secret
+  // address again.
+  calendarEnabled: { kind: "bool" },
+  // Normalised before it is written: `webcal://` becomes https, and anything
+  // that is not http(s) is refused HERE rather than handed to `fetch` later.
+  calendarFeedUrl: { kind: "string", normalize: normalizeFeedUrl },
+  // The two dials are closed sets, not free numbers: a refresh of "1 minute"
+  // written by hand would hammer the provider from a machine that cannot see
+  // it is doing so.
+  calendarRefreshMinutes: { kind: "int", allow: new Set<number>(CALENDAR_REFRESH_CHOICES) },
+  calendarHorizonDays: { kind: "int", allow: new Set<number>(CALENDAR_HORIZON_CHOICES) },
   // Where an agent CLI was pointed at by hand. The canonical writer is
   // `POST /api/providers/cli/configure`, which checks the file is there and is
   // executable before writing: a path that does not exist would register a
@@ -123,13 +138,22 @@ function parsePatch(body: Record<string, unknown>): {
   const errors: ValidationError[] = [];
 
   // A "string | null" field with an optional allow-set.
-  const str = (key: keyof AppSettings, v: unknown, allow?: Set<string>) => {
+  const str = (
+    key: keyof AppSettings,
+    v: unknown,
+    allow?: Set<string>,
+    normalize?: (raw: string) => string | null,
+  ) => {
     if (v === null) { (patch as any)[key] = null; return; }
     if (typeof v !== "string" || v.trim() === "") {
       errors.push({ field: key, message: "expected a non-empty string or null" });
       return;
     }
-    const val = v.trim();
+    const val = normalize ? normalize(v) : v.trim();
+    if (val === null) {
+      errors.push({ field: key, message: "not a valid value for this field" });
+      return;
+    }
     if (allow && !allow.has(val)) {
       errors.push({
         field: key,
@@ -142,11 +166,15 @@ function parsePatch(body: Record<string, unknown>): {
     (patch as any)[key] = val;
   };
 
-  const int = (key: keyof AppSettings, v: unknown) => {
+  const int = (key: keyof AppSettings, v: unknown, allow?: Set<number>) => {
     if (v === null) { (patch as any)[key] = null; return; }
     const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
     if (!Number.isInteger(n) || n <= 0) {
       errors.push({ field: key, message: "expected a positive integer or null" });
+      return;
+    }
+    if (allow && !allow.has(n)) {
+      errors.push({ field: key, message: `expected one of: ${[...allow].join(", ")}` });
       return;
     }
     (patch as any)[key] = n;
@@ -161,8 +189,8 @@ function parsePatch(body: Record<string, unknown>): {
     if (!(key in body)) continue;
     const v = body[key];
     switch (rule.kind) {
-      case "string": str(key, v, rule.allow ?? rule.allowFrom?.()); break;
-      case "int": int(key, v); break;
+      case "string": str(key, v, rule.allow ?? rule.allowFrom?.(), rule.normalize); break;
+      case "int": int(key, v, rule.allow); break;
       case "bool": bool(key, v); break;
     }
   }
@@ -236,6 +264,12 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       // salva non dipende da Discord.
       if ("discordPresenceEnabled" in patch || "discordDetailLevel" in patch) {
         void reconcileDiscordPresence().catch(() => { /* lo stato lo racconta /api/profile/discord */ });
+      }
+      // A calendar that changed address, window or switch must not answer out
+      // of the previous one: the cached agenda is dropped here, at the only
+      // place those settings can change.
+      if ("calendarFeedUrl" in patch || "calendarEnabled" in patch || "calendarHorizonDays" in patch) {
+        resetCalendarCache();
       }
       // Re-pick the default provider so an aiProvider change is reflected live.
       const changed = recomputeDefault();

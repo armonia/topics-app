@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.284",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Path containment: compare with the platform separator, not a hardcoded slash",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.283",
     "date": "2026-09-07",
     "sections": {
@@ -39,6 +55,11 @@
         },
         {
           "it": "Una sola porta alle impostazioni: il gesto e' dichiarato una volta, il ⚙ e il popover ci si appoggiano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un ack del ponte che arriva dopo il 502 non deve uccidere il server",
           "en": "",
           "scope": null
         }
