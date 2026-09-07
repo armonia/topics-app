@@ -120,6 +120,15 @@ async function harness(providerName: string): Promise<Harness> {
     captured.onToolStart("call-3", "browser_act", {});
     captured.onToolStart("call-4", "browser_get_text", {});
     await Bun.sleep(80);
+    // CLOSE THE TURN. The route persists a turn's blocks through a throttle
+    // that defers writes by at least a second; a turn left open keeps that
+    // timer pending, it fires after this file has closed its database, and the
+    // SQLite error lands on whatever test file happened to run next (measured
+    // 2026-09-07: two different real-git files went red in two pre-review
+    // rounds, neither of them touched by this card). `onDone` is what a real
+    // turn ends with, and it flushes and disposes.
+    captured.onDone();
+    await Bun.sleep(50);
   };
 
   const toolRows = () =>

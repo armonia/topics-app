@@ -2083,6 +2083,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               cacheCreationTokens,
               cacheCreation1hTokens,
             });
+            // THE ROW IS NOW WHOLE: nothing may still owe it a write.
+            // `clearAllTimers` runs at the TOP of this function, and everything
+            // between there and here keeps touching the timeline (every tool
+            // still tracked is closed through `updateBlockTool`), so the
+            // throttle schedules a fresh deferred write DURING the finalize --
+            // one that fires a second later and rewrites what the line above
+            // has just written whole. Harmless while the server is up, not
+            // harmless when the turn is the last thing that happens: measured
+            // on 2026-09-07 (card 9ef72908) as a write landing on an already
+            // closed database, in a test file that had ended.
+            turnBody.dispose();
             // "Un turno che non ha prodotto niente non lascia niente": stop
             // premuto prima che il modello dicesse qualsiasi cosa. Il segnaposto
             // creato all'inizio dello stream restava in chat finalizzato vuoto —
