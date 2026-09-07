@@ -5120,6 +5120,36 @@ fn browser_open_inner(
     if let Some(wv) = app.get_webview(&label) {
         chords_win::install(&app, &wv, window.label());
     }
+    // AND THE KEYBOARD GOES BACK TO THE CLIENT, WHICH IS WHAT A NEW PANE IS FOR.
+    //
+    // A WebView2 created as a child takes the keyboard the moment it exists. The
+    // client had just focused the address bar of the new tab (`focusUrlBar`,
+    // 50ms after mount) and that focus becomes void: the UI webview lost the
+    // window's focus, its `document.activeElement` falls back to BODY, and every
+    // key from there on is delivered to a page nobody can see, because a brand
+    // new pane is parked off-screen until it has a url.
+    //
+    // That is the whole "the pane opens and stays empty" report on Windows: you
+    // open a browser pane, you type an address, and nothing appears. Measured on
+    // 2026-09-07 on the real machine (card 99a9a8bd): the same build navigates
+    // and paints - 73.6% of the window - when the address is delivered through a
+    // channel that does not depend on the window focus, and the typed one never
+    // reaches the client at all.
+    //
+    // `window`, not `host_label`, for the same reason as the hook above: a
+    // pop-out must get its own keyboard back, not main's.
+    //
+    // `Webview::set_focus` and not a hand-written per-engine call: wry maps it to
+    // exactly `MoveFocus(PROGRAMMATIC)` on WebView2 and to `grab_focus` on
+    // WebKitGTK, which is the whole content this would have had. macOS is left
+    // out on purpose: nothing there was ever reported, and the pane creation is
+    // not the place to start moving the first responder around.
+    #[cfg(not(target_os = "macos"))]
+    if let Some(ui) = app.get_webview(window.label()) {
+        if let Err(e) = ui.set_focus() {
+            eprintln!("[browser_open] {id}: keyboard not returned to the client: {e}");
+        }
+    }
     // Structural FPS fix: make the pane's frame changes instant (no implicit CA
     // animation to stack during a divider/sidebar/window-resize move).
     #[cfg(target_os = "macos")]
@@ -5599,9 +5629,41 @@ fn evict_panes_of_window(app: &tauri::AppHandle, window_label: &str) {
 /// id crea una vista nuova invece di riusare quella morta.
 fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
+    // WHO HOSTED IT, ASKED WHILE THERE IS STILL SOMEBODY TO ASK. After the
+    // eviction the pane's label is gone from the manager, so the window it
+    // belonged to is no longer nameable from the id: the keyboard handover
+    // below would have nowhere to send the focus.
+    #[cfg(not(target_os = "macos"))]
+    let host_of_pane = app
+        .get_webview(&browser_label(&id))
+        .map(|wv| wv.window().label().to_string());
     // `purge_cache: false` di proposito: qui la cache la svuota il client, che
     // chiama `browser_purge_cache` per conto suo alla morte della pane.
     browser_evict_pane(&app, &id, true, false);
+    // AND THE KEYBOARD COMES BACK, which nothing did when the pane died.
+    //
+    // The twin of the handover in `browser_open_inner`, on the other end of the
+    // pane's life. On Windows the pane is a native WebView2 child that holds the
+    // window's focus while it lives; destroying it leaves the focus on NO window
+    // at all - `GetGUIThreadInfo().hwndFocus` reads 0x0 - and nothing in the
+    // system moves it back, so the client's `window` keydown listeners never
+    // fire again and every shortcut is inert until the user clicks the window.
+    //
+    // Measured on the real machine on 2026-09-08 (card cd040754) against the
+    // installed 2.2.287: Ctrl+K changed 55.3% of the window in the arm where no
+    // restored pane had to be closed, and 0% in the arm where the run had just
+    // closed one. Same build, same window, minutes apart.
+    //
+    // Only the explicit close, which is the one a person asks for. The window
+    // teardown path (`evict_panes_of_window`) is deliberately not here: there
+    // the host window is on its way out and there is no interface left to hand
+    // anything to.
+    #[cfg(not(target_os = "macos"))]
+    if let Some(ui) = host_of_pane.as_deref().and_then(|l| app.get_webview(l)) {
+        if let Err(e) = ui.set_focus() {
+            eprintln!("[browser_close] {id}: keyboard not returned to the client: {e}");
+        }
+    }
     // La vista è ancora registrata? Allora non è morta.
     let label = browser_label(&id);
     let survivor = app.get_webview(&label);
@@ -7317,8 +7379,28 @@ fn browser_release_focus_inner(app: tauri::AppHandle, window_label: Option<Strin
             });
         }
     }
+    // Windows had the same problem and worse: there is no ambient rule that hands
+    // the keyboard back, so once the pane's WebView2 holds it only the app can
+    // move it, and until this arm existed nothing did. The tab strip called this
+    // command on pointer-down and it did exactly nothing, because everything
+    // that was not macOS fell into a single discard.
+    //
+    // A `SetFocus` on the client's child HWND is NOT the same thing and does not
+    // work: tried from outside on the real machine on 2026-09-07, the focus
+    // moved and the client still received nothing, because a WebView2 keeps its
+    // own focus state inside the controller. `set_focus` is wry's word for
+    // `MoveFocus(PROGRAMMATIC)` there and for `grab_focus` on WebKitGTK.
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, window_label);
+    {
+        use tauri::Manager;
+        let host_label = window_label.as_deref().unwrap_or("main");
+        if let Some(ui) = app
+            .get_webview(host_label)
+            .or_else(|| app.get_webview("main"))
+        {
+            ui.set_focus().map_err(|e| e.to_string())?;
+        }
+    }
     Ok(())
 }
 

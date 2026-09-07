@@ -25,6 +25,7 @@ import { createElement } from 'react';
 import { mount } from '../test/reactHarness';
 import { boardApi, type BoardTask } from '../lib/board';
 import { dispatchLifecycle } from '../lib/wsFrameBus';
+import { __resetBoardTasks, getBoardTasks } from '../lib/boardTasksStore';
 import { useGlobalBoard } from './useGlobalBoard';
 import type { WSMessage } from '../types';
 
@@ -70,6 +71,8 @@ function mountBoard() {
   const h = mount(createElement(Probe));
   return {
     taskEvent: () => emit?.({ type: 'task:updated' } as unknown as WSMessage),
+    /** A frame with a payload: what the server actually sends. */
+    send: (msg: Record<string, unknown>) => emit?.(msg as unknown as WSMessage),
     visibilityChanged: () => { for (const l of [...listeners]) l(); },
     unmount: () => h.unmount(),
   };
@@ -209,6 +212,90 @@ describe('useGlobalBoard: only the boot reads may share the coalescer window', (
     flushCoalescer();
     expect(reads).toBe(2);
     expect(windows[1], 'the hole the socket left is filled from the server').toBeUndefined();
+    b.unmount();
+  });
+});
+
+/**
+ * A FRAME THAT CARRIES ITS ROW IS NOT A REASON TO RE-READ THE FEED.
+ *
+ * Measured on the live log (2026-09-07, 95 minutes, ONE client): 1194 reads of
+ * `/api/all-boards/tasks` against 152 HTTP writes on tasks, 73 KB each, 112 s
+ * of the server's single loop. The other thousand came from the dispatcher
+ * re-emitting the same row every few seconds while an agent works, and every
+ * one of those frames already contained the row the read went to fetch.
+ *
+ * What still reads: an id the store does not have, a status that moved, a
+ * creation, a deletion, a reconnect, a return to view - and, rarely, a timer,
+ * because `queueReason` of the SIBLING cards is computed over the whole batch.
+ * @covers KANBAN-06
+ */
+describe('useGlobalBoard: the frame is the answer', () => {
+  const row = (id: string, over: Partial<BoardTask> = {}): BoardTask =>
+    ({ id, projectId: 'p1', text: id, status: 'todo', kanbanOrder: 0, parentTaskId: null, ...over } as BoardTask);
+  const realNow = Date.now;
+
+  /** Lets the mount read land in the store (it resolves on the microtask queue). */
+  const settle = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve(); };
+
+  beforeEach(() => {
+    __resetBoardTasks();
+    boardApi.listAll = (() => { reads++; return Promise.resolve([row('a'), row('b')] as BoardTask[]); }) as typeof boardApi.listAll;
+  });
+  afterEach(() => { Date.now = realNow; __resetBoardTasks(); });
+
+  test('N updates of a known row at an unchanged status cost ZERO reads', async () => {
+    const b = mountBoard();
+    await settle();
+    expect(reads, 'the mount read').toBe(1);
+
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('a', { text: 'agent at work' }) });
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('a', { text: 'still at work' }) });
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('b') });
+    flushCoalescer();
+    await settle();
+    expect(reads, 'the store absorbed all three').toBe(1);
+    expect(getBoardTasks().map((t) => t.text)).toEqual(['still at work', 'b']);
+    b.unmount();
+  });
+
+  test('a status that moved, and an id nobody has, still read', async () => {
+    const b = mountBoard();
+    await settle();
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('a', { status: 'in_progress' }) });
+    flushCoalescer();
+    await settle();
+    expect(reads, 'a card that changed column moves other cards too').toBe(2);
+
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('zz') });
+    flushCoalescer();
+    await settle();
+    expect(reads, 'an unknown id can only be read in').toBe(3);
+
+    b.send({ type: 'task:created', projectId: 'p1', task: row('cc') });
+    flushCoalescer();
+    await settle();
+    expect(reads, 'a creation is a read').toBe(4);
+
+    b.send({ type: 'task:deleted', projectId: 'p1', taskId: 'a' });
+    flushCoalescer();
+    await settle();
+    expect(reads, 'so is a deletion').toBe(5);
+    b.unmount();
+  });
+
+  test('after a minute of absorbed frames one read leaves anyway', async () => {
+    const b = mountBoard();
+    await settle();
+    expect(reads).toBe(1);
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('a') });
+    expect(reads).toBe(1);
+
+    Date.now = () => realNow() + 61_000;
+    b.send({ type: 'task:updated', projectId: 'p1', task: row('a') });
+    flushCoalescer();
+    await settle();
+    expect(reads, 'the waiting reason of the OTHER cards has an expiry').toBe(2);
     b.unmount();
   });
 });

@@ -36,6 +36,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Serve the bundle precompressed on :3333",
+          "en": "",
+          "scope": null
         }
       ]
     }

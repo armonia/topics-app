@@ -56,14 +56,39 @@ the product verdict this card was asked for.
 Why (e) is not chased further here: the card's scope was the measure on the
 product, not the diagnosis. The reading goes to its own card with the logs.
 
-## The (c) regression
+## The (c) regression, and where the keyboard went
 
 In the arm that fails, the run closes the panes the app restored from the last
 session first (`Ctrl+W x3: 10.7%, 0%, 0%` - one pane was there) and only then
 sends Ctrl+K, which reads 0%. In the `browser` arm, where the three Ctrl+W read
 `0%, 0%, 0%` because there was nothing to close, Ctrl+K read 58.9% on the same
 build minutes apart. The key works; something about closing a restored pane
-leaves the window unable to answer it. Both runs agree. Also on its own card.
+leaves the window unable to answer it. Both runs agree.
+
+**The something is the keyboard focus, and the gate now says so.** A third run
+of the `full` arm on the same installed 2.2.287, with the focus reading added to
+`win-desktop-check.ps1` (card cd040754, `topics-desktop-2.2.287/run-3-focus.txt`):
+
+```
+-- Ctrl+W x3 to clear restored panes: 10.7%, 0%, 0.5%
+-- keyboard after the closes: NO window (hwndFocus 0x0)
+FAIL c1  Ctrl+K: opened 0% (want >3%), ..., keyboard on NO window (hwndFocus 0x0)
+```
+
+`GetGUIThreadInfo().hwndFocus` on the foreground window's thread reads `0x0`:
+the keyboard belongs to no window at all. On Windows a browser pane is a native
+WebView2 child that holds the focus while it lives, and when it dies nothing
+hands the focus back, so the client's `window` keydown listeners never fire
+again and every shortcut is inert until someone clicks the window. That is why
+the reading is 0% on the arm that had a restored pane to close and 55-59% on the
+arm that had none: same build, same window, minutes apart.
+
+The shell now hands it back on the explicit close, the twin of what the pane
+creation already did (`browser_close_inner`, spec `NATIVEOPS-06`). The two lines
+above are the readings this gate will print green: `keyboard after the closes`
+should name the client's own child window, not `NO window`. That verification
+needs a build with the fix in it, which is the next release; on 2.2.287 the
+reading is the diagnosis, not the cure.
 
 ## The gate can fail
 

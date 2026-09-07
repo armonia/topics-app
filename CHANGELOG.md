@@ -10,6 +10,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - rephrase a comment line the language gate read as Italian
 - rename the FFI struct buffers to English (identifier gate)
 - the review-checks timing cases stretch with the machine, not against it
+- Serve the bundle precompressed on :3333
 
 ## 2.2.288 — 2026-09-07
 

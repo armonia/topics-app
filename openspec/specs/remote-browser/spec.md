@@ -2002,3 +2002,69 @@ riprovare invece di bussare in ciclo su un contesto altrui.
 - **GIVEN** un socket morto e un tentativo gia' armato
 - **WHEN** la pane si smonta
 - **THEN** nessun socket nuovo SHALL essere aperto
+
+### Requirement: NATIVEOPS-05 — Aprire una pane non porta via la tastiera al client
+
+Su Windows la webview della pane nasce figlia della finestra e si prende la
+tastiera nell'istante in cui esiste. La barra degli indirizzi che il client
+aveva appena messo a fuoco la perde (`document.activeElement` torna su BODY) e
+da quel momento ogni tasto viene consegnato a una pagina parcheggiata fuori
+schermo: dal di fuori e' indistinguibile da una pane morta, perche' apri, scrivi
+l'indirizzo e non succede niente. Misurato sulla 2.2.287 installata dalla
+release: la stessa build naviga e dipinge (73,6% della finestra) quando
+l'indirizzo arriva per una via che non dipende dal fuoco della finestra, e
+l'indirizzo digitato non raggiunge mai il client.
+
+Il fuoco di una WebView2 vive dentro il controller e SOLO l'applicazione puo'
+spostarlo: una `SetFocus` sull'HWND figlio, provata dall'esterno sulla macchina
+vera, non ha fatto arrivare niente al client. La leva e'
+`MoveFocus(PROGRAMMATIC)`, il gemello del `makeFirstResponder:` del ramo macOS.
+
+La CREAZIONE di una pane SHALL restituire la tastiera alla webview di interfaccia
+della finestra che la ospita (la finestra ospite, non sempre `main`: un pop-out
+riprende la propria). `browser_release_focus` SHALL avere un corpo su Windows:
+la striscia delle tab lo chiama sul pointer-down e fino alla 2.2.287 non faceva
+nulla, perche' tutto cio' che non era macOS finiva in un `let _`.
+
+#### Scenario: si apre una pane e si scrive subito l'indirizzo
+- **GIVEN** una pane browser appena creata su Windows
+- **THEN** la tastiera SHALL tornare alla webview di interfaccia della finestra ospite
+
+#### Scenario: la striscia delle tab chiede il rilascio
+- **GIVEN** una pane che tiene la tastiera e un click sulla striscia delle tab
+- **THEN** `browser_release_focus` SHALL spostare il fuoco con `MoveFocus`, non SHALL essere un no-op
+
+#### Scenario: una pane aperta in un pop-out
+- **GIVEN** una pane creata in una finestra pop-out
+- **THEN** la tastiera SHALL tornare alla webview del pop-out, non a quella di `main`
+
+### Requirement: NATIVEOPS-06 — Chiudere una pane restituisce la tastiera, non la lascia a nessuno
+
+`NATIVEOPS-05` tiene il caso della nascita; questo tiene l'altro capo della vita
+della pane, ed e' peggiore. Su Windows la webview della pane e' una finestra
+figlia nativa che tiene il fuoco finche' vive: quando muore il fuoco non passa a
+nessuno — `GetGUIThreadInfo().hwndFocus` legge `0x0` — e niente nel sistema lo
+rimette a posto. Da li' in avanti i listener `keydown` del client non partono
+piu' e ogni scorciatoia e' inerte finche' chi usa l'app non clicca sulla
+finestra.
+
+Misurato sulla 2.2.287 installata (card cd040754, due run identiche): Ctrl+K
+cambiava il 55,3% della finestra nel giro dove non c'era nessuna pane
+ripristinata da chiudere, e lo 0% nel giro dove la run ne aveva appena chiusa
+una. Stessa build, stessa finestra, a minuti di distanza.
+
+La chiusura esplicita di una pane SHALL restituire la tastiera alla webview di
+interfaccia della finestra che la ospitava, e la finestra ospite SHALL essere
+letta PRIMA dello sgombero: dopo, l'etichetta della pane non e' piu' registrata
+e non c'e' piu' nessuno a cui chiedere di che finestra fosse.
+
+Lo smontaggio della finestra ospite (`evict_panes_of_window`) SHALL restare
+fuori: li' non c'e' piu' un'interfaccia a cui consegnare niente.
+
+#### Scenario: si chiude una pane e si preme una scorciatoia
+- **GIVEN** una pane browser chiusa su richiesta su Windows
+- **THEN** la tastiera SHALL tornare alla webview di interfaccia della finestra ospite
+
+#### Scenario: se ne va la finestra che ospitava le pane
+- **GIVEN** una finestra in chiusura con le sue pane
+- **THEN** lo sgombero NON SHALL spostare il fuoco
