@@ -25,7 +25,7 @@ export type { GlobalDispatchCap } from '../../../shared/board';
 // gate does not use.
 export {
   capMode, livePressureBand,
-  budgetShare, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX, BUDGET_SHARE_DEFAULT,
+  budgetShare, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
 } from '../../../shared/board';
 export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
