@@ -9,7 +9,7 @@
     "E' l'esperimento (si asserisce che per N ms non e' successo niente, o la cadenza e' lo strumento).",
     "Il debito e' total_undeclared, ed e' quello che deve arrivare a zero."
   ],
-  "updated": "2026-08-27",
+  "updated": "2026-09-07",
   "files": {
     "tests/e2e/ask-user-question.spec.ts": 3,
     "tests/e2e/board-archive-restore.spec.ts": 1,
@@ -53,6 +53,7 @@
     "tests/e2e/escape-modal-guard.spec.ts": 1,
     "tests/e2e/file-explorer-git.spec.ts": 1,
     "tests/e2e/focus-bounce-board.spec.ts": 2,
+    "tests/e2e/focus-tab-no-put.spec.ts": 3,
     "tests/e2e/group-drop-sources.spec.ts": 1,
     "tests/e2e/guest-confinement.spec.ts": 1,
     "tests/e2e/helpers/evidence.ts": 1,
@@ -85,8 +86,8 @@
     "tests/e2e/turn-cost-multiplier.spec.ts": 1,
     "tests/e2e/unread-clearing.spec.ts": 1
   },
-  "total_calls": 126,
-  "total_ms": 125196,
-  "total_declared": 35,
-  "total_undeclared": 91
+  "total_calls": 129,
+  "total_ms": 127296,
+  "total_declared": 40,
+  "total_undeclared": 89
 }

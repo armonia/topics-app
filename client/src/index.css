@@ -2338,13 +2338,22 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  *   row 286             wordmark 61.8px  <- the last width that still fits
  *   row 285             wordmark 60.8px, and it keeps losing a pixel per pixel
  *
- * So 286 is the threshold, and it is the ROW's content box, not the column's
- * width: the sidebar is 13px wider than its row (1px border plus two
- * ROW_INSET), which puts the switch at a 299px sidebar. Below it the hints go
- * and the word takes back the ~55px they were holding, which is what makes the
- * default 256px column (a 243px row) whole again. Below ~245 nothing is left
- * to give and the word truncates as it always did: the lights' 64px are not
- * ours to spend (card f0e15ea1).
+ * That sweep was made on macOS, with the system font. THE SUM IS THE FONT'S:
+ * on Linux CI (2026-09-07, DejaVu-class fallback) the same word measures
+ * 67.3px and both hint chips are wider too, so at a 286px row the wordmark
+ * still read 59.7px, i.e. that platform fits everything only from a 294px row
+ * up. The threshold below is therefore 300, not 286: the widest font we ship
+ * to, plus six pixels of rounding. On a Mac the hints leave 14px earlier than
+ * the row strictly required, which costs nothing (the buttons' `title` keeps
+ * naming the shortcut); a fixed number under the widest font would cost Linux
+ * users the app's own name.
+ *
+ * It is the ROW's content box, not the column's width: the sidebar is 13px
+ * wider than its row (1px border plus two ROW_INSET), which puts the switch at
+ * a 313px sidebar. Below it the hints go and the word takes back the ~55px
+ * they were holding, which is what makes the default 256px column (a 243px
+ * row) whole again. Below ~245 nothing is left to give and the word truncates
+ * as it always did: the lights' 64px are not ours to spend (card f0e15ea1).
  *
  * A CONTAINER QUERY and not a width read in JS, because the sidebar resize
  * bypasses React on purpose — the drag writes `style.width` on the node and
@@ -2363,7 +2372,7 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   container-name: sidebar-header;
 }
 
-@container sidebar-header (width < 286px) {
+@container sidebar-header (width < 300px) {
   .sidebar-header .kbd-hint {
     display: none;
   }

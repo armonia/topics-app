@@ -720,6 +720,35 @@ opposto.
 - **GIVEN** un ciclo nascondi/mostra
 - **THEN** i canali SHALL tacere e poi recuperare
 
+### Requirement: IDLE-02 — Un gesto DEVICE-LOCAL non spedisce lo stato condiviso
+
+Ci sono gesti che cambiano solo ciò che questo dispositivo vede: cambiare
+scheda (`focusedPaneId`) e cambiare Spazio attivo (`activeSpaceId`). Nessuno dei
+due entra nello snapshot che parte per il server — `selectSyncableSnapshot` li
+toglie — quindi il corpo che una spinta porterebbe è IDENTICO, byte per byte, a
+quello che il server ha già.
+
+Un gesto di questa classe NON SHALL armare la spinta del pane store. Il costo
+che si evita non è la banda: è una scrittura su SQLite, un ricalcolo della
+cascata sul server e un HYDRATE in broadcast a ogni altro client, per un
+cambiamento che nessun pari può osservare. Misurato: otto click alternati fra
+due schede facevano otto PUT da 68.820 B, uno ogni ~470 ms dopo il click.
+
+Il contatore locale SHALL però continuare a muoversi: la persistenza locale ci
+si abbona per scrivere subito il fuoco su disco, e un ricarico a metà del
+rimbalzo non deve riaprire la scheda sbagliata. Sono due contatori distinti
+proprio perché rispondono a due domande diverse: «qualcosa è cambiato qui» e
+«è cambiato qualcosa che riguarda anche gli altri».
+
+#### Scenario: otto click alternati fra due schede
+- **GIVEN** due schede aperte e l'app assestata
+- **WHEN** si clicca otto volte alternando fra le due
+- **THEN** NON SHALL partire nessun PUT del pane store
+
+#### Scenario: il fuoco resta scritto in locale
+- **GIVEN** un cambio di scheda
+- **THEN** il contatore locale SHALL salire e il fuoco SHALL essere persistito
+
 ### Requirement: PERFPANEL-01 — Il pannello dice NUMERI, e dice anche quando il numero non c'è
 
 Il pannello SHALL aprirsi dal menu «Topics» e mostrare NUMERI, non chiavi.

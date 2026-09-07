@@ -104,6 +104,10 @@ export const PROJECT_WORDS = new Set([
   // (`TASKS_DDL`, `APP_SETTINGS_DDL`). Spelling it out in an identifier would
   // be longer and less recognisable than the acronym everybody reads.
   "ddl",
+  // `changelog` is the name of the surface itself (`ChangelogModal`, the "what
+  // is new" sheet behind the version chip) and of the file it renders. The 1934
+  // list predates the word; every release process in use spells it this way.
+  "changelog",
   // Same hole, five more: `online` and `primaries` are everyday English, `fps`
   // and `perf` are the units this codebase measures in, and `strongest` is a
   // regular superlative the 1934 list simply does not carry.
@@ -150,6 +154,11 @@ export const PROJECT_WORDS = new Set([
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
   "ffmpeg",
+  // Three names of things, not jargon: `changelog` is the page this app links
+  // to and the file it renders, `github` and `blog` are the two profile fields
+  // GitHub's own API returns under those exact keys. A URL built from one of
+  // them can only be named after it.
+  "changelog", "github", "blog",
   // Same hole again (2026-09-04): `coordinator` names the global Kanban
   // coordinator throughout the orchestrator feature, and `denied` is the
   // past participle the list stops short of.
