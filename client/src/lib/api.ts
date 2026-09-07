@@ -1348,7 +1348,38 @@ export const providersApi = {
   async remove(name: string) {
     return request<{ ok: boolean }>(`/providers/${encodeURIComponent(name)}`, { method: 'DELETE' });
   },
+
+  /** Which agent CLIs this machine has, and which ones were pointed at by hand. */
+  async cliAgents(): Promise<{ agents: CliAgentPresence[] }> {
+    return request<{ agents: CliAgentPresence[] }>('/providers/cli');
+  },
+
+  /**
+   * Point an agent CLI at a path, or clear it with `path: null`. The server
+   * validates it, re-registers the providers and answers with the fresh list, so
+   * the caller never has to guess whether it worked.
+   */
+  async configureCliAgent(agent: string, path: string | null) {
+    return request<{ ok: boolean; path: string | null; agents: CliAgentPresence[] }>(
+      '/providers/cli/configure',
+      { method: 'POST', body: JSON.stringify({ agent, path }) },
+    );
+  },
 };
+
+/** Mirror of `AgentPresence` in `server/lib/detect-agents.ts`. */
+export interface CliAgentPresence {
+  id: string;
+  name: string;
+  path: string | null;
+  installed: boolean;
+  install: string;
+  url: string;
+  manualPath: string | null;
+  manualPathBroken: boolean;
+  /** The file name the CLI installs itself as (`claude` for Claude Code). */
+  bin: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App-settings — promoted behaviour toggles (env-var audit, Phase B).
