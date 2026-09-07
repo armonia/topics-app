@@ -43,7 +43,7 @@ const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 /** The tree under test: one root, 3 steps, 2 grandchildren under each step. */
 const STEPS = 3;
-const GRANDCHILDREN = 2;
+const CHILDREN_PER_STEP = 2;
 /** The thread on every STEP: five comments of ~5 KB, the size of a real one. */
 const COMMENTS_PER_STEP = 5;
 const COMMENT_BYTES = 5 * 1024;
@@ -151,7 +151,7 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
     for (let s = 0; s < STEPS; s++) {
       const step = await createTask(request, { text: `Step ${s + 1} of the root`, parentTaskId: root.id });
       childIds.add(step.id);
-      for (let g = 0; g < GRANDCHILDREN; g++) {
+      for (let g = 0; g < CHILDREN_PER_STEP; g++) {
         const kid = await createTask(request, { text: `Item ${g + 1} of step ${s + 1}`, parentTaskId: step.id });
         childIds.add(kid.id);
       }
@@ -238,10 +238,10 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
     for (let guard = 0; guard < STEPS * 2; guard++) {
       if ((await chevrons.count()) === 0) break;
       await chevrons.first().click();
-      await expect(tree.getByText(/Item \d of step \d/)).toHaveCount(Math.min(STEPS, guard + 1) * GRANDCHILDREN, { timeout: 10000 });
+      await expect(tree.getByText(/Item \d of step \d/)).toHaveCount(Math.min(STEPS, guard + 1) * CHILDREN_PER_STEP, { timeout: 10000 });
     }
     await expect(chevrons).toHaveCount(0);
-    await expect(tree.getByText(/Item \d of step \d/)).toHaveCount(STEPS * GRANDCHILDREN);
+    await expect(tree.getByText(/Item \d of step \d/)).toHaveCount(STEPS * CHILDREN_PER_STEP);
 
     // «The group is over»: every step asked once, nothing is in flight, and
     // the wire has been silent for longer than any retry the tree would
@@ -254,7 +254,7 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
       })
       .toBe(true);
 
-    console.log(`[drawer-children-fetch] per-node GET group while expanding: ${requests} requests, ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB) for ${STEPS} steps x ${GRANDCHILDREN} grandchildren x ${COMMENTS_PER_STEP} comments of ${COMMENT_BYTES} B`);
+    console.log(`[drawer-children-fetch] per-node GET group while expanding: ${requests} requests, ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB) for ${STEPS} steps x ${CHILDREN_PER_STEP} grandchildren x ${COMMENTS_PER_STEP} comments of ${COMMENT_BYTES} B`);
 
     // The floor keeps the ceiling honest: a tree that asked NOTHING would be
     // under budget for the wrong reason.
