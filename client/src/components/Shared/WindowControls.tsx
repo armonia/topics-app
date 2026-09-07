@@ -35,6 +35,7 @@
  */
 import { useEffect, useState } from 'react';
 import { isTauriWindows } from '../../lib/shell';
+import { windowChrome } from '../../lib/shell/windowChrome';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
@@ -59,7 +60,14 @@ export function WindowControls({ visible }: { visible: boolean }) {
     return () => { alive = false; window.removeEventListener('resize', read); };
   }, []);
 
-  if (!isTauriWindows) return null;
+  // The SECOND arm is what makes this cluster measurable. `?windowChrome=windows`
+  // already forces the row to reserve the Windows geometry from a plain browser
+  // (see `windowChrome.ts`), but the three cells themselves stayed unmounted
+  // there, so the one thing nobody could check outside a Windows build was how
+  // they LOOK: their pitch, their air, where the cluster ends. The commands stay
+  // inert off Tauri (`tauriInvoke` has no shell to talk to), so what the override
+  // mounts is the drawing and nothing else.
+  if (!isTauriWindows && windowChrome !== 'windows') return null;
 
   // THESE SHOW WHEN THE macOS TRAFFIC LIGHTS SHOW — i.e. with the Topics menu open.
   //
@@ -79,10 +87,11 @@ export function WindowControls({ visible }: { visible: boolean }) {
     if (action === 'maximize') setMaximized((v) => !v);
   };
 
-  // 18×18 with 10px glyphs, three in a row: 54px, which is what the word "Topics"
-  // measures underneath (15px semibold) and what the three traffic lights measure
-  // on the Mac. The Windows 11 cell is 46×32 and it was right at the end of the
-  // row; over a label it would be a 138px slab covering the chevron as well. The
+  // 18x18 with 10px glyphs, three of them 4px apart: 62px, about what the three
+  // traffic lights measure on the Mac (52). The cells no longer sit OVER the word
+  // "Topics" (they are permanently visible and the word starts to their right),
+  // so what bounds their size is the row, not the label: the Windows 11 cell is
+  // 46x32 and three of those would be a 138px slab covering the chevron. The
   // background is transparent and lights up on hover, except for close, which goes
   // to the system red — it is the one of the three that cannot be undone, and it
   // shows.
@@ -107,7 +116,11 @@ export function WindowControls({ visible }: { visible: boolean }) {
       //
       // The node stays mounted (not `hidden`, not unmounted) so the fade still
       // plays and the keyboard order stays governed by `tabIndex` above.
-      className={`app-no-drag absolute left-[6px] top-1/2 -translate-y-1/2 z-10 flex items-center transition-opacity duration-150 ${
+      // `gap-[4px]`: the number is `WINDOW_CONTROL_CELL_GAP_PX` in
+      // `windowControlsGeometry.ts`, which is where the why lives and which
+      // derives the title inset from it. Written out as a literal because
+      // Tailwind scans the source, and pinned to the constant by the test.
+      className={`app-no-drag absolute left-[6px] top-1/2 -translate-y-1/2 z-10 flex items-center gap-[4px] transition-opacity duration-150 ${
         visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
       aria-hidden={!visible}
