@@ -109,7 +109,13 @@ test.describe("Floating splits and the window's ground", () => {
   test("LAYOUT-32: the ground under the content does not move, on any surface or platform", async ({ page }) => {
     await goToApp(page);
 
-    for (const cls of ["windows-acrylic", "tauri-mac", "electron-mac"]) {
+    // WINDOWS IS OUT OF THIS LOOP, and that is the second half of the
+    // requirement rather than an exemption. There the backdrop is whole-window,
+    // so it filled the gaps too and floating mode had no gaps at all; the shell
+    // now drops it while floating is on, which leaves the veil with nothing
+    // behind it. A 0.72 colour over a wallpaper is not a surface, so the
+    // surfaces take the veil's OPAQUE twin instead - measured in the test below.
+    for (const cls of ["tauri-mac", "electron-mac"]) {
       const g = await groundsOverContent(page, cls);
       for (const name of Object.keys(g.off.surfaces)) {
         const before = g.off.surfaces[name];
@@ -125,6 +131,49 @@ test.describe("Floating splits and the window's ground", () => {
             `Guscio ${g.off.onShell} -> ${g.on.onShell}, superficie ${before.own} -> ${after.own}`,
         ).toBe(before.ground);
       }
+    }
+  });
+
+  // WINDOWS: THE SURFACES GO OPAQUE, AND THE SHELL STILL GOES BARE.
+  //
+  // Reported from a Windows build (card 6df97deb): the blur stays between the
+  // floating windows as well. It did, and no CSS could have fixed it - the DWM
+  // backdrop is granted to the whole window and there is no per-region form of
+  // it, so the gaps were frosted by construction. The shell drops the backdrop
+  // while floating is on; here we measure the consequence the page owes in
+  // return, because a translucent card with no material behind it is a stain on
+  // the wallpaper instead of a surface.
+  test("LAYOUT-32c: on Windows the floating surfaces are opaque, and the gaps are holes", async ({ page }) => {
+    await goToApp(page);
+    const g = await groundsOverContent(page, "windows-acrylic");
+    expect(
+      g.on.onShell,
+      "anche su Windows il guscio deve restare nudo: e' lo spazio fra le schede a diventare un buco",
+    ).toMatch(CLEAR);
+    // The token the surfaces must land on, read from the same cascade rather
+    // than written here as a literal: `--bg-solid` is the app's own background
+    // with no frost to ride, and this test would otherwise pin a grey that the
+    // theme is free to move.
+    // Read under the SAME classes the surfaces were measured with (dark), or the
+    // token would come back in whatever theme the page happens to be in.
+    const solid = await page.evaluate(() => {
+      const root = document.documentElement;
+      const before = root.className;
+      root.className = "windows-acrylic native-frost dark";
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:-9999px;background-color:var(--bg-solid)";
+      document.body.appendChild(probe);
+      const c = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      root.className = before;
+      return c;
+    });
+    expect(solid, "`--bg-solid` deve esistere ed essere opaco").toMatch(/^rgb\(/);
+    for (const [name, s] of Object.entries(g.on.surfaces)) {
+      expect(
+        s.own,
+        `su Windows «${name}» deve dipingere il gemello opaco del velo: senza fondale, un colore translucido lascia passare il parato`,
+      ).toBe(solid);
     }
   });
 

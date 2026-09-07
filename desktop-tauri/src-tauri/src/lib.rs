@@ -9429,6 +9429,26 @@ fn window_is_maximized(window: tauri::Window) -> bool {
     .unwrap_or(false)
 }
 
+/// The client says whether the floating-splits layout is on, so the shell can
+/// decide what the window's ground is.
+///
+/// Windows only in effect (see `windows_acrylic::set_floating`): there the DWM
+/// backdrop is whole-window, so it also fills the gaps the floating layout opens
+/// between the cards, and the gaps come out frosted instead of showing what is
+/// behind the window. macOS has per-region vibrancy and needs nothing here: the
+/// regions it pushes already stop at the cards' edges.
+///
+/// Unguarded and cheap off Windows: it stores a flag and returns.
+#[tauri::command]
+fn window_set_floating(app: tauri::AppHandle, floating: bool) {
+    // no_abort for the same reason as `set_theme`: this reaches the window
+    // dispatcher, whose poisoned mutex aborts the process instead of returning.
+    let _ = no_abort("window_set_floating", || {
+        windows_acrylic::set_floating(&app, floating);
+        Ok(())
+    });
+}
+
 // ───────────────────────── Dev hot-reload (disk-serve) ─────────────────────────
 //
 // Electron-prod parity: the packaged Electron shell "auto-reloads all windows when
@@ -11303,6 +11323,7 @@ pub fn run() {
             window_close_self,
             window_control,
             window_is_maximized,
+            window_set_floating,
             os_open::take_os_open_paths,
             // The boot verdict, for the SPA's own offline state: the reconnect page
             // says it too, but only a document navigation ever reaches that page.

@@ -24,12 +24,15 @@ import { isWindowAwake } from '../state/windowAwake';
  * Fully inert off macOS / on web (the resolver returns null → the effect bails),
  * where the window keeps its CSS fallback.
  *
- * WINDOWS IS A DELIBERATE NON-CLIENT of this hook. The acrylic build still gets
- * the frost, but from ONE whole-window DWM backdrop, so there are no regions to
- * push and the IPC above is never called there. The hook's only job on Windows
- * is the class safety net in `assertFrostClasses`. Consequence, and it is the
- * contract rather than a defect: Windows gets frosted chrome and frosted GAPS
- * between the cards, never gaps you can see the live desktop through.
+ * WINDOWS PUSHES NO REGIONS, and gets a different answer to the same question.
+ * The acrylic build takes its frost from ONE whole-window DWM backdrop, so there
+ * is nothing to place and the IPC above is never called there. That backdrop is
+ * also what used to fill the gaps between the cards, so floating mode on Windows
+ * looked like tiling mode with rounded corners: frost everywhere, holes nowhere.
+ * The hook now says so to the shell (`window_set_floating`, first effect below),
+ * which drops the backdrop while floating is on; the cards go opaque in CSS and
+ * the gaps become real. Its other job there is the class safety net in
+ * `assertFrostClasses`.
  */
 const FLOAT_RADIUS = 10; // keep in sync with --float-radius in index.css
 
@@ -121,9 +124,9 @@ function assertFrostClasses(): void {
  *  Null off macOS, and Windows is a deliberate null rather than an omission:
  *  DWM backdrops are whole-window and have no per-region equivalent, so
  *  `vibrancy_set_regions` / `vibrancy_animate_regions` must never be called
- *  there. Windows still gets the classes above, so it gets frosted chrome and
- *  frosted gaps between the cards. What it cannot get is TRANSPARENT gaps
- *  showing the live desktop: that is the macOS-only half of this feature.
+ *  there. Windows still gets the classes above, and its gaps are opened by
+ *  dropping the whole-window backdrop instead (see the header): the frost it
+ *  loses while floating is on is the price of having gaps at all.
  *
  *  macOS is detected DIRECTLY (isTauri + userAgent) rather than by reading the
  *  `.tauri-mac` class back, for the same reason the safety net exists: the
@@ -153,6 +156,23 @@ function resolveVibrancy(): VibrancyApi | null {
 }
 
 export function useFloatingVibrancy(floatingSplits: boolean) {
+  // WINDOWS: TELL THE SHELL, because there the ground is a window-wide decision.
+  //
+  // The hook above pushes rects on macOS so the frost stops at the cards' edges.
+  // Windows has no per-region equivalent: DWM gives one backdrop for the whole
+  // window, and it therefore also fills the gaps the floating layout opens
+  // between the cards, which is the defect reported from a Windows build (the
+  // blur stays between the floating windows). The only lever is the window, so
+  // floating mode turns the backdrop OFF and the CSS pays for it by painting the
+  // cards opaque (`html.windows-acrylic .floating-splits` in index.css).
+  //
+  // Its own effect, not a branch of the one below: that one returns early when
+  // there is no per-region driver, which on Windows is always.
+  useEffect(() => {
+    if (!isTauri || !isWindowsHost()) return;
+    void tauriInvoke('window_set_floating', { floating: floatingSplits }).catch(() => {});
+  }, [floatingSplits]);
+
   useEffect(() => {
     const api = resolveVibrancy();
     if (!api) return;

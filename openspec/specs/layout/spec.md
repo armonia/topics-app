@@ -2165,6 +2165,25 @@ cioe' sotto il puntatore che l'ha appena cliccato.
 - **WHEN** si misura fra il gruppo dei comandi e il chevron del bottone
 - **THEN** la distanza SHALL essere di almeno 12px
 
+ANCHE LE TRE CELLE SHALL avere aria fra loro, e per un motivo che a riposo non
+si vede. L'inchiostro e' un glifo da 10px dentro una cella da 18, quindi due
+glifi stanno a 8px: la stessa aria che il Mac tiene fra due pastiglie. Ma la
+cella non e' solo inchiostro, e' un bersaglio che si RIEMPIE di colore al
+passaggio del puntatore, e tre rettangoli attaccati smettono di essere tre
+bottoni appena uno si accende. Segnalato da una build Windows (card 6df97deb):
+i comandi non sono distanziati.
+
+L'aria SHALL essere dichiarata insieme al resto della geometria
+(`windowControlsGeometry.ts`) e il rientro dell'etichetta SHALL derivare da
+essa: la classe che disegna lo stacco e il numero che riserva lo spazio non
+possono essere due decisioni.
+
+#### Scenario: le tre celle non si toccano
+- **GIVEN** il guscio Windows, coi tre comandi a schermo
+- **WHEN** si misurano le tre celle
+- **THEN** fra due celle adiacenti SHALL esserci almeno 4px
+- **AND** la parola «Topics» SHALL cominciare dopo il gruppo, con il respiro della riga
+
 ### Requirement: WINCTL-02 — Le tre pastiglie del Mac hanno una geometria dichiarata, e il contenuto la rispetta a ogni fotogramma
 
 Su macOS le tre pastiglie sono native: le dipinge AppKit sopra la webview e il
@@ -2635,7 +2654,29 @@ Una preferenza di disposizione non sposta il terreno.
 - **WHEN** si guarda lo spazio FRA due schede
 - **THEN** li' non c'e' velo, e si vede il materiale nativo
 - **AND** su macOS la vibrancy per-regione copre le schede, quindi il materiale nudo e' esattamente il vuoto
-- **AND** su Windows, dove la vibrancy per-regione non esiste, i vuoti si leggono smerigliati
+
+SU WINDOWS IL VUOTO SHALL essere un vuoto, e il prezzo SHALL essere dichiarato.
+DWM da' UN fondale per tutta la finestra e non esiste niente di per-regione,
+quindi quel fondale riempiva anche i vuoti: il fluttuante si leggeva come
+l'affiancato con gli angoli tondi, sfocatura ovunque e nessun buco. Segnalato da
+una build Windows (card 6df97deb).
+
+Il guscio SHALL quindi TOGLIERE il fondale mentre il fluttuante e' acceso
+(`window_set_floating` -> `windows_acrylic.rs`), e le superfici fluttuanti SHALL
+passare al gemello OPACO del velo (`--bg-solid`, lo stesso colore che l'app
+dipinge quando non ha nessun materiale sotto). Un velo al 72% senza niente
+dietro non e' una superficie, e' una macchia sul desktop.
+
+Cio' che Windows perde e' la smerigliatura SULLE schede mentre il fluttuante e'
+acceso; cio' che guadagna e' la funzione, che li' non esisteva. Il colore del
+contenuto smette anche di dipendere dallo sfondo del desktop: prima era il velo
+composto sul fondale, cioe' variabile col parato.
+
+#### Scenario: i vuoti su Windows
+- **GIVEN** il guscio con la classe `windows-acrylic`
+- **WHEN** si accende il fluttuante
+- **THEN** ogni superficie fluttuante SHALL dipingere un colore OPACO
+- **AND** il guscio SHALL restare nudo, cosi' fra due schede non c'e' niente da sfocare
 
 ### Requirement: LAYOUT-33 — Il riepilogo di una cartella si vede solo mentre la cartella è CHIUSA
 

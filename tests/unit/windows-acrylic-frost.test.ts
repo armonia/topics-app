@@ -109,6 +109,42 @@ describe("Windows acrylic: the page lets the backdrop through", () => {
     );
   });
 
+  /**
+   * FLOATING MODE HAS TO REACH THE SHELL, or the gaps stay frosted.
+   *
+   * The backdrop is granted to the WHOLE window, so it also fills the holes the
+   * floating layout opens between the cards: on Windows the feature looked like
+   * the tiled layout with rounded corners. Reported from a Windows build
+   * (card 6df97deb). The cure is not CSS, it is the shell dropping the backdrop
+   * while floating is on, so the chain that has to hold is: the hook tells the
+   * shell, the command exists, and the Rust arm clears the effect instead of
+   * re-applying it.
+   */
+  test("floating mode is announced to the shell, and only from Windows", () => {
+    const hook = read("client/src/hooks/useFloatingVibrancy.ts");
+    const effect = hook.slice(hook.indexOf("export function useFloatingVibrancy"));
+    const gate = effect.indexOf("isWindowsHost()");
+    const ipc = effect.indexOf("'window_set_floating'");
+    expect(gate).toBeGreaterThan(-1);
+    expect(ipc).toBeGreaterThan(gate);
+    // The command has to be registered, or the invoke is a rejected promise
+    // that the client swallows: the quietest possible failure.
+    const lib = read("desktop-tauri/src-tauri/src/lib.rs");
+    expect(lib).toContain("fn window_set_floating(");
+    expect(lib).toContain("            window_set_floating,");
+  });
+
+  test("with floating on, the window asks for NO backdrop", () => {
+    // The order matters as much as the branch: the theme pin has to survive
+    // (it is what carries dark mode to the page), only the effect goes.
+    const src = read("desktop-tauri/src-tauri/src/windows_acrylic.rs");
+    const body = src.slice(src.indexOf("fn apply_backdrop_win"));
+    const bail = body.indexOf("if !backdrop_wanted()");
+    expect(bail).toBeGreaterThan(body.indexOf("set_theme"));
+    expect(bail).toBeLessThan(body.indexOf("EffectsBuilder::new()"));
+    expect(body.slice(bail)).toContain("set_effects(None::<WindowEffectsConfig>)");
+  });
+
   test("the per-region IPC stays behind the macOS gate", () => {
     // DWM has no per-region equivalent. Calling `vibrancy_set_regions` on
     // Windows would be an IPC into a command that no-ops there, and a promise
