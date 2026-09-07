@@ -1,28 +1,28 @@
 /**
- * THE CAP "BY RESOURCES", the alternative to counting agents.
+ * THE CAP "BY RESOURCES": one budget, "Topics may use up to N% of this PC".
  *
- * The dispatcher is driven with a FAKE machine: load, cores, memory and the
- * agents in flight are injected, because the case that matters ("over the
- * threshold, nothing starts") cannot be measured on the machine running the
- * suite without asserting on whatever else is running next to it.
+ * The dispatcher is driven with a FAKE measure: our core-units, the others',
+ * memory and the agents in flight are injected, because the case that matters
+ * ("over the budget, nothing starts") cannot be measured on the machine running
+ * the suite without asserting on whatever else is running next to it.
  *
  * What is measured:
- *  1. Over the threshold with agents running: nothing starts, the card gets the
+ *  1. Over the budget with agents running: nothing starts, the card gets the
  *     `queued` chip and a line WITH the numbers, the block publishes as
  *     `pressure`, and the line is written once per episode. Under it: it starts.
- *  2. The first agent is exempt: an empty fleet starts even on a loaded machine.
- *  3. The memory axis blocks on its own, with its own numbers.
- *  4. In this mode the numeric cap does not apply.
- *  5. The hard floor still wins over the pressure, in both modes.
+ *  2. The first agent is exempt: an empty fleet starts even on a busy machine.
+ *  3. The memory axis blocks on its own.
+ *  4. In this mode the numeric cap does not apply, and the ramp is one per tick.
+ *  5. The hard floor still wins over the budget, in both modes.
  *  6. REGRESSION: in `count` mode the probe is never consulted and the number
  *     rules exactly as before.
- *  7. The row round-trips: a db without the columns reads as count mode with
- *     the default thresholds; a written threshold comes back clamped.
+ *  7. The row round-trips: a db without the column reads as count mode with the
+ *     default budget; a written budget comes back clamped.
  * @covers KANBAN-75
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
-import { capMode, capThresholds, LOAD_RATIO_DEFAULT, LOAD_RATIO_MAX, MEM_RATIO_DEFAULT, type MachinePressure } from "../../shared/board";
+import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, budgetShare, capMode, type MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock } from "./dispatch-block-signal";
@@ -44,8 +44,9 @@ const BOARD_SETTINGS_DDL = `CREATE TABLE board_settings (
   review_checks TEXT,
   max_agents_auto INTEGER, dispatch_fanout INTEGER,
   dispatch_paused INTEGER NOT NULL DEFAULT 0,
-  -- migration 20260906004423: the cap "by resources".
-  max_agents_mode TEXT, max_load_ratio REAL, max_mem_ratio REAL
+  -- migration 20260906004423 + 20260907214600: the cap "by resources".
+  max_agents_mode TEXT, max_load_ratio REAL, max_mem_ratio REAL,
+  machine_budget_share REAL
 )`;
 
 function freshDb(): Database {
@@ -96,8 +97,12 @@ function seedTask(db: Database, id = `t${++seq}`): string {
   return id;
 }
 
-/** A twelve-core, 32 GB machine, quiet, with a few agents in flight. */
-const QUIET: MachinePressure = { load1: 2, cores: 12, availableMemGB: 20, totalMemGB: 32, running: 2 };
+/** A twelve-core, 32 GB machine, quiet, with a few agents in flight: Topics is
+ *  holding two core-units of it and somebody else one. */
+const QUIET: MachineBudgetSample = {
+  cores: 12, totalMemGB: 32, ourCoreUnits: 2, otherCoreUnits: 1,
+  ourMemGB: 3, availableMemGB: 20, running: 2,
+};
 
 /**
  * The real service and dispatcher, a fake host and a fake machine. The turns
@@ -110,7 +115,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const topicsCreated: string[] = [];
   const logLines: string[] = [];
   /** The machine as the dispatcher will read it; tests move it between ticks. */
-  const machine = { pressure: { ...QUIET } as MachinePressure | null, reads: 0 };
+  const machine = { pressure: { ...QUIET } as MachineBudgetSample | null, reads: 0 };
 
   const deps: DispatcherDeps = {
     svc,
@@ -128,7 +133,10 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     graceMs: 0,
     retryBackoffMs: 0,
     log: (m: string) => logLines.push(m),
-    machinePressure: () => { machine.reads++; return machine.pressure; },
+    budgetSample: () => { machine.reads++; return machine.pressure; },
+    // A price list that says "one core-unit each", so the arithmetic in the
+    // assertions is the arithmetic of the budget and not of a moving estimate.
+    agentCostSamples: () => [1, 1, 1],
     ...overrides,
   };
   const dispatcher = createTaskDispatcher(deps);
@@ -149,13 +157,14 @@ function boardOn(h: ReturnType<typeof harness>): void {
   h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
 }
 
-describe("the cap by resources: over the threshold nothing starts, under it it does", () => {
-  it("holds the queue with the numbers on the card, once per episode, and lets go when the load drops", async () => {
+describe("the cap by resources: over the budget nothing starts, under it it does", () => {
+  it("holds the queue with the numbers on the card, once per episode, and lets go when the use drops", async () => {
     const h = harness();
     boardOn(h);
-    h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", maxLoadRatio: 0.9 });
-    // 14 on 12 cores is 117% of the machine: over a 90% threshold.
-    h.machine.pressure = { ...QUIET, load1: 14, running: 2 };
+    h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.5 });
+    // Budget: 50% of 12 cores = 6 core-units. We are at 5.8, and one more agent
+    // costs 1: it does not fit.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 5.8, running: 2 };
     seedTask(h.db, "p1");
 
     await h.dispatcher.tick(PID);
@@ -168,37 +177,80 @@ describe("the cap by resources: over the threshold nothing starts, under it it d
     // under its OWN kind: the tone for "it will pass" is not the floor's.
     expect(h.task("p1")!.dispatchState).toBe("queued");
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
-    expect(currentDispatchBlock()!.reason).toContain("Carico oltre la soglia");
+    expect(currentDispatchBlock()!.reason).toContain("Topics usa il");
 
-    // The line carries the reading, the cores, the percentage and the chosen
-    // threshold, in that order, and promises the restart.
-    const notes = h.notes("p1", "Carico oltre la soglia");
+    // The line carries the use, the budget, the core-units, and promises the
+    // restart. 5.8 on 12 cores is 48% of the machine, against a 50% budget.
+    const notes = h.notes("p1", "Topics usa il");
     expect(notes).toHaveLength(1);
     expect(notes[0]!.kind).toBe("service");
-    expect(notes[0]!.content).toContain("14,0 su 12 core");
-    expect(notes[0]!.content).toContain("117% della macchina");
-    expect(notes[0]!.content).toContain("soglia 90%");
-    expect(notes[0]!.content).toContain("2 agent al lavoro");
+    expect(notes[0]!.content).toContain("48% del PC");
+    expect(notes[0]!.content).toContain("budget del 50%");
+    expect(notes[0]!.content).toContain("5,8 core-unità su 6,0");
     expect(notes[0]!.content).toContain("riparte da sé");
     // And the log said it once, not once per tick.
-    expect(h.logLines.filter((l) => l.includes("coda in attesa per pressione"))).toHaveLength(1);
+    expect(h.logLines.filter((l) => l.includes("coda in attesa per budget"))).toHaveLength(1);
 
-    // The load drops: the same card starts, the block clears, the log says so.
-    h.machine.pressure = { ...QUIET, load1: 3, running: 2 };
+    // The use drops well under the resume line (80% of 6 = 4.8): the same card
+    // starts, the block clears, the log says so.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 1, running: 2 };
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.topicsCreated).toHaveLength(1);
     expect(currentDispatchBlock()).toBeNull();
     expect(h.logLines.filter((l) => l.includes("coda ripartita"))).toHaveLength(1);
     // No second line on the card for the same episode.
-    expect(h.notes("p1", "Carico oltre la soglia")).toHaveLength(1);
+    expect(h.notes("p1", "Topics usa il")).toHaveLength(1);
   });
 
-  it("exempts the first agent: an empty fleet starts even on a loaded machine", async () => {
+  it("does not resume where it stopped: between the resume line and the budget it keeps holding", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+    // Over the budget first, so the gate is holding.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 6.5, running: 2 };
+    await h.dispatcher.tick(PID);
+    await flush();
+    seedTask(h.db, "hy1");
+
+    // 4.9 of 6: under the budget (4.9 + 1 would be 5.9), but over the 80%
+    // resume line, so nothing starts yet. This is the gap the eight cards of
+    // 2026-09-07 went through.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 4.9, running: 2 };
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated).toHaveLength(0);
+
+    // Under the resume line: it goes.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 3, running: 2 };
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated).toHaveLength(1);
+  });
+
+  it("what the others take shrinks the budget, and the line says why", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    // Budget 9.6 core-units, but somebody else is holding 10 of the 12 cores:
+    // only 2 are usable, and we are already at 1.5.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 1.5, otherCoreUnits: 10, running: 2 };
+    seedTask(h.db, "o1");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated).toHaveLength(0);
+    const notes = h.notes("o1", "Topics usa il");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.content).toContain("il resto della macchina sta lavorando");
+  });
+
+  it("exempts the first agent: an empty fleet starts even on a busy machine", async () => {
     const h = harness();
     boardOn(h);
     h.svc.setGlobalCap({ mode: "resources" });
-    h.machine.pressure = { ...QUIET, load1: 40, running: 0 };
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 30, running: 0 };
     seedTask(h.db, "e1");
 
     await h.dispatcher.tick(PID);
@@ -209,12 +261,12 @@ describe("the cap by resources: over the threshold nothing starts, under it it d
     expect(h.logLines.filter((l) => l.includes("il primo parte comunque"))).toHaveLength(1);
   });
 
-  it("blocks on memory alone, with the memory numbers", async () => {
+  it("blocks on memory alone", async () => {
     const h = harness();
     boardOn(h);
-    h.svc.setGlobalCap({ mode: "resources", maxMemRatio: 0.85 });
-    // 2 GB available on 32 is 94% used: over 85%, while the load is fine.
-    h.machine.pressure = { ...QUIET, load1: 1, availableMemGB: 2, running: 1 };
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+    // 20 GB held of a 16 GB budget (50% of 32), while the CPU is fine.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 0.5, ourMemGB: 20, running: 1 };
     seedTask(h.db, "m1");
 
     await h.dispatcher.tick(PID);
@@ -222,12 +274,9 @@ describe("the cap by resources: over the threshold nothing starts, under it it d
 
     expect(h.topicsCreated).toHaveLength(0);
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
-    const notes = h.notes("m1", "Memoria oltre la soglia");
+    const notes = h.notes("m1", "tetto di memoria");
     expect(notes).toHaveLength(1);
-    expect(notes[0]!.content).toContain("30,0 GB usati su 32,0");
-    expect(notes[0]!.content).toContain("94%");
-    expect(notes[0]!.content).toContain("soglia 85%");
-    expect(notes[0]!.content).toContain("1 agent al lavoro");
+    expect(notes[0]!.content).toContain("50%");
   });
 
   it("ramps ONE new dispatch per tick, and ignores the numeric cap: three cards on a cap of 1, three ticks, three agents", async () => {
@@ -235,8 +284,8 @@ describe("the cap by resources: over the threshold nothing starts, under it it d
     boardOn(h);
     h.svc.setGlobalCap({ auto: false, max: 1, mode: "resources" });
     // A quiet machine with nothing running: every verdict of a single round
-    // would read the same quiet load, so the round admits one card only.
-    h.machine.pressure = { ...QUIET, running: 0 };
+    // would read the same quiet measure, so the round admits one card only.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 0.2, running: 0 };
     seedTask(h.db, "n1"); seedTask(h.db, "n2"); seedTask(h.db, "n3");
 
     await h.dispatcher.tick(PID);
@@ -262,11 +311,11 @@ describe("the cap by resources: over the threshold nothing starts, under it it d
     expect(h.topicsCreated).toHaveLength(3);
   });
 
-  it("the hard floor wins over the pressure: a full disk is not a wait that passes", async () => {
+  it("the hard floor wins over the budget: a full disk is not a wait that passes", async () => {
     const h = harness({ resourceBlock: () => "Disco quasi pieno: 2 GB liberi." });
     boardOn(h);
     h.svc.setGlobalCap({ mode: "resources" });
-    h.machine.pressure = { ...QUIET, load1: 40, running: 3 };
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 30, running: 3 };
     seedTask(h.db, "f1");
 
     await h.dispatcher.tick(PID);
@@ -275,9 +324,9 @@ describe("the cap by resources: over the threshold nothing starts, under it it d
     expect(h.topicsCreated).toHaveLength(0);
     expect(currentDispatchBlock()).toMatchObject({ kind: "resources" });
     expect(h.notes("f1", "Disco quasi pieno")).toHaveLength(1);
-    expect(h.notes("f1", "Carico oltre la soglia")).toHaveLength(0);
+    expect(h.notes("f1", "Topics usa il")).toHaveLength(0);
     // The probe was not even asked: with the floor holding there is nothing
-    // left for the pressure to decide.
+    // left for the budget to decide.
     expect(h.machine.reads).toBe(0);
   });
 });
@@ -286,27 +335,27 @@ describe("count mode is untouched", () => {
   it("never consults the probe and the number rules as before", async () => {
     const h = harness();
     boardOn(h);
-    // Default mode (nothing written): a machine screaming over every threshold.
+    // Default mode (nothing written): a machine screaming over every budget.
     h.svc.setGlobalCap({ auto: false, max: 1 });
-    h.machine.pressure = { load1: 40, cores: 12, availableMemGB: 1, totalMemGB: 32, running: 5 };
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 40, ourMemGB: 31, availableMemGB: 1, running: 5 };
     seedTask(h.db, "c1"); seedTask(h.db, "c2");
 
     await h.dispatcher.tick(PID);
     await flush();
 
-    // One started (the cap of 1), the other waits on the cap, not on pressure.
+    // One started (the cap of 1), the other waits on the cap, not on the budget.
     expect(h.topicsCreated).toHaveLength(1);
     expect(h.machine.reads).toBe(0);
     expect(currentDispatchBlock()).toBeNull();
-    expect(h.notes("c2", "Carico oltre la soglia")).toHaveLength(0);
+    expect(h.notes("c2", "Topics usa il")).toHaveLength(0);
     expect(h.notes("c2", "In coda")).toHaveLength(1);
   });
 
   it("an explicit `count` behaves like the absent one", async () => {
     const h = harness();
     boardOn(h);
-    h.svc.setGlobalCap({ auto: false, max: 2, mode: "count", maxLoadRatio: 0.5 });
-    h.machine.pressure = { ...QUIET, load1: 40, running: 5 };
+    h.svc.setGlobalCap({ auto: false, max: 2, mode: "count", budgetShare: 0.5 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 40, running: 5 };
     seedTask(h.db, "k1"); seedTask(h.db, "k2"); seedTask(h.db, "k3");
 
     await h.dispatcher.tick(PID);
@@ -318,7 +367,7 @@ describe("count mode is untouched", () => {
 });
 
 describe("the row round-trips", () => {
-  it("a db without the columns reads as count mode with the default thresholds", () => {
+  it("a db without the column reads as count mode with the default budget", () => {
     const db = new Database(":memory:");
     db.run("CREATE TABLE board_settings (project_id TEXT PRIMARY KEY, max_agents INTEGER, max_agents_auto INTEGER)");
     db.run("INSERT INTO board_settings (project_id, max_agents, max_agents_auto) VALUES ('*', 4, 0)");
@@ -328,24 +377,23 @@ describe("the row round-trips", () => {
     // tests on this row keep passing unchanged.
     expect(cap).toEqual({ auto: false, max: 4 });
     expect(capMode(cap)).toBe("count");
-    expect(capThresholds(cap)).toEqual({ maxLoadRatio: LOAD_RATIO_DEFAULT, maxMemRatio: MEM_RATIO_DEFAULT });
+    expect(budgetShare(cap)).toBe(BUDGET_SHARE_DEFAULT);
   });
 
-  it("writes the mode and clamps the thresholds on the way in", () => {
+  it("writes the mode and clamps the budget on the way in", () => {
     const h = harness();
-    const cap = h.svc.setGlobalCap({ mode: "resources", maxLoadRatio: 9, maxMemRatio: 0.7 });
+    const cap = h.svc.setGlobalCap({ mode: "resources", budgetShare: 9 });
     expect(cap.mode).toBe("resources");
     // 9 is out of range: what lands on disk is the ceiling, so the panel and
     // the gate read the same number.
-    expect(cap.maxLoadRatio).toBe(LOAD_RATIO_MAX);
-    expect(cap.maxMemRatio).toBe(0.7);
-    expect(readGlobalCap(h.db)).toMatchObject({ mode: "resources", maxLoadRatio: LOAD_RATIO_MAX, maxMemRatio: 0.7 });
+    expect(cap.budgetShare).toBe(BUDGET_SHARE_MAX);
+    expect(readGlobalCap(h.db)).toMatchObject({ mode: "resources", budgetShare: BUDGET_SHARE_MAX });
     // Back to count: the row no longer says `resources`, so the field is gone
-    // and `capMode` reads the default; the thresholds stay written for when
-    // the mode comes back.
+    // and `capMode` reads the default; the budget stays written for when the
+    // mode comes back.
     const back = h.svc.setGlobalCap({ mode: "count" });
     expect(back.mode).toBeUndefined();
     expect(capMode(back)).toBe("count");
-    expect(back.maxLoadRatio).toBe(LOAD_RATIO_MAX);
+    expect(back.budgetShare).toBe(BUDGET_SHARE_MAX);
   });
 });

@@ -165,6 +165,20 @@ export interface FleetUsage {
   scriptsMB: number;
   /** Numero di processi classificati come script-agente. */
   scriptsProcessCount: number;
+  /** CPU of the third axis, on the same 0-100 machine scale as `cpuPercent`.
+   *  Kept apart from it for the same reason the memory is: the count cap reads
+   *  the fleet WITHOUT the agents' own scripts, and the budget reads both. */
+  scriptsCpuPercent: number;
+  /**
+   * CPU of everything that is NOT ours, on the same 0-100 machine scale.
+   *
+   * It is the term that turns the budget into a ceiling instead of a right (see
+   * `shared/machine-budget.ts`): what we may take is the budget or what the
+   * others leave free, whichever is less. It comes from the SAME `ps` snapshot
+   * as our own share, so the two cannot describe two different instants, and it
+   * is a sum of instantaneous percentages, not a load average.
+   */
+  otherCpuPercent: number;
   /** False when the platform has no usable `ps` (Windows) — the client then
    *  keeps showing the single-process figure instead of a confident wrong one. */
   supported: boolean;
@@ -355,10 +369,12 @@ export function summarizeFleet(
     });
   }
 
-  // Calcola il terzo asse: processi-script e la loro memoria.
+  // Calcola il terzo asse: processi-script, la loro memoria e la loro CPU. allow-italian: pre-existing comment, only the word "CPU" was added
   // Questi NON sono nella counted set e vengono misurati separatamente.
   let scriptsTotalKB = 0;
   let scriptsProcs = 0;
+  let scriptsCpu = 0;
+  const scriptPidsSeen = new Set<number>();
   for (const s of scripts) {
     // Usa ppid walk per i figli dello script (es. i nipoti di npm install).
     const stack = [s.pid];
@@ -371,9 +387,20 @@ export function summarizeFleet(
       const row = byPid.get(pid);
       if (!row) continue;
       scriptsProcs++;
+      scriptPidsSeen.add(pid);
       scriptsTotalKB += row.footprintKB ?? row.rssKB;
+      scriptsCpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
       if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;
     }
+  }
+
+  // WHAT IS NOT OURS: the whole rest of the table, from the same reading.
+  // Without this term the budget would be a right to squeeze the machine; with
+  // it, it is a ceiling on what the others leave free.
+  let otherCpu = 0;
+  for (const row of rows) {
+    if (counted.has(row.pid) || scriptPidsSeen.has(row.pid)) continue;
+    otherCpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
   }
 
   // Le sessioni si calcolano in un passaggio SEPARATO, con un proprio insieme
@@ -424,6 +451,8 @@ export function summarizeFleet(
     sessions: sessionUsages,
     scriptsMB: Math.round(scriptsTotalKB / 1024),
     scriptsProcessCount: scriptsProcs,
+    scriptsCpuPercent: Math.round((scriptsCpu / divisor) * 10) / 10,
+    otherCpuPercent: Math.round((otherCpu / divisor) * 10) / 10,
   };
 }
 
@@ -616,7 +645,7 @@ const FLEET_LOAD_MAX_AGE_MS = 30_000;
  * (1 = un core saturo). Le due misure vanno confrontate con soglie diverse: vedi
  * `HEAVY_MAX_OWN_LOAD_PER_CORE`.
  */
-export function fleetLoadSync(): { coreUnits: number; cores: number } | null {
+export function fleetLoadSync(): FleetLoadReading | null {
   if (isWindows) return null;
   if (!cached || Date.now() - cachedAt >= FLEET_LOAD_MAX_AGE_MS) {
     // Scalda la cache per il prossimo giro. Non si aspetta e non si propaga:
@@ -626,7 +655,31 @@ export function fleetLoadSync(): { coreUnits: number; cores: number } | null {
   }
   if (!cached.supported) return null;
   const cores = Math.max(1, cached.cpuCores);
-  return { coreUnits: (cached.cpuPercent / 100) * cores, cores };
+  return {
+    coreUnits: (cached.cpuPercent / 100) * cores,
+    cores,
+    scriptsCoreUnits: (cached.scriptsCpuPercent / 100) * cores,
+    otherCoreUnits: (cached.otherCpuPercent / 100) * cores,
+    memGB: (cached.memoryMB + cached.scriptsMB) / 1024,
+  };
+}
+
+/**
+ * The one reading two brakes share, and they take different fields of it.
+ *
+ * `coreUnits` is the fleet WITHOUT the agents' own scripts, which is what the
+ * count cap has always read: adding the scripts there would move a number that
+ * mode is not supposed to change. The budget (`shared/machine-budget.ts`) reads
+ * `coreUnits + scriptsCoreUnits`, because a `tsc` an agent launched is our cost
+ * whoever spawned it, and `otherCoreUnits` to know what is left.
+ */
+export interface FleetLoadReading {
+  coreUnits: number;
+  cores: number;
+  scriptsCoreUnits: number;
+  otherCoreUnits: number;
+  /** Fleet memory in GB, scripts included. */
+  memGB: number;
 }
 
 /**
@@ -668,7 +721,7 @@ export function _resetFleetUsageCache(): void {
 let inFlight: Promise<FleetUsage> | null = null;
 
 export async function getFleetUsage(take: () => Promise<PsRow[]> = snapshot): Promise<FleetUsage> {
-  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES(), memMetric: "rss", roots: [], sessions: [], scriptsMB: 0, scriptsProcessCount: 0, supported: false };
+  const unsupported: FleetUsage = { processCount: 0, memoryMB: 0, cpuPercent: 0, cpuCores: CPU_CORES(), memMetric: "rss", roots: [], sessions: [], scriptsMB: 0, scriptsProcessCount: 0, scriptsCpuPercent: 0, otherCpuPercent: 0, supported: false };
   if (isWindows) return unsupported;
   if (cached && Date.now() - cachedAt < FLEET_TTL_MS) return cached;
   // A caller arriving mid-read WAITS for that one instead of opening its own:
@@ -719,4 +772,22 @@ async function readFleet(take: () => Promise<PsRow[]>, unsupported: FleetUsage):
     // Keep the last good reading rather than flashing a zero through the UI.
     return cached ?? unsupported;
   }
+}
+
+/**
+ * What each live session is costing, in core-units, from the last reading.
+ *
+ * It is the price list the admission gate takes its median from
+ * (`estimatedAgentCost`): an agent that is waiting on the API and one that is
+ * compiling do not cost the same, and a constant would be wrong about both.
+ * Sessions whose CPU is `null` (just started, no base to measure a delta from)
+ * are LEFT OUT rather than counted as zero: a zero here would pull the median
+ * down and price the next agent as free.
+ */
+export function fleetSessionCoreUnits(): number[] {
+  if (!cached || !cached.supported) return [];
+  const cores = Math.max(1, cached.cpuCores);
+  return cached.sessions
+    .filter((s) => s.cpuPercent != null)
+    .map((s) => (s.cpuPercent! / 100) * cores);
 }

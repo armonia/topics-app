@@ -7,6 +7,13 @@ import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
 import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
+import type { FleetLoadReading } from "../lib/fleet-usage";
+
+/** A fleet reading with only the two fields the count cap looks at written by
+ *  hand: the budget terms default to "nothing else of ours, nobody else busy",
+ *  which is what these cases were always assuming. */
+const fleetReading = (p: { coreUnits: number; cores: number }): FleetLoadReading =>
+  ({ ...p, scriptsCoreUnits: 0, otherCoreUnits: 0, memGB: 0 });
 
 function dbConImpostazioni(): Database {
   const db = new Database(":memory:");
@@ -382,7 +389,7 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   test("macchina satura ma carico NON nostro: il tetto resta quello strutturale", () => {
     // La sonda della flotta dice «noi teniamo un decimo di core». Qualunque
     // cosa stia facendo il resto della macchina, il tetto non si ritira.
-    const cap = computeDispatchCapacity(0, () => ({ coreUnits: 0.1, cores }));
+    const cap = computeDispatchCapacity(0, () => fleetReading({ coreUnits: 0.1, cores }));
     expect(cap.recommended).toBe(structuralDispatchCapacity());
     expect(cap.oursCores).toBe(0.1);
     expect(cap.reason).toContain("di quota");
@@ -392,7 +399,7 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
     const strutturale = structuralDispatchCapacity();
     // La flotta si mangia quattro volte la sua quota: il residuo va a zero e
     // resta solo il pavimento, che è 2 e non 1 apposta.
-    const cap = computeDispatchCapacity(1, () => ({ coreUnits: cores * 4, cores }));
+    const cap = computeDispatchCapacity(1, () => fleetReading({ coreUnits: cores * 4, cores }));
     expect(cap.recommended).toBe(Math.min(strutturale, 2));
     expect(cap.reason).toContain("di quota");
     // «Ridotto» si può dire solo se c'era qualcosa da ridurre. Su una macchina
@@ -415,7 +422,7 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   });
 
   test("`running` non gonfia mai il tetto oltre lo strutturale", () => {
-    const cap = computeDispatchCapacity(99, () => ({ coreUnits: 0, cores }));
+    const cap = computeDispatchCapacity(99, () => fleetReading({ coreUnits: 0, cores }));
     expect(cap.recommended).toBe(structuralDispatchCapacity());
   });
 });
@@ -516,7 +523,7 @@ describe("il tetto conosce il runtime: 3 GB per una CLI, 0,25 per una sessione n
     // Le due funzioni rispondono a domande diverse ma dividono per lo stesso
     // prezzo: se una imparasse il runtime e l'altra no, il tetto e il divisore
     // della quota direbbero due cose diverse sulla stessa macchina.
-    const probe = () => ({ coreUnits: 0, cores: 12 });
+    const probe = () => fleetReading({ coreUnits: 0, cores: 12 });
     const native = computeDispatchCapacity(0, probe, false).recommended;
     const cli = computeDispatchCapacity(0, probe, true).recommended;
     expect(native).toBeGreaterThanOrEqual(cli);

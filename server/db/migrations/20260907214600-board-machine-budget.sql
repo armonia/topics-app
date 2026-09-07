@@ -1,0 +1,35 @@
+-- 20260907214600-board-machine-budget.sql
+--
+-- The prefix is a UTC timestamp (YYYYMMDDHHMMSS), not a counter: that is what
+-- makes a collision between parallel cards impossible. Do not rename it.
+--
+-- ONE KNOB INSTEAD OF TWO THRESHOLDS: "Topics may use up to N% of this
+-- computer" (card 363bbbc8).
+--
+-- WHAT THE TWO THRESHOLDS GOT WRONG, measured on 2026-09-07 on a 12-core box.
+-- `max_load_ratio` compared the WHOLE machine's one-minute load average against
+-- a ceiling. That is a queue length, not a budget, and it belongs mostly to
+-- whoever is using the computer: with the ratio at 100% and load 12.0 the gate
+-- admitted EVERYTHING that was queued in a single tick (eight cards), and ten
+-- minutes later the machine was at load 155 with 13.4 GB of swap. Nothing in it
+-- ever reduced what was already running.
+--
+-- The new knob is a share of the machine, applied to BOTH axes: the CPU budget
+-- is `share x cores` in core-units and the memory budget is `share x total`,
+-- and what is measured against them is Topics' own process tree (server,
+-- sidecars, pty bridge, every agent and its children) rather than the machine's
+-- load. That is why one column replaces two: the same percentage answers both.
+--
+-- THE VALUE IS CARRIED OVER, not reset. `max_load_ratio` was already "how much
+-- of this machine", on the same 0..1 scale, so whoever had moved it to 0.8 gets
+-- an 80% budget instead of silently going back to the default. Out-of-range
+-- values are clamped on read (`budgetShare` in shared/machine-budget.ts), so a
+-- 3.0 written under the old bounds cannot become a 300% budget here.
+--
+-- NULL stays "never touched" and reads as the default share, exactly as NULL in
+-- the two old columns read as the default thresholds. The old columns are left
+-- in place: SQLite drops are a table rewrite, nothing reads them any more, and
+-- an install rolled back to the previous version still finds its thresholds.
+ALTER TABLE board_settings ADD COLUMN machine_budget_share REAL;
+
+UPDATE board_settings SET machine_budget_share = max_load_ratio WHERE max_load_ratio IS NOT NULL;
