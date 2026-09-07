@@ -151,6 +151,27 @@ describe("runReviewChecks", () => {
     expect(runs.map((r) => [r.name, r.ok])).toEqual([["a", true], ["b", true]]);
   });
 
+  // The tests that wait inside a fixed window read their factor from this env
+  // (shared/test-time-slack.ts). It is decided once per round and handed to
+  // every command, so the shards of one delivery do not each read a load that
+  // the round itself is raising.
+  test("every command is given the round's time slack factor", async () => {
+    const runs = await runReviewChecks([{ name: "env", cmd: "echo slack=$TOPICS_TEST_TIME_SLACK" }], { cwd });
+    expect(runs[0].tail).toMatch(/slack=\d/);
+  });
+
+  test("a factor forced from outside is passed on untouched", async () => {
+    const previous = process.env.TOPICS_TEST_TIME_SLACK;
+    process.env.TOPICS_TEST_TIME_SLACK = "3";
+    try {
+      const runs = await runReviewChecks([{ name: "env", cmd: "echo slack=$TOPICS_TEST_TIME_SLACK" }], { cwd });
+      expect(runs[0].tail).toContain("slack=3");
+    } finally {
+      if (previous === undefined) delete process.env.TOPICS_TEST_TIME_SLACK;
+      else process.env.TOPICS_TEST_TIME_SLACK = previous;
+    }
+  });
+
   test("timeout: ucciso, rosso, e detto che è un timeout", async () => {
     const runs = await runReviewChecks([{ name: "lento", cmd: "sleep 5" }], { cwd, timeoutMs: 300 });
     expect(runs[0].ok).toBe(false);
