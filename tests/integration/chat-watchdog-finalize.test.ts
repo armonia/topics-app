@@ -21,6 +21,7 @@
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import { slackMs } from "../helpers/time-slack";
 import { createChatRouter } from "../../server/routes/chat";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
@@ -30,8 +31,17 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 
 const PREVIOUS_SOFT = process.env.TOPICS_STREAM_SOFT_MS;
 const PREVIOUS_GRACE = process.env.TOPICS_STREAM_GRACE_MS;
-process.env.TOPICS_STREAM_SOFT_MS = "60";
-process.env.TOPICS_STREAM_GRACE_MS = "60";
+/**
+ * The two silence windows, shrunk from minutes to milliseconds - and widened
+ * again with the load. Sixty milliseconds is a window the TEST has to win: it
+ * still has to push fifteen deltas and open a tool call before the watchdog
+ * decides the turn went silent. Under the fleet the scheduler alone can eat
+ * that, and then the watchdog finalizes a turn the test had not finished
+ * driving: red on 2026-09-07 (card 0f4cbccb), green alone on the same commit.
+ */
+const SILENCE_MS = String(slackMs(60));
+process.env.TOPICS_STREAM_SOFT_MS = SILENCE_MS;
+process.env.TOPICS_STREAM_GRACE_MS = SILENCE_MS;
 afterAll(() => {
   if (PREVIOUS_SOFT === undefined) delete process.env.TOPICS_STREAM_SOFT_MS;
   else process.env.TOPICS_STREAM_SOFT_MS = PREVIOUS_SOFT;
@@ -142,7 +152,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * because it is never spent when the code is right: the loop returns as soon as
  * the condition holds.
  */
-const until = async (ready: () => boolean, budgetMs = 5_000): Promise<void> => {
+const until = async (ready: () => boolean, budgetMs = slackMs(5_000)): Promise<void> => {
   const deadline = Date.now() + budgetMs;
   while (!ready() && Date.now() < deadline) await sleep(25);
 };

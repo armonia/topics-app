@@ -934,3 +934,38 @@ reason and with the constant that governs it.
 
 After the fix: `switch tab` median 13 ms, max 14.3. The gate did not go blind:
 with `bun run check:ink --stall 300` all three gestures fail. It is now in CI.
+
+## 2026-09-07: the project attention rollup, measured under real ticks
+
+The audit of the idle client found that the sidebar and the tab bar recompute
+attention-tier and unread for EVERY project on every activity tick of any
+session, and that `projectAttentionTier` walked the whole topic map, archive
+included. Fix: a per-project index of the live topics, keyed by the identity of
+the topics map (`client/src/state/projectAttentionIndex.ts`, requirement
+ATTN-COST-01).
+
+Two numbers, and they answer different questions.
+
+**Out of the browser**, `client/src/state/projectAttentionIndex.test.ts` calls
+`projectAttentionTier` 1,000 times over 1,500 archived topics and 17 live ones:
+**21.2 ms before, 0.92 ms after**. That one is a gate: it fails under 5 ms.
+
+**In the browser**, a CPU profile of 30 s with the client still and six
+claude-code sessions ticking (five hook events a second), on an isolated test
+server seeded with 1,544 archived topics, 46 live ones and 22 projects, all
+pinned so their rows actually render. Three alternating rounds per variant,
+same build settings, unminified so the frames keep their names:
+
+| Self time over 30 s | before | after |
+|---|---|---|
+| `projectAttentionTier` + `projectAttentionSubjects` + `rollupProjectAttention` | 487.9 / 463.1 / 468.1 ms | 1.7 / 0 / 0 ms |
+| All JS (idle excluded) | 1377.9 / 1195.1 / 1152.9 ms | 918.1 / 754 / 769.2 ms |
+
+The union of the `TopicTree` + `buildSidebarItems` + `PaneTabBar` frames does
+NOT move (about 100 ms in both), and that is the point worth writing down: in
+this build the rollups are their own frames, so their cost was never inside that
+union. Reading the union alone would have said the change did nothing.
+
+There is no gate on the profile: it needs a seeded server, a headless Chromium
+and six minutes. The gate is the bun test above; this is the measurement that
+says what the gate is defending.

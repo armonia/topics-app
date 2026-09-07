@@ -372,13 +372,32 @@
     "basso, come vuole la regola: una release che li riportasse dentro esce",
     "rossa qui. Nello stesso giro entry_eager resta al suo tetto: la misura e'",
     "1.424.209 (+10.388 dai land del menu utente e dell'isolamento runtime,",
-    "dentro la tolleranza del 2%), non si alza."
+    "dentro la tolleranza del 2%), non si alza.",
+    "",
+    "2026-09-07, cinque import statici diventati pigri: entry_eager SCENDE a",
+    "1.392.058 raw / 433.849 gz, misurato con `bun run build:client` e letto da",
+    "`bun run check:bundle` sullo stesso bundle pubblicato. Erano 1.413.821 /",
+    "438.342: -21.763 raw / -4.493 gz. Escono dall'entry ToolInputForm (il",
+    "modulo di risposta di un tool sospeso), ScriptRunner (il pannello processi",
+    "della sidebar di progetto, con useDetectedScripts e relay-crypto dietro),",
+    "ShareControl (il popover di condivisione, che TaskDetail e",
+    "TopicSettingsModal gia' caricavano pigro) e ChangelogModal. Nessun tetto",
+    "alzato: critical_path e total_assets restano dove sono, e scendono da soli",
+    "perche' contengono l'entry.",
+    "",
+    "Nello stesso giro, fuori da queste tre voci: il chunk FilePane passa da",
+    "174.840 a 6.489 raw (gz 54,64 -> 2,71 kB). Il 96% era parse5, tirato dentro",
+    "da rehype-raw per l'anteprima Markdown, spenta di default e pagata a ogni",
+    "apertura di file perche' panePreload scalda FilePane dentro il cancello del",
+    "primo frame. Ora vive in Editor/MarkdownPreview.tsx, chunk suo da 168.790",
+    "raw / 52,12 kB gz, scaricato solo da chi accende l'anteprima. Verifica:",
+    "`grep -c node_modules/parse5 <out>/assets/FilePane-*.js.map` era 1, ora 0."
   ],
   "updated": "2026-09-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1413821,
-    "gz": 438342
+    "raw": 1392058,
+    "gz": 433849
   },
   "critical_path": {
     "raw": 2012478,

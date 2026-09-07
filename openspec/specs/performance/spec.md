@@ -834,3 +834,30 @@ ogni ricarico ri-sondava tutti i progetti senza icona, per sempre.
 #### Scenario: la prima connessione del socket
 - **GIVEN** la pagina appena caricata che ha già scritto il proprio layout
 - **THEN** l'apertura del socket NON SHALL far riscrivere lo stesso layout
+
+### Requirement: ATTN-COST-01 — Il rollup di attenzione di un progetto costa i suoi FIGLI, non l'archivio
+
+Gli aggregati per progetto (`projectAttentionTier`, `projectAttentionSubjects`,
+e quindi `rollupProjectAttention` che ci è definito sopra) SHALL rispondere
+leggendo i soli topic VIVI di quel progetto, non l'intera mappa dei topic.
+
+Il motivo è la forma della mappa: l'archivio è il grosso (1.588 topic per 17
+vivi, sulla postazione su cui è stato misurato), e sidebar e barra delle tab
+chiamano questi aggregati una volta per progetto a ogni battito di attività di
+qualunque sessione. Con la scansione piena, 1.000 chiamate costavano 21 ms fuori
+dal browser e ~300 µs l'una nel profilo CDP del client fermo.
+
+L'indice SHALL essere invalidato dall'IDENTITÀ della mappa dei topic (che il
+client ricostruisce a ogni cambiamento), così un topic archiviato o riaperto
+cambia risposta subito.
+
+Le RISPOSTE non cambiano: archiviati fuori da entrambi gli aggregati,
+`standalone` fuori dal tier e dentro ai soggetti, come prima.
+
+#### Scenario: mille chiamate su una mappa fatta soprattutto di archivio
+- **GIVEN** 1.500 topic archiviati e 17 vivi su 8 progetti
+- **THEN** 1.000 chiamate di `projectAttentionTier` SHALL costare meno di 5 ms in tutto
+
+#### Scenario: le stesse risposte della scansione piena
+- **GIVEN** stati generati con attese, richieste di input, «visto», archiviati e standalone mescolati
+- **THEN** tier e soggetti SHALL essere identici a quelli della scansione sull'intera mappa

@@ -1,4 +1,4 @@
-import { createElement, memo, useEffect, useRef, useState } from 'react';
+import { createElement, lazy, memo, Suspense, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
@@ -7,7 +7,6 @@ import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody } from './ToolCards';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
-import { ToolInputForm } from './ToolInputForm';
 import { ToolPermissionRow } from './ToolPermissionRow';
 import { formatDurationMs, formatCostCents, formatTokensCompact } from './toolGrouping';
 import { chatApi } from '../../lib/api';
@@ -15,6 +14,19 @@ import { editedPlanFrom, planDecisionFrom } from '../../../../shared/plan-decisi
 import { useSettledMetricClass } from './settledMetrics';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { autoOpenSchedule, bodyIsOpen } from './toolRowDisclosure';
+import { ErrorBoundary } from '../Shared/ErrorBoundary';
+import { SpinnerFallback } from '../Shared/Spinner';
+
+// The answer form only exists for the few calls that stop and ask, so it does
+// not belong in the entry. It is also the ONE lazy surface here that appears
+// mid-turn without a gesture from whoever is watching. On a stale client the
+// chunk can 404 (the published bundle is swept 30 min after a rebuild), and
+// that error must not climb to the PaneKeepAlive boundary and replace the
+// whole chat pane: the local boundary below keeps the damage inside the card.
+const ToolInputForm = lazy(async () => {
+  const { ToolInputForm: C } = await import('./ToolInputForm');
+  return { default: C };
+});
 
 /**
  * Live elapsed readout for a call that hasn't settled — ticks every second
@@ -427,6 +439,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           ) : isWaiting && toolCall.userInputSchema && sessionKey ? (
             <>
             {!askIsTheWholeCall && <ToolCardBody detail={detail} isError={isError} isRunning={false} sessionKey={sessionKey} />}
+            <ErrorBoundary fallbackMessageKey="crash.toolInput">
+            <Suspense fallback={<SpinnerFallback />}>
             <ToolInputForm
               schema={toolCall.userInputSchema}
               toolCallId={toolCall.id}
@@ -447,6 +461,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
                 if (decision !== null) onPlanDecision?.(decision, editedPlanFrom(response) ?? undefined);
               }}
             />
+            </Suspense>
+            </ErrorBoundary>
             </>
           ) : isWaiting && !sessionKey ? (
             <div className="text-[11px] text-amber-600 bg-amber-500/10 rounded px-2 py-1">

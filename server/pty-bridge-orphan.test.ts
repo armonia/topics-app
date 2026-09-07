@@ -34,6 +34,7 @@ import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveNodeBin, nodeMancanteMessage } from "./lib/test-node-bin";
+import { slackMs } from "../tests/helpers/time-slack";
 
 /** L'eseguibile Node con cui lanciare il ponte. */
 const NODE = resolveNodeBin();
@@ -43,6 +44,26 @@ const BRIDGE = join(import.meta.dir, "pty-bridge.mjs");
 // Production never sets TOPICS_PTY_BRIDGE_MONITOR_TICK_MS.
 const MONITOR_TICK_MS = 500;
 const BRIDGE_ENV_FAST = { TOPICS_PTY_BRIDGE_MONITOR_TICK_MS: String(MONITOR_TICK_MS) };
+
+/**
+ * The idle backstop window GIVEN TO THE BRIDGE for these tests, and the two
+ * budgets measured against it.
+ *
+ * Two seconds is a window the test has to WIN: the client below must be
+ * connected before it elapses, or the bridge retires exactly as designed and
+ * the test blames the backstop for the machine. That is the red of 2026-09-07
+ * (card 0f4cbccb, load ~11 on 12 cores), green alone straight after. So the
+ * window - and everything sized on it - is widened with the load, and stays
+ * exactly two seconds on a quiet machine, where a bridge that fails to accept a
+ * connection in two seconds is still a bug.
+ */
+const IDLE_EXIT_MS = slackMs(2_000);
+/** Long enough to catch a connect that has to cross a loaded scheduler. */
+const CLIENT_OPEN_MS = slackMs(5_000);
+/** Four times the idle window: the backstop had every chance and did not fire. */
+const IDLE_PROOF_MS = IDLE_EXIT_MS * 4;
+/** The per-test ceiling, which has to hold all of the above. */
+const CASE_MS = slackMs(40_000);
 
 type Cleanup = () => void;
 const cleanups: Cleanup[] = [];
@@ -105,7 +126,7 @@ describe("pty-bridge · monitor anti-orfano", () => {
     // shutdown() pulito scollega il socket; uno sporco lo lascerebbe lì a
     // ingannare il prossimo che prova a connettersi.
     expect(existsSync(sock)).toBe(false);
-  }, 40_000);
+  }, CASE_MS);
 
   test("una sonda che si connette e chiude NON rinnova la licenza dell'orfano", async () => {
     // Come sopravvivevano davvero. Ogni ponte che prova a nascere esegue
@@ -146,7 +167,7 @@ describe("pty-bridge · monitor anti-orfano", () => {
     // at 8.9s on 2026-09-05 while passing alone in 22s, i.e. it was measuring the
     // load and not the monitor. The test still ends the moment the process dies.
     expect(await until(() => exited, MONITOR_TICK_MS * 12 + 20_000)).toBe(true);
-  }, 90_000);
+  }, slackMs(90_000));
 
   test("un ponte con il padre VIVO resta su", async () => {
     const sock = socketPath("live");
@@ -157,33 +178,33 @@ describe("pty-bridge · monitor anti-orfano", () => {
     void bridge.exited.then(() => { exited = true; });
     await Bun.sleep(MONITOR_TICK_MS * 2 + 2_000); // ben oltre due tick + grazia
     expect(exited).toBe(false);
-  }, 40_000);
+  }, CASE_MS);
 });
 
 describe("pty-bridge · backstop idle", () => {
   test("senza client e senza sessioni si ritira ANCHE con il padre vivo", async () => {
     const sock = socketPath("idle");
-    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: "2000" });
+    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: String(IDLE_EXIT_MS) });
 
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
     let exited = false;
     void bridge.exited.then(() => { exited = true; });
-    expect(await until(() => exited, 20_000)).toBe(true);
+    expect(await until(() => exited, slackMs(20_000))).toBe(true);
     expect(existsSync(sock)).toBe(false);
-  }, 40_000);
+  }, CASE_MS);
 
   test("con un client attaccato NON si ritira (il backstop non uccide chi è in uso)", async () => {
     const sock = socketPath("busy");
-    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: "2000" });
+    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: String(IDLE_EXIT_MS) });
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
 
     const client = net.connect(sock);
     cleanups.push(() => { try { client.destroy(); } catch { /* già chiuso */ } });
-    expect(await until(() => client.readyState === "open", 5_000)).toBe(true);
+    expect(await until(() => client.readyState === "open", CLIENT_OPEN_MS)).toBe(true);
 
     let exited = false;
     void bridge.exited.then(() => { exited = true; });
-    await Bun.sleep(8_000); // quattro volte la finestra idle
+    await Bun.sleep(IDLE_PROOF_MS); // four times the idle window
     expect(exited).toBe(false);
-  }, 40_000);
+  }, CASE_MS);
 });

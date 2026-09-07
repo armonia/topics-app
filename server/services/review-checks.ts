@@ -25,6 +25,8 @@ export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 import { parseSlotAcquired } from "../../shared/slot-acquired";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
+import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
+import { cpus, loadavg } from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { killProcessTree } from "../lib/process-tree";
@@ -287,9 +289,23 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
     // story, and stops the round.
     if (prep.some((r) => !r.ok)) return prep;
   }
+  /**
+   * THE TIME FACTOR FOR THIS ROUND, decided once and passed to every command.
+   *
+   * The tests that wait for an event inside a window read it from the env
+   * (shared/test-time-slack.ts). Measured HERE and not inside each shard,
+   * because a round has to be judged by one number: the checks themselves push
+   * the load up while they run, so a factor re-read halfway through would grow
+   * with the very work it is timing.
+   */
+  const load1 = loadavg()[0] ?? 0;
+  const cores = cpus().length || 1;
+  const slack = timeSlack({ load: load1, cores, forced: process.env[TIME_SLACK_ENV] });
+  const env = { [TIME_SLACK_ENV]: String(slack) };
+  if (slack > 1) console.log(`[review-checks] ${timeSlackNote(slack, load1, cores)}`);
   for (const [i, check] of checks.entries()) {
     if (opts.signal?.aborted) break;
-    const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal });
+    const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal, env });
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
@@ -308,7 +324,7 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
  */
 async function runOne(
   check: ReviewCheck,
-  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal },
+  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal; env?: Record<string, string> },
 ): Promise<CheckRun> {
   const started = Date.now();
   let proc: ReturnType<typeof Bun.spawn> | null = null;
@@ -344,7 +360,7 @@ async function runOne(
       // the WHOLE tail - the failing spec and its error had scrolled out of the
       // 40 lines the report keeps. `NO_COLOR` alone is the standard every tool
       // here honours (Bun, Node, Playwright, tsc), and stdout is a pipe anyway.
-      env: { ...process.env, CI: "1", NO_COLOR: "1" },
+      env: { ...process.env, CI: "1", NO_COLOR: "1", ...opts.env },
     });
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
