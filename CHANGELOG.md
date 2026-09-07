@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.278 — 2026-09-07
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-07 [skip ci]
+- Il guscio dichiara l'uso della fotocamera (una tab che la chiede uccideva l'app) e centra il pallino dei semafori, non la sua cornice
+
 ## 2.2.277 — 2026-09-07
 
 ### Sotto il cofano
