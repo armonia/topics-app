@@ -2184,6 +2184,57 @@ galleggiante mostrato senza pane SHALL spostarsi della stessa quantita'.
 - **AND** l'ultimo fotogramma animato SHALL distare al massimo un pixel da quello di riposo
 - **AND** riaprendo SHALL valere il vincolo simmetrico
 
+### Requirement: WINCTL-03 — Nella testata della sidebar gli hint da tastiera cedono PRIMA del wordmark
+
+La testata della sidebar ha un budget fisso: i 64px delle pastiglie, la parola
+«Topics», la campanella, Cerca e «+». Due di questi comandi portano dentro di
+se' un hint da tastiera (il ⌘K di Cerca, il ⌘N del «+»), ed e' l'unica parte
+della riga che RIPETE qualcosa: entrambi i bottoni dicono gia' la stessa
+scorciatoia nel loro `title`, per esteso. Il nome della app non ripete niente.
+
+Flexbox pero' scaricava l'ammanco sulla parola: gli hint stanno dentro bottoni
+`flex-shrink-0` in coda alla riga, quindi tutto il deficit finiva sull'unica
+catena `min-w-0` della testata, e alla larghezza di DEFAULT della sidebar
+(256px) il wordmark rendeva 18,7px contro i 62 che vuole.
+
+UNA REGOLA SOLA, e misurata: nessun hint da tastiera SHALL essere visibile
+mentre il wordmark sta sotto la sua larghezza naturale. Sotto la soglia gli
+hint SHALL sparire e i due bottoni SHALL restare cliccabili, col `title` che
+continua a nominare la scorciatoia per esteso. La soglia SHALL essere la
+larghezza minima di riga che tiene tutto insieme, hint compresi, e SHALL essere
+MISURATA e non sommata: percorrendo la riga da 400px a 180 con i due hint
+forzati visibili, il wordmark resta ai suoi 61,8px naturali fino a 286px di
+riga e da 285 in giu' perde un pixel per pixel. La soglia SHALL quindi essere
+286px di riga — che, essendo la colonna 13px piu' larga della riga (1px di
+bordo piu' due `ROW_INSET`), scatta a una sidebar di 299px.
+
+Il meccanismo SHALL essere una container query sulla riga stessa, non una
+soglia letta in JS: il trascinamento della sidebar aggira React di proposito
+(scrive `style.width` sul nodo e passa allo stato solo al rilascio), quindi una
+soglia in JS scatterebbe un fotogramma dopo il bottone del mouse invece che
+sotto di esso.
+
+Sotto i ~245px di riga non resta piu' niente da cedere e la parola torna a
+troncarsi come ha sempre fatto: i 64px delle pastiglie non sono spendibili
+(WINCTL-02).
+
+#### Scenario: alla larghezza di default il nome e' intero e gli hint non ci sono
+- **GIVEN** la sidebar alla sua larghezza di default (256px), chrome del Mac
+- **WHEN** si misurano il wordmark e i due hint
+- **THEN** il wordmark NON SHALL essere troncato (`scrollWidth` entro un pixel da `clientWidth`)
+- **AND** nessuno dei due hint SHALL essere visibile
+
+#### Scenario: a sidebar larga gli hint tornano
+- **GIVEN** la sidebar alla soglia (299px) o piu' larga
+- **WHEN** si misurano il wordmark e i due hint
+- **THEN** entrambi gli hint SHALL essere visibili
+- **AND** il wordmark NON SHALL essere troncato
+
+#### Scenario: la regola vale a ogni larghezza, non solo ai due estremi
+- **GIVEN** la sidebar percorsa da 180px a 400px
+- **WHEN** a ogni passo si legge se un hint e' visibile e quanto e' largo il wordmark
+- **THEN** NON SHALL esistere un passo con un hint visibile e il wordmark sotto la sua larghezza naturale
+
 ### Requirement: WINMENU-01 — Su Windows la finestra NON SHALL avere una barra dei menu
 
 Il menu nativo (Topics / Edit / View / Window / Help) su macOS e' la striscia in
