@@ -24,6 +24,64 @@ export interface StaticAsset {
   cacheControl: string;
 }
 
+/** A precompressed sibling of an asset, when the client accepts that encoding. */
+export interface PrecompressedAsset {
+  /** Absolute path of the `.br`/`.gz` sibling to send instead of the original. */
+  filePath: string;
+  /** Value for `Content-Encoding`. */
+  encoding: "br" | "gzip";
+}
+
+/**
+ * Text formats where the sibling is worth its disk: the bundle is ~2 MB of JS
+ * and CSS raw against ~540 KB brotli. Fonts (woff2), images and wasm are
+ * already compressed, so a sibling would cost disk to save nothing.
+ */
+const TEXT_ASSET = /\.(?:js|mjs|css|svg|json|map)$/;
+
+/** `<encoding token>` -> suffix of the sibling, in preference order. */
+const ENCODING_ORDER: readonly { token: string; suffix: string; encoding: "br" | "gzip" }[] = [
+  { token: "br", suffix: ".br", encoding: "br" },
+  { token: "gzip", suffix: ".gz", encoding: "gzip" },
+];
+
+/**
+ * The encoding as a TOKEN, not as a substring: `Accept-Encoding: brotli` is not
+ * `br`, and `x-gzip` is another name for a scheme we do not promise here. Same
+ * predicate shape as `shouldCompress` in `server/lib/compress-json.ts`.
+ */
+function accepts(acceptEncoding: string, token: string): boolean {
+  return new RegExp(`(^|[\\s,])${token}\\s*(;|,|$)`, "i").test(acceptEncoding);
+}
+
+/**
+ * Which precompressed sibling to send for `filePath`, or `null` for the file
+ * itself.
+ *
+ * Why it exists: only the `:3333` path is uncompressed. Whoever comes through
+ * the relay already gets brotli at the Cloudflare edge; whoever hits the server
+ * from LAN or Tailscale downloaded the whole 2 MB raw on the first load after
+ * every deploy, because nothing here ever looked at `Accept-Encoding`.
+ *
+ * `exists` is injected instead of touching the disk in here, so the choice
+ * stays a pure function and the caller keeps deciding how to stat.
+ */
+export function pickPrecompressed(
+  filePath: string,
+  acceptEncoding: string | null | undefined,
+  exists: (path: string) => boolean,
+): PrecompressedAsset | null {
+  if (!TEXT_ASSET.test(filePath)) return null;
+  const accepted = acceptEncoding ?? "";
+  if (!accepted) return null;
+  for (const { token, suffix, encoding } of ENCODING_ORDER) {
+    if (!accepts(accepted, token)) continue;
+    const candidate = filePath + suffix;
+    if (exists(candidate)) return { filePath: candidate, encoding };
+  }
+  return null;
+}
+
 /** Contenuto con nome versionato (hash Vite) o comunque stabile. */
 const IMMUTABLE_PREFIXES = ["/assets/", "/icons/"];
 
