@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# The E2E suite belongs on the Windows PC, not on this laptop.
+#
+# Why it exists: the product ships a Windows shell (WebView2) and has Windows
+# users, and until now not one of the 331 E2E specs had ever run there. What
+# breaks on that platform is never the interesting half of a test: it is a path
+# built with `/`, a `spawn` that cannot find a `.cmd`, a wait on the clock that
+# is long enough on a Mac. Those only show up by running.
+#
+#   tools/topwin sync           ship this commit to the PC and install
+#   tools/topwin build          build the client bundle there (public/)
+#   tools/topwin e2e [N] [M]    shard N of M, JSON report on the PC
+#   tools/topwin run "<cmd>"    one command inside the repo on the PC
+#   tools/topwin pull           bring the reports back under tools/out/win/
+#   tools/topwin load           how busy the PC is right now
+#
+# NOT THROUGH GITHUB, unlike its model `dancerooms/tools/drwin`. This repo is
+# public: pushing a work branch to sync a bench would publish it. `git archive`
+# of HEAD over ssh sends the same bytes, costs four seconds and needs no remote.
+# The consequence to remember: only what is COMMITTED travels.
+#
+# THE PATH ON THAT MACHINE IS BROKEN, and it is not our doing: it contains
+# `C:\Program Files\dotnet"` with an unpaired quote, so cmd's own resolution
+# gives up on everything after it. `bun` is one of those, hence the absolute
+# path below. Node's `spawn` splits PATH by itself and is unaffected, which is
+# why the harness can call `bun` by name and this script cannot.
+set -euo pipefail
+
+HOST="${WINFLEET_SSH:-$(grep -h '^HOST_SSH=' ~/.config/winfleet/config.env 2>/dev/null | cut -d'"' -f2)}"
+REPO_WIN='C:\dev\topics-app'
+REPO_MAC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUN='%USERPROFILE%\.bun\bin\bun.exe'
+
+if [ -z "$HOST" ]; then
+  echo "PC not configured: HOST_SSH is missing from ~/.config/winfleet/config.env" >&2
+  exit 2
+fi
+
+win() { ssh -o BatchMode=yes "$HOST" "cd /d $REPO_WIN && $*"; }
+
+case "${1:-help}" in
+  sync)
+    # What travels is HEAD, not the working tree: a bench that runs on
+    # uncommitted edits produces a report nobody can cite afterwards.
+    if [ -n "$(git -C "$REPO_MAC" status --porcelain)" ]; then
+      echo "! uncommitted changes: the PC will run HEAD, not what you see here" >&2
+    fi
+    echo "> shipping $(git -C "$REPO_MAC" rev-parse --short HEAD) to the PC..."
+    ssh -o BatchMode=yes "$HOST" "if not exist $REPO_WIN mkdir $REPO_WIN" >/dev/null
+    # tar.exe has been in System32 since Windows 10 1803. It overwrites and does
+    # not delete, which is what we want: node_modules and the built bundle stay.
+    git -C "$REPO_MAC" archive --format=tar HEAD | win "tar -xf -"
+    echo "> bun install..."
+    win "$BUN install --frozen-lockfile" || { echo "x install failed on the PC" >&2; exit 1; }
+    win "cd client && $BUN install --frozen-lockfile" || { echo "x client install failed on the PC" >&2; exit 1; }
+    ;;
+  build)
+    # The bundle is built THERE and not shipped from here: `public/` is a build
+    # artifact this checkout may not even have, and the global setup refuses to
+    # run against a bundle older than the sources.
+    echo "> building the client on the PC..."
+    win "$BUN run build:client" || { echo "x client build failed on the PC" >&2; exit 1; }
+    ;;
+  e2e)
+    shard="${2:-1}"
+    total="${3:-4}"
+    echo "> shard $shard/$total on the PC..."
+    # PLAYWRIGHT_JSON_OUTPUT_NAME and not a shell redirect: the `list` reporter
+    # keeps stdout readable while the run happens, and the machine-readable half
+    # lands in a file we can pull. Note the quoting: `set "K=V" &&` with the
+    # quotes INSIDE, or the space before `&&` ends up in the value and the file
+    # is written under a name with a trailing blank.
+    win "if not exist tools\\out\\win mkdir tools\\out\\win" >/dev/null
+    win "set \"PLAYWRIGHT_JSON_OUTPUT_NAME=tools\\out\\win\\e2e-$shard.json\" && $BUN x playwright test --shard=$shard/$total --reporter=list,json"
+    ;;
+  run)
+    shift
+    win "$*"
+    ;;
+  pull)
+    echo "> bringing the reports back..."
+    mkdir -p "$REPO_MAC/tools/out/win"
+    for f in $(ssh -o BatchMode=yes "$HOST" "dir /b $REPO_WIN\\tools\\out\\win" 2>/dev/null | tr -d '\r'); do
+      ssh -o BatchMode=yes "$HOST" "type $REPO_WIN\\tools\\out\\win\\$f" > "$REPO_MAC/tools/out/win/$f" \
+        && echo "  $f" || echo "  ($f unreadable)"
+    done
+    ;;
+  load)
+    ssh -o BatchMode=yes "$HOST" 'powershell -NoProfile -Command "$c=(Get-CimInstance Win32_Processor).LoadPercentage; $m=Get-CimInstance Win32_OperatingSystem; Write-Output (\"cpu=\" + $c + \"%% free_ram=\" + [math]::Round($m.FreePhysicalMemory/1MB) + \"GB\")"'
+    # A busy PC produces measurements about the PC. The battery of another
+    # project lives on this same machine: check before believing a red.
+    ssh -o BatchMode=yes "$HOST" 'tasklist /FO CSV /NH /FI "MEMUSAGE gt 1000000"' 2>/dev/null | tr -d '\r' | sed 's/^/  /'
+    ;;
+  *)
+    sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+esac

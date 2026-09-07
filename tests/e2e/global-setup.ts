@@ -9,8 +9,8 @@
  * percorsi vengono da `helpers/test-server.ts`, che li deriva da `E2E_PORT`.
  */
 
-import { spawn, execFileSync, execSync, type ChildProcess } from "child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
+import { spawn, type ChildProcess } from "child_process";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import {
@@ -23,6 +23,7 @@ import {
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
+import { IS_WINDOWS, killPids, killProcessTree, listenerPids, processRows } from "./helpers/platform";
 // Same question the build, the land and the runtime probe ask: one authority.
 import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
@@ -124,9 +125,10 @@ async function snapshotBundle(): Promise<string> {
     if (!override) await waitForFreshBundle(src);
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
-    // execFileSync, non execSync: niente shell di mezzo, quindi un percorso con
-    // uno spazio o un apice non diventa una riga di comando diversa.
-    execFileSync("cp", ["-R", `${src}/.`, `${dest}/`]);
+    // `cpSync` and not `cp -R`: no shell, no `cp` binary to exist, and a path
+    // with a space or a quote in it stays one path on every platform. It is
+    // also the same call on Windows, where `cp` is not a command at all.
+    cpSync(src, dest, { recursive: true });
     const missing = missingBundleAssets(dest);
     if (missing.length === 0) {
       console.log(`[global-setup] Bundle congelato in ${dest}`);
@@ -269,17 +271,17 @@ let foreignChromiumPids: Set<string> = new Set();
  * is that the "spare" snapshot and the kill see the same population.
  */
 function listPlaywrightChromiumPids(): string[] {
-  try {
-    return execSync(
-      'ps ax -o pid=,command= | grep -E "ms-playwright|mcp-chrome" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\'',
+  // The match moved from a pipeline of greps into JavaScript so that the SAME
+  // rule applies on a machine without `ps`, `grep` or `awk`. The rule itself is
+  // unchanged, word for word: an ms-playwright or mcp-chrome command line that
+  // also names chromium or chrome.
+  return processRows()
+    .filter(
+      (row) =>
+        /ms-playwright|mcp-chrome/.test(row.command) && /chromium|chrome/i.test(row.command),
     )
-      .toString()
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
+    .map((row) => row.pid)
+    .filter(Boolean);
 }
 
 /**
@@ -311,11 +313,22 @@ async function waitForServer(
 }
 
 async function startTestServer(): Promise<void> {
-  const scriptPath = resolve(__dirname, "../../scripts/start-test-server.sh");
+  // Two launchers, one per platform, and the reason is written at the top of
+  // `scripts/start-test-server.win.mjs`: a Windows DATA_DIR handed to bash has
+  // its backslashes eaten as escapes, so the server ends up writing its
+  // database next to where the bench is looking.
+  const scriptPath = resolve(
+    __dirname,
+    IS_WINDOWS ? "../../scripts/start-test-server.win.mjs" : "../../scripts/start-test-server.sh",
+  );
 
-  serverProcess = spawn("bash", [scriptPath], {
+  serverProcess = spawn(IS_WINDOWS ? "node" : "bash", [scriptPath], {
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
+    // A process group of its own, so the whole tree dies with one signal. On
+    // Windows `detached` means something else (a new console, which orphans the
+    // child from our kill entirely), and the tree is reached with
+    // `killProcessTree` instead.
+    detached: !IS_WINDOWS,
     env: {
       ...process.env,
       // Porta, DATA_DIR, TOPICS_HOME, OPENCLAW_DIR e i socket del PTY-bridge /
@@ -500,16 +513,14 @@ async function globalSetup() {
   // `-sTCP:LISTEN`: senza, lsof elenca anche i socket che hanno questa porta
   // come capo REMOTO — cioè i client. Vogliamo chi TIENE la porta, non chi la
   // sta usando (vedi killServer in terminal-session-resume.spec.ts).
-  try {
-    const stalePids = execSync(
-      `lsof -ti :${TEST_SERVER_PORT} -sTCP:LISTEN 2>/dev/null || true`
-    ).toString().trim();
-    if (stalePids) {
-      execSync(`kill ${stalePids.split("\n").join(" ")} 2>/dev/null || true`);
+  {
+    const stalePids = listenerPids(TEST_SERVER_PORT);
+    if (stalePids.length) {
+      killPids(stalePids);
       console.log(`[global-setup] Killed stale test processes on port ${TEST_SERVER_PORT}`);
       await new Promise((r) => setTimeout(r, 1000));
     }
-  } catch {}
+  }
 
   // Pulizia dello stato browser della run PRECEDENTE — SOLO sotto la cartella
   // dati di test, mai `<repo>/data`.
@@ -769,14 +780,12 @@ function emergencyCleanup() {
     runLockHeld = false;
     try { releaseRunLock(TEST_SERVER_PORT); } catch {}
   }
-  try {
-    if (serverProcess?.pid) process.kill(-serverProcess.pid, 'SIGTERM');
-  } catch {}
+  if (serverProcess?.pid) killProcessTree(serverProcess.pid);
   try {
     // `-sTCP:LISTEN` o si ammazzano anche i CLIENT della porta: senza il filtro
     // lsof elenca i Chromium connessi al server di test, e questo kill li porta
     // via insieme al server (il fallimento poi esce altrove, come flake).
-    execSync(`lsof -ti :${TEST_SERVER_PORT} -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true`);
+    killPids(listenerPids(TEST_SERVER_PORT));
     // Kill only the Chromiums THIS run is responsible for. The previous version
     // killed every ms-playwright Chromium on the machine, which reaches across
     // repos: a concurrent E2E run in another project (and its results) died
@@ -788,7 +797,7 @@ function emergencyCleanup() {
     const ours = listPlaywrightChromiumPids().filter(
       (pid) => !foreignChromiumPids.has(pid) && mine.has(pid) && /^\d+$/.test(pid),
     );
-    if (ours.length) execSync(`kill -9 ${ours.join(" ")} 2>/dev/null || true`);
+    if (ours.length) killPids(ours, { force: true });
   } catch {}
 }
 process.on('SIGINT', emergencyCleanup);
