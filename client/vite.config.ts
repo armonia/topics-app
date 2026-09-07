@@ -46,6 +46,68 @@ function dropLegacyKatexFonts(): Plugin {
   };
 }
 
+// Plugin: emit a .br and a .gz sibling next to every text asset.
+//
+// The server on :3333 had no Accept-Encoding branch at all, so anyone reaching
+// it from LAN or Tailscale downloaded the critical path RAW: 2.001.221 bytes
+// against 594 KB gzip and 543 KB brotli, once per device after every deploy.
+// The relay path was never affected (Cloudflare compresses at the edge), which
+// is why nobody saw it. Compressing on the fly per request would pay the CPU
+// again for every client for bytes that never change between deploys, so the
+// siblings are built ONCE here and `pickPrecompressed` (server/static-assets.ts)
+// picks one when the client says it can take it.
+//
+// Both encodings, not brotli alone: over plain http (a LAN address without TLS)
+// Firefox does not offer br, and gzip is what it falls back to.
+function precompressAssets(): Plugin {
+  // Under ~1 KB the sibling costs a file and saves nothing worth a round trip.
+  const MIN_BYTES = 1024;
+  const TEXT_ASSET = /\.(?:js|mjs|css|svg)$/;
+  return {
+    name: 'topics-precompress-assets',
+    apply: 'build',
+    // writeBundle, NOT generateBundle: Vite's own build plugins run their
+    // generateBundle AFTER a normal-order user plugin, and one of them rewrites
+    // the chunks (`__VITE_PRELOAD__` becomes the real dependency arrays).
+    // Compressing there produced siblings 2.032 bytes shorter than the file
+    // finally written - a brotli body that decodes to a DIFFERENT bundle than
+    // the raw one, which is the worst possible failure here because every
+    // client sees only one of the two. On disk there is nothing left to guess.
+    async writeBundle(options, bundle) {
+      const dir = options.dir;
+      if (!dir) return;
+      const zlib = await import('node:zlib');
+      const { promisify } = await import('node:util');
+      const fsp = await import('node:fs/promises');
+      const brotli = promisify(zlib.brotliCompress);
+      const gzip = promisify(zlib.gzip);
+      await Promise.all(Object.keys(bundle).filter((n) => TEXT_ASSET.test(n)).map(async (name) => {
+        const file = path.join(dir, name);
+        let buf: Buffer;
+        try {
+          buf = await fsp.readFile(file);
+        } catch {
+          return; // dropped by another plugin (see dropLegacyKatexFonts)
+        }
+        if (buf.byteLength < MIN_BYTES) return;
+        const [br, gz] = await Promise.all([
+          brotli(buf, {
+            params: {
+              [zlib.constants.BROTLI_PARAM_QUALITY]: zlib.constants.BROTLI_MAX_QUALITY,
+              [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buf.byteLength,
+            },
+          }),
+          gzip(buf, { level: zlib.constants.Z_BEST_COMPRESSION }),
+        ]);
+        // A sibling that is not smaller than the original is not written: the
+        // server would then send MORE bytes for saying it compressed them.
+        if (br.byteLength < buf.byteLength) await fsp.writeFile(`${file}.br`, br);
+        if (gz.byteLength < buf.byteLength) await fsp.writeFile(`${file}.gz`, gz);
+      }));
+    },
+  };
+}
+
 // Plugin: track last source file change time, serve via /@last-change
 function lastChangePlugin(): Plugin {
   let lastChange = new Date().toISOString();
@@ -104,7 +166,7 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(__appVersion),
     __BUILD_SHA__: JSON.stringify(__buildSha),
   },
-  plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss(), dropLegacyKatexFonts()],
+  plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss(), dropLegacyKatexFonts(), precompressAssets()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
