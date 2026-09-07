@@ -1,5 +1,5 @@
 /**
- * @covers KANBAN-63 @covers KANBAN-64 @covers KANBAN-65
+ * @covers KANBAN-63 @covers KANBAN-64 @covers KANBAN-65 @covers PROJ-ID-05
  */
 import { test, expect, describe } from "bun:test";
 import {
@@ -67,6 +67,28 @@ describe("projectIdForPath", () => {
 
   test("slash finale cambia l'hash (topic.projectPath e' normalizzato, non morde)", () => {
     expect(projectIdForPath("/x/proj")).not.toBe(projectIdForPath("/x/proj/"));
+  });
+
+  /**
+   * A Windows path has no `/`, so cutting the basename on `/` alone returned
+   * the WHOLE path as the name: the id travelled inside a URL path
+   * (`/api/boards/<id>/tasks`) where the WHATWG parser turns `\` into `/`, and
+   * the board opened empty. The hash is unchanged here on purpose: it runs on
+   * the whole string, so only the name in front moves.
+   */
+  test("a Windows path: the name is the folder, not the whole path", () => {
+    const id = projectIdForPath("C:\\Users\\someone\\Projects\\topics-app");
+    expect(id).toBe("topics-app-u2k97t");
+    expect(id).not.toContain("\\");
+  });
+
+  test("a trailing backslash is cut like a trailing slash", () => {
+    expect(projectIdForPath("C:\\p\\proj\\").startsWith("proj-")).toBe(true);
+  });
+
+  test("the slash-only vector does not move (no tasks row already written is orphaned)", () => {
+    expect(projectIdForPath("/x/proj")).toBe("proj-xwac8t");
+    expect(projectIdForPath("/Users/someone/Projects/topics-app").startsWith("topics-app-")).toBe(true);
   });
 });
 
