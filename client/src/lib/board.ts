@@ -984,6 +984,14 @@ export const boardApi = {
     }).then(r => r.proposal),
   get: (projectId: string, taskId: string) =>
     req<TaskWithThread>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`),
+  /** THE CHILDREN ALONE: what a card showing «n/m» and the work chips needs,
+   *  without the thread. The whole body carries every comment too (664 KB out
+   *  of the 1,1 MB a board mount cost on 2026-09-07) and the card throws them
+   *  away. The children stay WHOLE `BoardTask`: the chips read `subtaskWork`
+   *  and `queueReason`, which a reduced shape would not carry. */
+  getChildren: (projectId: string, taskId: string) =>
+    req<{ children: BoardTask[] }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}?fields=children`)
+      .then(r => r.children ?? []),
   update: (projectId: string, taskId: string, patch: UpdateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   archive: (projectId: string, taskId: string) =>

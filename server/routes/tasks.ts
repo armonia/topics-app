@@ -3623,6 +3623,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (method === "GET") {
           const got = svc.get(taskId, { projectId });
           if (!got) return json({ error: "task not found", code: "not_found" }, 404);
+          // `?fields=children` is what a CARD asks for: it already has the row
+          // and the window of comments that travels with the list, so the whole
+          // thread is bytes it throws away. Measured on the live board on
+          // 2026-09-07: 25 GET at board mount weighed 1.122.652 B, of which
+          // 664.282 were comments, and the group repeats on every updatedAt
+          // bump. The children stay WHOLE tasks: the card renders the work and
+          // queue chips off `subtaskWork` and `queueReason`.
+          if (new URL(req.url).searchParams.get("fields") === "children") return json({ children: got.children });
           return json(got);
         }
         if (method === "PATCH") {
