@@ -763,8 +763,15 @@ export async function ensureBridge(): Promise<void> {
     // sibling pty-bridge.mjs. augmentPath() gives the child the same PATH-hardening
     // every PTY spawn gets, so a launchd/sidecar minimal PATH still resolves deps.
     const bb = bundledBridge();
+    // runtime-dep-ok: the `node` branch is UNREACHABLE in an installed app, and
+    // structurally so, not by luck. The Tauri shell sets TOPICS_EMBEDDED=1, and
+    // isPtyBridgeDisabled() returns early for every embedded run that has no
+    // bundledBridge() - so a bundle either uses the Rust sidecar it ships or has
+    // no terminals at all (503, with a code the client explains). This line only
+    // ever runs from a checkout, where the sibling script and its runtime are
+    // both by definition present.
     const cmd = bb?.cmd ?? "node";
-    const baseArgs = bb?.args ?? [resolve(import.meta.dir, "../pty-bridge.mjs")];
+    const baseArgs = bb?.args ?? [resolve(import.meta.dir, "../pty-bridge.mjs")]; // runtime-dep-ok: same branch, see above
     // Bridge stderr goes to a LOG FILE, never 'inherit'. Inheriting makes
     // `detached` a lie: the bridge outlives us still holding OUR stderr open,
     // so anything reading this process through a pipe (`| tee`, a test runner)
@@ -910,7 +917,10 @@ function setupSocketReader(socket: net.Socket) {
       ensureBridge()
         .then(() => reconcileSessions())
         .then(() => broadcastTerminalSessions())
-        .catch(() => {});
+        // Not swallowed: a bridge that cannot be respawned here (ENOENT, EACCES,
+        // a dead sidecar) is otherwise the one failure with no line in the log,
+        // and nothing retries until a route calls ensureBridge again.
+        .catch((e: unknown) => console.warn("[Terminal] reconnect after bridge close failed:", e instanceof Error ? e.message : String(e)));
     }, 500);
   });
 

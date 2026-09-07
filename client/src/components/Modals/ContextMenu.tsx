@@ -1,7 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
-import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Archive, ArchiveRestore, Pin, PinOff, ExternalLink, Link2, Square, type LucideIcon } from 'lucide-react';
+import { useTopicLoading } from '@/state/signals';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
@@ -32,6 +33,11 @@ interface ContextMenuProps {
   /** Pop the topic into its own OS window (parity with the pane-header /
    *  tab-menu pop-out). Optional so legacy hosts render without the entry. */
   onPopOut?: () => void;
+  /** Interrupt the running turn. THIS IS THE FINGER'S PATH: in the row's
+   *  trailing rail the stop is revealed by the pointer, and under `hover: none` a
+   *  command revealed by hover is a command that does not exist. This menu
+   *  opens on a long press, so this is where the finger finds it. */
+  onStopStreaming?: () => void;
 }
 
 const COLOR_OPTIONS = [
@@ -42,8 +48,9 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned, onTogglePin, unpinAlsoArchives, onPopOut, onStopStreaming }: ContextMenuProps) {
   const tr = useT();
+  const streaming = useTopicLoading(topic.id);
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -114,6 +121,17 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
     >
       {subMenu === 'none' && (
         <>
+          {/* STOP FIRST, ARCHIVE AFTER: the trailing rail's order
+              (`rowCommandSequence`), said here by which row comes first. Shown
+              only while a turn is working, because a row with nothing to stop
+              is a row you read and discard. */}
+          {streaming && onStopStreaming && (
+            <MenuItem
+              icon={Square}
+              label={tr('tab.menu.stopTurn')}
+              onClick={() => { onStopStreaming(); onClose(); }}
+            />
+          )}
           <MenuItem icon={PenLine} label="Rinomina" onClick={() => setSubMenu('rename')} />
           <MenuItem icon={Palette} label="Cambia colore" onClick={() => setSubMenu('color')} />
           {/* Il soggetto è il TOPIC, non la pane: la stessa chat ha due id di

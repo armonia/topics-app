@@ -10,14 +10,16 @@
  * Both were the same grey, so the only way to tell them apart was to read the
  * sentence around them, and on a tab there is no sentence.
  *
- * The rule here is one line long: the live number wears the loader's colour and
- * the loader's motion (`time-live` in index.css, primary + the shared shimmer),
- * a number parked on a question wears the amber of the frozen ring, and a
- * receipt keeps the quiet tone the surface already gives it.
+ * The rule here is one line long: the live number MOVES and keeps the normal
+ * text ink (`time-live` in index.css, the shared shimmer travelling through
+ * muted-to-full text), a number parked on a question wears the amber of the
+ * frozen ring, and a receipt keeps the quiet, still tone the surface already
+ * gives it. Movement is the distinction; colour is spent only on the one state
+ * that is asking something of the reader.
  *
  * `onFill` is the exception that keeps it legible: on an attention fill (amber
- * or blue) the row already paints its text white, and a primary gradient on top
- * of that would be a second colour fighting the first. There the caller's
+ * or blue) the row already paints its text white, and a gradient clipped to the
+ * text would fight that white with the theme's own greys. There the caller's
  * on-fill tone wins and this returns nothing.
  */
 

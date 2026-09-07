@@ -935,7 +935,10 @@ test.describe("Sidebar — fissare da fuori, e la Board", () => {
       // Il menu della riga: una voce sola, e dice il verso GIUSTO.
       await boardRow.click({ button: "right" });
       const voce = page.getByTestId("pin-toggle-item");
-      await expect(voce).toHaveText(/Aggiungi ai Fissati/, { timeout: 5000 });
+      // One name per concept: the board row now shows the tab menu's own pin
+      // label. Anchored, because the pin word is a substring of the unpin label
+      // (Fissa / Rimuovi dai Fissati). allow-italian: the labels under test.
+      await expect(voce).toHaveText(/^(Fissa|Pin)$/, { timeout: 5000 });
       await voce.click();
 
       // Fissata è una TESSERA, e la riga sparisce: mai la stessa cosa in due posti.

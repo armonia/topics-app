@@ -25,7 +25,11 @@ describe('global Kanban coordinator lifecycle', () => {
   });
 
   test('removes only archive affordances while preserving normal topic controls', () => {
-    expect(topicItem).toContain('{onArchive && !topic.isGlobalOrchestrator && (');
+    // The rail now carries a second command (stop, while a turn runs), so the
+    // guard is no longer glued to `onArchive`. What must not move is the guard
+    // itself: the coordinator gets NEITHER command.
+    expect(topicItem).toContain("&& !topic.isGlobalOrchestrator && (");
+    expect(topicItem).toContain("{(onArchive || (isStreaming && onStopStreaming))");
     expect(contextMenu).toContain('{!topic.isGlobalOrchestrator && <>');
     expect(topicTree).toContain('onStopStreaming={!topic.isGlobalOrchestrator && stopSession ? () => {');
   });
