@@ -22,6 +22,11 @@
  * there so the gate is known to be able to fail, and to keep the number that
  * justifies the change visible.
  *
+ * The result of a call has to be INCOMPRESSIBLE, and that is a condition of the
+ * measure, not a detail: `blocks` reaches the disk through `encodeCol`, so a
+ * filler zstd can fold turns the WAL into a reading about the fixture. See
+ * `incompressibleResult`.
+ *
  * @covers CHAT-PERSIST-01
  */
 
@@ -47,6 +52,37 @@ const MIRRORED = { mirroredInBlocks: true } as const;
 /** 100 calls of 30 KB: the shape of a long agentic turn, small enough to run in a second. */
 const TOOL_CALLS = 100;
 const RESULT_BYTES = 30_000;
+
+/**
+ * A result of `RESULT_BYTES` that the compressor cannot fold.
+ *
+ * It used to be `"x".repeat(RESULT_BYTES)`, and that stopped being a fixture
+ * the day `blocks` started reaching the disk through `encodeCol`: zstd folds a
+ * run of one character about 400x, so the WAL measured the entropy of the
+ * filler instead of the number of rewrites. Same code, same defect, and the
+ * negative control read 0.3x where the behaviour it reproduces costs 101x.
+ *
+ * Random text cannot be folded, so what is left in the measure is the
+ * rewriting, which is the subject. Real tool output sits in between (it
+ * compresses about 5x on the live database), so this fixture is the pessimistic
+ * end on purpose: a gate that depended on how compressible its own filler is
+ * would be measuring the fixture.
+ */
+function incompressibleResult(seed: number): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  // xorshift32, not a linear congruential generator: the middle bits of an LCG
+  // repeat soon enough that zstd folds the result 30x, which is the very thing
+  // this fixture exists to avoid.
+  let state = ((seed + 1) * 2654435761) >>> 0 || 1;
+  const out = new Array<string>(RESULT_BYTES);
+  for (let i = 0; i < RESULT_BYTES; i++) {
+    state ^= state << 13; state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5; state >>>= 0;
+    out[i] = alphabet[state & 63]!;
+  }
+  return out.join("");
+}
 
 function seedTopic(sessionKey: string, id: string) {
   const now = new Date().toISOString();
@@ -98,7 +134,7 @@ function runTurn(sessionKey: string, opts: { throttle: boolean }): { walDelta: n
     ctx.addToolCallToLastMessage(sessionKey, tc, MIRRORED);
     persist();
 
-    const result = "x".repeat(RESULT_BYTES);
+    const result = incompressibleResult(i);
     const patch = { status: "success" as const, result, endedAt: Date.now() };
     blocks[blocks.length - 1] = { kind: "tool", toolCall: { ...tc, ...patch } };
     blocksBytes += JSON.stringify(patch).length;

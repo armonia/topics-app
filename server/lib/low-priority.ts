@@ -67,16 +67,145 @@ export function lowPriorityArgv(
   return platform === "darwin" && have.taskpolicy ? [TASKPOLICY_BIN, "-c", "utility", ...niced] : niced;
 }
 
+/** How a knob is actually invoked. Injected by the tests, spawn in production. */
+export type RunKnob = (cmd: string, args: string[]) => void;
+
+const spawnKnob: RunKnob = (cmd, args) => {
+  try {
+    spawn(cmd, args, { stdio: "ignore" }).on("error", () => { /* no such binary: the work goes on at normal priority */ });
+  } catch { /* same */ }
+};
+
 /** Demote a live process (and, from now on, whatever it forks). Best-effort. */
 export function lowerPriority(pid: number, platform: NodeJS.Platform = process.platform, have: PriorityKnobs = knobs()): void {
   if (!Number.isInteger(pid) || pid <= 0 || platform === "win32") return;
-  const run = (cmd: string, args: string[]) => {
-    try {
-      spawn(cmd, args, { stdio: "ignore" }).on("error", () => { /* no such binary: the work goes on at normal priority */ });
-    } catch { /* same */ }
-  };
+  const run = spawnKnob;
   if (existsSync(RENICE_BIN)) run(RENICE_BIN, ["-n", String(AGENT_NICE), "-p", String(pid)]);
   if (platform === "darwin" && have.taskpolicy) run(TASKPOLICY_BIN, ["-c", "utility", "-p", String(pid)]);
+}
+
+/**
+ * THE THIRD DOOR: A PROCESS WE DID NOT SPAWN FOR ONE PERSON IN PARTICULAR.
+ *
+ * The headless Chromium of the browser tools is ONE for the whole server
+ * (single-flight in `ensureBrowser`): the agents drive it, and so do the
+ * browser panes of a web/mobile client. `nice` is the wrong knob for it -
+ * on macOS a process cannot LOWER its own nice value again without root, so
+ * a demotion would still be there when a person opens a pane. The QoS class
+ * can be toggled both ways by anyone: `taskpolicy -b` puts a pid in the
+ * background band (the scheduler reads the class before the nice value),
+ * `-B` takes it back out. Measured 2026-09-07: a `bash` at nice 15 goes from
+ * PRI 20 to PRI 4 on `-b` and back to 20 on `-B`.
+ *
+ * Linux has no such toggle here: `renice +15` is one-way for a non-root
+ * process, so `on` demotes and `off` deliberately does NOTHING rather than
+ * pretend. A Linux browser stays demoted until it is relaunched, which is
+ * cheap (the idle reaper closes it after minutes of no context anyway).
+ */
+export function setBackground(
+  pid: number,
+  on: boolean,
+  platform: NodeJS.Platform = process.platform,
+  have: PriorityKnobs = knobs(),
+  run: RunKnob = spawnKnob,
+): void {
+  if (!Number.isInteger(pid) || pid <= 0 || platform === "win32") return;
+  if (platform === "darwin") {
+    if (have.taskpolicy) run(TASKPOLICY_BIN, [on ? "-b" : "-B", "-p", String(pid)]);
+    return;
+  }
+  // Linux and the rest: demotion only, and only downwards.
+  if (on && existsSync(RENICE_BIN)) run(RENICE_BIN, ["-n", String(AGENT_NICE), "-p", String(pid)]);
+}
+
+/** Where the children of a pid come from, and what is done to each one. */
+export interface BackgroundTreeDeps {
+  listChildren: (pid: number) => Promise<number[]>;
+  apply: (pid: number, on: boolean) => void;
+}
+
+const PGREP_BIN = "/usr/bin/pgrep";
+
+/** The direct children of `pid`, best-effort: an empty list on any failure. */
+function pgrepChildren(pid: number): Promise<number[]> {
+  return new Promise((resolve) => {
+    if (!existsSync(PGREP_BIN)) return resolve([]);
+    let out = "";
+    try {
+      const p = spawn(PGREP_BIN, ["-P", String(pid)], { stdio: ["ignore", "pipe", "ignore"] });
+      p.stdout?.on("data", (chunk) => { out += String(chunk); });
+      p.on("error", () => resolve([]));
+      p.on("close", () => resolve(
+        out.split("\n").map((l) => Number(l.trim())).filter((n) => Number.isInteger(n) && n > 0),
+      ));
+    } catch { resolve([]); }
+  });
+}
+
+/**
+ * The toggle on a pid AND on every descendant alive right now.
+ *
+ * A child born after the toggle inherits it; a child already running does
+ * NOT - measured, see `setBackground`. Chromium keeps its renderers, its GPU
+ * process and its network service in separate processes, and those are
+ * exactly the ones burning the CPU, so the walk down is the whole point.
+ * Returns the pids it touched, for the transition log line.
+ */
+export async function setBackgroundTree(
+  pid: number,
+  on: boolean,
+  deps: BackgroundTreeDeps = { listChildren: pgrepChildren, apply: (p, o) => setBackground(p, o) },
+): Promise<number[]> {
+  if (!Number.isInteger(pid) || pid <= 0) return [];
+  const seen = new Set<number>();
+  const queue = [pid];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    deps.apply(current, on);
+    try { queue.push(...(await deps.listChildren(current))); } catch { /* a tree we cannot read is a tree we stop walking */ }
+  }
+  return [...seen];
+}
+
+/** One live browser context, as much as the server knows about who opened it. */
+export interface BrowserContextOwner {
+  contextId: string;
+  /** The chat/terminal session that opened it, when known. */
+  sessionKey?: string;
+  /** That session's working directory, when known. */
+  workspace?: string;
+  /** How many people are streaming this context right now. */
+  watchers?: number;
+}
+
+/** The same agent/person criterion the CLI governor uses, injected. */
+export interface AgentOwnerTest {
+  isDispatched: (sessionKey: string) => boolean;
+  isAgentCwd: (workspace: string) => boolean;
+}
+
+/**
+ * May the shared Chromium go to the background right now? Pure.
+ *
+ * ONE person is enough to say no, because there is ONE browser: a pane a
+ * human is looking at must not stutter because six cards are scraping. With
+ * no context at all the answer is yes - nobody is waiting on it, and the
+ * next context flips it back before its first paint. An owner nobody can
+ * name counts as a person's: mis-slowing a person is worse than
+ * mis-sparing an agent.
+ */
+export function browserShouldBeBackground(
+  owners: readonly BrowserContextOwner[],
+  test: AgentOwnerTest,
+): boolean {
+  return owners.every((owner) => {
+    if ((owner.watchers ?? 0) > 0) return false;
+    if (owner.sessionKey && test.isDispatched(owner.sessionKey)) return true;
+    if (owner.workspace && test.isAgentCwd(owner.workspace)) return true;
+    return false;
+  });
 }
 
 /**
