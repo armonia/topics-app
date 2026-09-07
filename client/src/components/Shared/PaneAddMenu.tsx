@@ -393,7 +393,10 @@ export function PaneAddMenu({
           </span>
         )}
         {triggerKbd && !isMobile && (
-          <kbd className="kbd flex-shrink-0 hidden md:inline" aria-hidden="true">{triggerKbd}</kbd>
+          // `kbd-hint`: same mark as the Search button's ⌘K next door. It means
+          // nothing on its own; inside `.sidebar-header` a container query hides
+          // it as soon as the row cannot hold the wordmark whole beside it.
+          <kbd className="kbd kbd-hint flex-shrink-0 hidden md:inline" aria-hidden="true">{triggerKbd}</kbd>
         )}
       </button>
 

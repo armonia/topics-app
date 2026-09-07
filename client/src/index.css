@@ -2313,6 +2313,62 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   vertical-align: baseline;
 }
 
+/*
+ * THE HINT GIVES WAY BEFORE THE NAME.
+ *
+ * The sidebar header is a fixed budget: the lights' 64px, the word «Topics»,
+ * the bell, Search and «+». Two of those carry a keyboard hint (the ⌘K inside
+ * Search, the ⌘N inside «+»), and the hints are the ONLY part of the row that
+ * is a repetition: both buttons already say the same shortcut in their
+ * `title`, in full. The word is not a repetition of anything.
+ *
+ * Yet flexbox handed the shortage to the word: the hints sit in
+ * `flex-shrink-0` buttons at the end of the row, so the whole deficit landed
+ * on the one `min-w-0` chain in the header, and at the DEFAULT sidebar width
+ * of 256px the wordmark rendered 18.7px wide against the 62 it wants — the
+ * app's own name reduced to «To…» (card b109c85c, measured 2026-09-07).
+ *
+ * ONE RULE, and it is measured: no keyboard hint is visible while the wordmark
+ * is under its natural width. The threshold below is the narrowest header row
+ * that holds everything AT ONCE, hints included, and it was MEASURED rather
+ * than added up — the row was swept from 400px down to 180 with both hints
+ * forced on, reading the wordmark's rect at every pixel:
+ *
+ *   row 287 and wider   wordmark 61.8px, its natural width
+ *   row 286             wordmark 61.8px  <- the last width that still fits
+ *   row 285             wordmark 60.8px, and it keeps losing a pixel per pixel
+ *
+ * So 286 is the threshold, and it is the ROW's content box, not the column's
+ * width: the sidebar is 13px wider than its row (1px border plus two
+ * ROW_INSET), which puts the switch at a 299px sidebar. Below it the hints go
+ * and the word takes back the ~55px they were holding, which is what makes the
+ * default 256px column (a 243px row) whole again. Below ~245 nothing is left
+ * to give and the word truncates as it always did: the lights' 64px are not
+ * ours to spend (card f0e15ea1).
+ *
+ * A CONTAINER QUERY and not a width read in JS, because the sidebar resize
+ * bypasses React on purpose — the drag writes `style.width` on the node and
+ * only commits to state on mouseup (useSidebarAndLayout), so a JS threshold
+ * would flip a frame after the mouse button, not under it. The container is
+ * the header ROW because the row is what has to fit; `container-type` is safe
+ * here since both menus in this row (the bell's panel and the «+» palette)
+ * render through a portal and nothing else escapes it.
+ *
+ * The `.sidebar-header` in the selector is not decoration: it lifts the rule
+ * over Tailwind's own `md:inline` on the same element, which would otherwise
+ * win on source order alone.
+ */
+.sidebar-header {
+  container-type: inline-size;
+  container-name: sidebar-header;
+}
+
+@container sidebar-header (width < 286px) {
+  .sidebar-header .kbd-hint {
+    display: none;
+  }
+}
+
 /* Command palette overlay */
 @keyframes commandPaletteIn {
   from {

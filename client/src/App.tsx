@@ -1213,7 +1213,12 @@ function App() {
           and underneath the `z-50` one, where it stopped taking clicks (twelve
           `notification-history` reds on Linux CI, measured 2026-08-26). The
           `title` keeps saying it on hover, in full and in the right words. */}
-      {!isMobile && !usesCtrl && <kbd className="kbd flex-shrink-0 hidden md:inline">{shortcut('K')}</kbd>}
+      {/* `kbd-hint`: THE HINT YIELDS BEFORE THE WORDMARK. Inside the sidebar
+          header this class is what a container query switches off once the row
+          is too narrow to hold «Topics» whole as well — see `.sidebar-header`
+          in index.css for the measured threshold. The button stays clickable
+          and its `title` two lines up keeps naming the shortcut. */}
+      {!isMobile && !usesCtrl && <kbd className="kbd kbd-hint flex-shrink-0 hidden md:inline">{shortcut('K')}</kbd>}
     </button>
   );
   const sidebarAddMenu = (
@@ -1488,7 +1493,11 @@ function App() {
           // chiaro/scuro), quindi quel filo è l'unica separazione che esiste e
           // toglierlo fonde le due zone. Qui invece l'header ha dentro di sé di
           // che farsi riconoscere.
-          className={`flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
+          // `sidebar-header`: the row declares itself a container so its own
+          // width can decide what stays in it. What it decides today is the
+          // keyboard hints (`kbd-hint`), which go before the wordmark shrinks
+          // — the threshold and the sum behind it are in index.css.
+          className={`sidebar-header flex items-center justify-between flex-shrink-0 app-drag-region ${isMobile ? 'h-14' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET, gap: ROW_INSET }}
         >
           {/* ONE STEP FROM EDGE TO EDGE. The pair at the other end of this row
