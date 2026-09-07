@@ -58,7 +58,7 @@ export function DevBundleToast() {
         className="mt-1 text-primary underline underline-offset-2 hover:no-underline"
         data-testid="bundle-stale-reload"
       >
-        Ricarica
+        {tr('dev.reload')}
       </button>
     </SidebarUpdateBanner>
   );

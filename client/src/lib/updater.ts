@@ -112,6 +112,15 @@ export function updateErrorKey(error: string | undefined): string {
   return 'update.err.generic';
 }
 
+/** A headline, plus the second number when the headline is not the whole
+ *  truth. The detail is a SEPARATE line because the banner's title is one line
+ *  and it truncates: measured at the real sidebar width, 244px, a sentence
+ *  carrying both versions came out cut in half, mid-number. */
+export interface UpdateNotice {
+  title: UpdateTitle;
+  detail?: UpdateTitle;
+}
+
 /**
  * The banner/popover headline for a status, as a KEY the caller translates.
  *
@@ -140,6 +149,58 @@ export function updateTitle(status: UpdaterStatus): UpdateTitle {
     default:
       return { key: 'update.title.idle' };
   }
+}
+
+/** -1 / 0 / 1 over dotted numeric versions. A missing or non-numeric part
+ *  counts as 0, which is what `2.2.277` vs `2.2` has to mean here. */
+function compareVersions(a: string, b: string): number {
+  const left = a.split('.');
+  const right = b.split('.');
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const l = Number.parseInt(left[i] ?? '0', 10) || 0;
+    const r = Number.parseInt(right[i] ?? '0', 10) || 0;
+    if (l !== r) return l < r ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * WHICH SENTENCE AN AVAILABLE UPDATE GETS, and whether it gets one at all.
+ *
+ * The banner named the RELEASE number and nothing else, and on the machine that
+ * builds the app that reads as a defect of the banner: the chip beside it shows
+ * the CLIENT bundle, hot-delivered from `public/`, so on 2026-09-07 both said
+ * 2.2.277 while the piece actually behind was the installed shell, at 2.2.264.
+ * "It keeps telling me about a version I already have." The cure written into
+ * the code was to stop checking on a dev install, which traded a confusing
+ * sentence for thirteen releases of silence and broke STATUSLINE-03c.
+ *
+ * The missing fact was the SHELL number, so on a dev install the banner carries
+ * it as a second line under the headline: published release above, installed
+ * shell below, both readable at once. Same fact the version chip already names
+ * next to the number.
+ *
+ * And it answers "say nothing" too: an offered version that the installed shell
+ * already has (equal or older) has nothing to announce - the case a dev machine
+ * hits every time it builds ahead of the last release.
+ */
+export function shellUpdateNotice(
+  available: string | undefined,
+  shellVersion: string | undefined,
+  opts: { devInstall?: boolean } = {},
+): UpdateNotice | null {
+  const v = (available ?? '').trim();
+  if (!v) return null;
+  const shell = (shellVersion ?? '').trim();
+  // `0.0.0` is a shrug, not a version (same reading as shellGap): an unknown
+  // shell is no reason to stay quiet, because the update itself is real.
+  const shellKnown = !!shell && shell !== '0.0.0';
+  if (shellKnown && compareVersions(v, shell) <= 0) return null;
+  const title: UpdateTitle = { key: 'update.title.available', params: { v: ` v${v}` } };
+  if (opts.devInstall && shellKnown) {
+    return { title, detail: { key: 'update.detail.localShell', params: { shell } } };
+  }
+  return { title };
 }
 
 /** Where the dismissed version is remembered. Per browser profile, like every

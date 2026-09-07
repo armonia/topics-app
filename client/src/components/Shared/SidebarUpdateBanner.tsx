@@ -40,15 +40,26 @@
  */
 import { createPortal } from 'react-dom';
 import { ROW_INSET } from '@/lib/selectionStyles';
+import { useT } from '../../hooks/useT';
 
 const SLOT_SELECTOR = '[data-update-slot]';
 
 export type UpdateBannerKind = 'build' | 'release';
 
-/** L'occhiello: la parola che dice in quale dei due mondi siamo. */
-const EYEBROW: Record<UpdateBannerKind, string> = {
-  build: 'Aggiornamento automatico',
-  release: 'Nuova versione',
+/**
+ * The eyebrow: the word that says which of the two worlds is talking.
+ *
+ * Over the bundle banner it used to say:
+ *   "Aggiornamento automatico" allow-italian: the wrong label is the subject
+ * which was wrong twice. Nothing there is automatic (the page reloads on a
+ * click, never on its own), and "update" is the OTHER world's word, so the two
+ * notices ended up sharing the only term that had to tell them apart. Each one
+ * now names its own object, and the buttons follow: reload the bundle, update
+ * the shell.
+ */
+const EYEBROW_KEY: Record<UpdateBannerKind, string> = {
+  build: 'banner.eyebrow.build',
+  release: 'banner.eyebrow.release',
 };
 
 export function SidebarUpdateBanner({
@@ -71,6 +82,7 @@ export function SidebarUpdateBanner({
   onDismiss?: () => void;
   testId?: string;
 }) {
+  const tr = useT();
   const card = (
     <div
       data-testid={testId}
@@ -85,8 +97,13 @@ export function SidebarUpdateBanner({
     >
       {icon && <span className="mt-0.5 flex-shrink-0">{icon}</span>}
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wide text-app-text-tertiary">{EYEBROW[kind]}</div>
-        <div className="truncate font-medium">{title}</div>
+        <div className="text-[10px] uppercase tracking-wide text-app-text-tertiary">{tr(EYEBROW_KEY[kind])}</div>
+        {/* IT WRAPS, IT DOES NOT TRUNCATE. The column gives this card about
+            244px: "Aggiornamento v2.2.277 disponibile" came out cut after
+            "disp", and a version announcement that hides the end of itself is
+            worse than a card one line taller. Long unbroken tokens still break
+            instead of pushing the layout out. */}
+        <div className="break-words font-medium">{title}</div>
         {children}
       </div>
       {onDismiss && (
