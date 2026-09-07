@@ -133,6 +133,11 @@
         // sul server: tocca una sola GET), e non la importa nessuno tranne il
         // suo test.
         "scripts/fd-leak-probe.ts!",
+        // `bun run scripts/ws-catchup-probe.ts` [E2E_PORT=… PROBE_STREAMS=…]:
+        // seeds N turns in flight on the TEST server and counts the bytes one
+        // socket open costs, per frame type. Run by hand, and it never writes
+        // on the socket it measures.
+        "scripts/ws-catchup-probe.ts!",
         "scripts/effort-variance.ts!",
         // Le due migrazioni una tantum sul DB della board, entrambe in sola
         // lettura finche' non ricevono `--apply`: `bun run

@@ -43,6 +43,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
 import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
@@ -3732,21 +3733,13 @@ const opzioniServer = {
         // Dalla stessa porta della raffica: questo frame porta il TESTO di un
         // turno a metà, ed è quello che un ospite non deve vedere per una chat
         // che non è sua.
-        inviaIniziale({
-          type: "stream:catchup",
-          sessionKey,
-          topicId,
-          messageId: stream.messageId,
-          content: stream.content,
-          thinking: stream.thinking,
-          isThinking: stream.isThinking,
-          toolCalls: partial.toolCalls,
-          blocks: partial.blocks,
-          // The wait the turn is in, if any: `stream:retry` / `stream:slow`
-          // were broadcast before this client existed (`ActiveStream.retry`).
-          ...(stream.retry ? { retry: stream.retry } : {}),
-          ...(stream.slow ? { slow: true } : {}),
-        });
+        //
+        // The shape of the payload lives in `buildStreamCatchupFrame`: the
+        // legacy `toolCalls` bucket is dropped when the blocks carry the same
+        // calls, and the calls that are OVER travel with their large text
+        // blanked. Why, and what stays whole, is documented there; the budget
+        // is tests/integration/catchup-payload-weight.test.ts.
+        inviaIniziale(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
       }
     },
     message(ws, message) {
