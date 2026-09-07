@@ -234,9 +234,9 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         return new Response(
           mediaErrorHtml({
             path: filePath,
-            title: "Questo file non posso servirlo",
+            title: "This file cannot be opened from here",
             detail:
-              "È fuori dalle cartelle che questo server può leggere. Spostalo in una cartella consentita, oppure apri il progetto a cui appartiene.",
+              "It is outside the folders this server may read. Move it into an allowed folder, or open the project it belongs to.",
           }),
           { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } },
         );
@@ -246,8 +246,8 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
         return new Response(
           mediaErrorHtml({
             path: resolved,
-            title: "Questo file non c'è",
-            detail: "Il percorso è consentito, ma sul disco non esiste (o è stato spostato).",
+            title: "This file is not there",
+            detail: "The path is allowed, but nothing is on disk at it (or it was moved).",
           }),
           { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
         );

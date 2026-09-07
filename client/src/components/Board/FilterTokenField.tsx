@@ -82,7 +82,7 @@ export function FilterTokenField({ value, onChange, assignees }: {
     // why it exists.
     const closerTitle = (l: TaskLabel): string =>
       l === 'visibile' ? tr('board.filter.labelVisibleTitle')
-        : l === 'decisione' ? tr('board.filter.labelDecisionTitle')
+        : l === 'decisione' ? tr('board.filter.labelDecisionTitle') // allow-italian: the label vocabulary IS the data, compared by value
           : tr('board.filter.labelInvisibleTitle');
     return [
       ...PRIORITY_ORDER.map((p) => ({ group: 'priority' as const, value: p, label: PRIORITY_LABEL[p]! })),

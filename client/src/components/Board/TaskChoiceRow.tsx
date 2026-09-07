@@ -111,9 +111,9 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
       // Archiviare un task con l'agent al lavoro gli taglia il turno, e il turno
       // non torna indietro: si chiede. Su una card ferma la domanda sarebbe rumore.
       const ok = await confirm({
-        title: 'Archiviare un task in corso?',
-        confirmLabel: 'Archivia e ferma',
-        body: <p>Su questo task c&apos;è un agent al lavoro: archiviandolo il suo turno viene interrotto e non riprende.</p>,
+        title: tr('board.choice.archiveRunning.title'),
+        confirmLabel: tr('board.choice.archiveRunning.confirm'),
+        body: <p>{tr('board.choice.archiveRunning.body')}</p>,
       });
       if (!ok) return;
     }
@@ -146,7 +146,7 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
         // Steer: un commento su un task in corso lo bufferizza il dispatcher e
         // lo consegna all'agente al turno dopo (come Claude Code).
         case 'deliver-now':
-          await boardApi.comment(projectId, id, 'Consegna adesso quello che hai: chiudi con quello che è già fatto, scrivi un commento di sintesi e metti il task in review.');
+          await boardApi.comment(projectId, id, tr('board.choice.deliverNow.message'));
           break;
         case 'unblock': await boardApi.update(projectId, id, { blockedByTaskId: null, status: 'todo' }); break;
         case 'unlink': await boardApi.update(projectId, id, { blockedByTaskId: null }); break;
@@ -156,7 +156,7 @@ function useTaskChoiceRunner(task: BoardTask, { exclude, onDone, onError, onNeed
       }
       onDone();
     } catch (e) {
-      onError(e instanceof Error ? e.message : `${choice.label} non è riuscito`);
+      onError(e instanceof Error ? e.message : tr('board.choice.failed', { what: choice.label }));
     } finally {
       setRunning(null);
     }

@@ -117,7 +117,7 @@ describe("POST /api/sessions/:sessionKey/scripts/run — gate", () => {
       const error: string = (await resp.json()).error;
       // L'elenco di cosa ha cercato e la parte che rende leggibile l'assenza:
       // distingue «qui non c'e niente» da «non ho guardato».
-      expect(error).toMatch(/nessun manifest/i);
+      expect(error).toMatch(/no script manifest/i);
       expect(error).toContain("package.json");
       expect(error).toContain("Makefile");
       expect(error).toContain("Cargo.toml");
