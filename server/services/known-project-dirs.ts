@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { scanWorkspaceProjects } from "./project-path-resolver";
 import { isBroadCwd } from "../lib/broad-cwd";
+import { resolveAppDataDir } from "../lib/data-dir";
 
 /**
  * knownProjectDirs — l'UNIONE delle directory di progetto che il server già
@@ -55,13 +56,9 @@ export interface KnownProjectDirsCtx {
   workspaceDir?: string;
 }
 
-/** La stessa risoluzione di `server/utils.ts:133` (`OPENCLAW_DIR`), a cui si
- *  appende `workspace`. Duplicata qui e non importata perché quella vive dentro
- *  la closure di `createUtils`, non è un export. */
+/** The app data root (one rule, `server/lib/data-dir.ts`) plus `workspace`. */
 function defaultWorkspaceDir(): string {
-  const openclaw =
-    process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;
-  return join(openclaw, "workspace");
+  return join(resolveAppDataDir(), "workspace");
 }
 
 /**

@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
@@ -198,9 +199,7 @@ const resolveCodexBinary = resolveCodexBin;
  * a turn here.
  */
 export function globalOrchestratorWorkspace(): string {
-  const dataDir =
-    process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || join(process.env.HOME ?? ".", ".openclaw");
-  const dir = join(dataDir, "orchestrator-cwd");
+  const dir = join(resolveAppDataDir(), "orchestrator-cwd");
   try { mkdirSync(dir, { recursive: true }); } catch { /* reported by Codex if it matters */ }
   return dir;
 }

@@ -616,7 +616,18 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             if (!p) return json({ error: "unknown_person" }, 404);
             if (p.revoked_at !== null) return json({ error: "person_revoked" }, 400);
           }
-          db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pid, id);
+          // The stored `role` is rewritten in the SAME statement as the owner.
+          // Two separate writes would be two rows in time, and the three gates
+          // (identity, device-auth, WS upgrade) read `role`, not ownership: a
+          // device moved to somebody who does not own this installation kept
+          // `owner` and stayed unconfined. NULL owner means guest, exactly the
+          // rule principals.ts derives.
+          db.query(`
+            UPDATE devices SET person_id = ?, role = CASE
+              WHEN EXISTS(SELECT 1 FROM installation_owners WHERE person_id = ?) THEN 'owner'
+              ELSE 'guest' END
+            WHERE id = ?
+          `).run(pid, pid, id);
         } catch {
           return json({ error: "db_unavailable" }, 400);
         }

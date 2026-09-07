@@ -388,12 +388,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   useEffect(() => {
     if (need === 'none') { setThread(null); setChildren([]); return; }
     let alive = true;
-    boardApi.get(task.projectId, task.id)
-      .then(({ comments, children: kids }) => {
+    // `need === 'children'` = the row already carries the comments: rewriting
+    // them from here would make them flicker on every pass of the list. And
+    // what is not drawn is no longer downloaded either: `?fields=children`
+    // answers the children alone (~7 KB) instead of the whole thread (~45 KB),
+    // and this effect has `task.updatedAt` among its deps, so it runs again on
+    // every comment the agent writes.
+    const load = need === 'children'
+      ? boardApi.getChildren(task.projectId, task.id).then(kids => ({ comments: null, kids }))
+      : boardApi.get(task.projectId, task.id).then(({ comments, children: kids }) => ({ comments, kids }));
+    load
+      .then(({ comments, kids }) => {
         if (!alive) return;
-        // `need === 'children'` = i commenti li ha già la riga: riscriverli da
-        // qui vorrebbe dire farli lampeggiare a ogni giro di lista.
-        setThread(need === 'thread' ? selectCardComments(comments) : null);
+        setThread(comments ? selectCardComments(comments) : null);
         setChildren(kids ?? []);
       })
       .catch(() => { if (alive) { setThread(null); setChildren([]); } });

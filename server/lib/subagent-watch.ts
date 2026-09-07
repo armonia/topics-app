@@ -31,7 +31,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { resolveAppDataDir } from "./data-dir";
 import type { Topic, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -106,7 +106,7 @@ export function extractTextContent(content: unknown): string {
 }
 
 export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher {
-  const transcriptDir = deps.transcriptDir ?? join(homedir(), ".openclaw", "agents", "main", "sessions");
+  const transcriptDir = deps.transcriptDir ?? join(resolveAppDataDir(), "agents", "main", "sessions");
   const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_MS;
   const watchTimeoutMs = deps.watchTimeoutMs ?? DEFAULT_WATCH_TIMEOUT_MS;
 
