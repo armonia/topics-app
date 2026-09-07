@@ -48,10 +48,12 @@ const DRAG_MIN = 180;
 const DRAG_MAX = 400;
 /** What the app ships with, and where the defect was measured. */
 const DEFAULT_WIDTH = 256;
-/** The narrowest sidebar that holds the wordmark whole WITH both hints: a
- *  286px row, and the column is 13px wider than its row (1px border plus two
- *  ROW_INSET). Measured, not summed — see the sweep in index.css. */
-const HINTS_FIT_WIDTH = 299;
+/** The sidebar at which the hints come back: a 300px row, and the column is
+ *  13px wider than its row (1px border plus two ROW_INSET). The row threshold
+ *  is set for the widest font the app ships to (Linux CI measured the word at
+ *  67.3px against 61.8 on a Mac, and fits everything from a 294px row) — see
+ *  the two sweeps in index.css. */
+const HINTS_FIT_WIDTH = 313;
 /** Sub-pixel layout rounds; the assertions do not need more than this. */
 const TOL = 1;
 
