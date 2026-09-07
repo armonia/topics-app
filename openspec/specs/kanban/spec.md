@@ -3507,3 +3507,58 @@ doveva rallentare. Windows resta com'è.
 - **THEN** il suo pid viene demotato appena lo spawn lo consegna (anche quando è il broker ai-bridge a spawnarla), così che i test, le build e i Chromium che la card lancia ereditino la priorità
 - **GIVEN** la CLI di una chat della persona nel suo repo
 - **THEN** la sua priorità non cambia
+
+### Requirement: KANBAN-79 — Il carico del dispatcher si legge SEMPRE, non solo quando è già un problema
+
+L'header della colonna «In progress» SHALL mostrare, accanto al conteggio, un
+indicatore del carico del dispatcher: un anello che si riempie con
+`agenti in volo / tetto effettivo` e UNA parola che dice come sta andando
+(«leggero», «pieno», «oltre il limite», «senza limite»). Niente core, niente
+percentuali e nessuna azione: l'avviso con l'azione «ferma N» resta il chip del
+carico nella toolbar, che questo indicatore non duplica.
+
+Perché esiste: prima la board parlava del carico solo sopra la raccomandazione, e
+a riposo taceva. Chi si chiedeva «perché la card in Todo non parte?» non aveva
+niente a schermo che rispondesse, pur essendoci già il dato (la sonda dei 15
+secondi dello store del tetto globale).
+
+**Una lettura sola, tre superfici.** L'indicatore, il suo popover e il pannello
+delle impostazioni SHALL derivare tutti da `dispatchLoadReading` sullo stesso
+store: due copie della stessa lettura sono due superfici libere di divergere,
+che è il guasto già visto sul tetto.
+
+**Ciò che non si sa non si disegna.** Con il tetto in `auto` e la sonda ancora
+muta il limite è ignoto: l'anello resta vuoto e la parola lo dice, invece di
+mostrare pieno o vuoto come se fosse una misura. Senza tetto l'anello è vuoto e
+la parola è «senza limite»: un riempimento contro l'infinito non significa
+niente.
+
+**Il freno «per risorse» non ha un tetto da riempire.** In quella modalità il
+numero non si applica (KANBAN-75): l'anello resta vuoto e la parola nomina il
+freno, invece di disegnare una frazione contro un tetto che non decide niente.
+Per la stessa ragione, sopra il tetto la lettura NON si scrive come frazione:
+«4 di 2» si legge come un avanzamento su un totale.
+
+**I numeri esistono, a un clic.** Il popover SHALL dire la modalità del tetto, la
+derivazione del limite effettivo (`12 core → 4`, e SOLO quando è la macchina ad
+averlo derivato), gli agenti in volo, i core della flotta sulla quota, il load
+della macchina, la memoria libera, la spesa delle ultime 24 ore e la porta alle
+impostazioni.
+
+MISURA: `client/src/components/Board/dispatchLoad.test.ts` per la lettura pura
+(sotto, al, oltre il tetto; sonda muta; tetto spento; numero fisso) ed e2e
+`tests/e2e/board-dispatch-load-gauge.spec.ts` per i tre stati a schermo, il
+popover e la stessa lettura nel pannello.
+
+#### Scenario: sotto il tetto l'anello è parziale e la parola è neutra
+- **GIVEN** la sonda risponde 2 agenti in volo su un tetto di 4
+- **THEN** l'header di «In progress» mostra l'anello riempito a metà e la parola «leggero»
+
+#### Scenario: oltre il tetto cambia la tinta, non il riempimento
+- **GIVEN** la sonda risponde 5 agenti in volo su un tetto di 4
+- **THEN** l'anello è pieno, la tinta è quella di allarme e la parola è «oltre il limite»
+
+#### Scenario: i numeri sono nel popover
+- **GIVEN** l'indicatore nell'header, con il tetto in automatico su una macchina da 12 core
+- **WHEN** ci si clicca sopra
+- **THEN** si apre un popover che dice «12 core → 4» e porta alle impostazioni

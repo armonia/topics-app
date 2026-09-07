@@ -121,6 +121,12 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   // it is doing so.
   calendarRefreshMinutes: { kind: "int", allow: new Set<number>(CALENDAR_REFRESH_CHOICES) },
   calendarHorizonDays: { kind: "int", allow: new Set<number>(CALENDAR_HORIZON_CHOICES) },
+  // Where an agent CLI was pointed at by hand. The canonical writer is
+  // `POST /api/providers/cli/configure`, which checks the file is there and is
+  // executable before writing: a path that does not exist would register a
+  // provider that cannot answer. The field is here because `FIELD_RULES` is
+  // exhaustive over `AppSettings`, and a plain PUT can still CLEAR it (null).
+  agentBinPaths: { kind: "string" },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

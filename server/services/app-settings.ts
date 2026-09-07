@@ -84,6 +84,12 @@ export interface AppSettings {
   calendarRefreshMinutes: number | null;
   /** How far ahead the agenda looks, in days. NULL = the code default. */
   calendarHorizonDays: number | null;
+  /** Where an agent CLI lives when the automatic probe cannot find it: a JSON
+   *  object keyed by agent id, `{"codex": "/abs/path"}` (migration
+   *  `agent-bin-paths`). NULL = nothing was ever pointed at by hand, which is
+   *  the normal case. Written by `POST /api/providers/cli/configure`, which
+   *  validates the path before it lands here. */
+  agentBinPaths: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -109,6 +115,7 @@ const EMPTY: AppSettings = {
   calendarFeedUrl: null,
   calendarRefreshMinutes: null,
   calendarHorizonDays: null,
+  agentBinPaths: null,
 };
 
 interface Row {
@@ -134,6 +141,7 @@ interface Row {
   calendar_feed_url: string | null;
   calendar_refresh_minutes: number | null;
   calendar_horizon_days: number | null;
+  agent_bin_paths: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -164,6 +172,7 @@ function rowToSettings(r: Row): AppSettings {
     calendarFeedUrl: r.calendar_feed_url ?? null,
     calendarRefreshMinutes: r.calendar_refresh_minutes ?? null,
     calendarHorizonDays: r.calendar_horizon_days ?? null,
+    agentBinPaths: r.agent_bin_paths ?? null,
   };
 }
 
@@ -183,7 +192,8 @@ export function getAppSettings(): AppSettings {
                 claude_code_permission_mode, codex_approval_mode, claude_code_enabled,
                 output_language, discord_presence_enabled, discord_detail_level,
                 agent_runtime, profile_publish_cost, profile_share_token,
-                turn_checkpoints_enabled, calendar_enabled, calendar_feed_url,
+                turn_checkpoints_enabled, agent_bin_paths,
+                calendar_enabled, calendar_feed_url,
                 calendar_refresh_minutes, calendar_horizon_days
            FROM app_settings WHERE id = 1`,
       )
@@ -219,6 +229,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   calendarFeedUrl: "calendar_feed_url",
   calendarRefreshMinutes: "calendar_refresh_minutes",
   calendarHorizonDays: "calendar_horizon_days",
+  agentBinPaths: "agent_bin_paths",
 };
 
 /**

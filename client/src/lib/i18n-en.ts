@@ -1056,6 +1056,32 @@ const EN = {
   'board.load.adviceStart': 'It is a ',
   'board.load.adviceWord': 'suggestion',
   'board.load.adviceEnd': ', not a cap: you can let them all run. The real cap lives in the board settings, next to how many are running.',
+  // The load gauge in the In progress header (and the same reading in the
+  // settings panel). ONE word beside the ring: the numbers live in the popover,
+  // where somebody asked for them.
+  'board.gauge.light': 'light',
+  'board.gauge.full': 'full',
+  'board.gauge.over': 'over the limit',
+  'board.gauge.noLimit': 'no limit',
+  'board.gauge.reading': 'reading…',
+  'board.gauge.aria': 'Dispatcher load: {running} of {limit} agents working. Open for the numbers.',
+  'board.gauge.ariaNoLimit': '{running} agents working, no ceiling',
+  'board.gauge.ariaReading': 'Reading the dispatcher load…',
+  'board.gauge.ofLimit': '{running} of {limit}',
+  'board.gauge.popoverTitle': 'Dispatcher load',
+  'board.gauge.modeAuto': 'Automatic cap',
+  'board.gauge.modeFixed': 'Fixed cap',
+  'board.gauge.modeOff': 'No cap',
+  'board.gauge.modeResources': 'Braking on machine resources',
+  'board.gauge.derived': '{cores} cores → {limit}',
+  'board.gauge.inFlight': '{running} agents in flight',
+  'board.gauge.fleetCores': 'fleet {ours} of {budget} cores',
+  'board.gauge.machineLoad': 'machine load {load} over {cores} cores',
+  'board.gauge.freeMem': '{free} GB free of {total}',
+  'board.gauge.spendToday': 'spent in the last 24h {amount}',
+  'board.gauge.byResources': 'by resources',
+  'board.gauge.ariaResources': '{running} agents working, braking on machine resources',
+  'board.gauge.settings': 'Settings',
   // Kanban surfaces: column, card, filter bar, floating composer, delivery
   // preview. See the Italian block for the rule and for what deliberately
   // stays out (label names and status values are DATA, the server writes them

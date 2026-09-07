@@ -6,9 +6,13 @@ import {
   setDefaultProvider,
   registerProvider,
   removeProvider,
+  initProviders,
 } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { updateAppSettings } from "../services/app-settings";
+import { detectAgents, resetAgentBinCaches } from "../lib/detect-agents";
+import { isCliAgentId } from "../lib/agent-bin-paths";
+import { configureAgentBin } from "../lib/configure-agent-bin";
 
 // Slice 9 removed the per-route `diagnoseCache` / `modelsCache` Maps that the
 // old `/api/providers/diagnose` + `/api/providers/models` endpoints used. The
@@ -177,6 +181,53 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
         const msg = err instanceof Error ? err.message : String(err);
         return json({ ok: false, error: msg }, 500);
       }
+    }
+
+    /**
+     * GET /api/providers/cli — which agent CLIs are on this machine.
+     *
+     * The same read as `/api/system/agents`, exposed under the noun Settings is
+     * about: the pane that asks "which providers can I use" should not have to
+     * know that the answer lives under `/api/system`.
+     */
+    if (method === "GET" && pathname === "/api/providers/cli") {
+      return json({ agents: detectAgents() });
+    }
+
+    /**
+     * POST /api/providers/cli/configure — SAY WHERE A CLI IS, by hand.
+     *
+     * Body: `{agent: "codex", path: "/opt/homebrew/bin/codex"}`, or `path: null`
+     * to drop the override and go back to the automatic probe.
+     *
+     * Three things have to happen together, and skipping any one of them makes
+     * the feature useless: the path is stored, the resolvers forget what they
+     * had memoized, and the providers are initialised again so the one that just
+     * became available REGISTERS now. Without the last step the person would set
+     * the path, see nothing change, and restart the app to find out it worked,
+     * which is the restart this whole route exists to avoid.
+     */
+    if (method === "POST" && pathname === "/api/providers/cli/configure") {
+      let parsed: unknown;
+      try { parsed = await req.json(); } catch { parsed = null; }
+      const body = (parsed && typeof parsed === "object") ? parsed as Record<string, unknown> : {};
+      if (!isCliAgentId(body.agent)) {
+        return json({ ok: false, error: "Unknown agent." }, 400);
+      }
+      const typed = typeof body.path === "string" ? body.path : null;
+      const result = configureAgentBin(body.agent, typed);
+      if (!result.ok) return json({ ok: false, error: result.error }, 400);
+
+      resetAgentBinCaches();
+      // Fire and forget would race the response: the client reads the agent list
+      // straight out of it, and it has to be the list AFTER registration.
+      try {
+        await initProviders();
+      } catch (err) {
+        console.warn(`[Providers] Re-init after CLI configure failed: ${err instanceof Error ? err.message : err}`);
+      }
+      void getSnapshotManager().refresh();
+      return json({ ok: true, path: result.path ?? null, agents: detectAgents() });
     }
 
     // DELETE /api/providers/:name — remove a provider
