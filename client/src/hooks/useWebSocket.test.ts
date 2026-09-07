@@ -24,6 +24,9 @@ import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useWebSocket } from './useWebSocket';
+import { useReconnectCatchUp } from './useReconnectCatchUp';
+import { subscribeLifecycle } from '../lib/wsFrameBus';
+import { useRefMirror } from './useRefMirror';
 
 const g = globalThis as unknown as Record<string, unknown>;
 
@@ -54,7 +57,7 @@ let socket: SocketFinta[] = [];
 /** Le richiamate di `setInterval` ancora armate: le fa scattare il test. */
 let intervalli = new Map<number, () => void>();
 /** Idem per i `setTimeout`: catturati, e fatti scattare solo su richiesta. */
-let timeout = new Map<number, () => void>();
+let timeout = new Map<number, { fn: () => void; ms: number }>();
 let orologio = 0;
 
 const salvati: Record<string, unknown> = {};
@@ -96,7 +99,7 @@ beforeEach(() => {
   // di guardare cosa succede DOPO la grazia. Chi non lo chiama vede il
   // comportamento di prima, cioe' nessun timer che scatta.
   let seqT = 0;
-  g.setTimeout = (fn: () => void) => { timeout.set(++seqT, fn); return seqT; };
+  g.setTimeout = (fn: () => void, ms?: number) => { timeout.set(++seqT, { fn, ms: ms ?? 0 }); return seqT; };
   g.clearTimeout = (id: number) => { timeout.delete(id); };
   Date.now = () => orologio;
 });
@@ -122,7 +125,22 @@ function beatTimer(): void {
 function scattaITimeout(): void {
   const armati = [...timeout.entries()];
   timeout.clear();
-  for (const [, fn] of armati) fn();
+  for (const [, t] of armati) t.fn();
+}
+
+/**
+ * Fire only the timers due within `ms`, leaving the longer ones armed.
+ *
+ * The reconnect that this repository actually performs is the SHORT one: a
+ * backoff of one second against a three-second grace on the exposed status.
+ * Firing every pending timer would also expire that grace, i.e. would test a
+ * drop nobody has: the interesting window is the one where the status never
+ * stops saying `connected`.
+ */
+function fireTimersUpTo(ms: number): void {
+  for (const [id, t] of [...timeout.entries()]) {
+    if (t.ms <= ms) { timeout.delete(id); t.fn(); }
+  }
 }
 
 function guida(): { api: () => ReturnType<typeof useWebSocket>; smonta: () => void } {
@@ -266,5 +284,109 @@ describe('il polso della connessione WS', () => {
     expect(nuova.chiusure).toBe(0);
     expect(nuova.tipiInviati()).toContain('ping');
     smonta();
+  });
+});
+
+/**
+ * THE CATCH-UP THE NEW SOCKET OWES, and why the connection status could not
+ * order it.
+ *
+ * A socket that drops and comes back one second later is invisible to the
+ * status this hook exposes: `displayStatus` holds `connected` for three
+ * seconds on purpose, so the status bar does not blink on a hiccup. Everything
+ * that hung off the `!== connected` to `connected` edge therefore never ran on
+ * the ordinary reconnection: the outbound queue stayed full, the open chat
+ * kept showing the turn it had before the drop, and the server heard no
+ * `presence:announce` from a window that was, for it, holding no topic at all.
+ *
+ * The socket knows what the status hides, so the trigger is the re-open.
+ * @covers RUNTIME-18
+ */
+describe('the catch-up after a reconnect nobody sees', () => {
+  test('a one-second drop: the status never moves, the new socket catches up', () => {
+    const done: string[] = [];
+    const openPanelsRef = { current: ['t1', 't2'] };
+    const topicsRef = { current: { t1: { sessionKey: 's1' }, t2: { sessionKey: 's2' } } };
+    let statusEdges = 0;
+    let seenStatus = '';
+
+    function Probe(): null {
+      const live = useWebSocket();
+      useReconnectCatchUp({
+        drainQueue: () => done.push('drain'),
+        loadTopics: () => done.push('topics'),
+        loadHistory: (key: string) => done.push(`history:${key}`),
+        openPanelsRef,
+        topicsRef,
+      });
+      // Presence re-announce, wired exactly as usePanelLifecycle wires it.
+      const sendRef = useRefMirror(live.sendWS);
+      React.useEffect(() => subscribeLifecycle((event) => {
+        if (event === 'open') sendRef.current({ type: 'presence:announce', windowId: 'w1', topicIds: ['t1'] } as never);
+      }), [sendRef]);
+      // The OLD trigger, kept here only to measure that it stays silent.
+      const prev = React.useRef(live.status);
+      React.useEffect(() => {
+        seenStatus = live.status;
+        if (prev.current !== 'connected' && live.status === 'connected') statusEdges += 1;
+        prev.current = live.status;
+      }, [live.status]);
+      return null;
+    }
+
+    const h = mount(React.createElement(Probe));
+    const prima = socket[0]!;
+    prima.apri();
+    done.length = 0;
+    statusEdges = 0;
+
+    // The drop the browser does report, then the backoff: one second, well
+    // inside the grace. The three-second timer stays armed on purpose.
+    prima.readyState = SocketFinta.CLOSED;
+    prima.onclose?.();
+    fireTimersUpTo(1000);
+
+    const nuova = socket[1]!;
+    expect(nuova, 'the backoff opened a second socket').toBeDefined();
+    nuova.apri();
+
+    expect(seenStatus, 'the grace hid the whole drop').toBe('connected');
+    expect(statusEdges, 'no status edge to hang the catch-up on').toBe(0);
+    expect(done).toEqual(['drain', 'topics', 'history:s1', 'history:s2']);
+    expect(nuova.tipiInviati()).toContain('presence:announce');
+    h.unmount();
+  });
+
+  test('a pane opened while the socket was down is the one that reloads', () => {
+    // The refs are read at re-open, not captured at subscribe time: the
+    // subscription is registered once and must not go stale.
+    const done: string[] = [];
+    const openPanelsRef = { current: ['t1'] };
+    const topicsRef = { current: { t1: { sessionKey: 's1' }, t9: { sessionKey: 's9' } } };
+    function Probe(): null {
+      useWebSocket();
+      useReconnectCatchUp({
+        drainQueue: () => {},
+        loadTopics: () => {},
+        loadHistory: (key: string) => done.push(key),
+        openPanelsRef,
+        topicsRef,
+      });
+      return null;
+    }
+    const h = mount(React.createElement(Probe));
+    socket[0]!.apri();
+    // The bus counts opens for the whole page, so the boot open of this probe
+    // can already be a re-open: what is measured starts after it.
+    done.length = 0;
+
+    socket[0]!.readyState = SocketFinta.CLOSED;
+    socket[0]!.onclose?.();
+    openPanelsRef.current = ['t9'];
+    fireTimersUpTo(1000);
+    socket[1]!.apri();
+
+    expect(done).toEqual(['s9']);
+    h.unmount();
   });
 });
