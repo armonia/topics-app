@@ -47,15 +47,21 @@ function snapshotAwareInvoke(actResult: unknown = { ok: true }): { invoke: Invok
   return { invoke, calls };
 }
 
-/** An invoke whose readyState probe answers from a queue, one reply per call. */
-function loadProbeInvoke(states: string[], origin = 'https://x.com'): { invoke: Invoke; calls: Array<[string, unknown]> } {
+/** An invoke whose readyState probe answers from a queue, one reply per call.
+ *  `href` is what the view claims to be showing: the op reports THAT, not the
+ *  address it was asked for. */
+function loadProbeInvoke(
+  states: string[],
+  origin = 'https://x.com',
+  href = `${origin}/`,
+): { invoke: Invoke; calls: Array<[string, unknown]> } {
   const calls: Array<[string, unknown]> = [];
   const queue = [...states];
   const invoke: Invoke = async (cmd, args) => {
     calls.push([cmd, args]);
     if (cmd === 'browser_eval_js') {
       const ready = queue.length > 1 ? queue.shift() : queue[0];
-      return JSON.stringify({ origin, ready }) as never;
+      return JSON.stringify({ origin, href, ready }) as never;
     }
     return '' as never;
   };
@@ -68,7 +74,9 @@ test('browser_open navigates and answers only once the document has settled', as
   expect(calls[0]).toEqual(['browser_navigate', { id: 'ctx', url: 'https://x.com' }]);
   // The probe is the proof the op waited instead of answering on the request.
   expect(calls[1][0]).toBe('browser_eval_js');
-  expect(out).toEqual({ result: { ok: true, url: 'https://x.com', ready: true } });
+  expect(out).toEqual({
+    result: { ok: true, url: 'https://x.com/', requested: 'https://x.com', ready: true },
+  });
 });
 
 test('browser_open keeps polling while the pane is still loading', async () => {
@@ -77,14 +85,18 @@ test('browser_open keeps polling while the pane is still loading', async () => {
   // model invent a page instead of reporting a blank one).
   const { invoke } = loadProbeInvoke(['loading', 'complete']);
   const out = await executeNativeBrowserOp('ctx', 'browser_open', { url: 'https://x.com' }, invoke);
-  expect(out).toEqual({ result: { ok: true, url: 'https://x.com', ready: true } });
+  expect(out).toEqual({
+    result: { ok: true, url: 'https://x.com/', requested: 'https://x.com', ready: true },
+  });
 });
 
 test('browser_open on a non-http url waits on readyState alone (no origin to match)', async () => {
   // about:/data: report origin "null": matching it would never settle.
-  const { invoke } = loadProbeInvoke(['complete'], 'null');
+  const { invoke } = loadProbeInvoke(['complete'], 'null', 'about:blank');
   const out = await executeNativeBrowserOp('ctx', 'browser_open', { url: 'about:blank' }, invoke);
-  expect(out).toEqual({ result: { ok: true, url: 'about:blank', ready: true } });
+  expect(out).toEqual({
+    result: { ok: true, url: 'about:blank', requested: 'about:blank', ready: true },
+  });
 });
 
 test('browser_eval forwards the expression to browser_eval_js and returns its result', async () => {

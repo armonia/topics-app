@@ -723,6 +723,55 @@ describe("open-pane — «visibile» non si dà per scontato", () => {
     expect(h.typed("browser:force-open")[0]).toMatchObject({ url: "https://example.com/finale" });
   });
 
+  // -------------------------------------------------------------------------
+  // THE PANE STAYS WHITE AND NOBODY RAISES AN ERROR.
+  //
+  // Card fd64d7a1: a local file was rewritten to `/api/media?path=…` and the
+  // webview resolved that reference on its OWN origin, which inside the desktop
+  // shell is the asset protocol. No server behind it, no error, `about:blank`.
+  // The tool answered "Opened browser pane at ..." and the agent moved on. From
+  // the outside there was no way to notice: the native pane records no console
+  // and no network. The only witness is the address the view claims to show.
+  // -------------------------------------------------------------------------
+  test("la view è rimasta su about:blank ⇒ la chat riceve un errore, non un «Opened»", async () => {
+    const h = harness({ navigateTo: "about:blank" });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "https://example.com/" });
+
+    expect(resp!.status).toBe(502);
+    const body = await resp!.json();
+    expect(body.error).toContain("never loaded");
+    expect(body.url).toBeUndefined();
+  });
+
+  test("la scheda di un task sopravvive al bianco, ma la risposta lo dice", async () => {
+    const h = harness({ navigateTo: "about:blank" });
+    const topic = h.addTopic("aaaaaaaa-topic");
+    h.taskOfTopic.set(topic.id, { id: "12345678-task" });
+
+    const resp = await h.post("/api/topics/aaaaaaaa-topic/browser/open-pane", { url: "https://example.com/" });
+
+    // 200 because the tab RECORD is the deliverable and it exists; but
+    // `visible:false` and the reason spelled out, instead of silence.
+    expect(resp!.status).toBe(200);
+    const body = await resp!.json();
+    expect(body.visible).toBe(false);
+    expect(body.warning).toContain("never loaded");
+    // The tab points at the requested document, not at the `about:blank` it
+    // ended on: a record pointing at nothing cannot even be retried.
+    expect(body.url).toBe("https://example.com/");
+  });
+
+  test("about:blank chiesto di proposito resta un esito legittimo", async () => {
+    const h = harness();
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/open-pane", { url: "about:blank" });
+
+    expect(await resp!.json()).toMatchObject({ url: "about:blank", visible: true });
+  });
+
   test("terminale non renderizzato da nessuna parte: stesso ripiego, stessa risposta onesta", async () => {
     const h = harness({ paneAttached: false });
     h.addTerminal("42");
