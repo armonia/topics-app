@@ -25,7 +25,7 @@ import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
+import { E2E_BASE, testServerEnv } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
@@ -129,7 +129,10 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
     // L'allowlist di `previewImage` guarda la HOME DEL SERVER, che qui è isolata:
     // un'immagine scritta altrove viene scartata in SILENZIO e il test misurerebbe
     // una card senza anteprima passando lo stesso.
-    const mediaDir = `${E2E_HOME}/.topics/media`;
+    // ...and "the server's home" is its TOPICS_HOME (the media root of
+    // `appDataRoots`, since card 211605ee), not `$HOME/.topics`: in this bench
+    // the two are different directories on purpose.
+    const mediaDir = `${testServerEnv().TOPICS_HOME}/media`;
     mkdirSync(mediaDir, { recursive: true });
     previewPath = `${mediaDir}/e2e-drawer-truth-${Date.now()}.png`;
     writeFileSync(previewPath, TINY_PNG);

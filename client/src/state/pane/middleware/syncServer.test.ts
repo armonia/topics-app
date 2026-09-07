@@ -7,7 +7,7 @@
  *
  * @covers TAB-SYNC-01
  */
-import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll } from "bun:test";
 
 // Minimal browser-ish globals so the module imports without blowing up under
 // bun:test. syncCrossTab is imported by syncServer (for getTabId), and it
@@ -279,5 +279,127 @@ describe("syncServer — CAS base on teardown flush", () => {
       );
     await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1);
     expect(usePaneStore.getState().lastServerSeq).toBe(90);
+  });
+});
+
+/**
+ * WHAT A DROPPED SOCKET OWES THE SERVER, AND WHEN IT PAYS IT.
+ *
+ * On 'close' this middleware cancels everything that has not landed: the
+ * debounce timer and any in-flight PUT. Nothing re-armed it, because the
+ * comment that promised "the next `lastSeq` tick will re-push" was written
+ * when the subscription watched `lastSeq`; it watches `localSeq` now, which
+ * only moves on a LOCAL edit. So an edit made in the 500 ms before the drop
+ * stayed on the device until the user happened to touch the app again.
+ *
+ * These tests drive the REAL modules (store, wsFrameBus, syncServer) with a
+ * fetch stub, on the timeline of an actual drop: edit, socket dies 100 ms
+ * later, socket returns 100 ms after that.
+ *
+ * @covers TAB-SYNC-01
+ */
+describe("syncServer — re-arm the push after a WS drop", () => {
+  let initServerSync: () => void;
+  let stopServerSync: () => void;
+  let dispatchLifecycle: (event: "open" | "close") => void;
+  let markServerHydrated: () => void;
+  let resetServerHydrated: () => void;
+  let putCount: number;
+  let paneCounter = 0;
+
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  /** A local edit: the only thing that moves `localSeq` and arms the debounce. */
+  function editLocally(): void {
+    paneCounter += 1;
+    usePaneStore.getState().dispatch({
+      type: "OPEN_PANE",
+      payload: { id: `terminal:drop-${paneCounter}`, type: "terminal", groupId: "group:default" },
+    });
+  }
+
+  /** Fetch stub: every PUT succeeds with a fresh `server_seq`, and is counted. */
+  function installCountingFetch(): void {
+    putCount = 0;
+    originalFetch = (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = (url: string): Promise<Response> => {
+      if (String(url).includes(PANE_STORE_REMOTE_KEY)) putCount += 1;
+      return Promise.resolve(
+        new Response(JSON.stringify({ server_seq: 1000 + putCount }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    };
+  }
+
+  beforeAll(async () => {
+    ({ initServerSync, __stopServerSyncForTests: stopServerSync } = await import("./syncServer"));
+    ({ dispatchLifecycle } = await import("../../../lib/wsFrameBus"));
+    ({ markServerHydrated, __resetServerHydratedForTests: resetServerHydrated } =
+      await import("./serverHydrated"));
+  });
+
+  beforeEach(async () => {
+    __resetInflightForTests();
+    __resetSelfEchoForTests();
+    installCountingFetch();
+    markServerHydrated();
+    initServerSync();
+    // The lifecycle subscription is registered inside an `await import()`, so
+    // it exists a macrotask later, not synchronously after initServerSync().
+    await sleep(20);
+  });
+
+  afterEach(() => {
+    stopServerSync();
+    __resetInflightForTests();
+    resetServerHydrated();
+    restoreFetch();
+    uninstallFakeWindow();
+    installFakeWindow();
+  });
+
+  test("control: with the socket up, one edit is one PUT", async () => {
+    editLocally();
+    await sleep(700);
+    expect(putCount).toBe(1);
+  });
+
+  test("an edit made just before the drop is pushed on the next open", async () => {
+    editLocally();
+    await sleep(100);
+    dispatchLifecycle("close"); // cancels the debounce armed by the edit
+    expect(putCount).toBe(0);
+    await sleep(100);
+    dispatchLifecycle("open");
+    // One DEBOUNCE_MS after the reopen, and only one: the re-arm is a single
+    // push, not a replay of everything the session ever cancelled.
+    await sleep(700);
+    expect(putCount).toBe(1);
+  });
+
+  test("an open with nothing owed does not push", async () => {
+    // No edit at all: a plain reconnect must stay silent, or every WS blip
+    // would write the same snapshot back to the server.
+    dispatchLifecycle("close");
+    dispatchLifecycle("open");
+    await sleep(700);
+    expect(putCount).toBe(0);
+  });
+
+  test("a PUT aborted mid-flight by the drop is re-sent on the next open", async () => {
+    restoreFetch();
+    installHangingFetch();
+    editLocally();
+    await sleep(600); // debounce elapsed: the PUT is in flight and hanging
+    expect(fetchCalls.length).toBe(1);
+    dispatchLifecycle("close");
+    expect(fetchCalls[0].aborted).toBe(true);
+    await sleep(100);
+    dispatchLifecycle("open");
+    await sleep(700);
+    expect(fetchCalls.length).toBe(2);
+    expect(fetchCalls[1].aborted).toBe(false);
   });
 });

@@ -1639,6 +1639,14 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 //   • TOPICS_EMBEDDED=1 — self-contained-bundle flag: keeps the
                 //     gateway/journal integrations off. It ALSO disables the PTY
                 //     bridge UNLESS a bundled bridge re-enables it (see below).
+                //
+                // NO APP_DATA_DIR here, deliberately (card 211605ee). The root
+                // for media/ and workspace/ is resolved server-side by one rule
+                // (server/lib/data-dir.ts `resolveAppDataDir`): an explicit
+                // variable, else the legacy `~/.openclaw` when this machine
+                // already has one, else TOPICS_HOME — which the line below
+                // already sets. A fourth variable saying the same thing is one
+                // more place for the two to disagree.
                 .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string())
                 .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
                 .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
