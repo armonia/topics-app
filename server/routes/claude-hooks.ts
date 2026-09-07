@@ -5,64 +5,83 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "f
 import { randomBytes } from "crypto";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { type HookPayload } from "../lib/claude-session-state";
+import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession } from "./terminal";
 
-const TOKEN_DIR = join(homedir(), ".claude", "topics-app");
-const TOKEN_PATH = join(TOKEN_DIR, "hook-token");
-const SHARED_TOKEN_PATH = join(homedir(), ".claude", "topics-hook-token");
+/**
+ * Where the hook auth token lives: under Topics' OWN home, never under
+ * `~/.claude`. Until 2026-09-07 the server wrote it into the user's Claude
+ * config dir on every boot (`~/.claude/topics-app/hook-token` and
+ * `~/.claude/topics-hook-token`), which is Topics leaving files in another
+ * tool's directory. Those two paths are now READ-ONLY legacy: a wrapper
+ * installed by a previous version still reads the second one, so an existing
+ * token is adopted from there (and persisted here), but nothing is written
+ * back.
+ */
+export function hookTokenPath(home: string = topicsHome()): string {
+  return join(home, "claude-hooks", "hook-token");
+}
+
+/** The paths a previous version wrote; read for adoption, never written. */
+export function legacyHookTokenPaths(claudeDir: string = join(homedir(), ".claude")): string[] {
+  return [join(claudeDir, "topics-app", "hook-token"), join(claudeDir, "topics-hook-token")];
+}
+
+const TOKEN_SHAPE = /^[a-f0-9]{32,128}$/i;
+
+function readTokenFile(path: string): string | null {
+  try {
+    if (!existsSync(path)) return null;
+    const t = readFileSync(path, "utf-8").trim();
+    return TOKEN_SHAPE.test(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Read or create the hook auth token. The token is shared between Topics App
- * (which validates incoming hooks) and the hook wrapper scripts (which read
- * it from `~/.claude/topics-hook-token` to set the Authorization header).
+ * Read, adopt or create the token at `ownPath`. Pure over its paths so a test
+ * can point it at a fake home and a fake `~/.claude`.
  *
- * Generated on first server boot; cached in-memory thereafter. Mode 0600.
+ * Order: our own file wins; otherwise a legacy file's value is adopted so the
+ * wrappers already installed keep authenticating; otherwise a fresh token is
+ * generated. Anything not already at `ownPath` is persisted there, mode 0600.
+ */
+export function resolveHookToken(ownPath: string, legacyPaths: string[]): string {
+  const own = readTokenFile(ownPath);
+  if (own) return own;
+
+  let token: string | null = null;
+  for (const p of legacyPaths) {
+    token = readTokenFile(p);
+    if (token) break;
+  }
+  token ??= randomBytes(32).toString("hex");
+
+  try {
+    mkdirSync(join(ownPath, ".."), { recursive: true });
+    writeFileSync(ownPath, token, { mode: 0o600 });
+    chmodSync(ownPath, 0o600);
+  } catch (err) {
+    // Could not persist: in-memory only for this boot. Hooks installed by a
+    // previous boot will not authenticate. Logged loudly.
+    console.error("[claude-hooks] Failed to persist hook token", err);
+  }
+  return token;
+}
+
+/**
+ * The hook auth token, shared between Topics App (which validates incoming
+ * hooks) and the hook wrapper scripts (which read it from disk to set the
+ * Authorization header). Resolved on first server boot; cached in-memory
+ * thereafter.
  */
 let cachedToken: string | null = null;
 
 export function getOrCreateHookToken(): string {
   if (cachedToken) return cachedToken;
-
-  try {
-    if (existsSync(TOKEN_PATH)) {
-      const t = readFileSync(TOKEN_PATH, "utf-8").trim();
-      if (/^[a-f0-9]{32,128}$/i.test(t)) {
-        cachedToken = t;
-        // Mirror to the shared path for the hook scripts. Done idempotently
-        // every boot so a missing file is restored without surprises.
-        ensureSharedTokenFile(t);
-        return t;
-      }
-    }
-  } catch {}
-
-  // Generate.
-  const fresh = randomBytes(32).toString("hex");
-  try {
-    mkdirSync(TOKEN_DIR, { recursive: true });
-    writeFileSync(TOKEN_PATH, fresh, { mode: 0o600 });
-    chmodSync(TOKEN_PATH, 0o600);
-    ensureSharedTokenFile(fresh);
-  } catch (err) {
-    // Couldn't persist — fall back to in-memory only. Hooks installed in a
-    // previous boot won't authenticate. Logged loudly.
-    console.error("[claude-hooks] Failed to persist hook token", err);
-  }
-  cachedToken = fresh;
-  return fresh;
-}
-
-function ensureSharedTokenFile(token: string): void {
-  try {
-    if (existsSync(SHARED_TOKEN_PATH)) {
-      const cur = readFileSync(SHARED_TOKEN_PATH, "utf-8").trim();
-      if (cur === token) return;
-    }
-    writeFileSync(SHARED_TOKEN_PATH, token, { mode: 0o600 });
-    chmodSync(SHARED_TOKEN_PATH, 0o600);
-  } catch (err) {
-    console.error("[claude-hooks] Failed to mirror token to shared path", err);
-  }
+  cachedToken = resolveHookToken(hookTokenPath(), legacyHookTokenPaths());
+  return cachedToken;
 }
 
 function isLocalhost(req: Request): boolean {
