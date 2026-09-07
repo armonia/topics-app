@@ -133,6 +133,24 @@ const DELTAS = Array.from({ length: 15 }, (_, i) => `d${i + 1} `);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * WAIT FOR THE CONDITION, NOT FOR THE CLOCK. The watchdog fires on two timers
+ * (soft + grace, 60ms each here), and a fixed wait long enough on an idle
+ * machine is not long enough inside a full shard run: the timers land late and
+ * the test then describes the load instead of the code. Seen red exactly there
+ * on 2026-09-07 while the same file passed alone. The budget is generous
+ * because it is never spent when the code is right: the loop returns as soon as
+ * the condition holds.
+ */
+const until = async (ready: () => boolean, budgetMs = 5_000): Promise<void> => {
+  const deadline = Date.now() + budgetMs;
+  while (!ready() && Date.now() < deadline) await sleep(25);
+};
+
+/** The finalization the watchdog broadcasts: one cheap in-memory predicate for
+ *  both tests, so the wait never queries the database in a loop. */
+const finalized = (sent: WireMessage[]) => sent.some((m) => m.type === "stream:tool_result");
+
 describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
   test("il tool aperto viene annunciato, non solo riparato in silenzio", async () => {
     const h = await harness("topic:watchdog-announce");
@@ -142,9 +160,10 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
     for (const d of DELTAS) { total += d; handler.onTextDelta(d, total); }
     handler.onToolStart("toolu_open", "Bash", { command: "sleep 999" } as never);
 
-    // Soft (60 ms) + grace (60 ms), with margin: the child says nothing more
-    // and nobody declares the process alive, so the watchdog finalizes.
-    await sleep(400);
+    // Soft (60 ms) + grace (60 ms): the child says nothing more and nobody
+    // declares the process alive, so the watchdog finalizes. Waited for, not
+    // slept through (see `until`).
+    await until(() => finalized(h.sent));
 
     const results = h.sent.filter((m) => m.type === "stream:tool_result");
     expect(results.length).toBeGreaterThanOrEqual(1);
@@ -162,7 +181,7 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
     for (const d of DELTAS) { total += d; handler.onTextDelta(d, total); }
     handler.onToolStart("toolu_open", "Bash", { command: "sleep 999" } as never);
 
-    await sleep(400);
+    await until(() => finalized(h.sent));
 
     const { blocksText } = h.row();
     for (const d of DELTAS) expect(blocksText).toContain(d);

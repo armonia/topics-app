@@ -2,65 +2,110 @@
  * WHERE THE WINDOW COMMANDS LAND, in numbers, so the row can make room for them.
  *
  * On Windows the three commands (close, minimise, maximise) are drawn INSIDE the
- * Topics button, absolutely positioned, and they light up with the Topics menu
- * (`WindowControls.tsx`, which is where the why lives). Absolute means they
- * reserve nothing: the room they need is whatever the word "Topics" happens to
- * measure underneath, and the word is set in the SYSTEM font. On Windows 11 that
- * is Segoe UI, which is narrower than the Mac's: the group ended flush against
- * the chevron, with two or three pixels between them - reported from a Windows
- * build (card 3198947b), "the window buttons sit far too tight to the Topics
- * button".
+ * Topics title wrapper, absolutely positioned (`WindowControls.tsx`, which is
+ * where the why lives). On the Mac the three traffic lights are NATIVE: AppKit
+ * draws them over the webview, and the Tauri shell pins their frames. Absolute
+ * and native both mean the same thing for layout: they reserve nothing, so the
+ * room they need has to be DECLARED here. A system font is not a layout
+ * contract: on Windows 11 (Segoe UI) the word measured narrower and the group
+ * ended flush against the chevron, two or three pixels apart (card 3198947b).
  *
- * A font is not a layout contract, so the room is DECLARED here instead of being
- * inherited from a glyph width. The label carries a minimum width, always, on
- * both states of the menu: reserving it only while the commands are showing
- * would move the chevron the moment the menu opens, i.e. under the pointer that
- * just clicked it.
+ * The title is not a trigger any more on the desktop, so both sets of commands
+ * are permanently visible and the word sits to their RIGHT. What is declared is
+ * therefore an INSET on the title wrapper, one per system, because the two
+ * clusters are not the same width and the Windows cells are hit targets that
+ * must not shrink to match the Mac's dots.
  *
- * THE TITLE MOVED OUT FROM UNDER THEM. While «Topics» was a menu, the commands
- * came out ON TOP of the word (and the Mac's traffic lights did the same), so
- * what had to be declared was the word's MINIMUM WIDTH, for the group not to
- * touch the chevron. The title is not a trigger any anymore on the desktop - the
- * whole submenu lives under the user card at the foot of the column - so both
- * sets of commands are permanently visible and the word sits to their RIGHT.
- * What has to be declared is therefore an INSET, and it is the same arithmetic
- * read the other way round.
+ * ONE SOURCE OF NUMBERS. Every figure below is derived from the few that
+ * describe the clusters; nothing is repeated as a literal. The Rust side has
+ * the same two numbers for the Mac (`LEFT_INSET` and `PITCH` in
+ * `desktop-tauri/src-tauri/src/lib.rs`, `apply_traffic_lights`): if one moves,
+ * the other must move with it, and the test in `WindowControls.test.tsx` pins
+ * the arithmetic so the class and the number cannot drift apart.
  *
  * The arithmetic, in coordinates local to the title wrapper (which is the
- * positioning context of the group, and starts at ROW_INSET from the window
+ * positioning context of the group and starts at ROW_INSET from the window
  * edge):
  *
- *     group:  LEFT_PX .. LEFT_PX + CELL_PX * CELLS   =  6 .. 60
- *     title:  group end + GAP_PX                     =  72
+ *     mac:      lights at window x=12, 52 wide, then one ROW_INSET of air
+ *               12 + 52 - ROW_INSET + ROW_INSET   =  64
+ *     windows:  cells at `left-[6px]`, 3 x 18, then one ROW_INSET of air
+ *               6 + 54 + ROW_INSET                =  66
  *
- * The Mac needs the same number: its three lights are 12px wide with 8px
- * between them, anchored at x=12 in the window, so they end at 64 there, i.e.
- * 58 in these coordinates - inside the 60 the Windows cells occupy. One inset
- * covers both, which is the point: the word starts in the same place on the two
- * systems.
+ * The air between the commands and the word is ROW_INSET on purpose: it is the
+ * same step the search and add pair keeps at the other end of the row, so the
+ * chrome row has one rhythm from edge to edge.
  */
+import { ROW_INSET } from '../selectionStyles';
 
-/** One command cell, `h-[18px] w-[18px]` in `WindowControls.tsx`. */
-const CELL_PX = 18;
+/** One macOS traffic light, a circle 12px across. */
+export const TRAFFIC_LIGHT_DOT_PX = 12;
+/** The air between two lights on macOS. */
+export const TRAFFIC_LIGHT_GAP_PX = 8;
 /** Close, minimise, maximise. */
-const CELLS = 3;
-/** The group's `left-[6px]`, which puts the first cell at x=12 in the window:
- *  the Mac's `trafficLightPosition.x`. */
-const LEFT_PX = 6;
-/** The breathing room asked for between the commands and the word next to
- *  them. Twice ROW_INSET, the same distance the row keeps from the window
- *  edge. */
-const GAP_PX = 12;
+const CONTROLS = 3;
+/** The whole cluster of three lights: 3 x 12 + 2 x 8 = 52. */
+export const TRAFFIC_LIGHTS_WIDTH_PX =
+  TRAFFIC_LIGHT_DOT_PX * CONTROLS + TRAFFIC_LIGHT_GAP_PX * (CONTROLS - 1);
+/**
+ * Where the first light starts, in WINDOW coordinates. This mirrors the Rust
+ * constant `LEFT_INSET` in `desktop-tauri/src-tauri/src/lib.rs`
+ * (`apply_traffic_lights`): the shell pins the close button there, and the
+ * client has no way to read it back, so the number is repeated on purpose and
+ * this comment is the only link between the two.
+ */
+export const WINDOW_CONTROLS_INSET_PX = 12;
+/** The air between the commands and the word next to them: the row's own step. */
+const GAP_PX = ROW_INSET;
+
+/** One Windows command cell, `h-[18px] w-[18px]` in `WindowControls.tsx`. */
+const CELL_PX = 18;
+/** The Windows group's `left-[6px]`, which puts the first cell at
+ *  WINDOW_CONTROLS_INSET_PX in the window: the Mac's anchor. */
+const LEFT_PX = WINDOW_CONTROLS_INSET_PX - ROW_INSET;
 
 /**
- * Where the word «Topics» starts when the window commands are on screen:
- * 6 + 54 + 12 = 72.
+ * Where the word «Topics» starts on the Mac, in wrapper coordinates:
+ * the cluster ends at 12 + 52 = 64 in the window, i.e. 58 here, plus GAP_PX.
+ * 12 + 52 - 6 + 6 = 64.
  */
-export const TITLE_INSET_PX = LEFT_PX + CELL_PX * CELLS + GAP_PX;
+export const TITLE_INSET_MAC_PX =
+  WINDOW_CONTROLS_INSET_PX + TRAFFIC_LIGHTS_WIDTH_PX - ROW_INSET + GAP_PX;
 
 /**
- * The same number as a class, written out in full because Tailwind scans the
- * SOURCE: a class assembled at runtime from `TITLE_INSET_PX` would never be
- * generated. The test in `WindowControls.test.tsx` keeps the two in step.
+ * Where the word «Topics» starts on Windows, in wrapper coordinates:
+ * 6 + 18 x 3 + 6 = 66. The cells stay 18px: they are hit targets.
  */
-export const TITLE_INSET_WITH_CONTROLS = 'pl-[72px]';
+export const TITLE_INSET_WINDOWS_PX = LEFT_PX + CELL_PX * CONTROLS + GAP_PX;
+
+/**
+ * The same numbers as classes, written out in full because Tailwind scans the
+ * SOURCE: a class assembled at runtime from the constants would never be
+ * generated. The test in `WindowControls.test.tsx` keeps each pair in step.
+ */
+export const TITLE_INSET_WITH_CONTROLS_MAC = 'pl-[64px]';
+export const TITLE_INSET_WITH_CONTROLS_WINDOWS = 'pl-[66px]';
+
+/**
+ * THE ROOM THE CONTENT KEEPS WHEN THE SIDEBAR IS AWAY, on the Mac only.
+ *
+ * With the sidebar collapsed the content's top bar becomes the window's top
+ * edge, and the native lights stay where they are: over its first 64 pixels.
+ * The bar therefore reserves the lights plus one ROW_INSET of air, in WINDOW
+ * coordinates this time: 12 + 52 + 6 = 70. The same air the title keeps on the
+ * other side of the same lights, so the word and the tab strip start the same
+ * distance from the cluster whichever of the two is under it.
+ */
+export const CONTENT_CHROME_INSET_PX =
+  WINDOW_CONTROLS_INSET_PX + TRAFFIC_LIGHTS_WIDTH_PX + ROW_INSET;
+
+/**
+ * The custom property that carries CONTENT_CHROME_INSET_PX from the root of the
+ * content (`#main-content`, App.tsx, which knows whether the sidebar is
+ * collapsed) to the one top bar that consumes it (the chrome row that owns the
+ * sidebar toggle, StandaloneChatGroup.tsx) and to the floating toggle shown
+ * when no pane is open. The transition that eases it lives in `index.css`
+ * (`.content-chrome-inset`), next to `.sidebar-transition`, because the two
+ * must run on the same clock.
+ */
+export const CONTENT_CHROME_INSET_PROPERTY = '--content-chrome-inset';
