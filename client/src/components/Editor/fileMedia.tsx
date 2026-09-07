@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Download, ZoomIn, ZoomOut } from 'lucide-react';
+import { getPreviewUrl } from '../../lib/api';
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
 const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'ogv']);
@@ -30,7 +31,7 @@ export function isHtmlFile(filename: string): boolean {
 
 export function MediaViewer({ filePath, mediaType, filename }: { filePath: string; mediaType: MediaType; filename: string }) {
   // Use /preview/ endpoint which serves any absolute path with correct MIME type
-  const mediaUrl = `/preview${filePath}`;
+  const mediaUrl = getPreviewUrl(filePath);
   const [zoom, setZoom] = useState(1);
   const [imageError, setImageError] = useState(false);
 
@@ -121,7 +122,7 @@ export function HtmlPreview({ filePath, filename }: { filePath: string; filename
   return (
     <div className="flex-1 h-full bg-white">
       <iframe
-        src={`/preview${filePath}`}
+        src={getPreviewUrl(filePath)}
         title={filename}
         sandbox="allow-scripts allow-forms allow-popups"
         className="w-full h-full border-0"

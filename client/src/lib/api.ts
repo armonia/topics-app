@@ -453,6 +453,22 @@ export function getMediaUrl(path: string): string {
   return `${serverHttpBase()}${API_BASE}/media?path=${encodeURIComponent(path)}`;
 }
 
+/**
+ * URL of the `/preview/<absolute path>` route, which serves a file from a
+ * project directory with its real MIME type (server.ts).
+ *
+ * Absolute for the same reason as `getMediaUrl`, and it cost more here: an
+ * `<iframe src>`/`<img src>` does NOT go through the fetch shim, so under Tauri
+ * the relative form resolved against `tauri://localhost` — where the asset
+ * protocol answers an unknown path with the SPA `index.html`. Opening a PDF
+ * from the file tree therefore drew a whole second copy of Topics inside the
+ * editor tab instead of the document (an image just broke). `serverHttpBase()`
+ * is '' on the web, so that side is unchanged.
+ */
+export function getPreviewUrl(path: string): string {
+  return `${serverHttpBase()}/preview${path}`;
+}
+
 // Files API
 export const filesApi = {
   /**
