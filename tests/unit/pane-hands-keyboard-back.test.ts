@@ -1,7 +1,8 @@
 /**
- * @covers NATIVEOPS-05
+ * @covers NATIVEOPS-05, NATIVEOPS-06
  *
- * OPENING A BROWSER PANE MUST NOT TAKE THE KEYBOARD AWAY FROM THE CLIENT.
+ * OPENING A BROWSER PANE MUST NOT TAKE THE KEYBOARD AWAY FROM THE CLIENT, AND
+ * CLOSING ONE MUST GIVE IT BACK.
  *
  * WHAT IT COST. Topics 2.2.287 shipped the pane that never showed a page on
  * Windows, and the pane was never the problem. Measured on the real machine on
@@ -68,6 +69,27 @@ describe("a native pane hands the keyboard back", () => {
     // The dead arm that shipped in 2.2.287: everything that was not macOS fell
     // into one discard, so the command the tab strip calls did nothing at all.
     expect(release).not.toMatch(/#\[cfg\(not\(target_os = "macos"\)\)\]\s*\n\s*let _ = \(app, window_label\);/);
+  });
+
+  test("closing a pane returns the keyboard to the window that hosted it", () => {
+    // THE OTHER END OF THE PANE'S LIFE. A WebView2 that dies holding the focus
+    // leaves it on no window at all (`hwndFocus` reads 0x0), and from there the
+    // client's keydown listeners never fire again: Ctrl+K read 0% of the window
+    // in the arm that had just closed a restored pane, and 55.3% in the arm that
+    // had nothing to close - same build, minutes apart (card cd040754).
+    const close = body(lib, "fn browser_close_inner(");
+    expect(close).toContain('#[cfg(not(target_os = "macos"))]');
+    expect(close).toMatch(/host_of_pane[\s\S]{0,200}set_focus\(\)/);
+    // The host window is read BEFORE the eviction: afterwards the pane's label
+    // is gone from the manager and there is nobody left to ask.
+    expect(close.indexOf("host_of_pane")).toBeLessThan(close.indexOf("browser_evict_pane("));
+  });
+
+  test("the window teardown path does not try to hand the keyboard back", () => {
+    // A window on its way out has no interface left to give the focus to, and
+    // asking a dying webview for it is a message to a dispatcher that is being
+    // torn down.
+    expect(body(lib, "fn evict_panes_of_window(")).not.toContain("set_focus()");
   });
 
   test("neither engine backend grew a hand-written focus call", () => {

@@ -86,8 +86,13 @@ public class DesktopCheck {
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
+  [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, System.Text.StringBuilder name, int max);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X,Y; }
+  [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
+    public int cbSize; public int flags; public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret; public RECT rcCaret;
+  }
 }
 "@
 
@@ -254,6 +259,32 @@ function Focus($h) {
 function Send($keys) {
   [System.Windows.Forms.SendKeys]::SendWait($keys)
   Start-Sleep -Milliseconds 900
+}
+
+# WHICH WINDOW WOULD GET THE NEXT KEY. The foreground window is not the answer:
+# inside it the keyboard belongs to whatever child holds the focus, and a
+# browser pane is a native WebView2 CHILD. Two states this tells apart, and a
+# screenshot diff tells apart neither:
+#   * the pane holds it, so a client shortcut is delivered to a page instead;
+#   * NOBODY holds it (`hwndFocus` = 0x0), which is where the focus is left when
+#     a pane dies while holding it. Every shortcut then reads 0% for a reason
+#     that has nothing to do with the shortcut (card cd040754).
+# Returned as a short string so a verdict can carry it: a FAIL that says "and
+# the keyboard was on no window" is a diagnosis, a bare 0% is a mystery.
+function FocusedTarget {
+  $gti = New-Object DesktopCheck+GUITHREADINFO
+  $gti.cbSize = [Runtime.InteropServices.Marshal]::SizeOf($gti)
+  $fg = [DesktopCheck]::GetForegroundWindow()
+  $fgPid = 0
+  $thread = [DesktopCheck]::GetWindowThreadProcessId($fg, [ref]$fgPid)
+  if (-not [DesktopCheck]::GetGUIThreadInfo($thread, [ref]$gti)) { return "unreadable" }
+  if ($gti.hwndFocus -eq [IntPtr]::Zero) { return "NO window (hwndFocus 0x0)" }
+  $sb = New-Object Text.StringBuilder 256
+  [DesktopCheck]::GetClassName($gti.hwndFocus, $sb, 256) | Out-Null
+  $owner = 0
+  [DesktopCheck]::GetWindowThreadProcessId($gti.hwndFocus, [ref]$owner) | Out-Null
+  $p = Get-Process -Id $owner -ErrorAction SilentlyContinue
+  return ("{0} of {1}" -f $sb.ToString(), $(if ($p) { $p.ProcessName } else { "pid $owner" }))
 }
 
 # Escape, then look, then Escape once more. TWO is not generosity: the first key
@@ -496,6 +527,10 @@ if ((Wants 'c') -or (Wants 'e')) {
     Release $paneAfter
   }
   Say "-- Ctrl+W x3 to clear restored panes: $($closes -join ', ')"
+  # Closing a pane used to leave the keyboard on nothing, and every shortcut
+  # after this line paid for it. The reading is printed whatever it says, so a
+  # green run is also a record that the handover happened.
+  Say "-- keyboard after the closes: $(FocusedTarget)"
 }
 
 # ------------------------------------------------------------------- (c) ----
@@ -504,6 +539,7 @@ if ((Wants 'c') -or (Wants 'e')) {
 if (Wants 'c') {
 
   if (-not (Focus $h)) { Verdict $false "c" "the window refused to come to the foreground: no keyboard reading here would be about it" }
+  $keyboardOn = FocusedTarget
   $before = Grab $h $null
   $searchKey = if ($WrongKey) { "^{F13}" } else { "^k" }
   if ($WrongKey) { Say "arm: sending an unbound combination instead of Ctrl+K" }
@@ -512,7 +548,7 @@ if (Wants 'c') {
   $dOpen = DiffRatio $before $opened
   Release $opened
   $back = Dismiss $h $before $null
-  Verdict ((($null -ne $dOpen) -and $dOpen -gt 0.03) -and (($null -ne $back.Diff) -and $back.Diff -lt 0.015)) "c1" "Ctrl+K: opened $(Pct $dOpen) (want >3%), closed back to $(Pct $back.Diff) after $($back.Escapes) Escape (want <1.5%)"
+  Verdict ((($null -ne $dOpen) -and $dOpen -gt 0.03) -and (($null -ne $back.Diff) -and $back.Diff -lt 0.015)) "c1" "Ctrl+K: opened $(Pct $dOpen) (want >3%), closed back to $(Pct $back.Diff) after $($back.Escapes) Escape (want <1.5%), keyboard on $keyboardOn"
 
   Send "^n"
   $menu = Grab $h (Join-Path $Out "06-add-menu-$Label.png")
@@ -587,7 +623,10 @@ if (Wants 'e') {
   $afterClose = Grab $h $null
   $dClose = DiffRatio $before $afterClose
   Release $afterClose
-  Verdict (($null -ne $dClose) -and $dClose -lt 0.05) "c3" "Ctrl+W: pane closed, window back to $(Pct $dClose) of the layout it had (want <5%)"
+  # The pane held the keyboard while it lived, so where the keyboard is now is
+  # a reading about the CLOSE, taken on the one pane this run opened itself.
+  $keyboardAfterClose = FocusedTarget
+  Verdict (($null -ne $dClose) -and $dClose -lt 0.05) "c3" "Ctrl+W: pane closed, window back to $(Pct $dClose) of the layout it had (want <5%), keyboard on $keyboardAfterClose"
 }
 
 # ------------------------------------------------------------------- (d) ----
