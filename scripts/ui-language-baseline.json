@@ -26,9 +26,9 @@
     "language selector silently stops governing it. The fix differs (translate vs",
     "add a key), so the debt is counted apart."
   ],
-  "updated": "2026-09-05",
+  "updated": "2026-09-07",
   "files": {
-    "client/src/App.tsx": 3,
+    "client/src/App.tsx": 2,
     "client/src/components/Auth/PairingApproval.tsx": 1,
     "client/src/components/Board/FilterTokenField.tsx": 1,
     "client/src/components/Board/FloatingTaskComposer.tsx": 1,
@@ -37,7 +37,6 @@
     "client/src/components/Board/ProjectPicker.tsx": 3,
     "client/src/components/Board/TaskChoiceRow.tsx": 4,
     "client/src/components/Board/TaskDetail.tsx": 2,
-    "client/src/components/Board/UnifiedDiff.tsx": 4,
     "client/src/components/Board/atoms.tsx": 7,
     "client/src/components/Board/constants.ts": 13,
     "client/src/components/Board/reviewNotes.ts": 8,
@@ -79,7 +78,7 @@
     "client/src/components/Sidebar/MobileChromeBar.tsx": 3,
     "client/src/components/Sidebar/SystemStatusPanel.tsx": 6,
     "client/src/components/Sidebar/TopicItem.tsx": 5,
-    "client/src/components/Sidebar/TopicTree.tsx": 20,
+    "client/src/components/Sidebar/TopicTree.tsx": 18,
     "client/src/components/Sidebar/usageTooltip.ts": 17,
     "client/src/contexts/PendingActionContext.tsx": 2,
     "client/src/hooks/useChat.ts": 8,
@@ -141,7 +140,6 @@
     "shared/task-similarity.ts": 31
   },
   "untranslated": {
-    "client/src/App.tsx": 9,
     "client/src/components/Board/UnifiedDiff.tsx": 2,
     "client/src/components/Board/atoms.tsx": 1,
     "client/src/components/Browser/BrowserToolbar.tsx": 1,
@@ -150,7 +148,6 @@
     "client/src/components/Chat/ChatEmptyState.tsx": 8,
     "client/src/components/Chat/ChatInput.tsx": 31,
     "client/src/components/Chat/ChatPane.tsx": 2,
-    "client/src/components/Chat/CheckpointTimeline.tsx": 1,
     "client/src/components/Chat/CompactionDivider.tsx": 1,
     "client/src/components/Chat/FileMentionMenu.tsx": 2,
     "client/src/components/Chat/MessageBubble.tsx": 15,
@@ -169,7 +166,7 @@
     "client/src/components/Layout/PaneTabBar.tsx": 3,
     "client/src/components/Layout/SpaceElsewherePanel.tsx": 2,
     "client/src/components/Layout/StandaloneChatGroup.tsx": 2,
-    "client/src/components/Layout/StreamingIndicator.tsx": 7,
+    "client/src/components/Layout/StreamingIndicator.tsx": 4,
     "client/src/components/MessageContent.tsx": 5,
     "client/src/components/Modals/ContextMenu.tsx": 3,
     "client/src/components/Modals/TopicSettingsModal.tsx": 28,
