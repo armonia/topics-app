@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.288",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the 2.2.287 desktop run on Windows, the browser pane still does not load",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.287",
     "date": "2026-09-07",
     "sections": {
