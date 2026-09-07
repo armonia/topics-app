@@ -27,12 +27,19 @@ function git(cwd: string, ...args: string[]): string {
   return new TextDecoder().decode(r.stdout).trim();
 }
 
-/** How many processes a call spawns, whatever they are. */
+/**
+ * How many GIT processes a call spawns. Only git: `Bun.spawn` is a process-wide
+ * global, and in a shared `bun test` process other modules spawn on their own
+ * clock (measured on CI, 2026-09-07: the ai-bridge client reconnecting mid-test
+ * launched its daemon and the count read 6 where computeGitStatus made 5).
+ */
 async function countSpawns<T>(fn: () => Promise<T>): Promise<{ result: T; spawns: number }> {
   const original = Bun.spawn;
   let spawns = 0;
   (Bun as unknown as { spawn: unknown }).spawn = ((...args: unknown[]) => {
-    spawns += 1;
+    const argv = Array.isArray(args[0]) ? (args[0] as unknown[]) : (args[0] as { cmd?: unknown[] } | undefined)?.cmd;
+    const bin = String((argv ?? [])[0] ?? "");
+    if (bin === "git" || bin.endsWith("/git")) spawns += 1;
     return (original as unknown as (...a: unknown[]) => unknown)(...args);
   }) as typeof Bun.spawn;
   try {

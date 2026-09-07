@@ -7,7 +7,7 @@
  *
  * @covers TAB-SYNC-01
  */
-import { describe, test, expect, beforeAll, beforeEach, afterEach, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 
 // Minimal browser-ish globals so the module imports without blowing up under
 // bun:test. syncCrossTab is imported by syncServer (for getTabId), and it
@@ -45,15 +45,24 @@ installFakeWindow();
 // next file of the same `bun test` process.
 afterAll(() => uninstallFakeWindow());
 
+// Every module comes in through `const { x } = await import(...)`: it is the one
+// dynamic-import shape knip can see through (`check:deadcode-blindspots`). A
+// destructuring ASSIGNMENT into a `let` declared elsewhere makes the module
+// opaque, and every export in it reads as used.
 const {
   __getInflightKeys,
   __resetInflightForTests,
   __pushSnapshotForTests,
   __teardownFlushUrlForTests,
   PANE_STORE_REMOTE_KEY,
+  initServerSync,
+  __stopServerSyncForTests: stopServerSync,
 } = await import("./syncServer");
 const { usePaneStore } = await import("../store");
 const { __resetSelfEchoForTests } = await import("./selfEcho");
+const { dispatchLifecycle } = await import("../../../lib/wsFrameBus");
+const { markServerHydrated, __resetServerHydratedForTests: resetServerHydrated } =
+  await import("./serverHydrated");
 
 // Record each fetch call + the AbortSignal we received so tests can assert
 // the old PUT is cancelled when a new one starts.
@@ -299,13 +308,13 @@ describe("syncServer — CAS base on teardown flush", () => {
  * @covers TAB-SYNC-01
  */
 describe("syncServer — re-arm the push after a WS drop", () => {
-  let initServerSync: () => void;
-  let stopServerSync: () => void;
-  let dispatchLifecycle: (event: "open" | "close") => void;
-  let markServerHydrated: () => void;
-  let resetServerHydrated: () => void;
   let putCount: number;
   let paneCounter = 0;
+  /** Only OUR PUTs. In a shared `bun test` process other middlewares
+   *  (tombstoneSync, projectLayoutSync) also listen to the lifecycle bus and
+   *  re-push on 'open' through the same stubbed fetch: on CI the unfiltered
+   *  count read 6 where this file expected 2. */
+  const ourCalls = (): FetchCall[] => fetchCalls.filter((c) => String(c.url).includes(PANE_STORE_REMOTE_KEY));
 
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -332,13 +341,6 @@ describe("syncServer — re-arm the push after a WS drop", () => {
       );
     };
   }
-
-  beforeAll(async () => {
-    ({ initServerSync, __stopServerSyncForTests: stopServerSync } = await import("./syncServer"));
-    ({ dispatchLifecycle } = await import("../../../lib/wsFrameBus"));
-    ({ markServerHydrated, __resetServerHydratedForTests: resetServerHydrated } =
-      await import("./serverHydrated"));
-  });
 
   beforeEach(async () => {
     __resetInflightForTests();
@@ -393,13 +395,13 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     installHangingFetch();
     editLocally();
     await sleep(600); // debounce elapsed: the PUT is in flight and hanging
-    expect(fetchCalls.length).toBe(1);
+    expect(ourCalls().length).toBe(1);
     dispatchLifecycle("close");
-    expect(fetchCalls[0].aborted).toBe(true);
+    expect(ourCalls()[0].aborted).toBe(true);
     await sleep(100);
     dispatchLifecycle("open");
     await sleep(700);
-    expect(fetchCalls.length).toBe(2);
-    expect(fetchCalls[1].aborted).toBe(false);
+    expect(ourCalls().length).toBe(2);
+    expect(ourCalls()[1].aborted).toBe(false);
   });
 });
