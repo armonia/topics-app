@@ -30,6 +30,7 @@ import { markTargetSeen } from '../lib/notify/history';
 import { TERMINAL_TARGET_KIND } from '../../../shared/notification-log';
 import type { Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
+import { liveTopicsOfProject } from './projectAttentionIndex';
 
 /** Claude phases that mean "Claude needs you" — worth a notification badge.
  *  Loading-ish phases (running / tool-running) surface as spinners instead.
@@ -987,9 +988,7 @@ export function projectAttentionTier(
   seenSubjects?: ReadonlySet<string>,
 ): AttentionTier | null {
   let hasDone = false;
-  for (const t of Object.values(topics)) {
-    if (t.projectPath !== projectPath) continue;
-    if (t.archived) continue;
+  for (const t of liveTopicsOfProject(topics, projectPath)) {
     if (t.standalone) continue; // resa fuori dal progetto — vedi rollupProjectAttention
     if (seenSubjects?.has(t.id)) continue;
     if (inputTopics.has(t.id)) return 'input';
@@ -1503,9 +1502,7 @@ export function projectAttentionSubjects(
   terminalFinishedIds: Set<string>,
 ): AttentionSubject[] {
   const out: AttentionSubject[] = [];
-  for (const t of Object.values(topics)) {
-    if (t.projectPath !== projectPath) continue;
-    if (t.archived) continue;
+  for (const t of liveTopicsOfProject(topics, projectPath)) {
     const count = topicAttentionCount(t.id, unread, claudeAttentionTopics);
     if (count > 0) out.push({ id: t.id, kind: 'chat', name: t.name || 'Chat', count });
   }

@@ -18,10 +18,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 export BUN_PORT="${BUN_PORT:-13334}"
+# The scratch root, CANONICAL — `/private/tmp` on macOS, `/tmp` on Linux. Same
+# rule as `dataDirForPort` in tests/e2e/helpers/test-server.ts, and it has to
+# hold here too: `${OPENCLAW_DIR}/workspace` hangs off this directory, and the
+# server spells a project bound by absolute path with its realpath. A raw root
+# makes the same folder answer under two names (see that docstring). Only the
+# FALLBACK is computed here: an explicit DATA_DIR from the caller still wins.
+TMP_ROOT="$(cd /tmp && pwd -P)"
 if [ "$BUN_PORT" = "13334" ]; then
-  DEFAULT_DATA_DIR=/tmp/topics-test-data
+  DEFAULT_DATA_DIR="${TMP_ROOT}/topics-test-data"
 else
-  DEFAULT_DATA_DIR="/tmp/topics-test-data-${BUN_PORT}"
+  DEFAULT_DATA_DIR="${TMP_ROOT}/topics-test-data-${BUN_PORT}"
 fi
 export DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
 # @covers E2E-ISO-01

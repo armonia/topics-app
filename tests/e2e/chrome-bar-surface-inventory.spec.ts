@@ -42,7 +42,7 @@
  */
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { resetPaneStore } from "./helpers/api-fixtures";
+import { createTerminalSession, deleteTerminalSession, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { AA_TESTO } from "./helpers/contrast";
 import {
@@ -71,6 +71,9 @@ const cell = (page: Page) => page.locator('[data-pane-shell][data-pane-visible="
  * (terminal 81, browser 49, dashboard 136) and far above an empty shell.
  */
 const MOUNTED_NODES = 20;
+
+/** The poll's answer when there is no shell to count at all (see `openProbePane`). */
+const NO_SHELL = -1;
 
 /**
  * A BLANK BROWSER PANE ASKS ITS TAB FOR THE ADDRESS EDITOR, and the dropdown it
@@ -125,6 +128,54 @@ async function labelsAtRest(page: Page, probe: string): Promise<void> {
 }
 
 /**
+ * THE TERMINAL PROBE NEEDS A LIVE SESSION, and seeding one that never existed
+ * is what made this file flaky on CI.
+ *
+ * A pane `terminal:<id>` restored from the layout is reconciled against the
+ * server roster, and an id that an authoritative roster does not list - and
+ * that the dormant list does not park either - is a CORPSE: the app prunes it
+ * (`useTerminalLifecycle.pruneStaleTerminalPanes` + `dormantTerminalGuard`),
+ * which is the behaviour that stops a dead tab from surviving every restart.
+ * `terminal:inventory-probe` was exactly such an id, so the probe was seeding
+ * a pane the app was right to remove.
+ *
+ * It was a RACE, not a constant failure, because the prune only runs over the
+ * panes that are already there: the cleanup effect re-runs on the roster and on
+ * the dormant answer, so if those two land BEFORE the pane store has hydrated
+ * the pane is never examined and survives; if they land after, it goes. Green
+ * and red were two outcomes of the same order-of-arrival, and a loaded CI shard
+ * loses that race often enough to be seen twice in one night (run 34074617581,
+ * shard 4: the terminal rows red at 40 s with "Welcome to Topics" in the
+ * snapshot, while the server log shows the pane HAD mounted - it answered
+ * `POST /api/terminal/sessions/inventory-probe/resize` with a 404 first).
+ *
+ * So the probe opens a REAL session and seeds ITS id. The roster then lists it,
+ * nothing prunes it, and what gets measured is a terminal with a shell in it
+ * rather than an empty box waiting to be buried. The name from the table
+ * travels into the session, so the tab still reads `inventory-probe`.
+ *
+ * A plain `shell` is also the one type the idle-park pass refuses to park
+ * (`RESUMABLE_TYPES`, server/lib/terminal-idle-park.ts: only the claude kinds
+ * are parkable), so nothing takes it back out of the roster mid-file either.
+ */
+const liveTerminalSessions: string[] = [];
+
+async function liveProbeId(request: APIRequestContext, declared: string): Promise<string> {
+  if (!declared.startsWith("terminal:")) return declared;
+  const session = await createTerminalSession(request, {
+    cwd: "/tmp",
+    name: declared.slice("terminal:".length),
+  });
+  liveTerminalSessions.push(session.id);
+  return `terminal:${session.id}`;
+}
+
+test.afterEach(async ({ request }) => {
+  const ids = liveTerminalSessions.splice(0, liveTerminalSessions.length);
+  await Promise.all(ids.map((id) => deleteTerminalSession(request, id)));
+});
+
+/**
  * Open the app on the seeded probe pane, and make sure it is really THAT pane
  * that is on screen.
  *
@@ -155,10 +206,12 @@ async function labelsAtRest(page: Page, probe: string): Promise<void> {
  * when the seed lands instead of a beat behind it.
  *
  * AND THE RETRY LOOP HAD NO BUDGET TO RETRY WITH, which is what made the red of
- * run 34035981200 permanent instead of merely slow. `Received: 0` in that
- * failure is not a subtree that measured zero: it is THIS loop's own reseed
- * branch returning 0, i.e. "no shell, I have re-seeded, look again". Reading it
- * as an empty pane sends you hunting a rendering bug that is not there.
+ * run 34035981200 permanent instead of merely slow. The number the failure
+ * prints is the one thing a reader has, so the two states now print
+ * differently: NO_SHELL (-1) is this loop's own reseed branch saying "nothing to
+ * look at, I have re-seeded", and any value from 0 up is a real subtree count.
+ * They used to share the value 0, and reading that as an empty pane sends you
+ * hunting a rendering bug that is not there.
  *
  * The arithmetic is the whole story. `evaluate` on an absent shell used to wait
  * for the ACTION TIMEOUT (15 s, playwright.config.ts) before the branch could
@@ -186,15 +239,15 @@ async function openProbePane(page: Page, request: APIRequestContext, probe: stri
         // poll comes back for the rest.
         const nodes = await shell
           .evaluate((el) => el.querySelectorAll("*").length, undefined, { timeout: 5_000 })
-          .catch(() => -1);
-        if (nodes >= 0) return nodes;
+          .catch(() => NO_SHELL);
+        if (nodes !== NO_SHELL) return nodes;
         // No shell: the seed was lost. The old page goes away FIRST, so that
         // whatever it flushes on the way out lands before the seed and not on
         // top of it.
         await page.goto("about:blank");
         await resetPaneStore(request, [probe]);
         await goToApp(page);
-        return 0;
+        return NO_SHELL;
       },
       {
         timeout: 40_000,
@@ -203,6 +256,20 @@ async function openProbePane(page: Page, request: APIRequestContext, probe: stri
       },
     )
     .toBeGreaterThan(MOUNTED_NODES);
+
+  // A TERMINAL IS MOUNTED WHEN IT HAS ROWS, not when it has nodes. The count
+  // above is the generic guard every surface shares, and it clears well before
+  // xterm has measured its cell and laid out a grid: the row container is what
+  // this surface actually paints, so it is what the sweep waits for. It is a
+  // condition the terminal publishes, not a delay: on a machine slow enough for
+  // the grid to take a second, this waits the second instead of measuring an
+  // empty rectangle.
+  if (probe.startsWith("terminal:")) {
+    await expect(
+      shell.locator(".xterm-rows"),
+      `xterm non ha disegnato le righe dentro «${probe}»: la superficie da misurare e' la griglia, non il rettangolo che la conterrà`,
+    ).toBeVisible({ timeout: 15_000 });
+  }
 
   // The sweep reads labels AT REST, which is what sits over the glass while a
   // pane is used: `labelsAtRest` puts the tab back in that state and refuses to
@@ -231,7 +298,7 @@ test.describe("L'inventario delle superfici sotto la barra di chrome", () => {
         // trade a slow case for a flaky one.
         test.setTimeout(60_000);
 
-        const probe = surface.probe!;
+        const probe = await liveProbeId(request, surface.probe!);
         await openProbePane(page, request, probe);
         await expect(bar(page)).toBeVisible({ timeout: 15_000 });
         await setTheme(page, theme === "dark");
