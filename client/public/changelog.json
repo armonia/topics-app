@@ -1,5 +1,39 @@
 [
   {
+    "version": "2.2.287",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "wv2probe, la misura del deadlock su Windows vero",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.286",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "browser_open non puo' nascere dentro la callback IPC di WebView2",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.285",
     "date": "2026-09-07",
     "sections": {

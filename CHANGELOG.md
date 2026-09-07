@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.287 — 2026-09-07
+
+### Sotto il cofano
+- wv2probe, la misura del deadlock su Windows vero
+
+## 2.2.286 — 2026-09-07
+
+### Correzioni
+- **tauri** · browser_open non puo' nascere dentro la callback IPC di WebView2
+
 ## 2.2.285 — 2026-09-07
 
 ### Sotto il cofano
