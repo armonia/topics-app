@@ -77,7 +77,7 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
 
     // The action bar shows up on bubble hover.
     await bubble.hover();
-    await bubble.getByRole("button", { name: "Save to memory" }).click();
+    await bubble.getByRole("button", { name: "Salva nella memoria" }).click();
 
     await expect(errorToast(page)).toBeVisible({ timeout: 10_000 });
   });
@@ -148,7 +148,7 @@ test.describe("Errori silenziosi nelle azioni della chat", () => {
       const data = new DataTransfer();
       data.items.add(new File([bytes], "buona.png", { type: "image/png" }));
       data.items.add(new File([new Uint8Array([1, 2, 3, 4])], "rotta.png", { type: "image/png" }));
-      const target = document.querySelector<HTMLTextAreaElement>('textarea[aria-label^="Message input"]');
+      const target = document.querySelector<HTMLTextAreaElement>('textarea[data-testid="chat-message-input"]');
       target?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     }, readable);
 

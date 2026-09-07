@@ -161,7 +161,7 @@ async function openTopicAnywhere(
 /** Send a slash command in the open chat.
  *  Dismisses the slash autocomplete menu first (it intercepts Enter). */
 async function sendCommand(page: import("@playwright/test").Page, command: string) {
-  const textarea = page.getByRole("textbox", { name: /Message input/ });
+  const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
   await textarea.waitFor({ state: "visible", timeout: 15_000 });
   await textarea.click();
   await textarea.fill(command);
@@ -202,7 +202,7 @@ test.describe.serial("Project Commands", () => {
     await page.keyboard.press("Escape");
     await openTopicAnywhere(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
     await textarea.click();
     await textarea.fill("/pro");

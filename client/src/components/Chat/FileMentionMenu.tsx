@@ -67,6 +67,7 @@ function fuzzyMatch(query: string, target: string): { match: boolean; score: num
 }
 
 export function FileMentionMenu({ projectPath, visible, filter, onSelect, selectedIndex, onIndexChange, onClose, inputRef }: FileMentionMenuProps) {
+  const tr = useT();
   const [allFiles, setAllFiles] = useState<{ path: string; name: string; depth: number }[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -124,11 +125,11 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
       selectedIndex={selectedIndex}
       onClose={onClose}
       inputRef={inputRef}
-      headerLabel="Files"
+      headerLabel={tr('chat.mention.header')}
       filterBadge={filter ? `@${filter}` : undefined}
       loading={loading}
-      loadingLabel="Loading files..."
-      emptyLabel="No files found"
+      loadingLabel={tr('chat.mention.loading')}
+      emptyLabel={tr('chat.mention.empty')}
       rootAttrs={{ 'data-mention-menu': true }}
       renderItem={(file, idx, { selected }) => {
         const relPath = file.path.replace(projectPath + '/', '');

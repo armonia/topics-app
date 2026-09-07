@@ -52,6 +52,8 @@ export const I18N_CATALOGUES = new Set([
   "client/src/lib/i18n-types.ts",
   "client/src/lib/i18n-spend-it.ts",
   "client/src/lib/i18n-spend-en.ts",
+  "client/src/lib/i18n-chat-it.ts",
+  "client/src/lib/i18n-chat-en.ts",
 ]);
 
 /**

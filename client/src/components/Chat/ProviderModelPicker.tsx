@@ -177,7 +177,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         aria-expanded={open}
         aria-controls="provider-model-listbox"
         className="inline-flex flex-shrink-0 items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
-        title="Provider & model"
+        title={tr('chat.picker.title')}
       >
         {/* Qui c'era un lampo, e non diceva niente: accanto c'è già scritto
             «Opus 5». Stava anche a due bottoni dal lampo del Fast Mode, che di
@@ -252,14 +252,14 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search provider or model"
+              placeholder={tr('chat.picker.search')}
               className="flex-1 min-w-0 bg-transparent text-[12px] text-app-text placeholder:text-app-text-muted focus:outline-none"
             />
             {search ? (
               <button
                 onClick={() => setSearch('')}
                 className="text-app-text-muted hover:text-app-text"
-                title="Clear search"
+                title={tr('chat.picker.clearSearch')}
               >
                 <X size={11} />
               </button>
@@ -267,7 +267,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               <button
                 onClick={() => void refresh()}
                 className="text-app-text-muted hover:text-app-text"
-                title="Refresh provider status"
+                title={tr('chat.picker.refresh')}
               >
                 <RefreshCw size={11} />
               </button>
@@ -287,30 +287,30 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                 retry short of reloading the page. */}
             {error && !snapshot && (
               <div className="px-3 py-6 text-center">
-                <div className="text-[11px] text-red-500 mb-2">Couldn't load providers.</div>
+                <div className="text-[11px] text-red-500 mb-2">{tr('chat.picker.loadFailed')}</div>
                 <button
                   onClick={() => void retry()}
                   className="text-[11px] text-primary hover:underline"
                 >
-                  Retry
+                  {tr('chat.picker.retry')}
                 </button>
               </div>
             )}
             {!error && noProvidersReady && (
               <div className="px-3 py-6 text-center">
-                <div className="text-[11px] text-app-text-muted mb-2">No providers ready.</div>
+                <div className="text-[11px] text-app-text-muted mb-2">{tr('chat.picker.noneReady')}</div>
                 {onOpenSettings && (
                   <button
                     onClick={() => { onOpenSettings(); setOpen(false); }}
                     className="text-[11px] text-primary hover:underline"
                   >
-                    Open Settings
+                    {tr('chat.picker.openSettings')}
                   </button>
                 )}
               </div>
             )}
             {!error && !noProvidersReady && filteredGroups.length === 0 && (
-              <div className="px-3 py-4 text-[11px] text-app-text-muted text-center">No matches.</div>
+              <div className="px-3 py-4 text-[11px] text-app-text-muted text-center">{tr('chat.picker.noMatches')}</div>
             )}
             {(() => {
               // Reset the row-refs array each render so removed rows don't
@@ -397,11 +397,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
           <div className="px-2.5 py-2 border-t border-app-border flex items-center justify-between gap-2">
             <div className="text-[11px] text-app-text-muted truncate">
               {override ? (
-                <button onClick={clearOverride} className="hover:text-app-text underline">Reset to default</button>
+                <button onClick={clearOverride} className="hover:text-app-text underline">{tr('chat.picker.resetDefault')}</button>
               ) : effective ? (
-                `Default: ${labelFor(entries.find((e) => e.name === effective.provider) ?? { name: effective.provider } as ProviderSnapshotEntry)}`
+                tr('chat.picker.defaultIs', { name: labelFor(entries.find((e) => e.name === effective.provider) ?? { name: effective.provider } as ProviderSnapshotEntry) })
               ) : (
-                'No provider configured'
+                tr('chat.picker.noneConfigured')
               )}
             </div>
             {onOpenSettings && (

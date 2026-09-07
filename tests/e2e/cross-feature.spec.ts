@@ -140,7 +140,7 @@ test.describe("Cross-Feature Interactions", () => {
       // The chat pane should open -- wait for message input
       // If a project pane is showing, the textarea might not be in the project's chat section
       // but in a separate chat panel that openPanel creates
-      const textarea = page.getByRole("textbox", { name: /Message input/ });
+      const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
       const textareaVisible = await textarea.waitFor({ state: "visible", timeout: 10_000 })
         .then(() => true)
         .catch(() => false);

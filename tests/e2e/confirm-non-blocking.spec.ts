@@ -78,12 +78,12 @@ test.describe("ConfirmDialog non blocca il thread", () => {
     };
     await expect(timer).toContainText(/s/, { timeout: 3_000 });
 
-    // Si arriva a `/clear` dal menu «Tools & commands»: la voce riempie il
+    // Si arriva a `/clear` dal menu «Strumenti e comandi»: la voce riempie il
     // composer con «/clear » e mette a fuoco la textarea (NON invia, e non apre
     // il menu slash inline). Poi Enter invia. Scritto a mano nel composer,
     // `fill("/clear")` lascerebbe il menu slash chiuso e un Escape per chiuderlo
     // cadrebbe sul gestore globale che INTERROMPE il turno — svuotando la lista.
-    await page.getByRole("button", { name: "Tools & commands" }).click();
+    await page.getByRole("button", { name: "Strumenti e comandi" }).click();
     // Match the COMMAND `/clear`, not its description. The composer's slash
     // entries render through `tr(cmd.descriptionKey)` since they were
     // translated, and Italian is the base catalogue, so that row now reads

@@ -208,7 +208,7 @@ export function SessionConfigPopover({
                   const tier = EFFORT_TIERS[Number(e.target.value)];
                   onEffortChange(tier === defaultTier ? null : tier);
                 }}
-                aria-label="Reasoning effort"
+                aria-label={tr('chat.config.reasoningEffort')}
                 aria-valuetext={EFFORT_TIERS[sliderIndex]}
                 data-testid="session-effort-slider"
                 data-effort-tier={EFFORT_TIERS[sliderIndex]}

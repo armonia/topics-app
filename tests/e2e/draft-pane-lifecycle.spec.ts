@@ -70,7 +70,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
 
     // 1. Il fuoco è nel composer della bozza: si può scrivere subito, senza
     //    prima cliccare dentro.
-    const composer = page.getByRole("textbox", { name: /Message input for New Chat/ });
+    const composer = page.getByRole("textbox", { name: /Campo del messaggio per New Chat/ });
     await expect(composer).toBeVisible({ timeout: 10_000 });
     await expect(composer).toBeFocused({ timeout: 5_000 });
 
@@ -111,7 +111,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     // ── con del testo → resta, e questo non cambierà mai ────────────────
     await newChat(page);
     await expect(draftTabs(page)).toHaveCount(1, { timeout: 10_000 });
-    const composer = page.getByRole("textbox", { name: /Message input for New Chat/ });
+    const composer = page.getByRole("textbox", { name: /Campo del messaggio per New Chat/ });
     await expect(composer).toBeVisible({ timeout: 10_000 });
     await composer.fill("questo non deve sparire");
     await page.waitForTimeout(800);
@@ -171,7 +171,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
       await page.waitForTimeout(2000);
       await expect(draftTabs(page)).toHaveCount(1);
       await expect(
-        page.getByRole("textbox", { name: /Message input for New Chat/ }),
+        page.getByRole("textbox", { name: /Campo del messaggio per New Chat/ }),
       ).toBeFocused({ timeout: 5_000 });
     } finally {
       await deleteTopic(request, other.id);
@@ -184,7 +184,7 @@ test.describe.serial("Bozza · aperta ma non aperta", () => {
     await ensureTopicVisible(page, new RegExp(topicName));
     await page.getByRole("treeitem", { name: new RegExp(topicName) }).first().dblclick();
 
-    const composer = page.getByRole("textbox", { name: new RegExp(`Message input for ${topicName}`) });
+    const composer = page.getByRole("textbox", { name: new RegExp(`Campo del messaggio per ${topicName}`) });
     await expect(composer).toBeVisible({ timeout: 15_000 });
 
     // Vuota: il blocco (invito + composer) è centrato, cioè spostato in su.

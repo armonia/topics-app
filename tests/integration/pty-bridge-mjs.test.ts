@@ -157,8 +157,14 @@ function pidAlive(pid: number): boolean {
  * has nothing to do with the bridge (seen on a shard running eight files at
  * once, with the same commit green when run alone). Waiting for the condition
  * rather than for the clock keeps the contract and drops the race.
+ *
+ * The five seconds this started with were still an idle-machine number: the
+ * same test came back red from a delivery run of `test:unit:shards` and green
+ * on its own on the same commit. The deadline is a ceiling on a wait that ends
+ * as soon as the pid is gone, so a wider one costs nothing when nothing is
+ * wrong, and the test's own 40s timeout is still the real bound.
  */
-async function waitForPidGone(pid: number, timeoutMs = slackMs(5_000)): Promise<boolean> {
+async function waitForPidGone(pid: number, timeoutMs = slackMs(20_000)): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!pidAlive(pid)) return true;

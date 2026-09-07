@@ -96,7 +96,7 @@ test.describe.serial("Turno vuoto allo stop", () => {
     await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
     await expect(assistantBubbles(page)).toHaveCount(SEEDED + 1, { timeout: 10_000 });
 
-    const stop = page.getByRole("button", { name: /Stop streaming/ }).first();
+    const stop = page.getByRole("button", { name: /Ferma la risposta/ }).first();
     await expect(stop).toBeVisible({ timeout: 5_000 });
     await stop.click();
 
@@ -162,7 +162,7 @@ test.describe.serial("Turno vuoto allo stop", () => {
     inject!(JSON.stringify({ type: "stream:content_chunk", sessionKey, topicId, content: "Sto guard" }));
     await expect(assistantBubbles(page).last()).toContainText("Sto guard", { timeout: 10_000 });
 
-    const stop = page.getByRole("button", { name: /Stop streaming/ }).first();
+    const stop = page.getByRole("button", { name: /Ferma la risposta/ }).first();
     await expect(stop).toBeVisible({ timeout: 10_000 });
     await stop.click();
 

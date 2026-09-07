@@ -344,19 +344,19 @@ export const MessageBubble = memo(function MessageBubble({
           {!grouped && (
             <div className={`absolute bottom-full mb-1 ${msg.role === 'user' ? 'right-1' : 'left-1'} flex items-center gap-0.5 z-10 transition-opacity ${actionsVisibility} bg-elevated dark:bg-app-surface rounded-lg shadow-sm border border-app-border-light px-1 py-0.5`}>
               {msg.role === 'user' && onEdit && (
-                <button onClick={() => onEdit(msg)} className={actionBtnClass} title="Edit" aria-label="Edit message">
+                <button onClick={() => onEdit(msg)} className={actionBtnClass} title={tr('chat.message.edit')} aria-label={tr('chat.message.editAria')}>
                   <Pencil size={14} />
                 </button>
               )}
-              <button onClick={() => onReply(msg)} className={actionBtnClass} title="Reply" aria-label="Reply">↩</button>
-              <button onClick={() => onCopy(msg)} className={actionBtnClass} title="Copy" aria-label="Copy message">
+              <button onClick={() => onReply(msg)} className={actionBtnClass} title={tr('chat.message.reply')} aria-label={tr('chat.message.reply')}>↩</button>
+              <button onClick={() => onCopy(msg)} className={actionBtnClass} title={tr('chat.message.copy')} aria-label={tr('chat.message.copyAria')}>
                 {copiedMsgId === msg.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
               </button>
-              <button onClick={() => onTogglePin(msg)} className={`w-7 h-7 flex items-center justify-center rounded ${(topic.pinnedMessages || []).includes(msg.id) ? 'text-yellow-500' : 'text-app-text-muted hover:text-yellow-500'}`} title="Pin" aria-label="Pin message">
+              <button onClick={() => onTogglePin(msg)} className={`w-7 h-7 flex items-center justify-center rounded ${(topic.pinnedMessages || []).includes(msg.id) ? 'text-yellow-500' : 'text-app-text-muted hover:text-yellow-500'}`} title={tr('chat.message.pin')} aria-label={tr('chat.message.pinAria')}>
                 <Pin size={14} />
               </button>
               {msg.role === 'assistant' && onRemember && (
-                <button onClick={() => onRemember(msg)} className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-purple-500 rounded" title="Remember this" aria-label="Save to memory">
+                <button onClick={() => onRemember(msg)} className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-purple-500 rounded" title={tr('chat.message.remember')} aria-label={tr('chat.message.rememberAria')}>
                   <Brain size={14} />
                 </button>
               )}
@@ -364,8 +364,8 @@ export const MessageBubble = memo(function MessageBubble({
                 <button
                   onClick={() => onRegenerate(msg)}
                   className={actionBtnClass}
-                  title="Regenerate"
-                  aria-label="Regenerate response"
+                  title={tr('chat.message.regenerate')}
+                  aria-label={tr('chat.message.regenerateAria')}
                   data-testid="msg-action-regenerate"
                 >
                   <RotateCw size={14} />
@@ -379,12 +379,12 @@ export const MessageBubble = memo(function MessageBubble({
                       ? 'px-1.5 gap-1 text-red-600 dark:text-red-400 bg-red-500/10 text-[11px] font-medium'
                       : 'w-7 text-app-text-muted hover:text-red-500'
                   }`}
-                  title={deleteArmed ? 'Click again to delete' : 'Delete'}
-                  aria-label={deleteArmed ? 'Confirm delete' : 'Delete message'}
+                  title={deleteArmed ? tr('chat.message.deleteArmed') : tr('chat.message.delete')}
+                  aria-label={deleteArmed ? tr('chat.message.deleteConfirmAria') : tr('chat.message.deleteAria')}
                   data-testid="msg-action-delete"
                 >
                   <Trash2 size={14} />
-                  {deleteArmed && 'Delete?'}
+                  {deleteArmed && tr('chat.message.deleteQuestion')}
                 </button>
               )}
             </div>
@@ -485,7 +485,7 @@ export const MessageBubble = memo(function MessageBubble({
                 }}
                 disabled={(msg.activeBranchIndex ?? 0) === 0}
                 className="w-5 h-5 flex items-center justify-center text-app-text-muted hover:text-app-text disabled:opacity-30 disabled:cursor-default rounded transition-colors"
-                aria-label="Previous branch"
+                aria-label={tr('chat.branch.previous')}
               >
                 <ChevronLeft size={14} />
               </button>
@@ -499,7 +499,7 @@ export const MessageBubble = memo(function MessageBubble({
                 }}
                 disabled={(msg.activeBranchIndex ?? 0) >= (msg.siblingCount ?? 1) - 1}
                 className="w-5 h-5 flex items-center justify-center text-app-text-muted hover:text-app-text disabled:opacity-30 disabled:cursor-default rounded transition-colors"
-                aria-label="Next branch"
+                aria-label={tr('chat.branch.next')}
               >
                 <ChevronRight size={14} />
               </button>

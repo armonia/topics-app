@@ -56,7 +56,7 @@ const VERDICT = "Response timed out";
 const banner = (page: Page) => page.locator('[data-testid="turn-interrupted-banner"]');
 const userBubbles = (page: Page) => page.locator('[data-testid="chat-message"][data-role="user"]');
 const assistantBubbles = (page: Page) => page.locator('[data-testid="chat-message"][data-role="assistant"]');
-const messageInput = (page: Page) => page.getByRole("textbox", { name: /Message input/ });
+const messageInput = (page: Page) => page.getByRole("textbox", { name: /Campo del messaggio/ });
 
 async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
   const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });

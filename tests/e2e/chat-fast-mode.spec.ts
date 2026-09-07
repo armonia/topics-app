@@ -108,7 +108,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     const fastBtn = page.getByTestId("chat-input-fast-mode");
@@ -125,7 +125,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await expect(ringBtn).toBeVisible();
     await expect(page.getByRole("button", { name: /toggle plan mode/i })).toHaveCount(0);
     // La graffetta non è più un bottone della riga: è una voce del «+».
-    await expect(page.getByRole("button", { name: /Attach file/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Allega un file/i })).toHaveCount(0);
     const positions = await Promise.all(
       [addMenu, fastBtn, ringBtn].map(async (loc) => {
         const box = await loc.boundingBox();
@@ -158,7 +158,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     // Capture POST /api/chat body via route interception (must register
@@ -209,7 +209,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const textarea = page.getByRole("textbox", { name: /Message input/ });
+    const textarea = page.getByRole("textbox", { name: /Campo del messaggio/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
     const captured: { fastMode?: boolean; planMode?: boolean } = {};
@@ -262,7 +262,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
-    await page.getByRole("textbox", { name: /Message input/ }).waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByRole("textbox", { name: /Campo del messaggio/ }).waitFor({ state: "visible", timeout: 15_000 });
 
     const fastBtn = page.getByTestId("chat-input-fast-mode");
     // Non c'è proprio: un comando che non si può usare non occupa una riga.
@@ -281,7 +281,7 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
-    await page.getByRole("textbox", { name: /Message input/ }).waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByRole("textbox", { name: /Campo del messaggio/ }).waitFor({ state: "visible", timeout: 15_000 });
 
     const fastBtn = page.getByTestId("chat-input-fast-mode");
     await expect(fastBtn).toBeVisible();
