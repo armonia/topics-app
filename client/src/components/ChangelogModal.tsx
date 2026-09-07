@@ -8,15 +8,14 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { openLink, isExternalLinkGesture } from '../lib/openLink';
-
-// The public changelog page, opened as a pane of the app rather than outside it.
-const CHANGELOG_URL = 'https://topics.armonia.io/changelog.html';
-
 import { useT } from '../hooks/useT';
 import { createPortal } from 'react-dom';
 import { Sparkles, X, Wrench, Zap, Cog, ChevronRight } from 'lucide-react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '@/lib/modalStyles';
 import { useModalDialog } from '@/hooks/useModalDialog';
+
+// The public changelog page, opened as a pane of the app rather than outside it.
+const CHANGELOG_URL = 'https://topics.armonia.io/changelog.html';
 
 interface Entry {
   it: string;
