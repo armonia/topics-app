@@ -1089,7 +1089,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             reattachSnapshot: () => reattachSnapshot,
           });
           const persistTurnBody = (withText: boolean, force = false) => turnBody.request(withText, blocksBytes, force);
-          const persistBlocks = (force = false) => persistTurnBody(false, force);
+          // A turn already finalized has no write budget left to save: whatever
+          // still arrives (a tool result that came back after the end) is
+          // written NOW. Deferring it would leave the row without it until an
+          // event that will never come, and would put the write on a timer
+          // outliving the turn that owns it.
+          const persistBlocks = (force = false) => persistTurnBody(false, force || streamState === "finalized");
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
             blocksBytes += JSON.stringify(tc).length;
