@@ -188,7 +188,7 @@ test.describe("I widget in coda a una tab", () => {
     expect(glyphDx, "il glifo del comando si ferma dove si ferma l'ultimo segnale").toBe(ROW_PX);
     // …e allora i due occupano lo STESSO rettangolo: niente salto sotto il dito.
     expect(glyphDx).toBe(ultimo!.dx);
-    expect(cerchio.dCentro, "comando centrato in verticale").toBe(0);
+    expect(ring.dCentro, "comando centrato in verticale").toBe(0);
   });
 
   test("GEO-2: nessuna riga di testo nasce su un frammento di pixel", async ({ page, request }) => {
