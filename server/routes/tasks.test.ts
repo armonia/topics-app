@@ -185,7 +185,7 @@ describe("tasks router (session-scoped)", () => {
       const body = await res.json();
       expect(body.code).toBe("invalid_input");
       // Il rifiuto dice cosa fare invece: il land riallinea e pubblica la punta.
-      expect(body.error).toContain("Landa su main");
+      expect(body.error).toContain("Land on main");
     }
     // Anche dalla porta degli AGENTI: rifiutato da una e ingoiato dall'altra
     // sarebbe di nuovo il 200 muto, da un'altra parte.
@@ -1588,7 +1588,7 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
       previewImage: "/allowed/relazione.pdf",
     }))!;
     expect(resp.status).toBe(400);
-    expect((await resp.json()).error).toContain("mostrabile");
+    expect((await resp.json()).error).toContain("not previewable");
     const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
     expect(got.task.previewImage).toBeNull();
   });

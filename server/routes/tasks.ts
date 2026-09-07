@@ -1708,13 +1708,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   /** Push a project's current branch to origin (triggers deploy CI where set up).
    *  Shared by the /publish endpoint and the agent-proposed "Landa e pubblica"
    *  option. Never resolves an unknown project — returns {ok:false}. */
-  async function publishProject(projectId: string): Promise<{ ok: boolean; branch?: string; output?: string; error?: string }> {
+  async function publishProject(projectId: string): Promise<{ ok: boolean; branch?: string; output?: string; error?: string; code?: string }> {
     let dirs: string[] = [];
     try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
     const path = dirs.find((d) => projectIdForPath(d) === projectId);
-    if (!path) return { ok: false, error: "progetto non trovato" };
+    if (!path) return { ok: false, error: "project not found", code: "not_found" };
     const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
-    if (!branch) return { ok: false, error: "HEAD staccato: niente da pubblicare." };
+    if (!branch) return { ok: false, error: "detached HEAD: nothing to publish.", code: "detached_head" };
     const push = await runGitCap(path, ["push", "origin", branch]);
     if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
     return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
@@ -1757,10 +1757,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (typeof raw !== "string") return { ok: false, reason: "atteso il path (string) di uno screenshot, video o diagramma" };
     if (raw.trim() === "") return { ok: true, value: "" };
     if (!filterMedia([raw])?.length) {
-      return { ok: false, reason: "path fuori dalle cartelle consentite (~/.topics/media, ~/.openclaw/media, workspace)" };
+      return { ok: false, reason: "path outside the allowed folders (~/.topics/media, ~/.openclaw/media, workspace)" };
     }
     if (!isPreviewablePath(raw)) {
-      return { ok: false, reason: "estensione non mostrabile: servono .png/.jpg, un video o un .svg" };
+      return { ok: false, reason: "extension not previewable: it takes a .png/.jpg, a video or an .svg" };
     }
     // IL DEFAULT E' LA COSA VERA, non un si'.
     //
@@ -1825,10 +1825,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (touched.length === 0) return null;
     return json({
       error:
-        `${touched.join(", ")}: lo scatto della consegna non si modifica da qui. È ciò che il reviewer ha ` +
-        "approvato, e la differenza fra quello e la punta del ramo è un'informazione, non un errore da " +
-        "correggere. Se il ramo è andato avanti, o è indietro su main, ripremi «Landa su main»: il land " +
-        "riallinea il ramo da sé e pubblica la punta, dicendo nel thread cosa ha riallineato.",
+        `${touched.join(", ")}: the delivery snapshot is not edited from here. It is what the reviewer ` +
+        "approved, and the distance between it and the tip of the branch is information, not an error to " +
+        "correct. If the branch moved on, or sits behind main, press \"Land on main\" again: the land " +
+        "realigns the branch by itself and publishes the tip, saying in the thread what it realigned.",
       code: "invalid_input",
     }, 400);
   }
@@ -2024,8 +2024,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const red = (cur.checks ?? []).find((r) => !r.ok);
     return json({
       error:
-        `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}. ` +
-        "La strada normale e' rimandarlo all'agent; per accettarlo comunque usa il bottone «comunque» della card.",
+        `the pre-review checks are RED${red ? ` (\`${red.name}\`)` : ""}. ` +
+        "The normal road is to send it back to the agent; to accept it anyway use the card button that says \"anyway\".",
       code: "checks_failed",
     }, 409);
   }
@@ -2272,7 +2272,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       || pathname === "/api/system/dispatch-capacity";
     if (identita?.role === "guest" && miePath) {
       const deviceId = identita.deviceId;
-      if (!deviceId) return json({ error: "ospite senza identità" }, 403);
+      if (!deviceId) return json({ error: "guest without an identity", code: "forbidden" }, 403);
       // Sola lettura, senza eccezioni: un ospite che scrive in un thread o
       // dispaccia un agente è una superficie diversa, e va progettata quando il
       // caso esisterà (vedi `task-sharing-guests`, fuori scope).
@@ -2301,7 +2301,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (idInPath && condivisi.has(decodeURIComponent(idInPath))) {
         // prosegue allo smistamento normale
       } else {
-        return json({ error: "non condiviso", code: "not_shared" }, 403);
+        return json({ error: "not shared", code: "not_shared" }, 403);
       }
     }
 
@@ -2433,9 +2433,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       let dirs: string[] = [];
       try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
       const path = dirs.find((d) => projectIdForPath(d) === bPubDiff.projectId);
-      if (!path) return json({ error: "progetto non trovato", code: "not_found" }, 404);
+      if (!path) return json({ error: "project not found", code: "not_found" }, 404);
       const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
-      if (!branch) return json({ error: "HEAD staccato", code: "invalid_input" }, 400);
+      if (!branch) return json({ error: "detached HEAD", code: "invalid_input" }, 400);
       const upstream = (await runGitCap(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])).out.trim();
       const range = upstream && !upstream.includes("fatal") ? `${upstream}..HEAD` : `origin/${branch}..HEAD`;
       const bundle = await gitDiffBundle(path, range);
@@ -2526,7 +2526,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")}. Il vocabolario è chiuso (shared/task-labels.ts).`,
+          error: `unknown labels: ${unknown.join(", ")}. The vocabulary is closed (shared/task-labels.ts).`,
           code: "invalid_input",
         }, 400);
       }
@@ -2575,7 +2575,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // adesso vorrebbe dire potare un worktree mentre ci lavora un agente.
         if (attempts.runningCount(taskId) > 0) {
           return json({
-            error: "il fan-out non è ancora chiuso: aspetta che tutti i tentativi abbiano finito",
+            error: "the fan-out is not settled yet: wait for every attempt to finish",
             code: "fanout_running",
           }, 409);
         }
@@ -2584,7 +2584,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (!target || target.taskId !== taskId) return json({ error: "attempt not found", code: "not_found" }, 404);
         if (!target.topicId) {
           return json({
-            error: "questo tentativo non ha mai avuto una sessione: non c'è niente da tenere",
+            error: "this attempt never had a session: there is nothing to keep",
             code: "invalid_input",
           }, 409);
         }
@@ -2607,7 +2607,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const giaScelto = attempts.list(taskId).find((a) => a.state === "selected");
         if (giaScelto && giaScelto.id !== attemptId) {
           return json({
-            error: `il fan-out di questo task è già stato deciso: ha vinto il tentativo #${giaScelto.idx}, e i worktree degli altri sono stati potati`,
+            error: `the fan-out of this task is already decided: attempt #${giaScelto.idx} won, and the other worktrees were pruned`,
             code: "fanout_already_decided",
             attemptId: giaScelto.id,
           }, 409);
@@ -2872,10 +2872,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             return json(
               {
                 error:
-                  `troppi check: ne hai mandati ${body.reviewChecks.length}, il massimo è ${MAX_CHECKS}. ` +
-                  "Non ne salvo un sottoinsieme: avresti un cancello che credi di avere e non hai. " +
-                  "Togline qualcuno, o unisci due comandi in uno solo con `&&`: il primo rosso ferma la catena " + // allow-italian: the board's error copy is Italian, like the two lines above it
-                  "e il suo exit code arriva intero, come fa `" + STATIC_RAILS_CHECK.name + "`: `" + STATIC_RAILS_CHECK.cmd + "`.", // allow-italian: the board's error copy is Italian, like the two lines above it
+                  `too many checks: you sent ${body.reviewChecks.length}, the maximum is ${MAX_CHECKS}. ` +
+                  "I do not save a subset of them: you would have a gate you believe you have and do not. " +
+                  "Drop a few, or join two commands into one with `&&`: the first red stops the chain " +
+                  "and its exit code arrives whole, the way `" + STATIC_RAILS_CHECK.name + "` does: `" + STATIC_RAILS_CHECK.cmd + "`.",
                 code: "review_checks_too_many",
               },
               400,
@@ -3417,7 +3417,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // dopo che la richiesta di land si è chiusa: è la controparte del 202.
       if (bLand && method === "GET") {
         const ticket = landings.status(bLand.taskId);
-        if (!ticket) return json({ error: "nessun land richiesto per questo task", code: "not_found" }, 404);
+        if (!ticket) return json({ error: "no land was requested for this task", code: "not_found" }, 404);
         return json({ landing: ticket, pending: landings.pending(bLand.projectId) });
       }
 
@@ -3436,7 +3436,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const claim = svc.beginDeploy({ taskId });
           if (!claim) {
             return json({
-              error: "nessun deploy in sospeso per questa card (mai proposto, o già in corso/eseguito)",
+              error: "no deploy pending on this card (never proposed, or already running/done)",
               code: "invalid_transition",
             }, 409);
           }
@@ -3472,7 +3472,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             }, 409);
           }
           if (!opts?.preparePreview) {
-            return json({ error: "preview manager non disponibile", code: "unavailable" }, 503);
+            return json({ error: "preview manager unavailable", code: "unavailable" }, 503);
           }
           await opts.preparePreview(bPreview.taskId, { explain: true });
           // Rileggo DOPO: previewImage/output_url li scrive il preview manager
@@ -3659,7 +3659,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (typeof parsed.patch.machineId === "string" && parsed.patch.machineId) {
             if (!ctx.machineStore.get(parsed.patch.machineId)) {
               return json(
-                { error: `machineId «${parsed.patch.machineId}» non è una macchina conosciuta`, code: "unknown_machine" },
+                { error: `machineId "${parsed.patch.machineId}" is not a known machine`, code: "unknown_machine" },
                 400,
               );
             }
@@ -3953,7 +3953,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 // dice cosa FARE, e si nomina il parametro esatto: un agente che
                 // legge «rimanda con allow_duplicate» e non sa come si scrive
                 // finisce per riscrivere il titolo storto finché passa.
-                error: `una card lo dice già: «${twins[0]!.task.text}». Leggi quella e commentala con add_comment; se è davvero un altro lavoro, ricrea con allow_duplicate: true.`,
+                error: `a card already says it: "${twins[0]!.task.text}". Read that one and comment on it with add_comment; if it really is another job, recreate with allow_duplicate: true.`,
                 code: "duplicate",
                 duplicates: twins.map((n) => ({ id: n.task.id, text: n.task.text, score: Number(n.score.toFixed(3)) })),
               },
@@ -4073,7 +4073,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const unknown = raw.filter((l: unknown) => typeof l === "string" && !isTaskLabel(l));
       if (unknown.length) {
         return json({
-          error: `etichette sconosciute: ${unknown.join(", ")}. Le etichette che un agente può scrivere sono visibile, decisione, bugfix, feature, chore, misura`,
+          error: `unknown labels: ${unknown.join(", ")}. The labels an agent may write are visibile, decisione, bugfix, feature, chore, misura`, // allow-italian: the label vocabulary IS the data, compared by value
           code: "invalid_input",
         }, 400);
       }

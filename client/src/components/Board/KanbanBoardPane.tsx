@@ -114,6 +114,17 @@ interface Props {
  * SEMPRE in barra, anche a zero, perché «Pubblica» è anche il posto dove si va a
  * verificare che non ci sia niente da pubblicare.
  */
+/**
+ * The publish failures the server names with a `code`, in the reader's
+ * language. The server sentence is English and stays as the fallback: a code
+ * this table does not know still reaches the reader as a sentence, not as a
+ * silence.
+ */
+const PUBLISH_ERROR_KEY: Record<string, string> = {
+  not_found: 'board.publish.notFound',
+  detached_head: 'board.publish.detachedHead',
+};
+
 function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: (id: string) => void }) {
   const tr = useT();
   const [projects, setProjects] = useState<PublishProject[] | null>(null);
@@ -165,7 +176,9 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
     setBusy(p.projectId); setMsg(null);
     try {
       const r = await boardApi.publish(p.projectId);
-      setMsg(r.ok ? tr('board.publish.done', { name: p.name }) : `${p.name}: ${r.error ?? tr('board.publish.error')}`);
+      const key = r.code ? PUBLISH_ERROR_KEY[r.code] : undefined;
+      const why = key ? tr(key) : r.error ?? tr('board.publish.error');
+      setMsg(r.ok ? tr('board.publish.done', { name: p.name }) : `${p.name}: ${why}`);
       refresh();
     } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
     finally { setBusy(null); }
@@ -1042,7 +1055,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       const r = await fetch('/api/worktrees/gc', { method: 'POST' });
       const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
-      if (!sm) { setGcResult('Il GC non ha risposto'); return; }
+      if (!sm) { setGcResult(tr('board.gc.noAnswer')); return; }
       const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
         .map(([m, n]) => `${n}× ${m}`).join('; ');
       // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
@@ -1068,11 +1081,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         }
       }
     } catch {
-      setGcResult('Il GC non ha risposto');
+      setGcResult(tr('board.gc.noAnswer'));
     } finally {
       setGcRunning(false);
     }
-  }, [projectPath]);
+  }, [projectPath, tr]);
 
   // `kanbanOrder` è una chiave PER BOARD: nella board generale i numeri vengono
   // da sequenze indipendenti e non si confrontano. Lo scope lo dice al

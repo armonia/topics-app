@@ -18,6 +18,7 @@
  * non-closable so the shared `PaneTabBar` hides their X.
  */
 import { useCallback, useEffect, useMemo } from 'react';
+import { useT } from '../../hooks/useT';
 import type { Pane, PaneType, PaneGroupType, GroupLayoutRow, PaneGroup } from '../../types';
 import { RemoteBrowserPanel } from '../Browser/RemoteBrowserPanel';
 import { useTaskBrowserTabs, taskBrowserTabs, liveTabs, getTaskTabs, isPinnedTitle, type TaskBrowserTab } from '../../state/taskBrowserTabs';
@@ -141,6 +142,7 @@ export interface TaskBrowserGroupLayout {
 
 export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
   const { planActive, mediaPaths, renderSurface, threadInline = false, openPaneInProject } = input;
+  const tr = useT();
   const tabsState = useTaskBrowserTabs(taskId);
   // Pending "the agent re-opened this tab elsewhere" navigations (transient).
   const navigates = useTaskTabNavigate();
@@ -156,8 +158,8 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     id: threadPaneId(taskId), type: 'chat', title: 'Thread', stableKey: threadPaneId(taskId),
   }), [taskId]);
   const planPane = useMemo<Pane | null>(() => (planActive
-    ? { id: planPaneId(taskId), type: 'plan', title: 'Piano', stableKey: planPaneId(taskId) }
-    : null), [taskId, planActive]);
+    ? { id: planPaneId(taskId), type: 'plan', title: tr('board.plan.paneTitle'), stableKey: planPaneId(taskId) }
+    : null), [taskId, planActive, tr]);
   const mediaPanes = useMemo<Pane[]>(() => mediaPaths.map((p) => ({
     id: mediaPaneId(p), type: 'file', title: p.split('/').pop() || 'Allegato', stableKey: mediaPaneId(p),
   })), [mediaPaths]);

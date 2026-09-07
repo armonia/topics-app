@@ -345,9 +345,9 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.
   const targetLabel = autoTarget
-    ? 'Progetto auto'
+    ? tr('board.composer.projectAuto')
     : noneTarget
-      ? 'Nessun progetto'
+      ? tr('board.filter.noProject')
       : targetRef?.name ?? (targetProject ? projectNameFromId(targetProject) : '');
 
   const pickProject = (p: BoardProjectRef) => {
@@ -619,7 +619,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                     onPick={pickProject}
                     onCreate={doCreateProject}
                     busy={projBusy}
-                    listLabel="Progetto del task"
+                    listLabel={tr('board.composer.projectListLabel')}
                     onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
                     autoSelected={autoTarget}
                     newProjectDir={newProjectDir}

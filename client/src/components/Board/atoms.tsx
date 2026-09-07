@@ -193,10 +193,10 @@ export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { st
       // Il buco si dichiara: uno stato di park senza `dispatch_error` è una card
       // ferma di cui NESSUNO ha scritto il motivo, e un tooltip assente si legge
       // come «non c'è niente da sapere». C'è, e non lo sappiamo.
-      title={chip.title ?? error ?? tr('task.dispatch.noReason')}
+      title={chip.titleKey ? tr(chip.titleKey) : error ?? tr('task.dispatch.noReason')}
     >
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
-      {chip.text}
+      {tr(chip.textKey)}
     </span>
   );
 }
@@ -260,24 +260,28 @@ export function QueueReasonChip({ reason }: { reason: QueueReason }) {
  * e chi guarda la card deve poter distinguere le due prima di fidarsi.
  */
 export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSource }) {
-  const closer = label === 'visibile' || label === 'decisione' || label === 'invisibile';
+  const tr = useT();
+  // allow-italian: `visibile` / `decisione` / `invisibile` are the closed label
+  // vocabulary (shared/task-labels.ts), compared by value on both sides of the
+  // wire. Only the sentences around them are translated.
+  const closer = label === 'visibile' || label === 'decisione' || label === 'invisibile'; // allow-italian: the closed label vocabulary, compared by value
   const cls = label === 'invisibile'
     ? 'bg-slate-500/20 text-slate-300'
     : label === 'visibile'
       ? 'bg-sky-500/15 text-sky-300'
-      : label === 'decisione'
+      : label === 'decisione' // allow-italian: the closed label vocabulary, compared by value
         ? 'bg-violet-500/15 text-violet-300'
         : 'bg-white/10 text-app-text-heading';
   const why = label === 'invisibile'
-    ? 'Non tocca nessuna riga di client/src: con la barra verde la può chiudere il conduttore.'
+    ? tr('board.label.invisibleWhy')
     : label === 'visibile'
-      ? 'Tocca una superficie che si vede: resta in review finché non la guarda un umano.'
-      : label === 'decisione'
-        ? 'Un piano, una ricerca, un documento, o nessun codice affatto: la decide un umano, sempre.'
+      ? tr('board.label.visibleWhy')
+      : label === 'decisione' // allow-italian: the closed label vocabulary, compared by value
+        ? tr('board.label.decisionWhy')
         : null;
   const origin = source === 'derived'
-    ? 'Derivata dal diff della consegna'
-    : source === 'agent' ? "Chiesta dall'agent" : 'Messa a mano';
+    ? tr('board.label.originDerived')
+    : source === 'agent' ? tr('board.label.originAgent') : tr('board.label.originHuman');
   return (
     <span
       data-testid={`card-label-${label}`}

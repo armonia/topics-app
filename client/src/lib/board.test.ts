@@ -6,6 +6,12 @@
  */
 import { test, expect, describe } from 'bun:test';
 import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
+import { t } from './i18n';
+
+// The chip builders take the words from the catalogue now, so the test hands
+// them the Italian one: an assertion on a literal would still pass with the key
+// missing, which is the exact defect the migration must not introduce.
+const tr = (key: string, vars?: Record<string, string | number>): string => t(key, 'it', vars);
 
 describe('boardIdForPath', () => {
   // Regression lock: boardIdForPath e' adesso un alias di projectIdForPath da
@@ -84,7 +90,7 @@ describe('parseQuestionBlock', () => {
 
 describe('blockedByChip', () => {
   const chip = (over: Partial<BoardTask> = {}) =>
-    blockedByChip({ blockedByTaskId: 'blk', blockedBy: null, ...over } as BoardTask);
+    blockedByChip({ blockedByTaskId: 'blk', blockedBy: null, ...over } as BoardTask, tr);
 
   test('nessun link, nessun chip', () => {
     expect(chip({ blockedByTaskId: null })).toBeNull();
@@ -127,7 +133,7 @@ describe('blockedByChip', () => {
  */
 describe('systemDeliveryChip', () => {
   const chip = (over: Partial<BoardTask> = {}) =>
-    systemDeliveryChip({ status: 'review', deliveredBy: 'system', deliveredReason: null, ...over } as BoardTask);
+    systemDeliveryChip({ status: 'review', deliveredBy: 'system', deliveredReason: null, ...over } as BoardTask, tr);
 
   test('consegna dell\'agent: nessun chip', () => {
     expect(chip({ deliveredBy: 'agent' })).toBeNull();
@@ -184,7 +190,7 @@ describe('isUnfinishedReview', () => {
 
 describe('reopenedChip', () => {
   const chip = (over: Partial<BoardTask> = {}) =>
-    reopenedChip({ reopenedAt: null, reopenedBy: null, reopenedActor: null, ...over } as BoardTask);
+    reopenedChip({ reopenedAt: null, reopenedBy: null, reopenedActor: null, ...over } as BoardTask, tr, 'it-IT');
 
   test('mai uscita da done: nessun chip', () => {
     expect(chip()).toBeNull();
@@ -281,8 +287,8 @@ describe('«io aspetto» e «altri aspettano me» non condividono una parola', (
     const io = blockedByChip({
       blockedByTaskId: 'blk',
       blockedBy: { id: 'blk', text: 'Migrare le foto', status: 'todo', archived: false },
-    } as BoardTask)!;
-    const altri = waitingOnThisChip({ waitingOnCount: 3, status: 'todo' } as BoardTask)!;
+    } as BoardTask, tr)!;
+    const altri = waitingOnThisChip({ waitingOnCount: 3, status: 'todo' } as BoardTask, tr)!;
     // Il titolo del bloccante non fa parte del vocabolario: è un dato.
     const mie = parole(io.label.replace('Migrare le foto', ''));
     const loro = parole(altri.label);
@@ -291,18 +297,18 @@ describe('«io aspetto» e «altri aspettano me» non condividono una parola', (
   });
 
   test('nessuna delle due usa più «in attesa», la parola ambigua', () => {
-    const io = blockedByChip({ blockedByTaskId: 'blk', blockedBy: null } as BoardTask)!;
-    const altri = waitingOnThisChip({ waitingOnCount: 2, status: 'todo' } as BoardTask)!;
+    const io = blockedByChip({ blockedByTaskId: 'blk', blockedBy: null } as BoardTask, tr)!;
+    const altri = waitingOnThisChip({ waitingOnCount: 2, status: 'todo' } as BoardTask, tr)!;
     expect(io.label).not.toContain('in attesa');
     expect(altri.label).not.toContain('in attesa');
   });
 
   test('«altri aspettano me» si coniuga sul numero, e tace quando è chiusa', () => {
-    expect(waitingOnThisChip({ waitingOnCount: 1, status: 'todo' } as BoardTask)?.label).toBe('1 la aspetta');
-    expect(waitingOnThisChip({ waitingOnCount: 4, status: 'todo' } as BoardTask)?.label).toBe('4 la aspettano');
-    expect(waitingOnThisChip({ waitingOnCount: 0, status: 'todo' } as BoardTask)).toBeNull();
+    expect(waitingOnThisChip({ waitingOnCount: 1, status: 'todo' } as BoardTask, tr)?.label).toBe('1 la aspetta');
+    expect(waitingOnThisChip({ waitingOnCount: 4, status: 'todo' } as BoardTask, tr)?.label).toBe('4 la aspettano');
+    expect(waitingOnThisChip({ waitingOnCount: 0, status: 'todo' } as BoardTask, tr)).toBeNull();
     // Su una card chiusa il legame è già stato sciolto: dirlo sarebbe archeologia.
-    expect(waitingOnThisChip({ waitingOnCount: 3, status: 'done' } as BoardTask)).toBeNull();
+    expect(waitingOnThisChip({ waitingOnCount: 3, status: 'done' } as BoardTask, tr)).toBeNull();
   });
 });
 
@@ -319,11 +325,10 @@ describe('la non-consegna si dice UNA volta sola', () => {
     const ragioni: BoardTask['deliveredReason'][] =
       [null, 'retries_exhausted', 'model_refused', 'fanout', 'parked_children'];
     for (const r of ragioni) {
-      const t = card(r);
       // La card e' `empty` (nessun ramo, un agente c'e' stato): e' il caso in
       // cui le due chip si sovrapponevano.
       const senzaConsegna = nothingDeliveredWins(r);
-      const systemDelivered = senzaConsegna ? null : systemDeliveryChip(t);
+      const systemDelivered = senzaConsegna ? null : systemDeliveryChip(card(r), tr);
       const disegnate = [senzaConsegna ? 'niente-consegnato' : null, systemDelivered ? 'system' : null].filter(Boolean);
       expect(disegnate, `ragione ${String(r)}: ne devono uscire una sola`).toHaveLength(1);
     }
@@ -341,7 +346,7 @@ describe('la non-consegna si dice UNA volta sola', () => {
     // consegnato» non dice: la chip specifica vince, e resta una sola.
     for (const r of ['model_refused', 'fanout', 'parked_children'] as const) {
       expect(nothingDeliveredWins(r)).toBe(false);
-      expect(systemDeliveryChip(card(r))).not.toBeNull();
+      expect(systemDeliveryChip(card(r), tr)).not.toBeNull();
     }
   });
 });
