@@ -70,12 +70,24 @@
 //! trace: "it never ran" and "it ran and did not help" have already cost one
 //! release cycle to tell apart.
 //!
-//! HOW TO JUDGE IT, unchanged from the nine: `probe2.ps1` on the real machine,
-//! which crops the window rect and compares the window with itself before and
-//! after a minimise/restore. It passes when the rows carrying pixels go back to
-//! 79/79, not 3/79. `repaint.log` next to the installed app must carry a
-//! `rebuild: rebuilt ...` line for that restore; anything else there names what
-//! stopped it.
+//! HOW TO JUDGE IT, and it is now one command instead of a hand-read probe:
+//! `desktop-tauri/scripts/win-restore-check.sh` runs the gate
+//! (`win-restore-check.ps1`) on the real machine, in an interactive scheduled
+//! task, in BOTH arms. It captures the window before the minimise and after the
+//! restore and compares it with itself: rows carrying ink in the second capture,
+//! and the fraction of samples that moved between the two. Measured on the
+//! installed 2.2.264:
+//!
+//! ```text
+//!   remedy OFF   ink 77/77 -> 1/77, diff 95%    0 of 3 cycles repainted
+//!   remedy ON    ink 77/77 -> 77/77, diff 0.1%  10 of 10 cycles repainted
+//! ```
+//!
+//! The OFF arm is not decoration: a gate that cannot fail is not measuring. And
+//! `repaint.log` in the app data directory must carry a `rebuild: rebuilt ...`
+//! line for each of those restores; anything else there names what stopped it.
+//! In that run every ON cycle logged `window looks blank (1/77)` first, so the
+//! defect is still there under the cure, restore after restore.
 //!
 //! WHAT IS STILL OUT OF SCOPE: reporting it upstream (wry /
 //! tauri-runtime-wry / the runtime). The evidence above is enough for a good bug
