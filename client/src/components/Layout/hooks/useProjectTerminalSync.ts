@@ -29,6 +29,7 @@ import { normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/term
 import { createDormantTerminalGuard } from '../../../lib/dormantTerminalGuard';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../../../lib/coalesceFetch';
 import { decideRestoredTerminalPane } from './terminalReconcile';
+import { ROSTER_RECONCILED_HEADER } from '../../../../../shared/terminal-messages';
 
 interface TerminalRosterEntry { id: string; cwd: string; name: string; type: string }
 
@@ -59,6 +60,10 @@ export function useProjectTerminalSync({
   /** Ultimo roster visto, per ripassare il prune quando la lista delle dormienti
    *  risponde (all'avvio, e dopo ogni ri-verifica). */
   const lastRosterRef = useRef<TerminalRosterEntry[]>([]);
+  /** Has the server compared the roster with the bridge? Remembered next to the
+   *  roster itself: the prune re-run (the guard's `onUpdate`) must weigh as much
+   *  as the answer that brought it. */
+  const lastRosterReconciledRef = useRef(false);
 
   useEffect(() => {
     // A roster entry is only usable if it carries a string `id` and `cwd`.
@@ -70,10 +75,11 @@ export function useProjectTerminalSync({
       typeof (s as { id?: unknown }).id === 'string' &&
       typeof (s as { cwd?: unknown }).cwd === 'string';
 
-    const syncTerminals = (rawSessions: TerminalRosterEntry[]) => {
+    const syncTerminals = (rawSessions: TerminalRosterEntry[], reconciled = false) => {
       // Tenuto per poter ripassare il prune quando la lista delle dormienti
       // arriva DOPO il roster (due fetch in volo, nessun ordine garantito).
       lastRosterRef.current = rawSessions;
+      if (reconciled) lastRosterReconciledRef.current = true;
       const sessions = rawSessions.filter(isTerminalSession);
       const sessionIds = new Set(sessions.map(s => s.id));
       // Live name from the roster, keyed by session id. The server owns the
@@ -92,7 +98,14 @@ export function useProjectTerminalSync({
       // that raced reconcile) is NOT authoritative: keep never-seen panes then,
       // preserving the original refresh/reconnect protection. This is what stops
       // an app restart from resurrecting dead "sessioni morte" project tabs.
-      const rosterAuthoritative = sessionIds.size > 0;
+      // AN EMPTY ROSTER THE SERVER VOUCHES FOR IS ALSO AUTHORITATIVE. `size > 0`
+      // alone left one hole, and the panes fell into it: with every session gone
+      // (a machine rebooted, the bridge restarted) the roster is empty forever,
+      // so nothing was ever pruned and four dead terminal panes came back at
+      // every launch, each retrying its attach every 3 s. `reconciled` says the
+      // list was compared with the PTY bridge, which is exactly the proof
+      // "nothing there" was missing.
+      const rosterAuthoritative = sessionIds.size > 0 || lastRosterReconciledRef.current;
       // Tombstoned session ids are sessions the user just closed in
       // this or another window (persisted in localStorage). Don't
       // auto-add panes for them — otherwise close-then-reload
@@ -206,12 +219,17 @@ export function useProjectTerminalSync({
     const guard = createDormantTerminalGuard({
       // Ripassa il prune sull'ultimo roster: è così che una risposta fresca
       // diventa una tab tenuta (parcheggiata) o potata (sparita davvero).
-      onUpdate: () => syncTerminals(lastRosterRef.current),
+      onUpdate: () => syncTerminals(lastRosterRef.current, lastRosterReconciledRef.current),
     });
     // Coalesced with the App-level roster read (useTerminalLifecycle) and with
     // every other project window mounting in the same frame: one GET, not N+1.
     coalescedFetch('/api/terminal/sessions', undefined, { ttlMs: BOOT_READ_TTL_MS })
-      .then(r => r.json()).then(syncTerminals).catch(() => {});
+      .then(async r => ({
+        sessions: await r.json(),
+        reconciled: r.headers.get(ROSTER_RECONCILED_HEADER) === '1',
+      }))
+      .then(({ sessions, reconciled }) => syncTerminals(sessions, reconciled))
+      .catch(() => {});
 
     // Prima lettura: finché non risponde, `guard.loaded` è false e il prune non
     // toglie niente. Alla risposta il guard richiama `onUpdate`, quindi questa è
@@ -221,7 +239,7 @@ export function useProjectTerminalSync({
     return onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; sessions?: unknown };
       if (m.type === 'terminal:sessions' && Array.isArray(m.sessions)) {
-        syncTerminals(m.sessions as TerminalRosterEntry[]);
+        syncTerminals(m.sessions as TerminalRosterEntry[], (msg as { reconciled?: boolean }).reconciled === true);
       }
     });
   }, [onWSMessage, projectPath, topicsRef, setPanes]);

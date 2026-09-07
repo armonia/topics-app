@@ -552,11 +552,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
         // A "Ricarica" reload reconnects here — drop the "Riavvio…" overlay.
         signalsActions.clearTerminalReloading(sessionId);
-        fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cols: term.cols, rows: term.rows }),
-        }).catch(() => {});
+        // NO RESIZE HERE. The server accepts the WebSocket upgrade for ANY id
+        // and only then decides whether the session exists, so an `open` proves
+        // nothing: a resize sent from here against a dead id is a POST to a
+        // route that answers 404, and with a retry every 3 s that was 84-90
+        // warnings a minute per orphaned pane (54k lines of one server log).
+        // The resize now rides `replay-end`, the first frame only a LIVE
+        // session sends, so a failed attach fires none.
       };
 
       ws.onmessage = (ev) => {
@@ -577,6 +579,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // A close from here on is a drop, not a refusal, and the grace
               // starts over (see the note in `ws.onopen`).
               retryCount = 0;
+              // The attach's resize lives here, not in `ws.onopen`: this is the
+              // only frame that proves the session is alive, so the POST cannot
+              // land on a 404.
+              fetch(`/api/terminal/sessions/${sessionId}/resize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cols: term.cols, rows: term.rows }),
+              }).catch(() => {});
               // The screen the reader was looking at is on screen again, for
               // real this time: the seed has done its job and steps aside, and
               // what it will show NEXT time is written down here.

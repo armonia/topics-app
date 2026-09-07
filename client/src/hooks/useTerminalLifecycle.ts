@@ -15,6 +15,7 @@ import type { TerminalOps } from './appHookTypes';
 import { createDormantTerminalGuard, type DormantKnowledge } from '../lib/dormantTerminalGuard';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { decideRosterTrust } from './rosterTrust';
+import { ROSTER_RECONCILED_HEADER } from '../../../shared/terminal-messages';
 import { useRefMirror } from './useRefMirror';
 
 export interface UseTerminalLifecycleArgs {
@@ -188,15 +189,18 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     // Coalesced: the mount read, the WebSocket-open read (~700 ms later) and
     // every project window's own roster read are the same question at boot.
     coalescedFetch('/api/terminal/sessions', undefined, { ttlMs: BOOT_READ_TTL_MS })
-      .then(r => {
+      .then(async r => {
         if (!r.ok) throw new Error(`roster ${r.status}`);
-        return r.json();
+        // `reconciled` rides a HEADER on this route: the body stays a bare array
+        // (MCP, mobile and the tests read it that way). Without it an empty REST
+        // roster was never authoritative, so a pane whose session no longer
+        // exists retried its attach forever instead of declaring itself expired.
+        const reconciled = r.headers.get(ROSTER_RECONCILED_HEADER) === '1';
+        return { data: await r.json(), reconciled };
       })
-      .then((data: TerminalSessionInfo[]) => {
+      .then(({ data, reconciled }: { data: TerminalSessionInfo[]; reconciled: boolean }) => {
         if (!Array.isArray(data)) return;
-        // Nessun `reconciled` da questa via: il corpo è un array nudo e cambiargli
-        // forma romperebbe MCP, mobile e i test. Lo porta il broadcast.
-        if (applyRoster(data)) terminalSessionsLoadedRef.current = true;
+        if (applyRoster(data, reconciled)) terminalSessionsLoadedRef.current = true;
       })
       .catch(() => {});
   }, [applyRoster]);

@@ -66,7 +66,19 @@ describe('il roster dei terminali non si crede a scatola chiusa', () => {
     // dentro e' esattamente il difetto.
     const scritture = [...corpo.matchAll(/terminalSessionsLoadedRef\.current\s*=\s*true/g)];
     expect(scritture.length, 'una sola scrittura, e governata').toBe(1);
-    expect(corpo).toContain('if (applyRoster(data)) terminalSessionsLoadedRef.current = true;');
+    expect(corpo).toContain('if (applyRoster(data, reconciled)) terminalSessionsLoadedRef.current = true;');
+  });
+
+  test('il `reconciled` della REST arriva dall\'header, non da un corpo cambiato', () => {
+    // The bit lived only in the WS broadcast, so a client reading REST never
+    // promoted an empty roster to authoritative: an orphaned pane never
+    // declared itself expired and reattached every 3 s (54k 404 warnings in a
+    // single log). The body stays a bare array, which is how MCP and mobile
+    // read it, and the bit travels in a header.
+    const corpo = bodyOfFetch();
+    expect(corpo).toContain('ROSTER_RECONCILED_HEADER');
+    expect(corpo).toContain("=== '1'");
+    expect(SORGENTE).toContain("import { ROSTER_RECONCILED_HEADER } from '../../../shared/terminal-messages';");
   });
 
   test('applyRoster DICE se ha accettato: senza, la guardia sopra non esisterebbe', () => {
