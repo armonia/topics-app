@@ -23,7 +23,10 @@ import { SpinnerFallback } from '../Shared/Spinner';
 // chunk can 404 (the published bundle is swept 30 min after a rebuild), and
 // that error must not climb to the PaneKeepAlive boundary and replace the
 // whole chat pane: the local boundary below keeps the damage inside the card.
-const ToolInputForm = lazy(() => import('./ToolInputForm').then(m => ({ default: m.ToolInputForm })));
+const ToolInputForm = lazy(async () => {
+  const { ToolInputForm: C } = await import('./ToolInputForm');
+  return { default: C };
+});
 
 /**
  * Live elapsed readout for a call that hasn't settled — ticks every second
