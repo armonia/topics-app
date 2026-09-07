@@ -20,6 +20,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "fs"
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTaskAutoMerge, type AutoMergeDeps, type TaskMergeTarget } from "./task-automerge";
+import { slackMs } from "../../tests/helpers/time-slack";
 
 const BRANCH = "topics/ramo-vecchio";
 
@@ -29,8 +30,13 @@ const BRANCH = "topics/ramo-vecchio";
  * non bastano, e il timeout arriva a metà di un merge: un rosso che non parla
  * del land ma della macchina. Il tetto resta perché un test che non finisce MAI
  * va comunque interrotto.
+ *
+ * The 30 s are written for a QUIET machine and widened by the round's factor
+ * (tests/helpers/time-slack.ts): under a fleet the manifest test alone went red
+ * here at ~4.6 s of real work on an idle box, which is the shape that helper
+ * was built for on 2026-09-07 - a red that describes the load, not the land.
  */
-const WITH_REAL_GIT = 30_000;
+const WITH_REAL_GIT = slackMs(30_000);
 
 const created: string[] = [];
 afterEach(() => {
