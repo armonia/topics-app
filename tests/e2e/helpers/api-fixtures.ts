@@ -1,9 +1,46 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
+import { realpathSync } from "fs";
 import { projectPanesKey } from "../../../shared/project-keys";
 import { E2E_BASE } from "./test-server";
 
 const BASE = E2E_BASE;
+
+/**
+ * The project path AS THE APP HOLDS IT, which is the only spelling that
+ * addresses the right state.
+ *
+ * A project's identity is a HASH of its path (`projectPanesKey`), and the app
+ * hashes the CANONICAL one (`server/lib/canonical-project-path.ts`, realpath).
+ * On macOS `/tmp` is a link to `/private/tmp`, so a spec that says
+ * `/tmp/e2e-x` makes these fixtures write and clear
+ * `topics-project-panes-601dzj` while the page reads and writes
+ * `topics-project-panes-cvpyqj`: the reset is a no-op on a key nobody reads.
+ *
+ * MEASURED (card fb78fec3, 2026-09-07). `board-column-elastic-width` and
+ * `board-composer-dictation` seed `/tmp/...`, so `resetProjectPanes` never
+ * emptied anything: the kanban pane opened by the PREVIOUS test survived into
+ * the next one, the project window came up with the Board tab already there,
+ * and the `+` menu then correctly hid the singleton entry — which the specs
+ * report as "no + menu with a Board (kanban) entry found". COLUMN-WIDTH-02
+ * and -04 were red 3 times out of 3 alone with `--retries=0`, and only the
+ * retry (a fresh page after the leftover had been consumed) bought the green.
+ *
+ * Same defect as the one `canonicalTmpDir()` fixes on the caller side and
+ * `scripts/check-tmp-canonical.ts` guards for BOARD ids; this is the same
+ * mismatch on the project-pane key, which that gate does not look at. Doing it
+ * here means a spec cannot reintroduce it by passing a raw `/tmp` path.
+ *
+ * The fallback is the input itself, exactly like the server's: a path that is
+ * not on disk (yet) has no realpath, and it is not this helper's job to say so.
+ */
+function appProjectPath(projectPath: string): string {
+  try {
+    return realpathSync(projectPath);
+  } catch {
+    return projectPath;
+  }
+}
 
 // --- Topic fixtures ---
 
@@ -433,7 +470,7 @@ export async function seedProjectPane(
   request: APIRequestContext,
   projectPath: string,
 ): Promise<string> {
-  const paneId = `project:${encodeURIComponent(projectPath)}`;
+  const paneId = `project:${encodeURIComponent(appProjectPath(projectPath))}`;
   // Legacy openPanels — append.
   try {
     const cur = await request.get(`${BASE}/api/ui-state/panels`, { ignoreHTTPSErrors: true });
@@ -766,7 +803,7 @@ export async function resetProjectPanes(
   request: APIRequestContext,
   projectPath: string,
 ): Promise<void> {
-  const key = projectPanesKey(projectPath);
+  const key = projectPanesKey(appProjectPath(projectPath));
   // Si RILEGGE per verificare che l'azzeramento sia sopravvissuto, come fa
   // `seedPaneStore` per il canale globale. Anche questa chiave e' esposta alla
   // stessa corsa: il client la riscrive con un debounce di 500 ms
@@ -812,7 +849,7 @@ export async function waitForProjectPaneType(
   type: string,
   timeoutMs = 10_000,
 ): Promise<void> {
-  const key = projectPanesKey(projectPath);
+  const key = projectPanesKey(appProjectPath(projectPath));
   const deadline = Date.now() + timeoutMs;
   let visti: string[] = [];
   while (Date.now() < deadline) {
@@ -843,7 +880,7 @@ export async function seedProjectInnerChats(
   projectPath: string,
   topicIds: string[],
 ): Promise<void> {
-  await request.put(`${BASE}/api/ui-state/${projectPanesKey(projectPath)}`, {
+  await request.put(`${BASE}/api/ui-state/${projectPanesKey(appProjectPath(projectPath))}`, {
     data: { nonChatPanes: [], openChatTopicIds: [...topicIds] },
     ignoreHTTPSErrors: true,
   });
