@@ -131,6 +131,10 @@ export const PROJECT_WORDS = new Set([
   // Two Unix tools, named as identifiers in server/lib/low-priority.ts
   // (`RENICE_BIN`, `TASKPOLICY_BIN`): the binaries this machine has, not words.
   "renice", "taskpolicy",
+  // Same family (card 7f4d8f32): `pgrep` is the binary that lists a process
+  // tree, and `qos` is the macOS scheduling class the shared Chromium is
+  // toggled in and out of. Both name a thing the OS calls exactly that.
+  "pgrep", "qos",
   // The name of the tool this codebase shells out to for every audio
   // conversion. A variable holding its path can only be called this: any
   // synonym would hide which binary is being run.
