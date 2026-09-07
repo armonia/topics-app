@@ -375,7 +375,10 @@ CONSEGNA-*.md
 # id. Su un disco solo sarebbe l'opinione di una sera.
 !docs/coverage-vs-competitors.md
 
-# Raw captures from tools/win-desktop-check.sh: one per arm, per run, and they
-# pile up. The curated evidence lives in tools/out/win/topics-desktop-<ver>/
-# next to its report, and that folder IS committed.
+# `out/` above swallows the Windows desktop report too, and that one is the
+# deliverable: the run on the real machine is only worth something if the
+# numbers and the captures are in the repo. So the folder comes back, minus the
+# raw captures, which are one per arm per run and pile up.
+!tools/out/
+!tools/out/win/
 tools/out/win/*.png
