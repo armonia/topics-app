@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.289 — 2026-09-07
+
+### Sotto il cofano
+- measure the stall from inside the loop, not from the request queue
+- end the reattach loop that filled 22% of the server log with 404s
+- rephrase a comment line the language gate read as Italian
+- rename the FFI struct buffers to English (identifier gate)
+- the review-checks timing cases stretch with the machine, not against it
+
 ## 2.2.288 — 2026-09-07
 
 ### Sotto il cofano
