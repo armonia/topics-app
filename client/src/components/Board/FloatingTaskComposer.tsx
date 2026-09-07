@@ -619,7 +619,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                     onPick={pickProject}
                     onCreate={doCreateProject}
                     busy={projBusy}
-                    listLabel="Progetto del task"
+                    listLabel={tr('board.composer.projectListLabel')}
                     onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
                     autoSelected={autoTarget}
                     newProjectDir={newProjectDir}

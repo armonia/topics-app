@@ -86,13 +86,13 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
    round.) */
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
-export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {
+export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; titleKey?: string; Icon?: LucideIcon }> = {
   // RIPIEGO, non la voce principale: da quando ogni card in `todo` porta la sua
   // ragione (`task.queueReason`, risolta dal server) questi due si disegnano solo
   // se quella manca — cioè se il server non è riuscito a calcolarla. Restano
   // perché un chip vuoto sarebbe peggio, ma «in coda» da solo è esattamente la
   // parola che non dice niente.
-  queued: { text: 'in coda', cls: 'bg-white/10 text-app-text-heading' },
+  queued: { textKey: 'board.dispatch.queued', cls: 'bg-white/10 text-app-text-heading' },
   // The agent DECLARED an external-condition wait: back in the queue, slot freed,
   // re-dispatched when its window elapses. NOT a delivery — never in review. The
   // reason rides in task.dispatchError → shown as the chip tooltip.
@@ -101,23 +101,23 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // CONTRARIO — «altri aspettano questa» (vedi `waitingOnThisChip`) — e due
   // fatti opposti non possono condividere un'etichetta, qualunque cosa dica il
   // tooltip. Un tooltip, poi, su un telefono non esiste.
-  waiting: { text: 'rinviata', cls: 'bg-indigo-500/15 text-indigo-300', title: "Aspetta una condizione esterna: lo slot è libero, riparte da sola", Icon: Hourglass },
-  starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
-  working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
+  waiting: { textKey: 'board.dispatch.waiting', cls: 'bg-indigo-500/15 text-indigo-300', titleKey: 'board.dispatch.waiting.title', Icon: Hourglass },
+  starting: { textKey: 'board.dispatch.starting', cls: 'bg-amber-500/15 text-amber-300' },
+  working: { textKey: 'board.dispatch.working', cls: 'bg-sky-500/15 text-sky-300' },
   // Both live in Review, but they ask different things of the human:
   // needs_input = the agent ASKED (answer required); delivered = clean
   // hand-off, the agent believes it's done (approve/reject).
-  needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
-  delivered: { text: 'consegnato', cls: 'bg-emerald-500/15 text-emerald-300', title: "L'agent ha consegnato: aspetta la tua review", Icon: PackageCheck },
+  needs_input: { textKey: 'board.dispatch.needsInput', cls: 'bg-rose-500/15 text-rose-300' },
+  delivered: { textKey: 'board.dispatch.delivered', cls: 'bg-emerald-500/15 text-emerald-300', titleKey: 'board.dispatch.delivered.title', Icon: PackageCheck },
   // Same state as `delivered`, opposite meaning: the reaper pushed the card into
   // review after every attempt was spent, so nobody handed anything over. Green
   // "consegnato" on that card is a promise the thread does not keep — the human
   // opens it expecting work to judge and finds a run that died. Amber, and the
   // word says who moved it.
   delivered_by_system: {
-    text: 'corsa finita',
+    textKey: 'board.dispatch.deliveredBySystem',
     cls: 'bg-amber-500/15 text-amber-300',
-    title: "L'ho portato io in review: l'agent non l'ha consegnato. Guarda il thread prima di valutare",
+    titleKey: 'board.dispatch.deliveredBySystem.title',
     Icon: PackageCheck,
   },
   // In review with nothing behind it: no branch, no commit, no changed file.
@@ -125,17 +125,17 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // who moved the card but whether anything exists to look at. Neutral, not
   // red: it is not a failure, it is an empty hand.
   delivered_empty: {
-    text: 'niente da vedere',
+    textKey: 'board.dispatch.deliveredEmpty',
     cls: 'bg-white/10 text-app-text-secondary',
-    title: 'Nessun ramo, nessun commit, nessun file toccato: non c\'e\' un diff da guardare',
+    titleKey: 'board.dispatch.deliveredEmpty.title',
   },
   // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
   // failed (timeout without review after the cap / repeated setup errors) — a red,
   // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a
   // config issue the human must fix first (no worktree / project unresolvable).
   // The specific reason rides in task.dispatchError → shown as the chip tooltip.
-  failed: { text: 'fallito', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
-  blocked: { text: 'da sistemare', cls: 'bg-amber-500/15 text-amber-300' },
+  failed: { textKey: 'board.dispatch.failed', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
+  blocked: { textKey: 'board.dispatch.blocked', cls: 'bg-amber-500/15 text-amber-300' },
   // 'stopped' = l'ha fermato una PERSONA (menu della card o bottone del
   // drawer). Neutro per costruzione: non è un fallimento e non c'è niente da
   // sistemare — il turno è stato tagliato e il task aspetta che tu lo rimetta
@@ -144,7 +144,7 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // Il motivo NON è scritto qui: come per 'failed'/'blocked' viaggia in
   // `task.dispatchError` («Fermato da te: … Rimetti il task in Todo per
   // ripartire») e diventa il tooltip. Un titolo fisso lo coprirebbe.
-  [PARKED_STOPPED]: { text: 'fermato', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
+  [PARKED_STOPPED]: { textKey: 'board.dispatch.stopped', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
   // 'waited_out' = la SERIE di attese dichiarate ha sfondato il tetto. Il task è
   // in Backlog e non riparte da solo, ma non ha fallito niente: aspettava, e
   // quello che aspettava non è arrivato. Perciò indigo come 'in attesa' (è la
@@ -152,7 +152,7 @@ export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: 
   // di 'fallito', che è ciò che distingue un park da un chip di passaggio.
   // Il motivo NON è scritto qui: viaggia in `task.dispatchError` (quante attese,
   // per cosa, da quanto) e diventa il tooltip. Un titolo fisso lo coprirebbe.
-  [PARKED_WAITED_OUT]: { text: 'troppa attesa', cls: 'bg-indigo-500/25 text-indigo-200 ring-1 ring-indigo-400/40', Icon: TimerOff },
+  [PARKED_WAITED_OUT]: { textKey: 'board.dispatch.waitedOut', cls: 'bg-indigo-500/25 text-indigo-200 ring-1 ring-indigo-400/40', Icon: TimerOff },
 };
 
 // Single shared new-task draft → single caret key (board composer is global).

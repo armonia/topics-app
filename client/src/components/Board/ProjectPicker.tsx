@@ -128,7 +128,7 @@ export function ProjectPickerBody({
         {projects === null ? (
           <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-app-text-muted" /></div>
         ) : filtered.length === 0 ? (
-          <p className="px-2.5 py-2 text-xs text-app-text-muted">{query.trim() ? 'Nessun progetto corrisponde.' : emptyLabel ?? 'Nessun progetto trovato.'}</p>
+          <p className="px-2.5 py-2 text-xs text-app-text-muted">{query.trim() ? tr('board.projectPicker.noMatch') : emptyLabel ?? tr('board.projectPicker.none')}</p>
         ) : filtered.map((p) => {
           const disabled = (isDisabled?.(p) ?? false) || busy;
           return (
@@ -163,7 +163,7 @@ export function ProjectPickerBody({
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Plus className="h-3.5 w-3.5 shrink-0" />}
             <span className="min-w-0 flex-1 truncate">
-              {createState === 'ready' ? <>Crea &quot;{typed}&quot;…</> : 'Nuovo progetto…'}
+              {createState === 'ready' ? <>{tr('board.projectPicker.create', { name: typed })}</> : tr('board.projectPicker.newProject')}
             </span>
             {/* DOVE nascerà: la cartella è dedotta dal server, e una deduzione
                 che crea cartelle sul disco si dichiara PRIMA, non si scopre dopo. */}

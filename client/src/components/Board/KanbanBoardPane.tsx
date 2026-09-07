@@ -1055,7 +1055,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       const r = await fetch('/api/worktrees/gc', { method: 'POST' });
       const b = (await r.json()) as { summary?: { reaped?: number; landed?: number; freed?: number; kept?: number; slimmed?: number; slimmedBytes?: number; keptReasons?: Record<string, number> } };
       const sm = b?.summary;
-      if (!sm) { setGcResult('Il GC non ha risposto'); return; }
+      if (!sm) { setGcResult(tr('board.gc.noAnswer')); return; }
       const motivi = Object.entries(sm.keptReasons ?? {}).sort((a, b2) => b2[1] - a[1]).slice(0, 2)
         .map(([m, n]) => `${n}× ${m}`).join('; ');
       // `liberati` è la voce che oggi fa quasi tutto il lavoro (cartella via,
@@ -1081,11 +1081,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         }
       }
     } catch {
-      setGcResult('Il GC non ha risposto');
+      setGcResult(tr('board.gc.noAnswer'));
     } finally {
       setGcRunning(false);
     }
-  }, [projectPath]);
+  }, [projectPath, tr]);
 
   // `kanbanOrder` è una chiave PER BOARD: nella board generale i numeri vengono
   // da sequenze indipendenti e non si confrontano. Lo scope lo dice al

@@ -100,6 +100,13 @@ export const isCatchAllProjectId = (projectId: string): boolean =>
 export const isProjectlessId = (projectId: string): boolean =>
   projectId === UNASSIGNED_PROJECT_ID || isCatchAllProjectId(projectId);
 
+/**
+ * The caller's translate function. The chip builders below are PURE (no React,
+ * no locale of their own): the words live in the catalogues and whoever renders
+ * hands its `tr` over, the way `taskChoices` already takes its `t`.
+ */
+export type Translate = (key: string, vars?: Record<string, string | number>) => string;
+
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
@@ -133,21 +140,15 @@ export const STATUS_GLYPH_PX = 14;
  * un generico "chiuso dal sistema".
  */
 export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
-  retries_exhausted:
-    "L'agent ha finito i tentativi senza mettere in review da solo: sotto può non esserci un deliverable. Rimandandolo indietro riparte sulla stessa sessione.",
-  model_refused:
-    "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua: rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
-  fanout:
-    "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi. Gli altri vengono buttati.",
-  parked_children:
-    "Non è un blocco, è una domanda: gli unici sottotask aperti sono parcheggiati in backlog, dove nessun dispatcher li prende. Rispondi coi due bottoni e il task riparte da solo.",
+  retries_exhausted: 'board.systemDelivery.retriesExhausted',
+  model_refused: 'board.systemDelivery.modelRefused',
+  fanout: 'board.systemDelivery.fanout',
+  parked_children: 'board.systemDelivery.parkedChildren',
 };
 
 /** Il testo giusto per una consegna di sistema, causa nota o meno. */
-export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string {
-  return reason
-    ? SYSTEM_DELIVERY_REASON[reason]
-    : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable. Guarda il thread prima di aprire il diff.";
+export function systemDeliveryNote(reason: BoardTask['deliveredReason'], tr: Translate): string {
+  return tr(reason ? SYSTEM_DELIVERY_REASON[reason] : 'board.systemDelivery.unknown');
 }
 
 /** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
@@ -168,10 +169,10 @@ export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string
  * resta intero: cambia la parola, non il chip.
  */
 const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout' | 'parked_children', string> = {
-  retries_exhausted: 'turni finiti',
-  model_refused: 'agent bloccato',
-  fanout: 'scegli il tentativo',
-  parked_children: 'sottotask parcheggiati',
+  retries_exhausted: 'board.systemDelivery.chip.retriesExhausted',
+  model_refused: 'board.systemDelivery.chip.modelRefused',
+  fanout: 'board.systemDelivery.chip.fanout',
+  parked_children: 'board.systemDelivery.chip.parkedChildren',
 };
 
 /**
@@ -187,13 +188,14 @@ const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fano
  */
 export function systemDeliveryChip(
   task: Pick<BoardTask, 'status' | 'deliveredBy' | 'deliveredReason'>,
+  tr: Translate,
 ): { label: string; title: string } | null {
   if (task.status !== 'review' || task.deliveredBy !== 'system') return null;
   return {
     // Causa non registrata: si dice il fatto certo — l'ha portata il sistema —
     // senza affermare che sotto non ci sia niente, che qui non lo sappiamo.
-    label: task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'portata dal sistema',
-    title: systemDeliveryNote(task.deliveredReason),
+    label: tr(task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'board.systemDelivery.chip.unknown'),
+    title: systemDeliveryNote(task.deliveredReason, tr),
   };
 }
 
@@ -278,18 +280,19 @@ export function isUnfinishedReview(
  */
 export function blockedByChip(
   task: Pick<BoardTask, 'blockedByTaskId' | 'blockedBy'>,
+  tr: Translate,
 ): { label: string; title: string } | null {
   if (!task.blockedByTaskId) return null;
   const b = task.blockedBy;
   if (b && (b.status === 'done' || b.archived)) return null;
   return b
     ? {
-      label: `aspetta: ${b.text}`,
-      title: `Questa card aspetta «${b.text}»: non parte finché quella non chiude.`,
+      label: tr('board.blocked.on', { what: b.text }),
+      title: tr('board.blocked.onTitle', { what: b.text }),
     }
     : {
-      label: 'aspetta un altro task',
-      title: 'Questa card aspetta un altro task: non parte finché quello non chiude. Il titolo non è disponibile qui.',
+      label: tr('board.blocked.unknown'),
+      title: tr('board.blocked.unknownTitle'),
     };
 }
 
@@ -304,12 +307,13 @@ export function blockedByChip(
  */
 export function waitingOnThisChip(
   task: Pick<BoardTask, 'waitingOnCount' | 'status'>,
+  tr: Translate,
 ): { label: string; title: string } | null {
   const n = task.waitingOnCount;
   if (n <= 0 || task.status === 'done') return null;
   return n === 1
-    ? { label: '1 la aspetta', title: 'Un task aspetta questa card: parte da solo quando la chiudi.' }
-    : { label: `${n} la aspettano`, title: `${n} task aspettano questa card: partono da soli quando la chiudi.` };
+    ? { label: tr('board.waitingOnThis.one'), title: tr('board.waitingOnThis.oneTitle') }
+    : { label: tr('board.waitingOnThis.many', { n }), title: tr('board.waitingOnThis.manyTitle', { n }) };
 }
 
 /**
@@ -330,20 +334,21 @@ export function waitingOnThisChip(
  */
 export function subtaskWorkChip(
   task: Pick<BoardTask, 'subtaskWork'>,
+  tr: Translate,
 ): { kind: SubtaskWork['kind']; label: string; title: string } | null {
   const w = task.subtaskWork;
   if (!w) return null;
   if (w.kind === 'unattended') {
     return {
       kind: 'unattended',
-      label: 'nessuno la lavora',
-      title: 'In corso, ma senza agente suo e senza nessun antenato al lavoro: è rimasta qui. Rimettila in coda o chiudila.',
+      label: tr('board.subtaskWork.unattended'),
+      title: tr('board.subtaskWork.unattendedTitle'),
     };
   }
   return {
     kind: 'parent-turn',
-    label: 'nel turno del padre',
-    title: `La lavora l'agente di: ${w.ancestor.text}`,
+    label: tr('board.subtaskWork.parentTurn'),
+    title: tr('board.subtaskWork.parentTurnTitle', { what: w.ancestor.text }),
   };
 }
 
@@ -399,21 +404,26 @@ export function subtaskOpenable(
  */
 export function reopenedChip(
   task: Pick<BoardTask, 'reopenedAt' | 'reopenedBy' | 'reopenedActor'>,
+  tr: Translate,
+  locale?: string,
 ): { label: string; title: string; detail: string } | null {
   if (!task.reopenedAt) return null;
   const when = new Date(task.reopenedAt);
-  const quando = Number.isNaN(when.getTime()) ? task.reopenedAt : when.toLocaleString('it-IT');
+  // The date follows the reader, not the machine that wrote it: pinning it to
+  // one locale was the same defect as pinning the sentence around it.
+  const quando = Number.isNaN(when.getTime()) ? task.reopenedAt : when.toLocaleString(locale);
   const chi = task.reopenedActor === 'human'
-    ? 'da te'
+    ? tr('board.reopened.byYou')
     : task.reopenedActor === 'system'
-      ? 'dal sistema'
-      : `da un agent${task.reopenedBy ? ` (${task.reopenedBy})` : ''}`;
+      ? tr('board.reopened.bySystem')
+      : tr(task.reopenedBy ? 'board.reopened.byNamedAgent' : 'board.reopened.byAgent', { who: task.reopenedBy ?? '' });
   // `detail` è la stessa frase senza preamboli: la banda del drawer ha già la
   // parola «Riaperta» in grassetto e ripeterla la renderebbe illeggibile.
+  const detail = tr('board.reopened.detail', { who: chi, when: quando });
   return {
-    label: 'riaperta',
-    detail: `${chi} il ${quando}`,
-    title: `Aveva consegnato: riaperta ${chi} il ${quando}. Il motivo è nel thread della card.`,
+    label: tr('board.reopened.label'),
+    detail,
+    title: tr('board.reopened.title', { detail }),
   };
 }
 
