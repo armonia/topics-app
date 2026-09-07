@@ -124,6 +124,7 @@ import { envDataDir } from "../lib/data-dir";
 import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-hold";
 import { clearPlanUsage, clearProviderHold } from "../lib/provider-hold";
 import { observePlanUsage } from "../providers/native/usage-window";
+import { partialTurnRows } from "../lib/partial-turn-fixture";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -394,6 +395,30 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         Array.isArray(body?.blocks) && body.blocks.length ? (body.blocks as never) : undefined,
       );
       return json({ ok: true, message: stored });
+    }
+
+    // POST /api/test/streams/partial {sessionKey, finishedTools?, toolKb?}
+    //
+    // A TURN IN FLIGHT: the partial assistant row plus the in-memory registry
+    // entry that makes the WS open handler replay it (`stream:catchup`). Both
+    // halves are needed and neither can be produced from outside: the row is
+    // written by the streaming layer and the registry entry by `startStream`,
+    // so a real one takes a provider answering. Without this verb the weight
+    // of the catch-up frame could only be measured against production, which
+    // is where it was found (2,828,244 B on 4 turns) and is not a place to
+    // measure twice. `scripts/ws-catchup-probe.ts` seeds through here.
+    if (method === "POST" && pathname === "/api/test/streams/partial") {
+      const body = (await req.json().catch(() => null)) as
+        { sessionKey?: string; finishedTools?: number; toolKb?: number } | null;
+      const sessionKey = body?.sessionKey;
+      if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+      const turn = partialTurnRows(sessionKey, {
+        finishedTools: Number(body?.finishedTools ?? 6),
+        toolKb: Number(body?.toolKb ?? 4),
+      });
+      ctx.saveLocalMessages(sessionKey, turn.rows);
+      ctx.startStream(sessionKey, turn.messageId);
+      return json({ ok: true, messageId: turn.messageId, toolCalls: turn.toolCalls });
     }
 
     // POST /api/test/tasks/:taskId/anchored-comment {content, author?, messageId}

@@ -316,9 +316,25 @@ restare interi. Misurato su un discorso vero di 17 messaggi: 2,6 MB e 1,4 s
 per aprire la chat, con `args` e `detail` di un solo blocco shell a 33 KB
 ciascuno contro 174 byte dichiarati tolti. Il testo intero SHALL tornare dalla
 porta del dettaglio quando la riga si apre, e ciò che la riga aperta mostra,
-copia o apre SHALL essere il testo intero, mai l'anteprima. Lo streaming dal
-vivo NON cambia: i blocchi di un turno in corso arrivano interi, la magrezza è
-della sola storia.
+copia o apre SHALL essere il testo intero, mai l'anteprima. I DELTA di uno
+streaming dal vivo NON cambiano: i blocchi di un turno in corso arrivano interi.
+
+Il RECUPERO di un turno in volo, che si paga a ogni apertura di socket (un
+aggiornamento di pagina, una seconda finestra, una riconnessione, un pannello
+che si monta), SHALL portare ogni chiamata di strumento UNA volta sola: il
+secchiello legacy accanto ai blocchi che già le contengono è una seconda copia.
+Delle chiamate FINITE (`success`, `error`) SHALL portare solo ciò che la riga
+chiusa disegna, con la misura tolta dichiarata; quella ANCORA IN CORSO SHALL
+viaggiare INTERA, perché il suo testo è ciò che si sta guardando e una misura
+dichiarata su di essa farebbe coprire il vivo con la fotografia del database.
+Misurato su un'istanza viva con 4 turni in volo: 2.828.244 B di recupero a ogni
+socket.
+
+#### Scenario: un socket che si apre con quattro turni in volo
+- **GIVEN** quattro turni in corso, ognuno con chiamate di strumento già finite e una in corso
+- **WHEN** un client apre il socket
+- **THEN** il recupero SHALL restare sotto il budget in byte, senza il secchiello legacy accanto ai blocchi
+- **AND** la chiamata ancora in corso SHALL arrivare con testo e argomenti interi
 
 #### Scenario: una chiamata con 30 KB di argomenti
 - **GIVEN** una storia con venti chiamate di strumento da 30 KB di argomenti ciascuna

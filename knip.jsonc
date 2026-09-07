@@ -104,6 +104,10 @@
         // non puo' essere un test — il test legge il JSON che questo ha scritto.
         "scripts/build-review-queue-fixture.ts!",
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        // `bun run scripts/boot-sweep-probe.ts [db]` — read-only probe that
+        // replays the three boot-sweep SELECTs with and without the archived
+        // filter. Run by hand against a copy of a database; imported by nobody.
+        "scripts/boot-sweep-probe.ts!",
         // Le tre sonde di performance CITATE in `docs/perf-map.md`: si lanciano
         // per path (`bun run scripts/layer-growth.ts`), non da package.json,
         // quindi per knip erano file morti e tenevano `check:deadcode` rosso su
@@ -134,6 +138,11 @@
         // sul server: tocca una sola GET), e non la importa nessuno tranne il
         // suo test.
         "scripts/fd-leak-probe.ts!",
+        // `bun run scripts/ws-catchup-probe.ts` [E2E_PORT=… PROBE_STREAMS=…]:
+        // seeds N turns in flight on the TEST server and counts the bytes one
+        // socket open costs, per frame type. Run by hand, and it never writes
+        // on the socket it measures.
+        "scripts/ws-catchup-probe.ts!",
         "scripts/effort-variance.ts!",
         // Le due migrazioni una tantum sul DB della board, entrambe in sola
         // lettura finche' non ricevono `--apply`: `bun run

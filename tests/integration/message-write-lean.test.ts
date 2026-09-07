@@ -25,6 +25,7 @@ import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext, StoredMessage } from "../../server/types";
 import type { ToolCall, ContentBlock } from "../../shared/types";
+import { decodeCol } from "../../shared/message-blob";
 
 const TEST_DATA = testTmpDir("message-write-lean-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
@@ -57,11 +58,18 @@ function seedFatRow(ctx: AppContext, sessionKey: string): StoredMessage {
   return ctx.loadLocalMessages(sessionKey).filter((m) => m.role === "assistant")[0]!;
 }
 
-/** Byte grezzi delle due colonne grosse, letti fuori da ogni idratazione. */
+/**
+ * The two fat columns, read outside any hydration.
+ *
+ * They go through `decodeCol` because the writer stores `blocks` compressed
+ * above 512 bytes: without it the byte-for-byte comparisons below would run
+ * between two `Uint8Array`, which `toBe` does not look inside. On a plaintext
+ * column `decodeCol` is the identity, so the bar is the same one as before.
+ */
 function rawFatColumns(ctx: AppContext, id: string): { blocks: string | null; toolCalls: string | null } {
   const row = ctx.db.prepare("SELECT blocks, tool_calls FROM messages WHERE id = ?").get(id) as
-    { blocks: string | null; tool_calls: string | null };
-  return { blocks: row.blocks, toolCalls: row.tool_calls };
+    { blocks: unknown; tool_calls: unknown };
+  return { blocks: decodeCol(row.blocks), toolCalls: decodeCol(row.tool_calls) };
 }
 
 /** Somma dei byte passati a `JSON.parse` mentre gira `fn`. */
@@ -252,12 +260,17 @@ function writeWithoutCopy(id: string): ToolCall {
   } as ToolCall;
 }
 
-/** I byte grezzi delle due colonne grosse, sommati come li conta la barra. */
+/**
+ * The bytes of the two fat columns, summed the way the bar counts them.
+ *
+ * DECOMPRESSED on purpose. `LENGTH(blocks)` on disk would measure zstd, and the
+ * measurement below (the copy nobody looks at does not reach the disk) would go
+ * green on the codec's merit even if the copy came back. A gate that buys its
+ * green from another change is not a gate any more.
+ */
 function weightRow(ctx: AppContext, id: string): number {
-  const row = ctx.db.prepare(
-    "SELECT COALESCE(LENGTH(blocks), 0) + COALESCE(LENGTH(tool_calls), 0) AS n FROM messages WHERE id = ?",
-  ).get(id) as { n: number };
-  return row.n;
+  const { blocks, toolCalls } = rawFatColumns(ctx, id);
+  return (blocks?.length ?? 0) + (toolCalls?.length ?? 0);
 }
 
 /** Scrive un turno con quella tool call passando dai mutatori veri dello stream. */
@@ -284,16 +297,15 @@ describe("la copia che nessuno guarda non arriva sul disco", () => {
     const sk = "topic:disk-lean-copia";
     const id = turnWithTool(ctx, sk, shellDoppia("tc-copia"));
 
-    const grezzo = ctx.db.prepare("SELECT blocks, tool_calls FROM messages WHERE id = ?").get(id) as
-      { blocks: string | null; tool_calls: string | null };
+    const grezzo = rawFatColumns(ctx, id);
     // L'output c'e' UNA volta per colonna: quella dentro `detail`, che e' il
     // campo che il disegno legge davvero. Si cerca la forma ESCAPED, che e'
     // come la stringa vive dentro il JSON della colonna.
     const inJson = JSON.stringify(OUTPUT).slice(1, -1);
     expect(occorrenze(grezzo.blocks ?? "", inJson)).toBe(1);
-    expect(occorrenze(grezzo.tool_calls ?? "", inJson)).toBe(1);
+    expect(occorrenze(grezzo.toolCalls ?? "", inJson)).toBe(1);
     expect(grezzo.blocks).not.toContain('"result"');
-    expect(grezzo.tool_calls).not.toContain('"result"');
+    expect(grezzo.toolCalls).not.toContain('"result"');
 
     // E il testo si legge ancora, dal campo dove vive.
     const riga = ctx.getMessageById(id)!;

@@ -228,9 +228,12 @@ test.describe("Project folder loader", () => {
     await expect(childRow).toHaveCount(0);
 
     // The glyph is the ORBIT, not the old three-bar equaliser: inside the slot
-    // there is ONE square element made of two round layers, the still track and
-    // the sweep turning over it. An equaliser would be N oblong bars, and a
-    // progress arc would be one layer, so the shape alone tells them apart.
+    // there is ONE square element made of two layers, the still round track and
+    // the arc turning over it. Since 2026-09-07 the arc is lucide's
+    // `LoaderCircle` (an SVG, so it has no CSS border-radius of its own) drawn
+    // over a masked disc; before it was a second round span. An equaliser would
+    // be N oblong bars, and a progress arc would be one layer, so the shape
+    // alone still tells them apart.
     const orbit = await rollupLoader.evaluate((el) => {
       const glyph = el.firstElementChild as HTMLElement | null;
       if (!glyph) return null;
@@ -238,6 +241,7 @@ test.describe("Project folder loader", () => {
       return {
         square: Math.round(box.width) === Math.round(box.height),
         layers: [...glyph.children].map((layer) => ({
+          tag: layer.tagName.toLowerCase(),
           radius: getComputedStyle(layer).borderRadius,
           spinning: layer.classList.contains("animate-orbit-spin"),
         })),
@@ -246,7 +250,8 @@ test.describe("Project folder loader", () => {
     expect(orbit, "the loader slot holds a glyph").not.toBeNull();
     expect(orbit!.square, "a ring is square, a bar is not").toBe(true);
     expect(orbit!.layers.length, "track + sweep").toBe(2);
-    expect(orbit!.layers.every((l) => l.radius === "50%")).toBe(true);
+    expect(orbit!.layers[0].radius, "the track is a disc").toBe("50%");
+    expect(orbit!.layers[1].tag, "the sweep is the lucide arc").toBe("svg");
     expect(orbit!.layers.filter((l) => l.spinning).length, "only the sweep turns").toBe(1);
 
     // The live number wears the live voice, so it cannot be read as the grey
