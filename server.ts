@@ -2,6 +2,7 @@ import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
+import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
@@ -42,6 +43,7 @@ import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
 import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
@@ -3731,21 +3733,13 @@ const opzioniServer = {
         // Dalla stessa porta della raffica: questo frame porta il TESTO di un
         // turno a metà, ed è quello che un ospite non deve vedere per una chat
         // che non è sua.
-        inviaIniziale({
-          type: "stream:catchup",
-          sessionKey,
-          topicId,
-          messageId: stream.messageId,
-          content: stream.content,
-          thinking: stream.thinking,
-          isThinking: stream.isThinking,
-          toolCalls: partial.toolCalls,
-          blocks: partial.blocks,
-          // The wait the turn is in, if any: `stream:retry` / `stream:slow`
-          // were broadcast before this client existed (`ActiveStream.retry`).
-          ...(stream.retry ? { retry: stream.retry } : {}),
-          ...(stream.slow ? { slow: true } : {}),
-        });
+        //
+        // The shape of the payload lives in `buildStreamCatchupFrame`: the
+        // legacy `toolCalls` bucket is dropped when the blocks carry the same
+        // calls, and the calls that are OVER travel with their large text
+        // blanked. Why, and what stays whole, is documented there; the budget
+        // is tests/integration/catchup-payload-weight.test.ts.
+        inviaIniziale(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
       }
     },
     message(ws, message) {
@@ -4372,7 +4366,8 @@ function finalizeOrphanedRunningTools() {
     const rowIter = db.prepare(
       `SELECT id, session_key, content, tool_calls, blocks FROM messages
        WHERE timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
+         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
+         AND ${NOT_ARCHIVED_SQL}`
     ).iterate() as Iterable<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
     const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
     const rows: Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }> = [];
@@ -4445,7 +4440,8 @@ function finalizeOrphanedRunningTools() {
       `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
          AND (content IS NULL OR trim(content) = '')
          AND timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)`
+         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
+         AND ${NOT_ARCHIVED_SQL}`
     ).iterate() as Iterable<{ id: string; tool_calls: unknown; blocks: unknown }>;
     const INTERROTTO_RE = /Interrotto/;
     let explainCount = 0;

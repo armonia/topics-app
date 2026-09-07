@@ -193,7 +193,7 @@ test.describe.serial("Coda dei messaggi", () => {
 
     // …e quello che parte è il testo CORRETTO, non quello scritto all'inizio.
     state.hang = false;
-    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await page.getByRole("button", { name: /Stop streaming/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await chatPage.messageInput.fill("ultimo");
     await chatPage.messageInput.press("Enter");
@@ -284,7 +284,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect(sendNow).toHaveAttribute("data-queue-busy", "true");
 
     state.hang = false;
-    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await page.getByRole("button", { name: /Stop streaming/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await expect(queuedBubbles(page)).toHaveCount(1);
     // Still rendered, now marked idle: the label promises firing, not stopping.
@@ -314,7 +314,7 @@ test.describe.serial("Coda dei messaggi", () => {
 
     // Buttato vuol dire buttato: a turno finito non riappare da nessuna parte.
     state.hang = false;
-    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await page.getByRole("button", { name: /Stop streaming/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await chatPage.messageInput.fill("altro");
     await chatPage.messageInput.press("Enter");
@@ -350,7 +350,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
     await expect(chatPage.messageInput).toHaveValue("");
 
-    const stop = page.getByRole("button", { name: /Stop generating/ }).first();
+    const stop = page.getByRole("button", { name: /Stop streaming/ }).first();
     await expect(stop).toBeVisible({ timeout: 5_000 });
     await stop.click();
 
@@ -398,7 +398,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // arancione attaccata al bordo inferiore del composer.)
     await expect(queuedBubbles(page)).toHaveCount(2, { timeout: 10_000 });
 
-    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await page.getByRole("button", { name: /Stop streaming/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
 
     // L'umano riprende scrivendo. Da qui gli invii vanno a buon fine subito.
@@ -530,7 +530,7 @@ test.describe.serial("Coda dei messaggi", () => {
     // vero. Gli invii sono in ordine, quindi un `/help` accodato comparirebbe
     // prima di «secondo» — o fuso dentro il suo prompt.
     state.hang = false;
-    await page.getByRole("button", { name: /Stop generating/ }).first().click();
+    await page.getByRole("button", { name: /Stop streaming/ }).first().click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await chatPage.messageInput.fill("secondo");
     await chatPage.messageInput.press("Enter");
