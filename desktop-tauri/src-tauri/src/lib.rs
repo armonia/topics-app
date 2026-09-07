@@ -1976,12 +1976,14 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                     // natural spacing: on this custom-titlebar (hidden-title Overlay)
                     // window AppKit lays the standard buttons out with a wider-than-
                     // native pitch, so the cluster reads as "too far apart". Pin each
-                    // button to LEFT_INSET + i*PITCH to reproduce the native tight
-                    // group. LEFT_INSET=12 keeps Electron's trafficLightPosition.x;
-                    // PITCH=20 is the standard macOS traffic-light origin spacing
-                    // (~14px buttons, ~6px gap).
+                    // button to LEFT_INSET + i*PITCH to reproduce the native group.
+                    // The macOS standard is three 12px circles with 8px between
+                    // them: a 20px origin pitch and a 52px cluster. LEFT_INSET=12
+                    // keeps Electron's trafficLightPosition.x, so the cluster spans
+                    // x=12..64 in the window. The client mirrors these numbers in
+                    // `client/src/lib/shell/windowControlsGeometry.ts`.
                     const LEFT_INSET: f64 = 12.0;
-                    const PITCH: f64 = 18.0;
+                    const PITCH: f64 = 20.0;
                     for (i, button) in [
                         NS_WINDOW_CLOSE_BUTTON,
                         NS_WINDOW_MINIATURIZE_BUTTON,

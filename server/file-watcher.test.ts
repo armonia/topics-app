@@ -34,7 +34,18 @@ type Frame = { type: string; projectPath?: string };
  * the event is quick, so the ceiling is set where only a real hang reaches it,
  * under the 40 s the shard runner gives a test.
  */
-async function until(cond: () => boolean, budgetMs = 30_000): Promise<boolean> {
+/**
+ * How long a test of this file may take. Twenty-five OS watchers are armed on a
+ * fresh temp tree and then a write has to travel through the kernel: that is
+ * I/O, and on a machine running the whole sharded suite at once it can take
+ * longer than the suite's 30s default. Seen red exactly there on 2026-09-07,
+ * green alone on the same commit, which is the signature of a budget that
+ * measures the load instead of the code. The budget is never spent when the
+ * watcher works: `until` returns on the first matching frame.
+ */
+const WATCHER_TEST_MS = 60_000;
+
+async function until(cond: () => boolean, budgetMs = WATCHER_TEST_MS / 2): Promise<boolean> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     if (cond()) return true;
@@ -78,7 +89,7 @@ describe("file watcher cap", () => {
     writeFileSync(join(last, "a.txt"), "uno\n");
     const arrived = await until(() => sent.some(f => f.type === "files:changed" && f.projectPath === last));
     expect(arrived, "the twenty-fifth project must broadcast like the first").toBe(true);
-  });
+  }, WATCHER_TEST_MS);
 
   test("a deleted folder gives its slot back before a live one is evicted", async () => {
     const root = mkdtempSync(join(tmpdir(), "fswatch-gone-"));
@@ -102,9 +113,10 @@ describe("file watcher cap", () => {
     // the same question through a `files:changed` made the answer depend on
     // how long twenty-five recursive watchers take to hand over one event on a
     // loaded machine: red at 6 s, then red again at 30 s, both times on cards
-    // that had not touched the watcher (2026-09-06, 2026-09-07). What a
-    // broadcast really proves - that a watcher past the cap fires at all - is
-    // the test above, and that one keeps waiting for the event.
+    // that had not touched the watcher (2026-09-06, 2026-09-07). The budget
+    // above is what covers the test that still waits for an event; this one no
+    // longer spends it. What a broadcast really proves - that a watcher past
+    // the cap fires at all - is the test above.
     const watching = watchedProjectPaths();
     expect(watching, "the deleted project gives its slot up").not.toContain(gone);
     expect(watching, "the oldest live project keeps its watcher").toContain(oldest);
