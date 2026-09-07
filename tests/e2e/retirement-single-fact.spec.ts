@@ -38,10 +38,9 @@ test.describe.serial("Il ritiro ha un registro solo", () => {
     topicId = topic.id;
     // QUI NON SI CREA UNA SESSIONE DI TERMINALE, e non è una dimenticanza.
     // Il PTY-bridge è un sidecar nativo che non è presente in ogni checkout:
-    // senza, `POST /api/terminal/sessions` risponde 502 e — cinque secondi dopo
-    // — il rigetto di `awaitBridgeCreate` fa cadere il server di test, il che
-    // trasforma questo file in otto ECONNREFUSED che accusano il codice
-    // sbagliato. Il caso terminale è provato in
+    // senza, `POST /api/terminal/sessions` risponde 502 e questo file
+    // diventerebbe otto rossi che accusano il codice sbagliato. (Il 502 non
+    // abbatte più il server: vedi TERM-10.) Il caso terminale è provato in
     // `server/routes/ui-state.retirement.test.ts`, che esercita la stessa
     // cascata sul router vero e gira sempre; qui si prova ciò che solo il
     // client vero può provare — che dopo un giro completo di chiusura e

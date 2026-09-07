@@ -25,6 +25,7 @@ import { classifyFrame, countsAsActivity, isInputEcho, isResizeRepaint } from ".
 // The same verdict the AI bridge already reached for the same question: a late
 // pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
 import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
+import { BridgeCreateAcks } from "../lib/bridge-create-ack";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { agentAuthOk } from "../lib/agent-auth";
 import { clientProjectPathRefused } from "../lib/client-project-path";
@@ -968,31 +969,11 @@ function sendToBridge(msg: any) {
 // {type:'created', id} or {type:'error', error}. Without this gate the
 // API returned 200 even when pty.spawn threw inside the bridge — the
 // user got an empty terminal pane and no clue why.
-const pendingCreates = new Map<string, { resolve: (pid: number) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-
-function awaitBridgeCreate(id: string, timeoutMs = 5000): Promise<number> {
-  return new Promise((resolve, reject) => {
-    // A second create for the same id used to overwrite the entry and LEAK its
-    // timer: the first waiter never resolved nor rejected (its map entry was
-    // gone), and its orphan timer later fired a `pendingCreates.delete(id)` that
-    // stole the ack belonging to the SECOND create. Fail the earlier waiter
-    // explicitly and clear its timer, so at most one create is outstanding per
-    // id and the caller sees a real error instead of a hang.
-    const prev = pendingCreates.get(id);
-    if (prev) {
-      clearTimeout(prev.timer);
-      pendingCreates.delete(id);
-      prev.reject(new Error(`Superseded by a newer create for session ${id}`));
-    }
-    const timer = setTimeout(() => {
-      // Only drop the entry if it is still OURS: a later create may have
-      // replaced it between the timer firing and this line.
-      if (pendingCreates.get(id)?.timer === timer) pendingCreates.delete(id);
-      reject(new Error(`Bridge did not ack create within ${timeoutMs}ms`));
-    }, timeoutMs);
-    pendingCreates.set(id, { resolve, reject, timer });
-  });
-}
+//
+// The register lives in server/lib/bridge-create-ack.ts, where its own header
+// explains why: an ack that arrives AFTER the caller gave up used to be an
+// unhandled rejection, and an unhandled rejection kills the whole server.
+const pendingCreates = new BridgeCreateAcks();
 
 // --- Bridge spawn-failure circuit breaker ---
 // After N consecutive 'error' replies from the bridge, treat the bridge
@@ -1028,12 +1009,7 @@ function handleBridgeMessage(msg: any) {
   switch (msg.type) {
     case "created": {
       consecutiveSpawnErrors = 0;
-      const pending = pendingCreates.get(msg.id);
-      if (pending) {
-        clearTimeout(pending.timer);
-        pendingCreates.delete(msg.id);
-        pending.resolve(msg.pid);
-      }
+      pendingCreates.settle(msg.id, msg.pid);
       break;
     }
     case "error": {
@@ -1047,16 +1023,9 @@ function handleBridgeMessage(msg: any) {
       // catch block in handleMessage — but it doesn't know the id, so
       // we fall back to failing every pending create.
       if (msg.id && pendingCreates.has(msg.id)) {
-        const pending = pendingCreates.get(msg.id)!;
-        clearTimeout(pending.timer);
-        pendingCreates.delete(msg.id);
-        pending.reject(new Error(msg.error || 'Bridge error'));
+        pendingCreates.fail(msg.id, new Error(msg.error || 'Bridge error'));
       } else {
-        for (const [id, pending] of pendingCreates) {
-          clearTimeout(pending.timer);
-          pending.reject(new Error(msg.error || 'Bridge error'));
-          pendingCreates.delete(id);
-        }
+        pendingCreates.failAll(new Error(msg.error || 'Bridge error'));
       }
       if (consecutiveSpawnErrors >= SPAWN_ERROR_LIMIT) {
         consecutiveSpawnErrors = 0;
@@ -1817,7 +1786,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   // binary, lost session context), throw — the API handler returns
   // 502 and the user sees a real error instead of an empty xterm
   // pane that silently never produces output.
-  const ackPromise = awaitBridgeCreate(id);
+  const ackPromise = pendingCreates.wait(id);
   let ptyPid: number | undefined;
   // Stamp the spawn instant so the codex rollout-id discovery (below) only
   // considers a rollout written at/after this launch, not a stale one.
@@ -1826,7 +1795,11 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     sendToBridge({ type: "create", id, shell: file, args, cwd, cols, rows, ...(env ? { env } : {}) });
     ptyPid = await ackPromise; // bridge resolves the create-ack with the PTY pid
   } catch (err) {
-    pendingCreates.delete(id);
+    // `sendToBridge` throws synchronously when the socket is gone, so this
+    // catch can run with the wait still counting down and nobody left to hear
+    // its verdict. Cancel it: the register already makes the late rejection
+    // harmless, this stops it from happening at all.
+    pendingCreates.cancel(id);
     throw err;
   }
 
