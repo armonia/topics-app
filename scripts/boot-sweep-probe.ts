@@ -18,10 +18,10 @@ import { decodeCol, encodeCol } from "../shared/message-blob";
 import { NOT_ARCHIVED_SQL } from "../server/lib/archived-scope";
 
 const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
-const INTERROTTO_RE = /Interrotto/;
+const INTERRUPTED_RE = /Interrotto/;
 
 /** The three passes, with the filter spliced in or replaced by a no-op. */
-function queries(filtered: boolean): Array<{ name: string; sql: string; re: RegExp }> {
+function sweepPasses(filtered: boolean): Array<{ name: string; sql: string; re: RegExp }> {
   const scope = filtered ? NOT_ARCHIVED_SQL : "1 = 1";
   return [
     {
@@ -33,14 +33,14 @@ function queries(filtered: boolean): Array<{ name: string; sql: string; re: RegE
     },
     {
       name: "pass 2 (mute turns)",
-      re: INTERROTTO_RE,
+      re: INTERRUPTED_RE,
       sql: `SELECT id, blocks FROM messages WHERE role = 'assistant'
               AND blocks IS NOT NULL AND partial = 0
               AND timestamp >= date('now', '-30 days') AND ${scope}`,
     },
     {
       name: "pass 3 (missing explanation)",
-      re: INTERROTTO_RE,
+      re: INTERRUPTED_RE,
       sql: `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
               AND (content IS NULL OR trim(content) = '')
               AND timestamp >= date('now', '-30 days') AND partial = 0
@@ -54,7 +54,7 @@ type Row = { tool_calls?: unknown; blocks?: unknown };
 function run(db: Database, filtered: boolean): { rows: number; hits: number; bytes: number; ms: number } {
   let rows = 0, hits = 0, bytes = 0;
   const t0 = performance.now();
-  for (const q of queries(filtered)) {
+  for (const q of sweepPasses(filtered)) {
     for (const r of db.prepare(q.sql).iterate() as Iterable<Row>) {
       rows++;
       const text = (decodeCol(r.tool_calls) ?? "") + (decodeCol(r.blocks) ?? "");
@@ -71,15 +71,15 @@ function synthetic(): Database {
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, tool_calls BLOB, blocks BLOB, partial INTEGER DEFAULT 0, timestamp TEXT)`);
   db.run(`CREATE TABLE topics (session_key TEXT, archived INTEGER)`);
   const now = new Date().toISOString();
-  const ins = db.prepare(`INSERT INTO messages VALUES (?, ?, 'assistant', '', ?, ?, 0, ?)`);
-  const insTopic = db.prepare(`INSERT INTO topics (session_key, archived) VALUES (?, ?)`);
+  const insertMessage = db.prepare(`INSERT INTO messages VALUES (?, ?, 'assistant', '', ?, ?, 0, ?)`);
+  const insertTopic = db.prepare(`INSERT INTO topics (session_key, archived) VALUES (?, ?)`);
   const pad = "x".repeat(40_000);
   const blob = (status: string) => encodeCol(JSON.stringify([{ kind: "tool", toolCall: { id: "t", status, output: pad } }]));
   for (let i = 0; i < 1_500; i++) {
     const archived = i >= 30;
     const key = `sk-${i}`;
-    insTopic.run(key, archived ? 1 : 0);
-    ins.run(`m${i}`, key, blob("running") as never, blob("running") as never, now);
+    insertTopic.run(key, archived ? 1 : 0);
+    insertMessage.run(`m${i}`, key, blob("running") as never, blob("running") as never, now);
   }
   return db;
 }
