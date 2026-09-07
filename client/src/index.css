@@ -1256,6 +1256,20 @@ html, body {
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
+/* THE ROOM FOR THE NATIVE LIGHTS, eased on the sidebar's own clock.
+   `--content-chrome-inset` is set by App.tsx on #main-content and on the
+   floating toggle (a sibling of the content, so it inherits nothing), and is
+   read as padding-left by the chrome row that owns the sidebar toggle and as
+   `left` by the two toggle buttons (StandaloneChatGroup.tsx, App.tsx). Its 200ms
+   ease MUST equal `.sidebar-transition` below and SLIDE_MS in
+   useSidebarFlipPush: the content slides left by the sidebar's width while
+   this padding grows to 70, and with one easing curve for both the strip's
+   left edge is 256(1-e) + 70e, monotone and never below 70. Two curves, or
+   two durations, and for a few frames the strip crosses the lights. */
+.content-chrome-inset {
+  transition: padding-left 200ms ease, left 200ms ease;
+}
+
 /* Sidebar transitions */
 .sidebar-transition {
   transition: width 200ms ease, transform 200ms ease, opacity 150ms ease;
