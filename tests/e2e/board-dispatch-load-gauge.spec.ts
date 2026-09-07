@@ -11,12 +11,12 @@
  * one reading:
  *
  *  - GAUGE-01  2 running on a recommended 4: half a ring, "leggero", tone idle.
- *  - GAUGE-02  4 on 4: a full ring, "pieno", tone full.
+ *  - GAUGE-02  4 on 4: a full ring, "pieno", tone full. allow-italian: quotes the UI word the gauge shows
  *  - GAUGE-03  5 on 4: the ring stays full (it cannot overflow) and the tone
  *    is what says "past it": "oltre il limite", tone over.
  *  - GAUGE-04  the numbers live one click away: the popover names the cap mode,
  *    says how the machine derived the ceiling ("12 core → 4", only because the
- *    cap is in auto), counts the agents in flight, and its "Impostazioni"
+ *    cap is in auto), counts the agents in flight, and its "Impostazioni" allow-italian: quotes the button label
  *    button opens the board settings dropdown.
  *  - GAUGE-05  the settings panel shows the SAME reading under the cap knobs:
  *    "{running} di {limit}" with the same tone and fill as the header. Two
@@ -225,13 +225,13 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await expectReading(page, { running: 2, limit: 4, word: "leggero", fill: "0.50", tone: "idle" });
 
     await gear(page).click();
-    const readout = page.getByTestId("board-settings-menu").getByTestId("dispatch-load-readout");
-    await expect(readout).toBeVisible();
-    await expect(readout.getByTestId("dispatch-load-readout-count")).toHaveText("2 di 4");
-    await expect(readout).toContainText("leggero");
-    const line = readout.locator("[data-tone]");
+    const summary = page.getByTestId("board-settings-menu").getByTestId("dispatch-load-summary");
+    await expect(summary).toBeVisible();
+    await expect(summary.getByTestId("dispatch-load-summary-count")).toHaveText("2 di 4");
+    await expect(summary).toContainText("leggero");
+    const line = summary.locator("[data-tone]");
     await expect(line).toHaveAttribute("data-tone", "idle");
     await expect(line).toHaveAttribute("data-fill", "0.50");
-    await expect(readout).toContainText("load macchina 3.2 su 12 core");
+    await expect(summary).toContainText("load macchina 3.2 su 12 core");
   });
 });

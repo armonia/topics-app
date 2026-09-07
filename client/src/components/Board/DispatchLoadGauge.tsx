@@ -38,7 +38,7 @@ import type { GlobalDispatchCap } from '../../lib/board';
 /** Ring geometry. `r` small enough to sit on a badge line, stroke thin enough
  *  that the FILL is what the eye catches and not the ring itself. */
 const RADIUS = 6.5;
-const CIRC = 2 * Math.PI * RADIUS;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /**
  * The ring. `stroke-dasharray` is the fill, `stroke-dashoffset` stays at zero:
@@ -47,7 +47,7 @@ const CIRC = 2 * Math.PI * RADIUS;
  * of "sliding around".
  */
 function LoadRing({ reading, size }: { reading: DispatchLoadReading; size: number }) {
-  const dash = Math.max(0, Math.min(1, reading.fill)) * CIRC;
+  const dash = Math.max(0, Math.min(1, reading.fill)) * CIRCUMFERENCE;
   return (
     <svg
       viewBox="0 0 18 18"
@@ -66,7 +66,7 @@ function LoadRing({ reading, size }: { reading: DispatchLoadReading; size: numbe
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
-        strokeDasharray={`${dash} ${CIRC}`}
+        strokeDasharray={`${dash} ${CIRCUMFERENCE}`}
         transform="rotate(-90 9 9)"
         style={{ transition: 'stroke-dasharray 200ms ease-out' }}
       />
@@ -179,7 +179,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
  * button. The ring and the count say what the knob is doing, the row of numbers
  * says against what.
  */
-export function DispatchLoadReadout() {
+export function DispatchLoadSummary() {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
@@ -190,14 +190,14 @@ export function DispatchLoadReadout() {
   if (cap && cap.availableMemGB != null) numbers.push(tr('board.gauge.freeMem', { free: cap.availableMemGB.toFixed(0), total: cap.totalMemGB.toFixed(0) }));
 
   return (
-    <div className="space-y-0.5 pt-1" data-testid="dispatch-load-readout">
+    <div className="space-y-0.5 pt-1" data-testid="dispatch-load-summary">
       <p
         className={`flex items-center gap-1.5 text-[11px] font-medium tabular-nums ${loadToneClass(reading)}`}
         data-tone={toneAttr(reading)}
         data-fill={reading.fill.toFixed(2)}
       >
         <LoadRing reading={reading} size={12} />
-        <span data-testid="dispatch-load-readout-count">
+        <span data-testid="dispatch-load-summary-count">
           {/* The fraction ONLY where it decides something. Over the ceiling
               "4 of 2" reads as a progress out of a total (the panel has banned
               that reading since KANBAN-07), and under the resources brake there
