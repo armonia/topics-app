@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.286",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "browser_open non puo' nascere dentro la callback IPC di WebView2",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.266",
     "date": "2026-09-06",
     "sections": {
