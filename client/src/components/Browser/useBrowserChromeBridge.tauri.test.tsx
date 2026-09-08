@@ -16,41 +16,52 @@
  * `releaseNativeFocus` is a no-op, which is why the assertion is on the call
  * and not on a focus that no test environment has.
  *
+ * Both modules are imported STATICALLY on purpose. A `const m = await
+ * import(…)` would make this module opaque to knip, and the dead-code gate
+ * would stop seeing every export of the hook (`check:deadcode-blindspots`).
+ * `mock.module` reaches an already-imported module through the live binding, so
+ * the hook calls the spy without the dynamic import.
+ *
  * @covers BROWSER-01
  */
 import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { createElement } from 'react';
 import { mount } from '../../test/reactHarness';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
+import * as tauriShell from '../../lib/shell/tauri';
+import { useBrowserChromeBridge, type BrowserChromeBridge } from './useBrowserChromeBridge';
 
 /** The registry key the hook publishes under, for the context id below. */
 const PANE = 'browser:ctx-keyboard';
 
-type TauriShell = typeof import('../../lib/shell/tauri');
-/** Every export by hand: a restore that lists fewer would leave the missing
- *  ones undefined for every file that runs after this one. */
-let realTauri: Pick<TauriShell, 'tauriInvoke' | 'currentWindowLabel' | 'releaseNativeFocus'>;
+/**
+ * The real exports, captured at load time — before any mock is installed and
+ * every one of them by hand: a restore that lists fewer would leave the missing
+ * ones undefined for every file that runs after this one.
+ */
+const realTauri = {
+  tauriInvoke: tauriShell.tauriInvoke,
+  currentWindowLabel: tauriShell.currentWindowLabel,
+  releaseNativeFocus: tauriShell.releaseNativeFocus,
+};
+
 /** How many times the shell was asked to hand the keyboard back. */
 let released = 0;
-let bridge: typeof import('./useBrowserChromeBridge');
 
-beforeAll(async () => {
-  const { tauriInvoke, currentWindowLabel, releaseNativeFocus } = await import('../../lib/shell/tauri');
-  realTauri = { tauriInvoke, currentWindowLabel, releaseNativeFocus };
+beforeAll(() => {
   mock.module('../../lib/shell/tauri', () => ({
     ...realTauri,
     releaseNativeFocus: () => { released++; },
   }));
-  bridge = await import('./useBrowserChromeBridge');
 });
 
 afterAll(() => {
   mock.module('../../lib/shell/tauri', () => realTauri);
 });
 
-function probe(seen: bridgeValues) {
+function probe(seen: BrowserChromeBridge[]) {
   return function Probe() {
-    seen.push(bridge.useBrowserChromeBridge('ctx-keyboard', {
+    seen.push(useBrowserChromeBridge('ctx-keyboard', {
       url: 'https://example.com/',
       loading: false,
       canGoBack: false,
@@ -63,11 +74,10 @@ function probe(seen: bridgeValues) {
     return null;
   };
 }
-type bridgeValues = Array<ReturnType<typeof bridge.useBrowserChromeBridge>>;
 
 describe('the caret and the native keyboard', () => {
   test('focusAddress asks the shell for the keyboard before requesting the caret', () => {
-    const seen: bridgeValues = [];
+    const seen: BrowserChromeBridge[] = [];
     const h = mount(createElement(probe(seen)));
     try {
       const asksBefore = released;

@@ -238,7 +238,11 @@ test.describe("File Explorer — Git", () => {
     // `[data-testid]` e non il placeholder: la casella e passata da <input> a
     // <textarea> che cresce col testo, e un locator sul tag sarebbe morto li.
     const commitInput = gitChanges.locator('[data-testid="commit-message-input"]');
-    const cleanTree = gitChanges.getByText("Albero di lavoro pulito");
+    // The testid and not the sentence: the label goes through the dictionary
+    // (`git.cleanTree`) and the bench runs in English, so the Italian literal
+    // that used to be here was already a locator that matched nothing —
+    // invisible, because the other two branches of the disjunction covered it.
+    const cleanTree = gitChanges.locator('[data-testid="git-clean-tree"]');
     const sectionHasContent = async () =>
       (await statusIndicators.first().isVisible().catch(() => false)) ||
       (await commitInput.isVisible().catch(() => false)) ||
@@ -456,20 +460,28 @@ test.describe("File Explorer — Git", () => {
     await expect(commitBtn).toBeEnabled();
     await commitBtn.click();
 
-    // After commit, the staged section should clear (clean working tree).
+    // THE SECTION GOES AWAY AFTER THE COMMIT, and that is not a fault:
+    // `hasGitStateToShow` drops a section that has nothing to say — no files, no
+    // commits ahead of or behind the upstream. This bench's repository has no
+    // remote, so `ahead` stays 0 the moment the commit lands and the section
+    // leaves with it. Waiting for "clean tree" inside it is waiting inside a
+    // node that no longer exists.
     //
-    // Aspettare SOLO l'albero pulito rendeva due esiti diversi indistinguibili:
-    // «il commit e' fallito» e «il pannello non si e' aggiornato» finivano
-    // tutt'e due in un timeout muto a 15s. Il pannello ora tiene l'errore di
-    // git al posto suo, quindi si aspetta il primo dei due che arriva e, se e'
-    // l'errore, il rosso porta con se' lo stderr vero di `git commit`.
-    const cleanTree = gitChanges.getByText("Albero di lavoro pulito");
+    // The first of the two outcomes is still what is awaited, because "the
+    // commit failed" and "the panel did not refresh" both used to end in the
+    // same mute 15s timeout: if the error comes, the red carries the real
+    // stderr of `git commit` with it.
     const commitError = gitChanges.locator('[data-testid="commit-error"]');
-    await expect(cleanTree.or(commitError)).toBeVisible({ timeout: 15000 });
-    if (await commitError.isVisible()) {
+    await expect
+      .poll(async () => {
+        if (await commitError.isVisible().catch(() => false)) return "error";
+        return (await gitChanges.isVisible().catch(() => false)) ? "still-there" : "gone";
+      }, { timeout: 15000 })
+      .not.toBe("still-there");
+    if (await commitError.isVisible().catch(() => false)) {
       throw new Error(`git commit rifiutato dal server: ${(await commitError.innerText()).trim()}`);
     }
-    await expect(cleanTree).toBeVisible();
+    await expect(gitChanges).toBeHidden();
   });
 
   /**

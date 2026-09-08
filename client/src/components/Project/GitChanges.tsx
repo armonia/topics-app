@@ -954,7 +954,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   </button>
                 </div>
               ) : (
-              <div className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
+              <div data-testid="git-clean-tree" className="px-3 py-3 text-center text-app-text-tertiary text-[11px]">
                 <CheckCircle size={14} className="mx-auto mb-1 opacity-40" />
                 {tr('git.cleanTree')}
               </div>
@@ -1430,7 +1430,10 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {/* Changed files list */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {gitStatus.files.length === 0 ? (
-            <div className="flex items-center justify-center py-8 text-app-text-tertiary text-[12px]">
+            <div
+              data-testid={gitStatus.folderUntracked ? 'git-folder-untracked' : 'git-clean-tree'}
+              className="flex items-center justify-center py-8 text-app-text-tertiary text-[12px]"
+            >
               <div className="text-center">
                 <CheckCircle size={24} className="mx-auto mb-2 opacity-30" />
                 <p>{gitStatus.folderUntracked

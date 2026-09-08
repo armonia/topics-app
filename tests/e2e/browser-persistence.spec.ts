@@ -116,11 +116,21 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
       // populated. HARD assert — the old `if (…url)` guard made this dead: it
       // silently passed whenever the hook failed to populate, which is exactly
       // the regression it was meant to catch.
-      const topicRes = await request.get(`${BASE}/api/topics`);
+      //
+      // ASKED OF ONE TOPIC, not of the list. `GET /api/topics` is the boot
+      // payload, remade on every reconnect and written whole into localStorage,
+      // and since 2026-09-05 it deliberately leaves out `browser_state` (and the
+      // system prompt) for every row: 277 KB that no list draws. Reading it
+      // there was asserting on a field the endpoint had stopped shipping, which
+      // is a red about the payload's diet and not about the hook. One topic,
+      // whole, is `GET /api/topics/:id`, which is also where the pane that
+      // restores the state reads it.
+      const topicRes = await request.get(`${BASE}/api/topics/${ctxId}`);
+      expect(topicRes.ok()).toBe(true);
       const topicData = (await topicRes.json()) as {
-        topics?: Record<string, { browserState?: { url?: string } }>;
+        topic?: { browserState?: { url?: string } };
       };
-      const restoredTopic = topicData.topics?.[ctxId];
+      const restoredTopic = topicData.topic;
       expect(restoredTopic?.browserState?.url).toBeTruthy();
       expect(restoredTopic!.browserState!.url).toContain("example.com");
     } finally {
