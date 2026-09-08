@@ -1,0 +1,48 @@
+==> release tauri-v2.2.291, asset Topics_2.2.291_x64-setup.exe
+==> downloading on the machine and checking the digest
+    sha256 8065576991d987c4aad28778515f4146ec63d82c1bdc7938b954e1b5bae7fd45 matches the release, signature: NotSigned
+==> installing 2.2.291
+    03:31:34.220 before: 2.2.290
+    03:31:37.383 stopped: app=0 server=0
+    03:31:50.268 installer exit 0
+    03:31:50.279 after: 2.2.291
+    03:31:50.572 launched C:\Users\zorah\AppData\Local\Topics\app.exe
+    03:32:05.628 running: app=1 server=0
+    03:32:05.628 OK
+==> arm wrongkey (expecting exit 1)
+    == topics windows desktop check, label wrongkey, checks [abc]
+    installed 2.2.291
+    PASS a  boot: client bundle served at 19.2s, window painted at 5.1s (ink 100%), budget 45s (marker=absent sidecar=1)
+    window 1416x939 dpi 96 scale 1 client offset 8,1
+    FAIL b  chrome: 4 command cells (want 3) inside 0..69 CSS px (want 12..66), wordmark ink at 60 CSS px (want 80 +/-4), baseline offset 6.5 CSS px (want <=4)
+    -- stopping at the first FAIL
+    exit 1
+==> arm noremedy (expecting exit 1)
+    == topics windows desktop check, label noremedy, checks [ad]
+    installed 2.2.291
+    arm: webview rebuild remedy OFF
+    PASS a  boot: client bundle served at 18.8s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    FAIL d  restore: 0/3 repainted [cycle 1: ink 0% diff 98.3%; cycle 2: ink 0% diff 0%; cycle 3: ink 0% diff 0%]
+    -- stopping at the first FAIL
+    exit 1
+==> arm browser (expecting exit 0)
+    == topics windows desktop check, label browser, checks [e]
+    installed 2.2.291
+    PASS a  boot: client bundle served at 19.6s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    -- Ctrl+W x3 to clear restored panes: 0%, 0%, 0%
+    -- keyboard after the closes: Windows.UI.Core.CoreWindow of SearchHost
+    FAIL e  browser pane did not open: 0% of the window changed (want >5%)
+    -- stopping at the first FAIL
+    exit 1
+!! arm browser answered 1, expected 0
+==> arm full (expecting exit 0)
+    == topics windows desktop check, label full, checks [abcd]
+    installed 2.2.291
+    PASS a  boot: client bundle served at 19.7s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    window 1416x939 dpi 96 scale 1 client offset 8,1
+    FAIL b  chrome: 4 command cells (want 3) inside 0..69 CSS px (want 12..66), wordmark ink at 60 CSS px (want 80 +/-4), baseline offset 6.5 CSS px (want <=4)
+    -- stopping at the first FAIL
+    exit 1
+!! arm full answered 1, expected 0
+==> artefacts in tools/out/win/
+EXIT=1

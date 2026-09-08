@@ -1,0 +1,15 @@
+== typed probe, label typed1, port 13444
+-- witness up: listening on 127.0.0.1:13444 at 2026-09-08T03:46:44.9323788+02:00 | 03:46:47.710  GET /probe-selftest HTTP/1.1  UA=
+-- foreground is the app: True
+-- keyboard focus at start: Tauri Window pid=118412 app
+-- keyboard focus after Ctrl+L: Tauri Window pid=118412 app
+-- after the keyboard arm: 0 request(s)
+-- clicked the bar at 1880,703; keyboard focus: Chrome_WidgetWin_1 pid=113420 msedgewebview2
+-- after the mouse-then-type arm: 3 request(s)
+== witness log ==
+   listening on 127.0.0.1:13444 at 2026-09-08T03:46:44.9323788+02:00
+   03:46:47.710  GET /probe-selftest HTTP/1.1  UA=
+   03:47:02.362  GET /typed-mouse HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:47:02.375  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:47:03.265  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+== done
