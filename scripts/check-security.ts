@@ -85,12 +85,10 @@
  * pretende di vedere esito 1 quattro volte, piu' esito 2 quando un pezzo non
  * sa misurare.
  *
- * Il pezzo delle dipendenze e' stato provato anche con una vulnerabilita' VERA,
- * fuori dal banco perche' costa un `bun install`: una cartella con
- * `lodash@4.17.20` e una baseline vuota, e il comando esce 1 elencando i cinque
- * avvisi di quel pacchetto per id e per URL. Nel banco la stessa cosa si
- * ottiene togliendo una voce dalla baseline, che per il cancello e' lo stesso
- * stato osservabile e non costa mezzo registro npm.
+ * The registry-dependent test creates a temporary lock with lodash@4.17.20
+ * and an empty baseline. The real checker must report the undeclared advisory
+ * and exit 1, even when the project's own dependency baseline is empty.
+ * No lifecycle scripts run and the project's dependencies remain untouched.
  */
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { resolve, join } from "node:path";
@@ -596,7 +594,7 @@ function main(): void {
     console.error(`[check-security] MISURA NON PRESA - ${mutes.map((m) => m.part).join(", ")}. Verde non se ne stampa.`);
     process.exit(2);
   }
-  console.log(`[check-security] OK - ${outcomes.length} pezzo/i verde/i: il checkout e' pubblicabile.`);
+  if (!json) console.log(`[check-security] OK - ${outcomes.length} pezzo/i verde/i: il checkout e' pubblicabile.`);
   process.exit(0);
 }
 

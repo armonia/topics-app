@@ -89,7 +89,22 @@ describe("check:security - il pezzo dei segreti", () => {
     const dir = conRepo({ "src/a.ts": 'export const saluto = "ciao";\n' });
     const { code, out } = esegui(dir, "--only=secrets");
     expect(out).toContain("nessun segreto in chiaro");
+    expect(out).toContain("[check-security] OK -");
     expect(code).toBe(0);
+  });
+
+  test.each([
+    { name: "success", part: "secrets", path: "src/a.ts", content: "export const value = 1;\n", code: 0, status: "ok" },
+    { name: "violation", part: "secrets", path: ".env", content: "# fixture\n", code: 1, status: "red" },
+    { name: "unavailable measurement", part: "home", path: "src/a.ts", content: "export const value = 1;\n", code: 2, status: "mute" },
+  ])("--json stdout is a complete JSON document: $name", ({ part, path, content, code, status }) => {
+    const dir = conRepo({ [path]: content });
+    const result = spawnSync("bun", ["run", SCRIPT, `--root=${dir}`, `--only=${part}`, "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, NO_COLOR: "1" },
+    });
+    expect(result.status).toBe(code);
+    expect(JSON.parse(result.stdout)).toMatchObject({ root: dir, esiti: [{ part, status }] });
   });
 
   test("una chiave Anthropic in un file tracciato fa ROSSO", () => {
@@ -344,25 +359,41 @@ describe("check:security - i pezzi che vogliono l'albero vero", () => {
 
   // Registered only when the network is asked for: see REGISTRY_TESTS.
   if (REGISTRY_TESTS) test("PEZZO dependencies: un avviso NON dichiarato nella baseline fa ROSSO", () => {
-    // La leva onesta. Il cancello osserva UNA cosa: c'e' un avviso che la
-    // baseline non elenca? Togliere una voce dalla baseline e installare un
-    // pacchetto vulnerabile producono per lui lo stesso stato, e il primo non
-    // ha bisogno della rete per scaricare mezzo registro.
-    prepareCopy();
-    const path = join(copia, "scripts/security-baseline.json");
-    const base = JSON.parse(readFileSync(path, "utf8")) as { advisories: Record<string, unknown[]> };
-    const withAdvisories = Object.keys(base.advisories).filter((d) => (base.advisories[d] ?? []).length > 0);
-    expect(withAdvisories.length).toBeGreaterThan(0);
-    base.advisories[withAdvisories[0]!] = [];
-    writeFileSync(path, `${JSON.stringify(base, null, 2)}\n`);
+    // A clean project can have an empty baseline. Introduce a known vulnerable
+    // package in a disposable fixture instead of requiring existing debt.
+    // Only resolve its lockfile; no package or lifecycle script is executed.
+    const fixture = minimumRepo({
+      "package.json": JSON.stringify({
+        name: "security-advisory-fixture",
+        private: true,
+        dependencies: { lodash: "4.17.20" },
+      }),
+      "scripts/security-baseline.json": JSON.stringify({
+        $schema: "security-baseline-v1",
+        updated: "2026-09-08",
+        advisories: { ".": [], client: [], landing: [] },
+      }),
+    });
+    try {
+      const install = spawnSync("bun", ["install", "--ignore-scripts", "--lockfile-only"], {
+        cwd: fixture,
+        encoding: "utf8",
+        timeout: 60_000,
+      });
+      if (install.status !== 0) {
+        throw new Error(`Could not resolve the vulnerable fixture: ${install.error ?? install.stderr}`);
+      }
 
-    const { code, out } = esegui(copia, "--only=dependencies");
-    if (out.includes("bun audit non ha risposto")) {
-      throw new Error("questo caso interroga il registro degli avvisi: senza rete non si puo' dimostrare, e non si finge");
+      const { code, out } = esegui(fixture, "--only=dependencies");
+      if (out.includes("bun audit non ha risposto")) {
+        throw new Error("The advisory registry did not respond; this case requires a real network measurement");
+      }
+      expect(out).toContain("NUOVO");
+      expect(out).toContain("lodash");
+      expect(code).toBe(1);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
     }
-    expect(out).toContain("NUOVO");
-    expect(code).toBe(1);
-    ripristina();
   }, SECURITY_RUN_TIMEOUT_MS);
 
   test("un pezzo che non sa misurare NON stampa verde: esce 2", () => {
