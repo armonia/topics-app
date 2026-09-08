@@ -55,6 +55,15 @@ export interface CodexProviderConfig {
   defaultWorkspace?: string;
 }
 
+/** The dispatch bridge is narrower than the ordinary interactive bridge. */
+export function codexTopicsMcpProfile(
+  globalOrchestrator: boolean,
+  mcpPolicy: string | null | undefined,
+): "global-orchestrator" | "dispatch" | undefined {
+  if (globalOrchestrator) return "global-orchestrator";
+  return mcpPolicy === "bridge-only" ? "dispatch" : undefined;
+}
+
 // ============ Constants ============
 
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
@@ -340,6 +349,17 @@ export class CodexProvider implements AIProvider {
     console.log("[codex] Provider stopped");
   }
 
+  /**
+   * The stream watchdog asks about the child that owns THIS turn, not whether
+   * some process with a matching pid happens to be alive. `codex exec` is a
+   * one-shot child, so the map entry plus an unreported exit is the complete
+   * ownership/liveness contract.
+   */
+  isTurnProcessAlive(sessionKey: string): boolean {
+    const child = this.activeChildren.get(sessionKey);
+    return !!child && child.exitCode === null && child.signalCode === null;
+  }
+
   // --- Streaming chat ---
 
   async sendChat(
@@ -395,7 +415,16 @@ export class CodexProvider implements AIProvider {
       // only special capability is this registry-backed tool profile; it does
       // not imply, observe, or connect any voice session.
       globalOrchestrator = isEligibleGlobalOrchestratorSession(getDatabase(), sessionKey);
-      const profile = globalOrchestrator ? "global-orchestrator" : undefined;
+      // Dispatched board agents are bridge-only: their Topics MCP server must
+      // receive the established `dispatch` profile too. Without this Codex
+      // silently mounted the full bridge and could spawn unrelated sessions.
+      let policy: { mcp_policy?: string | null } | undefined;
+      try {
+        policy = getDatabase()
+          .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+          .get(sessionKey) as { mcp_policy?: string | null } | undefined;
+      } catch { /* an early/unmigrated DB keeps the ordinary bridge */ }
+      const profile = codexTopicsMcpProfile(globalOrchestrator, policy?.mcp_policy);
       bridge = topicsMcpBridgeSpec(sessionKey, profile);
     } catch (err) {
       console.warn(`[codex] MCP bridge config failed for ${sessionKey}:`, err);
@@ -622,6 +651,42 @@ export class CodexProvider implements AIProvider {
         return null;
       }
 
+      // `codex exec --json` represents calls to an MCP server as a distinct
+      // item, rather than the generic `tool_call` item used for commands. The
+      // installed 0.153 CLI exposes `server`, `tool`, `arguments`, `result`,
+      // `error`, and `status` on this shape. Keep the canonical MCP spelling so
+      // Topics' normal tool renderer and task-comment anchoring see the call.
+      if (itemType === "mcp_tool_call") {
+        const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const server = typeof item.server === "string" ? item.server : "mcp";
+        const tool = typeof item.tool === "string" ? item.tool : "tool";
+        const name = `mcp__${server}__${tool}`;
+        const state = this.sessionState.get(sessionKey);
+
+        if (t === "item.started") {
+          state?.runningTools.set(id, { toolCallId: id, partial: "" });
+          handler.onToolStart(id, name, this.coerceArgs(item.arguments));
+          handler.onToolExecStart?.(id);
+        } else if (t === "item.updated") {
+          handler.onToolActivity?.(id);
+          const update = this.codexItemText(item.result ?? item.error);
+          if (update !== null) {
+            const ctx = state?.runningTools.get(id);
+            if (ctx) ctx.partial = update;
+            handler.onToolUpdate?.(id, update);
+          }
+        } else {
+          const ctx = state?.runningTools.get(id);
+          state?.runningTools.delete(id);
+          const isError = item.status === "failed" || item.error !== undefined;
+          const result = this.codexItemText(isError ? item.error : item.result)
+            ?? ctx?.partial
+            ?? "";
+          handler.onToolResult(id, result, isError);
+        }
+        return null;
+      }
+
       if (itemType === "command_execution" || itemType === "tool_call") {
         const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
         const name = typeof item.name === "string" ? item.name
@@ -646,10 +711,16 @@ export class CodexProvider implements AIProvider {
         } else if (t === "item.completed") {
           const ctx = state?.runningTools.get(id);
           state?.runningTools.delete(id);
-          const result = typeof item.output === "string" ? item.output
+          // On the current Codex CLI, a completed CommandExecution carries
+          // its final stdout in `aggregated_output`. It does not promise a
+          // preceding item.updated, so prefer it before the cached partial.
+          const result = typeof item.aggregated_output === "string" ? item.aggregated_output
+            : typeof item.output === "string" ? item.output
             : ctx?.partial && ctx.partial.length > 0 ? ctx.partial
             : JSON.stringify(item.output ?? item.result ?? "");
-          handler.onToolResult(id, result);
+          const failed = (typeof item.exit_code === "number" && item.exit_code !== 0)
+            || item.status === "failed";
+          handler.onToolResult(id, result, failed);
         }
       }
       return null;
@@ -769,6 +840,13 @@ export class CodexProvider implements AIProvider {
       return { value: raw };
     }
     return { value: raw };
+  }
+
+  /** MCP results are structured, while the StreamHandler renders text. */
+  private codexItemText(value: unknown): string | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch { return String(value); }
   }
 
   // --- Non-streaming completion ---
