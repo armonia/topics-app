@@ -166,7 +166,7 @@ async function openTwoBrowserPanes(page: Page): Promise<void> {
  * would be counted as a reload, and the measurement would be a race instead of
  * a reading.
  */
-async function settleIframes(page: Page): Promise<void> {
+async function settleBrowserFrames(page: Page): Promise<void> {
   await expect.poll(async () => page.locator('[data-testid="browser-iframe"]').evaluateAll(
     (frames) => frames.every((f) => (f as HTMLIFrameElement).contentDocument?.readyState === "complete"),
   ), { timeout: 10000 }).toBe(true);
@@ -200,9 +200,9 @@ async function caption(page: Page, text: string): Promise<void> {
 async function dragTab(page: Page, sourcePaneId: string, targetPaneId: string, side: "left" | "right"): Promise<void> {
   const strip = stripOf(page, sourcePaneId);
   const src = strip.locator(`[data-pane-id="${sourcePaneId}"]`).first();
-  const dst = strip.locator(`[data-pane-id="${targetPaneId}"]`).first();
+  const target = strip.locator(`[data-pane-id="${targetPaneId}"]`).first();
   const s = await src.boundingBox();
-  const d = await dst.boundingBox();
+  const d = await target.boundingBox();
   if (!s || !d) throw new Error("tab without a bounding box");
   const x = side === "left" ? d.x + d.width * 0.2 : d.x + d.width * 0.8;
   const y = d.y + d.height / 2;
@@ -258,7 +258,7 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
     expect(before, "the merged strip must hold both browser tabs").toEqual([`browser:${t2}`, `browser:${t1}`]);
     const shellsBefore = await shellOrder(page);
 
-    await settleIframes(page);
+    await settleBrowserFrames(page);
     await armProbe(page);
     await caption(page, "Two browser panes, one strip: the second tab moves first");
     // Move the LAST tab of the strip before the first one.
@@ -295,7 +295,7 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
       .poll(async () => (await cells(page)).find((c) => c.includes(`browser:${t2}`)) ?? [], { timeout: 8000 })
       .toEqual([`browser:${t2}`, `browser:${t1}`]);
 
-    await settleIframes(page);
+    await settleBrowserFrames(page);
     await armProbe(page);
 
     // The tab leaves its group for the window strip above: a cross-group move,
@@ -303,10 +303,10 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
     // rebuilt - React has no way to re-parent a live subtree - but that is its
     // own business: the panes that did not move must not notice anything.
     const src = stripOf(page, `browser:${t1}`).locator(`[data-pane-id="browser:${t1}"]`).first();
-    const dst = page.locator('[role="main"] [data-testid="panel-tab-bar"]').first()
+    const target = page.locator('[role="main"] [data-testid="panel-tab-bar"]').first()
       .locator(`[data-pane-id="${t1}"]`).first();
     const s = await src.boundingBox();
-    const d = await dst.boundingBox();
+    const d = await target.boundingBox();
     if (!s || !d) throw new Error("tab without a bounding box");
     await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
     await page.mouse.down();
