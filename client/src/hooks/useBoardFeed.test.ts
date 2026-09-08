@@ -1,5 +1,6 @@
 import { describe, expect, test, afterEach, beforeEach, jest } from 'bun:test';
 import { createElement, useEffect } from 'react';
+import * as React from 'react';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,7 @@ import { mount } from '../test/reactHarness';
 import { boardApi, type BoardTask } from '../lib/board';
 import { dispatchLifecycle } from '../lib/wsFrameBus';
 import { useBoardFeed, type BoardFeed } from './useBoardFeed';
+import { __resetBoardTasks, patchBoardTask, setBoardTasks } from '../lib/boardTasksStore';
 
 /**
  * ONE READER OF THE GLOBAL FEED, AND IT NEVER READS OUT OF ORDER.
@@ -59,6 +61,7 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(() => {
+  __resetBoardTasks();
   jest.useFakeTimers();
   pending = [];
   boardApi.list = ((projectId: string, _status?: unknown, _labels?: unknown, opts?: { archived?: boolean }) =>
@@ -108,6 +111,60 @@ function mountFeed(first: { projectId: string; showArchived?: boolean }) {
 }
 
 describe('useBoardFeed: la risposta è di CHI ha chiesto per ultimo', () => {
+  test('project mode has no global-store callbacks; switching to all subscribes to current rows', async () => {
+    type Subscribe = (callback: () => void) => () => void;
+    type ExternalHook = <T>(subscribe: Subscribe, snapshot: () => T) => T;
+    const counted = new Map<Subscribe, Subscribe>();
+    const box: { mode: 'project' | 'all'; callbacks: number; feed: BoardFeed | null } = {
+      mode: 'project', callbacks: 0, feed: null,
+    };
+    const Probe = () => {
+      // Count calls from the REAL subscriptions, not renderer invocations:
+      // reactHarness deliberately implements no React render bailouts.
+      const internals = (React as unknown as Record<string, { H: { useSyncExternalStore: ExternalHook } }>).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      const dispatcher = internals.H;
+      const original = dispatcher.useSyncExternalStore;
+      dispatcher.useSyncExternalStore = (subscribe, snapshot) => {
+        if (!counted.has(subscribe)) counted.set(subscribe, (callback) => subscribe(() => {
+          box.callbacks++;
+          callback();
+        }));
+        return original(counted.get(subscribe)!, snapshot);
+      };
+      let feed: BoardFeed;
+      try {
+        feed = useBoardFeed({ mode: box.mode, projectId: 'own', showArchived: false, onError: () => {} });
+      } finally { dispatcher.useSyncExternalStore = original; }
+      useEffect(() => { box.feed = feed; });
+      return null;
+    };
+    setBoardTasks([{ ...task('elsewhere'), projectId: 'other' }]);
+    const h = mount(createElement(Probe));
+    try {
+      pending[0].resolve([task('own-row')]);
+      await settle();
+      const projectRows = box.feed!.tasks;
+      box.callbacks = 0;
+      for (let i = 1; i <= 20; i++) patchBoardTask('elsewhere', { agentTokens: i });
+      console.info(JSON.stringify({ probe: 'project-board-subscriptions', updatesElsewhere: 20, callbacks: box.callbacks }));
+      expect(box.callbacks).toBe(0);
+      expect(box.feed!.tasks).toBe(projectRows);
+
+      box.mode = 'all';
+      h.rerender();
+      expect(box.feed!.tasks[0].agentTokens).toBe(20);
+      patchBoardTask('elsewhere', { agentTokens: 21 });
+      expect(box.feed!.tasks[0].agentTokens).toBe(21);
+      expect(box.callbacks).toBeGreaterThan(0);
+
+      box.mode = 'project';
+      h.rerender();
+      box.callbacks = 0;
+      patchBoardTask('elsewhere', { agentTokens: 22 });
+      expect(box.callbacks).toBe(0);
+    } finally { h.unmount(); }
+  });
+
   /**
    * IL GUASTO. Due letture si sovrappongono (cambio board, o un burst di
    * eventi) e tornano invertite: senza la guardia vince chi scrive per ultimo,

@@ -4,7 +4,7 @@
  *
  * @covers KANBAN-06
  */
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import type { BoardTask } from './board';
 import {
   __resetBoardTasks, applyBoardTaskFrame, canAbsorbBoardTaskFrame, getBoardTasks,
@@ -38,6 +38,59 @@ describe('«non ho ancora letto» non è «non c\'è niente»', () => {
 });
 
 describe('patchBoardTask', () => {
+  test('identical wire frames preserve identities without serializing, saving, or notifying', () => {
+    const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    let saves = 0;
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+      getItem: () => null,
+      setItem: () => { saves++; },
+    } });
+    const row = task('a', { labels: [{ label: 'bugfix', source: 'human' }], checksProgress: { done: 1, total: 2 } });
+    setBoardTasks([row, task('b')]);
+    const before = getBoardTasks();
+    saves = 0;
+    let callbacks = 0;
+    const stop = subscribeBoardTasks(() => { callbacks++; });
+    const stringify = spyOn(JSON, 'stringify');
+    try {
+      for (let i = 0; i < 20; i++) {
+        const frame = structuredClone(row);
+        // JSON object key order does not change the task's meaning.
+        frame.checksProgress = { total: 2, done: 1 };
+        expect(applyBoardTaskFrame(frame)).toBe(true);
+      }
+      const serializations = stringify.mock.calls.length;
+      console.info(JSON.stringify({ probe: 'identical-board-frames', frames: 20, callbacks, saves, serializations }));
+      expect(callbacks).toBe(0);
+      expect(saves).toBe(0);
+      expect(serializations).toBe(0);
+      expect(getBoardTasks()).toBe(before);
+      expect(getBoardTasks()[0]).toBe(row);
+    } finally {
+      stringify.mockRestore();
+      stop();
+      if (storageDescriptor) Object.defineProperty(globalThis, 'localStorage', storageDescriptor);
+      else Reflect.deleteProperty(globalThis, 'localStorage');
+    }
+  });
+
+  test('a repeated full read is quiet, while changed nested data stays immediately reactive', () => {
+    const row = task('a', { checksProgress: { done: 1, total: 2 }, dispatchState: 'working' });
+    setBoardTasks([row, task('b')]);
+    const before = getBoardTasks();
+    let callbacks = 0;
+    subscribeBoardTasks(() => { callbacks++; });
+    setBoardTasks(structuredClone(before));
+    expect(callbacks).toBe(0);
+    expect(getBoardTasks()).toBe(before);
+
+    patchBoardTask('a', { checksProgress: { done: 2, total: 2 } });
+    expect(callbacks).toBe(1);
+    expect(getBoardTasks()[0].checksProgress).toEqual({ done: 2, total: 2 });
+    expect(getBoardTasks()[0].dispatchState).toBe('working');
+    expect(getBoardTasks()[1]).toBe(before[1]);
+  });
+
   test('the optimistic patch is visible to EVERY reader of the store', () => {
     setBoardTasks([task('a'), task('b')]);
     patchBoardTask('b', { status: 'done' });

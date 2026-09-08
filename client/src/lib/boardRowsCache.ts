@@ -48,8 +48,13 @@ export function readBoardRowsCache(scope: string): readonly BoardTask[] | null {
 
 export function writeBoardRowsCache(scope: string, rows: readonly BoardTask[]): void {
   try {
-    localStorage.setItem(boardRowsCacheKey(scope), JSON.stringify(rows.slice(0, MAX_ROWS)));
+    localStorage.setItem(boardRowsCacheKey(scope), serializeBoardRowsCache(rows));
   } catch {
     /* quota, private mode: the seed is an optimisation, never a requirement */
   }
+}
+
+/** Shared by immediate project writes and the deferred global-feed writer. */
+export function serializeBoardRowsCache(rows: readonly BoardTask[]): string {
+  return JSON.stringify(rows.slice(0, MAX_ROWS));
 }

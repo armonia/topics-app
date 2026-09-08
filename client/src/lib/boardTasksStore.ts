@@ -19,7 +19,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { BoardTask } from './board';
-import { readBoardRowsCache, writeBoardRowsCache } from './boardRowsCache';
+import { boardRowsCacheKey, readBoardRowsCache, serializeBoardRowsCache } from './boardRowsCache';
+import { createThrottledLocalWriter } from './throttledLocalWrite';
 
 /** The scope of the cross-project feed inside the rows cache. */
 export const ALL_BOARDS_SCOPE = 'all';
@@ -32,6 +33,10 @@ const seeded = typeof localStorage === 'undefined' ? null : readBoardRowsCache(A
 let tasks: readonly BoardTask[] = seeded ?? [];
 let loaded = seeded !== null;
 const listeners = new Set<() => void>();
+// The cache paints the next boot; current readers observe the store immediately.
+// Defer both serialization and storage through the existing fixed-window writer,
+// which also flushes the latest snapshot on pagehide / document-hidden.
+const cacheWriter = createThrottledLocalWriter({ key: boardRowsCacheKey(ALL_BOARDS_SCOPE) });
 
 /** La lista, o quella vuota finché la prima lettura non è tornata. */
 export function getBoardTasks(): readonly BoardTask[] {
@@ -49,16 +54,31 @@ export function hasLoadedBoardTasks(): boolean {
   return loaded;
 }
 
-/**
- * Il proprietario del feed pubblica qui. Identità nuova a ogni scrittura (la
- * lista arriva già nuova dalla fetch), quindi `useSyncExternalStore` non ha
- * bisogno di nessun confronto profondo: chi legge deriva i suoi numeri con un
- * `useMemo` sulla stessa referenza.
- */
+/** Values of a task are JSON data. Compare without allocating serialized
+ * copies: repeated frames often have fresh arrays/objects but unchanged fields.
+ * Object key order is immaterial; array order and missing fields are not. */
+function sameTaskValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  return aKeys.every((key) => Object.hasOwn(right, key) && sameTaskValue(left[key], right[key]));
+}
+
+/** Publish changed rows immediately. A repeated feed keeps its identities, so
+ * subscribers and the first-frame cache pay only for real changes. */
 export function setBoardTasks(next: readonly BoardTask[]): void {
-  tasks = next;
+  const reconciled = next.map((row, i) => sameTaskValue(tasks[i], row) ? tasks[i] : row);
+  const unchanged = reconciled.length === tasks.length && reconciled.every((row, i) => row === tasks[i]);
+  if (unchanged && loaded) return;
+  if (!unchanged) tasks = reconciled;
   loaded = true;
-  writeBoardRowsCache(ALL_BOARDS_SCOPE, next);
+  const snapshot = tasks;
+  cacheWriter.write(() => serializeBoardRowsCache(snapshot));
   listeners.forEach((cb) => cb());
 }
 
@@ -85,13 +105,13 @@ export function markBoardTasksSettled(): void {
  * stessa card in due colonne diverse. Un id che non c'è non sveglia nessuno.
  */
 export function patchBoardTask(id: string, patch: Partial<BoardTask>): void {
-  let hit = false;
-  const next = tasks.map((t) => {
-    if (t.id !== id) return t;
-    hit = true;
-    return { ...t, ...patch };
-  });
-  if (!hit) return;
+  const i = tasks.findIndex((t) => t.id === id);
+  if (i < 0) return;
+  const row = tasks[i];
+  const keys = Object.keys(patch) as (keyof BoardTask)[];
+  if (keys.every((key) => Object.hasOwn(row, key) && sameTaskValue(row[key], patch[key]))) return;
+  const next = tasks.slice();
+  next[i] = { ...row, ...patch };
   setBoardTasks(next);
 }
 
@@ -164,11 +184,24 @@ export function __resetBoardTasks(): void {
 }
 
 /** Le righe della board, reattive. */
-export function useBoardTasks(): readonly BoardTask[] {
-  return useSyncExternalStore(subscribeBoardTasks, getBoardTasks, getBoardTasks);
+const EMPTY_TASKS: readonly BoardTask[] = [];
+const noSubscription = () => () => {};
+const noTasks = () => EMPTY_TASKS;
+const notLoaded = () => false;
+
+export function useBoardTasks(enabled = true): readonly BoardTask[] {
+  return useSyncExternalStore(
+    enabled ? subscribeBoardTasks : noSubscription,
+    enabled ? getBoardTasks : noTasks,
+    enabled ? getBoardTasks : noTasks,
+  );
 }
 
 /** «La prima lettura è tornata?», reattivo (vedi `hasLoadedBoardTasks`). */
-export function useBoardTasksLoaded(): boolean {
-  return useSyncExternalStore(subscribeBoardTasks, hasLoadedBoardTasks, hasLoadedBoardTasks);
+export function useBoardTasksLoaded(enabled = true): boolean {
+  return useSyncExternalStore(
+    enabled ? subscribeBoardTasks : noSubscription,
+    enabled ? hasLoadedBoardTasks : notLoaded,
+    enabled ? hasLoadedBoardTasks : notLoaded,
+  );
 }

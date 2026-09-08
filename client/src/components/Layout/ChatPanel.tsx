@@ -13,7 +13,6 @@ import { useConfirm } from '../../hooks/useConfirm';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
-import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
@@ -97,9 +96,7 @@ export function ChatPanel({
   const confirm = useConfirm();
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Keep hook alive for potential inspector use (skip for draft topics)
   const isDraft = topic.id.startsWith('draft:');
-  useContextInspector(isDraft ? null : topic.id);
 
   // Jump-to-browser affordance: surfaces a header button when this topic
   // has previously spawned a browser pane via /browser <url> or the LLM

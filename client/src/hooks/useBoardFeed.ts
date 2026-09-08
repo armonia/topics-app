@@ -90,8 +90,8 @@ export interface BoardFeed {
 
 export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFeedOptions): BoardFeed {
   const isAll = mode === 'all';
-  const globalTasks = useBoardTasks();
-  const globalLoaded = useBoardTasksLoaded();
+  const globalTasks = useBoardTasks(isAll);
+  const globalLoaded = useBoardTasksLoaded(isAll);
   // The rows AND the query they answer, in one state. Keeping them together is
   // what makes "still loading" a derived value instead of a flag set from an
   // effect: switching board or opening the archive changes the key, and the

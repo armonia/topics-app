@@ -38,10 +38,22 @@ test.describe("Chat /context command", () => {
 
   test("shows a token/budget breakdown banner", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-06" });
+    const isTopicAnalysis = (raw: string) => {
+      const url = new URL(raw);
+      return url.pathname === "/api/context/analyze" && url.searchParams.get("topicId") === topicId;
+    };
+    let analyses = 0;
+    page.on("request", (request) => { if (isTopicAnalysis(request.url())) analyses++; });
+    const firstAnalysis = page.waitForResponse((response) => isTopicAnalysis(response.url()));
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await firstAnalysis;
+    // The composer consumes this analysis for its ring and file-token hints.
+    // ChatPanel used to start a second request and discard the whole result.
+    console.info(JSON.stringify({ probe: "chat-panel-context-analysis", requestsAtOpen: analyses }));
+    expect(analyses).toBe(1);
 
     await chatPage.messageInput.click();
     await chatPage.messageInput.fill("/context");
@@ -55,5 +67,6 @@ test.describe("Chat /context command", () => {
       timeout: 10_000,
     });
     await expect(page.locator("body")).toContainText(/%/, { timeout: 2_000 });
+    expect(analyses).toBe(2); // the explicit command still asks for a fresh breakdown
   });
 });
