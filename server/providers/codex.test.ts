@@ -158,8 +158,8 @@ describe("extractCodexUsage", () => {
 });
 
 describe("codexTopicsMcpProfile", () => {
-  test("dispatches bridge-only task sessions without widening the registered coordinator", () => {
-    expect(codexTopicsMcpProfile(false, "bridge-only")).toBe("dispatch");
+  test("dispatches bridge-only task sessions without exposing Claude-only spawning", () => {
+    expect(codexTopicsMcpProfile(false, "bridge-only")).toBe("codex-dispatch");
     expect(codexTopicsMcpProfile(false, null)).toBeUndefined();
     expect(codexTopicsMcpProfile(true, "bridge-only")).toBe("global-orchestrator");
   });

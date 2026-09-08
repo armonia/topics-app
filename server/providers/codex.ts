@@ -59,9 +59,9 @@ export interface CodexProviderConfig {
 export function codexTopicsMcpProfile(
   globalOrchestrator: boolean,
   mcpPolicy: string | null | undefined,
-): "global-orchestrator" | "dispatch" | undefined {
+): "global-orchestrator" | "codex-dispatch" | undefined {
   if (globalOrchestrator) return "global-orchestrator";
-  return mcpPolicy === "bridge-only" ? "dispatch" : undefined;
+  return mcpPolicy === "bridge-only" ? "codex-dispatch" : undefined;
 }
 
 // ============ Constants ============
@@ -415,9 +415,9 @@ export class CodexProvider implements AIProvider {
       // only special capability is this registry-backed tool profile; it does
       // not imply, observe, or connect any voice session.
       globalOrchestrator = isEligibleGlobalOrchestratorSession(getDatabase(), sessionKey);
-      // Dispatched board agents are bridge-only: their Topics MCP server must
-      // receive the established `dispatch` profile too. Without this Codex
-      // silently mounted the full bridge and could spawn unrelated sessions.
+      // Codex task agents get the narrow dispatch surface, which keeps the
+      // Claude-only `spawn_agent` tool out of their bridge. Without this Codex
+      // silently mounted the full bridge and could launch unrelated sessions.
       let policy: { mcp_policy?: string | null } | undefined;
       try {
         policy = getDatabase()

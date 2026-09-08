@@ -772,7 +772,7 @@ export interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
   gatewayToken?: string;
-  /** Tool profile. "dispatch" scopes a task agent; "global-orchestrator" is the registry-gated global board surface. */
+  /** Tool profile. "dispatch" scopes Claude task agents; "codex-dispatch" omits Claude-only spawning; "global-orchestrator" is the registry-gated global board surface. */
   profile?: string;
 }
 
@@ -818,6 +818,15 @@ const DISPATCH_EXCLUDED_TOOLS = new Set([
   "open_project",
 ]);
 
+// Codex task sessions use the same focused dispatch surface, but cannot own
+// the interactive Claude PTY that backs `spawn_agent`. Keep child inspection
+// and stopping available for existing owned children; only creation is
+// provider-specific.
+const CODEX_DISPATCH_EXCLUDED_TOOLS = new Set([
+  ...DISPATCH_EXCLUDED_TOOLS,
+  "spawn_agent",
+]);
+
 /**
  * The global coordinator is purpose-built board coordination, not a general
  * agent shell. Keep this positive allowlist intentionally tiny: visibility is
@@ -850,7 +859,8 @@ export function toolsForProfile(profile: string | undefined): typeof TOOLS {
   // every ordinary profile and deny direct calls below as well.
   return TOOLS.filter((t) =>
     !GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name)
-    && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name)),
+    && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name))
+    && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name)),
   );
 }
 
@@ -865,7 +875,9 @@ export function isToolAllowedForProfile(profile: string | undefined, name: strin
   if (profile === "global-orchestrator") return GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(name);
   if (name === "approval_prompt") return true;
   if (GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(name)) return false;
-  return profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(name);
+  if (profile === "dispatch") return !DISPATCH_EXCLUDED_TOOLS.has(name);
+  if (profile === "codex-dispatch") return !CODEX_DISPATCH_EXCLUDED_TOOLS.has(name);
+  return true;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
