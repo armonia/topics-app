@@ -312,9 +312,14 @@ Il sistema DEVE:
    da solo su due macchine deve leggere «nessuno», non «1 online»;
 2. **non dire il ferro al posto della persona.** Con una persona nota su una
    sessione loopback la card nomina la persona, non «Questo computer»;
-3. **lasciare fuori qualcosa quando i posti finiscono.** I segnali del lavoro
-   hanno tre posti e cinque candidati: uno zero non occupa mai un posto, perché
-   è il modo più largo di non dire niente;
+3. **contare DUE cose sole.** I segnali del lavoro sono le sessioni al lavoro
+   adesso e le sessioni aperte, in quest'ordine: mai un terzo numero accanto.
+   Tre cifre in fila si leggono come un mucchio, e per sapere quale si è mossa
+   bisogna ricordare l'ordine dei glifi. Quello che è uscito (le sessioni in
+   attesa di una risposta, i turni finiti che nessuno ha guardato, i task della
+   board) è nominato uno per uno nel livello che quella riga apre e nel tooltip
+   della card, quindi non si perde. Uno zero non occupa mai un posto, perché è
+   il modo più largo di non dire niente;
 4. **dichiarare le soglie del verdetto come decisioni di prodotto**, fuori dalla
    JSX, dove possano essere contraddette da un test;
 5. **chiamare le cose col nome della relazione che disegnano.** Le persone in
@@ -349,9 +354,15 @@ Il sistema DEVE:
 
 #### Scenario: uno zero occupa un posto fra i segnali
 
-- **GIVEN** i segnali del lavoro con più candidati che posti
+- **GIVEN** i segnali del lavoro con una sola sessione aperta e nessuna al lavoro
 - **WHEN** un conteggio a zero prende un posto
 - **THEN** il vincolo è violato
+
+#### Scenario: un terzo numero nella coda della riga agenti
+
+- **GIVEN** una macchina con sessioni al lavoro, sessioni aperte e task in corso
+- **WHEN** la coda della riga disegna un terzo glifo accanto ai due
+- **THEN** il vincolo è violato: i conteggi sono due, al lavoro e aperte
 
 #### Scenario: le persone in fondo sono i colleghi al posto degli amici
 

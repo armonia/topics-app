@@ -2216,9 +2216,6 @@ const IT: Dict = {
   // word that glyph draws. The number stays inside the sentence because the
   // tooltip is read on its own, detached from the row that produced it.
   'statusBar.signals.working': '{n} sessioni al lavoro adesso',
-  'statusBar.signals.awaitingInput': '{n} sessioni in attesa di una tua risposta',
-  'statusBar.signals.done': '{n} turni finiti che non hai ancora guardato',
-  'statusBar.signals.tasks': '{n} task della board in corso',
   'statusBar.signals.open': '{n} sessioni aperte',
   'statusBar.agents.title': 'Agenti attivi',
   'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',

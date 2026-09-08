@@ -443,6 +443,10 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(signals).toBeVisible({ timeout: 20000 });
     await expect(signals).toContainText("3");
     await expect(signals).toContainText("12");
+    // TWO digits and no more, with the board task above zero in the stub: a
+    // third glyph here is the pile the tail was cut down to avoid, and the
+    // count nobody can attribute without remembering the order of the icons.
+    await expect(signals.locator("> span")).toHaveCount(2);
     // No words: those cost six times the glyph and say the same thing.
     await expect(signals).not.toContainText("aperte");
     await expect(signals).not.toContainText("lavoro");

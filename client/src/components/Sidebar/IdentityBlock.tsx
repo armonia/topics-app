@@ -220,12 +220,12 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   const DeviceIcon = local ? Monitor : Smartphone;
 
   const awaitingDone = agentCounts ? agentCounts.awaiting - agentCounts.awaitingInput : 0;
+  // Two counts and no more: what is answering now, and how much is open. The
+  // sessions parked on a question and the turns nobody read are the `waiting`
+  // lines just below, spelled out in words.
   const signals = workSignals({
     openSessions: counts?.openSessions ?? 0,
     workingSessions: counts?.workingSessions ?? 0,
-    activeTasks: counts?.activeTasks ?? 0,
-    awaitingInput: agentCounts?.awaitingInput ?? 0,
-    awaitingDone: awaitingDone > 0 ? awaitingDone : 0,
   });
   const waiting = [
     agentCounts && agentCounts.awaitingInput > 0

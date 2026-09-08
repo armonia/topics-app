@@ -260,7 +260,6 @@ export const SIDEBAR_ACTIVE = 'bg-black/[0.05] dark:bg-white/[0.08]';
  * cui il sistema segna "questo ti aspetta".
  */
 export const TIER_DONE_BG = 'bg-[#0a84ff]';
-export const TIER_DONE_TEXT = 'text-[#0a84ff]';
 export const TIER_INPUT_BG = 'bg-amber-500';
 
 export const AWAITING_INPUT_SURFACE =

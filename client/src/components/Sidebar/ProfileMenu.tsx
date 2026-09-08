@@ -39,7 +39,7 @@
  * behind the chips, the exact numbers behind the dot.
  */
 import { Suspense, useCallback, useState } from 'react';
-import { Bot, Building2, Hourglass, ListChecks, MessagesSquare, UserRound, Users } from 'lucide-react';
+import { Bot, Building2, MessagesSquare, UserRound, Users } from 'lucide-react';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { PresencePopover } from './PresencePopover';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
@@ -48,7 +48,6 @@ import { AccountPanel } from './accountPanelLazy';
 import { SidebarSystemMenu } from './SidebarSystemMenu';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
 import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
-import { TIER_DONE_TEXT } from '@/lib/selectionStyles';
 import { mergePeople } from './orgPresence';
 import type { OrgWithPresence } from '@/hooks/useIdentityPresence';
 import type { FriendPresence } from '@/hooks/useFriendPresence';
@@ -158,10 +157,13 @@ export function ProfileMenu({
 /**
  * WHAT IS RUNNING, as a row that opens onto WHO.
  *
- * The glyphs (agents working, turns waiting, tasks, open sessions) used to sit
- * in the header of this panel, where they were a number with no way to ask
- * "which ones". They are the tail of this row now, and the level beside it
- * names each agent at work and each one parked on a question.
+ * The glyphs (agents working, open sessions) used to sit in the header of this
+ * panel, where they were a number with no way to ask "which ones". They are the
+ * tail of this row now, and the level beside it names each agent at work and
+ * each one parked on a question.
+ *
+ * TWO OF THEM, never a third: `workSignals` says which, and why the counts that
+ * used to compete for the same tail are named in the level instead.
  *
  * TWO SCOPES, AND THEY ARE NOT THE SAME QUESTION. The rows and the badge on
  * the card are what THIS window's signals can see, from one derivation
@@ -422,8 +424,5 @@ const SIGNALS: Record<SignalKind, {
   // The only pulsing one: it is the only one where something is happening
   // while you look at it.
   working: { Icon: Bot, tint: SEGNALE_OK, label: 'statusBar.signals.working', alive: true },
-  awaitingInput: { Icon: Hourglass, tint: SEGNALE_ATTESA, label: 'statusBar.signals.awaitingInput' },
-  done: { Icon: Hourglass, tint: TIER_DONE_TEXT, label: 'statusBar.signals.done' },
-  tasks: { Icon: ListChecks, tint: 'text-app-text-secondary', label: 'statusBar.signals.tasks' },
   open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
 };
