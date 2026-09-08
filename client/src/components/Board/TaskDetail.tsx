@@ -1,4 +1,6 @@
 import { pickPlanComment } from './planPanel';
+import { reconcileAcknowledgedComments } from './acknowledgedComments';
+import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
 import { isAutoCapturedPreview } from '../../../../shared/media-kind';
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
@@ -745,6 +747,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const liveTaskTabs = useMemo(() => liveTabs(taskTabsState), [taskTabsState]);
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
+  const acknowledgedComments = useRef(new Map<string, TaskComment>());
+  const [commentReceipt, setCommentReceipt] = useState<{ id: string; delivery: TaskCommentAcknowledgement['delivery'] | 'saved' } | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   const commentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -919,18 +923,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * server and the drawer would keep the old row without saying so.
    */
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     try {
       const { task, comments, children } = await boardApi.get(projectId, taskId);
-      setTask(task); setComments(comments); setChildren(children ?? []);
+      if (generation !== loadGeneration.current) return;
+      setTask(task); setComments(reconcileAcknowledgedComments(comments, acknowledgedComments.current)); setChildren(children ?? []);
+      // After revalidation, queued/delivered follows the task and session
+      // envelopes again; a transient receipt cannot outlive that evidence.
+      setCommentReceipt((receipt) => receipt?.delivery === 'queued' ? null : receipt);
       setLoadFailed(null);
     } catch (e) {
+      if (generation !== loadGeneration.current) return;
       // The RAW message goes in, translated at render: putting `tr` in these
       // deps would rebuild `load` when the English catalogue lands, and `load`
       // is a dependency of the fetch-on-mount effect below.
       setLoadFailed(e instanceof Error ? e.message : String(e ?? ''));
     }
   }, [projectId, taskId]);
+  useEffect(() => () => { loadGeneration.current++; }, [taskId]);
   const loadFailedMessage = useMemo(
     () => (loadFailed === null ? null : taskActionErrorMessage(loadFailed, tr, tr('board.task.loadFailedReason'))),
     [loadFailed, tr],
@@ -1051,21 +1063,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const deliverAnswer = async (v: string, media?: string[], opts?: { quiet?: boolean }): Promise<boolean> => {
     const quiet = opts?.quiet === true;
     try {
-      if (media && media.length > 0) {
-        // Attachments ride the comments endpoint (media isn't a review-decision
-        // field); when the task is in agent review the server auto-resumes the
-        // agent with the text AND the file paths (boundRootOf path).
-        await boardApi.comment(projectId, taskId, v || '(allegato)', { media, quiet });
-      } else if (isAgentReview && !quiet) {
-        // Race fallback: if the task left review meanwhile, still save the text
-        // as a plain comment instead of losing it.
-        try { await boardApi.review(projectId, taskId, 'reject', v); }
-        catch { await boardApi.comment(projectId, taskId, v); }
-      } else {
-        await boardApi.comment(projectId, taskId, v, { quiet });
+      // The comments route owns notes, answers and review continuations. Its
+      // acknowledgement is the saved row, independent of a later detail GET.
+      const saved = await boardApi.comment(projectId, taskId, v || '(allegato)', { media, quiet });
+      if (saved?.id && saved.taskId === taskId) {
+        loadGeneration.current++;
+        acknowledgedComments.current.set(saved.id, saved);
+        setComments((previous) => previous.some((comment) => comment.id === saved.id) ? previous : [...previous, saved]);
+        setCommentReceipt({ id: saved.id, delivery: saved.delivery ?? 'saved' });
+        stickRef.current = true;
+        setWorkspaceOpen(false);
       }
       setError(null);
-      await load(); onChanged();
+      void load(); onChanged();
       return true;
     } catch (e) { showError(e); return false; }
   };
@@ -1667,7 +1677,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => {
     const el = threadScrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [timeline, workspaceOpen, twoCol, composerHeight]);
+  }, [timeline, commentReceipt, workspaceOpen, twoCol, composerHeight]);
 
   // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
   // Thread, live browser tabs, Piano and each media attachment are all PANES of
@@ -1705,7 +1715,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       const workRun = sessionRuns.runs.get(item.id);
       if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} onMessage={onMessage} />;
       if (item.source === 'comment') {
-        const chip = item.delivery;
+        const receipt = commentReceipt?.id === item.id ? commentReceipt.delivery : undefined;
+        const chip = item.delivery === 'delivered' ? 'delivered' : receipt ?? item.delivery;
         const previous = timeline[index - 1];
         const continuation = !!item.comment.messageId && previous?.source === 'comment'
           && previous.comment.messageId === item.comment.messageId
@@ -1747,9 +1758,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 under the person's own bubble, on their side. */}
             {chip && (
               <p
-                data-testid={chip === 'delivered' ? 'task-comment-delivered' : 'task-comment-queued'}
+                data-testid={chip === 'delivered' ? 'task-comment-delivered' : receipt ? 'task-comment-receipt' : 'task-comment-queued'}
+                role={receipt ? 'status' : undefined}
                 className="pr-1 text-right text-[10px] text-app-text-faint"
-              >{tr(chip === 'delivered' ? 'board.task.delivered' : 'board.task.queuedForTurn')}</p>
+              >{tr(chip === 'note' ? 'board.task.noteSaved' : chip === 'saved' ? 'board.task.commentSaved'
+                : chip === 'delivered' || chip === 'answered' ? 'board.task.delivered' : 'board.task.queuedForTurn')}</p>
             )}
           </div>
         );
@@ -1857,7 +1870,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- action callbacks use the task state listed below
-  }, [task, timeline, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns]);
+  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)
@@ -2908,6 +2921,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             }}
             data-testid="task-thread-dropzone"
           >
+            {task.status === 'review' && !task.assignedTopicId && !task.parentTaskId && (
+              <p data-testid="task-comment-note-context" className="mb-1 px-1 text-[11px] text-app-text-secondary">
+                {tr('board.task.unassignedNoteContext')}
+              </p>
+            )}
             {fileDragOver && (
               <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded border border-dashed border-emerald-400/60 bg-app-bg/70 text-[11px] text-emerald-300">
                 {tr('board.task.dropToAttach')}
