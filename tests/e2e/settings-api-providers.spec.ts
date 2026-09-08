@@ -1,7 +1,7 @@
 /**
  * API onboarding and replacement, with every credential/configuration request
  * intercepted. No real key, provider probe or paid generation is used.
- * @covers MP-SETUP-01 @covers APPSET-01 @covers SETMOB-01 @covers RT-10 @covers SNAPSYNC-01
+ * @covers MP-SETUP-02 @covers MP-SETUP-01 @covers APPSET-01 @covers SETMOB-01 @covers RT-10 @covers SNAPSYNC-01
  */
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from '../../shared/types';
@@ -100,7 +100,7 @@ async function openProviders(page: Page) {
   await page.getByTestId('topics-menu-settings-all').click();
   const panel = page.getByTestId('settings-panel');
   await expect(panel).toBeVisible();
-  await panel.locator('nav').getByRole('button', { name: 'Provider AI', exact: true }).click();
+  await panel.locator('nav').getByRole('button', { name: 'Providers AI', exact: true }).click();
   await expect(page.getByTestId('ai-providers-settings')).toBeVisible();
   await expect.poll(() => panel.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
 }
@@ -152,6 +152,8 @@ for (const device of [
       for (const provider of ['openai', 'claude'] as ApiProvider[]) {
         const setup = page.getByTestId(`api-provider-setup-${provider}`);
         await expect(setup).toBeVisible();
+        await expect(setup.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+        await setup.getByRole('button').click();
         await expect(setup).toContainText('senza installare una CLI');
         const input = setup.getByLabel(/^Chiave API/);
         await expect(input).toHaveAttribute('type', 'password');
@@ -161,7 +163,9 @@ for (const device of [
         const card = page.getByTestId(`provider-card-${provider}`);
         await expect(card).toBeVisible();
         await expect(setup).toHaveCount(0);
-        await card.getByRole('button').first().click();
+        await expect(card.getByRole('button').first()).toHaveAttribute('aria-expanded', 'true');
+        await expect(card.getByLabel(/^Sostituisci chiave API/)).not.toBeVisible();
+        await card.locator('summary').click();
         await expect(card.getByLabel(/^Sostituisci chiave API/)).toHaveValue('');
         await expect(card).toContainText('Vale dal prossimo turno.');
         await card.getByRole('button').first().click();
@@ -196,10 +200,12 @@ for (const device of [
       await input.press('Enter');
       await expect(form.getByRole('alert')).toContainText('Chiave API rifiutata');
       await expect(form.getByRole('button')).toBeEnabled();
-      await expect(card.getByRole('button').first()).toContainText('error');
+      await expect(card.getByRole('button').first()).toContainText('Da verificare');
       await input.fill('replacement-test-key');
       await form.getByRole('button').click();
-      await expect(card.getByRole('button').first()).toContainText('ready');
+      await expect(card.getByRole('button').first()).toContainText('Connesso');
+      await expect(input).not.toBeVisible();
+      await card.locator('summary').click();
       await expect(input).toHaveValue('');
       await expect(form.getByRole('alert')).toHaveCount(0);
       expect(fixture.configured.map((attempt) => attempt.apiKey)).toEqual(['rejected-test-key', 'replacement-test-key']);
@@ -217,16 +223,26 @@ for (const device of [
       const advanced = page.getByTestId('ai-providers-advanced');
       await expect(advanced.getByRole('combobox', { name: 'Runtime degli agenti', exact: true })).toBeVisible();
       await expect(advanced.getByTestId('cli-agents-panel')).toBeVisible();
-      await expect(advanced.getByTestId('mcp-fleet-empty')).toBeVisible();
+      await expect(page.getByTestId('mcp-fleet-panel')).toHaveCount(0);
+      await expect(page.getByTestId('settings-permissions')).toHaveCount(0);
       await expect(page.getByTestId('agent-runtime-unavailable')).toHaveCount(0);
       await expect(page.getByTestId('provider-default-missing')).toHaveCount(0);
-      expect(fixture.fleetReads()).toBe(1);
+      expect(fixture.fleetReads()).toBe(0);
       fixture.removeNative();
       await expect(page.getByTestId('agent-runtime-unavailable')).toContainText('runtime nativo Claude');
       await expect(page.getByTestId('agent-runtime-unavailable')).not.toContainText('jcode');
       await expect(page.getByTestId('provider-default-missing')).toBeVisible();
       await toggle.click();
       await expect(advanced).toHaveCount(0);
+      const panel = page.getByTestId('settings-panel');
+      await panel.locator('nav').getByRole('button', { name: 'Strumenti', exact: true }).click();
+      await expect(page.getByTestId('mcp-fleet-empty')).toBeVisible();
+      await expect(page.getByTestId('settings-permissions')).toBeVisible();
+      expect(fixture.fleetReads()).toBe(1);
+      await page.screenshot({ path: test.info().outputPath('tools.png') });
+      await panel.locator('nav').getByRole('button', { name: 'Providers AI', exact: true }).click();
+      await expect(page.getByTestId('ai-providers-settings')).toBeVisible();
+      await expect(page.getByTestId('mcp-fleet-panel')).toHaveCount(0);
     });
 
     if (device.hasTouch) {
@@ -248,7 +264,7 @@ for (const device of [
         expect(metrics.coarse).toBe(true);
         expect(metrics.overflow).toEqual([]);
         expect(metrics.small).toEqual([]);
-        expect(metrics.inputFontSizes).toHaveLength(2);
+        expect(metrics.inputFontSizes).toHaveLength(1);
         expect(metrics.inputFontSizes.every((size) => size >= 16)).toBe(true);
         await didascalia(page, 'Configurazione API da telefono');
         await beat(page);

@@ -8,12 +8,10 @@ import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types';
-import { PermissionsSection } from './PermissionsSection';
 import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
 import { ApiKeyForm, ApiProviderSetup } from './ApiProviderSetup';
 import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
-import { McpFleetPanel } from './McpFleetPanel';
 import { CliAgentsPanel } from './CliAgentsPanel';
 import {
   API_PROVIDERS,
@@ -147,7 +145,7 @@ export function AIProvidersSection() {
     return byField;
   }, [entries]);
 
-  // Provider failures must not hide the independently loaded permission list.
+  // Keep setup reachable when a previously registered provider fails.
   const providersBody = error && entries.length === 0 ? (
     <div className="flex items-center gap-2 text-[12px] text-red-500">
       <AlertCircle size={12} className="flex-shrink-0" />
@@ -215,7 +213,10 @@ export function AIProvidersSection() {
           {(Object.keys(API_PROVIDERS) as Array<keyof typeof API_PROVIDERS>).map((provider) => {
             const entry = entries.find((candidate) => candidate.name === provider);
             return entry ? renderProvider(entry) : (
-              <ApiProviderSetup key={provider} provider={provider} onSaved={() => refresh(provider)} />
+              <ApiProviderSetup key={provider} provider={provider}
+                expanded={expanded === provider}
+                onToggle={() => setExpanded(expanded === provider ? null : provider)}
+                onSaved={() => refresh(provider)} />
             );
           })}
         </div>}
@@ -241,7 +242,8 @@ export function AIProvidersSection() {
         </button>
         <p className="text-[11px] text-app-text-muted">{tr('ai.advanced.hint')}</p>
         {advanced && <div id="ai-providers-advanced" data-testid="ai-providers-advanced" className="mt-3 space-y-4">
-          {settings && <>
+          {settings && <div className="space-y-3 rounded-lg border border-app-border px-3 py-3">
+            <h3 className="text-[13px] font-medium text-app-text">{tr('ai.execution.title')}</h3>
             <AgentRuntimeChoice
               settings={settings}
               saving={saving}
@@ -249,8 +251,7 @@ export function AIProvidersSection() {
               onSave={save}
             />
             <TurnCheckpointsChoice settings={settings} saving={saving} onSave={save} />
-          </>}
-          <McpFleetPanel />
+          </div>}
           <div className="space-y-1.5">
             {snapshot && settings && !entries.some((entry) => entry.name === 'claude-code') && (
               <UnregisteredClaudeCode settings={settings} saving={saving} onSave={save} />
@@ -260,9 +261,6 @@ export function AIProvidersSection() {
         </div>}
       </div>
 
-      <div className="pt-5 border-t border-app-border">
-        <PermissionsSection />
-      </div>
     </div>
   );
 }
@@ -334,7 +332,9 @@ function ProviderCard({
   // API labels clarify the connection type; other labels come from discovery.
   const apiProvider = isApiProvider(entry.name) ? entry.name : null;
   const label = apiProvider ? API_PROVIDERS[apiProvider].label : entry.label ?? entry.name;
-  const modelsCount = entry.models.length;
+  const modelField = PROVIDER_MODEL_FIELD[entry.name];
+  const selectedModel = (modelField ? settings?.[modelField] : null) ?? entry.defaultModel;
+  const hasKey = !!apiProvider && entry.requirements.some((req) => req.key === API_PROVIDERS[apiProvider].requirement && req.present);
   // Test connection only makes sense once requirements are met. When the
   // provider is "not set up" (unavailable), there's nothing to test — the user
   // first needs to satisfy the requirements below.
@@ -345,17 +345,16 @@ function ProviderCard({
       <button
         onClick={onToggle}
         aria-expanded={expanded}
-        className="w-full flex flex-wrap items-center gap-2 px-3 py-2 text-left coarse:min-h-11"
+        className="w-full flex min-h-11 items-center gap-2 px-3 py-2 text-left"
       >
         {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
-        <span className="text-[12px] font-semibold text-app-text">{label}</span>
-        <span className="text-[11px] text-app-text-muted">{STATUS_LABELS[entry.status]}</span>
-        {entry.version && <span className="text-[11px] text-app-text-muted">· v{entry.version}</span>}
-        {modelsCount > 0 && (
-          <span className="text-[11px] text-app-text-muted">· {modelsCount} models</span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12px] font-semibold text-app-text">{label}</span>
+          {selectedModel && <span className="block truncate text-[11px] text-app-text-secondary" title={selectedModel}>{selectedModel}</span>}
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span className="text-[11px] text-app-text-secondary">{tr(`ai.status.${entry.status}`)}</span>
           {entry.isDefault && (
             <span
               className="text-[11px] bg-primary/20 text-primary px-1.5 py-0.5 rounded"
@@ -368,7 +367,7 @@ function ProviderCard({
               {defaultKnown && !explicitDefault ? 'Default · automatico' : 'Default'}
             </span>
           )}
-        </div>
+        </span>
       </button>
 
       {expanded && (
@@ -447,13 +446,12 @@ function ProviderCard({
             </div>
           )}
 
-          {apiProvider && (
-            <ApiKeyForm
-              provider={apiProvider}
-              replacing={entry.requirements.some((requirement) => requirement.key === API_PROVIDERS[apiProvider].requirement && requirement.present)}
-              onSaved={onAfterConfigure}
-            />
-          )}
+          {apiProvider && (hasKey && entry.status === 'ready' ? (
+            <details className="border-t border-app-border pt-2" data-testid={`provider-key-details-${entry.name}`}>
+              <summary className="cursor-pointer py-1 text-[12px] text-app-text-secondary coarse:min-h-11">{tr('ai.api.replaceKey')}</summary>
+              <div className="pt-2"><ApiKeyForm provider={apiProvider} replacing onSaved={onAfterConfigure} /></div>
+            </details>
+          ) : <ApiKeyForm provider={apiProvider} replacing={hasKey} onSaved={onAfterConfigure} />)}
 
           {/* Freshness footer */}
           {entry.fetchedAt && (

@@ -85,7 +85,8 @@ for (const mobile of [false, true]) {
         else { await notice.focus(); await page.keyboard.press('Enter'); }
         await expect(details).toBeVisible();
         await expect(details).toContainText('Limite settimanale del piano Claude');
-        await expect(details).toContainText('avvio automatico dei task attende il reset');
+        await expect(details).toContainText('I task Claude attendono il reset');
+        await expect(details).toContainText('I task con altri provider possono continuare');
         await expect(details).toContainText(datedReset);
         // The shared phone sheet animates from below the viewport.
         await expect.poll(async () => {

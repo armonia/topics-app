@@ -4,6 +4,22 @@ Provider setup, model selection, and coding execution must describe the same ava
 
 ## Requirements
 
+### Requirement: MP-SETUP-02 — One provider page with separate tool management
+
+Provider AI settings SHALL keep setup, model selection and connection maintenance in the same expandable list. Unconfigured API connections SHALL expand in place; ready connections SHALL expose key replacement on request within their own card. Provider status and the selected model SHALL remain understandable when collapsed. Errors SHALL retain a direct recovery path.
+
+Advanced provider controls SHALL be grouped as agent execution and local programs. MCP and persistent tool grants SHALL live in a separate Tools settings section using the shared navigation and deep-link registry. Opening Providers, including advanced controls, SHALL issue no MCP discovery requests. Opening Tools SHALL load its current state without modifying any settings or grants.
+
+#### Scenario: Connect and manage in place
+- **WHEN** a user expands an unconfigured API provider and connects it
+- **THEN** its model controls remain open in the same list
+- **AND** a ready provider keeps key replacement folded until requested.
+
+#### Scenario: Tools are independent from provider execution
+- **WHEN** a user opens provider execution settings and then Tools
+- **THEN** MCP is loaded only in Tools and tool grants remain reachable there
+- **AND** provider, runtime and permission selections remain unchanged.
+
 ### Requirement: MP-SETUP-01 — Discoverable and persistent API connections
 
 Settings SHALL offer OpenAI and Anthropic API setup before provider registration, support replacement of rejected keys, and explain API billing and installation-scoped storage. Keys SHALL be validated before replacing working credentials, persist in a private server file, and never appear in public settings or snapshots. The reserved credentials directory SHALL be excluded from project file reads, preview, media, file listings, and search, including access through symbolic links. Bootstrap and later discovery SHALL use the same canonical state root. Desktop and mobile SHALL retain usable inputs and controls. Advanced runtime tools SHALL mount only when expanded.

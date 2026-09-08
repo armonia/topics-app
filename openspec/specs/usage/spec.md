@@ -696,7 +696,7 @@ pura. Un cartello che arriva già scaduto SHALL essere adottato come niente.
 
 ### Requirement: USAGE-22 — Readable and actionable provider-limit notice
 
-The plan-limit notice SHALL identify Claude, show the reset date as well as its time, and remain readable on a narrow sidebar. A compact control SHALL open details explaining the affected usage window and current automatic-queue pause, with a direct action to Provider AI settings. It SHALL not describe the limit as a Topics subscription or automatically change providers.
+The plan-limit notice SHALL identify Claude, show the reset date as well as its time, and remain readable on a narrow sidebar. A compact control SHALL open details explaining the affected usage window and that Claude tasks wait while tasks using other providers can continue, with a direct action to Provider AI settings. It SHALL not describe the limit as a Topics subscription or automatically change providers.
 
 On mobile the notice SHALL remain visible without opening the sidebar and SHALL reserve its actual height so the composer and bottom navigation remain usable. While the software keyboard is open it SHALL close its details, hide and release its reserved space, keeping the underlying status subscribed. Offline status SHALL take precedence. A hold SHALL replace the approaching-limit notice; clearing or expiring it SHALL remove stale details and layout space. Colors and floating details SHALL use the existing chrome/menu design tokens.
 

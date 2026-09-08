@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Copy, ExternalLink, Plus, RefreshCw } from 'lucide-react';
+import { AlertCircle, Check, Copy, ExternalLink, RefreshCw } from 'lucide-react';
 import { providersApi, type CliAgentPresence } from '../../lib/api';
 import { copyText } from '../../lib/clipboard';
+import { useT } from '../../hooks/useT';
 
 /**
  * THE AGENT CLIs, and the way out when the probe is wrong.
@@ -22,6 +23,7 @@ import { copyText } from '../../lib/clipboard';
  * path is the kind of thing that makes a person think they have to fill it in.
  */
 export function CliAgentsPanel() {
+  const t = useT();
   const [agents, setAgents] = useState<CliAgentPresence[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,9 +35,9 @@ export function CliAgentsPanel() {
       .cliAgents()
       .then((res) => { setAgents(res.agents); setError(null); })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Could not read the agent list.');
+        setError(err instanceof Error ? err.message : t('ai.local.loadFailed'));
       });
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -44,10 +46,10 @@ export function CliAgentsPanel() {
       .then((res) => { if (!ctrl.signal.aborted) { setAgents(res.agents); setError(null); } })
       .catch((err: unknown) => {
         if (ctrl.signal.aborted) return;
-        setError(err instanceof Error ? err.message : 'Could not read the agent list.');
+        setError(err instanceof Error ? err.message : t('ai.local.loadFailed'));
       });
     return () => ctrl.abort();
-  }, []);
+  }, [t]);
 
   if (error && !agents) {
     return (
@@ -59,7 +61,7 @@ export function CliAgentsPanel() {
           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
         >
           <RefreshCw size={11} />
-          Retry
+          {t('common.retry')}
         </button>
       </div>
     );
@@ -67,19 +69,15 @@ export function CliAgentsPanel() {
 
   return (
     <div data-testid="cli-agents-panel">
-      <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
-        <Plus size={14} />
-        Add a provider
-      </label>
+      <h3 className="text-[13px] font-medium text-app-text mb-1">{t('ai.local.title')}</h3>
       <p className="text-[11px] text-app-text-muted mb-3">
-        The agent CLIs installed on this machine. If one is here but Topics does
-        not see it, point at its path: no restart needed.
+        {t('ai.local.hint')}
       </p>
       <div className="space-y-1.5">
         {agents?.map((agent) => (
           <CliAgentRow key={agent.id} agent={agent} onChanged={setAgents} />
         ))}
-        {agents === null && <div className="text-[12px] text-app-text-muted">Loading…</div>}
+        {agents === null && <div className="text-[12px] text-app-text-muted">{t('common.loading')}</div>}
       </div>
     </div>
   );
@@ -92,6 +90,7 @@ function CliAgentRow({
   agent: CliAgentPresence;
   onChanged: (agents: CliAgentPresence[]) => void;
 }) {
+  const t = useT();
   // The field opens by itself when a manual path is already there and no longer
   // resolves: that is the one state a person has to act on, and hiding the field
   // behind a click would hide the only control that fixes it.
@@ -111,7 +110,7 @@ function CliAgentRow({
     } catch (err) {
       // The server's refusal is already a sentence for a person ("There is
       // nothing at that path."), so it is shown as it arrives.
-      setRowError(err instanceof Error ? err.message : 'Could not save that path.');
+      setRowError(err instanceof Error ? err.message : t('ai.local.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -137,7 +136,7 @@ function CliAgentRow({
             {agent.path}
           </span>
         ) : (
-          <span className="text-[10px] text-app-text-muted">Not found</span>
+          <span className="text-[10px] text-app-text-muted">{t('ai.local.notFound')}</span>
         )}
         {!agent.installed && (
           <a
@@ -155,7 +154,7 @@ function CliAgentRow({
           onClick={() => setEditing((v) => !v)}
           className="flex-shrink-0 px-2 py-1 rounded-md text-[11px] bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
         >
-          {agent.manualPath ? 'Change path' : 'Set path'}
+          {t(agent.manualPath ? 'ai.local.changePath' : 'ai.local.setPath')}
         </button>
       </div>
 
@@ -172,7 +171,7 @@ function CliAgentRow({
             className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
           >
             {copied ? <Check size={10} /> : <Copy size={10} />}
-            {copied ? 'Copied' : 'Copy'}
+            {t(copied ? 'ai.local.copied' : 'ai.local.copy')}
           </button>
         </div>
       )}
@@ -180,7 +179,7 @@ function CliAgentRow({
       {agent.manualPathBroken && (
         <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-500">
           <AlertCircle size={10} className="flex-shrink-0" />
-          <span className="break-all">The path you set is no longer there: {agent.manualPath}</span>
+          <span className="break-all">{t('ai.local.missingPath', { path: agent.manualPath ?? '' })}</span>
         </div>
       )}
 
@@ -202,7 +201,7 @@ function CliAgentRow({
               disabled={saving || value.trim() === ''}
               className="flex-shrink-0 px-2 py-1 rounded-md text-[11px] bg-app-accent text-white disabled:opacity-50 coarse:min-h-11 coarse:px-3"
             >
-              Save
+              {t('common.save')}
             </button>
             {agent.manualPath && (
               <button
@@ -210,14 +209,12 @@ function CliAgentRow({
                 disabled={saving}
                 className="flex-shrink-0 px-2 py-1 rounded-md text-[11px] bg-app-bg border border-app-border hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
               >
-                Clear
+                {t('ai.local.clearPath')}
               </button>
             )}
           </div>
           <p className="text-[10px] text-app-text-muted">
-            The full path to the binary. A folder works too: Topics looks inside
-            it. Run <span className="font-mono">which {agent.bin}</span> in
-            a terminal to find it.
+            {t('ai.local.pathHint', { command: `which ${agent.bin}` })}
           </p>
           {rowError && (
             <div className="flex items-center gap-1.5 text-[10px] text-red-500" data-testid="cli-agent-path-error">

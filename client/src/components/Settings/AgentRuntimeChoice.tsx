@@ -21,7 +21,7 @@ export function AgentRuntimeChoice({
   // cioè per quasi tutti, cioè proprio per chi ha più bisogno di vederlo.
   const chosen = settings.agentRuntime ?? DEFAULT_AGENT_RUNTIME;
   return (
-    <div className="mb-3 rounded-lg border border-app-border bg-surface/40 px-3 py-2">
+    <div className="space-y-2">
       <SettingSelect
         label={t('runtime.label')}
         hint={t('runtime.hint')}

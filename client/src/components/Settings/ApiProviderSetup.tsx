@@ -1,22 +1,29 @@
 import { useId, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { ApiError, providersApi } from '../../lib/api';
 import { API_PROVIDERS, type ApiProviderName } from './providerFormat';
 
 /** An absent provider has a setup card, without invented status or models. */
-export function ApiProviderSetup({ provider, onSaved }: {
+export function ApiProviderSetup({ provider, expanded, onToggle, onSaved }: {
   provider: ApiProviderName;
+  expanded: boolean;
+  onToggle: () => void;
   onSaved: () => Promise<void>;
 }) {
   const tr = useT();
   return (
-    <div data-testid={`api-provider-setup-${provider}`} className="rounded-lg border border-dashed border-app-border bg-app-hover/40 p-3 space-y-2">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-[12px] font-semibold text-app-text">{API_PROVIDERS[provider].label}</span>
-        <span className="text-[11px] text-app-text-muted">{tr('ai.api.notConnected')}</span>
-      </div>
-      <p className="text-[11px] text-app-text-secondary">{tr('ai.api.chat')}</p>
-      <ApiKeyForm provider={provider} replacing={false} onSaved={onSaved} />
+    <div data-testid={`api-provider-setup-${provider}`} className="rounded-lg border border-app-border bg-app-hover/40">
+      <button type="button" onClick={onToggle} aria-expanded={expanded}
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left">
+        {expanded ? <ChevronDown size={13} className="shrink-0 text-app-text-secondary" /> : <ChevronRight size={13} className="shrink-0 text-app-text-secondary" />}
+        <span className="flex-1 text-[12px] font-semibold text-app-text">{API_PROVIDERS[provider].label}</span>
+        <span className="text-[11px] text-app-text-secondary">{tr('ai.api.notConnected')}</span>
+      </button>
+      {expanded && <div className="space-y-2 border-t border-app-border px-3 pb-3 pt-2">
+        <p className="text-[12px] text-app-text-secondary">{tr('ai.api.chat')}</p>
+        <ApiKeyForm provider={provider} replacing={false} onSaved={onSaved} />
+      </div>}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { AppearanceSection } from './AppearanceSection';
 import { NotificationsSection } from './NotificationsSection';
 import { AIProvidersSection } from './AIProvidersSection';
+import { ToolsSection } from './ToolsSection';
 import { CalendarSection } from './CalendarSection';
 import { DevicesSection } from './DevicesSection';
 import { PlanSection } from './PlanSection';
@@ -43,12 +44,8 @@ interface GlobalSettingsProps {
 // leggendo `SHORTCUT_GROUPS`: sarebbe la stessa lista in due finestre. Resta
 // il RIMANDO in fondo ad Aspetto, che è l'unica cosa che non può mentire.
 //
-// «Permessi» non è stata rimossa, è stata SPOSTATA: gli «strumenti sempre
-// consentiti» sono in fondo alla scheda «AI Providers». Erano una voce di nav di
-// primo livello che nella stragrande maggioranza dei casi mostrava lo stato
-// vuoto — un pannello vuoto per default non merita un posto fisso nel menu —
-// mentre il controllo che si cerca pensando «permessi», il livello di autonomia,
-// è per-chat e sta nel composer.
+// Persistent tool grants live alongside MCP in Tools. Per-chat autonomy
+// remains in the composer, where it governs the next turn.
 // L'ELENCO DELLE VOCI sta in `./sections.ts`, come dato: lo legge anche il
 // pane «Profilo» standalone, e un test lo controlla senza montare un DOM.
 //
@@ -186,6 +183,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
             )}
             {section === 'calendar' && <CalendarSection />}
             {section === 'providers' && <AIProvidersSection />}
+            {section === 'tools' && <ToolsSection />}
             {section === 'plan' && <PlanSection />}
             {section === 'profile' && <ProfilePage />}
             {section === 'organization' && <OrganizationPage />}
