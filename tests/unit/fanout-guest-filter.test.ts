@@ -160,6 +160,7 @@ describe("le fan-out non possono dimenticare il filtro degli ospiti", () => {
     expect(
       nudi,
       "un `ws.send` diretto nel gestore `open` scavalca il confinamento: usa inviaIniziale",
-    ).toBe(1); // solo quello DENTRO inviaIniziale
+    ).toBe(0); // inviaIniziale uses the common compression-aware send policy.
+    expect([...gestore.matchAll(/\bsendWsFrame\(/g)].length).toBe(1);
   });
 });

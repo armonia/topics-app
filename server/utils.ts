@@ -33,7 +33,7 @@ import { defaultLifecycleHooks } from "./services/lifecycle-hooks";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
 import { blocksForDisk, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
-import { shouldCompressFrame } from "./lib/ws-compression";
+import { sendWsFrame } from "./lib/ws-send";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
@@ -806,7 +806,7 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function sendFrame(ws: ServerWebSocket<WSData>, payload: string, type: string): void {
     try {
-      ws.send(payload, shouldCompressFrame({ type, bytes: payload.length, remote: ws.data.remote === true }));
+      sendWsFrame(ws, payload, type);
     } catch (err) {
       console.error(`[WS] Send error to ${ws.data.id}:`, err);
     }
@@ -1013,14 +1013,11 @@ export function createAppContext(baseDir: string): AppContext {
     const guests = guestSocketFilter();
     for (const ws of wsClients) {
       if (ws === exclude || ws.readyState !== 1) continue;
-      // PRIMA del ripiego di `clientReceivesTopicDelta`, che è permissivo per
-      // scelta: un client che non ha mai dichiarato il suo insieme riceve TUTTI
-      // i delta. È la regola giusta fra le finestre del proprietario, ed era la
-      // falla vera per un ospite — `stream:content_chunk` passa quasi sempre di
-      // qui, non da `broadcastToAll`, quindi il testo di una chat non condivisa
-      // gli scorreva addosso mentre l'allowlist dei frame guardava altrove.
-      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
+      // A client showing something else can be skipped before touching SQL.
+      // Interest never grants access: legacy clients (no declared open-set)
+      // and focused-topic fallbacks still pass the guest check before send.
       if (!clientReceivesTopicDelta(ws.data, topicId)) continue;
+      if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data.deviceId!, topicId)) continue;
       sendFrame(ws, payload, message.type);
     }
   }

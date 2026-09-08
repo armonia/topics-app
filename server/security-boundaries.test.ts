@@ -6,6 +6,7 @@
  * @covers AUTHGATE-02
  * @covers PROJECT-11
  * @covers GUEST-03
+ * @covers WIRE-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -17,6 +18,8 @@ import { closeDatabase } from "./db";
 import { createAppContext } from "./utils";
 import { createFilesRouter } from "./routes/files";
 import { upgradeWebSocket } from "./lib/ws-upgrade";
+import { deviceP, dropGrant, hasGrant, putGrant } from "./lib/grants-query";
+import { principalsRev } from "./lib/principals";
 
 let root: string;
 let project: string;
@@ -169,5 +172,55 @@ describe("device revocation across WebSocket transports", () => {
     expect(data?.deviceId).toBe("guest");
     expect(upgradeWebSocket(req, "/ws/browser/", server, null, false)?.status).toBe(400);
     expect(upgradeWebSocket(req, "/api/topics", server, null, false)).toBeNull();
+  });
+});
+
+describe("multiplayer stream query cost", () => {
+  test("only interested guests pay authorization queries, without losing legacy/focus delivery or revocation", () => {
+    let reads = 0;
+    const measuredDb = { query: new Proxy(ctx.db.query, {
+      apply(query, _receiver, args) { reads++; return Reflect.apply(query, ctx.db, args); },
+    }) };
+    const topicId = "runtime-cost-topic";
+    const subject = { kind: "device" as const, id: "runtime-cost-guest" };
+    putGrant(ctx.db, subject, "topic", topicId, { grantedAt: 1 });
+    ctx.setGuestBroadcastFilter({
+      mayReceiveFrame: () => false, // Control frames stay private to owners.
+      mayReadTopic(deviceId, id) {
+        principalsRev(measuredDb); // The production filter reads this revision even with a warm principal cache.
+        return hasGrant(measuredDb, deviceP(deviceId), "topic", id);
+      },
+    });
+    const sockets: Array<{ data: WSData; readyState: number; sent: number; send: () => number }> = [];
+    const socket = (id: string, options: Partial<WSData> = {}) => {
+      const ws = { data: { id, deviceId: subject.id, deviceRole: "guest", focusedTopicId: null,
+        lastPong: 0, openTopicIds: new Set<string>(), ...options } as WSData,
+        readyState: 1, sent: 0, send() { ws.sent++; return 1; } };
+      sockets.push(ws); ctx.wsClients.add(ws as unknown as ServerWebSocket<WSData>); return ws;
+    };
+    try {
+      for (let i = 0; i < 100; i++) socket(`uninterested-${i}`);
+      const opened = socket("opened", { openTopicIds: new Set([topicId]) });
+      const denied = socket("denied", { deviceId: "runtime-cost-no-grant", openTopicIds: new Set([topicId]) });
+      const legacy = socket("legacy", { openTopicIds: undefined });
+      const focused = socket("focused", { focusedTopicId: topicId });
+      const owner = socket("owner", { deviceId: null, deviceRole: null });
+      const frame = { type: "stream:content_chunk" as const, topicId, sessionKey: "runtime-cost", content: "delta" };
+      for (let i = 0; i < 10; i++) ctx.broadcastToTopicSubscribers(topicId, frame);
+      console.log("RUNTIME-COST guest-filter", { guests: 104, frames: 10, authorizationReads: reads });
+      expect([opened.sent, denied.sent, legacy.sent, focused.sent, owner.sent]).toEqual([10, 0, 10, 10, 0]);
+      expect(sockets.slice(0, 100).every(ws => ws.sent === 0)).toBe(true);
+      const readsBeforeRevoke = reads;
+      dropGrant(ctx.db, subject, "topic", topicId);
+      ctx.broadcastToTopicSubscribers(topicId, frame);
+      expect([opened.sent, denied.sent, legacy.sent, focused.sent]).toEqual([10, 0, 10, 10]);
+      ctx.broadcastToAll({ type: "presence:windows", windows: [] });
+      expect(owner.sent).toBe(1); // Control broadcasts remain independent of topic subscriptions.
+      expect(readsBeforeRevoke).toBe(80); // Four interested guests, two indexed reads, ten chunks.
+    } finally {
+      for (const ws of sockets) ctx.wsClients.delete(ws as unknown as ServerWebSocket<WSData>);
+      ctx.setGuestBroadcastFilter(null);
+      dropGrant(ctx.db, subject, "topic", topicId);
+    }
   });
 });

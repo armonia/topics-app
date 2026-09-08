@@ -175,6 +175,7 @@ import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
+import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
@@ -3674,7 +3675,7 @@ const opzioniServer = {
           const risorsa = frameResource(frame);
           if (!risorsa || !hasGrant(ctx.db, principaliDi(ws.data.deviceId!), risorsa.type, risorsa.id)) return;
         }
-        try { ws.send(JSON.stringify(frame)); } catch { /* socket già chiusa */ }
+        try { sendWsFrame(ws, JSON.stringify(frame), tipo); } catch { /* socket già chiusa */ }
       };
 
       inviaIniziale({ type: "connected", clientId: ws.data.id });
