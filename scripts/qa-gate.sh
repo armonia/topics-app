@@ -103,7 +103,7 @@ if [ "$VELOCE" = "0" ]; then
 fi
 
 if [ "$SENZA_E2E" = "0" ]; then
-  echo "== E2E (4 shard) =="
+  echo "== E2E (2 shard) =="
   esegui e2e ./scripts/e2e-shards.sh
 fi
 

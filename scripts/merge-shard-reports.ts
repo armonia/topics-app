@@ -17,7 +17,8 @@
  * ignores the project calls that an overlap. Measured on the first real run: 7 false alarms,
  * all of them chromium/webkit pairs of the same test.
  *
- * Usage:  bun run scripts/merge-shard-reports.ts [dir] --out test-results/uat-report.json
+ * Usage:  bun run scripts/merge-shard-reports.ts <run-directory> --out test-results/uat-report.json
+ * The directory may also be supplied through E2E_SHARD_OUT_DIR.
  */
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -30,7 +31,12 @@ const args = process.argv.slice(2);
 const outFlag = args.indexOf("--out");
 const OUT = outFlag >= 0 ? args[outFlag + 1]! : "test-results/uat-report.json";
 const DIR = args.find((a, i) => !a.startsWith("--") && (outFlag < 0 || i !== outFlag + 1))
-  ?? join(process.env.TMPDIR ?? "/tmp", "topics-e2e-shards");
+  || process.env.E2E_SHARD_OUT_DIR || process.env.E2E_SHARDS_OUT_DIR;
+if (!DIR || !OUT || OUT.startsWith("--")) {
+  console.error("Usage: bun run scripts/merge-shard-reports.ts <run-directory> [--out report.json]\n" +
+    "Pass the directory printed by e2e-shards.sh, or set E2E_SHARD_OUT_DIR.");
+  process.exit(2);
+}
 
 if (!existsSync(DIR)) {
   console.error(`merge-shard-reports: ${DIR} non esiste — nessun report da fondere.`);

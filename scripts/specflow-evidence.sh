@@ -36,7 +36,7 @@ SKIP_E2E="${SKIP_E2E:-0}"
 # pagina. Non sostituisce la suite intera — quella dice se qualcosa e' rotto, e va lanciata — ma
 # per aggiornare la living-doc e' il giro giusto.
 ONLY_ANNOTATED="${ONLY_ANNOTATED:-0}"
-OUT_DIR="${TMPDIR:-/tmp}/topics-e2e-shards"
+OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/topics-e2e-evidence-XXXXXX")" || exit 1
 MERGED="test-results/uat-report.json"
 MAP="openspec/coverage-map.json"
 JUNIT="test-results/bun-junit.xml"
@@ -70,7 +70,7 @@ if [ "$SKIP_E2E" != "1" ]; then
     step "suite E2E — $SHARDS shard, trace su tutti i test"
   fi
   t=$(date +%s)
-  E2E_EVIDENCE=1 E2E_SHOT="${E2E_SHOT:-1}" TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS" "${SEL[@]}"
+  E2E_SHARD_OUT_DIR="$OUT_DIR" E2E_EVIDENCE=1 E2E_SHOT="${E2E_SHOT:-1}" TOPICS_E2E_BUNDLE_DIR="$BUNDLE" "$REPO_ROOT/scripts/e2e-shards.sh" "$SHARDS" "${SEL[@]}"
   rc=$?
   RAN=1
   since "$t"

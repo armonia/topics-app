@@ -10,7 +10,7 @@
  * the shards to within a few seconds of one another.
  *
  * HOW TO USE IT
- *   bun run scripts/e2e-record-durations.ts "$TMPDIR"/topics-e2e-shards/report-*.json
+ *   bun run scripts/e2e-record-durations.ts "$E2E_SHARD_OUT_DIR"/report-*.json
  *   bun run scripts/e2e-record-durations.ts test-results/uat-report.json
  *
  * MIND THE PATH. Until 25/08 this line read
@@ -65,7 +65,7 @@ const inputs = process.argv.slice(2);
 if (inputs.length === 0) {
   console.error(
     "uso: bun run scripts/e2e-record-durations.ts <results.json> [results.json …]\n" +
-      "     (tipicamente $TMPDIR/topics-e2e-shards/report-*.json dopo ./scripts/e2e-shards.sh)",
+      "     (use $E2E_SHARD_OUT_DIR/report-*.json from the run directory printed by ./scripts/e2e-shards.sh)",
   );
   process.exit(2);
 }

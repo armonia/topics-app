@@ -25,11 +25,15 @@
 
 export {}; // top-level await -> the file has to be a module
 
-const shards = Number(process.argv[2] || 4);
-/** Where `e2e-shards.sh:41` writes. ONE single source, and no fallbacks: a fallback onto the old
- *  `test-results/shard-N/results.json` is exactly how a five-day-old run gets read as if it were
- *  the current one. Better to say "no report" than to answer with the archive. */
-const OUT_DIR = process.env.E2E_SHARDS_OUT_DIR ?? `${process.env.TMPDIR ?? "/tmp"}/topics-e2e-shards`;
+const shards = Number(process.argv[2] || 2);
+// A run owns its directory; never guess it from a previous shared location.
+// Keep the old plural environment variable as an explicit compatibility alias.
+const OUT_DIR = process.argv[3] || process.env.E2E_SHARD_OUT_DIR || process.env.E2E_SHARDS_OUT_DIR;
+if (!OUT_DIR || !Number.isInteger(shards) || shards < 1) {
+  console.error("Usage: bun run scripts/e2e-shards-summary.ts [shards=2] [run-directory]\n" +
+    "Pass the directory printed by e2e-shards.sh, or set E2E_SHARD_OUT_DIR.");
+  process.exit(2);
+}
 /** Past this gap from the most recent report, a file belongs to a different run. */
 const STALE_MS = 30 * 60_000;
 

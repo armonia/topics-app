@@ -94,6 +94,7 @@
         // Run by hand, imported by nobody.
         "scripts/probe-dispatch-budget.ts!",
         "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
+        "scripts/e2e-shard-run.ts!", // invoked by scripts/e2e-shards.sh before starting any shard
         // `bun run scripts/merge-shard-reports.ts <dir> --out <file>` — fonde i
         // report-N.json dei quattro shard in un report solo. Lo chiama
         // `scripts/specflow-evidence.sh:90`, cioe' una riga di shell: knip legge

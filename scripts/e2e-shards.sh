@@ -12,8 +12,8 @@
 # PORTS. `tunnelPortFor()` is `port + 1000`, and the main ports occupy 13334 plus
 # the worktree band 13500-13899. Shards start at 13910 so neither the ports nor
 # their tunnels (14910 and up) can land on somebody else's main port. Override
-# with E2E_SHARD_BASE_PORT if you are running two of these at once, which you
-# probably should not.
+# with E2E_SHARD_BASE_PORT to select another band. A run lease prevents two
+# invocations from competing, while each invocation keeps its internal shards.
 #
 # LOAD, and the default is 2 because of a measurement, not a hunch. Every shard
 # is a headless Chrome AND a Bun server. CI runs four, but CI gives each shard its
@@ -37,8 +37,11 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ "${TOPICS_E2E_SHARD_CHILD:-}" != "1" ]; then
+  exec bun run "$REPO_ROOT/scripts/e2e-shard-run.ts" "$@"
+fi
 BASE_PORT="${E2E_SHARD_BASE_PORT:-13910}"
-OUT_DIR="${TMPDIR:-/tmp}/topics-e2e-shards"
+OUT_DIR="${E2E_SHARD_OUT_DIR:?run wrapper must provide an isolated output directory}"
 
 SHARDS=2
 case "${1:-}" in
@@ -47,8 +50,16 @@ case "${1:-}" in
 esac
 [ "$SHARDS" -ge 1 ] 2>/dev/null || { echo "✗ numero di shard non valido: $SHARDS" >&2; exit 1; }
 
-rm -rf "$OUT_DIR"; mkdir -p "$OUT_DIR"
 cd "$REPO_ROOT"
+
+pids=""
+stop_shards() {
+  trap '' INT TERM HUP
+  for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
+  for pid in $pids; do wait "$pid" 2>/dev/null || true; done
+  exit 143
+}
+trap stop_shards INT TERM HUP
 
 LOAD_BEFORE="$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' | awk '{print $1}')"
 NCPU="$(sysctl -n hw.ncpu 2>/dev/null || echo 8)"
@@ -97,7 +108,6 @@ if [ "$SHARDS" -gt 1 ] && [ "$#" -eq 0 ]; then
   fi
 fi
 
-pids=""
 for i in $(seq 1 "$SHARDS"); do
   port=$((BASE_PORT + i - 1))
   # Con il piano: la lista dei file di QUESTO shard, uno per riga, come
@@ -124,7 +134,7 @@ for i in $(seq 1 "$SHARDS"); do
   # `--reporter=line,json` da' tutte e due: la riga da leggere mentre gira e il
   # file da cui imparare per la prossima volta. Costa un file per shard.
   E2E_PORT="$port" PLAYWRIGHT_JSON_OUTPUT_FILE="$OUT_DIR/report-$i.json" \
-    npx playwright test "${shard_args[@]}" --reporter=line,json "$@" \
+    npx playwright test "${shard_args[@]}" --reporter=line,json --output="$OUT_DIR/artifacts-$i" "$@" \
     > "$OUT_DIR/shard-$i.log" 2>&1 &
   pids="$pids $!"
   echo "  shard $i/$SHARDS  porta $port  pid $!  ($modo)"
