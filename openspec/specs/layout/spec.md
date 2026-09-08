@@ -60,6 +60,13 @@ The system SHALL support splitting the panel grid horizontally and vertically, r
 - **WHEN** the user reloads the page
 - **THEN** both the project and chat panels are restored in the same multi-column layout
 
+#### Scenario: Repositioning a tab does not reload the pane
+- **GIVEN** a group holds several tabs and their panes are mounted (a browser pane has its page loaded, a chat pane its scroll position)
+- **WHEN** the user drags a tab to another position inside the same strip
+- **THEN** the tabs appear in the new order immediately
+- **AND** no pane is detached from the document: no page is reloaded, no loader appears, nothing is fetched again
+- **AND** the panes that were not dragged are left untouched
+
 #### Scenario: Multi-row multi-column top-level grid
 - **GIVEN** the user has performed Split Down (creating 2 rows) and Split Right within one row
 - **WHEN** the grid renders

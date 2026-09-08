@@ -42,6 +42,7 @@ import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { paneShellOrder } from './paneShellOrder';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
@@ -927,7 +928,9 @@ export function StandaloneChatGroup({
           {visitedPanes.length === 0 ? (
             <div className="flex-1" aria-hidden="true" />
           ) : (
-            visitedPanes.map((pane) => {
+            // Shell order, not tab order: see paneShellOrder. A reposition of
+            // the strip must not move these subtrees in the DOM.
+            paneShellOrder(visitedPanes, stableKeyOf).map((pane) => {
               const isPaneActive = pane.id === activePaneId;
               return (
                 <PaneKeepAlive
