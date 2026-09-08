@@ -428,7 +428,7 @@ if (Wants 'b') {
 
   # Groups of inked columns, merging gaps up to 4 CSS px: that keeps the letters
   # of one word together while leaving the three command cells apart, since their
-  # glyphs sit 18 px apart with air between them.
+  # glyphs sit 22 px apart with air between them.
   $mergeGap = [int](4 * $scale)
   $groups = New-Object 'System.Collections.Generic.List[object]'
   $start = -1
@@ -442,9 +442,35 @@ if (Wants 'b') {
   }
   if ($start -ge 0) { $groups.Add([pscustomobject]@{ Start = $start; End = $last }) }
 
-  $controlsLimit = 70 * $scale
-  $controls = @($groups | Where-Object { $_.End -lt $controlsLimit })
-  $word = @($groups | Where-Object { $_.Start -ge (60 * $scale) }) | Select-Object -First 1
+  # WHERE THE CLUSTER IS DECLARED TO BE, from
+  # `client/src/lib/shell/windowControlsGeometry.ts` and nowhere else. Every
+  # number here is one of that file's constants, so a geometry that moves on
+  # purpose moves this reading with it instead of turning it red:
+  #   ROW_INSET 6, WINDOW_CONTROLS_INSET_PX 12, cell 18,
+  #   WINDOW_CONTROL_CELL_GAP_PX 4, TITLE_INSET_WINDOWS_PX 74, ROW_PX 8.
+  $rowInset = 6
+  $cellInset = 12
+  $cellPx = 18
+  $cellGap = 4
+  # Where the third cell ends, in WINDOW px: 12 + 3 x 18 + 2 x 4.
+  $clusterEnd = $cellInset + 3 * $cellPx + 2 * $cellGap
+  # TITLE_INSET_WINDOWS_PX, written the way the TS writes it, in WRAPPER px:
+  # (12 - 6) + 3 x 18 + 2 x 4 + 6.
+  $titleInset = ($cellInset - $rowInset) + 3 * $cellPx + 2 * $cellGap + $rowInset
+  # A margin around the declared box, because the ink is a glyph INSIDE its cell
+  # and never touches the cell's own edges.
+  $slack = 4
+
+  # Ink to the LEFT of the first cell is the window's own border, not a command.
+  # Since the floating window stopped borrowing the DWM backdrop it paints its
+  # own edge, and the client capture starts on it: measured, a group at 0..3 CSS
+  # px that used to be absent and would otherwise count as a fourth cell.
+  $controls = @($groups | Where-Object {
+    $_.Start -ge (($cellInset - $slack) * $scale) -and $_.End -lt (($clusterEnd + $slack) * $scale)
+  })
+  # The word is the first group that starts AFTER the cluster's declared end, so
+  # widening the cluster can never make a command cell be read as the wordmark.
+  $word = @($groups | Where-Object { $_.Start -ge (($clusterEnd + $slack) * $scale) }) | Select-Object -First 1
 
   # Save the strip, cropped from the capture, as the evidence for this reading.
   $stripW = [Math]::Min([int](260 * $scale), $chrome.Width - $offX)
@@ -494,20 +520,21 @@ if (Wants 'b') {
   # WHERE THE FIRST PIXEL OF THE WORD BELONGS, derived from the constants and not
   # from what the screen happened to show:
   #   6   ROW_INSET, where the title wrapper starts in the client area
-  #  66   TITLE_INSET_WINDOWS_PX, the room the wrapper reserves for the commands
+  #  74   TITLE_INSET_WINDOWS_PX, the room the wrapper reserves for the commands
   #   8   ROW_PX (`px-2`) on the label itself, which is a padding INSIDE the inset
   # The first two are what the card asks about; the third is the reason the ink
-  # starts at 80 and not at 72, and it took a measurement to notice. The command
-  # cells are checked against their own declared box instead: they start at 12
-  # (`left-[6px]` in a wrapper at ROW_INSET) and the three of them end at 66.
-  $expectedCss = 6 + 66 + 8
+  # starts 8 px past the inset and not on it, and it took a measurement to
+  # notice. The command cells are checked against their own declared box
+  # instead: they start at 12 (`left-[6px]` in a wrapper at ROW_INSET) and the
+  # three of them, now with 4 px of air between each, end at 74.
+  $expectedCss = $rowInset + $titleInset + 8
   $controlsFrom = if ($cFrom) { [Math]::Round($cFrom.Start / $scale, 1) } else { -1 }
   $controlsTo = if ($cTo) { [Math]::Round($cTo.End / $scale, 1) } else { -1 }
   $okStart = [Math]::Abs($wordStartCss - $expectedCss) -le 4
   $okCount = $controls.Count -eq 3
-  $okBox = ($controlsFrom -ge 12) -and ($controlsTo -le 66)
+  $okBox = ($controlsFrom -ge $cellInset) -and ($controlsTo -le $clusterEnd)
   $okAlign = ($null -ne $deltaCss) -and ($deltaCss -le 4)
-  Verdict ($okStart -and $okCount -and $okBox -and $okAlign) "b" "chrome: $($controls.Count) command cells (want 3) inside $controlsFrom..$controlsTo CSS px (want 12..66), wordmark ink at $wordStartCss CSS px (want $expectedCss +/-4), baseline offset $deltaCss CSS px (want <=4)"
+  Verdict ($okStart -and $okCount -and $okBox -and $okAlign) "b" "chrome: $($controls.Count) command cells (want 3) inside $controlsFrom..$controlsTo CSS px (want $cellInset..$clusterEnd), wordmark ink at $wordStartCss CSS px (want $expectedCss +/-4), baseline offset $deltaCss CSS px (want <=4)"
 }
 
 if ((Wants 'c') -or (Wants 'e')) {
@@ -576,10 +603,15 @@ if (Wants 'e') {
   Start-Sleep 6
   $paneOpen = Grab $h (Join-Path $Out "07-pane-open-$Label.png")
   $dPane = DiffRatio $before $paneOpen
-  if ($null -eq $dPane -or $dPane -le 0.05) {
-    Release $paneOpen
-    Verdict $false "e" "browser pane did not open: $(Pct $dPane) of the window changed (want >5%)"
-  }
+  # HOW MUCH THE WINDOW MOVED IS NOT WHETHER THE PANE OPENED, and this used to be
+  # a gate that stopped the run. A pane that opens on the app's new-tab page
+  # replaces one pale surface with another: measured 4.8% on 2.2.291, against a
+  # 5% floor, while `07-pane-open-browser.png` from that very run shows the pane
+  # up and rendering. The reading is worth printing and worth nothing as a
+  # verdict; what proves a working pane is the navigation below, which needs the
+  # pane to exist, to take the keyboard and to paint a page. So this stays a
+  # line in the log and the verdict stays where the evidence is.
+  Say "-- pane after Ctrl+N, b: $(Pct $dPane) of the window changed"
   # DOES ANY KEY STILL REACH THE CLIENT ONCE THE PANE IS UP? On Windows the pane
   # is a native WebView2 child window, and when it holds the keyboard focus the
   # client's `window` keydown listeners never fire: every shortcut below would
