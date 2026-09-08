@@ -1263,7 +1263,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   };
 
   // Model selector (header chip): change the model the agent runs on. null =
-  // "auto" (the opus-first classifier picks per task); an explicit id pins it.
+  // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [models, setModels] = useState<string[]>(
@@ -2112,7 +2112,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={() => { if (!task.assignedTopicId) setModelMenuOpen(true); }}
               aria-disabled={!!task.assignedTopicId}
               data-testid="task-model-chip"
-              title={task.assignedTopicId ? tr('task.model.sessionFixed') : (task.agentMs > 0 || task.agentTokens > 0)
+              title={task.assignedTopicId ? tr('task.model.sessionFixed', { model: fmtModel(task.model) }) : (task.agentMs > 0 || task.agentTokens > 0)
                 ? tr('task.model.stats', {
                     model: task.model ? fmtModel(task.model) : 'Auto',
                     effort: task.effort ? tr('task.model.effortPart', { effort: task.effort }) : '',
@@ -2120,7 +2120,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     tokens: task.agentTokens ? tr('task.model.tokensPart', { n: task.agentTokens.toLocaleString('it-IT') }) : '',
                     cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
                   })
-                : tr('task.model.hint')}
+                : `${task.model ? `${fmtModel(task.model)}. ` : ''}${tr('task.model.hint')}`}
               className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />

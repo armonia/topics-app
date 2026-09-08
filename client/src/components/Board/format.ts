@@ -203,15 +203,9 @@ export const fmtUsd = (cents: number | null | undefined, locale: string): string
 export const fmtTok = (n: number): string =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
-/** Model id → compact tier label for the card chip (auto when unresolved). */
+/** Keep the selected model and version recognizable in task chips. */
 export const fmtModel = (m: string | null | undefined): string => {
-  if (!m) return 'auto';
-  const s = m.toLowerCase();
-  if (s.includes('opus')) return 'opus';
-  if (s.includes('sonnet')) return 'sonnet';
-  if (s.includes('haiku')) return 'haiku';
-  if (s.includes('fable')) return 'fable';
-  return m.replace(/^claude-/, '').split('-')[0];
+  return m ? friendlyModelLabel(m) : 'auto';
 };
 
 /**
