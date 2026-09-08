@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.2.292",
+    "date": "2026-09-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the pane takes a typed address again, and the gate is red elsewhere",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il banco Windows leggeva la geometria di ieri e un pannello che c'era",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chiedere la barra indirizzi chiede anche la tastiera",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Aggiunge al rapporto Windows la passata con le letture corrette",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-08 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Rimette verde la nightly: due spec che descrivevano un contratto cambiato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.291",
     "date": "2026-09-08",
     "sections": {
