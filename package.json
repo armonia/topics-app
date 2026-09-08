@@ -135,7 +135,7 @@
     "check:history-clean": "bun run scripts/scrub-history.ts --check"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.86.1",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@xterm/headless": "^6.0.0",
     "node-pty": "^1.0.0",
     "playwright-core": "^1.59.1",
