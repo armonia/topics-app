@@ -5,7 +5,7 @@ import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
 import { authorDisplay } from '../../lib/authorDisplay';
-import { AlertTriangle, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { PlanSurface } from './PlanSurface';
@@ -57,7 +57,9 @@ import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import { MessageContent } from '../MessageContent';
 import { taskSessionSegments } from './taskSessionPresentation';
+import { taskSessionRuns, type TaskSessionRunItem } from './taskSessionRuns';
 import { TaskWorkAccordion } from '../Chat/TaskWorkAccordion';
+import { COMPOSER_CARD, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
 import type { ChatMessage, WSMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 
@@ -815,10 +817,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const [downloadsOpen, toggleDownloadsOpen] = useSectionOpen('Downloads');
   // Presentation is local to this opening, never persisted into shared tabs.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const isMobile = useMediaQuery('(max-width: 767px)');
   const [workspaceOpen, setWorkspaceOpen] = useState(!!focusPaneId);
   const toggleWorkspaceOpen = () => setWorkspaceOpen((open) => !open);
   useEffect(() => {
     setDetailsOpen(false);
+    setDeliveryOpen(false);
     setWorkspaceOpen(!!focusPaneId);
   }, [taskId, focusPaneId]);
   // Only an explicitly opened workspace may share the wide drawer.
@@ -840,11 +845,31 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const stickRef = useRef(true);
   const detailsScrollRequested = useRef(false);
   useLayoutEffect(() => {
-    if (detailsScrollRequested.current && detailsOpen && !workspaceOpen && threadScrollRef.current) {
+    if (detailsScrollRequested.current && (detailsOpen || deliveryOpen) && !workspaceOpen && threadScrollRef.current) {
       threadScrollRef.current.scrollTop = 0;
       detailsScrollRequested.current = false;
     }
-  }, [detailsOpen, workspaceOpen]);
+  }, [detailsOpen, deliveryOpen, workspaceOpen]);
+
+  // Match ChatPane: measure the floating composer instead of guessing a footer height.
+  const composerAreaRef = useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
+  useLayoutEffect(() => {
+    const el = composerAreaRef.current;
+    if (!el) return;
+    let previousWidth = -1;
+    const measure = () => {
+      const width = el.getBoundingClientRect().width;
+      if (width !== previousWidth) { previousWidth = width; autoGrow(commentRef.current); }
+      setComposerHeight(el.getBoundingClientRect().height);
+      const scroll = threadScrollRef.current;
+      if (scroll && stickRef.current) scroll.scrollTop = scroll.scrollHeight;
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [task?.id, workspaceOpen, twoCol]);
 
   // Swipe-to-close (mobile full-screen overlay only). Track the first touch and
   // lock onto a horizontal drag (dominant X vs Y) so a vertical scroll inside the
@@ -970,7 +995,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   // The empty composer can still resume without a new instruction.
-  const sendBackLabel = task ? reviewDecisionButtons(task, tr).sendBack.label : '';
   // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
   // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
   // checks rossi rinominano Approva, una card che nessuno ha consegnato
@@ -1636,11 +1660,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [threadComments, storeMessages, task?.status, pinnedDeliveryId],
   );
   useEffect(() => { timelineRef.current = timeline; }, [timeline]);
+  const sessionRuns = useMemo(() => taskSessionRuns(timeline, agentBusy, task?.inProgressAt),
+    [timeline, agentBusy, task?.inProgressAt]);
   useLayoutEffect(() => { autoGrow(commentRef.current); }, [draft, task?.id, workspaceOpen, twoCol]);
   useEffect(() => {
     const el = threadScrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [timeline, workspaceOpen, twoCol]);
+  }, [timeline, workspaceOpen, twoCol, composerHeight]);
 
   // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
   // Thread, live browser tabs, Piano and each media attachment are all PANES of
@@ -1674,6 +1700,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
      * `source`, never the text.
      */
     const row = (item: TimelineItem, index: number) => {
+      if (sessionRuns.hidden.has(item.id)) return null;
+      const workRun = sessionRuns.runs.get(item.id);
+      if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} onMessage={onMessage} />;
       if (item.source === 'comment') {
         const chip = item.delivery;
         const previous = timeline[index - 1];
@@ -1737,7 +1766,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           </div>
         );
       }
-      return <SessionItem key={item.id} msg={item.msg} hasThreadReply={item.hasThreadReply} sessionKey={sessionKey} onMessage={onMessage} />;
+      // Imported system/session notices remain readable too.
+      return <SessionRun key={item.id} items={[{ ...item, foldProgress: false }]} sessionKey={sessionKey} onMessage={onMessage} />;
     };
     // Adjacent transitions share one centered event row.
     const statusRun = (items: TimelineItem[]) => (
@@ -1763,8 +1793,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           const el = threadScrollRef.current;
           if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3"
+        className="min-h-0 flex-1 overflow-y-auto py-3"
+        style={{
+          paddingBottom: composerHeight + 24,
+          maskImage: `linear-gradient(to bottom, #000 0, #000 calc(100% - ${composerHeight + 24}px), transparent calc(100% - ${composerHeight}px))`,
+          WebkitMaskImage: `linear-gradient(to bottom, #000 0, #000 calc(100% - ${composerHeight + 24}px), transparent calc(100% - ${composerHeight}px))`,
+        }}
       >
+        <div className="chat-measure space-y-2 px-3">
         {details}
         {task.previewImage && !previewInThread && (
           <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
@@ -1813,15 +1849,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {agentBusy && (
           <SessionLiveRow
             phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
-            since={task.dispatchState === 'working' ? task.inProgressAt : null}
-            stopping={busy}
-            onStop={() => { void stopAgent(); }}
+            since={task.dispatchState === 'working' ? sessionRuns.since : null}
           />
         )}
+        </div>
       </div>
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent is stable enough; the meaningful inputs are listed
-  }, [task, timeline, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- action callbacks use the task state listed below
+  }, [task, timeline, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)
@@ -2292,45 +2327,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             suo ramo `descOpen`: chiudere la descrizione non la nascondeva.
             Ora ha la sua sezione in cima al brief — «la consegna» è uno slot,
             non un dettaglio della descrizione.) */}
-        {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
-            polimorfo — click sul nome lo apre come TAB nel workspace del
-            task, l'icona lo SCARICA. Rimpiazza l'idea di "output" a parte:
-            il risultato è tab + lista scaricabili. */}
-        {mediaPaths.length > 0 && (
-          <div className="mt-3" data-testid="task-downloads">
-            <SectionHeader
-              open={downloadsOpen}
-              onToggle={toggleDownloadsOpen}
-              label={tr('board.task.deliveredFiles')}
-              suffix={` · ${mediaPaths.length}`}
-              testId="task-section-downloads"
-            />
-            {downloadsOpen && (
-            <ul className="mt-1.5 flex flex-col gap-1">
-              {mediaPaths.map((p) => {
-                const name = p.split('/').pop() || p;
-                return (
-                  <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-app-text-heading">
-                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                    <button
-                      type="button"
-                      onClick={() => openTaskPane(mediaPaneIdFor(p))}
-                      title={tr('board.task.openAsTabTitle')}
-                      className="min-w-0 flex-1 truncate text-left hover:text-white"
-                    >{name}</button>
-                    <a
-                      href={getMediaUrl(p)}
-                      download={name}
-                      title={tr('board.task.downloadFileTitle')}
-                      className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
-                    ><Download className="h-3.5 w-3.5" /></a>
-                  </li>
-                );
-              })}
-            </ul>
-            )}
-          </div>
-        )}
+
       </div>
     </>
   );
@@ -2380,10 +2377,108 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     <div data-testid="task-brief-scroll" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
       {metadataCard}
       {descCard}
-          {task && (task.previewImage || task.previewRetiredAt || isAgentReview) && (
+      {subtasksCard}
+    </div>
+  ) : null;
+
+  const taskDelivery = deliveryOpen && task ? (
+    <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
+      <div className="space-y-2 px-3 py-3">
+            {/* Lifecycle choices belong to delivery. Stop is owned by the composer. */}
+            {task.status !== 'review' && (
+              <TaskChoiceRow
+                task={task} disabled={busy} exclude={['stop']} className="mb-2"
+                onDone={() => { void load(); onChanged(); }}
+                onError={setError} onNeedText={() => commentRef.current?.focus()}
+              />
+            )}
+            {/* Review decisions stay next to the checks and delivery evidence. */}
+            {task.status === 'review' && (
+              <div className="mb-2 space-y-1.5">
+                {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
+                    approve coi checks rossi, e scoprirlo da un 409 dopo il click
+                    sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
+                <OutputUrlProbeNotice task={task} />
+                <SystemDeliveryNotice task={task} />
+                <ChecksSection task={task} />
+                {/* Le parole e QUALE dei tre è il verde: dalla card, non da
+                    qui. Su una review che nessuno ha consegnato il verde è
+                    «Rimandalo avanti» e le altre due scendono a neutro. */}
+                {/* `busy || sending`: da quando «Rimanda indietro» porta con sé
+                    il testo, la sua strada lunga alza `sending` e non `busy`.
+                    Senza il secondo, i tre bottoni restavano premibili mentre la
+                    consegna era già partita. */}
+                <div data-testid="task-review-actions" className="flex flex-wrap items-center gap-1.5">
+                <ReviewDecisionRow
+                  task={task} busy={busy || sending}
+                  onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
+                  onSendBack={() => void sendBack()}
+                  onLand={doLand}
+                />
+                {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
+                    task («Serve a me») o archiviarlo. Approva/Rimanda indietro/Landa sono
+                    già lì sopra per esteso, quindi si escludono — un doppione
+                    non è una scelta in più. */}
+                <TaskChoiceRow
+                  task={task} disabled={busy || sending} exclude={['land', 'send-back', 'accept', 'redo', 'stop']}
+                  onDone={() => { void load(); onChanged(); }}
+                  onError={setError} onNeedText={() => commentRef.current?.focus()}
+                />
+                </div>
+                {/* «Ricattura evidenza» NON è più qui: era un'azione di
+                    servizio sull'anteprima disegnata larga quanto una
+                    decisione, in mezzo alle decisioni, e a occhio faceva
+                    quantità con loro. Adesso sta attaccata all'anteprima che
+                    rifà, in cima al brief — anche quando l'anteprima non c'è,
+                    che è il momento in cui serve davvero. */}
+              </div>
+            )}
+
+      </div>
+      <div className="px-3 pb-2">        {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
+            polimorfo — click sul nome lo apre come TAB nel workspace del
+            task, l'icona lo SCARICA. Rimpiazza l'idea di "output" a parte:
+            il risultato è tab + lista scaricabili. */}
+        {mediaPaths.length > 0 && (
+          <div className="mt-3" data-testid="task-downloads">
+            <SectionHeader
+              open={downloadsOpen}
+              onToggle={toggleDownloadsOpen}
+              label={tr('board.task.deliveredFiles')}
+              suffix={` · ${mediaPaths.length}`}
+              testId="task-section-downloads"
+            />
+            {downloadsOpen && (
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {mediaPaths.map((p) => {
+                const name = p.split('/').pop() || p;
+                return (
+                  <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-app-text-heading">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+                    <button
+                      type="button"
+                      data-testid={p === task?.previewImage ? 'task-preview-open' : undefined}
+                      onClick={() => openTaskPane(mediaPaneIdFor(p))}
+                      title={tr('board.task.openAsTabTitle')}
+                      className="min-w-0 flex-1 truncate text-left hover:text-white"
+                    >{name}</button>
+                    <a
+                      href={getMediaUrl(p)}
+                      download={name}
+                      title={tr('board.task.downloadFileTitle')}
+                      className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
+                    ><Download className="h-3.5 w-3.5" /></a>
+                  </li>
+                );
+              })}
+            </ul>
+            )}
+          </div>
+        )}</div>
+          {task && ((task.previewImage && !mediaPaths.includes(task.previewImage)) || task.previewRetiredAt || isAgentReview) && (
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
               <div className="flex flex-wrap items-center gap-2">
-                {task.previewImage && <button type="button" data-testid="task-preview-open"
+                {task.previewImage && !mediaPaths.includes(task.previewImage) && <button type="button" data-testid="task-preview-open"
                   onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
                   className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-app-text-secondary hover:text-app-text">
                   <Paperclip className="h-3.5 w-3.5 shrink-0" />
@@ -2448,7 +2543,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               })}
             </div>
           )}
-          {subtasksCard}
           {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
               chat composer area ("sopra la chat era fastidioso"). It renders
               NOTHING when there's no worktree / an empty diff (owns its own
@@ -2476,7 +2570,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       // shrink-0) so the columns viewport shrinks beside it and the board stays
       // scrollable; wide just grows the review surface (72%/64rem caps keep a
       // strip of board visible).
-      className={`glass-surface flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-200'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`pane-frost flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-200'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
@@ -2742,22 +2836,35 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       ) : (
       <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0" data-testid="task-brief-header">{identityCard}</div>
-      <div className="flex shrink-0 items-center gap-1 border-b border-app-border px-3 py-1.5">
-        <button type="button" data-testid="task-conversation-toggle" aria-pressed={!workspaceOpen || twoCol}
-          onClick={() => setWorkspaceOpen(false)}
-          className={`rounded px-2 py-1 text-xs ${!workspaceOpen ? 'bg-white/10 text-app-text' : 'text-app-text-muted hover:text-app-text'}`}>
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-app-border px-3 py-1.5">
+        <button type="button" data-testid="task-conversation-toggle" aria-pressed={(!workspaceOpen || twoCol) && !detailsOpen && !deliveryOpen}
+          onClick={() => { setWorkspaceOpen(false); setDetailsOpen(false); setDeliveryOpen(false); }}
+          className={`rounded px-2 py-1 text-xs ${!workspaceOpen && !detailsOpen && !deliveryOpen ? 'bg-app-hover text-app-text' : 'text-app-text-secondary hover:text-app-text'}`}>
           {tr('board.task.threadLabel')}
         </button>
         <button type="button" data-testid="task-details-toggle" aria-expanded={detailsOpen}
           onClick={() => {
-            detailsScrollRequested.current = !detailsOpen;
-            setDetailsOpen((open) => !open);
+            detailsScrollRequested.current = !detailsOpen || workspaceOpen;
+            setDetailsOpen((open) => workspaceOpen || !open);
+            setDeliveryOpen(false);
             setWorkspaceOpen(false);
             stickRef.current = false;
           }}
           className="flex items-center gap-1 rounded px-2 py-1 text-xs text-app-text-muted hover:bg-white/5 hover:text-app-text">
           {detailsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {tr('board.task.detailsLabel')}
+        </button>
+        <button type="button" data-testid="task-delivery-toggle" aria-expanded={deliveryOpen}
+          onClick={() => {
+            detailsScrollRequested.current = !deliveryOpen || workspaceOpen;
+            setDeliveryOpen((open) => workspaceOpen || !open);
+            setDetailsOpen(false);
+            setWorkspaceOpen(false);
+            stickRef.current = false;
+          }}
+          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-app-text-secondary hover:bg-app-hover hover:text-app-text">
+          {deliveryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          {tr('board.task.deliveryBand')}
         </button>
         <button type="button" data-testid="task-workspace-toggle" data-open={workspaceOpen ? '1' : '0'} aria-expanded={workspaceOpen}
           onClick={toggleWorkspaceOpen}
@@ -2770,9 +2877,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10"><Plus className="h-3.5 w-3.5" /></button>
       </div>
       <div className={`flex min-h-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
-        <div className={`flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>
+        <div className={`relative flex min-h-0 min-w-0 flex-col ${twoCol ? 'w-[min(50%,30rem)] shrink-0 border-r border-app-border' : 'flex-1'}`}>
           <div className={`${workspaceOpen && !twoCol ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`} data-testid="task-session-column">
-            {renderThread(taskDetails)}
+            {renderThread(<>{taskDetails}{taskDelivery}</>)}
           </div>
           {workspaceOpen && !twoCol && (
             <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
@@ -2781,10 +2888,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               )}
             </div>
           )}
-          {/* La zona di DECISIONE: `shrink-0`, fuori dallo scroll, ultima della
-              colonna. È l'invariante che il guscio esiste per garantire —
-              Approva/Rimanda indietro/Landa dentro il viewport a qualunque altezza di
-              finestra e con qualunque combinazione di sezioni aperte. */}
+          {/* The composer floats over the conversation; its measured height
+              reserves the final reading space. Delivery decisions live above. */}
           {/* DROPPING A FILE IN HERE ATTACHES IT. Paste was already on the
               text field, drag and drop was not: a captured screenshot could be
               pasted, the same screenshot saved to disk had no way in. The drop
@@ -2793,7 +2898,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               file (a layout pane, a text selection) leaves it alone, through
               `dragCarriesFiles`. */}
           <div
-            className={`relative shrink-0 border-t p-2 ${fileDragOver ? 'border-emerald-400/60 bg-emerald-500/5' : 'border-app-border'}`}
+            ref={composerAreaRef}
+            className={`${workspaceOpen && !twoCol ? 'hidden' : ''} absolute bottom-0 left-0 right-0 chat-measure`}
+            style={{ padding: isMobile ? 8 : 12, paddingBottom: 'max(var(--composer-gap), env(safe-area-inset-bottom, 0px))' }}
             onDragOver={(e) => { if (!dragCarriesFiles(e.dataTransfer)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(true); }}
             onDragLeave={(e) => { if (e.currentTarget.contains(e.relatedTarget as Node | null)) return; setFileDragOver(false); }}
             onDrop={(e) => {
@@ -2843,62 +2950,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
               </div>
             )}
-            {/* Fuori dalla review le scelte della card ci sono lo stesso — è la
-                stessa riga della kanban (`taskChoices`), qui sopra il composer:
-                un task in corso si ferma o si fa consegnare, uno bloccato esce
-                dall'attesa, senza dover scrivere una frase. */}
-            {task.status !== 'review' && (
-              <TaskChoiceRow
-                task={task} disabled={busy} className="mb-2"
-                onDone={() => { void load(); onChanged(); }}
-                onError={setError} onNeedText={() => commentRef.current?.focus()}
-              />
-            )}
-            {/* Review zone — decisions live HERE, where the agent's questions
-                land (end of the thread), not up in the header. ("Modifiche" moved
-                up above the body, out of this composer area.) */}
-            {task.status === 'review' && (
-              <div className="mb-2 space-y-1.5">
-                {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
-                    approve coi checks rossi, e scoprirlo da un 409 dopo il click
-                    sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
-                <OutputUrlProbeNotice task={task} />
-                <SystemDeliveryNotice task={task} />
-                <ChecksSection task={task} />
-                {/* Le parole e QUALE dei tre è il verde: dalla card, non da
-                    qui. Su una review che nessuno ha consegnato il verde è
-                    «Rimandalo avanti» e le altre due scendono a neutro. */}
-                {/* `busy || sending`: da quando «Rimanda indietro» porta con sé
-                    il testo, la sua strada lunga alza `sending` e non `busy`.
-                    Senza il secondo, i tre bottoni restavano premibili mentre la
-                    consegna era già partita. */}
-                <div data-testid="task-review-actions" className="flex flex-wrap items-center gap-1.5">
-                <ReviewDecisionRow
-                  task={task} busy={busy || sending}
-                  onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
-                  onSendBack={isAgentReview ? undefined : () => void sendBack()}
-                  onLand={doLand}
-                />
-                {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
-                    task («Serve a me») o archiviarlo. Approva/Rimanda indietro/Landa sono
-                    già lì sopra per esteso, quindi si escludono — un doppione
-                    non è una scelta in più. */}
-                <TaskChoiceRow
-                  task={task} disabled={busy || sending} exclude={['land', 'send-back', 'accept', 'redo']}
-                  onDone={() => { void load(); onChanged(); }}
-                  onError={setError} onNeedText={() => commentRef.current?.focus()}
-                />
-                </div>
-                {/* «Ricattura evidenza» NON è più qui: era un'azione di
-                    servizio sull'anteprima disegnata larga quanto una
-                    decisione, in mezzo alle decisioni, e a occhio faceva
-                    quantità con loro. Adesso sta attaccata all'anteprima che
-                    rifà, in cima al brief — anche quando l'anteprima non c'è,
-                    che è il momento in cui serve davvero. */}
-              </div>
-            )}
+            <div data-testid="task-composer" className={COMPOSER_CARD}>
             {attachments.length > 0 && (
-              <div className="mb-1.5 flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5 p-2">
                 {attachments.map((a) => (
                   <span key={a.path} className="group/att relative">
                     {a.isImage ? (
@@ -2917,11 +2971,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 ))}
               </div>
             )}
-            <div data-testid="task-composer" className="rounded-lg border border-app-border bg-white/5 focus-within:border-app-text-muted">
+            <div className="flex items-end p-1">
+              <input ref={fileInputRef} type="file" multiple className="hidden"
+                onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }} />
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
+                title={tr('board.task.attachFileTitle')} aria-label={tr('board.task.attachFileTitle')}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-app-text-secondary hover:bg-app-hover disabled:opacity-40">
+                {uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}
+              </button>
               <textarea
                 ref={commentRef}
                 data-testid="task-reply-input"
-                value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
+                value={draft} onChange={(e) => {
+                  // A responsive remount can precede the save effect. Preserve
+                  // the edit in the local draft cache before that can happen;
+                  // network persistence remains debounced by boardDrafts.
+                  boardDrafts.putTaskDraft(taskId, e.target.value);
+                  setDraft(e.target.value);
+                  saveCommentCursor();
+                }} rows={1}
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
                 aria-label={composerPlaceholder}
@@ -2931,58 +2999,40 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   const imgs = imagesFromClipboard(e.clipboardData);
                   if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
                 }}
-                className="block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-sm text-app-text outline-none"
+                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+                style={{ minHeight: 32, maxHeight: 140 }}
               />
-              <div className="flex items-center gap-1.5 px-1.5 pb-1.5">
-              <input
-                ref={fileInputRef} type="file" multiple className="hidden"
-                onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= MAX_ATTACHMENTS}
-                title={tr('board.task.attachFileTitle')}
-                className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 disabled:opacity-40"
-              >{uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}</button>
-              {/* IL MICROFONO ANCHE QUI. C'era sul composer della chat e su
-                  quello della board, non sul thread di un task - che ha
-                  graffetta e incolla, quindi non e' un campo minore: e' un
-                  campo pieno a cui mancava una cosa sola. Chi detta un task e
-                  poi vuole rispondere all'agente trovava il gesto sparito.
-                  Componente condiviso e non una seconda stesura: porta con se'
-                  il gesto tieni-premuto, i due stati distinti e `touch-none`,
-                  che una copia perde uno alla volta. */}
               <DictationButton
                 testId="task-thread-dictation"
                 onText={(t) => setDraft((prev) => (prev ? `${prev} ${t}` : t))}
                 onError={setError}
               />
-              <span className="flex-1" />
-              {/* Enter and the main button deliver the correction. A quiet
-                  note stays an explicit secondary action, with the same media. */}
-              {isAgentReview && (
-                <button
-                  onClick={() => void send({ quiet: true })} disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
-                  title={tr('board.task.quietNoteTitle')}
-                  data-testid="task-reply-quiet-note"
-                  className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs text-app-text-secondary hover:bg-white/10 disabled:opacity-50"
-                >{sending ? <Spinner size="md" tone="current" /> : <StickyNote className="h-3.5 w-3.5" />} {tr('board.task.quietNote')}</button>
-              )}
-              {isAgentReview ? (
-                <button data-testid="task-send-back" onClick={() => void sendBack()} disabled={busy || sending || uploading}
-                  title={reviewDecisionButtons(task, tr).sendBack.title}
-                  className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${reviewDecisionButtons(task, tr).primary === 'send-back' ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-sky-700 hover:bg-sky-800'}`}>
-                  {sending ? <Spinner size="md" tone="current" /> : <Send className="h-3.5 w-3.5" />}
-                  {draft.trim() || attachments.length ? tr('board.task.sendToAgent') : sendBackLabel}
-                </button>
-              ) : (
-                <button
-                  onClick={() => void send()} disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
-                  title={composerSendTitle}
-                  className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-700 hover:bg-sky-800' : 'bg-emerald-700 hover:bg-emerald-800'}`}
-                >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
-              )}
-              </div>
+              <button type="button" data-testid="task-composer-submit"
+                onClick={() => { if (agentBusy && !draft.trim() && !attachments.length) void stopAgent(); else void send(); }}
+                disabled={busy || sending || uploading || (!agentBusy && !draft.trim() && !attachments.length)}
+                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
+                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
+                  draft.trim() || attachments.length ? 'bg-primary text-white hover:bg-primary-hover'
+                    : agentBusy ? 'bg-app-text/15 text-app-text hover:bg-app-text/25'
+                      : 'bg-transparent text-app-placeholder'
+                }`}>
+                {sending || busy ? <Spinner size="sm" tone="current" />
+                  : agentBusy && !draft.trim() && !attachments.length ? <Square className="h-3.5 w-3.5 fill-current" />
+                    : <ArrowUp className="h-4 w-4" />}
+              </button>
             </div>
+            </div>
+            {isAgentReview && (
+              <div className="mt-1 flex justify-end">
+                <button type="button" onClick={() => void send({ quiet: true })}
+                  disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
+                  title={tr('board.task.quietNoteTitle')} data-testid="task-reply-quiet-note"
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-app-text-secondary hover:bg-app-hover disabled:opacity-50">
+                  <StickyNote className="h-3.5 w-3.5" />{tr('board.task.quietNote')}
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {/* COLONNA DESTRA (solo in modo largo): «quello che devo vedere», a
@@ -3220,40 +3270,55 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
  * the reader is following a decision. `sessionKey` IS passed, because it is
  * what lets the question form POST its answer.
  */
-const SessionItem = memo(function SessionItem({ msg, hasThreadReply = false, sessionKey, onMessage }: {
-  msg: ChatMessage;
-  hasThreadReply?: boolean;
+const SessionRun = memo(function SessionRun({ items, sessionKey, onMessage }: {
+  items: TaskSessionRunItem[];
   sessionKey: string | null;
-  /** The drawer's own subscription, typed loosely on the way in. Narrowed here
-   *  because `MessageContent` reads real WS payloads. */
   onMessage?: (handler: (m: unknown) => void) => () => void;
 }) {
   const tr = useT();
-  const segments = useMemo(() => taskSessionSegments(msg, hasThreadReply), [msg, hasThreadReply]);
-  return (
-    <div className={`text-sm text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={msg.id}>
-      {segments.map(({ message, folded, sessionDetail }) => {
-        const content = <MessageContent
-          content={message.content ?? ''}
-          role="assistant"
-          thinking={message.thinking}
-          toolCalls={message.toolCalls}
-          blocks={message.blocks}
-          media={message.media}
-          partial={message.partial}
-          isLast={message.partial}
-          turnStartedAt={msg.timestamp ? Date.parse(msg.timestamp) : undefined}
-          sessionKey={sessionKey ?? undefined}
-          messageId={msg.id}
-          onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
-        />;
-        return folded
-          ? <TaskWorkAccordion key={message.id} msg={message} label={sessionDetail ? tr('chat.taskWork.sessionDetails') : undefined}>{content}</TaskWorkAccordion>
-          : <div key={message.id}>{content}</div>;
-      })}
-    </div>
-  );
-});
+  const groups = useMemo(() => {
+    type Part = ReturnType<typeof taskSessionSegments>[number] & { originalId: string };
+    const result: { folded: boolean; parts: Part[] }[] = [];
+    for (const item of items) {
+      for (const segment of taskSessionSegments(item.msg, item.hasThreadReply, item.foldProgress)) {
+        const part = { ...segment, originalId: item.msg.id };
+        const last = result[result.length - 1];
+        if (segment.folded && last?.folded) last.parts.push(part);
+        else result.push({ folded: segment.folded, parts: [part] });
+      }
+    }
+    let hasFold = false;
+    return result.map((group) => {
+      // The first disclosure belongs to the run. Earlier prose can join it
+      // when the first tool arrives, without closing details the reader opened.
+      const key = group.folded && !hasFold ? `${items[0].id}:work` : group.parts[0].message.id;
+      hasFold ||= group.folded;
+      return { ...group, key, summary: {
+      ...group.parts[0].message,
+      blocks: group.parts.flatMap((part) => part.message.blocks ?? []),
+      toolCalls: group.parts.flatMap((part) => part.message.toolCalls ?? []),
+    } }; });
+  }, [items]);
+  return <div className={`text-sm text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={items[0].msg.id}>
+    {groups.map(({ folded, parts, summary, key }) => {
+      const content = parts.map(({ message, originalId }) => <MessageContent
+        key={message.id}
+        content={message.content ?? ''} role={message.role}
+        thinking={message.thinking} toolCalls={message.toolCalls} blocks={message.blocks} media={message.media}
+        partial={message.partial} isLast={false}
+        sessionKey={sessionKey ?? undefined} messageId={originalId}
+        onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
+      />);
+      return folded
+        ? <TaskWorkAccordion key={key} msg={summary} label={tr('chat.taskWork.sessionDetails')}>{content}</TaskWorkAccordion>
+        : <div key={key}>{content}</div>;
+    })}
+  </div>;
+}, (previous, next) => previous.sessionKey === next.sessionKey && previous.onMessage === next.onMessage
+  && previous.items.length === next.items.length
+  && previous.items.every((item, index) => item.msg === next.items[index].msg
+    && item.hasThreadReply === next.items[index].hasThreadReply
+    && item.foldProgress === next.items[index].foldProgress));
 
 /**
  * Un passaggio di stato: un CHIP, non un paragrafo.
