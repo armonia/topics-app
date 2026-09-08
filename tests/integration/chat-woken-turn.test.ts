@@ -71,6 +71,10 @@ async function harness(sessionKey: string): Promise<Harness> {
 
   const chatRouter = createChatRouter(ctx, {
     resolveProvider: () => provider,
+    resolveProviderByName: (name) => {
+      if (name !== "claude-code") throw new Error(`provider inatteso: ${name}`);
+      return provider;
+    },
     detectLocalhostAutoNav: () => {},
     bindTopicToProject: () => {},
     resolveProjectRef: () => null,
@@ -90,9 +94,9 @@ async function harness(sessionKey: string): Promise<Harness> {
     const req = new Request(url.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      // Il provider proprietario è già fissato sulla topic. La route deve
-      // adottarlo senza trasformare il risveglio in un override del composer.
-      body: JSON.stringify({ sessionKey, messages: [], mode: "woken" }),
+      // La forma che manda `runHeadlessWoken`: nessun messaggio, il provider
+      // dichiarato, e il modo.
+      body: JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code" }),
     });
     const resp = (await chatRouter(req, url, "/api/chat", "POST")) as Response | null;
     resp?.body?.cancel().catch(() => {});
@@ -258,6 +262,10 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
 
     const chatRouter = createChatRouter(ctx, {
       resolveProvider: () => provider,
+      resolveProviderByName: (name) => {
+        if (name !== "senza-adozione") throw new Error(`provider inatteso: ${name}`);
+        return provider;
+      },
       detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {},
       resolveProjectRef: () => null, getProjectIdForTopic: () => null,
       getWorkspaceProjects: () => [], autoBindProject: () => {},
@@ -270,7 +278,7 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
     const resp = (await chatRouter(
       new Request(url.toString(), {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionKey, messages: [], mode: "woken" }),
+        body: JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "senza-adozione" }),
       }),
       url, "/api/chat", "POST",
     )) as Response | null;

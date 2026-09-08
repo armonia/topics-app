@@ -134,6 +134,9 @@ const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
  */
 export interface ChatDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
+  /** Resolver for an explicitly named provider, injectable for the same path
+   * used by headless reattach and woken turns. */
+  resolveProviderByName?: (name: string) => AIProvider;
   detectLocalhostAutoNav: (content: string, topic: Topic | null) => string;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
@@ -190,7 +193,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
   const {
-    resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
+    resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
   } = deps;
@@ -392,7 +395,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       let forcedGlobalProvider: AIProvider | null = null;
       if (globalOrchestrator) {
         try {
-          forcedGlobalProvider = getProvider("codex");
+          forcedGlobalProvider = resolveProviderByName("codex");
         } catch {
           return json({
             error: "Codex is unavailable for the global coordinator",
@@ -405,7 +408,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       if (!forcedGlobalProvider && requestedProviderId) {
         try {
           explicitProvider = overrideProvider
-            ? getProvider(overrideProvider)
+            ? resolveProviderByName(overrideProvider)
             : resolveProvider(matchedTopic);
           if (!explicitProvider.connected) throw new Error("unavailable");
         } catch {
