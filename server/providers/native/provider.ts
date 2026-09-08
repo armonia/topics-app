@@ -39,6 +39,7 @@ import type {
   AIProvider,
   ChatMessage,
   CompletionResult,
+  CompletionOptions,
   ProviderCapability,
   ProviderContextStrategy,
   ProviderDiagnostic,
@@ -746,7 +747,7 @@ export class NativeProvider implements AIProvider {
    * servizio. Una storia usa-e-getta, così non entra nel contesto del turno
    * vero — stesso patto degli altri provider.
    */
-  async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     const history: AgentMessage[] = messages.map((m) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
@@ -755,6 +756,8 @@ export class NativeProvider implements AIProvider {
     const out = await runAgentTurn(
       {
         model: options?.model ?? this.config.model ?? DEFAULT_MODEL,
+        effort: options?.reasoningEffort,
+        signal: options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
         history,
         tools: () => [],
         toolContext: { workspace: this.config.defaultWorkspace ?? "" },

@@ -143,8 +143,9 @@ import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickTaskPlan } from "./server/services/task-model-picker";
-import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
+import { pickAutomaticTaskModel, automaticTaskCatalog, automaticTaskProvider } from "./server/services/task-auto-model";
+import { PLAN_DISPATCH_HOLD_AT } from "./shared/provider-hold";
+import { readCodexModels } from "./server/providers/codex/models";
 import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
@@ -1425,6 +1426,12 @@ const taskDispatcher = createTaskDispatcher({
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     return taskProviderForModel(model, getSnapshotManager().getSnapshot());
   },
+  automaticModelOutsideClaude: () => {
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    const snapshot = getSnapshotManager().getSnapshot();
+    return automaticTaskCatalog(snapshot, readCodexModels(), true).length > 0
+      || snapshot.providers.some(provider => provider.name === "codex" && provider.status === "loading");
+  },
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
     return topic ? { model: topic.model, provider: topic.provider ?? getDefaultProviderName() } : null;
@@ -1445,46 +1452,20 @@ const taskDispatcher = createTaskDispatcher({
     mkdirSync(dir, { recursive: true });
     return dir;
   },
-  // "modello auto" → a fast haiku one-shot classifies the task and picks the
-  // tier before the agent spawns. Claude coding runtimes remain Opus-first;
-  // Codex uses its account default. API chat defaults never execute a task.
-  pickAutoModel: async (task) => {
-    // L'Opus di ripiego non si scrive a mano: un id fisso qui è come si finisce
-    // a dispatchare agenti su una generazione vecchia per settimane senza che
-    // niente lo segnali. `FALLBACK_MODELS` è la lista che il resto del codice
-    // già mantiene, e serve solo quando lo snapshot non c'è. `preferLong`: la
-    // finestra da un milione dove l'host la serve, non i 200k di un id nudo.
-    const staticOpus = newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true }) ?? FALLBACK_MODELS[0]!;
-    let fallback = staticOpus;
-    try {
-      const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
-      const snap = getSnapshotManager().getSnapshot();
-      const codingProvider = taskProviderForModel(undefined, snap);
-      if (codingProvider === "codex") return { model: "codex", effort: null, weight: null };
-      const availableModels = snap?.providers.find((p) => p.name === codingProvider)?.models.filter((model) => model.startsWith("claude-")) ?? [];
-      fallback = newestOfFamily("opus", availableModels, { preferLong: true }) ?? availableModels[0] ?? staticOpus;
-      // No snapshot yet → can't classify, but opus-first means we still hand the
-      // agent opus (the human's default + this host's primary), never a downgrade.
-      // Entrambi i null dicono «non lo so», e nessuno dei due viene inventato
-      // qui: l'effort ricade sulla board, il peso vale leggero — cioè lo
-      // scheduler si comporta come prima che il peso esistesse. Un giudice che
-      // non può parlare non deve poter fermare la coda della board.
-      const provider = tryGetProvider("claude-code");
-      if (availableModels.length === 0 || !provider?.connected) return { model: fallback, effort: null, weight: null };
-      const plan = await pickTaskPlan(task, {
-        // Force the cheapest tier for the classification itself.
-        complete: (prompt) =>
-          provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
-        availableModels,
-        fallback,
-        log: (m) => console.log(`[dispatcher] ${m}`),
-      });
-      return plan;
-    } catch {
-      // any failure → opus-first, never a silent downgrade; effort e peso null
-      // per la stessa ragione: la board decide l'uno, l'altro vale leggero.
-      return { model: fallback, effort: null, weight: null };
-    }
+  // General Auto compares eligible coding runtimes. Explicit provider aliases
+  // restrict that catalog, and held Claude runtimes cannot classify or execute.
+  pickAutoModel: async (task, selection, options) => {
+    const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
+    return pickAutomaticTaskModel(task, selection, {
+      snapshot: getSnapshotManager().getSnapshot(),
+      getProvider: tryGetProvider,
+      claudeHeld: !!providerHold() || (() => {
+        const window = planUsage()?.fiveHour;
+        return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+      })(),
+      requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
+      log: (message) => console.log(`[dispatcher] ${message}`),
+    });
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
   //
@@ -1562,7 +1543,8 @@ const taskDispatcher = createTaskDispatcher({
   createTopic: (o) => {
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     const { model } = taskModelSelection(o.model);
-    const provider = taskProviderForModel(o.model, getSnapshotManager().getSnapshot());
+    const snapshot = getSnapshotManager().getSnapshot();
+    const provider = o.provider ? automaticTaskProvider(o.provider, model, snapshot) : taskProviderForModel(o.model, snapshot);
     if (provider && !tryGetProvider(provider)?.connected) {
       throw new Error(`Provider "${provider}" non disponibile: collegalo nelle Impostazioni prima di avviare il task.`);
     }

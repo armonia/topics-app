@@ -40,7 +40,7 @@ function freshDb(): Database {
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
-    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
+    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium', dispatch_model TEXT,
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_idle_min INTEGER NOT NULL DEFAULT 5,
     dispatch_mcp TEXT,
@@ -106,7 +106,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const svc: TaskService = createTaskService(db);
   const events: any[] = [];
   const worktreesCreated: string[] = [];
-  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; standalone?: boolean }[] = [];
+  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; provider?: string; standalone?: boolean }[] = [];
   const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean"; timeoutMs?: number; idleMs?: number; dispatchedFor?: string[] }[] = [];
   let resolveTurn: ((info?: TurnEndInfo) => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
@@ -119,7 +119,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     attempts: createTaskAttemptStore(db),
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     createTopic: (opts) => {
-      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model, standalone: opts.standalone });
+      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model, provider: opts.provider, standalone: opts.standalone });
       const n = topicsCreated.length;
       // The real host persists the topic row; the FK on assigned_topic_id
       // requires it to exist before bindTopic().
@@ -2670,6 +2670,106 @@ describe("blocked-by + context reuse", () => {
     expect(h.topicsCreated).toHaveLength(0);
     expect(h.worktreesCreated).toHaveLength(0);
   });
+
+  /** @covers AGPT-01 AGPT-03 */
+  for (const scope of ["task", "board"] as const) {
+    it(`Codex automatic from ${scope} classifies once and persists the concrete model/effort`, async () => {
+      const selections: (string | undefined)[] = [];
+      const h = harness({ pickAutoModel: async (_task, selection) => {
+        selections.push(selection);
+        return { model: "gpt-5.6-sol", provider: "codex", effort: "low", weight: "light" };
+      } });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto", dispatchModel: scope === "board" ? "codex" : "claude-opus-5" });
+      const task = h.svc.create({ projectId: PID, status: "todo", text: "A bounded task", model: scope === "task" ? "codex" : null });
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(selections).toEqual(["codex"]);
+      expect(h.task(task.id)?.model).toBe("gpt-5.6-sol");
+      expect(h.topicsCreated[0]?.model).toBe("gpt-5.6-sol");
+      expect(h.topicsCreated[0]?.provider).toBe("codex");
+      expect(h.topicsCreated[0]?.effort).toBe("low");
+    });
+  }
+
+  it("manual GPT model beats board automatic and is never reclassified", async () => {
+    let calls = 0;
+    const h = harness({ pickAutoModel: async () => { calls++; return { model: "gpt-6-astra" }; } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchModel: "codex" });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Manual choice", model: "gpt-5.6-luna" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(calls).toBe(0);
+    expect(h.task(task.id)?.model).toBe("gpt-5.6-luna");
+    expect(h.topicsCreated[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  it("Codex automatic fanout shares one classified model and effort across fresh attempts", async () => {
+    let calls = 0;
+    const h = harness({ pickAutoModel: async (_task, selection) => {
+      expect(selection).toBe("codex"); calls++;
+      return { model: "gpt-5.6-sol", provider: "codex", effort: "low", weight: "light" };
+    } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto", dispatchFanOut: 2 });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Try two approaches", model: "codex" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(calls).toBe(1);
+    expect(h.task(task.id)?.model).toBe("gpt-5.6-sol");
+    expect(h.topicsCreated).toHaveLength(2);
+    expect(h.topicsCreated.map(t => [t.model, t.effort])).toEqual([["gpt-5.6-sol", "low"], ["gpt-5.6-sol", "low"]]);
+    h.dispatcher.shutdown();
+  });
+
+  it("an unavailable Codex catalog shows the actionable error without starting or consuming an attempt", async () => {
+    const h = harness({ pickAutoModel: async () => { throw Object.assign(new Error("Open Codex to refresh its available models, then retry the task."), { code: "task_model_unavailable" }); } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Waiting for setup", model: "codex" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(task.id)?.dispatchState).toBe("blocked");
+    expect(h.task(task.id)?.dispatchError).toContain("Open Codex");
+    expect(h.task(task.id)?.dispatchAttempts).toBe(0);
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.worktreesCreated).toHaveLength(0);
+    expect(h.turns).toHaveLength(0);
+  });
+
+  for (const stage of ["picker", "topic"] as const) {
+    it(`provider warmup at ${stage} queues without consuming an attempt or starting work`, async () => {
+      const pending = Object.assign(new Error("Codex model catalog is refreshing"), { code: "task_provider_pending" });
+      const cleaned: string[] = [];
+      let ready = false;
+      const h = harness({
+        pickAutoModel: async () => { if (!ready && stage === "picker") throw pending; return { model: "gpt-5.6-sol", effort: "low" }; },
+        ...(stage === "topic" ? { createTopic: opts => {
+          if (!ready) throw pending;
+          h.topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, model: opts.model, effort: opts.effort });
+          h.db.run("INSERT INTO topics (id) VALUES ('ready-topic')");
+          return { topicId: "ready-topic", sessionKey: "topic:ready" };
+        } } : {}),
+        deleteWorktree: async id => { cleaned.push(id); },
+      });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true });
+      const task = h.svc.create({ projectId: PID, status: "todo", text: "Warmup task", model: "codex" });
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.task(task.id)?.status).toBe("todo");
+      expect(h.task(task.id)?.dispatchAttempts).toBe(0);
+      expect(h.task(task.id)?.dispatchState).toBe("queued");
+      expect(h.task(task.id)?.dispatchError).toContain("refreshing");
+      expect(h.turns).toHaveLength(0);
+      expect(cleaned).toHaveLength(stage === "topic" ? 1 : 0);
+      expect(h.task(task.id)?.model).toBe("codex");
+      ready = true;
+      h.svc.updateBoardSettings(PID, { dispatchEffort: "auto" });
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.task(task.id)?.model).toBe("gpt-5.6-sol");
+      expect(h.topicsCreated[0]?.effort).toBe("low");
+      expect(h.turns).toHaveLength(1);
+    });
+  }
 
   it("auto model: calls the classifier and passes its pick to the fresh topic", async () => {
     const picked: string[] = [];

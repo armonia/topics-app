@@ -68,8 +68,13 @@ export function buildCodexArgs(opts: CodexExecArgsOptions): string[] {
  * L'argv di un completamento usa-e-getta (auto-titolo, digest, fallback SSE).
  * Niente `--json`: qui si legge il testo, non gli eventi.
  */
-export function buildCodexOneshotArgs(opts: { model?: string | null }): string[] {
+export function buildCodexOneshotArgs(opts: { model?: string | null; reasoningEffort?: string; isolated?: boolean }): string[] {
   const args = ["exec"];
   if (opts.model) args.push("--model", opts.model);
+  if (opts.reasoningEffort) args.push("-c", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
+  if (opts.isolated) args.push(
+    "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only",
+    "-c", 'features.shell_tool=false', "-c", 'web_search="disabled"',
+  );
   return args;
 }

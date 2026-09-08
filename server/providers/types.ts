@@ -100,6 +100,14 @@ export interface ProviderDoneMessage {
 
 // ============ Completion (non-streaming) ============
 
+export interface CompletionOptions {
+  model?: string;
+  /** Codex one-shot controls; other providers may ignore these options. */
+  reasoningEffort?: string;
+  timeoutMs?: number;
+  isolated?: boolean;
+}
+
 export interface CompletionResult {
   content: string;
   usage?: {
@@ -500,7 +508,7 @@ export interface AIProvider {
    * provider's configured model for THIS call only (e.g. force a cheap/fast
    * tier); implementations may ignore it.
    */
-  complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult>;
+  complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult>;
 
   // --- Session Management (optional) ---
 

@@ -124,6 +124,20 @@ function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> 
 }
 
 for (const kind of ["hold", "threshold"] as const) describe(kind, () => {
+  test("general Auto reaches the picker during a Claude hold and can choose Codex", async () => {
+    let picks = 0;
+    const h = harness("topics", {
+      automaticModelOutsideClaude: () => true,
+      pickAutoModel: async () => { picks++; return { model: codingModel, effort: "low", weight: "light" }; },
+    });
+    h.task("automatic"); h.task("explicit-claude", CLAUDE);
+    limit(kind);
+    await h.dispatcher.tick(PID); await flush();
+    expect(picks).toBe(1);
+    expect(h.starts).toEqual([{ model: codingModel, provider: "codex" }]);
+    expect(h.svc.get("explicit-claude")?.task.dispatchAttempts).toBe(0);
+    expect(h.svc.get("explicit-claude")?.task.status).toBe("todo");
+  });
   test("a held Claude head does not block GPT and consumes no attempt", async () => {
     const h = harness();
     h.task("a-claude", CLAUDE); h.task("b-gpt", codingModel);

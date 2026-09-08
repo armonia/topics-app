@@ -15,12 +15,14 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
-import { existsSync, mkdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import type {
   AIProvider,
   ChatMessage,
   CompletionResult,
+  CompletionOptions,
   ProviderCapability,
   ProviderDiagnostic,
   ProviderDoneMessage,
@@ -34,6 +36,7 @@ import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
+import { readCodexModels } from "./codex/models";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
@@ -420,7 +423,12 @@ export class CodexProvider implements AIProvider {
     // resolver). The resolver honours the user's own config.toml value, so
     // this never downgrades an explicit user choice; null (disabled or
     // unrecognised tier) means no override at all.
-    const reasoningEffort = resolveCodexReasoningEffort();
+    let topicEffort: string | null = null;
+    try {
+      const row = getDatabase().prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1").get(sessionKey) as { effort?: string | null } | undefined;
+      topicEffort = row?.effort ?? null;
+    } catch { /* Unbound sessions retain the global default. */ }
+    const reasoningEffort = resolveCodexReasoningEffort({ topicOverride: topicEffort });
 
     // L'elenco delle flag vive in `codex/args.ts`, funzione pura sotto snapshot:
     // è la superficie che si rompe a ogni release della CLI. Qui restano le
@@ -765,7 +773,7 @@ export class CodexProvider implements AIProvider {
 
   // --- Non-streaming completion ---
 
-  async complete(messages: ChatMessage[]): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     const bin = resolveCodexBinary();
     if (!bin) return { content: "Codex CLI not found." };
 
@@ -775,45 +783,60 @@ export class CodexProvider implements AIProvider {
                   m.content)
       .join("\n\n");
 
-    const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
+    const scratch = options?.isolated ? mkdtempSync(join(tmpdir(), 'topics-codex-classifier-')) : null;
+    const workspace = scratch ?? (this.config.defaultWorkspace || process.env.HOME || "/tmp");
 
     // Only forward --model when explicitly configured; otherwise let the CLI
     // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
     // (e.g. gpt-5-codex is rejected for ChatGPT-account auth). Mirrors sendChat.
-    const args = buildCodexOneshotArgs({ model: this.config.model });
+    const args = buildCodexOneshotArgs({ ...options, model: options?.model ?? this.config.model });
 
-    return new Promise<CompletionResult>((resolve, reject) => {
-      const child = spawn(bin, args, {
-        cwd: workspace,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: buildSafeEnv(),
+    try {
+      return await new Promise<CompletionResult>((resolve, reject) => {
+        // The installed CLI may be a Node wrapper around a native child.
+        // Own a group so a deadline closes both and their inherited pipes.
+        const ownedGroup = process.platform !== "win32";
+        const child = spawn(bin, args, {
+          detached: ownedGroup,
+          cwd: workspace,
+          stdio: ["pipe", "pipe", "pipe"],
+          env: buildSafeEnv(),
+        });
+
+        let stdout = "";
+        let stderr = "";
+        child.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
+        child.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            if (ownedGroup && child.pid) process.kill(-child.pid, "SIGKILL");
+            else child.kill("SIGKILL");
+          } catch { /* The process may already have closed. */ }
+        }, Math.min(MESSAGE_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? MESSAGE_TIMEOUT_MS)));
+
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (timedOut) { reject(new Error("Codex completion timed out")); return; }
+          if (code !== 0) {
+            if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
+            resolve({ content: `Error: Codex exited with code ${code}` });
+            return;
+          }
+          resolve({ content: stdout.trim() });
+        });
+
+        child.on("error", (err) => { clearTimeout(timer); reject(err); });
+
+        child.stdin!.on("error", () => { /* Early CLI exit is reported by close. */ });
+        child.stdin!.write(prompt);
+        child.stdin!.end();
       });
-
-      let stdout = "";
-      let stderr = "";
-      child.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
-      child.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-      const timer = setTimeout(() => {
-        try { child.kill("SIGKILL"); } catch {}
-        reject(new Error("Codex completion timed out"));
-      }, MESSAGE_TIMEOUT_MS);
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code !== 0) {
-          if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
-          resolve({ content: `Error: Codex exited with code ${code}` });
-          return;
-        }
-        resolve({ content: stdout.trim() });
-      });
-
-      child.on("error", (err) => { clearTimeout(timer); reject(err); });
-
-      child.stdin!.write(prompt);
-      child.stdin!.end();
-    });
+    } finally {
+      if (scratch) rmSync(scratch, { recursive: true, force: true });
+    }
   }
 
   // --- Abort ---
@@ -888,23 +911,9 @@ export class CodexProvider implements AIProvider {
     // exactly what the user can actually call — different ChatGPT plans expose
     // different model sets, and the codex-specific slugs (gpt-5-codex, etc.)
     // are rejected for ChatGPT-account auth.
-    const codexHome = process.env.CODEX_HOME || join(process.env.HOME || "", ".codex");
-    const cachePath = join(codexHome, "models_cache.json");
-    try {
-      const raw = readFileSync(cachePath, "utf-8");
-      const parsed = JSON.parse(raw) as { models?: Array<{ slug?: unknown; visibility?: unknown }> };
-      const slugs = (parsed.models ?? [])
-        .filter((m): m is { slug: string; visibility: string } =>
-          typeof m?.slug === "string" && m.visibility === "list",
-        )
-        .map((m) => m.slug);
-      if (slugs.length > 0) return slugs;
-    } catch {
-      // No cache yet — fall through.
-    }
     // Empty list signals "use whatever the CLI has configured" — picker shows
     // the provider but no model rows; user can still trigger via no-override.
-    return [];
+    return readCodexModels().map(model => model.slug);
   }
 
   /**

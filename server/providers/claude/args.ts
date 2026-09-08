@@ -281,6 +281,7 @@ export function resolveToolTrim(args: {
 export interface ClaudeOneshotArgsOptions {
   permissionMode: string;
   model: string;
+  effort?: string;
   /**
    * Config MCP vuoto da fissare, o null quando la scrittura del file è fallita
    * (si ripiega sul comportamento storico: nessuno scoping).
@@ -392,6 +393,7 @@ export function buildClaudeOneshotArgs(opts: ClaudeOneshotArgsOptions): string[]
     "--print",
     "--permission-mode", opts.permissionMode,
     "--model", opts.model,
+    ...(opts.effort ? ["--effort", opts.effort] : []),
     "--setting-sources", "user,project,local",
     ...(opts.emptyMcpConfigPath ? ["--mcp-config", opts.emptyMcpConfigPath, "--strict-mcp-config"] : []),
     "--tools", "",

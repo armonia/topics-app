@@ -31,7 +31,7 @@ beforeAll(() => {
   const binary = join(tempRoot, 'fake-codex');
   // This fixture only reports its OS cwd after receiving stdin; it cannot
   // call a model, read credentials, or execute any of the CLI arguments.
-  writeFileSync(binary, `#!${process.execPath}\nawait Bun.stdin.text();\nconsole.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:process.cwd()}}));\n`, { mode: 0o700 });
+  writeFileSync(binary, `#!${process.execPath}\nconst input = await Bun.stdin.text();\nconsole.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:input === 'Report argv' ? JSON.stringify(process.argv.slice(2)) : process.cwd()}}));\n`, { mode: 0o700 });
   process.env.CODEX_BIN = binary;
   _resetCodexBinCache();
   const now = new Date().toISOString();
@@ -63,6 +63,20 @@ async function spawnedWorkspace(sessionKey: string): Promise<string> {
 }
 
 describe('Codex subprocess workspace', () => {
+  test('the dispatched topic effort reaches the actual Codex argv ahead of global defaults', async () => {
+    seedTopic('topic:codex-effort', projectDir, null);
+    getDatabase().prepare("UPDATE topics SET effort = 'low' WHERE session_key = ?").run('topic:codex-effort');
+    const provider = new CodexProvider({ type: 'codex', defaultWorkspace: defaultDir });
+    const result = await new Promise<string>((resolve, reject) => {
+      void provider.sendChat('topic:codex-effort', 'Report argv', {
+        onTextDelta() {}, onToolStart() {}, onToolResult() {},
+        onDone: reply => resolve(reply?.result ?? ''), onError: error => reject(new Error(error)),
+      }, { model: 'gpt-5.6-luna' }).catch(reject);
+    });
+    const argv = JSON.parse(result);
+    expect(argv).toContain('model_reasoning_effort="low"');
+    expect(argv).toContain('gpt-5.6-luna');
+  });
   test('the ready task worktree takes precedence over project and provider defaults', async () => {
     seedTopic('topic:codex-worktree', projectDir, 'codex-worktree');
     expect(await spawnedWorkspace('topic:codex-worktree')).toBe(worktreeDir);

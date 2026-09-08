@@ -271,7 +271,9 @@ export function resolveMcpOutputTokens(): number | null {
  */
 const VALID_CODEX_REASONING_EFFORTS = new Set<string>(CODEX_REASONING_EFFORTS);
 
-export function resolveCodexReasoningEffort(opts?: { configPath?: string }): string | null {
+export function resolveCodexReasoningEffort(opts?: { configPath?: string; topicOverride?: string | null }): string | null {
+  const perTopic = (opts?.topicOverride ?? '').trim().toLowerCase();
+  if (perTopic && (VALID_CODEX_REASONING_EFFORTS.has(perTopic) || (EFFORT_TIERS as readonly string[]).includes(perTopic))) return perTopic;
   // Global Settings default (Phase B) wins over env.
   const setting = (settingCodexReasoningEffort() ?? '').trim().toLowerCase();
   if (setting && VALID_CODEX_REASONING_EFFORTS.has(setting)) return setting;
