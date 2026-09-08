@@ -2725,18 +2725,6 @@ describe("blocked-by + context reuse", () => {
     });
   }
 
-  it("manual GPT model with a fixed board effort skips the classifier", async () => {
-    let calls = 0;
-    const h = harness({ pickAutoModel: async () => { calls++; return { model: "gpt-6-astra" }; } });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchModel: "codex", dispatchEffort: "medium" });
-    const task = h.svc.create({ projectId: PID, status: "todo", text: "Manual choice", model: "gpt-5.6-luna" });
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(calls).toBe(0);
-    expect(h.task(task.id)?.model).toBe("gpt-5.6-luna");
-    expect(h.topicsCreated[0]?.model).toBe("gpt-5.6-luna");
-  });
-
   it("a fresh requeue retains the automatic effort paired with its resolved model", async () => {
     let calls = 0;
     const h = harness({ pickAutoModel: async () => {
@@ -2880,11 +2868,12 @@ describe("blocked-by + context reuse", () => {
       pickAutoModel: async () => { called = true; return { model: "claude-opus-4-8" }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "medium" });
-    h.svc.create({ projectId: PID, status: "todo", text: "chosen", model: "claude-haiku-4-5" });
+    const created = h.svc.create({ projectId: PID, status: "todo", text: "chosen", model: "claude-haiku-4-5" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(called).toBe(false);
     expect((h.topicsCreated[0] as any).model).toBe("claude-haiku-4-5");
+    expect(h.task(created.id)!.planFirst).toBe(false);
   });
 
   it("auto model: a null pick keeps the provider default (undefined model, dispatch not blocked)", async () => {
@@ -2913,17 +2902,6 @@ describe("blocked-by + context reuse", () => {
     expect(comments.some((c) => c.author === "system" && c.content.includes("plan-first"))).toBe(false);
   });
 
-  it("auto model: an explicit model with fixed effort skips the classifier (no auto plan-first)", async () => {
-    // An explicit model plus fixed effort is already a complete dispatch plan.
-    let called = false;
-    const h = harness({ pickAutoModel: async () => { called = true; return { model: "x" }; } });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "medium" });
-    const created = h.svc.create({ projectId: PID, status: "todo", text: "chiaro", model: "claude-haiku-4-5" });
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(called).toBe(false);
-    expect(h.task(created.id)!.planFirst).toBe(false);
-  });
 });
 
 describe("priority", () => {
