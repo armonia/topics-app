@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.294 — 2026-09-08
+
+### Sotto il cofano
+- La coda della riga agenti porta due numeri, non tre su cinque
+- Il verdetto sulla pane browser e' l'indirizzo, non i pixel
+- Rapporto Windows 2.2.292: il banco esce zero e la pane prende un indirizzo digitato
+
 ## 2.2.292 — 2026-09-08
 
 ### Sotto il cofano
