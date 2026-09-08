@@ -176,6 +176,11 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
     await didascalia(page, "Descrizione CHIUSA (board:taskDescOpen = '0')");
 
     const drawer = page.getByTestId("task-detail-drawer");
+    // Task metadata starts folded inside the conversation. Opening it must
+    // still distinguish a folded description from one that does not exist.
+    await expect(drawer.getByTestId("task-brief-scroll")).toHaveCount(0);
+    await drawer.getByTestId("task-details-toggle").click();
+    await expect(drawer.getByTestId("task-session-column").getByTestId("task-brief-scroll")).toBeVisible();
     // Chiusa davvero: il corpo markdown non c'è.
     const handle = drawer.getByRole("button", { name: /^Descrizione$/ });
     await expect(handle).toBeVisible();
@@ -216,8 +221,8 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
     await didascalia(page, "Nessuna anteprima: la nota vale, e si vede");
     await beat(page);
 
-    // (2) Arriva l'anteprima: la nota afferma il contrario di quello che la
-    //     card mostra due dita più su, quindi il thread smette di renderla.
+    // (2) The preview returns. The obsolete note leaves the conversation,
+    //     while its attachment remains available from the task details.
     await api(page.request, "patch", `/api/boards/${PROJECT_ID}/tasks/${taskId}`, { previewImage: previewPath });
     const seeded = (await (await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${taskId}`)).json()) as {
       task?: { previewImage?: string | null };
@@ -225,8 +230,13 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
     };
     expect(seeded.task?.previewImage, "previewImage scartata dall'allowlist").toBe(previewPath);
 
-    await expect(drawer.getByTestId("task-detail-preview")).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByText(/Anteprima RITIRATA/)).toHaveCount(0);
+    await drawer.getByTestId("task-details-toggle").click();
+    await expect(drawer.getByTestId("task-preview-open")).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("task-preview-open").click();
+    await expect(drawer.getByTestId("task-drawer-body").locator("img")).toBeVisible();
+    await drawer.getByTestId("task-conversation-toggle").click();
+    await expect(drawer.getByTestId("task-session-column")).toBeVisible();
     await didascalia(page, "Anteprima tornata: la nota superata non si mostra più");
     await beat(page);
 

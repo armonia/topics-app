@@ -1,3 +1,21 @@
+import type { ChatMessage } from '../../types';
+import { extractMediaPaths } from '../messageMedia';
+
+/** Whether an attachment is already represented in the conversation. */
+export function hasConversationMedia(
+  path: string | null | undefined,
+  comments: readonly { content?: string; media?: string[] }[],
+  messages: readonly Pick<ChatMessage, 'role' | 'content' | 'media' | 'blocks'>[],
+): boolean {
+  if (!path) return false;
+  const contains = (content?: string) => extractMediaPaths(content ?? '').mediaPaths.includes(path);
+  // Comment and user prose use Markdown alone; only assistant content renders
+  // MEDIA markers. Counting an unrendered marker would hide the only opener.
+  return comments.some((comment) => comment.media?.includes(path))
+    || messages.some((message) => message.role === 'assistant' && (message.media?.includes(path) || contains(message.content)
+      || message.blocks?.some((block) => block.kind === 'text' && contains(block.text))));
+}
+
 /**
  * Gli artefatti di un task, in ordine, deduplicati — uno per tab.
  *

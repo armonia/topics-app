@@ -2061,7 +2061,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                vorrebbe dire togliere spazio al drawer che stai leggendo — e
                rifare lo split a ogni card. Il bottone «Apri nel workspace»
                resta comunque, in entrambi i casi. */
-            autoOpenInWorkspace={global}
           />
         )}
       </div>

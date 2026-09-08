@@ -2,9 +2,25 @@
  * @covers KANBAN-54
  */
 import { describe, test, expect } from "bun:test";
-import { collectTaskMediaPaths } from "./taskMedia";
+import { collectTaskMediaPaths, hasConversationMedia } from "./taskMedia";
 import { isVideoPath, isImagePath, isPdfPath } from "../../lib/mediaKind";
 import { mediaPaneIdFor } from "./constants";
+
+describe("conversation media presence", () => {
+  test("recognizes append-only media and inline text blocks", () => {
+    expect(hasConversationMedia("/m/result.svg", [], [{ role: "assistant", content: "Reply\nMEDIA:/m/result.svg" }])).toBe(true);
+    expect(hasConversationMedia("/m/result.svg", [], [{ role: "assistant", content: "", blocks: [{ kind: "text", text: "See [Attached file: /m/result.svg]" }] }])).toBe(true);
+  });
+  test("recognizes explicit comment and session attachments", () => {
+    expect(hasConversationMedia("/m/result.svg", [{ media: ["/m/result.svg"] }], [])).toBe(true);
+    expect(hasConversationMedia("/m/result.svg", [], [{ role: "assistant", content: "", media: ["/m/result.svg"] }])).toBe(true);
+  });
+  test("keeps card-only previews available without matching ordinary prose or other paths", () => {
+    expect(hasConversationMedia("/m/result.svg", [{ content: "I inspected /m/result.svg" }], [{ role: "assistant", content: "MEDIA:/m/result.svg.old" }])).toBe(false);
+    expect(hasConversationMedia("/m/result.svg", [{ content: "MEDIA:/m/result.svg" }], [{ role: "user", content: "MEDIA:/m/result.svg" }])).toBe(false);
+    expect(hasConversationMedia(null, [], [])).toBe(false);
+  });
+});
 
 /**
  * «All'anteprima attuale dovresti aggiungere la possibilità di aprirla su tab»
