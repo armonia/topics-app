@@ -40,7 +40,7 @@ test.describe("La finestra del piano sulla fascia di stato", () => {
     // the runner and the browser do not necessarily share a locale, and a test
     // that formats it on its own side measures Node instead of the bar.
     const expected = await page.evaluate(
-      (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+      (ms) => new Date(ms).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }),
       resetsAtMs,
     );
     // The two numbers a person acts on: how full, and until when.

@@ -56,7 +56,7 @@ export function UnsentBanner({
           ? 'fixed left-0 right-0 z-50 px-2 flex flex-col gap-1 rounded-t-lg border-t border-amber-500/30 bg-amber-500/15 py-1.5 text-[12px] text-amber-700 dark:text-amber-400 backdrop-blur-sm'
           : 'absolute bottom-2 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-1 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[12px] shadow-lg backdrop-blur-sm max-w-[min(28rem,90vw)]'
       }
-      style={mobile ? { bottom: 'calc(var(--mobile-chrome-h, 0px) + 0.25rem)' } : undefined}
+      style={mobile ? { bottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px) + 0.25rem)' } : undefined}
     >
       <span className="font-medium">
         {tr(messages.length === 1 ? 'app.unsent.title.one' : 'app.unsent.title.many', { n: messages.length })}
