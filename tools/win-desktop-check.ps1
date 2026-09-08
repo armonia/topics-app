@@ -282,6 +282,40 @@ function SendNow($keys) {
   [System.Windows.Forms.SendKeys]::SendWait($keys)
 }
 
+# WHERE THE BROWSER PANE ACTUALLY IS, asked of the app instead of the pixels.
+#
+# A pane persists its address in the pane store as it navigates
+# (`client/src/state/pane/types.ts`, `url`), and the app's own server serves that
+# store. So "the typed address arrived" is a string comparison, not a diff — and
+# it has to be, because the two states this check has to tell apart are both
+# pale: measured on 2.2.292, a pane showing an error page and the same pane
+# showing the whole app differ by 2% of the sampled pixels, under any threshold
+# worth having. The token is the one the daemon wrote for this machine.
+function PaneBrowserUrl {
+  try {
+    $tokenFile = Join-Path $env:USERPROFILE ".topics\daemon-state.json"
+    if (-not (Test-Path $tokenFile)) { return "" }
+    $tok = (Get-Content $tokenFile -Raw | ConvertFrom-Json).token
+    $store = Invoke-RestMethod -Uri "http://127.0.0.1:13333/api/ui-state/pane-store-v2" `
+      -Headers @{ Authorization = "Bearer $tok" } -TimeoutSec 5
+    $panes = @($store.value.panes.PSObject.Properties.Value | Where-Object { $_.type -eq "browser" -and $_.url })
+    if ($panes.Count -eq 0) { return "" }
+    return [string]$panes[-1].url
+  } catch { return "" }
+}
+
+# The store is written with a debounce, so the reading is polled: what is being
+# waited for is the pane arriving, not a fixed number of seconds.
+function WaitPaneUrl($needle, $seconds = 12) {
+  $last = ""
+  for ($i = 0; $i -lt ($seconds * 2); $i++) {
+    $last = PaneBrowserUrl
+    if ($last -and $last.Contains($needle)) { return $last }
+    Start-Sleep -Milliseconds 500
+  }
+  return $last
+}
+
 # WHICH WINDOW WOULD GET THE NEXT KEY. The foreground window is not the answer:
 # inside it the keyboard belongs to whatever child holds the focus, and a
 # browser pane is a native WebView2 CHILD. Two states this tells apart, and a
@@ -650,26 +684,44 @@ if (Wants 'e') {
   Start-Sleep -Milliseconds 600
 
   # Ctrl+L focuses the URL bar (`RemoteBrowserPanel`), so the typing lands there
-  # whatever had focus when the pane opened. The first URL is a path the server
-  # does not serve, which paints an error page; the second is the app itself. Both
-  # on the loopback: a reading that needs the internet measures the network.
+  # whatever had focus when the pane opened.
+  #
+  # TWO ADDRESSES THAT LOOK NOTHING ALIKE, and the first one used to be
+  # `/robots.txt` "because the server does not serve it". It does serve it, or
+  # near enough: measured on 2.2.292, both addresses painted the SAME app inside
+  # the pane and the navigation moved 1.9% of the window — a green pane read as
+  # a dead one. A port nobody listens on cannot be confused with anything: the
+  # engine paints its own error page, and the app on 13333 is dense. Both on the
+  # loopback, because a reading that needs the internet measures the network.
   SendNow "^l"
   Start-Sleep -Milliseconds 400
-  SendNow "http://127.0.0.1:13333/robots.txt{ENTER}"
-  Start-Sleep 5
-  $firstUrl = Grab $h $null
+  SendNow "http://127.0.0.1:1/{ENTER}"
+  $urlAfterFirst = WaitPaneUrl "127.0.0.1:1/"
+  $firstUrl = Grab $h (Join-Path $Out "08-first-url-$Label.png")
   $inkFirst = InkPercent $firstUrl
   SendNow "^l"
   Start-Sleep -Milliseconds 400
   SendNow "http://127.0.0.1:13333/{ENTER}"
-  Start-Sleep 8
+  $urlAfterSecond = WaitPaneUrl "13333"
+  Start-Sleep 3
   $secondUrl = Grab $h (Join-Path $Out "05-browser-pane-$Label.png")
   $inkSecond = InkPercent $secondUrl
   $dNav = DiffRatio $firstUrl $secondUrl
   Release $firstUrl
   Release $secondUrl
   Release $paneOpen
-  Verdict ((($null -ne $dNav) -and $dNav -gt 0.05) -and ($inkSecond -ge 30)) "e" "browser pane: opened $(Pct $dPane), navigation changed $(Pct $dNav) (want >5%), page ink $inkSecond% after the second URL (want >=30%), first URL ink $inkFirst%, Ctrl+K with the pane focused $(Pct $dPaneKeys)"
+  # THE VERDICT IS THE PANE'S OWN ADDRESS, TWICE. Two addresses typed by
+  # keyboard, and the app says where the pane went: nothing else proves that the
+  # keys reached the address bar of a NATIVE child that holds the system's
+  # keyboard, which is the whole question of this check (card 4f4954e1).
+  #
+  # The pixels stay in the line as context, judged by nobody. `InkPercent` reads
+  # the WHOLE window — sidebar and chrome included — so it reads ~100% whatever
+  # the pane does, and the diff between the two addresses reads 2% because both
+  # states are pale: an error page and the app on white differ in thin text.
+  $okFirst = $urlAfterFirst -and $urlAfterFirst.Contains("127.0.0.1:1/")
+  $okSecond = $urlAfterSecond -and $urlAfterSecond.Contains("13333")
+  Verdict ($okFirst -and $okSecond) "e" "browser pane: typed two addresses and the pane went to '$urlAfterFirst' then '$urlAfterSecond' (want 127.0.0.1:1/ then 13333); opened $(Pct $dPane), navigation moved $(Pct $dNav) of the pixels and the window inked $inkFirst%/$inkSecond% (context, not judged), Ctrl+K with the pane focused $(Pct $dPaneKeys)"
 
   Send "^w"
   Start-Sleep 1
