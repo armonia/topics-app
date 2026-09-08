@@ -20,9 +20,11 @@
  *                                        (what TOPICS_E2E_BUNDLE_DIR wants)
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { mismatchedPrecompressedSiblings, missingBundleAssets } from "../server/lib/client-bundle";
+import { isInsideDir } from "../server/lib/path-containment";
+import { realPathForNewEntry } from "../server/lib/real-path";
 import { publishBundle } from "./build-client-publish";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -72,9 +74,21 @@ function buildInto(outDir: string): void {
 
 function main(): void {
   const argv = process.argv.slice(2);
-  const outIdx = argv.indexOf("--out");
-  const outside = outIdx >= 0 ? resolve(argv[outIdx + 1] ?? "") : null;
-  if (outIdx >= 0 && !outside) fail("--out wants a directory.");
+  let outside: string | null = null;
+  if (argv.length > 0) {
+    if (argv.length !== 2 || argv[0] !== "--out" || !argv[1].trim() || argv[1].startsWith("-")) {
+      fail("Usage: build:client [--out <directory outside the checkout>]");
+    }
+    outside = resolve(argv[1]);
+    // buildInto empties its destination. An omitted value used to resolve to
+    // cwd and erase the checkout before the compiler could report an error.
+    // Existing symlink parents matter even when the output does not exist yet.
+    const target = realPathForNewEntry(outside);
+    const repo = realpathSync(REPO_ROOT);
+    if (target === null || isInsideDir(repo, target) || isInsideDir(target, repo)) {
+      fail("--out must point outside the checkout and its ancestors. Omit --out to publish to public/ safely.");
+    }
+  }
 
   if (outside) {
     buildInto(outside);
