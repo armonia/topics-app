@@ -203,7 +203,18 @@ describe("relay/ is inside the gates", () => {
     expect(SCRIPTS.lint).toContain("bun run lint:relay");
     const fixture = mkdtempSync(join(tmpdir(), "relay-lint-gate-"));
     try {
-      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/eslint.config.js", "scripts/lint.ts"]) {
+      // `client/package.json` IS PART OF THE FIXTURE, and leaving it out was a
+      // node-version-dependent green. `client/eslint.config.js` is ESM written
+      // in a `.js` file: what makes node read it as a module is the `"type":
+      // "module"` of the NEAREST package.json, which in the real tree is
+      // `client/`'s. Without that copy the fixture falls back to the root
+      // manifest, which does not declare it, and eslint dies with `Cannot use
+      // import statement outside a module` and exit code 2 instead of the 1
+      // this test asserts. It passes anyway on node 22.7+, which sniffs the
+      // syntax and switches to ESM by itself, so the hole only opens on an
+      // older runtime - measured here on node 18.14, where every card's
+      // pre-review gate went red on a fixture, not on the code under test.
+      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/package.json", "client/eslint.config.js", "scripts/lint.ts"]) {
         const path = join(fixture, file);
         mkdirSync(dirname(path), { recursive: true });
         copyFileSync(join(ROOT, file), path);
