@@ -62,6 +62,29 @@ else. The detail, the three arms and the captures are in
 `browser-pane-2.2.291.md`. The fix 71466b7ee does on the product what it claimed
 on the commit; the gate is red for two reasons that are not it.
 
+## Second pass, same release, after the readings were rewritten
+
+The two stale readings above were fixed (`a3f9dd94d`) and the whole battery run
+again against the same installer, same machine, 10:03 local.
+
+| arm | expected | got | reading |
+|---|---|---|---|
+| full (a b c d) | 0 | **0** | b: 3 cells inside 16..69 (want 12..74), wordmark at 88 (want 88), baseline 2. c1: Ctrl+K opens 52%, back to 0% on one Escape. c2: Ctrl+N menu 91.8%. d: 3/3 repainted. |
+| wrongkey (falsification) | 1 | 1 | an unbound combination opens 0%, as it must. |
+| noremedy (falsification) | 1 | 1 | without the rebuild remedy, 0/3 repainted, ink 1.3%. The remedy that ships is doing the work. |
+| browser (e) | 0 | **1** | the pane opens and takes the keyboard: Ctrl+K read 53.4% WITH the pane focused. The typed address does not arrive: navigation moved 1.9% (want >5%). |
+
+So (b), (c) and (d) are green on 2.2.291, and the strip was never wrong: the
+commands took 4 px of air on purpose and the check had yesterday's numbers.
+
+(e) is the one real defect left, and it is the Ctrl+L of the report next door,
+now with a mechanism: a native pane holds the OS keyboard, and asking for the
+address bar only opened the tab's inline editor without asking for the keyboard
+back. The tab strip did ask, on pointer-down, which is why the mouse worked.
+Fixed in `b56b22e7f` by moving the ask into `focusAddress`, the one door both
+gestures pass through; the reading that closes it has to come from the release
+that carries it, not from this one.
+
 ## Files
 
 `01-first-launch.png`, `02-chrome-strip-four-cells.png` (the four cells of (b)),
