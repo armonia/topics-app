@@ -206,20 +206,29 @@ test.describe("Review portata dal sistema: scelte diverse da una consegna", () =
         await beat(page, 1800);
 
         // ── 3. Il drawer: il bottone che ha causato l'incidente ──────────────
-        await didascalia(page, "Nel drawer il verde è «Rimandalo avanti», non «Approva»");
+        await didascalia(page, "In Consegna il verde è «Rimandalo avanti», non «Approva»");
         // Il titolo, non il centro della card: in review la card è alta e piena
         // di controlli suoi (le scelte, la casella di risposta).
         await reaper.getByText(T_REAPER).first().click();
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
-        const approva = drawer.getByTestId("task-approve");
-        const avanti = drawer.getByTestId("task-send-back");
-        await expect(approva).toBeVisible({ timeout: 10000 });
+        await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
+        await expect(drawer.getByTestId("task-send-back")).toHaveCount(0);
+        const deliveryToggle = drawer.getByTestId("task-delivery-toggle");
+        await expect(deliveryToggle).toBeInViewport();
+        await deliveryToggle.click();
+        const delivery = drawer.getByTestId("task-delivery-panel");
+        await expect(delivery).toBeVisible();
+        const approva = delivery.getByTestId("task-approve");
+        const avanti = delivery.getByTestId("task-send-back");
+        await expect(approva).toBeInViewport({ timeout: 10000 });
+        await expect(avanti).toBeInViewport();
         await expect(avanti).toHaveText(/Rimandalo avanti/);
         await expect(avanti).toHaveClass(/emerald/);
         await expect(approva).toHaveText(/Approva comunque/);
         await expect(approva).not.toHaveClass(/emerald/);
-        await expect(drawer.getByTestId("task-land")).toHaveText(/Landa comunque/);
+        await expect(delivery.getByTestId("task-land")).toHaveText(/Landa comunque/);
+        await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
         await beat(page, 1800);
       },
     });

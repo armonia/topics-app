@@ -1716,40 +1716,36 @@ destinazione è fuori schermo, il lampo lo vede solo chi scorre.
 - **GIVEN** l'inizio del lampo
 - **THEN** SHALL essere quasi spento, non a piena intensità
 
-### Requirement: KANBAN-35 — Nel pannello c'è UN SOLO contenitore che scorre, e la decisione resta in vista
+### Requirement: KANBAN-35 — Nel pannello c'è UN SOLO contenitore che scorre, con il composer floating
 
-Nel pannello di un task SHALL esistere UN SOLO contenitore che scorre in
-verticale. Quando nessuno possiede l'altezza, ogni sezione si mette un tetto
-addosso, e il primo pezzo tagliato è l'ULTIMO figlio — cioè proprio i comandi
-della decisione.
+Nel pannello di un task SHALL esistere UN SOLO contenitore che scorre in verticale.
+La conversazione SHALL essere la superficie principale all'apertura. Il titolo,
+il composer floating e l'accesso a «Consegna» SHALL restare DENTRO la finestra,
+PRIMA e DOPO lo scorrimento, anche con evidenze alte e decine di commenti.
 
-I comandi della decisione SHALL restare DENTRO la finestra, PRIMA e DOPO lo
-scorrimento, anche nel caso peggiore: un'evidenza altissima, decine di commenti,
-tutte le sezioni aperte.
+Descrizione e sottotask SHALL aprirsi in «Dettagli»; evidenze, file, verifiche e
+comandi della decisione SHALL essere raccolti in «Consegna», accessibile accanto a
+«Dettagli» con un gesto a qualunque posizione dello scroll. Le due sezioni SHALL
+usare il flusso della conversazione, senza uno scroller concorrente. Chiudere
+una sezione NON SHALL muovere il composer. Lo spazio finale e la sfumatura dello
+scroll SHALL seguire l'altezza misurata del composer.
 
-L'anteprima SHALL avere un tetto proporzionato al pannello, non un'altezza che se
-lo mangia.
-
-Chiudere una sezione SHALL nascondere ciò che le appartiene e NON SHALL muovere i
-comandi della decisione.
-
-La conversazione SHALL essere la superficie principale all'apertura. Titolo e
-comandi SHALL restare fuori dal suo scroller; descrizione, sottotask e dettagli
-del task SHALL aprirsi dentro lo stesso flusso, senza uno scroller concorrente.
 La sessione dell'agente SHALL stare nella conversazione (KANBAN-73), mai in una
 scheda o colonna separata. Il workspace SHALL aprirsi soltanto su richiesta:
-in modo stretto come superficie alternativa, in modo LARGO accanto alla
-conversazione. Il suo GroupLayout SHALL mantenere un'altezza definita fuori
+in modo stretto come superficie alternativa a piena altezza, in modo LARGO accanto
+alla conversazione. Il suo GroupLayout SHALL mantenere un'altezza definita fuori
 dallo scroller. Chiudere questa vista NON SHALL chiudere o parcheggiare tab
 condivise. L'apertura esplicita di un allegato o una tab SHALL restare possibile.
 
 #### Scenario: il caso peggiore
-- **GIVEN** un'evidenza altissima, molti commenti e tutte le sezioni aperte
-- **THEN** i comandi della decisione SHALL restare dentro la finestra
+- **GIVEN** un'evidenza altissima, molti commenti e dettagli aperti
+- **THEN** il composer e l'accesso a «Consegna» SHALL restare dentro la finestra
+- **WHEN** la persona apre «Consegna»
+- **THEN** verifiche e decisioni SHALL essere raggiunte con un solo gesto
 
 #### Scenario: chiudere una sezione
 - **GIVEN** una sezione chiusa
-- **THEN** i comandi della decisione NON SHALL spostarsi
+- **THEN** il composer NON SHALL spostarsi
 
 ### Requirement: KANBAN-36 — CHIUSO non è VUOTO, e uno stato scritto come messaggio non invecchia
 
@@ -3214,11 +3210,11 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
    ancorate SHALL mostrare una riga «Dettagli sessione»
    espandibile. Testo e azioni originali SHALL restare consultabili aprendola,
    senza montare i renderer del dettaglio mentre è chiusa. Se non ci sono
-   tali commenti ancorati, la prosa SHALL restare visibile e solo i gruppi contigui
+   tali commenti ancorati, la risposta finale SHALL restare visibile; progress e gruppi contigui
    di azioni concluse e ragionamento SHALL essere richiudibili, nel loro ordine.
    Note di servizio, stato o revisione SHALL conservare l'ordine senza far
-   considerare rappresentata la risposta. Streaming, richieste di input,
-   errori del turno e allegati SHALL restare visibili.
+   considerare rappresentata la risposta. Richieste di input, errori del turno e allegati SHALL restare visibili;
+   il lavoro tecnico in streaming segue il requisito 15.
 8. L'anteprima della consegna NON SHALL duplicare un'immagine già nella
    conversazione né aprire automaticamente lo stesso file nel workspace. Un
    allegato della card assente dal filo SHALL avere un riferimento apribile nel
@@ -3238,7 +3234,8 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
     un segno compatto con chi e quando, senza una banda che ripeta la cronologia.
 11. Nel dettaglio di una review agente, il pulsante accanto al testo e Invio
     SHALL inviare la stessa correzione all'agente, inclusi gli allegati. La
-    decisione «Rimanda indietro» SHALL comparire una sola volta, nel composer.
+    decisione «Rimanda indietro» SHALL comparire una sola volta in «Consegna»;
+    il composer SHALL inviare la correzione con lo stesso pulsante iconico della chat.
     La nota che non riprende l'agente SHALL restare un'azione secondaria esplicita.
     Il campo SHALL avere un nome accessibile e crescere fino a un'altezza limitata
     per rendere rileggibile una correzione su più righe.
@@ -3249,6 +3246,20 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
     umana, altra prosa o un altro messaggio SHALL interrompere questo recupero.
     La domanda corrente SHALL offrire le risposte nel filo, una sola volta;
     le domande precedenti SHALL restare storia consultabile.
+13. La preview SHALL usare lo stesso composer floating della chat per superfici,
+    bordo, angoli, spaziatura e controlli. Il campo e i pulsanti SHALL stare sopra
+    lo scorrimento, con spazio finale misurato sulla loro altezza: l'ultimo
+    messaggio e le risposte NON SHALL finire coperti. Il layout SHALL adattarsi
+    al drawer stretto, alla vista larga e al telefono senza overflow orizzontale.
+14. «Consegna» SHALL essere accessibile accanto a «Dettagli»: raccoglie evidenze,
+    file, verifiche e decisioni del task, senza trasformare il composer in una
+    seconda barra di stato. I comandi di sessione SHALL comparire una sola volta.
+15. Un tool attivo NON SHALL aprire tutta la traccia tecnica nella conversazione.
+    Lavoro tecnico, ragionamento e aggiornamenti intermedi del turno attivo SHALL
+    essere consultabili nel dettaglio della sessione, chiuso inizialmente.
+    Le richieste di input, gli errori e gli allegati SHALL restare visibili;
+    la risposta finale senza un commento equivalente NON SHALL andare persa.
+    Il dettaglio NON SHALL montare i renderer dei tool quando è chiuso.
 
 #### Scenario: correggere dalla conversazione
 - **GIVEN** una review agente con domanda, poi una nota di consegna dello stesso messaggio

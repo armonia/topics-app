@@ -14,6 +14,7 @@ import { canonicalTmpDir, removeTmpDir } from './helpers/file-project';
 import { projectIdForPath } from '../../shared/board';
 import { testServerEnv } from './helpers/test-server';
 import { setTheme } from './helpers/chrome-contrast';
+import { interceptWebSocket } from './helpers/ws-helpers';
 
 hermetic(test);
 const projectPath = canonicalTmpDir('e2e-conversation-details');
@@ -175,6 +176,8 @@ test('an analysis branch offers no merge; a delivery with changes still does', a
   });
   await page.goto(`/task/${taskId}`);
   const drawer = page.getByTestId('task-detail-drawer');
+  await expect(drawer.getByTestId('task-delivery-panel')).toHaveCount(0);
+  await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-approve')).toBeVisible();
   await expect(drawer.getByTestId('task-send-back')).toBeVisible();
   await expect(drawer.getByRole('button', { name: 'Serve a me', exact: true })).toBeVisible();
@@ -183,9 +186,11 @@ test('an analysis branch offers no merge; a delivery with changes still does', a
   await expect(drawer.getByTestId('task-land')).toHaveCount(0);
   filesChanged = 2;
   await page.reload();
+  await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-land')).toBeVisible();
   filesChanged = 0;
   await page.reload();
+  await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-approve')).toBeVisible();
   await expect(drawer.getByTestId('task-land')).toHaveCount(0);
 });
@@ -238,7 +243,7 @@ test('conversation stays readable; session detail mounts only when expanded and 
   console.log(`CONVERSATION_DOM ${JSON.stringify({ closed, expanded })}`);
 });
 
-test('unmirrored prose stays visible while completed tools fold; a waiting question remains answerable', async ({ page, request }) => {
+test('the final answer stays visible while earlier progress folds; a waiting question remains answerable', async ({ page, request }) => {
   const { taskId, topicId } = await seed(request, 'Keep answers and pending questions visible');
   const { message } = await post(request, `/api/test/topics/${topicId}/session-row`, {
     role: 'assistant', content: 'I checked the input. The result is ready.',
@@ -261,11 +266,193 @@ test('unmirrored prose stays visible while completed tools fold; a waiting quest
   const drawer = page.getByTestId('task-detail-drawer');
   await expect(drawer).toBeVisible();
   const row = drawer.locator(`[data-testid="task-session-item"][data-message-id="${message.id}"]`);
-  await expect(row.getByText('I checked the input.', { exact: true })).toBeVisible();
+  await expect(row.getByText('I checked the input.', { exact: true })).toHaveCount(0);
   await expect(row.getByText('The result is ready.', { exact: true })).toBeVisible();
   await expect(row.getByTestId('task-work-accordion')).toHaveCount(1);
   await expect(row.getByTestId('tool-call-row-completed-read')).toHaveCount(0);
   await expect(drawer.getByTestId('tool-input-form-pending-choice')).toBeVisible();
+  await row.getByTestId('task-work-summary').click();
+  await expect(row.getByText('I checked the input.', { exact: true })).toBeVisible();
+  await expect(row.getByTestId('tool-call-row-completed-read')).toBeVisible();
+});
+
+test('live progress shares one expandable session detail; a drafted reply sends without stopping the agent', async ({ page, request }, testInfo) => {
+  const { taskId, topicId } = await seed(request, 'Follow the work without a tool transcript');
+  const answer = 'The source is connected. I am checking the final result.';
+  const { message: reply } = await post(request, `/api/test/topics/${topicId}/session-row`, { role: 'assistant', content: '' });
+  await post(request, `/api/test/tasks/${taskId}/anchored-comment`, { content: answer, author: 'agent', messageId: reply.id });
+  const inProgressAt = new Date().toISOString();
+  const progress = [
+    { text: 'I am reading the task context.', id: 'live-get-task', name: 'mcp__topics__get_task', args: { task_id: taskId } },
+    { text: 'I am inspecting the implementation.', id: 'live-read-source', name: 'Read', args: { file_path: 'source.ts' } },
+  ];
+  for (const step of progress) {
+    await post(request, `/api/test/topics/${topicId}/session-row`, {
+      role: 'assistant', content: step.text,
+      blocks: [{ kind: 'text', text: step.text }, { kind: 'tool', toolCall: { id: step.id, name: step.name, args: step.args, status: 'success' } }],
+    });
+  }
+  const progressOnly = 'The remaining checks are now running.';
+  await post(request, `/api/test/topics/${topicId}/session-row`, { role: 'assistant', content: progressOnly });
+  // Present a working task without dispatching a provider. The write routes
+  // below are intercepted too: this test exercises the user's gesture only.
+  await page.route(`**/api/boards/${projectId}/tasks/${taskId}`, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.task = { ...data.task, status: 'in_progress', dispatchState: 'working', inProgressAt };
+    await route.fulfill({ response, json: data });
+  });
+  let stops = 0;
+  await page.route(`**/api/boards/${projectId}/tasks/${taskId}/stop`, async (route) => {
+    stops++;
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.route(`**/api/boards/${projectId}/tasks/${taskId}/comments`, async (route) => {
+    expect(route.request().method()).toBe('POST');
+    await route.fulfill({ json: { ok: true } });
+  });
+  const topicResponse = await request.get('/api/topics');
+  expect(topicResponse.ok()).toBe(true);
+  const sessionKey = (await topicResponse.json()).topics[topicId]?.sessionKey;
+  expect(sessionKey).toBeTruthy();
+  const wire = await interceptWebSocket(page);
+  await page.goto(`/task/${taskId}`);
+  const drawer = page.getByTestId('task-detail-drawer');
+  const conversation = drawer.getByTestId('task-session-column');
+  const summary = conversation.getByTestId('task-work-summary');
+  // The initial summary proves history has loaded before any live frame can
+  // arrive; the explicit subscription proves this drawer receives its topic.
+  await expect(summary).toHaveCount(1);
+  await expect(conversation.getByText(progressOnly, { exact: true })).toHaveCount(0);
+  await expect.poll(() => wire.getByType('subscribe').some(({ direction, data }) =>
+    direction === 'client' && JSON.parse(data).topicIds?.includes(topicId))).toBe(true);
+  const liveText = 'I am verifying the browser result now.';
+  const liveId = `task-live-progress-${taskId}`;
+  wire.send({ type: 'stream:start', sessionKey, topicId, messageId: liveId });
+  wire.send({ type: 'stream:content_chunk', sessionKey, topicId, messageId: liveId, content: liveText });
+  wire.send({ type: 'stream:tool_call', sessionKey, topicId, toolCall: {
+    id: 'live-shell', name: 'Shell', args: { command: 'inspect browser result' }, status: 'running',
+  } });
+  await expect(drawer.getByRole('button', { name: 'Ferma', exact: true })).toHaveCount(1);
+  await expect(summary).toHaveCount(1);
+  await expect(summary).toContainText(/Dettagli sessione|Session details/);
+  await expect(summary).toHaveAttribute('aria-expanded', 'false');
+  await expect(conversation.getByTestId('task-work-body')).toHaveCount(0);
+  await expect(conversation.locator('[data-testid^="tool-call-row-"]')).toHaveCount(0);
+  for (const text of [...progress.map((step) => step.text), progressOnly, liveText]) {
+    await expect(conversation.getByText(text, { exact: true })).toHaveCount(0);
+  }
+  await expect(conversation.getByText(answer, { exact: true })).toBeVisible();
+  await testInfo.attach('live-session-folded', { body: await page.screenshot({ path: testInfo.outputPath('live-session-folded.png') }), contentType: 'image/png' });
+  await summary.click();
+  // Seeing the injected row here confirms the live updates were folded,
+  // rather than simply dropped while these negative assertions passed.
+  for (const text of [...progress.map((step) => step.text), progressOnly, liveText]) {
+    await expect(conversation.getByText(text, { exact: true })).toBeVisible();
+  }
+  await expect(conversation.getByTestId('tool-call-row-live-shell')).toBeVisible();
+  for (const step of progress) await expect(conversation.getByTestId(`tool-call-row-${step.id}`)).toHaveCount(1);
+  await expect(summary).toHaveCount(1);
+  await summary.click();
+  await expect(conversation.getByTestId('task-work-body')).toHaveCount(0);
+  await expect(conversation.locator('[data-testid^="tool-call-row-"]')).toHaveCount(0);
+  await drawer.getByTestId('task-delivery-toggle').click();
+  await expect(drawer.getByRole('button', { name: 'Ferma', exact: true })).toHaveCount(1);
+  await drawer.getByTestId('task-conversation-toggle').click();
+  const input = drawer.getByTestId('task-reply-input');
+  const correction = 'Keep the existing source and show the result first.';
+  await input.fill(correction);
+  const submit = drawer.getByTestId('task-composer-submit');
+  await expect(submit).toBeEnabled();
+  await expect(submit).not.toHaveAccessibleName('Ferma');
+  await expect(drawer.getByRole('button', { name: 'Ferma', exact: true })).toHaveCount(0);
+  await testInfo.attach('live-session-correction', { body: await page.screenshot({ path: testInfo.outputPath('live-session-correction.png') }), contentType: 'image/png' });
+  const sent = page.waitForResponse((response) => response.url().endsWith(`/tasks/${taskId}/comments`) && response.request().method() === 'POST');
+  await submit.click();
+  const response = await sent;
+  expect(response.ok()).toBe(true);
+  expect(response.request().postDataJSON()).toMatchObject({ content: correction });
+  expect(response.request().postDataJSON().quiet).not.toBe(true);
+  await expect(input).toHaveValue('');
+  await expect(drawer.getByRole('button', { name: 'Ferma', exact: true })).toHaveCount(1);
+  expect(stops, 'sending a correction must not stop the working agent').toBe(0);
+});
+
+test('the floating composer leaves the latest answer readable through multiline drafts and drawer resizing', async ({ page, request }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('board:taskDetailWide', '0'));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const { taskId, topicId } = await seed(request, 'Read the answer while writing a correction');
+  const { message } = await post(request, `/api/test/topics/${topicId}/session-row`, { role: 'assistant', content: 'Checked the source.' });
+  const history = Array.from({ length: 60 }, (_, i) => `Earlier explanation ${i + 1}: the saved query supplies the chart and keeps the source selection available for review.`).join('\n\n');
+  await post(request, `/api/test/tasks/${taskId}/anchored-comment`, { content: history, author: 'agent', messageId: message.id });
+  const answer = 'Latest answer: the source is ready for your next instruction.';
+  await post(request, `/api/test/tasks/${taskId}/anchored-comment`, { content: answer, author: 'agent', messageId: message.id });
+  await page.goto(`/task/${taskId}`);
+  const drawer = page.getByTestId('task-detail-drawer');
+  const scroller = drawer.getByTestId('task-conversation-scroll');
+  const overlay = drawer.getByTestId('task-thread-dropzone');
+  const composer = drawer.getByTestId('task-composer');
+  const input = drawer.getByTestId('task-reply-input');
+  const latest = scroller.getByText(answer, { exact: true });
+  await expect(latest).toBeVisible();
+  await expect(overlay).toHaveCSS('position', 'absolute');
+  await expect(composer.getByTestId('task-reply-quiet-note')).toHaveCount(0);
+  await expect(drawer.getByTestId('task-reply-quiet-note')).toBeVisible();
+  const measurements: unknown[] = [];
+  const measure = async () => {
+    const [drawerBox, overlayBox, cardBox, inputBox, answerBox, scrollBox, scroll] = await Promise.all([
+      drawer.boundingBox(), overlay.boundingBox(), composer.boundingBox(), input.boundingBox(), latest.boundingBox(), scroller.boundingBox(),
+      scroller.evaluate((el) => ({ padding: parseFloat(getComputedStyle(el).paddingBottom), remaining: el.scrollHeight - el.scrollTop - el.clientHeight, overflow: el.scrollHeight - el.clientHeight })),
+    ]);
+    return { drawer: drawerBox!, overlay: overlayBox!, card: cardBox!, input: inputBox!, answer: answerBox!, scroller: scrollBox!, scroll };
+  };
+  const verify = async (label: string, multiline: boolean) => {
+    await expect.poll(async () => {
+      const m = await measure();
+      return {
+        answerAboveOverlay: m.answer.y + m.answer.height <= m.overlay.y + 1,
+        answerBelowHeader: m.answer.y >= m.scroller.y - 1,
+        cardInset: m.card.x >= m.drawer.x + 7 && m.card.x + m.card.width <= m.drawer.x + m.drawer.width - 7,
+        paddingMatchesOverlay: m.scroll.padding >= m.overlay.height + 20,
+        followsLatest: m.scroll.remaining <= 2,
+        inputBounded: m.input.height >= 32 && m.input.height <= 140 && (!multiline || m.input.height > 60),
+      };
+    }, { message: `${label}: the last answer must remain above the measured floating composer` }).toEqual({
+      answerAboveOverlay: true, answerBelowHeader: true, cardInset: true, paddingMatchesOverlay: true, followsLatest: true, inputBounded: true,
+    });
+    expect((await measure()).scroll.overflow, 'fixture must exercise an overflowing conversation').toBeGreaterThan(0);
+    expect(await drawer.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    measurements.push({ label, ...(await measure()) });
+  };
+  const draft = Array.from({ length: 12 }, (_, i) => `Correction ${i + 1}: preserve the source and explain the result.`).join('\n');
+  for (const viewport of [{ width: 375, height: 844 }, { width: 768, height: 900 }, { width: 1280, height: 800 }, { width: 1600, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    if (viewport.width === 1600) {
+      await drawer.getByTestId('task-detail-wide-toggle').click();
+      await expect(drawer.getByTestId('task-detail-wide-toggle')).toHaveAttribute('aria-pressed', 'true');
+      await expect(drawer.getByTestId('task-workspace-toggle')).toHaveAttribute('data-open', '0');
+    }
+    const label = viewport.width === 1600 ? '1600-wide' : String(viewport.width);
+    // On subsequent viewports, keep the existing multiline draft during the
+    // resize. No scroll reset can hide a broken follow/measurement lifecycle.
+    await verify(`${label}-resized`, viewport.width !== 375);
+    await input.fill('');
+    await verify(`${label}-empty`, false);
+    await input.fill(draft);
+    await verify(`${label}-multiline`, true);
+    await testInfo.attach(`floating-composer-${label}`, { body: await page.screenshot({ path: testInfo.outputPath(`floating-composer-${label}.png`) }), contentType: 'image/png' });
+  }
+  // A short wrapped draft must also shrink when the panel widens; a field
+  // stuck at the previous width's line count wastes the conversation's space.
+  await page.setViewportSize({ width: 375, height: 844 });
+  const shortDraft = 'Keep the source selected for this chart. Explain which saved query supplies its data and where I can edit it. Preserve the existing filters and show the result before the technical details.';
+  await input.fill(shortDraft);
+  await expect(input).toHaveValue(shortDraft);
+  const narrowHeight = (await input.boundingBox())!.height;
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await expect(input).toHaveValue(shortDraft);
+  await expect.poll(async () => (await input.boundingBox())!.height).toBeLessThan(narrowHeight);
+  await testInfo.attach('floating-composer-geometry', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' });
 });
 
 test('the current question is actionable once; history and centered status stay readable on a narrow screen', async ({ page, request }, testInfo) => {
@@ -296,7 +483,8 @@ test('the current question is actionable once; history and centered status stay 
   const conversation = drawer.getByTestId('task-session-column');
   const choices = drawer.getByTestId('task-question-options');
   await expect(choices).toHaveCount(1);
-  await expect(drawer.getByTestId('task-send-back')).toHaveCount(1);
+  await expect(drawer.getByTestId('task-send-back')).toHaveCount(0);
+  await expect(drawer.getByTestId('task-delivery-toggle')).toHaveAttribute('aria-expanded', 'false');
   await expect(conversation.getByRole('button', { name: 'Build the source editor', exact: true })).toBeVisible();
   await expect(drawer.getByText('Build the source editor', { exact: true })).toHaveCount(1);
   const past = drawer.getByTestId('task-past-question');
@@ -309,25 +497,41 @@ test('the current question is actionable once; history and centered status stay 
   await past.locator('summary').click();
   await expect(drawer.getByTestId('task-delivery-note')).not.toHaveAttribute('open', '');
   await page.screenshot({ path: testInfo.outputPath('conversation-desktop.png') });
+  const input = drawer.getByTestId('task-reply-input');
+  await input.fill('Explain which source supplies the chart.');
+  const quietNote = drawer.getByTestId('task-reply-quiet-note');
+  await expect(quietNote).toBeEnabled();
+  await expect(drawer.getByTestId('task-composer').getByTestId('task-reply-quiet-note')).toHaveCount(0);
+  await drawer.getByTestId('task-delivery-toggle').click();
+  await expect(drawer.getByTestId('task-delivery-panel')).toBeVisible();
+  await expect(drawer.getByTestId('task-delivery-panel').getByTestId('task-send-back')).toBeVisible();
   await page.addScriptTag({ path: resolve('node_modules/axe-core/axe.min.js') });
   for (const dark of [false, true]) {
     await setTheme(page, dark);
     const violations = await page.evaluate(async () => {
       const axe = (window as unknown as { axe: { run: (context: unknown, options: unknown) => Promise<AxeResults> } }).axe;
-      const result = await axe.run({ include: [['[data-testid="task-composer"]'], ['[data-testid="task-question-options"]'], ['[data-testid="task-review-actions"]']] }, { runOnly: ['wcag2a', 'wcag2aa'] });
+      const result = await axe.run({ include: [
+        ['[data-testid="task-conversation-toggle"]'], ['[data-testid="task-details-toggle"]'],
+        ['[data-testid="task-delivery-toggle"]'], ['[data-testid="task-workspace-toggle"]'],
+        ['[data-testid="task-composer"]'], ['[data-testid="task-reply-quiet-note"]'],
+        ['[data-testid="task-question-options"]'], ['[data-testid="task-delivery-panel"]'],
+      ] }, { runOnly: ['wcag2a', 'wcag2aa'] });
       return result.violations.map(({ id, nodes }) => ({ id, nodes: nodes.map(({ target, failureSummary }) => ({ target, failureSummary })) }));
     });
     expect(violations, `conversation controls in ${dark ? 'dark' : 'light'} theme`).toEqual([]);
+    await testInfo.attach(`conversation-controls-${dark ? 'dark' : 'light'}`, {
+      body: await page.screenshot({ path: testInfo.outputPath(`conversation-controls-${dark ? 'dark' : 'light'}.png`) }), contentType: 'image/png',
+    });
   }
 
+  await drawer.getByTestId('task-conversation-toggle').click();
   await page.setViewportSize({ width: 390, height: 844 });
-  const input = drawer.getByTestId('task-reply-input');
   await input.fill('Explain which source supplies the chart.\nKeep the SQL details in the expandable session.\nInclude a concrete example.');
   await expect(input).toHaveAccessibleName(/correzione|correction/);
-  await expect(drawer.getByTestId('task-composer').getByTestId('task-send-back')).toContainText(/Invia all.agente|Send to agent/);
+  await expect(drawer.getByTestId('task-composer').getByTestId('task-composer-submit')).toHaveAccessibleName(/Invia all.agente|Send to agent/);
   const inputBox = await input.boundingBox();
   expect(inputBox!.height).toBeGreaterThan(60);
-  expect(inputBox!.height).toBeLessThanOrEqual(160);
+  expect(inputBox!.height).toBeLessThanOrEqual(140);
   expect(await drawer.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
   await expect(drawer.getByTestId('task-status-trail').first()).toHaveCSS('justify-content', 'center');
   const status = drawer.getByTestId('task-status-event').first();
@@ -370,11 +574,11 @@ for (const gesture of ['button', 'enter', 'attachment'] as const) {
       const uploaded = page.waitForResponse((response) => response.url().includes('/api/upload') && response.request().method() === 'POST');
       await drawer.locator('input[type="file"]').setInputFiles({ name: 'source.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC', 'base64') });
       expect((await uploaded).ok()).toBe(true);
-      await expect(drawer.getByTestId('task-send-back')).toBeEnabled();
+      await expect(drawer.getByTestId('task-composer-submit')).toBeEnabled();
     }
     const sent = page.waitForResponse((response) => response.url().includes(`/tasks/${taskId}/${gesture === 'attachment' ? 'comments' : 'review'}`) && response.request().method() === 'POST');
     if (gesture === 'enter') await input.press('Enter');
-    else await drawer.getByTestId('task-send-back').click();
+    else await drawer.getByTestId('task-composer-submit').click();
     const response = await sent;
     expect(response.ok()).toBe(true);
     const payload = response.request().postDataJSON();

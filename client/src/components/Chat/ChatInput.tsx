@@ -3,6 +3,7 @@ import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, Plus, Zap, Download, RotateCw } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
+import { COMPOSER_CARD, COMPOSER_TEXTAREA } from './composerStyles';
 import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
 import { useServerTurnAsked, useTopicLoading } from '../../state/signals';
@@ -43,17 +44,6 @@ import { shortcut } from '../../lib/shortcutLabel';
 // the composer's initial bundle and only fetch it the first time the popover opens.
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 
-
-/**
- * Il vestito della card del composer — bordo, fondo, ombra, angoli.
- *
- * Vive in una costante perché lo portano DUE elementi che non possono essere lo
- * stesso: il campo di testo e, al suo posto, la barra rossa della
- * registrazione. Scritto due volte, il giorno che cambia l'angolo ne cambia uno
- * solo e la registrazione diventa un rettangolo con gli spigoli.
- */
-const COMPOSER_CARD =
-  'rounded-2xl shadow-md border border-app-border-light focus-within:border-primary bg-surface transition-colors';
 
 // ---- Add Menu (allegati + voce + comandi) ----
 //
@@ -1395,7 +1385,7 @@ export function ChatInput({
                 aria-label={tr('chat.composer.inputAria', { name: topic.name })}
                 aria-describedby="chat-input-hint"
                 placeholder={awaitingAnswer ? tr('chat.answerPlaceholder') : replyingTo ? tr('chat.composer.placeholderReply') : topic.projectPath ? tr('chat.composer.placeholderProject') : tr('chat.composer.placeholder')}
-                className={`flex-1 min-w-[4rem] px-1.5 py-1.5 leading-5 bg-transparent text-app-text placeholder-app-placeholder resize-none overflow-y-auto focus:outline-none focus-visible:outline-none ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
                 style={{ minHeight: '32px', maxHeight: '140px' }}
                 rows={1}
                 disabled={uploading}
