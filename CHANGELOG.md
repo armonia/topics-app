@@ -2,14 +2,61 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.291 — 2026-09-08
+
+### Correzioni
+- **editor** · l'anteprima di un file punta al data server, non all'origine del guscio
+
+### Sotto il cofano
+- the chat surface stops ignoring the language selector
+- Chiudere una pane lasciava la tastiera a nessuno, e Ctrl+K moriva li'
+- **e2e** · the paste probe targets the composer by testid, not by its English label
+- the composer's screen-reader hint follows the language too
+- server error payloads in English, publish failures keyed on the client
+- **pty-bridge** · the wait for the dead child is a ceiling, not a stopwatch
+- Il test dello shutdown del ponte allarga le attese con il carico
+- L'audit mobile misurava cinque schede su dieci, e il Calendario nessuno
+- the card chips and queue phrases come from the catalogues
+- the project label follows the language too
+- **editor** · la lettura del sorgente HTML resta una fetch relativa
+- Fix the four reds the pre-review shards found
+- Un file locale nel pannello arrivava a un'origine senza server
+- Re-run the pre-review shards on a fresh commit
+- Il round-trip nativo asserisce anche l'indirizzo che la view dichiara
+- La rotta non riesegue i browser tool che il runtime esegue gia'
+- Il tetto dei test con git vero segue il carico della macchina
+- Su Windows la barra scritta a mano metteva fuori dal progetto cio' che ci sta dentro
+- Un turno finito non deve piu' una scrittura differita
+- Un turno finalizzato scrive subito, non a timer
+- Il freno "per risorse" diventa un budget in % del PC, e congela l'eccesso
+- Il verdetto di un hook si chiude sui tubi, non sull'uscita del processo
+- separate the three window commands, and make them measurable
+- floating mode drops the DWM backdrop, so a gap is a gap
+- Non riesportare al client un default che nessuno legge
+- the top row stops being a step and the bottom row stops floating
+- Il banco del semaforo misurava due corse dello STESSO cancello
+- La rotta della chat esegue solo i control tool che ha registrato lei
+- The contrast gate follows a token declared as another token
+- Rimette verde la CI: uno snap che rubava il drop, e cinque attese scritte per l'interfaccia di ieri
+
+## 2.2.290 — 2026-09-07
+
+### Sotto il cofano
+- The forget-site clip looked for the address on a tab that writes the title
+- the WS frame IS the update, so the feed stops being re-read for it
+
 ## 2.2.289 — 2026-09-07
 
 ### Sotto il cofano
 - measure the stall from inside the loop, not from the request queue
+- a browser-pane probe that answers with something other than pixels
 - end the reattach loop that filled 22% of the server log with 404s
 - rephrase a comment line the language gate read as Italian
 - rename the FFI struct buffers to English (identifier gate)
 - the review-checks timing cases stretch with the machine, not against it
+- La pane su Windows non era vuota: le arrivava la tastiera di nessuno
+- the reading that says the Windows pane was never the problem
+- the report pointed at files the next run overwrites
 - Serve the bundle precompressed on :3333
 
 ## 2.2.288 — 2026-09-07
