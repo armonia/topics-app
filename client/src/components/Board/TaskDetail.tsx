@@ -2451,6 +2451,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
                     <button
                       type="button"
+                      data-testid={p === task?.previewImage ? 'task-preview-open' : undefined}
                       onClick={() => openTaskPane(mediaPaneIdFor(p))}
                       title={tr('board.task.openAsTabTitle')}
                       className="min-w-0 flex-1 truncate text-left hover:text-white"
@@ -2468,10 +2469,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
         )}</div>
-          {task && (task.previewImage || task.previewRetiredAt || isAgentReview) && (
+          {task && ((task.previewImage && !mediaPaths.includes(task.previewImage)) || task.previewRetiredAt || isAgentReview) && (
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
               <div className="flex flex-wrap items-center gap-2">
-                {task.previewImage && <button type="button" data-testid="task-preview-open"
+                {task.previewImage && !mediaPaths.includes(task.previewImage) && <button type="button" data-testid="task-preview-open"
                   onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
                   className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-app-text-secondary hover:text-app-text">
                   <Paperclip className="h-3.5 w-3.5 shrink-0" />
