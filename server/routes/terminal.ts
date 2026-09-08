@@ -2146,6 +2146,23 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
   return child;
 }
 
+/**
+ * `spawn_agent` creates an interactive Claude PTY. Codex bridge-only topics
+ * cannot use that runtime, including through an old MCP tools/list response or
+ * a direct HTTP request that bypasses the bridge profile filter.
+ */
+function isCodexBridgeOnlyTopic(ctx: AppContext, sessionKey: string): boolean {
+  try {
+    const topic = ctx.db
+      .query("SELECT provider, mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { provider?: string | null; mcp_policy?: string | null } | null;
+    return topic?.provider === "codex" && topic.mcp_policy === "bridge-only";
+  } catch {
+    // Keep legacy/unmigrated databases on their established route behavior.
+    return false;
+  }
+}
+
 /** Kill every live child of a parent that just exited/was deleted. Children are
  *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
  *  dead owner) is worse than reaping them. */
@@ -3076,6 +3093,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       if (spawnM && method === "POST") {
         if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
         const parentKey = decodeURIComponent(spawnM.sessionKey);
+        if (isCodexBridgeOnlyTopic(ctx, parentKey)) {
+          return errorResponse(403, "Codex bridge-only sessions cannot spawn Claude sub-agents");
+        }
         const body = await readJSON(req).catch(() => ({}));
         const prompt = typeof body.prompt === "string" ? body.prompt : "";
         if (!prompt) return errorResponse(400, "prompt (string) is required");

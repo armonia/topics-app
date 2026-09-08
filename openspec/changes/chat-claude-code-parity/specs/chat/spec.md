@@ -273,5 +273,5 @@ Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la fin
 - **GIVEN** un topic Codex con `mcp_policy = bridge-only`
 - **WHEN** il provider costruisce il bridge Topics per il turno
 - **THEN** passa il profilo `codex-dispatch`, senza allargare le capability della card
-- **AND** `spawn_agent`, che apre una PTY Claude, non è né pubblicato né chiamabile; gli strumenti task, browser e di lettura/stop delle figlie già possedute restano disponibili
+- **AND** `spawn_agent`, che apre una PTY Claude, non è né pubblicato né chiamabile via MCP né raggiungibile via HTTP diretto; gli strumenti task, browser e di lettura/stop delle figlie già possedute restano disponibili
 - **AND** il profilo `global-orchestrator` mantiene precedenza quando la sessione è registrata come coordinatore
