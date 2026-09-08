@@ -1,0 +1,71 @@
+==> release tauri-v2.2.292, asset Topics_2.2.292_x64-setup.exe
+==> downloading on the machine and checking the digest
+    sha256 d3b582940a30058bc839ed6e79cea6d98b32b99398be5458591d03abbda9f233 matches the release, signature: NotSigned
+==> installing 2.2.292
+    11:37:15.685 before: 2.2.292
+    11:37:18.824 stopped: app=0 server=0
+    11:37:24.086 installer exit 0
+    11:37:24.093 after: 2.2.292
+    11:37:24.309 launched C:\Users\zorah\AppData\Local\Topics\app.exe
+    11:37:39.342 running: app=1 server=0
+    11:37:39.343 OK
+==> arm wrongkey (expecting exit 1)
+    == topics windows desktop check, label wrongkey, checks [abc]
+    installed 2.2.292
+    PASS a  boot: client bundle served at 18.8s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    window 1416x939 dpi 96 scale 1 client offset 8,1
+    PASS b  chrome: 3 command cells (want 3) inside 16..69 CSS px (want 12..74), wordmark ink at 88 CSS px (want 88 +/-4), baseline offset 2 CSS px (want <=4)
+    -- Ctrl+W x3 to clear restored panes: 0%, 0%, 0.5%
+    -- keyboard after the closes: Chrome_WidgetWin_1 of msedgewebview2
+    arm: sending an unbound combination instead of Ctrl+K
+    FAIL c1  Ctrl+K: opened 0% (want >3%), closed back to 0% after 1 Escape (want <1.5%), keyboard on Chrome_WidgetWin_1 of msedgewebview2
+    -- stopping at the first FAIL
+    exit 1
+==> arm noremedy (expecting exit 1)
+    == topics windows desktop check, label noremedy, checks [ad]
+    installed 2.2.292
+    arm: webview rebuild remedy OFF
+    PASS a  boot: client bundle served at 19.6s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    FAIL d  restore: 0/3 repainted [cycle 1: ink 1.3% diff 98.3%; cycle 2: ink 1.3% diff 0%; cycle 3: ink 1.3% diff 0%]
+    -- stopping at the first FAIL
+    exit 1
+==> arm browser (expecting exit 0)
+    == topics windows desktop check, label browser, checks [e]
+    installed 2.2.292
+    PASS a  boot: client bundle served at 19.6s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    -- Ctrl+W x3 to clear restored panes: 0%, 0%, 0.5%
+    -- keyboard after the closes: Chrome_WidgetWin_1 of msedgewebview2
+    -- pane after Ctrl+N, b: 4.8% of the window changed
+    -- Ctrl+K with the pane focused: 53.3% (it read >3% in (c) on the bare window)
+    PASS e  browser pane: typed two addresses and the pane went to 'http://127.0.0.1:1/' then 'http://127.0.0.1:13333/' (want 127.0.0.1:1/ then 13333); opened 4.8%, navigation moved 2% of the pixels and the window inked 100%/100% (context, not judged), Ctrl+K with the pane focused 53.3%
+    PASS c3  Ctrl+W: pane closed, window back to 0% of the layout it had (want <5%), keyboard on Chrome_WidgetWin_1 of msedgewebview2
+    -- repaint.log, last 6 lines
+       resized: minimized true -> false
+       rebuild: off by TOPICS_NO_WEBVIEW_REBUILD
+       resized: minimized false -> true
+       resized: minimized true -> false
+       rebuild: off by TOPICS_NO_WEBVIEW_REBUILD
+       wired
+    == all checks passed on 2.2.292
+    exit 0
+==> arm full (expecting exit 0)
+    == topics windows desktop check, label full, checks [abcd]
+    installed 2.2.292
+    PASS a  boot: client bundle served at 19.7s, window painted at 4.7s (ink 100%), budget 45s (marker=absent sidecar=1)
+    window 1416x939 dpi 96 scale 1 client offset 8,1
+    PASS b  chrome: 3 command cells (want 3) inside 16..69 CSS px (want 12..74), wordmark ink at 88 CSS px (want 88 +/-4), baseline offset 2 CSS px (want <=4)
+    -- Ctrl+W x3 to clear restored panes: 0%, 0.5%, 0%
+    -- keyboard after the closes: Chrome_WidgetWin_1 of msedgewebview2
+    PASS c1  Ctrl+K: opened 52% (want >3%), closed back to 0% after 1 Escape (want <1.5%), keyboard on Chrome_WidgetWin_1 of msedgewebview2
+    PASS c2  Ctrl+N: menu 91.8% (want >3%), dismissed to 0% after 1 Escape (want <1.5%)
+    PASS d  restore: 3/3 repainted [cycle 1: ink 100% diff 0.5%; cycle 2: ink 100% diff 0%; cycle 3: ink 100% diff 0%]
+    -- repaint.log, last 6 lines
+       rebuild: window looks blank (1/77 righe con disegno)
+       rebuild: rebuilt http://tauri.localhost/ (attempt 1)
+       resized: minimized false -> true
+       resized: minimized true -> false
+       rebuild: window looks blank (1/77 righe con disegno)
+       rebuild: rebuilt http://tauri.localhost/ (attempt 1)
+    == all checks passed on 2.2.292
+    exit 0
+==> artefacts in tools/out/win/

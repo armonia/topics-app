@@ -38,6 +38,11 @@
           "it": "Rimette verde la nightly: due spec che descrivevano un contratto cambiato",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il banco dello streaming chiede il trascritto intero, invece di misurare la coda",
+          "en": "",
+          "scope": null
         }
       ]
     }

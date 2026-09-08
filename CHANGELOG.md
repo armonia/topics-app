@@ -11,6 +11,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Aggiunge al rapporto Windows la passata con le letture corrette
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-08 [skip ci]
 - Rimette verde la nightly: due spec che descrivevano un contratto cambiato
+- Il banco dello streaming chiede il trascritto intero, invece di misurare la coda
 
 ## 2.2.291 — 2026-09-08
 
