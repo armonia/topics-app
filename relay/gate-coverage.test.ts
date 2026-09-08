@@ -203,7 +203,11 @@ describe("relay/ is inside the gates", () => {
     expect(SCRIPTS.lint).toContain("bun run lint:relay");
     const fixture = mkdtempSync(join(tmpdir(), "relay-lint-gate-"));
     try {
-      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/eslint.config.js", "scripts/lint.ts"]) {
+      // `client/package.json` is in the list because it is what declares
+      // `"type": "module"`: without it node reads the flat config as CommonJS,
+      // eslint dies on its first `import` and exits 2. The test then measured
+      // a fixture that could not lint at all instead of the rule it is about.
+      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/package.json", "client/eslint.config.js", "scripts/lint.ts"]) {
         const path = join(fixture, file);
         mkdirSync(dirname(path), { recursive: true });
         copyFileSync(join(ROOT, file), path);
