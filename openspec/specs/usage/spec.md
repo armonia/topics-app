@@ -694,6 +694,22 @@ pura. Un cartello che arriva già scaduto SHALL essere adottato come niente.
 - **WHEN** arriva un frame senza `untilMs`
 - **THEN** lo stato SHALL leggersi come assente
 
+### Requirement: USAGE-22 — Readable and actionable provider-limit notice
+
+The plan-limit notice SHALL identify Claude, show the reset date as well as its time, and remain readable on a narrow sidebar. A compact control SHALL open details explaining the affected usage window and current automatic-queue pause, with a direct action to Provider AI settings. It SHALL not describe the limit as a Topics subscription or automatically change providers.
+
+On mobile the notice SHALL remain visible without opening the sidebar and SHALL reserve its actual height so the composer and bottom navigation remain usable. While the software keyboard is open it SHALL close its details, hide and release its reserved space, keeping the underlying status subscribed. Offline status SHALL take precedence. A hold SHALL replace the approaching-limit notice; clearing or expiring it SHALL remove stale details and layout space. Colors and floating details SHALL use the existing chrome/menu design tokens.
+
+#### Scenario: Weekly limit in the sidebar and on a phone
+- **WHEN** Claude reports a weekly limit with a future reset
+- **THEN** the notice identifies Claude and shows the reset day and time without truncating the important text
+- **AND** its details open by pointer or keyboard and lead to Provider AI settings without changing the selected provider.
+
+#### Scenario: Notice and mobile composer
+- **WHEN** a limit notice appears or disappears with the mobile sidebar closed
+- **THEN** the notice, composer and bottom navigation do not overlap
+- **AND** no duplicate approaching-limit notice is shown.
+
 ### Requirement: USAGE-21 — La finestra del piano si legge dall'evento della CLI, e frena la coda prima del muro
 
 Con le CLI in abbonamento il vincolo non è il dollaro: è la finestra a cinque

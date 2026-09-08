@@ -48,6 +48,7 @@ export function labelFor(name: string): string {
 export class ProviderSnapshotManager extends EventEmitter {
   private entries = new Map<string, ProviderSnapshotEntry>();
   private inflight = new Map<string, Promise<void>>();
+  private revisions = new Map<string, number>();
 
   /**
    * Returns the current snapshot. Triggers async warm-up for stale or missing
@@ -101,11 +102,12 @@ export class ProviderSnapshotManager extends EventEmitter {
     try {
       await task;
     } finally {
-      this.inflight.delete(name);
+      if (this.inflight.get(name) === task) this.inflight.delete(name);
     }
   }
 
   private async refreshOne(name: string): Promise<void> {
+    const revision = this.revisions.get(name) ?? 0;
     const defaultName = getDefaultProviderName() ?? null;
 
     // Verify the provider is still registered.
@@ -175,6 +177,10 @@ export class ProviderSnapshotManager extends EventEmitter {
       };
     }
 
+    // A credential replacement invalidates this probe even when the provider
+    // object stays alive. Its old auth result cannot overwrite the new setup.
+    if ((this.revisions.get(name) ?? 0) !== revision) return;
+
     // Registry guard: between the await above and now, `removeProvider(name)`
     // may have run (e.g. settings reload, hot-swap). Without this check we'd
     // re-`set` a stale entry that `getSnapshot` would happily serve, and
@@ -211,11 +217,17 @@ export class ProviderSnapshotManager extends EventEmitter {
 
   /** Drop an entry (e.g., when `removeProvider` is called). */
   invalidate(name: string): void {
+    this.revisions.set(name, (this.revisions.get(name) ?? 0) + 1);
+    this.inflight.delete(name);
     if (this.entries.delete(name)) this.emit("change");
   }
 
   /** Wipe everything and re-warm. Use when the registry changes wholesale. */
   invalidateAll(): void {
+    for (const name of new Set([...this.entries.keys(), ...this.inflight.keys()])) {
+      this.revisions.set(name, (this.revisions.get(name) ?? 0) + 1);
+    }
+    this.inflight.clear();
     this.entries.clear();
     this.emit("change");
     // Async warm-up: getSnapshot() on next call will trigger refresh.

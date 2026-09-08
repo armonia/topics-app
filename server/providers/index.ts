@@ -16,6 +16,7 @@ export * from "./types";
 
 import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
+import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
 import { warnDeprecatedEnv } from "../lib/env-alias";
 import { existsSync } from "fs";
@@ -25,9 +26,6 @@ import {
   getAppSettings,
   resolveAiProvider,
   resolveClaudeModel,
-  resolveClaudeMaxTokens,
-  resolveOpenaiModel,
-  resolveOpenaiMaxTokens,
   resolveCodexModel,
   resolveClaudeCodeModel,
   resolveClaudeCodePermissionMode,
@@ -275,6 +273,24 @@ export function registerProvider(config: ProviderConfig): AIProvider {
   return provider;
 }
 
+/** Replace API credentials for future requests without aborting active turns. */
+export function configureDirectProvider(config: ClaudeProviderConfig | OpenAIProviderConfig): AIProvider {
+  const existing = _providers.get(config.type);
+  if (!existing) {
+    const provider = registerProvider(config);
+    recomputeDefault();
+    return provider;
+  }
+  if (config.type === "openai") {
+    (existing as import("./openai").OpenAIProvider).updateConfig(config);
+  } else {
+    (existing as import("./claude").ClaudeProvider).updateConfig(config);
+  }
+  invalidateSnapshot(config.type);
+  recomputeDefault();
+  return existing;
+}
+
 /** Remove a provider */
 export function removeProvider(name: string): void {
   const p = _providers.get(name);
@@ -348,14 +364,13 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
-  // Claude — init if ANTHROPIC_API_KEY is set
-  if (process.env.ANTHROPIC_API_KEY) {
+  // Direct API connections survive restarts; settings keys override env.
+  const claudeApiKey = readApiProviderKey("claude");
+  if (!_providers.has("claude") && claudeApiKey) {
     try {
       const config: ClaudeProviderConfig = {
         type: "claude",
-        apiKey: process.env.ANTHROPIC_API_KEY,
-        model: resolveClaudeModel(settings),
-        maxTokens: resolveClaudeMaxTokens(settings),
+        apiKey: claudeApiKey,
       };
       const p = createProvider(config);
       p.start();
@@ -443,14 +458,13 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
-  // OpenAI — init if OPENAI_API_KEY is set
-  if (!_providers.has("openai") && process.env.OPENAI_API_KEY) {
+  // OpenAI API needs no CLI or subscription login.
+  const openAiApiKey = readApiProviderKey("openai");
+  if (!_providers.has("openai") && openAiApiKey) {
     try {
       const config: OpenAIProviderConfig = {
         type: "openai",
-        apiKey: process.env.OPENAI_API_KEY,
-        model: resolveOpenaiModel(settings),
-        maxTokens: resolveOpenaiMaxTokens(settings),
+        apiKey: openAiApiKey,
       };
       const p = createProvider(config);
       p.start();

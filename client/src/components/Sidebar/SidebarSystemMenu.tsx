@@ -17,7 +17,6 @@ import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
-import { VersionPanel } from './VersionPanel';
 import { bundleDrift } from './bundleDrift';
 import { loadTint } from './loadTint';
 import type { WorkSignal } from './workSignals';
@@ -113,6 +112,11 @@ const importSystemStatusPanel = async () => {
   return { default: Component };
 };
 const SystemStatusPanel = lazy(importSystemStatusPanel);
+const importVersionPanel = async () => {
+  const { VersionPanel: Component } = await import('./VersionPanel');
+  return { default: Component };
+};
+const VersionPanel = lazy(importVersionPanel);
 
 /** A row of this menu. The two sizes are the finger and the mouse, and the
  *  predicate is the same one the header uses: a `md:` breakpoint here would be
@@ -141,6 +145,9 @@ export interface SidebarSystemMenuProps {
 
 export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals = [] }: SidebarSystemMenuProps) {
   const tr = useT();
+  // Warm the optional update panel when its parent menu opens, keeping it off
+  // the app's initial download without waiting for the submenu gesture.
+  useEffect(() => { void importVersionPanel().catch(() => {}); }, []);
   const [mostraStato, setMostraStato] = useState(false);
   const [versioneGuscio, setVersioneGuscio] = useState('');
   const [versioneServer, setVersioneServer] = useState('');
@@ -359,15 +366,17 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           </span>
         }
       >
-        <VersionPanel
-          appVersion={version}
-          shellVersion={versioneGuscio}
-          drift={drift}
-          isDev={isDev}
-          buildDate={typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__ ? formatBuildDate(__BUILD_TIME__) : ''}
-          buildSha={typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : ''}
-          onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(version); }}
-        />
+        <Suspense fallback={<div className="min-h-24 text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
+          <VersionPanel
+            appVersion={version}
+            shellVersion={versioneGuscio}
+            drift={drift}
+            isDev={isDev}
+            buildDate={typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__ ? formatBuildDate(__BUILD_TIME__) : ''}
+            buildSha={typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : ''}
+            onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(version); }}
+          />
+        </Suspense>
       </SubmenuItem>
 
       {/* RESTART, and it says which of the two things it does. On the desktop

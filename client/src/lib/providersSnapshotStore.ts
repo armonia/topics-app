@@ -77,6 +77,7 @@ let snapshot: ProvidersSnapshot | null = typeof localStorage === 'undefined' ? n
 let onlyFromCache = snapshot !== null;
 let lastError: Error | null = null;
 let inflight: Promise<ProvidersSnapshot | null> | null = null;
+let revision = 0;
 const listeners = new Set<Listener>();
 let wireUp: (() => void) | null = null;
 
@@ -87,6 +88,7 @@ function publish(): void {
 
 /** Un valore autorevole (HTTP o push WS): entra nello store E nella cache. */
 function adopt(next: ProvidersSnapshot): void {
+  revision++;
   snapshot = next;
   onlyFromCache = false;
   lastError = null;
@@ -120,12 +122,16 @@ function ensureWired(): void {
 async function fetchOnce(opts: { force?: boolean } = {}): Promise<ProvidersSnapshot | null> {
   if (!opts.force && snapshot !== null && !onlyFromCache) return snapshot;
   if (inflight) return inflight;
+  // The initial GET may finish after a newer WS push. Arrival order cannot
+  // make that older request authoritative again (including its error).
+  const startedAtRevision = revision;
   inflight = (async () => {
     try {
       const next = await providersApi.snapshot();
-      adopt(next);
-      return next;
+      if (revision === startedAtRevision) adopt(next);
+      return snapshot;
     } catch (err) {
+      if (revision !== startedAtRevision) return snapshot;
       // Surface the failure so the UI can stop spinning forever and offer a
       // retry. Keep the previous `snapshot` value (may be null on first
       // paint) so consumers can still render an empty state alongside the

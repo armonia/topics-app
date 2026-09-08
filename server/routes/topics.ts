@@ -7,6 +7,7 @@ import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { resolveTopicProvider } from "../providers/resolve-topic-provider";
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
@@ -501,17 +502,7 @@ export function createTopicsRouter(
 
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
   function resolveProvider(topic?: Topic | null): AIProvider {
-    if (topic?.provider) {
-      // Legacy coercion: Master topics were once created with the experimental
-      // "claude-code-team" provider, which is NOT a registered chat provider —
-      // getProvider would throw and we'd silently fall back to a non-deterministic
-      // default. Map it to the real subscription-backed CLI provider so old leads
-      // (and the removed PTY-teams path) keep working without a data migration.
-      // See change refactor-master-into-kanban (AD-1).
-      const name = topic.provider === "claude-code-team" ? "claude-code" : topic.provider;
-      try { return getProvider(name); } catch {}
-    }
-    return getDefaultProvider();
+    return resolveTopicProvider(topic, { getProvider, getDefaultProvider });
   }
 
   /** Look up the topic owning a sessionKey and resolve its provider. */

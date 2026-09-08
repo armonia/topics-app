@@ -20,6 +20,7 @@ import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
+import { availableTaskModels } from '../../../../shared/task-coding-models';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -131,7 +132,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const [projOpen, setProjOpen] = useState(false);
   const [projBusy, setProjBusy] = useState(false);
   const projBtnRef = useRef<HTMLButtonElement>(null);
-  // Model picker — "Intelligenza automatica" (null) or a claude-code model.
+  // Model picker — automatic intelligence or an available coding model.
   const [modelOpen, setModelOpen] = useState(false);
   const [model, setModel] = useState<string | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
@@ -183,14 +184,14 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     if (!draftLoaded.current) return; // never clobber the server draft pre-restore
     boardDrafts.putComposer({ text, model, prio, planFirst, status: birthStatus });
   }, [text, model, prio, planFirst, birthStatus]);
-  const [claudeModels, setClaudeModels] = useState<string[]>(
-    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
+  const [models, setModels] = useState<string[]>(
+    () => availableTaskModels(getProvidersSnapshotState().snapshot),
   );
   const modelsSubRef = useRef<(() => void) | null>(null);
   const loadModels = () => {
     if (modelsSubRef.current) return;
     modelsSubRef.current = subscribeProvidersSnapshot((state) => {
-      setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
+      setModels(availableTaskModels(state.snapshot));
     });
   };
   useEffect(() => () => { modelsSubRef.current?.(); }, []);
@@ -645,7 +646,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 <span className="min-w-0 flex-1">{tr('board.composer.modelAuto')}</span>
                 {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
-              {claudeModels.map((m) => (
+              {models.map((m) => (
                 <button
                   key={m} role="option" aria-selected={model === m}
                   onClick={() => { setModel(m); setModelOpen(false); }}

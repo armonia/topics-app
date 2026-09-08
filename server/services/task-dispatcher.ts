@@ -35,6 +35,7 @@ import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, c
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
+import { taskModelMatchesSession } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -379,6 +380,8 @@ export interface DispatcherDeps {
    * are trusted as-is (the pre-existing behaviour).
    */
   topicExists?: (topicId: string) => boolean;
+  /** The actual binding inherited when a dependent reuses its blocker's session. */
+  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null } | null;
   /**
    * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
    * del suo repo?
@@ -2117,6 +2120,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // board pins one instead of 'auto') > classifier pick. The board default skips
       // the classifier entirely — a pinned board dispatches every task on that model.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      if (reuseTopicId && (chosenModel || deps.topicModelSelection)
+        && !taskModelMatchesSession(chosenModel, deps.topicModelSelection?.(reuseTopicId))) {
+        releaseAndEmit({
+          taskId, requeue: false, parkState: CHIP_BLOCKED,
+          reason: chosenModel
+            ? "Il modello scelto per questo task non coincide con la sessione precedente. Disattiva il riuso della sessione o scegli lo stesso modello prima di avviare il task."
+            : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
+        });
+        return;
+      }
       // L'effort segue la stessa regola del modello: la board può fissarlo e
       // allora comanda lei; su "auto" lo sceglie il classificatore task per
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k

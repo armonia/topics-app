@@ -2596,6 +2596,81 @@ describe("blocked-by + context reuse", () => {
     expect((h.topicsCreated[0] as any).model).toBe("claude-fable-5");
   });
 
+  it("reuseBlockerContext refuses an explicit incompatible coding model before any turn or worktree", async () => {
+    const h = harness({ topicModelSelection: () => ({ provider: "topics", model: "claude-opus-5" }) });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const blocker = h.svc.create({ projectId: PID, status: "backlog", text: "Blocker" });
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-model-blocker')");
+    h.svc.bindTopic({ taskId: blocker.id, topicId: "topic-model-blocker" });
+    h.svc.update({ taskId: blocker.id, actor: "human", by: "test", patch: { status: "done" } });
+    const dependent = h.svc.create({ projectId: PID, status: "todo", text: "GPT task", model: "gpt-5.4", blockedByTaskId: blocker.id, reuseBlockerContext: true });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(dependent.id)!.dispatchState).toBe("blocked");
+    expect(h.task(dependent.id)!.dispatchError).toContain("Disattiva il riuso della sessione");
+    expect(h.task(dependent.id)!.model).toBe("gpt-5.4");
+    expect(h.turns).toHaveLength(0);
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.worktreesCreated).toHaveLength(0);
+  });
+
+  it("reuseBlockerContext accepts the same explicit Codex model and preserves the shared session", async () => {
+    const h = harness({ topicModelSelection: () => ({ provider: "codex", model: "gpt-5.4" }) });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const blocker = h.svc.create({ projectId: PID, status: "backlog", text: "Blocker" });
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-codex-blocker')");
+    h.svc.bindTopic({ taskId: blocker.id, topicId: "topic-codex-blocker" });
+    h.svc.update({ taskId: blocker.id, actor: "human", by: "test", patch: { status: "done" } });
+    const dependent = h.svc.create({ projectId: PID, status: "todo", text: "GPT task", model: "gpt-5.4", blockedByTaskId: blocker.id, reuseBlockerContext: true });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(dependent.id)!.assignedTopicId).toBe("topic-codex-blocker");
+    expect(h.turns).toHaveLength(1);
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.worktreesCreated).toHaveLength(0);
+  });
+
+  for (const provider of ["openai", "claude"]) {
+    it(`auto reuseBlockerContext refuses the ${provider} API-chat runtime without starting a turn`, async () => {
+      const h = harness({ topicModelSelection: () => ({ provider }) });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true });
+      const blocker = h.svc.create({ projectId: PID, status: "backlog", text: "Blocker" });
+      h.db.run("INSERT INTO topics (id) VALUES ('topic-api-blocker')");
+      h.svc.bindTopic({ taskId: blocker.id, topicId: "topic-api-blocker" });
+      h.svc.update({ taskId: blocker.id, actor: "human", by: "test", patch: { status: "done" } });
+      const dependent = h.svc.create({ projectId: PID, status: "todo", text: "Automatic task", blockedByTaskId: blocker.id, reuseBlockerContext: true });
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.task(dependent.id)!.dispatchState).toBe("blocked");
+      expect(h.task(dependent.id)!.dispatchError).toContain("Disattiva il riuso della sessione");
+      expect(h.task(dependent.id)!.model).toBeNull();
+      expect(h.turns).toHaveLength(0);
+      expect(h.topicsCreated).toHaveLength(0);
+      expect(h.worktreesCreated).toHaveLength(0);
+    });
+  }
+
+  it("auto reuseBlockerContext inherits a Codex session without asking the classifier", async () => {
+    let classified = false;
+    const h = harness({
+      topicModelSelection: () => ({ provider: "codex", model: "gpt-5.4" }),
+      pickAutoModel: async () => { classified = true; return { model: "claude-opus-5" }; },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const blocker = h.svc.create({ projectId: PID, status: "backlog", text: "Blocker" });
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-auto-codex')");
+    h.svc.bindTopic({ taskId: blocker.id, topicId: "topic-auto-codex" });
+    h.svc.update({ taskId: blocker.id, actor: "human", by: "test", patch: { status: "done" } });
+    const dependent = h.svc.create({ projectId: PID, status: "todo", text: "Automatic task", blockedByTaskId: blocker.id, reuseBlockerContext: true });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(dependent.id)!.assignedTopicId).toBe("topic-auto-codex");
+    expect(classified).toBe(false);
+    expect(h.turns).toHaveLength(1);
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.worktreesCreated).toHaveLength(0);
+  });
+
   it("auto model: calls the classifier and passes its pick to the fresh topic", async () => {
     const picked: string[] = [];
     const h = harness({

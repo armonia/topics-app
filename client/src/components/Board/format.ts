@@ -42,6 +42,9 @@ export function attemptStat(a: TaskAttempt, tr: Translate): string {
  * so it has to be legible in the picker, not glued onto the version number.
  */
 export function friendlyModelLabel(modelId: string): string {
+  if (modelId === 'codex') return 'Codex';
+  if (modelId.startsWith('codex:')) return `${modelId.slice(6)} · Codex`;
+  if (modelId.startsWith('gpt-')) return modelId.replace(/^gpt-/, 'GPT-');
   const long = /\[1m\]$/i.test(modelId);
   const parts = modelId.replace(/^claude-/, '').replace(/\[1m\]$/i, '').split('-');
   const name = parts[0] ? parts[0][0].toUpperCase() + parts[0].slice(1) : modelId;

@@ -18,10 +18,30 @@ import type {
   StreamHandler,
 } from "./types";
 import { toOpenAIFunctions } from "../browser-tools-adapters";
+import { resolveOpenaiMaxTokens, resolveOpenaiModel } from "../services/app-settings";
 
 const API_BASE = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-4o";
 const DEFAULT_MAX_TOKENS = 8192;
+const MODELS_TTL_MS = 30_000;
+const MODELS_ERROR_TTL_MS = 5_000;
+
+interface ModelsProbe {
+  status: ProviderDiagnostic["status"];
+  models: string[];
+  lastError?: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
+/** This transport serves text Chat Completions, not specialized Responses models. */
+function isChatModel(id: string): boolean {
+  return /^(gpt-|o\d)/.test(id)
+    && !/(?:^|-)(?:image|audio|realtime|transcribe|transcription|tts|codex|deep-research|pro|instruct)(?:-|$)/.test(id);
+}
 
 const FALLBACK_MODELS = [
   "gpt-4o",
@@ -50,10 +70,29 @@ export class OpenAIProvider implements AIProvider {
   // session's runs (not every session's — see ClaudeProvider for the rationale).
   private runIdToSessionKey = new Map<string, string>();
   private started = false;
-  private cachedModels: string[] | null = null;
+  private cachedModels: { until: number; result: ModelsProbe } | null = null;
+  private modelsProbe: Promise<ModelsProbe> | null = null;
 
   constructor(config: OpenAIProviderConfig) {
-    this.config = config;
+    this.config = { ...config };
+  }
+
+  /** New requests adopt the new key; requests already sent keep running. */
+  updateConfig(config: OpenAIProviderConfig): void {
+    if (config.apiKey !== this.config.apiKey) {
+      this.cachedModels = null;
+      this.modelsProbe = null;
+    }
+    this.config = { ...config };
+  }
+
+  defaultModel(): string {
+    return resolveOpenaiModel() ?? this.config.model ?? DEFAULT_MODEL;
+  }
+
+  private maxTokens(): number {
+    const value = resolveOpenaiMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    return Number.isInteger(value) && value > 0 ? value : DEFAULT_MAX_TOKENS;
   }
 
   get connected(): boolean {
@@ -89,8 +128,8 @@ export class OpenAIProvider implements AIProvider {
     this.active.set(runId, ac);
     this.runIdToSessionKey.set(runId, sessionKey);
 
-    const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
-    const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const model = options?.model ?? this.defaultModel();
+    const maxTokens = this.maxTokens();
 
     // Stateless API — must resend full conversation every turn. `history`
     // contains every prior turn (system + user + assistant); we append the
@@ -107,7 +146,7 @@ export class OpenAIProvider implements AIProvider {
       const body: Record<string, unknown> = {
         model,
         messages: apiMessages,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         stream: true,
       };
 
@@ -171,8 +210,8 @@ export class OpenAIProvider implements AIProvider {
         { headers: { "Content-Type": "text/event-stream" } },
       );
     }
-    const model = this.config.model ?? DEFAULT_MODEL;
-    const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const model = this.defaultModel();
+    const maxTokens = this.maxTokens();
 
     const upstream = await fetch(`${API_BASE}/chat/completions`, {
       method: "POST",
@@ -183,7 +222,7 @@ export class OpenAIProvider implements AIProvider {
       body: JSON.stringify({
         model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
         stream: true,
       }),
       signal: options?.signal,
@@ -217,12 +256,12 @@ export class OpenAIProvider implements AIProvider {
 
   // --- Non-streaming completion ---
 
-  async complete(messages: ChatMessage[]): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
     if (!this.config.apiKey) {
       return { content: "OPENAI_API_KEY not configured" };
     }
-    const model = this.config.model ?? DEFAULT_MODEL;
-    const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const model = options?.model ?? this.defaultModel();
+    const maxTokens = this.maxTokens();
 
     const resp = await fetch(`${API_BASE}/chat/completions`, {
       method: "POST",
@@ -233,7 +272,7 @@ export class OpenAIProvider implements AIProvider {
       body: JSON.stringify({
         model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
       }),
     });
 
@@ -289,61 +328,61 @@ export class OpenAIProvider implements AIProvider {
       return { name: this.name, status: "unavailable", requirements };
     }
 
-    // Live ping: fetch /v1/models with a short timeout
-    let lastError: string | undefined;
-    let modelsCount = 0;
-    let status: ProviderDiagnostic["status"] = "ready";
-    try {
-      const resp = await fetch(`${API_BASE}/models`, {
-        headers: { Authorization: `Bearer ${this.config.apiKey}` },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (resp.ok) {
-        const data: any = await resp.json();
-        modelsCount = Array.isArray(data?.data) ? data.data.length : 0;
-      } else if (resp.status === 401 || resp.status === 403) {
-        // Key set but rejected — real misconfiguration.
-        status = "error";
-        lastError = `Auth failed (HTTP ${resp.status})`;
-      } else {
-        // Transient HTTP / network — surface as unavailable, not an error badge.
-        status = "unavailable";
-        lastError = `HTTP ${resp.status}`;
-      }
-    } catch (err: any) {
-      status = "unavailable";
-      lastError = err?.message ?? "Network error";
-    }
-
+    const probe = await this.probeModels();
     return {
       name: this.name,
-      status,
-      modelsCount,
+      status: probe.status,
+      modelsCount: probe.models.length,
       requirements,
-      lastError,
+      lastError: probe.lastError,
     };
   }
 
   async listModels(): Promise<string[]> {
-    if (this.cachedModels) return this.cachedModels;
-    if (!this.config.apiKey) return FALLBACK_MODELS;
+    if (!this.config.apiKey) return [...FALLBACK_MODELS];
+    const probe = await this.probeModels();
+    return [...(probe.status === "ready" ? probe.models : FALLBACK_MODELS)];
+  }
 
+  /** Diagnostics and the picker share one bounded, non-generating request. */
+  private probeModels(): Promise<ModelsProbe> {
+    if (this.cachedModels && Date.now() < this.cachedModels.until) {
+      return Promise.resolve(this.cachedModels.result);
+    }
+    if (this.modelsProbe) return this.modelsProbe;
+    const pending = this.fetchModels(this.config.apiKey).then((result) => {
+      // A reply using a replaced key cannot populate the new key's cache.
+      if (this.modelsProbe === pending) this.cachedModels = {
+        result, until: Date.now() + (result.status === "ready" ? MODELS_TTL_MS : MODELS_ERROR_TTL_MS),
+      };
+      return result;
+    }).finally(() => {
+      if (this.modelsProbe === pending) this.modelsProbe = null;
+    });
+    this.modelsProbe = pending;
+    return pending;
+  }
+
+  private async fetchModels(apiKey: string): Promise<ModelsProbe> {
     try {
       const resp = await fetch(`${API_BASE}/models`, {
-        headers: { Authorization: `Bearer ${this.config.apiKey}` },
+        headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(5000),
       });
-      if (!resp.ok) return FALLBACK_MODELS;
-      const data: any = await resp.json();
-      const ids: string[] = Array.isArray(data?.data)
-        ? data.data.map((m: any) => m.id).filter(Boolean)
-        : [];
-      // Filter to chat-capable models (gpt-* and o*-*)
-      const filtered = ids.filter((id) => /^(gpt-|o\d)/.test(id)).sort();
-      this.cachedModels = filtered.length > 0 ? filtered : FALLBACK_MODELS;
-      return this.cachedModels;
+      if (!resp.ok) {
+        await resp.body?.cancel();
+        return {
+          status: resp.status === 401 || resp.status === 403 ? "error" : "unavailable",
+          models: [], lastError: sanitizeUpstreamError(resp.status),
+        };
+      }
+      const data = asRecord(await resp.json());
+      if (!Array.isArray(data?.data)) throw new Error("Invalid models response");
+      const models = data.data.map((item: unknown) => asRecord(item)?.id)
+        .filter((id): id is string => typeof id === "string" && isChatModel(id));
+      return { status: "ready", models: [...new Set(models)].sort() };
     } catch {
-      return FALLBACK_MODELS;
+      return { status: "unavailable", models: [], lastError: "OpenAI model catalog is unavailable. Try again shortly." };
     }
   }
 
@@ -357,63 +396,84 @@ export class OpenAIProvider implements AIProvider {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-
-    // Phase 30 BROWSER-CHAT-04 — accumulate per-index tool_call deltas. OpenAI
-    // streams function calls in pieces:
-    //   { delta: { tool_calls: [{ index, id?, function: { name?, arguments } }] }}
-    // We collect them and emit handler.onToolStart on `finish_reason === 'tool_calls'`.
+    let eventData: string[] = [];
+    let done = false;
+    let finished = false;
     const toolCalls: Record<number, { id: string; name: string; args: string }> = {};
+    const emittedTools = new Set<number>();
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; // keep last partial
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const payload = trimmed.slice(5).trim();
-          if (payload === "[DONE]") return;
-          try {
-            const event = JSON.parse(payload);
-            const delta = event?.choices?.[0]?.delta?.content;
-            if (typeof delta === "string" && delta.length > 0) {
-              onDelta(delta);
-            }
-            // Tool call streaming: accumulate per-index and emit on finish.
-            const tcArr = event?.choices?.[0]?.delta?.tool_calls;
-            if (Array.isArray(tcArr) && onToolStart) {
-              for (const tc of tcArr) {
-                const idx = typeof tc?.index === "number" ? tc.index : 0;
-                if (tc?.id && tc?.function?.name) {
-                  toolCalls[idx] = { id: tc.id, name: tc.function.name, args: "" };
-                }
-                if (tc?.function?.arguments && toolCalls[idx]) {
-                  toolCalls[idx].args += tc.function.arguments;
-                }
-              }
-            }
-            const finishReason = event?.choices?.[0]?.finish_reason;
-            if (finishReason === "tool_calls" && onToolStart) {
-              for (const tc of Object.values(toolCalls)) {
-                let parsed: Record<string, unknown> = {};
-                try {
-                  parsed = tc.args ? JSON.parse(tc.args) : {};
-                } catch {
-                  parsed = { _raw: tc.args };
-                }
-                onToolStart(tc.id, tc.name, parsed);
-              }
-            }
-          } catch {
-            // ignore malformed lines
+    const dispatch = () => {
+      if (!eventData.length) return;
+      const payload = eventData.join("\n");
+      eventData = [];
+      if (payload === "[DONE]") { done = true; return; }
+      let decoded: unknown;
+      try { decoded = JSON.parse(payload); }
+      catch { throw new Error("OpenAI returned an invalid stream event."); }
+      const event = asRecord(decoded);
+      if (event?.error) {
+        const error = asRecord(event.error);
+        const code = error?.code ?? error?.type;
+        throw new Error(code === "invalid_api_key" ? sanitizeUpstreamError(401)
+          : code === "rate_limit_exceeded" || code === "insufficient_quota" ? sanitizeUpstreamError(429)
+            : "OpenAI stream failed. Try again shortly.");
+      }
+      const choice = Array.isArray(event?.choices) ? asRecord(event.choices[0]) : undefined;
+      const delta = asRecord(choice?.delta);
+      for (const text of [delta?.content, delta?.refusal]) {
+        if (typeof text === "string" && text.length > 0) onDelta(text);
+      }
+      if (Array.isArray(delta?.tool_calls) && onToolStart) {
+        for (const value of delta.tool_calls) {
+          const tc = asRecord(value);
+          if (!tc || typeof tc.index !== "number" || !Number.isInteger(tc.index) || tc.index < 0) continue;
+          const current = toolCalls[tc.index] ??= { id: "", name: "", args: "" };
+          const fn = asRecord(tc.function);
+          if (typeof tc.id === "string") current.id = tc.id;
+          if (typeof fn?.name === "string") current.name += fn.name;
+          if (typeof fn?.arguments === "string") current.args += fn.arguments;
+        }
+      }
+      if (typeof choice?.finish_reason === "string") {
+        finished = true;
+        if (choice.finish_reason === "tool_calls" && onToolStart) {
+          for (const [index, tc] of Object.entries(toolCalls)) {
+            const key = Number(index);
+            if (emittedTools.has(key)) continue;
+            let args: Record<string, unknown> | undefined;
+            try { args = tc.args ? asRecord(JSON.parse(tc.args)) : {}; }
+            catch { /* Report incomplete arguments instead of executing a broken call. */ }
+            if (!tc.id || !tc.name || !args) throw new Error("OpenAI returned an incomplete tool call.");
+            emittedTools.add(key);
+            onToolStart(tc.id, tc.name, args);
           }
         }
       }
+    };
+    const line = (value: string) => {
+      const text = value.endsWith("\r") ? value.slice(0, -1) : value;
+      if (!text) dispatch();
+      else if (text.startsWith("data:")) eventData.push(text.slice(5).replace(/^ /, ""));
+    };
+
+    try {
+      while (!done) {
+        const { done: ended, value } = await reader.read();
+        if (ended) {
+          buffer += decoder.decode();
+          if (buffer) line(buffer);
+          dispatch();
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const value of lines) {
+          line(value);
+          if (done) break;
+        }
+      }
+      if (!done && !finished) throw new Error("OpenAI stream ended before the response completed.");
     } finally {
       try { await reader.cancel(); } catch {}
       try { reader.releaseLock(); } catch {}

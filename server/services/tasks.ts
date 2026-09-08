@@ -3282,6 +3282,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const current: TaskStatus = row.status;
 
+      // A task model choice configures its next new session. Updating this
+      // field cannot migrate an already-bound conversation to another agent.
+      if (patch.model !== undefined && row.assigned_topic_id
+        && ((patch.model ?? "").trim() || null) !== (row.model || null)) {
+        throw new TaskServiceError("invalid_input", "Il modello è fissato alla sessione già assegnata a questo task. Non è possibile cambiarlo dal task dopo l'avvio.");
+      }
+
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
         // Il task NON è più tuo: un agente a cui il dispatcher ha tolto il task
