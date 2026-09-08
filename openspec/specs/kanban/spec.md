@@ -3162,7 +3162,7 @@ invariato e verde.
 - **AND** `review_comment` è conservato
 - **AND** la busta di ripresa porta l'id di quella riga
 
-### Requirement: KANBAN-73 — La conversazione è UNA proiezione: ordine per istante, strip per ancora, mai una riga nascosta
+### Requirement: KANBAN-73 — Conversazione leggibile e dettagli della sessione espandibili
 
 La conversazione della card SHALL essere una funzione PURA dei commenti del filo e
 dei messaggi della sessione (`mergeTaskTimeline(comments, msgs, {status,
@@ -3172,11 +3172,15 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
 1. Una riga `user` con blocco busta E `commentIds` → NASCOSTA. Una busta senza
    `commentIds` → riga collassata. Un `user` senza busta → bolla della persona.
 2. Una tool call specchiata (`mcp__topics__comment_task`,
-   `mcp__topics__update_task`, `mcp__topics__ask_user_question`) SHALL essere
+   `mcp__topics__update_task`, `mcp__topics__ask_user_question`, inclusi i nomi
+   nativi senza prefisso) SHALL essere
    tolta dalla riga SOLO se esiste un commento con `messageId === msg.id`. Senza
    ancora la tool row SHALL restare: una domanda `ask_user_question` non
    instradata SHALL vedersi e rispondersi dal suo modulo nella conversazione. Una
    riga rimasta senza contenuto, ragionamento e tool SHALL essere scartata.
+   Tool in attesa, in esecuzione o falliti e messaggi ancora in streaming SHALL
+   restare anche se lo stesso messaggio ha già prodotto un altro commento.
+   Lo strip SHALL riguardare solo tool riusciti o senza stato nei registri legacy.
 3. Le corse di tool consecutive SHALL essere fuse («N azioni») prima della
    fusione con i commenti.
 4. L'ordine SHALL essere per istante; a parità SHALL venire prima il commento; un
@@ -3188,9 +3192,19 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
    dall'elenco. La nota con le «Ultime parole dell'agent» SHALL restare in elenco e
    NON SHALL piegarsi.
 6. Un item il cui commento o messaggio è lo stesso riferimento di prima SHALL
-   essere lo stesso oggetto.
+   essere lo stesso oggetto, salvo cambiamenti delle informazioni derivate.
+7. Un turno concluso già rappresentato da commenti di conversazione o consegne
+   ancorate SHALL mostrare una riga «Dettagli sessione»
+   espandibile. Testo e azioni originali SHALL restare consultabili aprendola,
+   senza montare i renderer del dettaglio mentre è chiusa. Se non ci sono
+   tali commenti ancorati, la prosa SHALL restare visibile e solo i gruppi contigui
+   di azioni concluse e ragionamento SHALL essere richiudibili, nel loro ordine.
+   Note di servizio, stato o revisione SHALL conservare l'ordine senza far
+   considerare rappresentata la risposta. Streaming, richieste di input,
+   errori del turno e allegati SHALL restare visibili.
 
-Il modo di sbagliare SHALL essere una riga in più, MAI una riga nascosta. La lista
+Il modo di sbagliare SHALL essere una riga in più, MAI un dato perso. Un dettaglio
+chiuso SHALL essere sempre indicato e riapribile dalla tastiera. La lista
 vuota SHALL mostrare la frase di EMPTYTHREAD-01 per lo stato della card, anche se
 la card ha un topic.
 

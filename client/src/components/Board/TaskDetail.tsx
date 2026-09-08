@@ -1,6 +1,6 @@
 import { pickPlanComment } from './planPanel';
 import { isAutoCapturedPreview } from '../../../../shared/media-kind';
-import { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
+import { memo, useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
@@ -57,7 +57,7 @@ import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt,
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import { MessageContent } from '../MessageContent';
-import { isMachineWork } from '../Chat/taskWorkFold';
+import { taskSessionSegments } from './taskSessionPresentation';
 import { TaskWorkAccordion } from '../Chat/TaskWorkAccordion';
 import type { ChatMessage, WSMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
@@ -1819,7 +1819,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           </div>
         );
       }
-      return <SessionItem key={item.id} msg={item.msg} sessionKey={sessionKey} onMessage={onMessage} />;
+      return <SessionItem key={item.id} msg={item.msg} hasThreadReply={item.hasThreadReply} sessionKey={sessionKey} onMessage={onMessage} />;
     };
     // Adjacent status transitions are ONE chip strip. Only comments carry a
     // status, so the cast back is total.
@@ -3499,38 +3499,40 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
  * the reader is following a decision. `sessionKey` IS passed, because it is
  * what lets the question form POST its answer.
  */
-function SessionItem({ msg, sessionKey, onMessage }: {
+const SessionItem = memo(function SessionItem({ msg, hasThreadReply = false, sessionKey, onMessage }: {
   msg: ChatMessage;
+  hasThreadReply?: boolean;
   sessionKey: string | null;
   /** The drawer's own subscription, typed loosely on the way in. Narrowed here
    *  because `MessageContent` reads real WS payloads. */
   onMessage?: (handler: (m: unknown) => void) => () => void;
 }) {
-  // Same rule as the chat of a task, and for the same reader: a step that is
-  // only machine work goes behind one summary row, opened on demand. The card
-  // is 22rem of column where a decision is being taken, so the proof of the
-  // work belongs one click away, not in the way.
-  const content = (
-    <MessageContent
-      content={msg.content ?? ''}
-      role="assistant"
-      thinking={msg.thinking}
-      toolCalls={msg.toolCalls}
-      blocks={msg.blocks}
-      partial={msg.partial}
-      isLast={msg.partial}
-      turnStartedAt={msg.timestamp ? Date.parse(msg.timestamp) : undefined}
-      sessionKey={sessionKey ?? undefined}
-      messageId={msg.id}
-      onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
-    />
-  );
+  const tr = useT();
+  const segments = useMemo(() => taskSessionSegments(msg, hasThreadReply), [msg, hasThreadReply]);
   return (
     <div className={`text-sm text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={msg.id}>
-      {isMachineWork(msg) ? <TaskWorkAccordion msg={msg}>{content}</TaskWorkAccordion> : content}
+      {segments.map(({ message, folded, sessionDetail }) => {
+        const content = <MessageContent
+          content={message.content ?? ''}
+          role="assistant"
+          thinking={message.thinking}
+          toolCalls={message.toolCalls}
+          blocks={message.blocks}
+          media={message.media}
+          partial={message.partial}
+          isLast={message.partial}
+          turnStartedAt={msg.timestamp ? Date.parse(msg.timestamp) : undefined}
+          sessionKey={sessionKey ?? undefined}
+          messageId={msg.id}
+          onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
+        />;
+        return folded
+          ? <TaskWorkAccordion key={message.id} msg={message} label={sessionDetail ? tr('chat.taskWork.sessionDetails') : undefined}>{content}</TaskWorkAccordion>
+          : <div key={message.id}>{content}</div>;
+      })}
     </div>
   );
-}
+});
 
 /**
  * Un passaggio di stato: un CHIP, non un paragrafo.

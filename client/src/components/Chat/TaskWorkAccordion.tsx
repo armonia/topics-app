@@ -14,7 +14,7 @@
  * Which messages fold, and which never do, is decided by `taskWorkFold.ts` and
  * proven there.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileDiff, Users, Workflow, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import type { ChatMessage } from '../../types';
@@ -24,16 +24,17 @@ import { baseName, summarizeWork } from './taskWorkFold';
 /** Up to this many file names spell themselves out; past it, a count. */
 const FILES_SPELLED = 2;
 
-export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; children: ReactNode }) {
+export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; children: ReactNode; label?: string }) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const summary = useMemo(() => summarizeWork([msg]), [msg]);
 
   const total = summary.total;
   const failed = isWhollyFailed(summary);
   // Reasoning with no action at all still deserves a row: it is a turn that
   // thought and said nothing, and hiding it entirely would lose the turn.
-  const title = total > 0
+  const workTitle = total > 0
     ? tr(total === 1 ? 'chat.taskWork.action' : 'chat.taskWork.actions', { n: String(total) })
     : tr('chat.taskWork.reasoning');
   const files = summary.files.length <= FILES_SPELLED
@@ -50,6 +51,7 @@ export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; childre
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={bodyId}
         onClick={() => setOpen((v) => !v)}
         title={tr('chat.taskWork.summaryTitle')}
         data-testid="task-work-summary"
@@ -66,8 +68,9 @@ export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; childre
             data-testid="task-work-title"
             className={`flex-shrink-0 font-medium ${failed ? 'text-red-500' : 'text-app-text'}`}
           >
-            {title}
+            {label ?? workTitle}
           </span>
+          {label && total > 0 && <span className="text-[11px] text-app-text-muted">{workTitle}</span>}
           {summary.errors > 0 && (
             <span
               data-testid="task-work-errors"
@@ -76,7 +79,7 @@ export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; childre
               <X size={11} /> {tr('chat.taskWork.failed', { n: String(summary.errors) })}
             </span>
           )}
-          {summary.subAgents > 0 && (
+          {!label && summary.subAgents > 0 && (
             <span
               data-testid="task-work-subagents"
               className="flex-shrink-0 inline-flex items-center gap-0.5 text-[11px] text-app-text-muted"
@@ -84,10 +87,10 @@ export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; childre
               <Users size={11} /> {summary.subAgents}
             </span>
           )}
-          <span className="min-w-0 flex-1 truncate text-[11px] text-app-text-muted">
+          {!label && <span className="min-w-0 flex-1 truncate text-[11px] text-app-text-muted">
             {formatToolCounts(summary.counts)}
-          </span>
-          {files && (
+          </span>}
+          {!label && files && (
             <span
               data-testid="task-work-files"
               className="hidden flex-shrink-0 items-center gap-1 text-[11px] text-app-text-muted sm:inline-flex"
@@ -95,7 +98,7 @@ export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; childre
               <FileDiff size={11} /> {files}
             </span>
           )}
-          {summary.durationMs !== undefined && (
+          {!label && summary.durationMs !== undefined && (
             <span
               data-testid="task-work-duration"
               className="flex-shrink-0 tabular-nums text-[10px] text-app-text-muted"
@@ -109,7 +112,7 @@ export function TaskWorkAccordion({ msg, children }: { msg: ChatMessage; childre
           them up. Mounted only when open, so a closed transcript does not pay
           for the tool bodies it is not showing. */}
       {open && (
-        <div data-testid="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
+        <div id={bodyId} data-testid="task-work-body" className="ml-[9px] mt-0.5 border-l border-app-border/50 pl-3">
           {children}
         </div>
       )}

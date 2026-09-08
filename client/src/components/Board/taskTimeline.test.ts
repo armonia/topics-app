@@ -67,6 +67,45 @@ describe('mergeTaskTimeline / rule a: the dispatcher envelopes', () => {
 });
 
 describe('mergeTaskTimeline / rule b: the mirrored tool calls', () => {
+  it.each(['pending', 'running', 'error', 'waiting_for_input', 'awaiting_permission'] as const)('preserves mirrored tools that are not successful: %s', (status) => {
+    const anchored = comment({ id: 'kept-comment', messageId: 'kept-turn', author: 'agent' });
+    const call: ToolCall = { ...tool('comment_task'), status };
+    const msg = assistant({ id: 'kept-turn', content: '', toolCalls: [call], blocks: [{ kind: 'tool', toolCall: call }] });
+    const row = mergeTaskTimeline([anchored], [msg], OPEN).find((item) => item.id === msg.id);
+    expect(row?.source === 'session' && row.msg).toBe(msg);
+  });
+
+  it('preserves an entire live message even after a completed tool produced a comment', () => {
+    for (const content of ['', 'Still working.']) {
+      const anchored = comment({ id: 'live-comment', messageId: 'live-turn', author: 'agent' });
+      const call: ToolCall = { ...tool('comment_task'), status: 'success' };
+      const msg = assistant({ id: 'live-turn', content, partial: true, toolCalls: [call], blocks: [
+        { kind: 'tool', toolCall: call }, ...(content ? [{ kind: 'text' as const, text: content }] : []),
+      ] });
+      const out = mergeTaskTimeline([anchored], [msg], OPEN);
+      const row = out.find((item) => item.id === msg.id);
+      expect(row?.source === 'session' && row.msg).toBe(msg);
+      expect(ids(out)).toEqual(['live-turn', 'live-comment']);
+    }
+  });
+
+  it('recognizes native Topics names without stripping another service or a question still awaiting input', () => {
+    const anchored = comment({ id: 'native-comment', messageId: 'native-turn', author: 'agent' });
+    const calls: ToolCall[] = [
+      { ...tool('comment_task'), status: 'success' },
+      { ...tool('update_task'), status: 'success' },
+      { ...tool('ask_user_question'), status: 'success' },
+      { ...tool('mcp__other__comment_task'), status: 'success' },
+      { ...tool('mcp__topics__ask_user_question'), status: 'waiting_for_input' },
+    ];
+    const msg = assistant({ id: 'native-turn', toolCalls: calls, blocks: calls.map((toolCall) => ({ kind: 'tool', toolCall })) });
+    const row = mergeTaskTimeline([anchored], [msg], OPEN).find((item) => item.id === msg.id)!;
+    expect(row.source === 'session' && row.msg.toolCalls?.map((call) => call.name)).toEqual([
+      'mcp__other__comment_task', 'mcp__topics__ask_user_question',
+    ]);
+    expect(row.source === 'session' && row.msg.blocks?.length).toBe(2);
+  });
+
   it('strips a mirrored call only when a comment anchored to that message exists', () => {
     const anchored = comment({ id: 'c1', messageId: 'm1', author: 'agent' });
     const m1 = assistant({ id: 'm1', toolCalls: [tool('mcp__topics__comment_task'), tool('Read')] });
@@ -154,6 +193,34 @@ describe('mergeTaskTimeline / rule g: an unchanged row is the same object', () =
     const second = mergeTaskTimeline([c], [m], OPEN, first);
     expect(second[0]).toBe(first[0]!);
     expect(second[1]).toBe(first[1]!);
+  });
+});
+
+describe('mergeTaskTimeline / session details require thread speech', () => {
+  it.each(['service', 'status', 'review-note'] as const)('keeps an anchor for ordering without representing prose: %s', (kind) => {
+    const msg = assistant({ id: 'speech-turn', timestamp: at(110) });
+    const note = comment({ id: 'machine-note', messageId: msg.id, kind, author: 'system', createdAt: at(109) });
+    const out = mergeTaskTimeline([note], [msg], OPEN);
+    expect(ids(out)).toEqual(['speech-turn', 'machine-note']);
+    expect(out[0].source === 'session' && out[0].hasThreadReply).toBeUndefined();
+  });
+
+  it.each(['comment', 'delivery'] as const)('represents a turn through its declared words: %s', (kind) => {
+    const msg = assistant({ id: 'replied-turn' });
+    const reply = comment({ id: 'thread-reply', messageId: msg.id, kind, author: 'agent' });
+    const out = mergeTaskTimeline([reply], [msg], OPEN);
+    expect(out[0].source === 'session' && out[0].hasThreadReply).toBe(true);
+  });
+
+  it('recomputes representation when speech becomes a service note without moving its anchor', () => {
+    const msg = assistant({ id: 'reclassified-turn' });
+    const reply = comment({ id: 'reclassified-comment', messageId: msg.id, author: 'agent' });
+    const initial = mergeTaskTimeline([reply], [msg], OPEN);
+    const next = mergeTaskTimeline([{ ...reply, kind: 'service' }], [msg], OPEN, initial);
+    expect(ids(next)).toEqual(ids(initial));
+    expect(next[0]).not.toBe(initial[0]);
+    expect(next[0].source === 'session' && next[0].msg).toBe(msg);
+    expect(next[0].source === 'session' && next[0].hasThreadReply).toBeUndefined();
   });
 });
 

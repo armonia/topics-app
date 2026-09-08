@@ -755,6 +755,7 @@ const EN = {
   'chat.taskWork.action': '{n} action',
   'chat.taskWork.actions': '{n} actions',
   'chat.taskWork.reasoning': 'Reasoning',
+  'chat.taskWork.sessionDetails': 'Session details',
   'chat.taskWork.failed': '{n} failed',
   'chat.taskWork.files': '{n} files',
   'chat.taskWork.summaryTitle': 'The agent work of this turn. Click to open it.',

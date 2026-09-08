@@ -823,6 +823,7 @@ const IT: Dict = {
   'chat.taskWork.action': '{n} azione',
   'chat.taskWork.actions': '{n} azioni',
   'chat.taskWork.reasoning': 'Ragionamento',
+  'chat.taskWork.sessionDetails': 'Dettagli sessione',
   'chat.taskWork.failed': '{n} fallite',
   'chat.taskWork.files': '{n} file',
   'chat.taskWork.summaryTitle': 'Il lavoro dell\'agente in questo turno. Clic per aprirlo.',

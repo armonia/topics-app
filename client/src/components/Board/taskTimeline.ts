@@ -41,6 +41,9 @@ import { envelopeCommentIds, isDispatchedEnvelope } from '../Chat/dispatchedEnve
  * time, in machine dress. Matched by tool NAME, never by what it said.
  */
 const MIRRORED_TOOLS = new Set([
+  'comment_task',
+  'update_task',
+  'ask_user_question',
   'mcp__topics__comment_task',
   'mcp__topics__update_task',
   'mcp__topics__ask_user_question',
@@ -80,6 +83,8 @@ export type TimelineItem =
       msg: ChatMessage;
       /** A dispatcher envelope that named no comment: one collapsed line. */
       envelope?: true;
+      /** The turn already has words on the card; its transcript can fold. */
+      hasThreadReply?: true;
       delivery?: 'delivered' | 'pending';
     };
 
@@ -92,8 +97,10 @@ export interface TimelineOptions {
 }
 
 /** Is this tool call one of the board tools that mirror a comment? */
-function isMirrored(name: string | undefined | null): boolean {
-  return !!name && MIRRORED_TOOLS.has(name);
+function isMirrored(call: ToolCall | undefined): boolean {
+  // Legacy transcripts omit status. Explicit failures and unfinished calls
+  // still carry information that the earlier comment cannot stand in for.
+  return !!call && (call.status === undefined || call.status === 'success') && MIRRORED_TOOLS.has(call.name);
 }
 
 /**
@@ -105,14 +112,15 @@ function isMirrored(name: string | undefined | null): boolean {
  * come out of every pass as the identical object.
  */
 function stripMirroredCalls(msg: ChatMessage): ChatMessage | null {
+  if (msg.partial) return msg;
   const calls = msg.toolCalls ?? [];
   const blocks = msg.blocks ?? [];
-  const dropsCall = calls.some((t) => isMirrored(t.name));
-  const dropsBlock = blocks.some((b) => b.kind === 'tool' && isMirrored((b as { toolCall?: ToolCall }).toolCall?.name));
+  const dropsCall = calls.some(isMirrored);
+  const dropsBlock = blocks.some((b) => b.kind === 'tool' && isMirrored(b.toolCall));
   if (!dropsCall && !dropsBlock) return msg;
-  const keptCalls = calls.filter((t) => !isMirrored(t.name));
+  const keptCalls = calls.filter((t) => !isMirrored(t));
   const keptBlocks = blocks.filter(
-    (b: ContentBlock) => !(b.kind === 'tool' && isMirrored((b as { toolCall?: ToolCall }).toolCall?.name)),
+    (b: ContentBlock) => !(b.kind === 'tool' && isMirrored(b.toolCall)),
   );
   const cached = STRIPPED.get(msg);
   if (cached !== undefined) return cached;
@@ -206,9 +214,9 @@ function commentItem(
   };
 }
 
-function sessionItem(msg: ChatMessage, prev: Map<ChatMessage, TimelineItem>): TimelineItem {
+function sessionItem(msg: ChatMessage, prev: Map<ChatMessage, TimelineItem>, hasThreadReply: boolean): TimelineItem {
   const before = prev.get(msg);
-  if (before && before.source === 'session') return before;
+  if (before && before.source === 'session' && !!before.hasThreadReply === hasThreadReply) return before;
   const envelope = msg.role === 'user' && isDispatchedEnvelope(msg.blocks);
   return {
     source: 'session',
@@ -219,6 +227,7 @@ function sessionItem(msg: ChatMessage, prev: Map<ChatMessage, TimelineItem>): Ti
     content: msg.content ?? '',
     msg,
     ...(envelope ? { envelope: true as const } : {}),
+    ...(hasThreadReply ? { hasThreadReply: true as const } : {}),
   };
 }
 
@@ -242,7 +251,14 @@ export function mergeTaskTimeline(
   // The anchors, both ways round: which messages had a comment come out of
   // them, and which comments an envelope has already carried away.
   const anchored = new Set<string>();
-  for (const c of comments) if (c.messageId) anchored.add(c.messageId);
+  const replyIds = new Set<string>();
+  for (const c of comments) {
+    if (!c.messageId) continue;
+    anchored.add(c.messageId);
+    // A question travels as a comment. Service/status/review notes keep their
+    // place under the turn, but do not represent the agent's own words.
+    if (c.kind === 'comment' || c.kind === 'delivery') replyIds.add(c.messageId);
+  }
   const delivered = new Set<string>();
   let newestEnvelopeAt: string | null = null;
   for (const m of msgs) {
@@ -300,7 +316,8 @@ export function mergeTaskTimeline(
       ci++;
       continue;
     }
-    out.push(sessionItem(m!, prevByMsg));
+    const hasThreadReply = replyIds.has(m!.id) || ((m as { mergedIds?: string[] }).mergedIds ?? []).some((id) => replyIds.has(id));
+    out.push(sessionItem(m!, prevByMsg, hasThreadReply));
     for (const anchoredComment of anchoredTo.get(m!.id) ?? []) push(anchoredComment);
     mi++;
   }
