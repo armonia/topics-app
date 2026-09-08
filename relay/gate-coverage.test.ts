@@ -201,6 +201,7 @@ describe("relay/ is inside the gates", () => {
     // configuration as direct ESLint. Keep the deliberately broken file in a
     // separate checkout fixture, outside any concurrently running gate.
     expect(SCRIPTS.lint).toContain("bun run lint:relay");
+    expect(SCRIPTS["lint:relay"]).toBe("bun run scripts/lint.ts relay");
     const fixture = mkdtempSync(join(tmpdir(), "relay-lint-gate-"));
     try {
       for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/eslint.config.js", "scripts/lint.ts"]) {
@@ -211,7 +212,7 @@ describe("relay/ is inside the gates", () => {
       symlinkSync(join(ROOT, "client", "node_modules"), join(fixture, "client", "node_modules"), "junction");
       mkdirSync(join(fixture, "relay"));
       writeFileSync(join(fixture, "relay", "probe.ts"), "const relayGateProbe = 1;\nexport {};\n");
-      const throughScript = await capture([process.execPath, "run", "lint:relay", "--format", "json"], fixture);
+      const throughScript = await capture([process.execPath, "scripts/lint.ts", "relay", "--format", "json"], fixture);
       const direct = await capture([ESLINT, "--config", join("client", "eslint.config.js"), "--format", "json", "relay"], fixture);
       expect(throughScript.code, throughScript.out).toBe(1);
       expect(direct.code, direct.out).toBe(1);
