@@ -133,11 +133,12 @@ export function createFetchCoalescer(deps: FetchCoalescerDeps = {}): FetchCoales
           }
           return settled;
         },
-        (err: unknown) => {
-          release();
-          throw err;
-        },
-      ),
+      ).catch((err: unknown) => {
+        // Fetch can succeed at the headers and still lose the connection
+        // while arrayBuffer() reads the body. Release both kinds of failure.
+        release();
+        throw err;
+      }),
     };
     entries.set(key, entry);
     return entry;

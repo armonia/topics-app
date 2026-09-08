@@ -119,6 +119,29 @@ describe('coalescedFetch — one request per URL in flight', () => {
     net.answer('{}');
   });
 
+  test.each([0, 2000])('an interrupted response body releases the URL for retry (TTL %i ms)', async (ttlMs) => {
+    let requests = 0;
+    const c = createFetchCoalescer({
+      fetcher: async () => {
+        requests++;
+        if (requests > 1) return new Response('recovered');
+        // Fetch has received successful headers, but the connection dies
+        // before the body finishes. This rejects arrayBuffer(), not fetch().
+        return new Response(new ReadableStream({
+          start(controller) { controller.error(new Error('body interrupted')); },
+        }));
+      },
+    });
+    const outcome = (p: Promise<Response>) => p.then((r) => r.text(), (e: Error) => e.message);
+    const first = c.fetch('/api/system/status', undefined, { ttlMs });
+    const shared = c.fetch('/api/system/status', undefined, { ttlMs });
+    expect(await Promise.all([outcome(first), outcome(shared)])).toEqual(['body interrupted', 'body interrupted']);
+    expect(requests).toBe(1);
+
+    expect(await outcome(c.fetch('/api/system/status', undefined, { ttlMs }))).toBe('recovered');
+    expect(requests).toBe(2);
+  });
+
   test('a non-2xx answer is not remembered either, even with a TTL', async () => {
     const net = fakeNetwork();
     const c = createFetchCoalescer({ fetcher: net.fetcher, identity: () => 'same' });
