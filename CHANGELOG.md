@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.295 — 2026-09-08
+
+### Sotto il cofano
+- Nel menu utente nessuna voce si apre piu' dentro la colonna
+- Un livello che cresce dopo essere stato piazzato finisce fuori dallo schermo
+
 ## 2.2.294 — 2026-09-08
 
 ### Sotto il cofano
