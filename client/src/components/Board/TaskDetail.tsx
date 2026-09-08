@@ -1970,6 +1970,59 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
           >{task ? <MorphText text={task.text} /> : null}</p>
         )}
+        {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
+            which now lives behind the collapsed "details" toggle: a blocked
+            task opened in the drawer said nothing about waiting, and the
+            blocker picker had no way in. A state you have to expand a section
+            to discover is a state nobody reads, so the chip comes back next to
+            the title, always mounted. Clicking it opens the same picker as the
+            entry in the header menu, which anchors to whichever opened it. */}
+        {task && (
+          <>
+            {blockedChip && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <button
+                  ref={blockerChipRef}
+                  onClick={() => openBlockerMenu(blockerChipRef.current)}
+                  data-testid="task-blocked-by-chip"
+                  title={tr('task.blocked.hint', { what: blockedChip.title })}
+                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
+                >
+                  <Lock className="h-3 w-3 shrink-0" />
+                  <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
+                </button>
+              </div>
+            )}
+            <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
+              <button
+                role="option" aria-selected={!task.blockedByTaskId}
+                onClick={() => pickBlocker(null)}
+                className={POPOVER_ITEM}
+              >
+                <span className="min-w-0 flex-1">{tr('common.none')}</span>
+                {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              <div className="max-h-52 overflow-y-auto">
+                {boardTasks === null ? (
+                  <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
+                ) : blockerCandidates.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
+                ) : blockerCandidates.map((t) => (
+                  <button
+                    key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
+                    onClick={() => pickBlocker(t.id)}
+                    className={POPOVER_ITEM}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{t.text}</span>
+                    {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                  </button>
+                ))}
+              </div>
+            </Menu>
+          </>
+        )}
       </div>
   );
   const metadataCard = (
@@ -2146,28 +2199,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-app-text-muted">{tr('board.task.node.empty')}</p>
               )}
             </Menu>
-            {/* «In attesa di…» sta IN RIGA, non dentro il ⋯: è uno stato che
-                cambia la lettura del task (non parte finché l'altro non
-                chiude), e uno stato dentro un menu è uno stato che nessuno
-                vede. Cliccarlo apre lo stesso picker della voce nel ⋯. */}
-            {blockedChip && (
-              <button
-                ref={blockerChipRef}
-                onClick={() => openBlockerMenu(blockerChipRef.current)}
-                data-testid="task-blocked-by-chip"
-                title={tr('task.blocked.hint', { what: blockedChip.title })}
-                className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
-              >
-                <Lock className="h-3 w-3 shrink-0" />
-                <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
-              </button>
-            )}
-            {/* «Chi la lavora» sta in riga accanto al bloccante, e per lo
-                stesso motivo: su una card in corso senza topic né chip è lo
-                stato che decide se c'è da intervenire. Quando la tiene un
-                antenato il chip ci porta — la domanda successiva è sempre
-                «e chi sarebbe?». */}
+            {/* Who is working it stays in the row for the same reason the wait
+                does: on a card in progress with no topic and no chip, this is
+                the state that decides whether somebody has to step in. When an
+                ancestor holds the turn the chip takes you there, because the
+                next question is always "and who would that be?". */}
             {workChip && (workAncestorId && onOpenTask ? (
               <button
                 onClick={() => onOpenTask(workAncestorId)}
@@ -2194,36 +2230,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <span className="max-w-[14rem] truncate">{workChip.label}</span>
               </span>
             ))}
-            {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
-                del bloccante resta qui — portaled, ancorato a chi l'ha
-                aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
-            <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
-              <button
-                role="option" aria-selected={!task.blockedByTaskId}
-                onClick={() => pickBlocker(null)}
-                className={POPOVER_ITEM}
-              >
-                <span className="min-w-0 flex-1">{tr('common.none')}</span>
-                {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-              </button>
-              <div className="max-h-52 overflow-y-auto">
-                {boardTasks === null ? (
-                  <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
-                ) : blockerCandidates.length === 0 ? (
-                  <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
-                ) : blockerCandidates.map((t) => (
-                  <button
-                    key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
-                    onClick={() => pickBlocker(t.id)}
-                    className={POPOVER_ITEM}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{t.text}</span>
-                    {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                  </button>
-                ))}
-              </div>
-            </Menu>
           </div>
         )}
     </div>
