@@ -60,7 +60,20 @@ export function PresencePopover({
   // "inside", and that ref is also where focus goes back on close.
   useEffect(() => { ancora.current = anchorEl; }, [anchorEl]);
 
-  useDismissable({ open: anchorEl !== null, onClose, refs: [ancora, pannello] });
+  useDismissable({
+    open: anchorEl !== null,
+    onClose: () => {
+      // This popover unmounts on close, so useDismissable never sees its
+      // open=false transition. Restore before the focused menu node disappears,
+      // while respecting focus already moved to another control or dialog.
+      const active = document.activeElement;
+      if (!active || active === document.body || pannello.current?.contains(active)) {
+        anchorEl?.focus({ preventScroll: true });
+      }
+      onClose();
+    },
+    refs: [ancora, pannello],
+  });
 
   // Measure BEFORE the paint: with `useEffect` the panel would show up in the
   // top left corner for one frame and then jump into place.

@@ -155,6 +155,7 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await expect(menu).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByTestId("identity-me-profile")).toBeFocused();
   });
 
   test("le impostazioni portano dritto alla sezione, senza cercarla nel pannello", async ({ page }) => {
