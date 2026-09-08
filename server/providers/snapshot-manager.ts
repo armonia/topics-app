@@ -120,11 +120,12 @@ export class ProviderSnapshotManager extends EventEmitter {
       return;
     }
 
-    // Mark loading (preserve prior models so the UI doesn't blink to empty).
+    // A routine probe does not revoke the last verified connection. Explicit
+    // invalidation removes that entry first, so changed credentials still wait.
     const prior = this.entries.get(name);
     this.entries.set(name, {
       ...(prior ?? this.makeLoadingEntry(name, defaultName)),
-      status: "loading",
+      status: prior?.status === "ready" ? "ready" : "loading",
       isDefault: name === defaultName,
     });
     this.emit("change");

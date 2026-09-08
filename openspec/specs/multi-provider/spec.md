@@ -45,6 +45,22 @@ Task selectors SHALL list models only from ready coding runtimes. API chat-only 
 - **WHEN** the selected coding runtime is unavailable at dispatch
 - **THEN** no API-only or foreign runtime starts the task.
 
+### Requirement: MP-TASK-02 — Stable readiness while provider discovery refreshes
+
+A routine snapshot refresh SHALL retain the last successful readiness and model catalog until its replacement diagnostic completes. A failed replacement diagnostic SHALL revoke readiness. Explicit invalidation, including credential replacement, SHALL discard the previous readiness immediately.
+
+During initial discovery, a task's explicit Codex selection or Codex coding default SHALL wait for Codex instead of falling back to Claude. Pending discovery SHALL be distinguishable from unavailable configuration, and dispatcher retries SHALL preserve the selected provider without consuming an execution attempt.
+
+#### Scenario: A ready provider is being refreshed
+- **WHEN** the snapshot cache expires and a new diagnostic is still pending
+- **THEN** the previously ready provider remains routable with its prior catalog
+- **AND** a subsequent failed diagnostic makes it unavailable for new tasks.
+
+#### Scenario: Codex has not finished its first diagnostic
+- **GIVEN** Codex is the selected task provider or coding default and Claude is ready
+- **WHEN** Codex is still loading
+- **THEN** task routing reports pending Codex discovery without selecting Claude.
+
 ### Requirement: MP-AUTH-01 — Bounded native credential renewal
 
 Native OAuth renewal SHALL hold the inter-process lock, honor a bounded network timeout, and re-read credentials after waiting. A failed lock acquisition SHALL not cause a concurrent refresh or removal of another process's lock.

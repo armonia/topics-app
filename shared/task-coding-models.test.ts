@@ -1,4 +1,4 @@
-/** @covers MP-TASK-01 */
+/** @covers MP-TASK-01, MP-TASK-02 */
 import { describe, expect, test } from 'bun:test';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
 import { availableTaskModels, taskModelMatchesSession, taskModelSelection, taskProviderForModel } from './task-coding-models';
@@ -88,5 +88,25 @@ describe('task coding models', () => {
       expect(taskModelMatchesSession(undefined, { provider })).toBe(false);
     }
     expect(taskModelMatchesSession(undefined, null)).toBe(false);
+  });
+  test('a loading Codex default waits instead of selecting ready Claude', () => {
+    const current = snapshot([
+      entry('topics', ['claude-opus-5']), entry('codex', [], 'loading'),
+    ], 'codex');
+    for (const selected of [undefined, null, 'auto', 'codex', 'gpt-5.4']) {
+      let failure: unknown;
+      try { taskProviderForModel(selected, current); } catch (error) { failure = error; }
+      expect(failure).toMatchObject({ code: 'task_provider_pending', provider: 'codex' });
+    }
+    expect(taskProviderForModel('claude-opus-5', current)).toBe('topics');
+  });
+  test('a failed Codex default remains a constraint while explicit Claude still works', () => {
+    for (const status of ['error', 'unavailable'] as const) {
+      const current = snapshot([
+        entry('topics', ['claude-opus-5']), entry('codex', [], status),
+      ], 'codex');
+      expect(() => taskProviderForModel(undefined, current)).toThrow('Codex is unavailable');
+      expect(taskProviderForModel('claude-opus-5', current)).toBe('topics');
+    }
   });
 });

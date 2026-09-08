@@ -2,6 +2,15 @@ import type { ProvidersSnapshot } from './types';
 
 const CLAUDE_CODING_PROVIDERS = ['topics', 'claude-code', 'jcode'];
 
+/** Discovery is retryable setup, not a failed execution attempt. */
+export class TaskProviderPendingError extends Error {
+  readonly code = 'task_provider_pending';
+  constructor(readonly provider: string) {
+    super(`Waiting for ${provider} provider discovery.`);
+    this.name = 'TaskProviderPendingError';
+  }
+}
+
 /** Task model values also carry the routing hint for non-GPT Codex slugs. */
 export function taskModelSelection(value?: string | null): { model?: string; provider?: 'codex' } {
   const model = value?.trim();
@@ -34,7 +43,13 @@ export function taskProviderForModel(value: string | null | undefined, snapshot?
   const selection = taskModelSelection(value);
   const ready = snapshot?.providers.filter((entry) => entry.status === 'ready'
     && (CLAUDE_CODING_PROVIDERS.includes(entry.name) || entry.name === 'codex')) ?? [];
-  if (selection.provider) {
+  // A coding default of Codex is also a provider constraint. Its temporary
+  // loading state must not route an automatic GPT task onto ready Claude.
+  const wantsCodex = selection.provider === 'codex' || (!selection.model && snapshot?.defaultProvider === 'codex');
+  if (wantsCodex) {
+    if (snapshot?.providers.find(entry => entry.name === 'codex')?.status === 'loading') {
+      throw new TaskProviderPendingError('codex');
+    }
     if (ready.some((entry) => entry.name === 'codex')) return 'codex';
     throw new Error('Codex is unavailable. Connect it in Settings before starting the task.');
   }
