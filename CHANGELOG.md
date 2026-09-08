@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.292 — 2026-09-08
+
+### Sotto il cofano
+- the pane takes a typed address again, and the gate is red elsewhere
+- Il banco Windows leggeva la geometria di ieri e un pannello che c'era
+- Chiedere la barra indirizzi chiede anche la tastiera
+- Aggiunge al rapporto Windows la passata con le letture corrette
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-08 [skip ci]
+- Rimette verde la nightly: due spec che descrivevano un contratto cambiato
+
 ## 2.2.291 — 2026-09-08
 
 ### Correzioni
