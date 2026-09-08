@@ -417,6 +417,12 @@ sintesi di 1-2 frasi e riprovare. Unica eccezione al gate `done`: gli **step pro
 - **WHEN** l'umano rifiuta con un commento
 - **THEN** il task torna in `in_progress` e il commento è visibile nel thread
 
+#### Scenario: a fresh session reads the existing feedback before working
+- **GIVEN** a rejected task with saved discussion and no resumable agent session
+- **WHEN** the task starts in a new session, including a fan-out attempt
+- **THEN** its kickoff explicitly requires `get_task` and reading the full discussion before planning or modifying files
+- **AND** the saved human feedback remains available through that tool without duplicating the entire thread in the kickoff.
+
 ### Requirement: KANBAN-06 — Feed globale multiprogetto via MCP
 
 > Promoted verbatim from `openspec/changes/kanban-agent-authoring/`. It ships: `scope: 'project' | 'all'` is an argument of the MCP `list_tasks` tool (`server/mcp/topics-mcp-server.ts:261`), covered by BOARD-07 and BOARD-19.

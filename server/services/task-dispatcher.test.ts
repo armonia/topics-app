@@ -2372,6 +2372,29 @@ describe("task-dispatcher", () => {
     expect(h.topicsCreated[0].effort).toBe("max");
   });
 
+  /** @covers KANBAN-05 */
+  for (const fanOut of [1, 2]) {
+    it(`fresh kickoff reads saved feedback before work (${fanOut} attempt)`, async () => {
+      const h = harness();
+      try {
+        h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchFanOut: fanOut });
+        h.svc.setGlobalCap({ auto: false, max: 3 });
+        seedTask(h.db, { id: "t1", status: "todo", assignedTopicId: null });
+        const feedback = "Keep the existing chart and simplify its source selection.";
+        h.svc.addComment({ taskId: "t1", author: "user", content: feedback });
+        await h.dispatcher.tick(PID);
+        await flush();
+        expect(h.turns).toHaveLength(fanOut);
+        for (const turn of h.turns) {
+          expect(turn.content).toContain('Before planning or modifying files, call get_task(task_id="t1")');
+          expect(turn.content).toContain('read its full discussion, including the latest human feedback');
+          expect(turn.content).not.toContain(feedback);
+        }
+        expect(h.svc.get("t1")!.comments.some(comment => comment.content === feedback)).toBe(true);
+      } finally { h.dispatcher.shutdown(); }
+    });
+  }
+
   it("kickoff instructs update_task with the real tool signature (no project_id)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });

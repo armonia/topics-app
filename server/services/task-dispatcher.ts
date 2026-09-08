@@ -1978,6 +1978,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     parts.push(task.text);
     if (task.description && task.description.trim()) parts.push("", task.description.trim());
     parts.push("------------");
+    parts.push(
+      `Before planning or modifying files, call get_task(task_id="${task.id}") and read its full discussion, including the latest human feedback and prior delivery. A new session does not imply a new brief.`,
+    );
     // I sottotask GIÀ sulla board sono lavoro di questo task, non contorno: un
     // padre nasce anche accorpando card che esistevano da sole, e la loro
     // sostanza vive nei figli, non nella descrizione del padre. Senza questo
