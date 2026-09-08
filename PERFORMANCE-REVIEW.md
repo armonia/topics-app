@@ -168,3 +168,25 @@ Le tre prove browser della conversazione passano dopo questa rifinitura,
 senza retry e con video conservati nella corsa 13345. Log:
 `conversation-focus-e2e-delivery-final.log` e
 `conversation-focus-qa-delivery-final.log`.
+
+## Azione di merge pertinente alla consegna
+
+Il task `e1cdd61d-11d9-47a6-a1c2-2a194a8e02d3` mostrava Landa su main pur
+avendo zero file modificati e nessun commit di consegna. La verifica Git del
+ramo `topics/teal-magnolia` in GuidoAI conferma zero commit oltre main e diff
+vuoto. Il drawer considerava sufficiente la presenza della sessione agente.
+
+Card, dettaglio e risposte rapide ora condividono la disponibilita del merge,
+derivata dai dati della consegna gia caricati. Una sessione o un ramo senza
+modifiche non bastano. Le altre azioni della review restano disponibili; le
+opzioni storiche con l'etichetta riservata di landing non possono reintrodurlo.
+Nessuna sonda Git o richiesta per card aggiunta. Il controllo di disponibilita
+usa lo snapshot registrato; il server continua a verificare lo stato effettivo
+prima di qualsiasi integrazione.
+
+Verifiche: 424 test unitari board verdi, QA veloce interamente verde e build
+`index-Cu1weveH.js`. Log `task-land-*-verified.log` nella cartella delle evidenze.
+Cinque test browser verdi senza retry, con video nella corsa 13347: incluso
+analisi senza merge, consegna con merge e ritorno ad analisi, conservando le
+altre azioni e filtrando l'opzione storica. La revisione indipendente conferma
+le stesse regole per card, drawer e risposte rapide in italiano e inglese.

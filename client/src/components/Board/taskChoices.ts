@@ -15,7 +15,7 @@
  * L'esecuzione sta in `TaskChoices.tsx`, uno solo per card e drawer.
  */
 
-import { PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask } from '../../lib/board';
+import { PARKED_STOPPED, PARKED_WAITED_OUT, hasDeliveryToMerge, isAgentWorking, isUnfinishedReview, normalizeActionLabel, type BoardTask, type TaskLandingEvidence } from '../../lib/board';
 import {
   acceptOverride, acceptWord, fallbackTranslate, landOverride, landWord, redoWord, reservedActionLabel,
   sendBackDest, sendBackWord, stopWord, taskActionWord, unblockWord,
@@ -56,7 +56,7 @@ export interface TaskChoice {
  */
 export type ChoiceTask = Pick<BoardTask,
   'status' | 'assignedTopicId' | 'deliveryBranch' | 'dispatchState' | 'blockedByTaskId' | 'blockedBy'
-  | 'deliveredBy' | 'deliveredReason' | 'checksState'>;
+  | 'deliveredBy' | 'deliveredReason' | 'checksState'> & TaskLandingEvidence;
 
 /**
  * The chips the dispatcher writes when it sets a card ASIDE, with the reason
@@ -185,7 +185,7 @@ export function taskChoices(
         { id: 'send-back', tone: 'primary', ...sendBackWord(sendBackDest(task), tr) },
         say('take-over', 'neutral'),
         acceptSay('neutral'),
-        ...(toAgent && task.deliveryBranch ? [landSay('neutral')] : []),
+        ...(hasDeliveryToMerge(task) ? [landSay('neutral')] : []),
       ];
       break;
     case 'review-plain':
@@ -229,6 +229,12 @@ export function taskChoices(
       return [];
   }
   const excluded = opts?.exclude;
+  if (!hasDeliveryToMerge(task) && out.some((choice) => choice.id === 'land')) {
+    out = out.filter((choice) => choice.id !== 'land');
+    if (!out.some((choice) => choice.tone === 'primary')) {
+      out = out.map((choice) => choice.id === 'accept' ? { ...choice, tone: 'primary' } : choice);
+    }
+  }
   return excluded && excluded.length ? out.filter((c) => !excluded.includes(c.id)) : out;
 }
 
@@ -312,6 +318,14 @@ export function usableQuestionOptions(
 ): string[] {
   const scelte = taskChoices(task, opts);
   const labels = [
+    // A historical agent option must not resurrect a merge the task cannot
+    // perform. The server interprets the reserved label as an action.
+    ...(!hasDeliveryToMerge(task) ? [
+      reservedActionLabel('land')!,
+      ...([null, 'checks-red', 'unfinished'] as const).flatMap((reason) => [
+        landWord(reason, opts?.t).label, landWord(reason, fallbackTranslate).label,
+      ]),
+    ] : []),
     ...scelte.map((c) => c.label),
     // The same choices said the way the agent says them. `surfaceLabels` is
     // expected to carry both names already (see `drawerSurfaceLabels`).

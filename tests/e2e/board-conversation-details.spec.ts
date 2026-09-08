@@ -155,6 +155,38 @@ test('a task opens on one conversation; repeated preview and long brief never st
   expect((await conversation.boundingBox())!.height).toBeGreaterThan(120);
 });
 
+test('an analysis branch offers no merge; a delivery with changes still does', async ({ page, request }) => {
+  test.info().annotations.push({ type: 'spec', description: 'KANBAN-05' });
+  const { taskId, topicId } = await seed(request, 'Analysis with no code to merge');
+  const { message } = await post(request, `/api/test/topics/${topicId}/session-row`, { role: 'assistant', content: 'Analysis complete.' });
+  await post(request, `/api/test/tasks/${taskId}/anchored-comment`, {
+    content: '```question\nHow should we proceed?\n- Landa su main\n- Continue analysis\n```', author: 'agent', messageId: message.id,
+  });
+  let filesChanged = 0;
+  await page.route(`**/api/boards/${projectId}/tasks/${taskId}`, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.task = { ...data.task, deliveryBranch: 'task/analysis', deliveryFilesChanged: filesChanged,
+      deliveryCommit: filesChanged ? 'delivered-commit' : null, deliveryUncommittedFiles: null };
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto(`/task/${taskId}`);
+  const drawer = page.getByTestId('task-detail-drawer');
+  await expect(drawer.getByTestId('task-approve')).toBeVisible();
+  await expect(drawer.getByTestId('task-send-back')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: 'Serve a me', exact: true })).toBeVisible();
+  await expect(drawer.getByTestId('task-question-options').getByRole('button', { name: 'Continue analysis', exact: true })).toBeVisible();
+  await expect(drawer.getByTestId('task-question-options').getByRole('button', { name: 'Landa su main', exact: true })).toHaveCount(0);
+  await expect(drawer.getByTestId('task-land')).toHaveCount(0);
+  filesChanged = 2;
+  await page.reload();
+  await expect(drawer.getByTestId('task-land')).toBeVisible();
+  filesChanged = 0;
+  await page.reload();
+  await expect(drawer.getByTestId('task-approve')).toBeVisible();
+  await expect(drawer.getByTestId('task-land')).toHaveCount(0);
+});
+
 test('conversation stays readable; session detail mounts only when expanded and preserves the transcript', async ({ page, request }, testInfo) => {
   const { taskId, topicId } = await seed(request, 'Conversation and session detail');
   const answer = 'The source can be added from the administration screen.';

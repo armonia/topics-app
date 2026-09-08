@@ -350,6 +350,22 @@ The system SHALL provide an approval review modal that displays task information
 
 ### Requirement: KANBAN-05 — Gate di consegna umano (Review → Done)
 
+Le azioni della card e del dettaglio SHALL offrire «Landa su main» solo per un
+ramo di consegna con lavoro da integrare: modifiche committate misurate oppure
+un commit registrato se le statistiche non sono disponibili. Modifiche non
+committate rilevate bloccano il merge e NON SHALL offrire quel comando.
+Una sola sessione o un ramo creato per un'analisi NON SHALL bastare. Una consegna
+misurata vuota o gia integrata/superata NON SHALL proporre il merge. La lettura
+di questi dati NON SHALL aggiungere sonde git o richieste per ogni card.
+Un'opzione storica dell'agente con l'etichetta riservata del merge NON SHALL
+reintrodurre il comando quando non e applicabile; le altre risposte restano.
+
+#### Scenario: analisi senza modifiche sul ramo
+- **GIVEN** un task in review con agente e ramo, zero file modificati e nessun commit consegnato
+- **WHEN** si apre il task o si guardano le azioni della card
+- **THEN** «Landa su main» non compare e restano le azioni di approvazione e revisione
+- **AND** una consegna con modifiche da integrare continua a offrire il merge
+
 > Promoted verbatim from `openspec/changes/kanban-agent-authoring/`, which was never archived. It ships: `review_needs_summary` (409) is in `server/routes/tasks.ts:65`, `reviewed_by` is written on approval, and `tests/e2e/board.spec.ts` BOARD-05 covers the gate.
 > The text is kept in the original Italian on purpose: promoting it is a move,
 > not a rewrite, and a translation would be a second chance to drift from what

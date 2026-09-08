@@ -879,6 +879,19 @@ export function hasCodeQuestion(
     || t.status === 'review' || t.status === 'done';
 }
 
+export type TaskLandingEvidence = Pick<BoardTask, 'assignedTopicId' | 'deliveryBranch'>
+  & Partial<Pick<BoardTask, 'deliveryCommit' | 'deliveryFilesChanged' | 'deliveryUncommittedFiles' | 'landingState'>>;
+
+/** A session or an empty analysis branch is not a delivery to merge. */
+export function hasDeliveryToMerge(task: TaskLandingEvidence): boolean {
+  if (!task.assignedTopicId || !task.deliveryBranch) return false;
+  if (task.landingState === 'landed' || task.landingState === 'superseded') return false;
+  // Outstanding edits block the server's merge; send the task back to finish.
+  if ((task.deliveryUncommittedFiles ?? 0) > 0) return false;
+  if (task.deliveryFilesChanged != null) return task.deliveryFilesChanged > 0;
+  return !!task.deliveryCommit;
+}
+
 /**
  * Nota di revisione ancorata a una riga del diff, in sospeso finché non parte
  * come commento all'agente. Vive qui e non accanto al componente perché è una
