@@ -173,7 +173,7 @@ senza retry e con video conservati nella corsa 13345. Log:
 
 Il task `e1cdd61d-11d9-47a6-a1c2-2a194a8e02d3` mostrava Landa su main pur
 avendo zero file modificati e nessun commit di consegna. La verifica Git del
-ramo `topics/teal-magnolia` in GuidoAI conferma zero commit oltre main e diff
+ramo `topics/teal-magnolia` nel progetto verificato allora confermava zero commit oltre main e diff
 vuoto. Il drawer considerava sufficiente la presenza della sessione agente.
 
 Card, dettaglio e risposte rapide ora condividono la disponibilita del merge,
