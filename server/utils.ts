@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync, realpathSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "fs";
 import { readFileSync } from "fs";
 import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { timingSafeEqual } from "crypto";
@@ -22,6 +22,7 @@ import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
+import { realPathForNewEntry } from "./lib/real-path";
 import { homeDir } from "./lib/broad-cwd";
 import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
 import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
@@ -207,6 +208,8 @@ export function createAppContext(baseDir: string): AppContext {
   // State
   const activeStreams = new Map<string, ActiveStream>();
   const wsClients = new Set<ServerWebSocket<WSData>>();
+  // Revocation covers all transports; broadcast registries remain separate.
+  const deviceSockets = new Set<ServerWebSocket<WSData>>();
 
   // --- Prepared statements (created once for performance) ---
   const stmts = {
@@ -975,7 +978,7 @@ export function createAppContext(baseDir: string): AppContext {
    */
   function closeDeviceSockets(deviceId: string): number {
     let chiuse = 0;
-    for (const ws of wsClients) {
+    for (const ws of deviceSockets) {
       if (ws.data.deviceId !== deviceId) continue;
       try { ws.close(4003, "device revoked"); chiuse++; } catch { /* già andata */ }
     }
@@ -2215,8 +2218,8 @@ export function createAppContext(baseDir: string): AppContext {
     const resolved = resolve(expanded);
     // Il confronto è sul path REALE: senza `realpath` un symlink dentro un
     // progetto noto è una porta verso qualunque punto del disco.
-    let real = resolved;
-    try { real = realpathSync(resolved); } catch { /* non esiste ancora: creazione file/dir */ }
+    const real = realPathForNewEntry(resolved);
+    if (real === null) return null;
     if (!isInsideKnownProject(real, allowedProjectDirs())) {
       // Prima di negare, si guarda una volta se la lista è solo VECCHIA — vedi
       // `allowedProjectDirsFresh`. Il confine non cambia: cambia solo che non
@@ -2656,7 +2659,7 @@ export function createAppContext(baseDir: string): AppContext {
     refreshGatewayToken,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
-    activeStreams, wsClients,
+    activeStreams, wsClients, deviceSockets,
     broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,

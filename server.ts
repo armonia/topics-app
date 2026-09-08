@@ -173,7 +173,8 @@ import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
@@ -3172,63 +3173,14 @@ const opzioniServer = {
       }
     }
 
-    // WebSocket upgrade - terminal
-    if (pathname.startsWith("/ws/terminal/")) {
-      const termId = pathname.split("/ws/terminal/")[1];
-      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), terminalId: termId, remote: isRemotePeer(req, server) } });
-      if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
-
-    // Phase 30 BROWSER-CHAT-02 — WebSocket upgrade for browser streaming.
-    // Path: /ws/browser/:contextId — bidirectional. server -> client carries
-    // 'frame' (CDP screencast JPEG base64) and 'agent_active'/'console'/'nav'
-    // events; client -> server carries 'input' actions (click/type/scroll/etc).
-    // The per-WS lifecycle (startScreencast on open, stopScreencast on close,
-    // input dispatch on message) lives in the websocket.{open,message,close}
-    // handlers below.
-    if (pathname.startsWith("/ws/browser/")) {
-      const browserContextId = decodeURIComponent(pathname.split("/ws/browser/")[1] || "");
-      if (!browserContextId) {
-        return new Response("Missing contextId", { status: 400 });
-      }
-      const upgraded = server.upgrade(req, {
-        data: {
-          id: crypto.randomUUID(),
-          focusedTopicId: null,
-          lastPong: Date.now(),
-          browserContextId,
-          remote: isRemotePeer(req, server),
-        },
-      });
-      if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
-
-    // WebSocket upgrade
-    if (pathname === "/ws") {
-      // Il dispositivo si timbra QUI: e' l'ultimo momento in cui gli header —
-      // e quindi il cookie di sessione — sono leggibili. Dopo l'upgrade un
-      // WebSocket e' solo un tubo, e chiedersi «di chi e' questa socket»
-      // sarebbe troppo tardi.
-      // Id E RUOLO nello stesso giro. Il ruolo serve perché il filtro degli
-      // ospiti si applica a chi È un ospite, non a chi ha un id: l'upgrade
-      // timbra l'id di ogni dispositivo appaiato, proprietari compresi, e
-      // confondere le due cose faceva cadere ogni frame sul telefono del
-      // proprietario — che non ha concessioni perché non gliene servono.
-      const wsDevice = (() => {
-        const locale = isLocalTransport(req, server.requestIP(req)?.address ?? null, isLoopbackAddress);
-        // La STESSA traduzione del cancello HTTP. Prima qui c'era una query a
-        // parte che filtrava `revoked_at` in SQL e non calcolava persona né
-        // organizzazione: era la strada su cui una novità restava indietro in
-        // silenzio, perché nessuno guarda un WebSocket.
-        const io = resolveIdentity(ctx.db, req.headers.get("cookie"), locale);
-        if (!io.device || io.device.revokedAt !== null) return { id: null, role: null };
-        return { id: io.device.id, role: io.confined ? "guest" as const : "owner" as const };
-      })();
-      const upgraded = server.upgrade(req, { data: { id: crypto.randomUUID(), focusedTopicId: null, lastPong: Date.now(), deviceId: wsDevice.id, deviceRole: wsDevice.role, remote: isRemotePeer(req, server) } });
-      if (upgraded) return undefined;
-      return new Response("WebSocket upgrade failed", { status: 400 });
+    // Every transport keeps the identity already accepted by the gate. The
+    // terminal and browser used to omit it, so revoking their device closed
+    // chat while leaving the terminal keyboard and browser controls alive.
+    if (isWebSocketPath(pathname)) {
+      const wsUpgrade = upgradeWebSocket(
+        req, pathname, server, identityByRequest.get(req) ?? null, isRemotePeer(req, server),
+      );
+      if (wsUpgrade !== null) return wsUpgrade;
     }
 
     // LETTURA = GET **o HEAD**. Ogni ramo statico qui sotto era gated sul solo
@@ -3574,6 +3526,7 @@ const opzioniServer = {
     perMessageDeflate: true,
     open(ws) {
       ws.data.lastPong = Date.now();
+      ctx.deviceSockets.add(ws);
       if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
@@ -4231,6 +4184,7 @@ const opzioniServer = {
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws) {
+      ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       if (ws.data.browserContextId) {

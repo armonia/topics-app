@@ -52,9 +52,8 @@ export interface WSData {
    * is just a pipe.
    *
    * It exists to decide whether a frame goes out compressed
-   * (`server/lib/ws-compression.ts`). It is NOT `deviceId == null`, which would
-   * look like the same question and is not: the terminal and browser upgrades
-   * never stamp a device, so that field is null for a LAN peer too. And it is
+   * (`server/lib/ws-compression.ts`). It is NOT `deviceId == null`: a remote
+   * daemon can authenticate without being a paired device. And it is
    * not `isLocalTransport` either, which asks who we trust and counts the
    * tunnel as remote: here the tunnel is local, because the socket on the other
    * end belongs to `relay-client.ts` on this very machine.
@@ -375,6 +374,8 @@ export interface AppContext {
   // State
   activeStreams: Map<string, ActiveStream>;
   wsClients: Set<ServerWebSocket<WSData>>;
+  /** Every open transport, exclusively for device revocation; never broadcast. */
+  deviceSockets: Set<ServerWebSocket<WSData>>;
 
   // Utils
   // `OutboundMessage` (not `object`) binds the `type` to the schema registry: a

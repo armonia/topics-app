@@ -9,6 +9,7 @@ import { BRANCH_FORMAT, parseBranchLines } from "../lib/git-branch-refs";
 import { STATUS_ARGS, gitRead, parsePorcelainZ, repoPrefixOf } from "../lib/git-porcelain";
 import { moveToTrash } from "../lib/trash";
 import { isInsideDir } from "../lib/path-containment";
+import { realPathForNewEntry } from "../lib/real-path";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
@@ -1575,9 +1576,11 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
 
         // Containment guard: reject any client-supplied path that escapes resolvedDir.
-        const containmentRoot = resolve(resolvedDir);
+        const containmentRoot = realPathForNewEntry(resolvedDir);
+        if (containmentRoot === null) return json({ error: "Invalid target directory" }, 400);
         function isContained(p: string): boolean {
-          return isInsideDir(p, containmentRoot);
+          const real = realPathForNewEntry(p);
+          return real !== null && isInsideDir(real, containmentRoot!);
         }
         function hasDotDotSegment(rel: string): boolean {
           return rel.split(/[\\/]/).some((seg) => seg === "..");
@@ -1632,6 +1635,9 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           }
 
           const buffer = await file.arrayBuffer();
+          // The conflict name is a new destination too. Recheck after reading
+          // the bytes so a dangling link cannot redirect the generated name.
+          if (!isContained(targetPath)) return json({ error: "Invalid file path" }, 400);
           await Bun.write(targetPath, buffer);
           uploaded.push(targetPath);
         }
