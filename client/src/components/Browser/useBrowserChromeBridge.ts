@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publishBrowserPaneChrome, retireBrowserPaneChrome, type BrowserPaneCommands } from '../../state/browserPaneChrome';
 import { isRealUrl } from '../../state/pane/browserPaneUrl';
+import { releaseNativeFocus } from '../../lib/shell/tauri';
 import type { DeviceMode } from './browserDevTypes';
 
 export interface BrowserChromeBridgeInput {
@@ -95,8 +96,22 @@ export function useBrowserChromeBridge(
   // that also FOCUSES the pane) brought the row back under a tab that was
   // already naming the page. Now it asks the tab to open its inline editor;
   // the row stays where it belongs, behind the console and the downloads.
+  // TAKING THE KEYBOARD BACK IS PART OF ASKING FOR THE CARET.
+  //
+  // A native pane is a sibling webview that holds the OS keyboard while it is
+  // there. Putting the caret in an input of THIS webview does not move it: the
+  // editor opens, it looks focused, and the letters go to the page instead.
+  // Measured on Windows 2.2.291 — Ctrl+L, a full address typed, and the HTTP
+  // witness records nothing, while the same address typed the instant the pane
+  // opens (before the native child exists) loads normally.
+  //
+  // The tab strip already did this on pointer-down, so the mouse worked and the
+  // keyboard did not. It belongs here instead, at the one door both go through:
+  // every way of asking for the address bar is a request for the keyboard too.
+  // Off the desktop shell it is a no-op.
   const [addressEditRequest, setAddressEditRequest] = useState(0);
   const focusAddress = useCallback(() => {
+    releaseNativeFocus();
     setAddressEditRequest((n) => n + 1);
   }, []);
 

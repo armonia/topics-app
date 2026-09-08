@@ -256,9 +256,30 @@ function Focus($h) {
   return ([DesktopCheck]::GetForegroundWindow() -eq $h)
 }
 
+# NO KEY LEAVES THIS SCRIPT FOR A WINDOW NOBODY PROVED IS IN FRONT.
+#
+# `SendKeys` types into whatever the system calls foreground at that instant. If
+# the app lost the front — an installer finishing, a notification, the desktop
+# taking it back after a minimise — the probe keeps typing and keeps measuring:
+# Ctrl+W lands in the operator's own browser, the app never receives it, and the
+# reading that follows is about a window this script never looked at. Check (c)
+# guarded its own keys and nothing else did, so the three Ctrl+W that clear the
+# restored panes and every key of check (e) were unguarded.
+#
+# The guard sits HERE, in the one door every key passes through, rather than at
+# the call sites, so a new key added later cannot forget it. It costs a
+# `GetForegroundWindow` when the window is already in front, and it is the
+# difference between a FAIL that says why and a number about someone else.
 function Send($keys) {
-  [System.Windows.Forms.SendKeys]::SendWait($keys)
+  SendNow $keys
   Start-Sleep -Milliseconds 900
+}
+
+function SendNow($keys) {
+  if ($script:h -and $script:h -ne [IntPtr]::Zero -and -not (Focus $script:h)) {
+    Verdict $false "keys" "the window would not come to the foreground, so '$keys' was not sent: a key typed into another window measures that window"
+  }
+  [System.Windows.Forms.SendKeys]::SendWait($keys)
 }
 
 # WHICH WINDOW WOULD GET THE NEXT KEY. The foreground window is not the answer:
@@ -632,15 +653,15 @@ if (Wants 'e') {
   # whatever had focus when the pane opened. The first URL is a path the server
   # does not serve, which paints an error page; the second is the app itself. Both
   # on the loopback: a reading that needs the internet measures the network.
-  [System.Windows.Forms.SendKeys]::SendWait("^l")
+  SendNow "^l"
   Start-Sleep -Milliseconds 400
-  [System.Windows.Forms.SendKeys]::SendWait("http://127.0.0.1:13333/robots.txt{ENTER}")
+  SendNow "http://127.0.0.1:13333/robots.txt{ENTER}"
   Start-Sleep 5
   $firstUrl = Grab $h $null
   $inkFirst = InkPercent $firstUrl
-  [System.Windows.Forms.SendKeys]::SendWait("^l")
+  SendNow "^l"
   Start-Sleep -Milliseconds 400
-  [System.Windows.Forms.SendKeys]::SendWait("http://127.0.0.1:13333/{ENTER}")
+  SendNow "http://127.0.0.1:13333/{ENTER}"
   Start-Sleep 8
   $secondUrl = Grab $h (Join-Path $Out "05-browser-pane-$Label.png")
   $inkSecond = InkPercent $secondUrl
