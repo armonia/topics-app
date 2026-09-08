@@ -15,7 +15,7 @@ hermetic(test);
 const projectPath = canonicalTmpDir('e2e-task-model-labels');
 const projectId = projectIdForPath(projectPath);
 
-async function mockCatalog(page: Page) {
+async function mockModels(page: Page) {
   const fetchedAt = new Date().toISOString();
   const snapshot: ProvidersSnapshot = {
     generatedAt: new Date().toISOString(), defaultProvider: 'topics',
@@ -52,7 +52,7 @@ for (const device of [
         await resetPaneStore(request, []);
         await request.put('/api/ui-state/settings', { data: { language: device.locale } });
         await page.addInitScript((language) => localStorage.setItem('app-settings', JSON.stringify({ language })), device.locale);
-        await mockCatalog(page);
+        await mockModels(page);
         await page.goto(`/task/${task.id}`);
         const drawer = page.getByTestId('task-detail-drawer');
         const details = drawer.getByTestId('task-details-toggle');

@@ -15,7 +15,7 @@ const CLAUDE_DESCRIPTIONS: Record<string, string> = {
 };
 
 /** ACP sessions currently omit the Topics bridge, so they are not automatic task candidates. */
-export function automaticTaskCatalog(snapshot: ProvidersSnapshot | null, codexModels: ReturnType<typeof readCodexModels>, claudeHeld = false): CodingModel[] {
+export function automaticTaskModels(snapshot: ProvidersSnapshot | null, codexModels: ReturnType<typeof readCodexModels>, claudeHeld = false): CodingModel[] {
   return (snapshot?.providers ?? []).flatMap((entry): CodingModel[] => {
     if (entry.status !== 'ready') return [];
     if (entry.name === 'codex') return codexModels.filter(model => entry.models.includes(model.slug)).map(model => ({ ...model, provider: entry.name }));
@@ -53,7 +53,7 @@ export async function pickAutomaticTaskModel(
 ) {
   const restrictedProvider = taskModelSelection(selection).provider;
   if (restrictedProvider) taskProviderForModel(selection, deps.snapshot);
-  const models = automaticTaskCatalog(deps.snapshot, (deps.codexModels ?? readCodexModels)(), deps.claudeHeld)
+  const models = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), deps.claudeHeld)
     .filter(model => !restrictedProvider || model.provider === restrictedProvider);
   if (!models.length && deps.snapshot?.providers.some(p => p.status === 'loading'
     && (restrictedProvider ? p.name === restrictedProvider : p.name === 'codex' || (!deps.claudeHeld && CLAUDE_TASK_RUNTIMES.has(p.name))))) {

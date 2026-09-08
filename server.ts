@@ -143,7 +143,7 @@ import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickAutomaticTaskModel, automaticTaskCatalog, automaticTaskProvider } from "./server/services/task-auto-model";
+import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from "./server/services/task-auto-model";
 import { PLAN_DISPATCH_HOLD_AT } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
 import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
@@ -1429,7 +1429,7 @@ const taskDispatcher = createTaskDispatcher({
   automaticModelOutsideClaude: () => {
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     const snapshot = getSnapshotManager().getSnapshot();
-    return automaticTaskCatalog(snapshot, readCodexModels(), true).length > 0
+    return automaticTaskModels(snapshot, readCodexModels(), true).length > 0
       || snapshot.providers.some(provider => provider.name === "codex" && provider.status === "loading");
   },
   topicModelSelection: (id) => {

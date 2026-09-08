@@ -1,7 +1,7 @@
 /** @covers AGPT-01 AGPT-02 */
 import { describe, expect, test } from 'bun:test';
 import { pickCodingTaskPlan, TASK_CLASSIFIER_TIMEOUT_MS, type CodingModel } from './task-auto-plan';
-import { pickAutomaticTaskModel, automaticTaskCatalog, automaticTaskProvider } from './task-auto-model';
+import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from './task-auto-model';
 import type { AIProvider, CompletionOptions } from '../providers/types';
 import type { ProvidersSnapshot } from '../../shared/types';
 
@@ -136,10 +136,10 @@ describe('general automatic catalog and constraints', () => {
       });
       expect(plan.model).toBe(chosen);
     }
-    const catalog = automaticTaskCatalog(snapshot, models);
-    expect(catalog.some(m => m.provider === 'topics')).toBe(true);
-    expect(catalog.some(m => m.provider === 'codex')).toBe(true);
-    expect(catalog.some(m => m.provider === 'openai' || m.provider === 'gemini')).toBe(false);
+    const availableModels = automaticTaskModels(snapshot, models);
+    expect(availableModels.some(m => m.provider === 'topics')).toBe(true);
+    expect(availableModels.some(m => m.provider === 'codex')).toBe(true);
+    expect(availableModels.some(m => m.provider === 'openai' || m.provider === 'gemini')).toBe(false);
   });
 
   test('a Claude hold removes Claude execution candidates and its classifier', async () => {
