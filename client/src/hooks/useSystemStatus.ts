@@ -129,7 +129,7 @@ export function useSystemStatus(enabled = true, intervalMs = 30000) {
     let active = true;
 
     const poll = async () => {
-      if (!active) return;
+      if (!active || document.hidden) return;
       await fetchStatus();
     };
 
