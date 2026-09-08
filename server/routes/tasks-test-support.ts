@@ -54,7 +54,8 @@ export function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment',
     -- migration 20260904190855: the assistant row an agent said this in.
-    message_id TEXT
+    message_id TEXT,
+    origin TEXT CHECK (origin IN ('interface', 'mcp', 'api', 'system'))
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -125,8 +126,8 @@ export function makeCtx(
   } as unknown as AppContext;
 }
 
-export function call(router: RouteHandler, method: string, path: string, body?: unknown) {
-  const init: RequestInit = { method };
+export function call(router: RouteHandler, method: string, path: string, body?: unknown, headers?: HeadersInit) {
+  const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = JSON.stringify(body);
   const req = new Request(`http://x${path}`, init);
   return Promise.resolve(router(req, new URL(req.url), new URL(req.url).pathname, method));

@@ -614,3 +614,22 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
     "Sistemalo, committa sul tuo branch e rimetti il task in review: finché è rosso la consegna non è guardabile.",
   ].join("\n\n");
 }
+
+/**
+ * The compact row persisted in the task conversation. Full commands and logs
+ * stay in checks_json for the expandable decision panel; the agent still gets
+ * formatChecksComment so it can act on the failure.
+ */
+export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: string | null }): string {
+  const failed = runs.find((run) => !run.ok);
+  const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
+  if (!failed) return `Checks pre-review verdi${where}.`;
+  const position = runs.indexOf(failed) + 1;
+  const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
+  if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} non è partito.`;
+  if (checksVerdict(runs) === "unknown") {
+    return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
+  }
+  const why = failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
+}

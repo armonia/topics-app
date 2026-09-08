@@ -10,7 +10,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { commentAuthorLabel } from '../../../shared/comment-author';
-import { authorDisplay, AUTHOR_NAME_KEYS } from './authorDisplay';
+import { actionOriginDisplay, authorDisplay, AUTHOR_NAME_KEYS, shortProfileName } from './authorDisplay';
 import { t } from './i18n';
 
 /** Il traduttore vero, non un finto: se una chiave non è nel dizionario il
@@ -38,10 +38,24 @@ describe('authorDisplay', () => {
     // del proprietario, che è esattamente ciò che quel cancello esiste per
     // fermare — e il valore di prova qui è identico con qualunque stringa.
     const r = show('user', 'Nome Cognome');
-    expect(r.name).toBe('Nome Cognome');
+    expect(r.name).toBe('Nome');
     expect(r.self).toBe(true);
     // L'identità sul disco non si perde: resta per il tooltip.
     expect(r.detail).toBe('user');
+  });
+
+  test('profile display uses only the short name and keeps identity separate', () => {
+    expect(shortProfileName('Sample Reviewer')).toBe('Sample');
+    expect(shortProfileName('  Sample   Reviewer  ')).toBe('Sample');
+    expect(shortProfileName(null)).toBeNull();
+  });
+
+  test('origin labels distinguish recorded surfaces and do not guess history', () => {
+    expect(actionOriginDisplay('interface', tr)).toBe('via interfaccia');
+    expect(actionOriginDisplay('mcp', tr)).toBe('via MCP');
+    expect(actionOriginDisplay('api', tr)).toBe('via API');
+    expect(actionOriginDisplay('system', tr)).toBe('sistema');
+    expect(actionOriginDisplay(null, tr)).toBeNull();
   });
 
   test('senza un proprietario noto resta una PERSONA, non un ruolo di sistema', () => {

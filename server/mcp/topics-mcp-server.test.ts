@@ -1717,6 +1717,7 @@ describe("callCommentTask", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/tasks/t1/comments");
     expect(seen.init?.method).toBe("POST");
     expect(seen.init?.body).toBe(JSON.stringify({ content: "progress note" }));
+    expect(new Headers(seen.init?.headers).get("X-Topics-Action-Origin")).toBe("mcp");
     expect(text).toContain("commented on t1");
   });
 
