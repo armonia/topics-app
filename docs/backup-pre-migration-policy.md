@@ -36,11 +36,27 @@ Prima di cancellare il backup:
 sqlite3 data/topics.db "SELECT count(*) FROM sqlite_master WHERE type='table';"
 
 # 2. La migration risulta applicata
-sqlite3 data/topics.db "SELECT name FROM migrations ORDER BY applied_at DESC LIMIT 5;"
-# (o la tabella che il progetto usa per tracciare le migration)
+sqlite3 data/topics.db "SELECT name FROM schema_migrations ORDER BY applied_at DESC LIMIT 5;"
 ```
 
 Se entrambi i controlli passano, il backup e' eliminabile.
+
+## Se una migration si interrompe
+
+Il runner applica ogni migration in una transazione e la registra soltanto
+dopo averne eseguito tutto il SQL. Anche `duplicate column name` interrompe
+l'avvio: la colonna puo' esistere in un vecchio DB modificato a mano, mentre
+altre colonne, indici o aggiornamenti della stessa migration sono mancanti.
+La transazione fallita viene annullata, la migration resta non registrata e
+la connessione viene chiusa; un nuovo avvio riprova senza dichiarare successo.
+Le migration gia' registrate continuano a essere saltate normalmente.
+
+Conservare il backup e identificare il file indicato nell'errore. Il recupero
+richiede una verifica specifica dello schema e dei dati: usare un backup
+coerente precedente alla migration, verificando anche i dati scritti dopo lo
+snapshot, oppure preparare una correzione mirata su una copia isolata. Se non
+esiste un backup verificato, aprire un task di incident. Non aggiungere a mano
+la riga al registro e non eliminare colonne per forzare il prossimo avvio.
 
 ## Scadenza automatica
 

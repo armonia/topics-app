@@ -21,23 +21,32 @@ export function initDatabase(baseDir: string, dataRoot: string = baseDir): Datab
   const dbPath = join(dataDir, "topics.db");
   const isNew = !existsSync(dbPath);
 
-  _db = new Database(dbPath);
+  const db = new Database(dbPath);
 
-  // Set busy_timeout FIRST so subsequent PRAGMAs wait instead of failing
-  // with SQLITE_BUSY_RECOVERY when the WAL is being checkpointed
-  _db.run("PRAGMA busy_timeout = 10000");
-  _db.run("PRAGMA journal_mode = WAL");
-  _db.run("PRAGMA foreign_keys = ON");
-  _db.run("PRAGMA synchronous = NORMAL");
-  _db.run("PRAGMA cache_size = -64000"); // 64MB cache
+  try {
+    // Set busy_timeout FIRST so subsequent PRAGMAs wait instead of failing
+    // with SQLITE_BUSY_RECOVERY when the WAL is being checkpointed
+    db.run("PRAGMA busy_timeout = 10000");
+    db.run("PRAGMA journal_mode = WAL");
+    db.run("PRAGMA foreign_keys = ON");
+    db.run("PRAGMA synchronous = NORMAL");
+    db.run("PRAGMA cache_size = -64000"); // 64MB cache
 
-  // Registro delle migration applicate. La chiave è il NOME FILE, non il
-  // numero — vedi migrationRegistryByName() per il perché e per la conversione
-  // dei database che nascono con la vecchia forma.
-  _db.run(REGISTRY_DDL);
+    // Registro delle migration applicate. La chiave è il NOME FILE, non il
+    // numero — vedi migrationRegistryByName() per il perché e per la conversione
+    // dei database che nascono con la vecchia forma.
+    db.run(REGISTRY_DDL);
 
-  // Run pending migrations
-  runMigrations(_db, baseDir);
+    // Run pending migrations
+    runMigrations(db, baseDir);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+
+  // Expose the singleton only after initialization succeeds: a retry after
+  // an error must run the pending migrations instead of bypassing them.
+  _db = db;
 
   if (isNew) {
     console.log(`[DB] Created new database at ${dbPath}`);
@@ -304,20 +313,15 @@ function runMigrations(db: Database, baseDir: string): void {
       })();
       ranCount++;
       console.log(`[DB] Migration ${file} applied successfully`);
-    } catch (err: any) {
-      // Handle "duplicate column" errors gracefully — the column already exists
-      // (can happen when migration previously ran without schema_migrations tracking)
-      if (err?.message?.includes("duplicate column name")) {
-        db.run(
-          "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-          [version, file, new Date().toISOString()]
-        );
-        ranCount++;
-        console.log(`[DB] Migration ${file} already applied (column exists), tracked`);
-      } else {
-        console.error(`[DB] Migration ${file} failed:`, err);
-        throw err;
-      }
+    } catch (err) {
+      // A duplicate column also rolls back the transaction; it does not prove
+      // that the migration's other columns, indexes or data changes exist.
+      console.error(
+        `[DB] Migration ${file} failed; rolled back and not recorded. ` +
+          `See docs/backup-pre-migration-policy.md before retrying:`,
+        err,
+      );
+      throw err;
     }
   }
 

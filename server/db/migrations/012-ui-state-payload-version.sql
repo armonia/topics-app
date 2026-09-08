@@ -15,19 +15,18 @@
 --
 -- IDEMPOTENCY / RE-RUN:
 --   * The migration runner (server/db.ts :: runMigrations) guards re-exec by
---     consulting schema_migrations FIRST and also catches SQLite's
---     "duplicate column name" error as a soft-success path, so a manual
---     re-run of this file normally does not reach the ALTER TABLE twice.
---   * The INSERT into schema_migrations below uses OR IGNORE as belt-and-
---     braces in case the file is exec'd via a path that bypasses the
---     runner (e.g. `sqlite3 topics.db < 012-ui-state-payload-version.sql`
---     during ad-hoc debugging) — without OR IGNORE the PK collision would
---     abort the whole file partway.
---   * SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; guarding
---     the ALTERs in pure SQL is not possible. Column-existence checks
---     (`PRAGMA table_info`) must happen in the runner — that's why the
---     runner's duplicate-column fallback is part of the idempotency
---     contract rather than the SQL itself.
+--     consulting schema_migrations FIRST. A successfully recorded migration
+--     is skipped on subsequent starts.
+--   * A "duplicate column name" error stops startup and rolls back this
+--     migration's transaction. An existing column does not prove that the
+--     other column or index exists, so the runner does not record success.
+--     A mismatch between schema and registry requires a specific recovery;
+--     see docs/backup-pre-migration-policy.md.
+--   * The INSERT below preserves the historical registry convention; the
+--     runner normalizes its stem to the canonical filename after execution.
+--     OR IGNORE protects that INSERT, not the ALTER TABLE statements.
+--   * SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. Re-running
+--     this file directly does not provide the runner's idempotency guard.
 --
 -- ROLLBACK:
 --   * rollback: not supported (NOT NULL without DEFAULT backfill).
