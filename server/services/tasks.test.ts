@@ -1327,6 +1327,19 @@ describe("blocked-by dependency", () => {
     expect(upd.reuseBlockerContext).toBe(false);
   });
 
+  test("automatic effort is paired with its model and cleared by a manual replacement", () => {
+    const task = s.create({ projectId: PID, text: "a", model: "gpt-5.6-luna" });
+    expect(s.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "low" }).modelEffort).toBe("low");
+
+    const replaced = s.setModel({ taskId: task.id, model: "claude-haiku-4-5" });
+    expect(replaced.modelEffort).toBeUndefined();
+
+    s.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "low" });
+    const manuallyChanged = s.update({ taskId: task.id, actor: "human", by: "u", patch: { model: "claude-haiku-4-5" } });
+    expect(manuallyChanged.modelEffort).toBeUndefined();
+    expect(() => s.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "auto" })).toThrow("invalid task model effort");
+  });
+
   test("a bound task rejects a model change from any caller without changing its session or task", () => {
     const task = s.create({ projectId: PID, text: "Bound task", model: "claude-opus-5" });
     db.run("INSERT INTO topics (id) VALUES ('model-bound-topic')");
@@ -2234,7 +2247,8 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20260906115130: WHERE the card runs. Same reason as the columns
          -- above: left NULL it would fall outside the list-against-detail
          -- comparison, and the node chip reads it on both doors.
-         machine_id = 'mac-1'
+         machine_id = 'mac-1',
+         model_effort = 'low'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

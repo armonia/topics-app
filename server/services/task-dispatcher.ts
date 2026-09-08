@@ -2201,12 +2201,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
       // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
       // significa pagarla uguale su un typo e su un refactor.
-      let chosenEffort = settings.effort;
-      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
-        // Persist the board-default so the card shows the real model, not "auto".
-        deps.svc.setModel({ taskId, model: chosenModel });
-      }
-      if (!taskModelSelection(chosenModel).model && !reuseTopicId && deps.pickAutoModel) {
+      const modelIsConcrete = !!taskModelSelection(chosenModel).model;
+      const reuseAutomaticEffort = settings.effort === "auto" && !!task.modelEffort && modelIsConcrete;
+      let chosenEffort = reuseAutomaticEffort
+        ? task.modelEffort!
+        : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
+      // A concrete task or board model is a complete model decision. Its
+      // automatic effort falls back to medium until a paired value exists;
+      // never ask a provider-only classifier to judge another model's effort.
+      if (!modelIsConcrete && !reuseTopicId && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task, chosenModel, { effort: settings.effort });
         // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
         // deve fermarsi qui — prima del worktree, prima del topic, prima
@@ -2336,7 +2339,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // quattro (misurato il 18/08 su `eef64e32`: tre dispatch, tre topic, e al
       // terzo la sessione aveva due messaggi).
       deps.svc.bindTopic({ taskId, topicId, freshSession: !reuseTopicId });
-      if (chosenModel && !reuseTopicId) deps.svc.setModel({ taskId, model: chosenModel });
+      if (chosenModel && !reuseTopicId) {
+        deps.svc.setModel({ taskId, model: chosenModel, effort: settings.effort === "auto" ? chosenEffort : undefined });
+      }
 
       // DIRLO: il cambio di worktree era muto, e l'umano non sapeva dove
       // cercarlo se la GC l'avesse tenuto aperto per sporco. Un commento di
@@ -2558,7 +2563,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     task: Task,
     idx: number,
     total: number,
-    opts: { timeoutMs: number; idleMs: number; effort: string; mcp: string; model?: string; provider?: string },
+    opts: { timeoutMs: number; idleMs: number; effort: string; autoEffort?: boolean; mcp: string; model?: string; provider?: string },
     resolved: { path: string; projectStoreId: string },
   ): Promise<string | undefined> {
     const store = deps.attempts!;
@@ -2591,7 +2596,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       });
       sessionKey = topic.sessionKey;
       store.bind(attempt.id, { topicId: topic.topicId, worktreeId, branch });
-      if (opts.model) deps.svc.setModel({ taskId: task.id, model: opts.model });
+      if (opts.model) deps.svc.setModel({ taskId: task.id, model: opts.model, effort: opts.autoEffort ? opts.effort : undefined });
       // Il tentativo 1 tiene il deep-link del task finché l'umano non sceglie:
       // `assigned_topic_id` ha una FK su topics ed è il bersaglio di "Apri la
       // chat". Alla scelta viene ri-puntato sul vincitore.
@@ -2795,9 +2800,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
       // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
       // significa pagarla uguale su un typo e su un refactor.
-      let chosenEffort = settings.effort;
-      if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
-      if (!taskModelSelection(chosenModel).model && deps.pickAutoModel) {
+      const modelIsConcrete = !!taskModelSelection(chosenModel).model;
+      const reuseAutomaticEffort = settings.effort === "auto" && !!task.modelEffort && modelIsConcrete;
+      let chosenEffort = reuseAutomaticEffort
+        ? task.modelEffort!
+        : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
+      if (!modelIsConcrete && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task, chosenModel, { effort: settings.effort });
         // Vale a maggior ragione qui: un task pesante in fan-out sono N
         // macinate in parallelo, cioè il caso peggiore che il peso esiste per
@@ -2826,7 +2834,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       const results = await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel, provider: chosenProvider }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, autoEffort: settings.effort === "auto", mcp: settings.mcp, model: chosenModel, provider: chosenProvider }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run

@@ -332,6 +332,17 @@ describe("task-dispatcher", () => {
     h.dispatcher.shutdown();
   });
 
+  it("board su 'auto' senza selettore usa il fallback moderato, non la config del CLI", async () => {
+    const h = harness({ pickAutoModel: undefined });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
+    h.svc.setGlobalCap({ auto: false, max: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", text: "manual model", });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("medium");
+    h.dispatcher.shutdown();
+  });
+
   it("self-heals a DEAD binding: a todo bound to a reaped topic dispatches again", async () => {
     // A task that ran before, reached done, then was dragged back to todo — its
     // agent topic was reaped in between, so `assigned_topic_id` now dangles.
@@ -2714,16 +2725,58 @@ describe("blocked-by + context reuse", () => {
     });
   }
 
-  it("manual GPT model beats board automatic and is never reclassified", async () => {
+  it("manual GPT model with a fixed board effort skips the classifier", async () => {
     let calls = 0;
     const h = harness({ pickAutoModel: async () => { calls++; return { model: "gpt-6-astra" }; } });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchModel: "codex" });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchModel: "codex", dispatchEffort: "medium" });
     const task = h.svc.create({ projectId: PID, status: "todo", text: "Manual choice", model: "gpt-5.6-luna" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(calls).toBe(0);
     expect(h.task(task.id)?.model).toBe("gpt-5.6-luna");
     expect(h.topicsCreated[0]?.model).toBe("gpt-5.6-luna");
+  });
+
+  it("a fresh requeue retains the automatic effort paired with its resolved model", async () => {
+    let calls = 0;
+    const h = harness({ pickAutoModel: async () => {
+      calls++;
+      return { model: "gpt-5.6-luna", provider: "codex", effort: "low", weight: "light" };
+    } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Keep this economical", model: "codex" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(task.id)?.modelEffort).toBe("low");
+    expect(h.topicsCreated[0]).toMatchObject({ model: "gpt-5.6-luna", effort: "low" });
+
+    // A release drops the topic (and its effort) before a new session starts.
+    // The task keeps the selected plan, so the fresh start neither reclassifies
+    // nor falls through to the global Codex reasoning setting.
+    h.svc.release({ taskId: task.id, requeue: true, reason: "riprendi" });
+    const resumed = h.restart();
+    await resumed.tick(PID);
+    await flush();
+    expect(calls).toBe(1);
+    expect(h.topicsCreated[1]).toMatchObject({ model: "gpt-5.6-luna", effort: "low" });
+    resumed.shutdown();
+  });
+
+  it("a manual model with automatic effort bypasses the classifier and stores the moderate fallback", async () => {
+    let calls = 0;
+    const h = harness({ pickAutoModel: async () => {
+      calls++;
+      return { model: "gpt-6-astra", provider: "codex", effort: "low", weight: "light" };
+    } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Small explicit model task", model: "gpt-5.6-luna" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(calls).toBe(0);
+    expect(h.task(task.id)?.model).toBe("gpt-5.6-luna");
+    expect(h.task(task.id)?.modelEffort).toBe("medium");
+    expect(h.topicsCreated[0]).toMatchObject({ model: "gpt-5.6-luna", effort: "medium" });
+    h.dispatcher.shutdown();
   });
 
   it("Codex automatic fanout shares one classified model and effort across fresh attempts", async () => {
@@ -2741,6 +2794,20 @@ describe("blocked-by + context reuse", () => {
     expect(h.task(task.id)?.model).toBe("gpt-5.6-sol");
     expect(h.topicsCreated).toHaveLength(2);
     expect(h.topicsCreated.map(t => [t.model, t.effort])).toEqual([["gpt-5.6-sol", "low"], ["gpt-5.6-sol", "low"]]);
+    h.dispatcher.shutdown();
+  });
+
+  it("fanout reuses the saved automatic effort after its topics were released", async () => {
+    let calls = 0;
+    const h = harness({ pickAutoModel: async () => { calls++; throw new Error("a saved plan must not be classified again"); } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto", dispatchFanOut: 2 });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Resume both approaches", model: "gpt-5.6-luna" });
+    h.svc.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "low" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(calls).toBe(0);
+    expect(h.topicsCreated.map(t => [t.model, t.effort])).toEqual([['gpt-5.6-luna', 'low'], ['gpt-5.6-luna', 'low']]);
     h.dispatcher.shutdown();
   });
 
@@ -2807,12 +2874,12 @@ describe("blocked-by + context reuse", () => {
     expect((h.topicsCreated[0] as any).model).toBe("claude-opus-4-8");
   });
 
-  it("auto model: an EXPLICIT model skips the classifier entirely", async () => {
+  it("auto model: an EXPLICIT model with a fixed effort skips the classifier entirely", async () => {
     let called = false;
     const h = harness({
       pickAutoModel: async () => { called = true; return { model: "claude-opus-4-8" }; },
     });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "medium" });
     h.svc.create({ projectId: PID, status: "todo", text: "chosen", model: "claude-haiku-4-5" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -2846,11 +2913,11 @@ describe("blocked-by + context reuse", () => {
     expect(comments.some((c) => c.author === "system" && c.content.includes("plan-first"))).toBe(false);
   });
 
-  it("auto model: an explicit model skips the classifier entirely (no auto plan-first)", async () => {
-    // Explicit model → classifier never runs.
+  it("auto model: an explicit model with fixed effort skips the classifier (no auto plan-first)", async () => {
+    // An explicit model plus fixed effort is already a complete dispatch plan.
     let called = false;
     const h = harness({ pickAutoModel: async () => { called = true; return { model: "x" }; } });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "medium" });
     const created = h.svc.create({ projectId: PID, status: "todo", text: "chiaro", model: "claude-haiku-4-5" });
     await h.dispatcher.tick(PID);
     await flush();

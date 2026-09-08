@@ -149,7 +149,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20260906115130: WHERE the card runs. NULL = this machine, which is every
   -- card written before the column existed. A non-null id names a paired node
   -- and the dispatcher mirrors the card onto it (KANBAN-76).
-  machine_id TEXT REFERENCES machines(id) ON DELETE SET NULL
+  machine_id TEXT REFERENCES machines(id) ON DELETE SET NULL,
+  -- 20260909090000: the automatic effort paired with the concrete task model.
+  -- It survives a fresh requeue after the agent topic has been released.
+  model_effort TEXT
 )`;
 
 /**
