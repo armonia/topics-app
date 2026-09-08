@@ -261,6 +261,7 @@ Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la fin
 - **GIVEN** un turno Codex che esegue `mcp__topics__update_task`
 - **WHEN** `codex exec --json` emette gli item `mcp_tool_call` started, updated e completed
 - **THEN** la stessa riga della tool call mostra args, aggiornamenti e risultato oppure errore
+- **AND** un `error: null` non trasforma un risultato MCP riuscito in errore, mentre `result.isError: true` conserva e mostra il messaggio della tool
 - **AND** il watchdog considera vivo soltanto il child Codex ancora posseduto e non terminato, quindi non riavvia quel turno durante un controllo MCP lungo
 
 #### Scenario: Codex CommandExecution consegna l'output finale

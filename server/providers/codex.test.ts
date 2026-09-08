@@ -272,7 +272,13 @@ describe("routeCodexEvent — text + tool wiring", () => {
     }, h);
     pushEvent(provider, "s1", {
       type: "item.completed",
-      item: { type: "mcp_tool_call", id: "mcp-ok", status: "completed", result: { ok: true } },
+      item: {
+        type: "mcp_tool_call",
+        id: "mcp-ok",
+        status: "completed",
+        error: null,
+        result: { content: [{ type: "text", text: "task updated" }], isError: false },
+      },
     }, h);
     pushEvent(provider, "s1", {
       type: "item.started",
@@ -282,16 +288,32 @@ describe("routeCodexEvent — text + tool wiring", () => {
       type: "item.completed",
       item: { type: "mcp_tool_call", id: "mcp-fail", status: "failed", error: { message: "conflict" } },
     }, h);
+    pushEvent(provider, "s1", {
+      type: "item.started",
+      item: { type: "mcp_tool_call", id: "mcp-tool-error", server: "topics", tool: "update_task", arguments: {} },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        id: "mcp-tool-error",
+        status: "completed",
+        error: null,
+        result: { content: [{ type: "text", text: "task is locked" }], isError: true },
+      },
+    }, h);
 
     expect(h.toolNames).toEqual([
       { id: "mcp-ok", name: "mcp__topics__update_task" },
       { id: "mcp-fail", name: "mcp__topics__update_task" },
+      { id: "mcp-tool-error", name: "mcp__topics__update_task" },
     ]);
-    expect(h.executing).toEqual(["mcp-ok", "mcp-fail"]);
+    expect(h.executing).toEqual(["mcp-ok", "mcp-fail", "mcp-tool-error"]);
     expect(h.activity).toEqual(["mcp-ok"]);
     expect(h.tools).toContainEqual({ type: "update", id: "mcp-ok", payload: '{"progress":"writing review"}' });
-    expect(h.tools).toContainEqual({ type: "result", id: "mcp-ok", payload: '{"ok":true}' });
+    expect(h.tools).toContainEqual({ type: "result", id: "mcp-ok", payload: '{"content":[{"type":"text","text":"task updated"}],"isError":false}' });
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-fail", payload: '{"message":"conflict"}', error: true });
+    expect(h.tools).toContainEqual({ type: "result", id: "mcp-tool-error", payload: '{"content":[{"type":"text","text":"task is locked"}],"isError":true}', error: true });
   });
 
   test("the watchdog sees only the provider-owned child that has not exited", () => {
@@ -301,6 +323,8 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(provider.isTurnProcessAlive("s1")).toBe(true);
     internals.activeChildren.get("s1")!.exitCode = 0;
     expect(provider.isTurnProcessAlive("s1")).toBe(false);
+    internals.activeChildren.set("s2", { exitCode: null, signalCode: "SIGTERM" });
+    expect(provider.isTurnProcessAlive("s2")).toBe(false);
     expect(provider.isTurnProcessAlive("unowned")).toBe(false);
   });
 

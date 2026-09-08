@@ -678,8 +678,16 @@ export class CodexProvider implements AIProvider {
         } else {
           const ctx = state?.runningTools.get(id);
           state?.runningTools.delete(id);
-          const isError = item.status === "failed" || item.error !== undefined;
-          const result = this.codexItemText(isError ? item.error : item.result)
+          // `error` is nullable on successful MCP completions. A tool can
+          // also complete transport-successfully while reporting its own MCP
+          // failure through `result.isError`; retain that result so the UI
+          // renders its message instead of an empty error row.
+          const resultIsError = item.result !== null
+            && typeof item.result === "object"
+            && (item.result as Record<string, unknown>).isError === true;
+          const transportError = item.error != null;
+          const isError = item.status === "failed" || transportError || resultIsError;
+          const result = this.codexItemText(transportError ? item.error : item.result)
             ?? ctx?.partial
             ?? "";
           handler.onToolResult(id, result, isError);
