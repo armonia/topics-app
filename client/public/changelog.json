@@ -1,5 +1,206 @@
 [
   {
+    "version": "2.2.291",
+    "date": "2026-09-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "l'anteprima di un file punta al data server, non all'origine del guscio",
+          "en": "",
+          "scope": "editor",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the chat surface stops ignoring the language selector",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Chiudere una pane lasciava la tastiera a nessuno, e Ctrl+K moriva li'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the paste probe targets the composer by testid, not by its English label",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the composer's screen-reader hint follows the language too",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "server error payloads in English, publish failures keyed on the client",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the wait for the dead child is a ceiling, not a stopwatch",
+          "en": "",
+          "scope": "pty-bridge",
+          "breaking": false
+        },
+        {
+          "it": "Il test dello shutdown del ponte allarga le attese con il carico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'audit mobile misurava cinque schede su dieci, e il Calendario nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the card chips and queue phrases come from the catalogues",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the project label follows the language too",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la lettura del sorgente HTML resta una fetch relativa",
+          "en": "",
+          "scope": "editor",
+          "breaking": false
+        },
+        {
+          "it": "Fix the four reds the pre-review shards found",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file locale nel pannello arrivava a un'origine senza server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-run the pre-review shards on a fresh commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il round-trip nativo asserisce anche l'indirizzo che la view dichiara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rotta non riesegue i browser tool che il runtime esegue gia'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto dei test con git vero segue il carico della macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows la barra scritta a mano metteva fuori dal progetto cio' che ci sta dentro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno finito non deve piu' una scrittura differita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un turno finalizzato scrive subito, non a timer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il freno \"per risorse\" diventa un budget in % del PC, e congela l'eccesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il verdetto di un hook si chiude sui tubi, non sull'uscita del processo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "separate the three window commands, and make them measurable",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "floating mode drops the DWM backdrop, so a gap is a gap",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Non riesportare al client un default che nessuno legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the top row stops being a step and the bottom row stops floating",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il banco del semaforo misurava due corse dello STESSO cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rotta della chat esegue solo i control tool che ha registrato lei",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The contrast gate follows a token declared as another token",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimette verde la CI: uno snap che rubava il drop, e cinque attese scritte per l'interfaccia di ieri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.290",
+    "date": "2026-09-07",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The forget-site clip looked for the address on a tab that writes the title",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the WS frame IS the update, so the feed stops being re-read for it",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.289",
     "date": "2026-09-07",
     "sections": {
@@ -9,6 +210,12 @@
       "internal": [
         {
           "it": "measure the stall from inside the loop, not from the request queue",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a browser-pane probe that answers with something other than pixels",
           "en": "",
           "scope": null,
           "breaking": false
@@ -33,6 +240,23 @@
         },
         {
           "it": "the review-checks timing cases stretch with the machine, not against it",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La pane su Windows non era vuota: le arrivava la tastiera di nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the reading that says the Windows pane was never the problem",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the report pointed at files the next run overwrites",
           "en": "",
           "scope": null,
           "breaking": false

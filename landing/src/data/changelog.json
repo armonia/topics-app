@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.291",
+    "date": "2026-09-08",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "l'anteprima di un file punta al data server, non all'origine del guscio",
+          "scope": "editor"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.286",
     "date": "2026-09-07",
     "sections": {
