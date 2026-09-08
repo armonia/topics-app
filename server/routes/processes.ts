@@ -359,16 +359,43 @@ function pollPidExit(sp: ScriptProcess) {
 // Cache lsof results for a short time to avoid running it on every request
 let cachedPorts: { port: number; pid: number; command: string }[] = [];
 let cachedPortsAt = 0;
+let pendingPorts: Promise<typeof cachedPorts> | null = null;
 const PORT_CACHE_TTL = 5000;
+
+/** A shared probe must settle even if the operating-system command stalls. */
+async function readProcessProbe(command: string[]): Promise<string> {
+  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "ignore" });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      try { proc.kill("SIGKILL"); } catch { /* The owned probe may already have exited. */ }
+      reject(new Error(`Process probe timed out: ${command[0]}`));
+    }, 5000);
+    if (typeof timer.unref === "function") timer.unref();
+  });
+  try {
+    const output = (async () => {
+      const text = await new Response(proc.stdout).text();
+      await proc.exited;
+      return text;
+    })();
+    return await Promise.race([output, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 export async function getListeningPorts(): Promise<{ port: number; pid: number; command: string }[]> {
   const now = Date.now();
   if (now - cachedPortsAt < PORT_CACHE_TTL) return cachedPorts;
+  if (pendingPorts) return pendingPorts;
+  pendingPorts = readListeningPorts(now).finally(() => { pendingPorts = null; });
+  return pendingPorts;
+}
 
+async function readListeningPorts(now: number): Promise<typeof cachedPorts> {
   try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], { stdout: "pipe", stderr: "ignore" });
-    const output = await new Response(proc.stdout).text();
-    await proc.exited;
+    const output = await readProcessProbe(["/usr/sbin/lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"]);
 
     const ports: { port: number; pid: number; command: string }[] = [];
     const seen = new Set<number>();
@@ -400,16 +427,20 @@ export async function getListeningPorts(): Promise<{ port: number; pid: number; 
 // dropdown polling every few seconds stays cheap.
 let cachedTopProcs: { pid: number; cpu: number; command: string }[] = [];
 let cachedTopProcsAt = 0;
+let pendingTopProcs: Promise<typeof cachedTopProcs> | null = null;
 const TOP_PROCS_TTL = 3000;
 
 export async function getTopCpuProcesses(limit = 6): Promise<{ pid: number; cpu: number; command: string }[]> {
   const now = Date.now();
   if (now - cachedTopProcsAt < TOP_PROCS_TTL && cachedTopProcs.length) return cachedTopProcs.slice(0, limit);
+  pendingTopProcs ??= readTopCpuProcesses(now).finally(() => { pendingTopProcs = null; });
+  return (await pendingTopProcs).slice(0, limit);
+}
+
+async function readTopCpuProcesses(now: number): Promise<typeof cachedTopProcs> {
   try {
     // -A all procs, -c accounting (short) command name, -o columns, -r sort by CPU desc.
-    const proc = Bun.spawn(["ps", "-Aco", "pid,pcpu,comm", "-r"], { stdout: "pipe", stderr: "ignore" });
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
+    const text = await readProcessProbe(["ps", "-Aco", "pid,pcpu,comm", "-r"]);
     const rows: { pid: number; cpu: number; command: string }[] = [];
     for (const line of text.split("\n").slice(1)) {
       const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(.+)$/);
@@ -421,9 +452,9 @@ export async function getTopCpuProcesses(limit = 6): Promise<{ pid: number; cpu:
     }
     cachedTopProcs = rows;
     cachedTopProcsAt = now;
-    return rows.slice(0, limit);
+    return rows;
   } catch {
-    return cachedTopProcs.slice(0, limit);
+    return cachedTopProcs;
   }
 }
 
@@ -1066,6 +1097,7 @@ type DetectionSource = () => DetectionSession[];
 
 let _detectionSource: DetectionSource | null = null;
 let _detectionTimer: ReturnType<typeof setTimeout> | null = null;
+let _detectionStarted = false;
 
 /**
  * Cadenza della rilevazione, con BACKOFF.
@@ -1101,7 +1133,10 @@ export function nextDetectionDelay(currentMs: number, changed: boolean): number 
  *  Called once from server.ts after the terminal + processes routers exist. */
 export function startProcessDetection(ctx: AppContext, getSessions: DetectionSource): void {
   _detectionSource = getSessions;
-  if (_detectionTimer) return;
+  // Set before the first async cycle: a second start while it is running must
+  // not create a second loop just because the first timer is not armed yet.
+  if (_detectionStarted) return;
+  _detectionStarted = true;
 
   const arm = () => {
     _detectionTimer = setTimeout(tick, _detectionDelayMs);
@@ -1122,7 +1157,8 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
     arm();
   };
 
-  arm();
+  // The completed cycle alone arms its successor. Arming here as well creates
+  // two permanent timer chains (4s and 8s already pending on an idle startup).
   void tick(); // una passata subito, senza aspettare il primo intervallo
 }
 
