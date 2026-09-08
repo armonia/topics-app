@@ -16,20 +16,21 @@
  * wants to land, App listens and opens. No new store, no prop drilled through
  * the pane tree.
  */
+import type { SectionId } from '@/components/Settings/sections';
+
 /** The event App listens to. Exported so the listener and the sender cannot
  *  drift on a string. */
 export const OPEN_SETTINGS_EVENT = 'topics:open-settings';
 
-/** The sections a deep link can land on: the same set App's panel accepts as
- *  `initialSection`. Anything else is the panel's normal entry point.
+/** The sections a deep link can land on: EVERY section of the panel, which is
+ *  the same list the panel draws its own rail from (`SETTINGS_SECTIONS`).
  *
- *  `organization` is here because the profile tab stopped carrying it. The
- *  group is administration, not identity, and the door to it now leads where
- *  administration lives instead of into a profile page that no longer has it. */
-/**  `calendar` is here because the agenda band under a pinned calendar has to
- *  be able to send someone to the field that configures it: a band that says
- *  "not configured" without a door is a dead end. */
-export type SettingsPanelSection = 'profile' | 'devices' | 'notifications' | 'organization' | 'calendar';
+ *  It used to be five hand-picked ids, and the hand-picking was the defect:
+ *  the user menu now offers the sections themselves as a level, so «take me to
+ *  the providers» is one gesture instead of opening the panel and hunting for
+ *  the row. A subset here would mean a menu entry that lands on the panel's
+ *  default page and looks broken. One list, and it is the panel's own. */
+export type SettingsPanelSection = SectionId;
 
 export interface OpenSettingsDetail {
   section?: SettingsPanelSection;

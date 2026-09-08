@@ -43,6 +43,11 @@ export async function openProfileMenu(page: Page): Promise<void> {
  * `menu-system-status`. So the gesture is two steps, open the menu and press
  * the row, and eight call sites across two specs were repeating both.
  *
+ * The panel is a LEVEL now, not an accordion under the row (STATUSLINE-05):
+ * the row it hangs off is the same one, and it also carries the agents at
+ * work: «who is running» and «what it costs» were two rows for one question.
+ * So the wait is on the level, which is where the numbers are.
+ *
  * `connection-status` did NOT come along: that testid stayed OUTSIDE, on the
  * dot of the user card, because half the suite uses it to know the app is up
  * (layout.fixture, multi-client, tab-sync) and a handle behind a menu cannot
@@ -53,10 +58,10 @@ export async function openPerfPanel(page: Page): Promise<void> {
   const button = page.locator('[data-testid="menu-system-status"]');
   await expect(button).toBeVisible({ timeout: 15_000 });
   await button.click();
-  // AND THE POINTER LEAVES. The menu hangs off the card at the foot of the
-  // column, so it grows UPWARD when the panel expands: the rows slide up under
-  // a pointer that has not moved, and `TooltipDelegate` strips the `title` of
-  // whatever lands under it. A spec that then reads those titles would find
-  // one of them empty and blame the panel.
+  await expect(page.getByTestId("menu-system-status-menu")).toBeVisible({ timeout: 15_000 });
+  // AND THE POINTER LEAVES, which a level opened by a CLICK survives: it is
+  // pinned until something explicit closes it. `TooltipDelegate` strips the
+  // `title` of whatever sits under the pointer, so a spec reading those titles
+  // would find one of them empty and blame the panel.
   await page.mouse.move(0, 0);
 }

@@ -39,7 +39,7 @@
  * behind the chips, the exact numbers behind the dot.
  */
 import { Suspense, useCallback, useState } from 'react';
-import { Bot, Building2, MessagesSquare, UserRound, Users } from 'lucide-react';
+import { Building2, UserRound, Users } from 'lucide-react';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { PresencePopover } from './PresencePopover';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
@@ -53,12 +53,10 @@ import type { OrgWithPresence } from '@/hooks/useIdentityPresence';
 import type { FriendPresence } from '@/hooks/useFriendPresence';
 import type { LabelIdentity } from './identityLabel';
 import type { LocalFacts } from './AccountPanel';
-import type { SignalKind, WorkSignal } from './workSignals';
+import type { WorkSignal } from './workSignals';
 import { apriProfilo } from '@/state/profileTarget';
 import { openSettings } from '@/lib/openSettings';
 import { useT } from '@/hooks/useT';
-import { useActiveAgentRows, type ActiveAgentRow } from '@/state/signals';
-import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 /** A glyph component, taken as a prop: which device you are on was decided by
  *  the card, and deciding it twice is how the two disagree. */
@@ -136,9 +134,6 @@ export function ProfileMenu({
         <OrgsSection orgs={orgs} />
 
         <div className="border-t border-app-border" />
-        <AgentsRow signals={signals} />
-
-        <div className="border-t border-app-border" />
         <TopicsMenuItems
           isMobile={false}
           {...commands}
@@ -147,78 +142,11 @@ export function ProfileMenu({
 
         <div className="border-t border-app-border" />
         <SidebarSystemMenu
+          signals={signals}
           onOpenChangelog={(version) => { onClose(); commands.onOpenChangelog(version); }}
         />
       </div>
     </PresencePopover>
-  );
-}
-
-/**
- * WHAT IS RUNNING, as a row that opens onto WHO.
- *
- * The glyphs (agents working, open sessions) used to sit in the header of this
- * panel, where they were a number with no way to ask "which ones". They are the
- * tail of this row now, and the level beside it names each agent at work and
- * each one parked on a question.
- *
- * TWO OF THEM, never a third: `workSignals` says which, and why the counts that
- * used to compete for the same tail are named in the level instead.
- *
- * TWO SCOPES, AND THEY ARE NOT THE SAME QUESTION. The rows and the badge on
- * the card are what THIS window's signals can see, from one derivation
- * (`useActiveAgentRows`), so a row cannot exist without being counted. The
- * glyphs in the tail are the INSTALLATION's own counts, served by
- * `/api/system/presence` (see `usePresenceSummary`: the server counts once so
- * that this row and the published presence cannot drift). A machine with
- * sessions running behind another window will therefore show a tail digit
- * larger than the badge, and that is the honest reading of both.
- *
- * Read-only rows: there is no shared helper to jump from a row to its session
- * yet, and a row that looks like a button and does nothing is worse than text.
- */
-function AgentsRow({ signals }: { signals: WorkSignal[] }) {
-  const tr = useT();
-  const { working, awaitingInput } = useActiveAgentRows(useTerminalSessions(), useTopics());
-  return (
-    <SubmenuItem
-      icon={Bot}
-      label={tr('statusBar.agents.title')}
-      testId="profile-menu-agents"
-      minWidth={220}
-      tail={signals.length > 0 ? (
-        <span data-testid="presence-summary" className="flex flex-shrink-0 items-center gap-1.5 tabular-nums">
-          {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
-        </span>
-      ) : undefined}
-    >
-      <div className="max-h-[240px] overflow-y-auto py-1">
-        {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
-        {awaitingInput.length > 0 && (
-          <>
-            <div className={`px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide ${SEGNALE_ATTESA}`}>
-              {tr('statusBar.agents.awaitingHeading')}
-            </div>
-            {awaitingInput.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="awaiting-agent-row" />)}
-          </>
-        )}
-        {working.length === 0 && awaitingInput.length === 0 && (
-          <div className="px-3 py-2 text-[11px] text-app-text-secondary">{tr('statusBar.agents.none')}</div>
-        )}
-      </div>
-    </SubmenuItem>
-  );
-}
-
-/** One agent, one line: the glyph says what kind of thing it is, the label
- *  says which. The working glyph pulses, like its digit in the tail. */
-function AgentLine({ row, testId, alive = false }: { row: ActiveAgentRow; testId: string; alive?: boolean }) {
-  const Icon = row.kind === 'terminal' ? Bot : MessagesSquare;
-  return (
-    <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-[11px] text-app-text" title={row.label}>
-      <Icon size={12} className={`flex-shrink-0 ${alive ? `animate-pulse ${SEGNALE_OK}` : SEGNALE_ATTESA}`} />
-      <span className="min-w-0 flex-1 truncate">{row.label}</span>
-    </div>
   );
 }
 
@@ -236,7 +164,6 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
   const tr = useT();
   const [busy, setBusy] = useState<string | null>(null);
   const { incoming, accept, decline, rows, faces: online } = friends;
-  const total = friends.friends.length;
   const pending = incoming.length;
 
   const answer = useCallback(async (id: string, yes: boolean) => {
@@ -256,16 +183,24 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
       label={tr('statusBar.friends.title')}
       testId="profile-menu-friends"
       minWidth={244}
-      tail={
+      // A COUNT ONLY WHEN THERE IS SOMETHING TO COUNT. It used to read «0 of
+      // 7 online», which spends the tail of the row on the one state that has
+      // nothing to say: how many friends you have is not news, and «0 of» is a
+      // zero dressed as a measurement. The tail speaks when somebody is there,
+      // or when somebody is waiting for an answer, and stays quiet otherwise -
+      // the same rule the chips at the foot of the column already follow.
+      tail={pending > 0 || online.length > 0 ? (
         <span
           data-testid="friends-count"
           data-pending={pending > 0 ? 'true' : 'false'}
-          className={`flex-shrink-0 tabular-nums ${pending > 0 ? SEGNALE_ATTESA : online.length > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}
+          className={`flex-shrink-0 tabular-nums ${pending > 0 ? SEGNALE_ATTESA : SEGNALE_OK}`}
           title={pending > 0 ? tr('statusBar.friends.pending', { n: pending }) : undefined}
         >
-          {tr('statusBar.friends.count', { n: online.length, tot: total })}
+          {pending > 0
+            ? tr('statusBar.friends.pendingCount', { n: pending })
+            : tr('statusBar.friends.online', { n: online.length })}
         </span>
-      }
+      ) : undefined}
     >
       {pending > 0 && (
         <div data-testid="friends-requests" className="border-b border-app-border py-1">
@@ -393,36 +328,3 @@ function OrgLogo({ org }: { org: OrgWithPresence }) {
         {org.nome.slice(0, 2).toUpperCase()}
       </span>;
 }
-
-/**
- * ONE SIGNAL: a glyph and a number, and the colour of its tier.
- *
- * The glyph is the noun ("sessions", "turns", "tasks") drawn instead of spelled:
- * a word costs six times what the icon costs and says the same thing. The
- * `title` gives the word back to whoever hovers, and to whoever reads with a
- * screen reader.
- */
-function Signal({ kind, n }: { kind: SignalKind; n: number }) {
-  const tr = useT();
-  const { Icon, tint, label, alive } = SIGNALS[kind];
-  return (
-    <span className={`flex items-center gap-0.5 ${tint}`} title={tr(label, { n })}>
-      <Icon size={11} className={alive ? 'animate-pulse' : undefined} />
-      <span>{n}</span>
-    </span>
-  );
-}
-
-/** Glyph, tier colour and sentence for each signal. One table, so a new signal
- *  is a line here and not a fourth place to keep in sync. */
-const SIGNALS: Record<SignalKind, {
-  Icon: typeof Bot;
-  tint: string;
-  label: string;
-  alive?: boolean;
-}> = {
-  // The only pulsing one: it is the only one where something is happening
-  // while you look at it.
-  working: { Icon: Bot, tint: SEGNALE_OK, label: 'statusBar.signals.working', alive: true },
-  open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
-};

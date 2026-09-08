@@ -86,6 +86,48 @@ test.describe("il menu utente apre i livelli di lato", () => {
     expect(inside, "the level is a child of the panel, so it is still an accordion").toBe(false);
   });
 
+  test("OGNI voce con sottolivello si apre di lato, nessuna esclusa", async ({ page }) => {
+    // The half that was missing. The rule held for the people and the agents,
+    // while «performance and system» and «version» still opened INSIDE the
+    // column: a menu where two rows out of six behave differently does not
+    // have a rule, it has two habits. So the check is not on one row, it is on
+    // the WHOLE menu: every row that declares a level opens it beside itself,
+    // and the panel that owns it never grows.
+    await goToApp(page);
+    const menu = await openProfileMenu(page);
+    const host = await box(menu);
+
+    const rows = await menu.locator('[aria-haspopup="menu"]').evaluateAll(
+      (els) => els.map((el) => el.getAttribute("data-testid") ?? ""),
+    );
+    // The five groups plus the two that used to be accordions: if this list
+    // ever shrinks to the point of proving nothing, the count says so.
+    expect(rows.length, `rows with a level: ${rows.join(", ")}`).toBeGreaterThanOrEqual(5);
+    expect(rows, "the two former accordions are levels now").toEqual(
+      expect.arrayContaining(["menu-system-status", "menu-version"]),
+    );
+
+    for (const id of rows) {
+      const row = menu.getByTestId(id);
+      await row.click();
+      const level = page.getByTestId(`${id}-menu`);
+      await expect(level, `${id} opens a level`).toBeVisible({ timeout: 10_000 });
+      const child = await box(level);
+      expect(child.left, `${id}: the level starts at ${child.left}, the menu ends at ${host.right}`)
+        .toBeGreaterThanOrEqual(host.right - 4);
+      const after = await box(menu);
+      expect(after.height, `${id}: the host was ${host.height} and is now ${after.height}`).toBe(host.height);
+      const inside = await level.evaluate(
+        (el) => document.querySelector('[data-testid="profile-menu"]')?.contains(el) ?? true,
+      );
+      expect(inside, `${id}: the level is inside the panel, so it is an accordion`).toBe(false);
+    }
+
+    // AND ONE AT A TIME: walking the rows leaves one level open, not seven
+    // panels stacked across the screen.
+    await expect(page.locator('[role="menu"][data-testid$="-menu"]')).toHaveCount(1);
+  });
+
   test("da tastiera: destra apre, sinistra torna indietro, Escape chiude un livello per volta", async ({ page }) => {
     await goToApp(page);
     const menu = await openProfileMenu(page);
@@ -115,6 +157,28 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await expect(menu).toBeHidden({ timeout: 10_000 });
   });
 
+  test("le impostazioni portano dritto alla sezione, senza cercarla nel pannello", async ({ page }) => {
+    await goToApp(page);
+    const menu = await openProfileMenu(page);
+
+    // The row is a LEVEL now: the sections are in it, and each one is a door
+    // that lands on that page of the panel. Opening the panel and then hunting
+    // for the row was two searches for one intention.
+    await menu.getByTestId("topics-menu-settings").click();
+    const level = page.getByTestId("topics-menu-settings-menu");
+    await expect(level).toBeVisible({ timeout: 10_000 });
+    await level.getByTestId("topics-menu-settings-providers").click();
+
+    const panel = page.getByTestId("settings-panel");
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // The section it landed on is the one that was asked for: the rail marks
+    // the current page with `aria-current`, which is the panel's own answer to
+    // "where am I" and not a class name this spec would be guessing at.
+    const current = panel.locator('[aria-current="page"]');
+    await expect(current).toHaveCount(1);
+    await expect(current).toContainText(/Provider/i);
+  });
+
   test("il pulsante mostra quanti agenti stanno lavorando, ed è il numero della lista", async ({ page, request }) => {
     // Two chats mid-reply, said by the route the app polls for exactly this.
     const first = await createTopic(request, "E2E Agent One");
@@ -139,10 +203,13 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await expect(badge).toHaveAttribute("data-notification-count", "2", { timeout: 20_000 });
 
     const menu = await openProfileMenu(page);
-    const row = menu.getByTestId("profile-menu-agents");
+    // ONE ROW FOR THE WORK AND ITS COST (STATUSLINE-05): «active agents» and
+    // «performance» were two rows asking the same question at two zooms, so
+    // the names of the sessions and the machine's numbers live in one level.
+    const row = menu.getByTestId("menu-system-status");
     await expect(row).toBeVisible();
     await row.click();
-    const level = page.getByTestId("profile-menu-agents-menu");
+    const level = page.getByTestId("menu-system-status-menu");
     await expect(level).toBeVisible({ timeout: 10_000 });
 
     const rows = level.getByTestId("active-agent-row");

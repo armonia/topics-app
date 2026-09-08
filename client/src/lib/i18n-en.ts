@@ -39,6 +39,12 @@ const EN = {
   'app.resetPanels': 'Reset panels',
   'app.autoArrange': 'Arrange automatically',
   'app.settings': 'Settings',
+  'app.viewGroup': 'View',
+  'app.viewByStateShort': 'by state',
+  'app.viewTimelineShort': 'timeline',
+  'app.archivedShort': 'archived',
+  'app.panelsGroup': 'Panels',
+  'app.settingsAll': 'All settings',
   'app.mergePanels': 'Merges every panel into one (tabs stay open)',
   'app.tileAll': 'Lays every open tab side by side in a balanced grid',
   'project.chatWaits': 'A chat in this project is waiting for your answer',
@@ -1913,6 +1919,9 @@ const EN = {
   // THE ACTIVE AGENTS ROW and the level it opens: who is working, who is
   // parked on a question, and the sentence for when nobody is.
   'statusBar.agents.title': 'Active agents',
+  'statusBar.system.title': 'Agents and performance',
+  'statusBar.system.machine': 'This computer',
+  'statusBar.version.title': 'Version',
   'statusBar.agents.awaitingHeading': 'Waiting for your answer',
   'statusBar.agents.none': 'No agent is working right now',
   'statusBar.me.panel': 'Your profile',
@@ -1931,6 +1940,8 @@ const EN = {
   'statusBar.friends.noneHint': 'Open somebody’s profile and ask to be friends: when they accept, they show up here.',
   'statusBar.friends.manage': 'Manage friends',
   'statusBar.friends.count': '{n} of {tot} online',
+  'statusBar.friends.online': '{n} online',
+  'statusBar.friends.pendingCount': '{n} to accept',
   'statusBar.friends.pending': '{n} waiting for an answer from you',
   // The panel behind the left chip: the account, not "your profile".
   'statusBar.account.title': 'Account',

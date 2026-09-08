@@ -61,6 +61,7 @@ async function apriImpostazioni(page: Page) {
   // desktop's user-card menu (`TopicsMenuItems`) and its label goes through
   // the dictionary, so under it-IT it reads «Impostazioni». allow-italian: quoted label
   await page.getByTestId("topics-menu-settings").click();
+  await page.getByTestId("topics-menu-settings-all").click();
   const pannello = page.getByTestId("settings-panel");
   await expect(pannello).toBeVisible({ timeout: 10_000 });
   await expect
@@ -300,6 +301,10 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   await menu.click();
   const openMenu = page.getByTestId("topics-menu-settings");
   await expect(openMenu).toBeVisible();
+  // The whole GROUP is absent, which is the same fact one level up: the two
+  // commands live in the «Pannelli» level (STATUSLINE-05), and where panels do
+  // not exist there is no level to open.
+  await expect(page.getByTestId("topics-menu-panels")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toHaveCount(0);
   await didascalia(page, "390px: niente comandi sui pannelli");
@@ -313,6 +318,7 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // the foot of the column (SIDEBAR-STATUS-01), and the helper picks the
   // trigger from the viewport.
   await openProfileMenu(page);
+  await page.getByTestId("topics-menu-panels").click();
   await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toBeVisible();
   await didascalia(page, "1280px: ci sono, perché lì hanno effetto");

@@ -1,22 +1,26 @@
 /**
- * VersionPopover — opens from the status-bar version chip. Shows app info and,
- * crucially, the system auto-update box (the desktop updater surface) so the
- * user can check / download / install updates from one place. In web mode it
- * falls back to the service-worker update hint.
+ * VersionPanel — the LEVEL that opens beside the «Version» row of the user
+ * menu. Shows app info and, crucially, the system auto-update box (the desktop
+ * updater surface) so the user can check / download / install updates from one
+ * place. In web mode it falls back to the service-worker update hint.
+ *
+ * IT USED TO BE A POPOVER OF ITS OWN, anchored to the version chip and
+ * portalled over the menu that hosted it: the one row of that panel that
+ * answered somewhere else, on top of the thing you opened it from. It is a
+ * submenu level now (`SubmenuItem`), which owns the placement, the flip at the
+ * window edge, the dismissal contract and the occlusion of a native browser
+ * pane. What is left here is the CONTENT, which is all this file ever was
+ * about.
  */
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useState } from 'react';
 import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
 import { updateTitle, useUpdater } from '@/lib/updater';
 import { useSidecarIntegrity, shouldWarnAboutSidecars } from '@/lib/sidecarIntegrity';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
-import { useDismissable } from '@/hooks/useDismissable';
-import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { isDesktop } from '@/lib/shell';
 import { useT } from '@/hooks/useT';
 import type { BundleDrift } from './bundleDrift';
-import { computeMenuPosition } from '../../lib/popoverPosition';
 
 function platformLabel(): string {
   // The desktop shell (Tauri) exposes no native platform field — derive it from
@@ -30,23 +34,15 @@ function platformLabel(): string {
   return 'Web';
 }
 
-/** Typical height of the panel: it only picks the SIDE before the panel is
- *  measured. Getting it slightly wrong costs a generous `maxHeight` at worst,
- *  never a panel off screen — the clamp keeps it inside either way. */
-const PANEL_H_ESTIMATE = 230;
-
-export function VersionPopover({
-  anchorEl,
+export function VersionPanel({
   appVersion,
   shellVersion,
   drift,
   isDev,
   buildDate,
   buildSha,
-  onClose,
   onOpenChangelog,
 }: {
-  anchorEl: HTMLElement | null;
   /** The running CLIENT bundle version (moves on every deploy). */
   appVersion: string;
   /** The native desktop shell binary version — shown only when it differs from
@@ -61,19 +57,10 @@ export function VersionPopover({
   /** Git short-hash of the webapp build ('' when unavailable) — the freshness
    *  signal: the semver only moves on release bumps. */
   buildSha?: string;
-  onClose: () => void;
-  /** Open the full "Novità" changelog modal (and close this popover). */
+  /** Open the full "Novità" changelog modal (and close this level). */
   onOpenChangelog: () => void;
 }) {
   const tr = useT();
-  const ref = useRef<HTMLDivElement>(null);
-  // Ref view of the raw anchor element so it counts as "inside" for dismissal
-  // and acts as the focus-restore trigger (refs[0]).
-  const anchorRef = useRef<HTMLElement | null>(null);
-  // Mirror the raw anchor into a ref in an effect (not during render) to satisfy
-  // react-hooks/refs; useDismissable reads it only inside its own effect, which
-  // runs after this one.
-  useEffect(() => { anchorRef.current = anchorEl; });
   const { available, status, check, download, install } = useUpdater();
   // An update can land on the app and MISS a piece of it: on Windows the
   // installer skips a binary that is still running and exits 0 anyway (see
@@ -110,64 +97,8 @@ export function VersionPopover({
   const autoUpdate = !!sistema?.server?.devReload;
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
-  // Close on outside pointer / Escape via the shared contract. The component is
-  // only mounted while open, so `open` is always true here.
-  useDismissable({
-    open: true,
-    onClose,
-    refs: [anchorRef, ref],
-    // A SUB-SURFACE, because this popover can live INSIDE another one.
-    //
-    // Since the status bar moved into the «Topics» menu the version chip opens
-    // from in there, and this panel is a portal onto `<body>` — geometrically
-    // OUTSIDE the dropdown hosting it. Without this line the pointerdown on the
-    // changelog entry closed the dropdown, the bar inside it unmounted, the click
-    // never reached a still-mounted element: the modal did not open. Measured
-    // 2026-08-31: CHANGELOG-01..04 red on `changelog-modal`, with the popover
-    // opening perfectly one step earlier.
-    //
-    // Not a new case: `lib/popoverRegistry.subSurfaceNodes` exists for exactly
-    // this and its comment already tells the story («clicking an item closed
-    // the parent panel»). The declaration was what was missing.
-    exclusive: false,
-  });
-
-  if (!anchorEl) return null;
-  const rect = anchorEl.getBoundingClientRect();
-  const POPOVER_W = 260;
-  // THE SHARED POSITIONER, and not a hand-rolled `bottom:` any more.
-  //
-  // This used to pin itself ABOVE the anchor — `bottom: innerHeight - rect.top`
-  // — which was right while the chip lived at the FOOT of the column: there is
-  // nothing but screen above it. The status bar moved into the «Topics» menu
-  // (SIDEBAR-STATUS-01) and the anchor went with it, near the TOP: measured
-  // 2026-08-31 with the chip at y=234, the 226px panel landed at y=2, two
-  // pixels from the edge. It fitted by accident, and on a shorter window or a
-  // longer menu it would have opened straight off the top.
-  //
-  // `computeMenuPosition` is the one that already knows the rule: open below,
-  // flip above only when there is no room, clamp both sides, and cap the height
-  // to the side it chose. Same helper the other popovers of this column use.
-  const pos = computeMenuPosition(
-    { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
-    { width: POPOVER_W, height: PANEL_H_ESTIMATE },
-    { align: 'left', gap: 6, margin: 8 },
-  );
-
-  return createPortal(
-    <div
-      ref={ref}
-      role="dialog"
-      className={`${POPOVER_PANEL} w-[260px] p-3 space-y-3`}
-      style={{
-        position: 'fixed',
-        top: pos.top,
-        left: pos.left,
-        maxHeight: pos.maxHeight,
-        overflowY: 'auto',
-        zIndex: Z_POPOVER,
-      }}
-    >
+  return (
+    <div data-testid="version-panel" className="space-y-3">
       {/* Identity */}
       <div className="flex items-baseline justify-between">
         <span className="text-[13px] font-semibold text-app-text">Topics</span>
@@ -261,8 +192,7 @@ export function VersionPopover({
           onInstall={install}
         />
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }
 

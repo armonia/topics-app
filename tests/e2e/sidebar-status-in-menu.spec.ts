@@ -183,19 +183,21 @@ test.describe("Lo stato vive dietro la card dell'utente", () => {
     expect(menu.top).toBeGreaterThanOrEqual(0);
     expect(menu.left).toBeGreaterThanOrEqual(0);
     expect(menu.right).toBeLessThanOrEqual(menu.vw);
-    await page.locator("[data-version-anchor]").click();
-    // The version popover is the LAST dialog on screen: it is portalled after
-    // the menu it was opened from.
-    const popover = (await page.locator('[role="dialog"]').last().evaluate((el) => {
-      const r = el.getBoundingClientRect();
-      return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left),
-               right: Math.round(r.right), vh: window.innerHeight, vw: window.innerWidth };
-    }))!;
-    expect(await page.locator('[role="dialog"]').count(), "the version popover opens on top of the menu").toBe(2);
-    expect(popover.top).toBeGreaterThanOrEqual(0);
-    expect(popover.bottom).toBeLessThanOrEqual(popover.vh);
-    expect(popover.left).toBeGreaterThanOrEqual(0);
-    expect(popover.right).toBeLessThanOrEqual(popover.vw);
+    // THE VERSION OPENS BESIDE THE ROW, not on top of the menu. It used to be
+    // a popover of its own anchored to the chip, which landed OVER the panel
+    // it was opened from; it is a level now (STATUSLINE-05), so what has to
+    // stay on screen is the level, and it starts at or past the right edge of
+    // the menu that owns it.
+    await page.getByTestId("menu-version").click();
+    const level = (await rect('[data-testid="menu-version-menu"]'))!;
+    expect(level.left, `the level starts at ${level.left}, the menu ends at ${menu.right}`)
+      .toBeGreaterThanOrEqual(menu.right);
+    expect(level.top).toBeGreaterThanOrEqual(0);
+    expect(level.bottom).toBeLessThanOrEqual(level.vh);
+    expect(level.right).toBeLessThanOrEqual(level.vw);
+    // And the menu did not grow to make room for it.
+    const after = (await rect('[data-testid="profile-menu"]'))!;
+    expect(after.bottom - after.top, "the host panel keeps its height").toBe(menu.bottom - menu.top);
   });
 
   test("SIDEBAR-STATUS-01d: il fondo della colonna respira quanto i lati", async ({ page }) => {

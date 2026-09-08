@@ -403,10 +403,11 @@ tooltip, nel nome accessibile e nel blocco account. Aprendola SHALL comparire un
 menu solo, che tiene: account, amici, organizzazioni, i comandi della colonna e
 lo stato della macchina.
 
-**LE LISTE SI APRONO DENTRO IL MENU**, non in un secondo pannello che esce di
-fianco al primo: la regola del chrome è un popover per volta, e una lista di
-persone dentro un flyout appeso a un altro flyout è la forma che si rompe per
-prima (due pannelli a video, il secondo contro il bordo della finestra).
+**LE LISTE SI APRONO DI LATO**, come ogni altro sottolivello di questo menu:
+vedi STATUSLINE-05, che è il requisito dove quella regola vive. Qui c'era la
+regola opposta (tutto dentro il pannello, un popover per volta) e l'ha smentita
+l'uso: dentro, ogni lista spingeva in giù tutte le righe sotto di sé e il menu
+diventava una colonna da scorrere.
 
 Ogni chip e la card SHALL avere un nome accessibile, e ogni stringa SHALL passare
 dal dizionario.
@@ -777,7 +778,8 @@ schermo anche sotto i 768px SENZA aprire il cassetto; l'identita' no.
 - **GIVEN** un desktop
 - **WHEN** si apre il menu dalla card dell'utente
 - **THEN** la riga delle prestazioni dice memoria e CPU senza espandere altro
-- **AND** espandendola compare il pannello delle prestazioni
+- **AND** premendola il pannello delle prestazioni compare DI LATO, non dentro
+  la colonna (STATUSLINE-05)
 
 #### Scenario: una riga per fatto, come le voci sopra
 - **GIVEN** un desktop col menu della card aperto
@@ -793,8 +795,14 @@ schermo anche sotto i 768px SENZA aprire il cassetto; l'identita' no.
 ### Requirement: STATUSLINE-05 — I livelli del menu utente si aprono DI LATO, e gli agenti in corso si contano dal pulsante
 
 Le voci del menu della card SHALL essere raggruppate per gerarchia, separate da
-una riga sottile, ciascuna con la sua icona: account, persone, agenti, comandi
-della colonna, app.
+una riga sottile, ciascuna con la sua icona: account, persone, comandi della
+colonna, macchina e app.
+
+NESSUNA ECCEZIONE, ed e' la meta' che mancava: la regola valeva per le liste di
+persone e per gli agenti, mentre «prestazioni e sistema» e «versione» si
+aprivano ancora DENTRO la colonna. Un menu in cui due voci su sei si comportano
+in modo diverso non ha una regola, ha due abitudini. Quindi QUALUNQUE voce con
+un sottolivello SHALL aprirlo di lato.
 
 Un livello annidato NON SHALL aprirsi ad accordion. Un accordion spinge in giu'
 tutte le righe sotto di se': con tre sezioni il menu diventa una colonna da
@@ -812,6 +820,35 @@ il secondo il menu.
 
 Gli agenti attivi SHALL essere UNA riga di riepilogo col conteggio, e l'elenco
 SHALL stare nel livello che quella riga apre.
+
+QUELLA RIGA E' ANCHE QUELLA DELLE PRESTAZIONI. «Chi sta lavorando» e «quanto
+costa questa macchina» erano due voci una sopra l'altra, e sono la stessa
+domanda a due ingrandimenti: il numero senza i nomi non dice cosa spegnere, i
+nomi senza il numero non dicono se conviene. SHALL essere una voce sola, che in
+coda porta i conteggi e il consumo (memoria e CPU, leggibili senza aprire
+niente) e nel livello, in quest'ordine, i nomi di chi lavora e poi le misure.
+Il dettaglio di QUANTO PESA CIASCUNA SEZIONE (le sessioni, i pannelli browser,
+i task in memoria) SHALL essere leggibile in quel livello, e cio' che e' piu'
+grande di una schermata SHALL scendere di un livello ancora invece di allungare
+il primo: la macchina in se' (processi, dischi, il server) e' l'esempio.
+
+I COMANDI DELLA COLONNA SHALL essere GERARCHIZZATI, non una fila piatta. Sei
+righe alla pari («mostra archiviati», «vista per stato», «riunisci i pannelli»,
+«disponi a griglia», «cronologia», «impostazioni») costringono a leggerle tutte
+per trovarne una: SHALL essere raccolte per soggetto (cosa mostra la colonna,
+com'e' disposta la finestra), e la voce che le raccoglie SHALL dire in coda come
+sta adesso, cosi' il raggruppamento non costa lo sguardo che fa risparmiare.
+
+LE IMPOSTAZIONI SHALL portare direttamente alla loro sezione. Aprire il
+pannello e poi cercare la riga dentro sono due ricerche per una intenzione
+sola: il livello SHALL elencare le sezioni, e ciascuna SHALL aprire il pannello
+GIA' su quella. L'elenco SHALL essere lo stesso dato da cui il pannello disegna
+la sua colonna, mai una seconda lista scritta a mano.
+
+IL CONTEGGIO DEGLI AMICI SHALL comparire solo quando c'e' qualcuno online (o
+qualcuno da accettare). «0 di 7 online» spende la coda della riga sull'unico
+stato che non ha niente da dire, e un totale che non cambia mai non e' una
+notizia: e' la stessa regola che le chip in fondo alla colonna gia' seguono.
 
 Il pulsante che apre il menu SHALL portare, gia' a menu chiuso, il numero degli
 agenti che stanno lavorando, come pastiglia numerica dello stesso stile dei badge
@@ -839,3 +876,27 @@ lista ne mostra tre, e chi guarda crede al badge.
 - **THEN** il pulsante in fondo alla colonna SHALL mostrare 2 a menu chiuso
 - **AND** il livello degli agenti SHALL elencare quelle due sessioni
 - **AND** il numero sul pulsante SHALL essere esattamente quante righe elenca
+
+#### Scenario: le prestazioni non si aprono dentro
+- **GIVEN** un desktop col menu della card aperto
+- **WHEN** si preme la riga degli agenti e delle prestazioni
+- **THEN** il livello SHALL aprirsi ACCANTO alla riga
+- **AND** SHALL contenere sia i nomi di chi sta lavorando sia le misure
+- **AND** il menu che lo possiede NON SHALL diventare piu' alto
+
+#### Scenario: anche la versione
+- **GIVEN** lo stesso menu
+- **WHEN** si preme la riga della versione
+- **THEN** il pannello della versione SHALL aprirsi di lato, non sopra il menu
+- **AND** il numero, il segno di build vecchia e il badge «dev» SHALL restare
+  leggibili sulla riga, senza aprire niente
+
+#### Scenario: nessun amico online
+- **GIVEN** una persona con amici, nessuno dei quali online e nessuna richiesta
+- **THEN** la riga degli amici NON SHALL portare nessun conteggio
+- **AND** appena uno di loro e' online la coda SHALL dire quanti
+
+#### Scenario: dritto a una sezione delle impostazioni
+- **GIVEN** il menu della card aperto
+- **WHEN** si apre il livello delle impostazioni e si sceglie una sezione
+- **THEN** il pannello SHALL aprirsi gia' su quella sezione

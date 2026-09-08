@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const RADICE = resolve(import.meta.dir, "../..");
-const POPOVER = readFileSync(resolve(RADICE, "client/src/components/Sidebar/VersionPopover.tsx"), "utf8");
+const POPOVER = readFileSync(resolve(RADICE, "client/src/components/Sidebar/VersionPanel.tsx"), "utf8");
 // THE MENU, NOT THE STRIP ANY MORE. The strip at the foot of the column is
 // gone: the version and its popover are rows of the «Topics» menu now
 // (`SidebarSystemMenu`), on every screen. Still reading the old file would have
@@ -78,7 +78,7 @@ describe("la riga di stato non porta piu' il badge ne' la data", () => {
     // di build, che e' il posto dove quella domanda si va a fare.
     expect(BARRA).not.toContain("buildIsRecent");
     const POPOVER_SRC = readFileSync(
-      resolve(RADICE, "client/src/components/Sidebar/VersionPopover.tsx"), "utf8",
+      resolve(RADICE, "client/src/components/Sidebar/VersionPanel.tsx"), "utf8",
     );
     expect(POPOVER_SRC).toContain('data-testid="version-built-at"');
     // E porta il tempo TRASCORSO accanto alla data: una data assoluta dice
