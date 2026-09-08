@@ -55,6 +55,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { goToApp, openTopic } from "./helpers";
 import { interceptWebSocket } from "./helpers/ws-helpers";
+import { wheelUpUntilVisible } from "./helpers/wheel-scroll";
 import { E2E_BASE } from "./helpers/test-server";
 import {
   installOn2Knob,
@@ -373,7 +374,25 @@ async function measureTranscript(
   // run does not quietly turn this witness off. It applies to the LONG
   // transcript only: the control is meant to fit on one screen, and demanding a
   // scroll run there would be demanding that the control stop being a control.
+  //
+  // AND THE WHOLE THREAD HAS TO BE ASKED FOR. Since the tail-first open
+  // (`shared/history-paging.ts`) a pane holds the LAST PAGE — forty messages,
+  // 1125 px of run measured here — and the rest is merged only while nobody is
+  // looking or when somebody asks from the top of the list. This bench looks at
+  // the list the whole time, so nothing would ever arrive on its own: without
+  // the ask, "long" and "short" are the same forty rows and the ratio this file
+  // exists to compute is a flat 1.0 dressed up as a measurement. The ask is the
+  // row the reader gets at the top of a partial transcript, clicked the way a
+  // reader clicks it.
   if (o.label === "long") {
+    // The wheel and not a `scrollTop` write: the opening pins undo a
+    // programmatic scroll and the list snaps back to the bottom, which is what
+    // the first attempt measured (749 px, still the tail, screenshot at the
+    // bottom of the transcript). The wheel is what a reader does, and it is the
+    // gesture that closes the opening window.
+    await wheelUpUntilVisible(page, page.getByTestId("chat-load-older"));
+    await page.getByTestId("chat-load-older-button").click();
+    await expect(page.getByTestId("chat-load-older")).toHaveCount(0, { timeout: 120_000 });
     await expect
       .poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 60_000 })
       .toBeGreaterThan(o.messages * 10);
