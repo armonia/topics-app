@@ -254,38 +254,39 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   });
 
   // ── RIGA 2 ────────────────────────────────────────────────────────────────
-  test("RIGA 2: i pannelli chiusi del drawer (descrizione, sottotask, consegna) RESTANO chiusi", async ({ page }) => {
+  test("RIGA 2: i dettagli restano a richiesta e i pannelli chiusi conservano la scelta", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
     await openGeneralBoard(page);
     let drawer = await openDrawer(page, CARD_DRAWER);
+    await expect(drawer.getByTestId("task-details-toggle")).toHaveAttribute("aria-expanded", "false");
+    await drawer.getByTestId("task-details-toggle").click();
 
     const manDesc = drawer.getByRole("button", { name: /^Descrizione$/ });
     const manSub = drawer.getByRole("button", { name: /^Sottotask/ });
-    const manCons = drawer.getByRole("button", { name: /^Consegna$/ });
-    // Tutte e tre nascono APERTE (la chiave assente vale «aperta»): il test
-    // parte dallo stato di default e chiude, altrimenti misurerebbe il residuo
-    // di un altro file.
+    // Sections inside the optional details retain their own collapse state.
     await expect(manDesc.locator("svg.lucide-chevron-down")).toHaveCount(1);
     await expect(manSub.locator("svg.lucide-chevron-down")).toHaveCount(1);
-    await expect(manCons.locator("svg.lucide-chevron-down")).toHaveCount(1);
 
     await manDesc.click();
     await manSub.click();
-    await manCons.click();
     await expect(drawer.getByTestId("task-desc-summary")).toBeVisible();
 
     await expect
       .poll(() => page.evaluate(() => [
         localStorage.getItem("board:taskDescOpen"),
         localStorage.getItem("board:taskSubtasksOpen"),
-        localStorage.getItem("board:taskPreviewOpen"),
       ].join("|")))
-      .toBe("0|0|0");
+      .toBe("0|0");
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20000 });
     drawer = await openDrawer(page, CARD_DRAWER);
+    await expect(drawer.getByTestId("task-details-toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(drawer.getByTestId("task-brief-scroll")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-workspace-toggle")).toHaveAttribute("data-open", "0");
+    await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
+    await drawer.getByTestId("task-details-toggle").click();
 
     // CHIUSO != VUOTO: la prova che la descrizione e' chiusa (e non assente) e'
     // l'accenno con la misura, lo stesso appiglio di `board-drawer-truth`.
@@ -295,7 +296,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
     ).toBeVisible();
     await expect(drawer.getByRole("button", { name: /^Descrizione$/ }).locator("svg.lucide-chevron-right")).toHaveCount(1);
     await expect(drawer.getByRole("button", { name: /^Sottotask/ }).locator("svg.lucide-chevron-right")).toHaveCount(1);
-    await expect(drawer.getByRole("button", { name: /^Consegna$/ }).locator("svg.lucide-chevron-right")).toHaveCount(1);
+    await expect(drawer.getByTestId("task-brief-scroll").getByTestId("media-image")).toHaveCount(0);
   });
 
   // ── RIGA 3 ────────────────────────────────────────────────────────────────
@@ -330,7 +331,7 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
   });
 
   // ── RIGA 4 ────────────────────────────────────────────────────────────────
-  test("RIGA 4: lo Spazio di lavoro chiuso (board:taskWorkspaceOpen) RESTA chiuso", async ({ page }) => {
+  test("RIGA 4: il task torna alla conversazione anche con una vecchia preferenza workspace aperto", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DURAB-BOARD-01" });
     await goToApp(page);
     await openGeneralBoard(page);
@@ -346,9 +347,8 @@ test.describe("Durabilita' al ricaricamento: board, drawer, colonna, editor", ()
 
     await maniglia.click();
     await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
-    await expect
-      .poll(() => page.evaluate(() => localStorage.getItem("board:taskWorkspaceOpen")))
-      .toBe("0");
+    // A saved preference from an older client must not reopen the workspace.
+    await page.evaluate(() => localStorage.setItem("board:taskWorkspaceOpen", "1"));
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20000 });

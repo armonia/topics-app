@@ -789,6 +789,7 @@ const EN = {
   'board.task.commentPlaceholder': 'Comment: it stays on the card.',
   'board.task.workspaceLabel': 'Workspace',
   'board.task.threadLabel': 'Conversation',
+  'board.task.detailsLabel': 'Details',
   'board.task.delivered': 'delivered',
   'board.task.queuedForTurn': 'queued',
   'board.task.deliveryLabel': 'Delivery',

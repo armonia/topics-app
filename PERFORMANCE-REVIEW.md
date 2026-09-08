@@ -127,3 +127,32 @@ correlate, oltre il limite di 8 del cancello automatico. Sono stati quindi
 eseguiti esplicitamente gli otto file browser pertinenti ai flussi modificati
 (44 casi), seguiti dalla riverifica dei tre casi di conversazione/contesto.
 La suite browser completa resta assegnata alla verifica notturna.
+
+## Seguito: conversazione al centro del dettaglio task
+
+Il dettaglio apre una sola conversazione, con titolo e composer fissi. La
+sessione rimane espandibile nel punto del turno; descrizione e metadati sono
+disponibili dal comando Dettagli nello stesso scorrimento. Lo spazio di lavoro
+si monta solo su richiesta: sostituisce la lettura nel drawer stretto e la
+affianca in quello largo. Tornare alla conversazione conserva il suo stato.
+
+La preview gia presente nei messaggi o nella consegna finale non viene ripetuta
+in un pannello separato. Un allegato presente soltanto sulla card conserva un
+comando compatto per aprirlo. Leggere o chiudere un task non apre o chiude piu
+tab nel workspace condiviso. Eliminato anche il relativo modulo automatico.
+
+Verifica del seguito: build client riuscita (`index-DybUS7F2.js`), 420 test
+unitari della board verdi in 35 file e cancello QA veloce interamente verde
+(tipi 8 s, lint 3 s). Le sei spec browser pertinenti hanno prodotto 25 verdi e
+un rosso per un test ancora legato ai pannelli precedenti. Adeguato il contratto
+del test alla nuova interfaccia, il caso di durabilita RIGA 2 passa in una corsa
+mirata senza retry. Una sola prova di conversazione viene poi eseguita con
+video abilitato per registrare il comportamento; passa senza retry.
+
+I log sono `test-results/conversation-performance/conversation-focus-*.log`.
+Lo screenshot `conversation-focus.png` e i trace della corsa 13340 documentano
+il layout; la corsa 13342 prova la durabilita dei dettagli e il `video.webm`
+della corsa 13343 mostra apertura della sessione, allegato e ritorno alla
+conversazione. Nel test con 36 tool,
+il dettaglio chiuso contiene 141 nodi DOM e quello aperto 161: i componenti
+tecnici si montano soltanto all'espansione. Non e un benchmark di latenza.

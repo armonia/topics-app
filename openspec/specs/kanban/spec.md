@@ -1717,10 +1717,15 @@ lo mangia.
 Chiudere una sezione SHALL nascondere ciò che le appartiene e NON SHALL muovere i
 comandi della decisione.
 
-In modo LARGO la sessione dell'agente SHALL stare da una parte e il resto
-dall'altra, con l'intestazione a piena larghezza sopra entrambe, e nessuna delle
-due colonne SHALL essere annidata nell'altra. La sessione dell'agente SHALL
-essere una SCHEDA, presente solo quando c'è davvero una sessione.
+La conversazione SHALL essere la superficie principale all'apertura. Titolo e
+comandi SHALL restare fuori dal suo scroller; descrizione, sottotask e dettagli
+del task SHALL aprirsi dentro lo stesso flusso, senza uno scroller concorrente.
+La sessione dell'agente SHALL stare nella conversazione (KANBAN-73), mai in una
+scheda o colonna separata. Il workspace SHALL aprirsi soltanto su richiesta:
+in modo stretto come superficie alternativa, in modo LARGO accanto alla
+conversazione. Il suo GroupLayout SHALL mantenere un'altezza definita fuori
+dallo scroller. Chiudere questa vista NON SHALL chiudere o parcheggiare tab
+condivise. L'apertura esplicita di un allegato o una tab SHALL restare possibile.
 
 #### Scenario: il caso peggiore
 - **GIVEN** un'evidenza altissima, molti commenti e tutte le sezioni aperte
@@ -2240,29 +2245,25 @@ Senza percorso NON SHALL esserci nessun tipo.
 - **GIVEN** lo stesso file in entrambi i posti
 - **THEN** SHALL comparire una volta sola
 
-### Requirement: KANBAN-55 — Ciò che si è aperto DA SOLO si richiude, ciò che hai aperto a mano resta
+### Requirement: KANBAN-55 — Leggere un task non apre o chiude superfici condivise
 
-Le superfici aperte AUTOMATICAMENTE entrando in un task SHALL essere richiuse
-uscendo; quelle aperte A MANO SHALL restare. Il contratto è quello, e vale in
-entrambi i versi.
+L'apertura normale di un task SHALL mostrare la conversazione senza aprire,
+promuovere, parcheggiare o chiudere tab del workspace. Una precedente preferenza
+locale di apertura automatica NON SHALL cambiare questa regola.
 
-Un task mai registrato NON SHALL avere niente da chiudere, e una registrazione a
-VUOTO NON SHALL creare una voce.
+Le superfici aperte esplicitamente con «Apri nel workspace» SHALL mantenere
+identità, URL e contesto condiviso. Chiudere la preview, tornare alla conversazione
+o riaprire il task NON SHALL chiudere o rinavigare queste superfici.
 
-Ri-registrare lo STESSO task SHALL aggiornare il suo elenco senza sfrattare sé
-stesso; gli identificativi ripetuti SHALL contare una volta sola.
+#### Scenario: leggere e chiudere un task con tab già presenti
+- **GIVEN** un task con un manifesto di due tab e una finestra progetto aperta
+- **WHEN** il task viene aperto e chiuso senza chiedere le tab
+- **THEN** nessuna superficie viene aperta, chiusa o modificata automaticamente
 
-Oltre un tetto di task ricordati SHALL essere sfrattato il PIÙ VECCHIO,
-restituendo le sue superfici, e ri-registrare il più vecchio SHALL riportarlo in
-cima.
-
-#### Scenario: uscire da un task
-- **GIVEN** superfici aperte automaticamente e una aperta a mano
-- **THEN** SHALL essere richiuse solo le prime
-
-#### Scenario: oltre il tetto
-- **GIVEN** più task ricordati del tetto
-- **THEN** SHALL essere sfrattato il più vecchio, restituendo le sue superfici
+#### Scenario: mantenere le superfici richieste
+- **GIVEN** due tab promosse esplicitamente nel workspace
+- **WHEN** il task viene chiuso, riaperto e richiuso
+- **THEN** le due tab e il manifesto condiviso restano invariati
 
 ### Requirement: KANBAN-56 — L'indice discorso→task si SOSTITUISCE, e sveglia solo chi è cambiato
 
@@ -3202,6 +3203,21 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
    Note di servizio, stato o revisione SHALL conservare l'ordine senza far
    considerare rappresentata la risposta. Streaming, richieste di input,
    errori del turno e allegati SHALL restare visibili.
+8. L'anteprima della consegna NON SHALL duplicare un'immagine già nella
+   conversazione né aprire automaticamente lo stesso file nel workspace. Un
+   allegato della card assente dal filo SHALL avere un riferimento apribile nel
+   filo. L'apertura normale SHALL mostrare una sola conversazione, anche con
+   preferenze precedenti che tenevano aperti descrizione e workspace. Il dettaglio
+   tecnico espandibile SHALL restare nel punto del turno a cui appartiene.
+
+#### Scenario: conversazione al centro con consegna illustrata
+- **GIVEN** un task con descrizione lunga e la stessa immagine in preview e sessione
+- **WHEN** viene aperto senza richiesta esplicita di una superficie
+- **THEN** titolo e conversazione sono visibili, l'immagine compare una volta,
+  i dettagli del task sono chiusi e il workspace non è montato
+- **WHEN** l'utente apre il workspace e poi torna alla conversazione
+- **THEN** ritrova messaggi e dettagli della sessione nello stesso filo, senza
+  alterare lo stato condiviso delle tab
 
 Il modo di sbagliare SHALL essere una riga in più, MAI un dato perso. Un dettaglio
 chiuso SHALL essere sempre indicato e riapribile dalla tastiera. La lista

@@ -3,14 +3,15 @@
  *
  * Il risultato di un task si apre come TAB del browser di Topics nella finestra
  * del progetto (non nel browser esterno del OS). Il bottone del drawer dispatcha
- * `topics:open-project` (apre/porta in primo piano la finestra) + `browser:open-
- * and-navigate` (che la useProjectLayout traduce in un pane RemoteBrowserPanel).
+ * `browser:open-and-navigate`, aprendo la finestra solo se non è già montata.
+ * Leggere o chiudere il task non apre, richiude o modifica le tab del progetto.
  *
- * Assert deterministico: al click, i due eventi partono con il detail giusto
+ * Assert deterministico: al click, la navigazione parte con il detail giusto
  * (projectPath del task, url = output_url, contextId presente). L'apertura del
  * pane è comportamento Topics già esistente (stesso path di `/browser`); il video
  * registrato dalla suite mostra il pane che compare nel workspace.
  *
+ * @covers KANBAN-55
  * @covers BROWSER-CHAT-04
  */
 import { test } from "./fixtures/layout.fixture";
@@ -62,10 +63,9 @@ async function openTestProject(page: Page) {
 /**
  * Monta la finestra del progetto, poi apre la BOARD GENERALE come tab a sé.
  *
- * È la configurazione dell'auto-open: due superfici distinte — il drawer sta
- * sulla board globale, il workspace è la finestra del progetto già montata. La
- * finestra va aperta PRIMA, o `isProjectWindowMounted` è falso e non si apre
- * niente (che è proprio il recinto di WSOPEN-01).
+ * Le due superfici sono distinte: il drawer sta sulla board globale, il
+ * workspace è la finestra del progetto già montata. Leggere il task non deve
+ * aprire tab in quella finestra, né chiudere quelle che l'utente ha aperto.
  */
 async function openGlobalBoardBesideProject(page: Page) {
   await openTestProject(page);
@@ -199,7 +199,10 @@ test.describe("Apri nel workspace", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // Le due tab del manifesto sono le tab del drawer, con i NOMI dell'agente.
+    // The conversation opens first. The manifest is still available through
+    // the explicit workspace view, with the agent's original tab names.
+    await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
+    await drawer.getByTestId("task-workspace-toggle").click();
     await expect(drawer.getByRole("tab", { name: "App" })).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByRole("tab", { name: "Report" })).toBeVisible();
 
@@ -229,42 +232,27 @@ test.describe("Apri nel workspace", () => {
     ]);
   });
 
-  /**
-   * WSOPEN-03 — l'auto-open, e il fatto che si RICHIUDE.
-   *
-   * Dalla board GENERALE il drawer e il workspace sono due superfici diverse:
-   * lì il risultato può comparire nella finestra del progetto senza click, e
-   * togliere un gesto a chi rivede. Ma un'apertura automatica che non si
-   * richiude è solo accumulo — dopo cinque card riviste il workspace è pieno di
-   * roba che nessuno ha chiesto. Il patto è quindi in due metà, e questo test
-   * misura ENTRAMBE: si apre da solo → si chiude da solo.
-   *
-   * Dentro la finestra del progetto la board è una sua pane, e lì l'auto-open è
-   * spento apposta (`autoOpenInWorkspace={global}`): è la stessa superficie, e
-   * si prenderebbe lo spazio del drawer che stai leggendo.
-   */
-  test("WSOPEN-03: dalla board generale il manifesto si apre da solo, e uscendo si richiude", async ({ page }) => {
-    const text = `Task auto-open ${Date.now()}`;
+  test("WSOPEN-03: leggere e chiudere il task non apre né chiude le tab condivise del progetto", async ({ page }) => {
+    const text = `Task senza aperture implicite ${Date.now()}`;
     const task = await apiCreateTask(page.request, { text, status: "in_progress" });
     const appCtx = `task-${task.id.slice(0, 8)}-napp`;
     const reportCtx = `task-${task.id.slice(0, 8)}-nreport`;
-    const put = await page.request.put(`${BASE}/api/ui-state/task-browser-tabs:${task.id}`, {
-      data: {
-        tabs: [
-          { contextId: appCtx, url: `${BASE}/`, title: "App", seq: 0, titleSource: "agent" },
-          { contextId: reportCtx, url: `${BASE}/?report`, title: "Report", seq: 1, titleSource: "agent" },
-        ],
-        activeContextId: appCtx,
-        nextSeq: 2,
-      },
-    });
+    const manifest = {
+      tabs: [
+        { contextId: appCtx, url: `${BASE}/`, title: "App", seq: 0, titleSource: "agent" },
+        { contextId: reportCtx, url: `${BASE}/?report`, title: "Report", seq: 1, titleSource: "agent" },
+      ],
+      activeContextId: appCtx,
+      nextSeq: 2,
+    };
+    const manifestUrl = `${BASE}/api/ui-state/task-browser-tabs:${task.id}`;
+    const put = await page.request.put(manifestUrl, { data: manifest });
     expect(put.ok()).toBe(true);
 
     await page.goto("/");
     await openGlobalBoardBesideProject(page);
 
-    // In ascolto PRIMA del click: l'auto-open parte al mount del drawer, quindi
-    // un listener messo dopo non vedrebbe niente e il test passerebbe a vuoto.
+    // Listen before mount so an automatic promotion cannot escape the count.
     await page.evaluate(() => {
       const w = window as unknown as { __wsAuto: unknown[]; __wsClosed: string[] };
       w.__wsAuto = [];
@@ -278,40 +266,50 @@ test.describe("Apri nel workspace", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
-    // NESSUN click sul bottone: le due pane compaiono da sole.
-    await expect
-      .poll(async () => page.evaluate(() => (window as unknown as { __wsAuto: unknown[] }).__wsAuto.length), { timeout: 5000 })
-      .toBe(2);
-    const autos = (await page.evaluate(() => (window as unknown as { __wsAuto: unknown[] }).__wsAuto)) as {
-      contextId?: string; forced?: boolean;
-    }[];
-    expect(autos.map((a) => a.contextId).sort()).toEqual([`${appCtx}_ws`, `${reportCtx}_ws`]);
-    // E la finestra del progetto non viene ri-aperta né rialzata: c'è già.
-    expect(autos.some((a) => a.forced)).toBe(false);
-
-    // L'evento non è la prova: la prova è la PANE. Andando nella finestra del
-    // progetto le due pane ci sono davvero, una per tab del manifesto, ognuna
-    // sotto il gemello del suo contextId.
+    // The tab count proves the manifest has arrived, without mounting browser
+    // surfaces just to read a task. No project navigation has been dispatched.
+    await expect(drawer.getByTestId("task-workspace-toggle")).toContainText("2");
+    await expect(drawer.getByTestId("task-workspace-toggle")).toHaveAttribute("data-open", "0");
+    await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-session-column")).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __wsAuto: unknown[] }).__wsAuto)).toEqual([]);
     const appPane = page.locator(`[data-pane-id="browser:${appCtx}_ws"]`);
     const reportPane = page.locator(`[data-pane-id="browser:${reportCtx}_ws"]`);
+    await expect(appPane).toHaveCount(0);
+    await expect(reportPane).toHaveCount(0);
+
+    // A deliberate promotion still works. These panes now belong to the
+    // user's project workspace and must survive closing and rereading the task.
+    await drawer.getByTestId("task-options-menu").click();
+    await page.getByTestId("task-open-in-workspace").click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __wsAuto: unknown[] }).__wsAuto.length)).toBe(2);
+    const opened = (await page.evaluate(() => (window as unknown as { __wsAuto: unknown[] }).__wsAuto)) as { contextId?: string; forced?: boolean }[];
+    expect(opened.map((entry) => entry.contextId).sort()).toEqual([`${appCtx}_ws`, `${reportCtx}_ws`]);
+    expect(opened.some((entry) => entry.forced)).toBe(false);
     await openTestProject(page);
     await expect(appPane).toHaveCount(1, { timeout: 10000 });
     await expect(reportPane).toHaveCount(1);
 
-    // Uscita dal task: quello che si è aperto DA SOLO si richiude da solo, e
-    // passa dalla porta normale (`browser:request-close`, la stessa di
-    // `window.close()`), non da una scorciatoia distruttiva.
     await page.getByTestId("sidebar-board-generale").click();
     await expect(drawer).toBeVisible({ timeout: 10000 });
     await drawer.getByRole("button", { name: /Chiudi il dettaglio del task|Close the task detail/ }).click();
     await expect(drawer).toBeHidden({ timeout: 10000 });
 
-    await expect
-      .poll(async () => page.evaluate(() => (window as unknown as { __wsClosed: string[] }).__wsClosed.slice().sort()), { timeout: 5000 })
-      .toEqual([`${appCtx}_ws`, `${reportCtx}_ws`]);
-    // …e sparite per davvero dal workspace, non solo «richieste».
+    await page.getByTestId("kanban-column-in_progress").getByText(text).click();
+    await expect(drawer.getByTestId("task-workspace-toggle")).toContainText("2");
+    await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
+    await drawer.getByRole("button", { name: /Chiudi il dettaglio del task|Close the task detail/ }).click();
+    await expect(drawer).toBeHidden();
+
+    // Reopening did not navigate the existing panes, and neither close asked
+    // another window to destroy them. Verify the actual panes and task manifest.
     await openTestProject(page);
-    await expect(appPane).toHaveCount(0, { timeout: 10000 });
-    await expect(reportPane).toHaveCount(0);
+    await expect(appPane).toHaveCount(1);
+    await expect(reportPane).toHaveCount(1);
+    expect(await page.evaluate(() => (window as unknown as { __wsClosed: string[] }).__wsClosed)).toEqual([]);
+    expect(await page.evaluate(() => (window as unknown as { __wsAuto: unknown[] }).__wsAuto)).toEqual(opened);
+    const saved = await page.request.get(manifestUrl);
+    expect(saved.ok()).toBe(true);
+    expect((await saved.json()).value).toEqual(manifest);
   });
 });

@@ -5916,7 +5916,6 @@
     ],
     "tests/e2e/board-drawer-scroll.spec.ts": [
       "CRC_TABLE",
-      "approva",
       "crc",
       "crc32",
       "ihdr",
