@@ -320,7 +320,10 @@ test.describe("Selettore progetto della board", () => {
     const fresh = `projsel${STAMP}`;
     await search.fill(fresh);
     await expect(create).toBeEnabled();
-    await expect(create).toContainText(`Crea "${fresh}"`);
+    // The quotes are the Italian ones since the board went through the i18n
+    // catalogue (`board.projectPicker.create`): the straight pair belonged to a
+    // string written by hand in the component.
+    await expect(create).toContainText(`Crea «${fresh}»`);
     // E DICE dove lo crea: la cartella è dedotta dal server, non configurata.
     const target = (await (await page.request.get(`${BASE}/api/all-boards/projects`)).json()) as {
       newProjectDir: string | null;

@@ -61,7 +61,14 @@ test.describe("Chat /compact — il comando si trova", () => {
     // La seconda superficie permanente: chi sta guardando quanto contesto sta
     // consumando deve poterlo compattare da li', senza ricordarsi un comando.
     await expect(chatPage.messageInput).toBeVisible({ timeout: 30_000 });
-    await page.getByRole("button", { name: /context/i }).first().click();
+    // The button's name follows the language since the chat went through the
+    // i18n catalogue (`chat.contextInspector.toggle`). English reads "Toggle
+    // context inspector"; the Italian one is
+    // «Apri o chiudi il pannello del contesto». allow-italian: it is the label
+    // this locator has to match, quoted.
+    // Matching the English word alone found the button while the label was
+    // written by hand, and does not any more.
+    await page.getByRole("button", { name: /context|contesto/i }).first().click();
     const popover = page.locator('[data-popover="context-inspector"]');
     await expect(popover).toBeVisible({ timeout: 15_000 });
     // Il riquadro compare SUBITO ma vuoto: l'Inspector e' `lazy()`, e finche' il

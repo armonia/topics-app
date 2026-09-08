@@ -44,8 +44,8 @@ const FINESTRA_MS = 400;
  * Questo file mandava frame con `taskId` e basta: non svegliavano nessuno, e i
  * due test qui sotto misuravano una raffica che non era mai partita.
  */
-function taskUpdated(taskId: string, status: string) {
-  return { type: "task:updated", projectId: PROJECT_ID, task: { id: taskId, projectId: PROJECT_ID, status } };
+function taskUpdated(taskId: string, status: string, extra: Record<string, unknown> = {}) {
+  return { type: "task:updated", projectId: PROJECT_ID, task: { id: taskId, projectId: PROJECT_ID, status, ...extra } };
 }
 
 let projectTopicId: string | null = null;
@@ -195,18 +195,25 @@ test.describe("Kanban board — letture del feed", () => {
     await stoppedFeed();
     letture = 0;
     marcato = true;
-    for (let i = 0; i < 10; i++) ws.send(taskUpdated(seme.id, "todo"));
+    // THE FRAME CARRIES THE MARKER, the feed response no longer does. A
+    // `task:updated` that stays inside the feed's cut is now written straight
+    // into the store (`applyBoardTaskFrame`), so a burst costs ZERO reads:
+    // waiting for the marker to arrive on a read was waiting for a read the
+    // product has stopped doing, and the test hung for ten seconds. The marker
+    // now proves the right thing, and a stronger one: the ten frames were
+    // APPLIED.
+    for (let i = 0; i < 10; i++) ws.send(taskUpdated(seme.id, "todo", { text: marcatore }));
 
     await expect(board.getByText(marcatore)).toBeVisible({ timeout: 10000 });
     // La coda della raffica arriva DOPO la prima lettura: contare qui, appena
     // il marcatore compare, misurerebbe mezza raffica.
     await stoppedFeed();
-    // Il tetto è il punto del test. Il pavimento è ciò che gli impedisce di
-    // essere vero per il motivo sbagliato: con i frame che questo test mandava
-    // prima — senza il campo `task`, quindi scartati dalla validazione in
-    // arrivo (`shared/ws-outbound.ts`) — le letture erano ZERO e «al massimo
-    // due» era un'asserzione che non poteva fallire.
-    expect(letture).toBeGreaterThanOrEqual(1);
+    // The ceiling is the point of the test. The floor is no longer "at least
+    // one read": an absorbed burst does zero, and that is the intended
+    // behaviour. What stops the ceiling from being true for the wrong reason
+    // (frames dropped by the inbound validation in `shared/ws-outbound.ts`, so
+    // no reads because nothing arrived) is the marker above: it only appears if
+    // the ten frames were really applied.
     expect(letture).toBeLessThanOrEqual(2);
   });
 

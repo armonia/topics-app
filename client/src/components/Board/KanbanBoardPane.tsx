@@ -1924,16 +1924,24 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); endDrag(); flushDeferredRead(); setDropNotice(null); }}>
-            {/* NO `scroll-smooth` HERE, and that is the fix for "the columns
-                jump instead of gliding" on a phone (card 1e015ad6).
+            {/* NO `scroll-smooth` ON A PHONE, and that is the fix for "the
+                columns jump instead of gliding" (card 1e015ad6).
                 `scroll-behavior: smooth` on a scroll-snap container hands the
                 post-swipe snap to the CSS scroll animation instead of leaving
                 it to the browser's own fling: on a touch screen the peek of the
                 neighbouring column arrived in one step. Nothing is lost by
                 dropping it, because every programmatic scroll in this file
                 already asks for `behavior: 'smooth'` on its own call, which is
-                the only place a smooth scroll was ever wanted. */}
-            <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
+                the only place a smooth scroll was ever wanted.
+
+                IT STAYS ON THE WIDE VIEWPORT (`sm:`), and that is not symmetry:
+                there the snap is not a carousel, it is a trap. dnd-kit scrolls
+                this container while a card is being dragged towards its edge,
+                and an INSTANT mandatory snap moves a whole column under a
+                pointer that has not moved. Measured on 2026-09-08: a card
+                dropped on In Progress landed in Review, three times out of
+                three (BOARD-18), from the moment `scroll-smooth` left. */}
+            <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:scroll-smooth sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}

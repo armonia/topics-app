@@ -4,7 +4,14 @@ export class ChatPage {
   constructor(private page: Page) {}
 
   get messageInput() {
-    return this.page.getByRole("textbox", { name: /Campo del messaggio/ });
+    // BOTH LANGUAGES, because the label follows the chosen one.
+    // The composer's aria-label used to be a hardcoded Italian string, so a
+    // single Italian pattern matched it whatever the interface said. Since the
+    // chat went through the i18n catalogue (`chat.composer.inputAria`) an
+    // English interface answers "Message input for <name>", and a spec that
+    // switches the language to English (surfaces-i18n) stopped finding its own
+    // composer. The alternation is the honest locator: one composer, two names.
+    return this.page.getByRole("textbox", { name: /Campo del messaggio|Message input for/ });
   }
 
   get messageList() {

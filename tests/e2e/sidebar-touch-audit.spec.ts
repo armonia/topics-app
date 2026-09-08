@@ -782,7 +782,18 @@ test.describe("Sidebar col dito — audit misurato", () => {
     const testata = page.locator(`${SIDEBAR} .app-drag-region`).first();
     await expect(testata.getByTestId("sidebar-topics-menu")).toHaveCount(1);
     await expect(testata.locator("button")).toHaveCount(2);
-    expect(titolo.y, "il titolo deve stare sopra l'albero").toBeLessThan(albero.y);
+    // THE TITLE IS ABOVE THE TREE ON THE Z AXIS, no longer in the flow. Since
+    // the top row became transparent and left the flow (card 1e015ad6) the
+    // scroller starts at zero and the tabs pass UNDER the row, which is what
+    // was asked for: no ground of its own, the list scrolling behind it. So the
+    // tree begins where the column begins, and what keeps the first tab from
+    // being born covered is the padding INSIDE the scroller.
+    expect(Math.round(albero.y - colonna.y), "l'albero parte da sotto la fila, non da dentro il flusso").toBeLessThanOrEqual(1);
+    // The inset is read on the scrolling column, which is where
+    // `--sidebar-scroll-top` lands (see App.tsx and TopicTree.tsx).
+    const scrollerInset = await page.locator(`${SIDEBAR} .sidebar-column`).first()
+      .evaluate((el) => parseFloat(getComputedStyle(el).paddingTop));
+    expect(scrollerInset, "lo scroller deve lasciare posto alla fila che gli galleggia sopra").toBeGreaterThanOrEqual(titolo.height);
     expect(Math.round(titolo.x - colonna.x), "il titolo non parte dal rientro della colonna").toBe(6);
     expect(Math.round(titolo.height), `il titolo è alto ${titolo.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
 
