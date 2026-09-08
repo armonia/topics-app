@@ -32,7 +32,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
-import { topicsMcpBridgeSpec } from "./claude-code";
+import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -412,7 +412,7 @@ export class CodexProvider implements AIProvider {
     // its sandbox flag.
     const workspace = globalOrchestrator
       ? globalOrchestratorWorkspace()
-      : (this.config.defaultWorkspace || process.env.HOME || "/tmp");
+      : (getTopicWorkspaceForSession(sessionKey) || this.config.defaultWorkspace || process.env.HOME || "/tmp");
 
     // Force the reasoning-effort tier explicitly — the codex mirror of the
     // `--effort` flag claude-code sessions get. Deterministic under launchd

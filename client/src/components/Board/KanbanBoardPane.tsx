@@ -18,6 +18,7 @@ import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
+import { availableTaskModels } from '../../../../shared/task-coding-models';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
@@ -690,11 +691,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
   // Provider model list for the board-default picker (settings panel). Seeded
   // from the snapshot and kept live — same source the composer's picker uses.
-  const [claudeModels, setClaudeModels] = useState<string[]>(
-    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
+  const [models, setModels] = useState<string[]>(
+    () => availableTaskModels(getProvidersSnapshotState().snapshot),
   );
   useEffect(() => subscribeProvidersSnapshot((state) => {
-    setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
+    setModels(availableTaskModels(state.snapshot));
   }), []);
   // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
   // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
@@ -1902,7 +1903,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             projectId={projectId}
             settings={settings}
             dispatchOn={dispatchOn}
-            models={claudeModels}
+            models={models}
             onToggleDispatch={toggleDispatch}
             onChanged={setSettings}
             onClose={() => setShowSettings(false)}

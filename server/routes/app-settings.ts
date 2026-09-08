@@ -1,6 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getAppSettings, updateAppSettings, type AppSettings } from "../services/app-settings";
 import { recomputeDefault, getDefaultProviderName, listProviders } from "../providers";
+import { getSnapshotManager } from "../providers/snapshot-manager";
 import { reconcileDiscordPresence } from "../services/discord-presence";
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from "../../shared/effort";
 import { CALENDAR_HORIZON_CHOICES, CALENDAR_REFRESH_CHOICES } from "../../shared/calendar";
@@ -257,6 +258,10 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
         return json({ ok: false, errors }, 400);
       }
       const settings = updateAppSettings(patch);
+      // Direct API defaults apply on the next turn. Push the same model into
+      // every composer's snapshot now, so its label agrees with that request.
+      if ("openaiModel" in patch || "openaiMaxTokens" in patch) getSnapshotManager().invalidate("openai");
+      if ("claudeModel" in patch || "claudeMaxTokens" in patch) getSnapshotManager().invalidate("claude");
       // L'interruttore della presence deve valere SUBITO. Senza questo, un
       // «accendi» avrebbe effetto al prossimo giro del servizio — fino a
       // quindici secondi di pannello acceso e profilo Discord vuoto, che si

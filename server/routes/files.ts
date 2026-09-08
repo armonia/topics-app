@@ -10,6 +10,7 @@ import { STATUS_ARGS, gitRead, parsePorcelainZ, repoPrefixOf } from "../lib/git-
 import { moveToTrash } from "../lib/trash";
 import { isInsideDir } from "../lib/path-containment";
 import { realPathForNewEntry } from "../lib/real-path";
+import { isTopicsSecretPath } from "../lib/topics-secret-path";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
@@ -244,7 +245,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           entries.sort((a, b) => { if (a.isDirectory() && !b.isDirectory()) return -1; if (!a.isDirectory() && b.isDirectory()) return 1; return a.name.localeCompare(b.name); });
           for (const entry of entries) {
             const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
-            if (DEFAULT_EXCLUDES.has(entry.name)) continue;
+            if (DEFAULT_EXCLUDES.has(entry.name) || isTopicsSecretPath(entry.name)) continue;
             if (entry.isDirectory() && HEAVY_EXCLUDES.has(entry.name)) continue;
             if (ignore.ignores(rel, entry.isDirectory())) continue;
             const fullPath = join(dir, entry.name);
@@ -284,7 +285,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Il perimetro e' la cosa che conta: escludeva quattro cartelle e non
         // `target/`, che su questo repo vale il 92% del tempo. Stessa lista
         // dell'albero dei file (`HEAVY_DIRS`), piu' `.git` e i dati locali.
-        for (const ex of [...HEAVY_DIRS, ".git", "data", "test-results", "videos", "uploads"]) {
+        for (const ex of [...HEAVY_DIRS, ".git", ".topics-secrets", "data", "test-results", "videos", "uploads"]) {
           args.push(`--exclude-dir=${ex}`);
         }
         args.push("--exclude=*.lock");
@@ -312,6 +313,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         }
 
         const results: { file: string; line: string; lineNumber: number; match: string }[] = [];
+        const readableFiles = new Map<string, boolean>();
         for (const raw of output.split("\n").filter(Boolean)) {
           // Format: ./path/to/file:lineNum:line content
           const firstColon = raw.indexOf(":");
@@ -320,6 +322,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           if (secondColon === -1) continue;
           let file = raw.substring(0, firstColon);
           if (file.startsWith("./")) file = file.slice(2);
+          // A search rooted in a project must not return private files through
+          // symlinks or a case variant of the reserved credentials directory.
+          let readable = readableFiles.get(file);
+          if (readable === undefined) {
+            readable = resolveProjectPath(join(resolvedPath, file)) !== null;
+            readableFiles.set(file, readable);
+          }
+          if (!readable) continue;
           const lineNumber = parseInt(raw.substring(firstColon + 1, secondColon), 10);
           const line = raw.substring(secondColon + 1);
           if (isNaN(lineNumber)) continue;

@@ -1326,6 +1326,24 @@ describe("blocked-by dependency", () => {
     expect(upd.model).toBeNull();
     expect(upd.reuseBlockerContext).toBe(false);
   });
+
+  test("a bound task rejects a model change from any caller without changing its session or task", () => {
+    const task = s.create({ projectId: PID, text: "Bound task", model: "claude-opus-5" });
+    db.run("INSERT INTO topics (id) VALUES ('model-bound-topic')");
+    s.bindTopic({ taskId: task.id, topicId: "model-bound-topic" });
+    for (const actor of ["human", "agent"] as const) {
+      expect(() => s.update({ taskId: task.id, actor, by: "test", patch: { model: "gpt-5.4", text: "Must not change" } }))
+        .toThrow("Il modello è fissato alla sessione");
+    }
+    expect(() => s.update({ taskId: task.id, actor: "human", by: "test", patch: { model: null } }))
+      .toThrow("Il modello è fissato alla sessione");
+    const unchanged = s.get(task.id)!.task;
+    expect(unchanged.model).toBe("claude-opus-5");
+    expect(unchanged.text).toBe("Bound task");
+    expect(unchanged.assignedTopicId).toBe("model-bound-topic");
+    expect(s.update({ taskId: task.id, actor: "human", by: "test", patch: { model: "claude-opus-5" } }).model)
+      .toBe("claude-opus-5");
+  });
 });
 
 describe("priorità automatica", () => {

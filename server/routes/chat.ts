@@ -36,7 +36,6 @@ import { getActiveGoal, replaceSteps } from "../services/goals";
 import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
-import { getSnapshotManager } from "../providers/snapshot-manager";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { resumeAttemptOf } from "../lib/ripresa-boot";
@@ -401,6 +400,21 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           }, 503);
         }
       }
+      const requestedProviderId = overrideProvider ?? matchedTopic?.provider;
+      let explicitProvider: AIProvider | null = null;
+      if (!forcedGlobalProvider && requestedProviderId) {
+        try {
+          explicitProvider = overrideProvider
+            ? getProvider(overrideProvider)
+            : resolveProvider(matchedTopic);
+          if (!explicitProvider.connected) throw new Error("unavailable");
+        } catch {
+          return json({
+            error: `Provider "${requestedProviderId}" is unavailable. Connect it in Settings or choose another provider.`,
+            code: "provider_unavailable", provider: requestedProviderId,
+          }, 503);
+        }
+      }
       // Reset browser navigate tracking for this topic so new URLs can trigger
       if (matchedTopic) browserNavigatedTopics.delete(matchedTopic.id);
       // Il piano ha UNA leva sola, ed è l'autonomia della chat.
@@ -724,13 +738,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       let topicProvider: AIProvider;
       if (forcedGlobalProvider) {
         topicProvider = forcedGlobalProvider;
-      } else if (overrideProvider) {
-        try {
-          topicProvider = getProvider(overrideProvider);
-        } catch (err: any) {
-          console.warn(`[Chat] Override provider "${overrideProvider}" not available, falling back: ${err.message}`);
-          topicProvider = resolveProvider(matchedTopic);
-        }
+      } else if (explicitProvider) {
+        topicProvider = explicitProvider;
       } else {
         topicProvider = resolveProvider(matchedTopic);
       }
@@ -834,26 +843,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         ? body.model.trim()
         : (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
 
-      // Drop the override if the resolved provider no longer offers that
-      // model — e.g. the user picked `gpt-5-codex` two months ago, then ChatGPT
-      // auth changed plan and the cache no longer lists it. Without this check
-      // the model name is forwarded to the CLI which fails with "exit 1" and
-      // surfaces as a "Codex error" stub. If we can't resolve a model list
-      // (manager not warmed yet, or provider has no listModels), trust the
-      // override — the previous behavior. The validation is a guard, not a
-      // contract.
-      let overrideModel: string | undefined = requestedModel;
-      if (requestedModel) {
-        const snap = getSnapshotManager().getSnapshot();
-        const entry = snap.providers.find(p => p.name === topicProvider.name);
-        if (entry && entry.models.length > 0 && !entry.models.includes(requestedModel)) {
-          console.warn(
-            `[Chat] Dropping stale model override "${requestedModel}" — not offered by provider "${topicProvider.name}". ` +
-            `Available: [${entry.models.slice(0, 5).join(", ")}${entry.models.length > 5 ? ", …" : ""}]`,
-          );
-          overrideModel = undefined;
-        }
-      }
+      // A catalog can be stale or incomplete. Keep the chosen ID: only the
+      // provider can reject it. Silently using its default would run a different
+      // model from the one shown on the task and in the composer.
+      const overrideModel = requestedModel;
 
       // ─── Fast Mode ────────────────────────────────────────────────────
       //

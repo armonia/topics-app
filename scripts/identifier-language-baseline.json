@@ -3956,9 +3956,6 @@
     "server/providers/normalize-history.test.ts": [
       "turni"
     ],
-    "server/providers/openai.ts": [
-      "tcArr"
-    ],
     "server/providers/prompt-cache.test.ts": [
       "dopoUna"
     ],

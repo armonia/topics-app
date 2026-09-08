@@ -32,6 +32,7 @@ import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../sta
 import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
 import { paneIdToContextId } from '../../state/taskBrowserLayout';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
+import { availableTaskModels } from '../../../../shared/task-coding-models';
 import { machineLabel, nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
@@ -1256,10 +1257,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [models, setModels] = useState<string[]>(
-    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
+    () => availableTaskModels(getProvidersSnapshotState().snapshot),
   );
   useEffect(() => subscribeProvidersSnapshot((state) => {
-    setModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
+    setModels(availableTaskModels(state.snapshot));
   }), []);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
@@ -1282,7 +1283,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   const changeModel = async (model: string | null) => {
     setModelMenuOpen(false);
-    if (!task || (task.model ?? null) === model || busy) return;
+    if (!task || task.assignedTopicId || (task.model ?? null) === model || busy) return;
     setBusy(true);
     try { await boardApi.update(projectId, taskId, { model }); setError(null); await load(); onChanged(); }
     catch (e) { showError(e); }
@@ -2095,9 +2096,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </Menu>
             <button
               ref={modelBtnRef}
-              onClick={() => setModelMenuOpen(true)}
+              onClick={() => { if (!task.assignedTopicId) setModelMenuOpen(true); }}
+              aria-disabled={!!task.assignedTopicId}
               data-testid="task-model-chip"
-              title={(task.agentMs > 0 || task.agentTokens > 0)
+              title={task.assignedTopicId ? tr('task.model.sessionFixed') : (task.agentMs > 0 || task.agentTokens > 0)
                 ? tr('task.model.stats', {
                     model: task.model ? fmtModel(task.model) : 'Auto',
                     effort: task.effort ? tr('task.model.effortPart', { effort: task.effort }) : '',
@@ -2110,9 +2112,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
-              <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
+              {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
             </button>
-            <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
+            <Menu open={modelMenuOpen && !task.assignedTopicId} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
               <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
               <button
                 role="option" aria-selected={!task?.model} disabled={busy}
@@ -2120,7 +2122,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className={`${POPOVER_ITEM} disabled:opacity-40`}
               >
                 <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')} <span className="text-app-text-muted">(opus-first)</span></span>
+                <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')}</span>
                 {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
               {models.map((m) => (
