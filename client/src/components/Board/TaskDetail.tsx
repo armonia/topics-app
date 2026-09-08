@@ -21,7 +21,7 @@ import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment,
 import { isImagePath, isPdfPath, isVideoPath } from '../../lib/mediaKind';
 import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
-import { isDoneThreadService, isServiceComment } from '../../../../shared/task-comment-service';
+import { isDoneThreadService, isFreshSessionNote, isServiceComment } from '../../../../shared/task-comment-service';
 import { questionToProse } from '../../../../shared/question-prose';
 import { pendingQuestionComment } from '../../../../shared/board';
 import { ThreadRuns } from './ThreadRuns';
@@ -3470,7 +3470,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
         title={`${who.name} (${who.detail}) · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
       >
         <Bot className="h-3 w-3 shrink-0" />
-        <span className="min-w-0 break-words">{parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
+        <span className="min-w-0 break-words">{isFreshSessionNote(comment) ? tr('board.task.freshSessionQueued') : parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
         <span className="ml-auto shrink-0 text-app-text-faint">{commentTime(comment.createdAt)}</span>
       </div>
     );

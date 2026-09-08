@@ -833,6 +833,7 @@ const EN = {
   'board.task.queuedForTurn': 'queued',
   'board.task.noteSaved': 'Note saved. No agent response requested.',
   'board.task.commentSaved': 'Message saved.',
+  'board.task.freshSessionQueued': 'Task queued for a new session. Conversation and feedback are preserved.',
   'board.task.unassignedNoteContext': 'No agent assigned: the message stays as a note. Move the task to To do to resume work.',
   'board.task.deliveryLabel': 'Delivery',
   'board.task.deliveryAutoShot': 'boot from the branch, not the change',

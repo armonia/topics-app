@@ -54,6 +54,7 @@ import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { activeFrozenCount } from "../services/budget-governor";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
@@ -3321,7 +3322,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               try {
                 svc.addComment({
                   taskId: bReview.taskId, author: "system", kind: "service",
-                  content: "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno.",
+                  content: FRESH_SESSION_NOTE,
                 });
               } catch { /* the requeue is what matters */ }
               broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: backInQueue });

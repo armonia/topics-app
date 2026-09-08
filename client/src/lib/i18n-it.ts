@@ -937,6 +937,7 @@ const IT: Dict = {
   'board.task.queuedForTurn': 'in coda',
   'board.task.noteSaved': 'Nota salvata. Nessuna risposta dell’agente richiesta.',
   'board.task.commentSaved': 'Messaggio salvato.',
+  'board.task.freshSessionQueued': 'Task in coda per una nuova sessione. Conversazione e feedback sono conservati.',
   'board.task.unassignedNoteContext': 'Nessun agente assegnato: il messaggio resta una nota. Per riprendere il lavoro, rimetti il task in Da fare.',
   // «Consegna» e non «Anteprima»: è la cosa CONSEGNATA, la sezione in cima al
   // brief per cui il drawer si apre (e che ora si chiude da sé).
