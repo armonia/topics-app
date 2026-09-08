@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-07",
+  "generated": "2026-09-08",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -2249,8 +2249,7 @@
       "sporco",
       "temporanea",
       "temporanee",
-      "vero",
-      "withAdvisories"
+      "vero"
     ],
     "scripts/check-security.ts": [
       "EXTENSIONLESS",
