@@ -1,0 +1,18 @@
+== fresh-pane typed probe, label fresh1, port 13444
+-- after relaunch, focus: Chrome_WidgetWin_1 pid=118872 msedgewebview2
+   click 1369,250
+   click 1720,424
+-- pane opened, focus: Chrome_WidgetWin_1 pid=118872 msedgewebview2
+-- typing straight after the pane opened: 8 request(s); focus: Chrome_WidgetWin_1 pid=118872 msedgewebview2
+== witness log ==
+   listening on 127.0.0.1:13444 at 2026-09-08T03:48:44.7443401+02:00
+   03:48:47.516  GET /probe-selftest HTTP/1.1  UA=
+   03:48:54.316  GET /typed-mouse HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:48:54.342  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:48:54.470  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:49:22.425  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:49:23.820  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:49:30.451  GET /fresh-pane HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:49:30.465  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+   03:49:30.963  GET /favicon.ico HTTP/1.1  UA=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0
+== done
