@@ -7,7 +7,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
-import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock } from "../../shared/board";
+import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 describe("reserved action labels", () => {
@@ -2022,6 +2022,24 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
     // campo riempito solo in lettura si spegnerebbe al primo giro di WS.
     const afterWrite = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { priority: 3 } });
     expect(afterWrite.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
+  });
+
+  test('recentComments preserve human, answer, question and delivery with the same assistant anchor', () => {
+    const t = s.create({ projectId: PID, text: 'Source question', status: 'review' });
+    const messageId = 'assistant-source-review';
+    const human = s.addComment({ taskId: t.id, author: 'user', content: 'Explain the source and show me the chart.' });
+    const answer = s.addComment({ taskId: t.id, author: 'agent:source', messageId, content: 'The source registry supplies the chart data.' });
+    const question = s.addComment({ taskId: t.id, author: 'agent:source', messageId, content: '```question\nWhich source?\n- Orders\n- Contracts\n```' });
+    const delivery = s.addComment({ taskId: t.id, author: 'agent:source', messageId, kind: 'delivery', content: 'The source diagram is ready.' });
+    const card = s.list({ scope: 'all', rootsOnly: true, ids: [t.id] })[0]!;
+    // The three most recent spoken rows include the answer and question;
+    // the latest-human exception also carries the request outside that window.
+    expect(card.recentComments).toEqual([human, answer, question, delivery].map((c) => ({
+      author: c.author, content: c.content, kind: c.kind,
+      ...(c.messageId ? { messageId: c.messageId } : {}),
+    })));
+    expect(pendingQuestion(card.recentComments)).toEqual({ text: 'Which source?', options: ['Orders', 'Contracts'] });
+    expect(s.get(t.id)!.comments.map((c) => c.messageId)).toEqual([null, messageId, messageId, messageId]);
   });
 
   /**

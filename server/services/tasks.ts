@@ -1964,6 +1964,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           author: full.author,
           content: cardCommentContent(full.content, r === scelta ? CARD_COMMENT_CHARS : CARD_CONTEXT_CHARS),
           kind: full.kind,
+          ...(full.messageId ? { messageId: full.messageId } : {}),
         };
         const list = out.get(taskId);
         if (list) list.push(c); else out.set(taskId, [c]);

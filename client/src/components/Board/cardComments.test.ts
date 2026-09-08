@@ -82,6 +82,26 @@ describe('the progress word (in_progress)', () => {
 });
 
 describe('selectCardComments', () => {
+  test('a same-message delivery keeps its summary and the earlier answerable question', () => {
+    const request = comment('user', 'Explain the chart source.');
+    const question = { ...comment('agent:topic-one', '```question\nWhich source?\n- Orders\n- Contracts\n```'), messageId: 'assistant-one' };
+    const delivery = { ...comment('agent:topic-one', 'The diagram explains the source.', 'delivery'), messageId: 'assistant-one' };
+    const selected = selectCardComments([request, question, delivery]);
+    expect(selected?.latest).toBe(delivery);
+    expect(selected?.humanContext).toBe(request);
+    expect(selected?.questionComment).toBe(question);
+  });
+
+  test('the question is separate from summary selection and cannot cross a real follow-up', () => {
+    const question = { ...comment('agent:topic-one', '```question\nWhich source?\n- Orders\n- Contracts\n```'), messageId: 'assistant-one' };
+    const delivery = { ...comment('agent:topic-one', 'Source analysis complete.', 'delivery'), messageId: 'assistant-one' };
+    const prose = { ...comment('agent:topic-one', 'The source has been selected.'), messageId: 'assistant-one' };
+    expect(selectCardComments([question, delivery, prose])?.latest).toBe(delivery);
+    expect(selectCardComments([question, delivery, prose])?.questionComment).toBeNull();
+    expect(selectCardComments([question, comment('user', 'Orders'), delivery])?.questionComment).toBeNull();
+    expect(selectCardComments([question, { ...delivery, messageId: null }])?.questionComment).toBeNull();
+  });
+
   test('no human in the thread: the agent alone, exactly like before', () => {
     const agent = comment('claude', 'delivered, ready for review');
     const got = selectCardComments([agent]);

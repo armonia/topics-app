@@ -3231,6 +3231,30 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
    L'incipit SHALL restare visibile anche a nota chiusa, per non nascondere
    l'esito dietro la sola etichetta. Il testo completo SHALL restare consultabile. Senza questa correlazione,
    o se costituisce la consegna fissata di un task concluso, SHALL restare visibile.
+10. I passaggi di stato e le brevi note del sistema SHALL essere centrati nella
+    conversazione, distinti dalla voce dell'agente a sinistra e dalla persona a
+    destra. Autore, ora e motivo SHALL restare consultabili anche su touch; un
+    motivo lungo NON SHALL dipendere dal solo tooltip. La riapertura SHALL avere
+    un segno compatto con chi e quando, senza una banda che ripeta la cronologia.
+11. Nel dettaglio di una review agente, il pulsante accanto al testo e Invio
+    SHALL inviare la stessa correzione all'agente, inclusi gli allegati. La
+    decisione «Rimanda indietro» SHALL comparire una sola volta, nel composer.
+    La nota che non riprende l'agente SHALL restare un'azione secondaria esplicita.
+    Il campo SHALL avere un nome accessibile e crescere fino a un'altezza limitata
+    per rendere rileggibile una correzione su più righe.
+    I controlli di risposta e decisione SHALL conservare contrasto testuale AA
+    nei temi chiaro e scuro, con gli stessi colori semantici della card.
+12. Una nota di consegna dello stesso autore agente e dello stesso `messageId`
+    NON SHALL rendere inutilizzabile la domanda che la precede. Una risposta
+    umana, altra prosa o un altro messaggio SHALL interrompere questo recupero.
+    La domanda corrente SHALL offrire le risposte nel filo, una sola volta;
+    le domande precedenti SHALL restare storia consultabile.
+
+#### Scenario: correggere dalla conversazione
+- **GIVEN** una review agente con domanda, poi una nota di consegna dello stesso messaggio
+- **THEN** la domanda è ancora rispondibile, gli eventi sono centrati e la sessione è richiudibile
+- **WHEN** la persona scrive una correzione e usa il pulsante di invio oppure Invio
+- **THEN** testo e allegati seguono la stessa via verso l'agente; «Nota» salva invece senza riprenderlo
 
 #### Scenario: conversazione al centro con consegna illustrata
 - **GIVEN** un task con descrizione lunga e la stessa immagine in preview e sessione

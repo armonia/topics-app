@@ -201,12 +201,14 @@ test.describe("Chip «riaperta» · una card che esce da Done lo dice", () => {
     await didascalia(page, "L'umano riapre → chip «riaperta»");
     await beat(page, 2200);
 
-    // …e banda nel drawer, con chi e quando (il motivo resta nel thread).
+    // The compact disclosure keeps who and when available on touch as well.
     await card.click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
-    // La banda dice CHI e QUANDO, non solo che è successo: «Riaperta da te il …».
-    await expect(page.getByTestId("task-reopened-notice")).toContainText(/Riaperta da te il \d/);
+    const reopened = drawer.getByTestId("task-reopened-notice");
+    await reopened.locator('summary').click();
+    await expect(reopened.locator('p')).toBeVisible();
+    await expect(reopened).toContainText(/da te il \d/);
     await didascalia(page, "Nel drawer: chi e quando");
     await beat(page, 2200);
     await page.keyboard.press("Escape");

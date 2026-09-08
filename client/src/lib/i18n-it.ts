@@ -864,7 +864,8 @@ const IT: Dict = {
    * lo nomina per interpolazione: su una card che nessuno ha consegnato quel
    * bottone si chiama «Rimandalo avanti».
    */
-  'board.task.replyPlaceholder': "Scrivi un'indicazione: «{sendBack}» la porta all'agent, «Nota» la lascia sulla card.",
+  'board.task.replyPlaceholder': "Rispondi o scrivi una correzione all'agente…",
+  'board.task.sendToAgent': "Invia all'agente",
   /**
    * Anche la CARD ha perso il suo gemello di «Rimanda indietro» (era la stessa
    * `review('reject', testo)` del bottone nella riga sopra, col medesimo testo

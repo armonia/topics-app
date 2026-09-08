@@ -190,3 +190,46 @@ Cinque test browser verdi senza retry, con video nella corsa 13347: incluso
 analisi senza merge, consegna con merge e ritorno ad analisi, conservando le
 altre azioni e filtrando l'opzione storica. La revisione indipendente conferma
 le stesse regole per card, drawer e risposte rapide in italiano e inglese.
+
+## Conversazione del task: correzioni e stato leggibili
+
+La preview mette le risposte alla domanda corrente direttamente nel filo, senza
+duplicarle nel footer. Le domande precedenti sono richiudibili e conservano il
+Markdown completo, link compresi. Una consegna ancorata allo stesso messaggio
+dell'agente non copre più la domanda; risposte umane e altri turni interrompono
+il recupero. Le intestazioni dello stesso turno non si ripetono.
+
+I passaggi di stato e le note brevi del sistema sono centrati; i motivi vanno
+a capo e restano leggibili su touch. La riapertura ha un segno compatto con
+dettaglio apribile. Il composer cresce fino a 160 px e porta la correzione
+all'agente dal pulsante o con Invio; Nota resta una scelta secondaria esplicita.
+Le azioni di review sono compatte. Il contrasto delle azioni è corretto nei
+due temi, condividendo le tonalità con le card.
+
+Verifiche di questa iterazione: 710 test mirati in 39 file verdi, QA veloce
+verde (`task-polish-qa-verified.log`), build `index-D_HKlui9.js`. Quattordici
+scenari browser distinti completati nelle corse 13348–13351, senza retry:
+invio con pulsante/Invio/allegato e persistenza API, nota quieta, domande
+inline e monoriga, storico con link, review incompleta, riapertura, scroll e
+dettagli sessione. Il controllo axe su composer, risposte e azioni della review
+non rileva violazioni WCAG A/AA nei temi chiaro e scuro; geometria verificata
+a 390 px e screenshot/video nelle rispettive cartelle artifacts. Il primo
+contrasto del pulsante era 2,32:1 ed è stato corretto, non escluso dal controllo.
+
+Le corse iniziali rosse sono conservate: due errori di fixture (commento senza
+ancora e upload SVG non accettato), due controlli sorgente obsoleti sostituiti
+da prove browser effettive, e il difetto di contrasto. Un avvio accidentale
+del gate completo è stato interrotto prima della suite E2E generale; non viene
+contato come verifica. La barra pertinente è quella veloce più i test mirati.
+
+Nessun polling o richiesta supplementare: il recupero della domanda è una
+scansione dei dati già caricati. La proiezione recentComments aggiunge il solo
+messageId presente, nella stessa query; i test verificano il caso reale con
+richiesta umana, risposta, domanda e consegna. L'aggiornamento client è
+applicabile senza interrompere sessioni; i metadati aggiuntivi della proiezione
+card lato server saranno disponibili al suo prossimo riavvio. Il dettaglio
+usa già i commenti completi e beneficia subito della correzione. Nessuna
+modifica a scheduling, dati o decisioni del task reale.
+
+La revisione indipendente ha verificato i confini del recupero, l'assenza di
+duplicati e la conservazione di messaggi, allegati e azioni.

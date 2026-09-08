@@ -17,7 +17,7 @@
  * be wrong in silence: any pair renders as a perfectly plausible card.
  */
 
-import { HUMAN_AUTHOR, isMachineNote, isThreadSpeech } from '../../../../shared/board';
+import { HUMAN_AUTHOR, isMachineNote, isThreadSpeech, pendingQuestionComment } from '../../../../shared/board';
 import { isResolvedParkedQuestion, isSettledParkedQuestion } from '../../../../shared/parked-question';
 import type { BoardTask, CardComment } from '../../lib/board';
 import { commentAuthorLabel } from '../../../../shared/comment-author';
@@ -32,6 +32,8 @@ export interface CardComments<T extends CardComment = CardComment> {
    * field alone.
    */
   latest: T;
+  /** The answerable question; a delivery can follow it without replacing it. */
+  questionComment: T | null;
   /** The human request `latest` follows, or null when there is none to quote. */
   humanContext: T | null;
   /**
@@ -250,6 +252,7 @@ export function selectCardComments<T extends CardComment>(
   const delivered = fromBottom.find((c) => c.kind === 'delivery' || isHumanComment(c));
   const latest = (delivered && delivered.kind === 'delivery') ? delivered : vive[vive.length - 1];
   if (!latest) return null;
+  const questionComment = pendingQuestionComment(vive);
   // NESSUNA PAROLA VERA: quello che stiamo per mostrare e' un RIPIEGO.
   //
   // `parole` vuoto vuol dire che nel thread e' rimasta solo contabilita' della
@@ -299,20 +302,20 @@ export function selectCardComments<T extends CardComment>(
       // non ha ancora ricevuto risposta. Promuoverla direbbe che qualcuno ha
       // risposto quando nessuno l'ha fatto.
       const nota = speech.slice(idx + 1).filter((c) => c.author === 'system' && c.kind === 'comment').pop();
-      if (nota) return { latest: nota, humanContext: latest, latestIsPlumbing };
+      if (nota) return { latest: nota, questionComment, humanContext: latest, latestIsPlumbing };
     }
     // Ha parlato lui per ultimo davvero (o non c'e' niente da promuovere): e' il
     // protagonista, e citarlo sopra se stesso stamperebbe due volte la stessa
     // riga. Il `return` e' qui e non piu' in basso apposta: senza, la scansione
     // all'indietro troverebbe la richiesta PRECEDENTE e la card stamperebbe
     // sopra la frase che questa ha appena sostituito.
-    return { latest, humanContext: null, latestIsPlumbing };
+    return { latest, questionComment, humanContext: null, latestIsPlumbing };
   }
   let requestAt = -1;
   for (let i = speech.length - 2; i >= 0; i--) {
     if (isHumanRequest(speech[i]!)) { requestAt = i; break; }
   }
-  if (requestAt < 0) return { latest, humanContext: null, latestIsPlumbing };
+  if (requestAt < 0) return { latest, questionComment, humanContext: null, latestIsPlumbing };
   // LA MIA DOMANDA RESTA A SCHERMO ANCHE SE NESSUNO HA RISPOSTO.
   //
   // Prima si citava solo quando una risposta c'era davvero (`answered`), e il
@@ -326,7 +329,7 @@ export function selectCardComments<T extends CardComment>(
   // È esattamente ciò che si voleva vedere: «da review dovrei sempre vedere
   // l'ultimo suo e mio messaggio». Una domanda in attesa è la cosa PIÙ
   // importante da mostrare su una card in review, non la meno.
-  return { latest, humanContext: speech[requestAt]!, latestIsPlumbing };
+  return { latest, questionComment, humanContext: speech[requestAt]!, latestIsPlumbing };
 }
 
 /** I campi della riga su cui si decide cosa la card mostra e cosa deve chiedere. */
@@ -420,7 +423,7 @@ export function progressWord(comments: readonly CardComment[] | undefined): Card
 export function cardCommentsFromRow(task: CardThreadRow): CardComments | null {
   if (task.status === 'in_progress') {
     const latest = progressWord(task.recentComments);
-    return latest ? { latest, humanContext: null, latestIsPlumbing: false } : null;
+    return latest ? { latest, questionComment: pendingQuestionComment([latest]), humanContext: null, latestIsPlumbing: false } : null;
   }
   if (!showsCardThread(task) || !task.recentComments) return null;
   // I due numeri che la riga porta sempre: bastano a riconoscere una domanda

@@ -21,6 +21,7 @@ import { isSupersededPreviewNote } from '../../../../shared/preview-retirement';
 import { isResolvedParkedQuestion } from '../../../../shared/parked-question';
 import { isDoneThreadService, isServiceComment } from '../../../../shared/task-comment-service';
 import { questionToProse } from '../../../../shared/question-prose';
+import { pendingQuestionComment } from '../../../../shared/board';
 import { ThreadRuns } from './ThreadRuns';
 import { copyText } from '../../lib/clipboard';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
@@ -157,7 +158,7 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
   task: BoardTask;
   busy: boolean;
   onAccept: () => void;
-  onSendBack: () => void;
+  onSendBack?: () => void;
   onLand: () => void;
 }) {
   const tr = useT();
@@ -166,8 +167,8 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
   // È «Approva»: su «Rimandalo avanti» l'ambra prometterebbe un'eccezione che
   // quel bottone non fa.
   const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
-    ? 'bg-amber-600/80 hover:bg-amber-600 text-white'
-    : 'bg-emerald-500/80 hover:bg-emerald-500 text-white';
+    ? 'bg-amber-700 hover:bg-amber-800 text-white'
+    : 'bg-emerald-700 hover:bg-emerald-800 text-white';
   const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
   // I GLIFI VENGONO DALLA TABELLA UNICA, non da qui. Erano `ShieldCheck` e
   // `ShieldX`, cioè gli scudi dei CHECKS: sulla stessa schermata lo scudo verde
@@ -191,8 +192,8 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
   const ordered = d.primary === 'send-back' ? [buttons[1], buttons[0]] : buttons;
   return (
     <>
-      <div className="flex items-center gap-1.5">
-        {ordered.map((b) => {
+      <div className="flex flex-wrap items-center gap-1.5">
+        {ordered.filter((b) => b.id !== 'send-back' || onSendBack).map((b) => {
           const isPrimary = b.id === d.primary;
           return (
             <button
@@ -201,7 +202,7 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
               disabled={busy} onClick={b.onClick}
               title={b.word.title}
               className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
-                isPrimary ? `flex-1 font-medium ${primaryCls}` : neutralCls
+                isPrimary ? `font-medium ${primaryCls}` : neutralCls
               }`}
             >{busy && isPrimary ? <Spinner size="sm" tone="current" /> : b.icon} {b.word.label}</button>
           );
@@ -216,8 +217,8 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
           disabled={busy} onClick={onLand}
           data-testid="task-land"
           title={d.land.title}
-          className={`flex w-full items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
-            d.primary === 'accept' ? 'bg-sky-500/80 font-medium text-white hover:bg-sky-500' : neutralCls
+          className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+            d.primary === 'accept' ? 'bg-sky-700 font-medium text-white hover:bg-sky-800' : neutralCls
           }`}
         ><GitMerge className="h-3.5 w-3.5" /> {d.land.label}</button>
       )}
@@ -941,11 +942,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     };
   }, [load]);
 
-  // A human comment on an agent-delivered review IS the answer — same
-  // semantics as the card's quick-reply: reject carries the text and resumes
-  // the SAME agent tab (server: reviewDecision → comment + in_progress +
-  // dispatcher.resume). A plain comment here would sit unread while the chip
-  // says "serve te". Non-agent tasks (or any other status) keep plain comments.
   // Distinct media attachments across the whole thread, newest-first, deduped by
   // path — each is one "Anteprima" tab of the task (a delivered PDF/screenshot
   // IS review output even when the agent didn't set output_url).
@@ -973,46 +969,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [comments, task],
   );
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
-  /**
-   * Come si chiama, ADESSO, il bottone che raccoglie il testo del composer.
-   *
-   * Il placeholder deve nominarlo, perché da quando il gemello «Rimanda» non è
-   * più accanto alla casella la destinazione di quel testo non è più a un
-   * centimetro di distanza. E non può essere una parola scritta a mano qui: su
-   * una card che nessuno ha consegnato quel bottone si chiama «Rimandalo
-   * avanti», e un placeholder che continuasse a dire «Rimanda indietro»
-   * manderebbe a cercare un bottone che sullo schermo non c'è.
-   */
+  // The empty composer can still resume without a new instruction.
   const sendBackLabel = task ? reviewDecisionButtons(task, tr).sendBack.label : '';
   // Le parole dei tre bottoni di decisione stanno in `ReviewDecisionRow`, che le
   // chiede a `reviewDecisionButtons`: cambiano tutte con lo stato della card (i
   // checks rossi rinominano Approva, una card che nessuno ha consegnato
   // rinomina anche Landa e sposta il verde), e una parola che cambia sullo
   // schermo deve cambiare nella stessa funzione che la sottrae qui sotto.
-  // Pending question = the agent's last word is a question block: its options
-  // render as quick-reply buttons right above the composer (same zone as the
-  // review actions), mirroring the card.
-  // `isThreadSpeech` drops the two kinds that are never "the agent's last word":
-  // 'status' (transition history) and 'service' (the dispatcher's bookkeeping).
-  // Same predicate as the card and as `pendingQuestion`, deliberately - the
-  // drawer showing no buttons while the card shows two is the shape this bug
-  // takes when the three drift.
-  // …e la terza cosa che non e' mai «l'ultima parola»: una domanda sui sottotask
-  // fermi a cui i sottotask hanno gia' risposto muovendosi. Restava in coda al
-  // thread e la scheda ne disegnava le risposte rapide — due bottoni che
-  // rimettevano in coda o archiviavano un insieme vuoto. Vedi
-  // `shared/parked-question.ts`: la domanda resta nella storia, smette di
-  // presentarsi come una decisione da prendere.
+  // Recover only an unanswered question from this same assistant message.
   const speech = comments.filter((c) => isThreadSpeech(c) && !isResolvedParkedQuestion(c, children));
-  const lastThreadComment = speech[speech.length - 1] ?? null;
-  // A QUESTION IS A QUESTION IN EVERY COLUMN, not only in review. The buttons
-  // used to hang off `isAgentReview`, so a card the agent kept working on while
-  // asking (a routed `ask_user_question`: the rendez-vous is open, the turn is
-  // alive, the card stays `in_progress`) showed its options nowhere and the only
-  // way to answer was to guess the wording by hand. The rule is the one the
-  // server already applies with `awaitingAnswerFor`: the last word of the thread
-  // is a question block. `done` is the single exception, because a closed card
-  // has nobody left to answer.
+  const lastThreadComment = pendingQuestionComment(speech);
+  // Closed tasks keep their questions as history.
   const pending = lastThreadComment && task && task.status !== 'done'
     ? parseQuestionBlock(lastThreadComment.content)
     : null;
@@ -1078,7 +1045,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     } catch (e) { showError(e); return false; }
   };
   const send = async (opts?: { quiet?: boolean }) => {
-    const v = draft.trim(); if ((!v && attachments.length === 0) || sending) return;
+    const v = draft.trim(); if ((!v && attachments.length === 0) || sending || busy || uploading) return;
     setSending(true);
     const ok = await deliverAnswer(v, attachments.map((a) => a.path), opts);
     if (ok) { setDraft(''); setAttachments([]); } // cleared on success only
@@ -1105,7 +1072,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setUploading(false); }
   };
   const answerOption = async (opt: string) => {
-    if (sending) return;
+    if (sending || busy || uploading) return;
     setSending(true);
     await deliverAnswer(opt);
     setSending(false);
@@ -1121,25 +1088,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
-  /**
-   * «Rimanda indietro»: LA DECISIONE E IL TESTO SONO UN GESTO SOLO.
-   *
-   * ── Il difetto ───────────────────────────────────────────────────────────────
-   * Il bottone grande chiamava `decide('reject')`, cioè `review(reject,
-   * undefined)`. Il bottone «Rimanda» del composer chiamava `review(reject,
-   * draft)`. Stesso endpoint, stessa decisione, stessa colonna d'arrivo: erano
-   * due nomi per una porta sola. E il grande, quello che il pollice trova per
-   * primo, BUTTAVA VIA l'indicazione appena scritta — mentre il suo stesso
-   * tooltip dice «scrivi nel campo qui sotto per dargli un'indicazione». Il
-   * testo restava nella casella, l'agente ripartiva senza sapere niente, e
-   * niente lo diceva.
-   *
-   * Adesso la strada è una. Con del testo (o un allegato) passa da
-   * `deliverAnswer`, che conosce anche la via dei media e ripulisce la casella
-   * solo se è andata a buon fine; a mani vuote resta il reject nudo, che è la
-   * stessa decisione senza indicazione. Il gemello nel composer è sparito: non
-   * era una scelta in più, era la stessa detta due volte.
-   */
+  // One send-back action: carry the correction and attachments, or resume
+  // without an instruction when the composer is empty. Clear only on success.
   const sendBack = async () => {
     if (busy || sending) return;
     if (draft.trim() || attachments.length > 0) { await send(); return; }
@@ -1634,8 +1584,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   /**
    * THE COMPOSER NAMES THE VERB OF THE STATE IT SITS IN.
    *
-   * One box, three destinations: on a delivered card the text is picked up by
-   * the send-back button, on a working card it reaches the agent mid-turn, on a
+   * One box, three destinations: on a delivered card the main send button
+   * carries the correction, on a working card it reaches the agent mid-turn, on a
    * closed one it stays a note. Only the words say which, and a placeholder that
    * says «Commenta» over a box that wakes an agent is the difference between a
    * note and a turn.
@@ -1645,7 +1595,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    */
   const steerable = !!task && (task.status === 'in_progress' || agentBusy);
   const composerPlaceholder = isAgentReview
-    ? tr('board.task.replyPlaceholder', { sendBack: sendBackLabel })
+    ? tr('board.task.replyPlaceholder')
     : steerable
       ? (pending ? tr('board.task.answerPlaceholder') : tr('board.task.steerPlaceholder'))
       : tr('board.task.commentPlaceholder');
@@ -1686,6 +1636,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [threadComments, storeMessages, task?.status, pinnedDeliveryId],
   );
   useEffect(() => { timelineRef.current = timeline; }, [timeline]);
+  useLayoutEffect(() => { autoGrow(commentRef.current); }, [draft, task?.id, workspaceOpen, twoCol]);
   useEffect(() => {
     const el = threadScrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -1722,9 +1673,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
      * a dispatcher envelope is one collapsed service line. What decides is
      * `source`, never the text.
      */
-    const row = (item: TimelineItem) => {
+    const row = (item: TimelineItem, index: number) => {
       if (item.source === 'comment') {
         const chip = item.delivery;
+        const previous = timeline[index - 1];
+        const continuation = !!item.comment.messageId && previous?.source === 'comment'
+          && previous.comment.messageId === item.comment.messageId
+          && previous.comment.author === item.comment.author
+          && isThreadSpeech(previous.comment);
         if (foldedDeliveryNotes.has(item.id)) return (
           <details key={item.id} data-testid="task-delivery-note" className="group rounded border border-app-border-subtle">
             <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text">
@@ -1740,7 +1696,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <CommentBubble
               comment={item.comment}
               ownerName={ownerName}
+              continuation={continuation}
               resolvedParked={isResolvedParkedQuestion(item.comment, children)}
+              historicalQuestion={!!parseQuestionBlock(item.comment.content) && (!pending || item.comment.id !== lastThreadComment?.id)}
+              questionActions={pending && item.comment.id === lastThreadComment?.id ? (
+                <div className="mt-2 flex flex-wrap gap-1.5" data-testid="task-question-options">
+                  {replyOptions.map((opt) => (
+                    <button key={opt} disabled={sending || busy || uploading}
+                      onClick={() => void answerOption(opt)}
+                      className="rounded border border-app-border bg-white/5 px-2.5 py-1.5 text-left text-xs text-app-text hover:bg-white/10 disabled:opacity-50">
+                      {stripMarkdown(opt)}
+                    </button>
+                  ))}
+                </div>
+              ) : undefined}
               onPreview={(p) => openTaskPane(mediaPaneIdFor(p))}
             />
             {/* WHERE YOUR MESSAGE GOT TO, derived from the envelopes at every
@@ -1770,8 +1739,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       }
       return <SessionItem key={item.id} msg={item.msg} hasThreadReply={item.hasThreadReply} sessionKey={sessionKey} onMessage={onMessage} />;
     };
-    // Adjacent status transitions are ONE chip strip. Only comments carry a
-    // status, so the cast back is total.
+    // Adjacent transitions share one centered event row.
     const statusRun = (items: TimelineItem[]) => (
       <StatusTrail
         comments={items.flatMap((i) => (i.source === 'comment' ? [i.comment] : []))}
@@ -1853,7 +1821,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent is stable enough; the meaningful inputs are listed
-  }, [task, timeline, deliveryWord, agentBusy, busy, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes]);
+  }, [task, timeline, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)
@@ -1940,6 +1908,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <span className="min-w-0 truncate font-medium">{projectLabel}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
             </button>
+            {reopened && (
+              <details data-testid="task-reopened-notice" className="group relative shrink-0 text-[11px] text-app-text-muted">
+                <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-app-text">
+                  ↩︎ {tr('board.task.reopened')}
+                </summary>
+                <p className="absolute right-0 top-full z-20 mt-1 w-64 rounded border border-app-border bg-elevated p-2 text-app-text shadow-lg">{reopened.detail}</p>
+              </details>
+            )}
             {/* Stessa precedenza della card: la ragione della coda batte il
                 chip di stato, e le due superfici restano in passo. */}
             {task.queueReason ? (
@@ -2732,17 +2708,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <Spinner size="sm" tone="current" /> {tr('board.task.deployRunning')}
         </div>
       )}
-      {/* Aveva consegnato e non è più lì: la banda lo dice appena apri la card,
-          con chi e quando. Il MOTIVO sta sotto, nel thread, ma il fatto non deve
-          più dipendere dal fatto che qualcuno scorra i commenti. */}
-      {reopened && (
-        <div
-          data-testid="task-reopened-notice"
-          className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-200"
-        >
-          ↩︎ <strong>{tr('board.task.reopened')}</strong> {tr('board.task.reopenedRest', { detail: reopened.detail })}
-        </div>
-      )}
       {/* The conversation owns the single reading scroll. Workspace panes keep
           their defined height outside it; identity and composer stay fixed. */}
       {!task && loadFailedMessage ? (
@@ -2883,38 +2848,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onError={setError} onNeedText={() => commentRef.current?.focus()}
               />
             )}
-            {/* The answers to the open question sit right above the composer in
-                EVERY state, not only in review: the question is the last word of
-                the thread, and where the words are is where the answer belongs.
-                On a card still working, clicking one lands on the comments route,
-                which hands it to the rendez-vous that is waiting for it. */}
-            {task.status !== 'review' && replyOptions.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1" data-testid="task-question-options">
-                {replyOptions.map((opt, i) => (
-                  <button
-                    key={i} disabled={sending}
-                    onClick={() => answerOption(opt)}
-                    className="rounded bg-white/10 px-2 py-1 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                  >{opt}</button>
-                ))}
-              </div>
-            )}
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. ("Modifiche" moved
                 up above the body, out of this composer area.) */}
             {task.status === 'review' && (
               <div className="mb-2 space-y-1.5">
-                {replyOptions.length > 0 && (
-                  <div className="flex flex-wrap gap-1" data-testid="task-question-options">
-                    {replyOptions.map((opt, i) => (
-                      <button
-                        key={i} disabled={sending}
-                        onClick={() => answerOption(opt)}
-                        className="rounded bg-white/10 px-2 py-1 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
-                      >{opt}</button>
-                    ))}
-                  </div>
-                )}
                 {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
                     approve coi checks rossi, e scoprirlo da un 409 dopo il click
                     sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
@@ -2928,10 +2866,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     il testo, la sua strada lunga alza `sending` e non `busy`.
                     Senza il secondo, i tre bottoni restavano premibili mentre la
                     consegna era già partita. */}
+                <div data-testid="task-review-actions" className="flex flex-wrap items-center gap-1.5">
                 <ReviewDecisionRow
                   task={task} busy={busy || sending}
                   onAccept={() => decide('approve', { force: task.checksState === 'fail' })}
-                  onSendBack={() => void sendBack()}
+                  onSendBack={isAgentReview ? undefined : () => void sendBack()}
                   onLand={doLand}
                 />
                 {/* Le uscite che i tre bottoni qui sopra NON hanno: prendersi il
@@ -2939,10 +2878,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     già lì sopra per esteso, quindi si escludono — un doppione
                     non è una scelta in più. */}
                 <TaskChoiceRow
-                  task={task} disabled={busy} exclude={['land', 'send-back', 'accept', 'redo']}
+                  task={task} disabled={busy || sending} exclude={['land', 'send-back', 'accept', 'redo']}
                   onDone={() => { void load(); onChanged(); }}
                   onError={setError} onNeedText={() => commentRef.current?.focus()}
                 />
+                </div>
                 {/* «Ricattura evidenza» NON è più qui: era un'azione di
                     servizio sull'anteprima disegnata larga quanto una
                     decisione, in mezzo alle decisioni, e a occhio faceva
@@ -2971,7 +2911,23 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 ))}
               </div>
             )}
-            <div className="flex items-end gap-1.5">
+            <div data-testid="task-composer" className="rounded-lg border border-app-border bg-white/5 focus-within:border-app-text-muted">
+              <textarea
+                ref={commentRef}
+                data-testid="task-reply-input"
+                value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
+                onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
+                onFocus={() => markActiveComposer(commentCursorKey)}
+                aria-label={composerPlaceholder}
+                placeholder={composerPlaceholder}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
+                onPaste={(e) => {
+                  const imgs = imagesFromClipboard(e.clipboardData);
+                  if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
+                }}
+                className="block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-sm text-app-text outline-none"
+              />
+              <div className="flex items-center gap-1.5 px-1.5 pb-1.5">
               <input
                 ref={fileInputRef} type="file" multiple className="hidden"
                 onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }}
@@ -2994,45 +2950,32 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onText={(t) => setDraft((prev) => (prev ? `${prev} ${t}` : t))}
                 onError={setError}
               />
-              <textarea
-                ref={commentRef}
-                value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
-                onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
-                onFocus={() => markActiveComposer(commentCursorKey)}
-                placeholder={composerPlaceholder}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                onPaste={(e) => {
-                  const imgs = imagesFromClipboard(e.clipboardData);
-                  if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
-                }}
-                className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-app-text outline-none"
-              />
-              {/* IN REVIEW IL COMPOSER HA UN GESTO SOLO, ED È QUELLO CHE NON
-                  DECIDE NIENTE.
-                  Qui ce n'erano due: «Rimanda» (azzurro) e «Nota». Il primo era
-                  il gemello del «Rimanda indietro» grande qui sopra — stesso
-                  `POST …/review`, stessa decisione, stessa colonna d'arrivo — e
-                  due parole per una porta sola non sono due uscite: sono un
-                  dubbio davanti a entrambe. La decisione vive con le decisioni;
-                  qui resta «Nota», che è l'unica cosa che il composer sa fare e
-                  che i bottoni sopra non fanno: scrivere senza svegliare
-                  nessuno. Il testo che scrivi qui lo raccoglie «Rimanda
-                  indietro» — lo dice il placeholder, che lo chiama per nome.
-                  Fuori dalla review il composer resta quello di sempre. */}
-              {isAgentReview ? (
+              <span className="flex-1" />
+              {/* Enter and the main button deliver the correction. A quiet
+                  note stays an explicit secondary action, with the same media. */}
+              {isAgentReview && (
                 <button
-                  onClick={() => void send({ quiet: true })} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                  onClick={() => void send({ quiet: true })} disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
                   title={tr('board.task.quietNoteTitle')}
                   data-testid="task-reply-quiet-note"
-                  className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded px-2 py-1.5 text-xs text-app-text-secondary hover:bg-white/10 disabled:opacity-50"
                 >{sending ? <Spinner size="md" tone="current" /> : <StickyNote className="h-3.5 w-3.5" />} {tr('board.task.quietNote')}</button>
+              )}
+              {isAgentReview ? (
+                <button data-testid="task-send-back" onClick={() => void sendBack()} disabled={busy || sending || uploading}
+                  title={reviewDecisionButtons(task, tr).sendBack.title}
+                  className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${reviewDecisionButtons(task, tr).primary === 'send-back' ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-sky-700 hover:bg-sky-800'}`}>
+                  {sending ? <Spinner size="md" tone="current" /> : <Send className="h-3.5 w-3.5" />}
+                  {draft.trim() || attachments.length ? tr('board.task.sendToAgent') : sendBackLabel}
+                </button>
               ) : (
                 <button
-                  onClick={() => void send()} disabled={sending || (!draft.trim() && attachments.length === 0)}
+                  onClick={() => void send()} disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
                   title={composerSendTitle}
-                  className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+                  className={`rounded p-1.5 text-white disabled:opacity-50 ${agentBusy ? 'bg-sky-700 hover:bg-sky-800' : 'bg-emerald-700 hover:bg-emerald-800'}`}
                 >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
               )}
+              </div>
             </div>
           </div>
         </div>
@@ -3338,17 +3281,15 @@ function StatusChip({ comment, ownerName }: { comment: TaskComment; ownerName: s
   const mover = who.kind === 'system' || who.kind === 'dispatcher' ? null : who.name;
   return (
     <span
-      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+      className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-1 px-1.5 py-0.5 text-[11px] text-app-text-muted"
       title={`${who.name} (${who.detail}) · ${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
       {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
       {mover && <span className="shrink-0 text-app-text-secondary">{mover} →</span>}
       <span className="shrink-0">{valid ? STATUS_LABEL[to] : comment.content}</span>
-      {/* La ragione: perché la card si è mossa, sul chip che la muove. Tagliata
-          a vista, MAI dal testo — il tooltip la porta intera e il DOM pure, che
-          è quello su cui una spec la cerca. */}
-      {valid && ev?.reason && <span className="min-w-0 truncate text-app-text-faint">· {ev.reason}</span>}
+      {/* Reasons wrap so touch users can read them without a tooltip. */}
+      {valid && ev?.reason && <span className="min-w-0 break-words text-app-text-secondary">· {ev.reason}</span>}
     </span>
   );
 }
@@ -3367,7 +3308,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
   if (!last) return null;
   return (
     <div
-      className="flex flex-wrap items-center gap-1 px-1"
+      className="flex flex-wrap items-center justify-center gap-1 px-1 py-1 text-center"
       data-testid="task-status-trail"
       aria-label={tr('board.task.statusTrail')}
     >
@@ -3379,7 +3320,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
   );
 }
 
-export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview }: {
+export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
   comment: TaskComment;
   /** Come si chiama chi usa l'app: le TUE righe si firmano col tuo nome. */
   ownerName?: string | null;
@@ -3391,6 +3332,9 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
    */
   resolvedParked?: boolean;
   onPreview?: (path: string) => void;
+  questionActions?: React.ReactNode;
+  historicalQuestion?: boolean;
+  continuation?: boolean;
 }) {
   const tr = useT();
   // Machine-authored review evidence (live-preview screenshot from the verifier).
@@ -3432,16 +3376,16 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   // non una cosa da decidere. Il blocco `question` e' multi-riga per via delle
   // recinzioni, quindi non passerebbe dal test qui sopra — ma quello che resta
   // da leggere e' una frase sola, ed e' quella che il chip mostra.
-  const oneLiner = app && (resolvedParked || !/[\n\r]/.test(comment.content.trim()));
+  const oneLiner = app && (resolvedParked || (!parseQuestionBlock(comment.content) && !/[\n\r]/.test(comment.content.trim())));
   if (oneLiner) {
     return (
       <div
-        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+        className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 px-1.5 py-0.5 text-center text-[11px] text-app-text-muted"
         data-testid="task-app-note"
         title={`${who.name} (${who.detail}) · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
       >
         <Bot className="h-3 w-3 shrink-0" />
-        <span className="min-w-0 truncate">{parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
+        <span className="min-w-0 break-words">{parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
         <span className="ml-auto shrink-0 text-app-text-faint">{commentTime(comment.createdAt)}</span>
       </div>
     );
@@ -3453,12 +3397,12 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
     // su un thread che mescola quattro voci è la differenza che serve per prima.
     return (
       <div className="pr-8">
-        <p className="flex items-baseline gap-1.5 text-[10px]" title={who.detail}>
+        {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-[10px]" title={who.detail}>
           <span className={`font-medium uppercase tracking-wide ${app ? 'text-app-text-faint' : 'text-app-text-secondary'}`}>{who.name}</span>
           <span className="ml-auto text-app-text-faint">{commentTime(comment.createdAt)}</span>
-        </p>
+        </p>}
         <div className={`text-sm ${app ? 'text-app-text-muted' : 'text-app-text'}`}>
-          <CommentBody content={comment.content} />
+          <CommentBody content={comment.content} questionActions={questionActions} historicalQuestion={historicalQuestion} />
         </div>
         <MediaStrip media={comment.media} onPreview={onPreview} />
       </div>
@@ -3481,15 +3425,10 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
 }
 
 /**
- * Comment body (inside a chat bubble). A question block renders as a styled
- * decision request (question + option bullets) instead of raw ``` fences; any
- * text around the block is kept. The bullets are the QUESTION as it was asked,
- * part of the thread; the quick-reply buttons that answer it are drawn above
- * the composer (`task-question-options`, in every column but `done`), so an
- * option appears twice on purpose: once as what the agent said, once as the
- * thing to press.
+ * Current questions carry their answer buttons in the conversation. Historical
+ * questions disclose their original Markdown and options without active actions.
  */
-export function CommentBody({ content }: { content: string }) {
+export function CommentBody({ content, questionActions, historicalQuestion = false }: { content: string; questionActions?: React.ReactNode; historicalQuestion?: boolean }) {
   const q = parseQuestionBlock(content);
   // Un recinto che NON parsa (aperto e mai chiuso, corpo vuoto) arriverebbe qui
   // com'e', e per il renderer ```…``` e' un blocco di codice: prosa in
@@ -3497,6 +3436,16 @@ export function CommentBody({ content }: { content: string }) {
   // tutto il resto. Vedi `shared/question-prose.ts`.
   if (!q) return <div className={`mt-0.5 text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{questionToProse(content)}</ChatMarkdown></div>;
   const outside = content.replace(/```question[\s\S]*?```/, '').trim();
+  const options = q.options.length > 0 ? (
+    <ul className="mt-1 space-y-0.5">
+      {q.options.map((opt, i) => (
+        <li key={i} className="flex items-start gap-1.5 text-xs text-app-text-secondary">
+          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-app-text-muted" />
+          <span className={`min-w-0 flex-1 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{opt}</ChatMarkdown></span>
+        </li>
+      ))}
+    </ul>
+  ) : null;
   return (
     <div className="mt-0.5 space-y-1">
       {outside && <div className={`text-app-text ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{outside}</ChatMarkdown></div>}
@@ -3504,21 +3453,20 @@ export function CommentBody({ content }: { content: string }) {
           resto del thread. Erano le uniche due stringhe stampate crude, e
           l'agent le scrive come scrive tutto il resto: `**Opus**`, `` `--flag` ``
           e i backtick attorno a un path arrivavano qui come caratteri. */}
-      <div className="rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5">
+      {historicalQuestion ? (
+        <details className="group text-app-text-secondary" data-testid="task-past-question">
+          <summary className="flex cursor-pointer list-none items-start gap-1.5 py-1 text-sm hover:text-app-text">
+            <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 group-open:rotate-90" />
+            <span>{stripMarkdown(q.question)}</span>
+          </summary>
+          <div className={`pl-5 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{q.question}</ChatMarkdown>{options}</div>
+        </details>
+      ) : <div className="rounded border border-app-border bg-white/[0.02] px-2.5 py-2">
         <div className={`text-[13px] leading-snug text-app-text ${COMPACT_MD_CLS}`}>
           <ChatMarkdown components={{}}>{q.question}</ChatMarkdown>
         </div>
-        {q.options.length > 0 && (
-          <ul className="mt-1 space-y-0.5">
-            {q.options.map((opt, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-[12px] text-app-text">
-                <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-rose-300/70" />
-                <span className={`min-w-0 flex-1 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{opt}</ChatMarkdown></span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+        {questionActions ?? options}
+      </div>}
     </div>
   );
 }
