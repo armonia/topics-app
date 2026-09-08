@@ -5,10 +5,10 @@ Thanks for your interest in contributing! Here's how you can help.
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/topics-app.git`
-3. Install dependencies: `bun install`
-4. Start the server: `bun run server.ts`
-5. Build the client: `cd client && bun run build`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/topics-app.git`, then `cd topics-app`
+3. Install dependencies: `bun install --frozen-lockfile`, then `(cd client && bun install --frozen-lockfile)`
+4. Build the client: `bun run build:client`
+5. Start the server: `bun run start`
 
 ### Se il terminale non parte: `posix_spawnp failed`
 
@@ -53,7 +53,7 @@ bun run dev:client
 Only needed when you want to exercise the built client served from `public/`:
 
 ```bash
-cd client && bun run build   # builds to public/
+bun run build:client        # builds to public/ from the repository root
 bun run start                # server serves public/ on http://localhost:3333
 ```
 

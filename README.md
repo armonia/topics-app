@@ -124,8 +124,9 @@ Requires [Bun](https://bun.sh/) and Node.js 20+.
 ```bash
 git clone https://github.com/armonia/topics-app.git
 cd topics-app
-bun install
-cd client && bun run build && cd ..   # client → public/
+bun install --frozen-lockfile
+(cd client && bun install --frozen-lockfile)
+bun run build:client                   # client → public/
 bun run start                          # http://localhost:3333
 ```
 
