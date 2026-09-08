@@ -5,6 +5,7 @@
 # dentro un repo pubblico.
 node_modules
 .bun/
+/.cache/checks/
 
 # User data - DO NOT COMMIT
 messages/

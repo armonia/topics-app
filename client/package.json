@@ -8,7 +8,7 @@
     "build": "bun run ../scripts/build-client.ts",
     "build:watch": "TOPICS_BUILD_WATCH=1 vite build --watch",
     "build:landing": "vite build --config vite.landing.config.ts",
-    "lint": "eslint .",
+    "lint": "bun run ../scripts/lint.ts client",
     "preview": "vite preview"
   },
   "dependencies": {

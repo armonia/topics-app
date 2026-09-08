@@ -40,6 +40,8 @@
     "types": ["bun"],
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "../.cache/checks/relay.tsbuildinfo",
     "skipLibCheck": true,
     "strict": true,
     "esModuleInterop": true,

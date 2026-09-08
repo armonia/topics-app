@@ -21,6 +21,8 @@
     "types": ["bun"],
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.cache/checks/e2e.tsbuildinfo",
     "skipLibCheck": true,
     "strict": false,
     "strictNullChecks": true,

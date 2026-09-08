@@ -20,6 +20,8 @@
     "types": ["bun"],
     "allowImportingTsExtensions": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.cache/checks/server.tsbuildinfo",
     "skipLibCheck": true,
     // `strictNullChecks` is implied by `strict`, but spelling it out is not
     // redundant here: it is the one flag whose removal would silently break
@@ -47,5 +49,5 @@
   // typecheckato da niente. Un refuso lì dentro si scopriva a runtime, in CI, nel
   // punto in cui il check avrebbe dovuto proteggere qualcos'altro. Misurato prima
   // di allargare, come dice il commento sopra: costo zero errori.
-  "include": ["server", "server.ts", "shared", "scripts", "cli"]
+  "include": ["server", "server.ts", "shared", "scripts", "cli", "tests/fixtures/process-runtime-cost.ts"]
 }

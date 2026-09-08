@@ -7,7 +7,7 @@
        Value must match the installed tsc major: "5.0" for tsc 5.x. Using "6.0"
        here errors TS5103 under tsc 5.9.x and silently breaks the typecheck gate. */
     "ignoreDeprecations": "5.0",
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "tsBuildInfoFile": "../.cache/checks/client-app.tsbuildinfo",
     "target": "ES2023",
     "useDefineForClassFields": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable"],

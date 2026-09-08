@@ -25,10 +25,9 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "composite": false,
-    // Non viene scritto (composite off + noEmit), ma se un domani lo fosse
-    // deve avere il SUO file: ereditare quello di tsconfig.app.json
-    // significherebbe sovrascrivere lo stato incrementale di `tsc -b`.
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "incremental": true,
+    // Keep test state separate from the application build and other worktrees.
+    "tsBuildInfoFile": "../.cache/checks/client-tests.tsbuildinfo",
     "types": ["bun", "vite/client"],
     "noUnusedLocals": false,
     "noUnusedParameters": false

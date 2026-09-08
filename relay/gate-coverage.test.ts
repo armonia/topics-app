@@ -49,8 +49,9 @@
  * @covers E2E-GATE-02
  */
 import { describe, expect, it } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
+import { tmpdir } from "node:os";
 import {
   readKnipWorkspaces,
   stripJsonComments,
@@ -93,13 +94,13 @@ const SCRIPTS = (
 const TSC = join(ROOT, "client", "node_modules", ".bin", "tsc");
 const ESLINT = join(ROOT, "client", "node_modules", ".bin", "eslint");
 
-async function capture(cmd: string[]): Promise<{ code: number; out: string }> {
-  const proc = Bun.spawn(cmd, { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
+async function capture(cmd: string[], cwd = ROOT): Promise<{ code: number; out: string; stdout: string }> {
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  return { code: await proc.exited, out: stdout + stderr };
+  return { code: await proc.exited, out: stdout + stderr, stdout };
 }
 
 /** Repo-relative relay files that `tsc -p <config>` reports in its program. */
@@ -121,20 +122,18 @@ const measuredProgramFiles = (): Promise<string[]> => tscListFiles(join("relay",
 
 /** Repo-relative relay files eslint reports having linted. */
 async function measuredLintedFiles(): Promise<string[]> {
-  const { code, out } = await capture([
-    ESLINT,
-    "--config",
-    join("client", "eslint.config.js"),
+  const { code, out, stdout } = await capture([
+    process.execPath,
+    "run",
+    "lint:relay",
     "--format",
     "json",
-    "relay",
   ]);
   // 0 = clean, 1 = lint errors. Anything else is eslint failing to run, and a
   // crash must not read as "relay is covered" or as "relay is uncovered".
   expect([0, 1], `eslint exited ${code}:\n${out.slice(0, 2000)}`).toContain(code);
-  const start = out.indexOf("[");
-  expect(start, `eslint printed no JSON report:\n${out.slice(0, 2000)}`).toBeGreaterThan(-1);
-  const report = JSON.parse(out.slice(start)) as { filePath: string }[];
+  expect(stdout.trim().startsWith("["), `eslint printed no JSON report:\n${out.slice(0, 2000)}`).toBe(true);
+  const report = JSON.parse(stdout) as { filePath: string }[];
   return report
     .map((r) => relative(ROOT, r.filePath))
     .filter((f) => f.startsWith(`relay${sep}`));
@@ -197,13 +196,30 @@ describe("relay/ is inside the gates", () => {
     expect(RELAY_TS.filter((f) => !linted.includes(f)), "relay files eslint never opened").toEqual([]);
   }, DEADLINE_MS);
 
-  it("the lint script the gates run is the one that was measured", () => {
-    // The measurement above runs eslint directly. This is what ties it to the
-    // command a human or CI types: if `lint` stops covering relay, the measured
-    // green upstairs would be describing a gate nobody invokes.
-    expect(SCRIPTS.lint).toContain("eslint --config client/eslint.config.js relay");
-    expect(SCRIPTS["lint:relay"]).toContain("eslint --config client/eslint.config.js relay");
-  });
+  it("the lint script the gates run is the one that was measured", async () => {
+    // The real package command must report a known violation under the same
+    // configuration as direct ESLint. Keep the deliberately broken file in a
+    // separate checkout fixture, outside any concurrently running gate.
+    expect(SCRIPTS.lint).toContain("bun run lint:relay");
+    const fixture = mkdtempSync(join(tmpdir(), "relay-lint-gate-"));
+    try {
+      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/eslint.config.js", "scripts/lint.ts"]) {
+        const path = join(fixture, file);
+        mkdirSync(dirname(path), { recursive: true });
+        copyFileSync(join(ROOT, file), path);
+      }
+      symlinkSync(join(ROOT, "client", "node_modules"), join(fixture, "client", "node_modules"), "junction");
+      mkdirSync(join(fixture, "relay"));
+      writeFileSync(join(fixture, "relay", "probe.ts"), "const relayGateProbe = 1;\nexport {};\n");
+      const throughScript = await capture([process.execPath, "run", "lint:relay", "--format", "json"], fixture);
+      const direct = await capture([ESLINT, "--config", join("client", "eslint.config.js"), "--format", "json", "relay"], fixture);
+      expect(throughScript.code, throughScript.out).toBe(1);
+      expect(direct.code, direct.out).toBe(1);
+      const report = JSON.parse(throughScript.stdout);
+      expect(report).toEqual(JSON.parse(direct.stdout));
+      expect(report[0].messages.some((message: { ruleId: string }) => message.ruleId === "@typescript-eslint/no-unused-vars")).toBe(true);
+    } finally { rmSync(fixture, { recursive: true, force: true }); }
+  }, DEADLINE_MS);
 });
 
 /**
