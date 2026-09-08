@@ -107,8 +107,9 @@ export async function stubIdentity(page: Page, population: Population): Promise<
         incoming: [],
         outgoing: [],
       }) }));
-  // THE WORST CASE FOR THE MENU HEADER, not a quiet machine. Three signals is
-  // the cap `workSignals` enforces; they ride on the menu's title now, not on
+  // THE WORST CASE FOR THE MENU HEADER, not a quiet machine: every count the
+  // server publishes is above zero, so the tail draws the two glyphs
+  // `workSignals` allows and no more. They ride on the menu's title now, not on
   // the card, and the card has to stay the same width either way.
   await page.route("**/api/system/presence", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",

@@ -1909,9 +1909,6 @@ const EN = {
   'statusBar.orgs.presence': '{n} of {tot} online now',
   'statusBar.devicesTitle': 'Open the list of authorised devices',
   'statusBar.signals.working': '{n} sessions working right now',
-  'statusBar.signals.awaitingInput': '{n} sessions waiting for your answer',
-  'statusBar.signals.done': '{n} finished turns you have not looked at',
-  'statusBar.signals.tasks': '{n} board tasks running',
   'statusBar.signals.open': '{n} open sessions',
   // THE ACTIVE AGENTS ROW and the level it opens: who is working, who is
   // parked on a question, and the sentence for when nobody is.
