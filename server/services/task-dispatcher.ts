@@ -35,7 +35,7 @@ import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, c
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
-import { taskModelMatchesSession } from "../../shared/task-coding-models";
+import { taskModelMatchesSession, taskModelSelection } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -382,6 +382,8 @@ export interface DispatcherDeps {
   topicExists?: (topicId: string) => boolean;
   /** The actual binding inherited when a dependent reuses its blocker's session. */
   topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null } | null;
+  /** Same coding-provider resolution as createTopic, including the live default. */
+  resolveTaskProvider?: (model?: string | null) => string;
   /**
    * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
    * del suo repo?
@@ -1090,6 +1092,56 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   let holdAnnounced = 0;
   /** The reset instant of the plan window already logged by `tick`: once per window. */
   let planWindowAnnounced = 0;
+
+  /** The memo belongs to the Claude plan, never to the whole machine. */
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string } | null {
+    const hold = providerHold();
+    const window = starting ? planUsage()?.fiveHour : null;
+    const nearLimit = window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null
+      && window.resetsAtMs > Date.now();
+    if (!hold && !nearLimit) return null;
+    let topicId = task.assignedTopicId;
+    if (!topicId && task.reuseBlockerContext && task.blockedByTaskId) {
+      topicId = deps.svc.get(task.blockedByTaskId)?.task.assignedTopicId ?? null;
+    }
+    const session = topicId ? deps.topicModelSelection?.(topicId) : null;
+    let provider = session?.provider;
+    if (!provider) {
+      const selected = model ?? task.model;
+      try { provider = deps.resolveTaskProvider?.(selected) ?? taskModelSelection(selected).provider ?? "topics"; }
+      catch { return null; } // Unavailable routing is reported by createTopic, not disguised as quota.
+    }
+    if (!["topics", "claude-code", "claude-code-team", "jcode"].includes(provider)) return null;
+    if (hold) {
+      if (holdAnnounced !== hold.sinceMs) {
+        holdAnnounced = hold.sinceMs;
+        log(`Claude dispatch waiting: ${hold.reason}, resumes at ${holdUntilLabel(hold)}`);
+      }
+      return { untilMs: hold.untilMs, reason: `Claude: ${hold.reason}. Ripresa dopo il reset delle ${holdUntilLabel(hold)}.` }; // allow-italian: task queue reason
+    }
+    const untilMs = window!.resetsAtMs!;
+    const pct = Math.round(window!.utilization);
+    const at = holdUntilLabel({ untilMs });
+    if (planWindowAnnounced !== untilMs) {
+      planWindowAnnounced = untilMs;
+      log(`Claude dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
+    }
+    return { untilMs, reason: `Claude: finestra di 5 ore al ${pct}%. Nuovi task in attesa del reset delle ${at}.` }; // allow-italian: task queue reason
+  }
+
+  function markPlanWait(task: Task, reason: string): void {
+    if (task.dispatchState === CHIP_QUEUED && task.dispatchError === reason) return;
+    emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED, error: reason }));
+  }
+
+  /** A hold may arrive while the async model picker runs, before any resources exist. */
+  function deferHeldLaunch(task: Task, model?: string): boolean {
+    const wait = taskPlanWait(task, model, true);
+    if (!wait) return false;
+    const queued = releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true, reason: wait.reason });
+    markPlanWait(queued, wait.reason);
+    return true;
+  }
 
   /**
    * One in-flight run: a turn being set up, running, or winding down.
@@ -2158,6 +2210,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
+      if (deferHeldLaunch(task, chosenModel)) return;
+
       if (!reuseTopicId && settings.useWorktree) {
         if (!deps.createWorktree || !resolved.projectStoreId) {
           // Worktree required but impossible → park with a clear, actionable error
@@ -2173,6 +2227,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           return;
         }
         worktreeId = await deps.createWorktree(resolved.projectStoreId);
+        if (deferHeldLaunch(task, chosenModel)) {
+          await cleanupWorktree(worktreeId, { preserveWork: true });
+          return;
+        }
       }
 
       let kickoff = buildKickoff(task);
@@ -2477,7 +2535,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     total: number,
     opts: { timeoutMs: number; idleMs: number; effort: string; mcp: string; model?: string },
     resolved: { path: string; projectStoreId: string },
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const store = deps.attempts!;
     const attempt = store.create({ taskId: task.id, idx, model: opts.model ?? null });
     let worktreeId: string | null = null;
@@ -2487,6 +2545,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let failure: string | null = null;
     try {
       worktreeId = await deps.createWorktree!(resolved.projectStoreId);
+      const wait = taskPlanWait(task, opts.model, true);
+      if (wait) {
+        try { store.finish(attempt.id, { state: "failed", error: wait.reason }); }
+        catch (err) { log(`fan-out: held attempt ${attempt.id} not recorded`, err); }
+        await cleanupWorktree(worktreeId, { preserveWork: true });
+        return wait.reason;
+      }
       let branch: string | null = null;
       try { branch = deps.worktreeBranch?.(worktreeId) ?? null; } catch { /* etichetta, non un requisito */ }
       const topic = deps.createTopic({
@@ -2548,6 +2613,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // sessioni si sommano da soli: è l'unico posto in cui la somma è la
     // risposta giusta, e qui la dà la stessa funzione degli altri.
     if (sessionKey) { bookUsageFloor(task.id, sessionKey, opts.model ?? null); recordTurnMs(task.id, t0); }
+    return undefined;
   }
 
   /** Pota worktree e chat dei tentativi di un task (il vincitore, se c'è, resta). */
@@ -2708,6 +2774,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
+      if (deferHeldLaunch(task, chosenModel)) return;
+
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       try {
         deps.svc.addComment({
@@ -2722,7 +2790,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const idleMs = Math.max(1, settings.idleMin) * 60_000;
       // allSettled e non all: un tentativo che esplode in modo imprevisto non
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
           runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
         ),
@@ -2731,6 +2799,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // nuovo): non è più roba nostra, e chiudere il fan-out adesso pesterebbe
       // lo stato di chi ci ha sostituito.
       if (!ownsRun(taskId, runId)) return;
+      const held = results.map(result => result.status === "fulfilled" ? result.value : undefined);
+      // Only an entirely unstarted batch refunds its claim. A sibling already
+      // running keeps its work and follows the normal delivery path.
+      if (held.every(reason => reason !== undefined)) {
+        const queued = releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true, reason: held[0] });
+        markPlanWait(queued, held[0]!);
+        return;
+      }
       await closeFanOut(taskId, n);
     } catch (err) {
       log(`fan-out fallito per il task ${taskId}`, err);
@@ -3035,7 +3111,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           clearRetryWait(taskId);
           // A spent usage window has a published end: the card waits for it
           // (plus its backoff), instead of resuming into the same 429.
-          const holdMs = Math.max(0, (providerHold()?.untilMs ?? 0) - Date.now());
+          const holdMs = Math.max(0, (taskPlanWait(bumped)?.untilMs ?? 0) - Date.now());
           const waitMs = outage ? Math.max(backoff, holdMs) : 0;
           const retryTimer = setTimeout(() => {
             retryWaits.delete(taskId);
@@ -3342,7 +3418,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // resumed turn is a full agent turn on the same machine: letting it through
     // over the threshold would be the count-mode leak (resumes outside the
     // cap) reborn under another name.
-    const floorBlock = drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
+    const floorBlock = taskPlanWait(t)?.reason ?? drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3488,35 +3564,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A restart is waiting for the fleet to go quiet: picking a card now would
     // keep it waiting forever. The card is not lost, it is next after the boot.
     if (draining) return;
-    // The plan's usage window is spent (`provider-hold.ts`): a card started
-    // now would only add its own 429s to the pile. Said once per hold.
-    const hold = providerHold();
-    if (hold) {
-      if (holdAnnounced !== hold.sinceMs) {
-        holdAnnounced = hold.sinceMs;
-        log(`dispatch fermo: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
-      }
-      return;
-    }
-    // NEARLY spent is not spent, and it is the state that matters on a
-    // subscription: the hold above only fires at the wall, when the window is
-    // already gone and every card in flight has died into it. Above the
-    // threshold the queue stops STARTING cards - the running ones and the
-    // person's own chats keep the rest of the window, which is what it is worth
-    // more to. With no reading at all nothing brakes: "I do not know" is not
-    // "you are at the limit". The five-hour window only: a nearly full week
-    // does not stop today's queue, it stops nothing anybody can wait out.
-    const window = planUsage()?.fiveHour;
-    if (window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null && window.resetsAtMs > Date.now()) {
-      const pct = Math.round(window.utilization);
-      const at = holdUntilLabel({ untilMs: window.resetsAtMs });
-      if (planWindowAnnounced !== window.resetsAtMs) {
-        planWindowAnnounced = window.resetsAtMs;
-        log(`dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
-      }
-      publishDispatchBlock(null, null, null, `Finestra di 5 ore del piano al ${pct}%: non parte niente di nuovo fino al reset delle ${at}.`);   // allow-italian: the sentence shown on the card
-      return;
-    }
     // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
     // FERMARE. Il dispatch parte se il globale e' acceso E questa board non e'
     // in pausa; una board non in pausa con il globale spento non parte lo
@@ -3640,6 +3687,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Dependency gate: a todo whose blocker is still open WAITS (no claim
       // attempt, no chip). Same predicate as the claim CAS, so no divergence.
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
+      .filter((t) => {
+        const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
+        if (!wait) return true;
+        markPlanWait(t, wait.reason);
+        return false;
+      })
       // Priority is the queue discipline (4=urgente first), age breaks ties —
       // an urgent task never waits behind an older low-priority one.
       .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));

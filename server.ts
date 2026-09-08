@@ -1421,6 +1421,10 @@ const taskDispatcher = createTaskDispatcher({
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
   topicExists: (id) => !!ctx.getTopicById(id),
+  resolveTaskProvider: (model) => {
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    return taskProviderForModel(model, getSnapshotManager().getSnapshot());
+  },
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
     return topic ? { model: topic.model, provider: topic.provider ?? getDefaultProviderName() } : null;

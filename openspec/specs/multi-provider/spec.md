@@ -36,3 +36,19 @@ Native OAuth renewal SHALL hold the inter-process lock, honor a bounded network 
 #### Scenario: Another process owns credential renewal
 - **WHEN** the lock wait expires
 - **THEN** Topics reuses freshly renewed credentials if available or reports unavailability without issuing an unlocked refresh.
+
+### Requirement: MP-DISPATCH-01 — Claude plan limits only hold Claude work
+
+A Claude plan hold SHALL prevent new Claude coding turns and task resumes until the hold expires or is cleared. The approaching-limit threshold SHALL prevent new Claude task starts while preserving the existing policy for already assigned sessions. Neither limit SHALL prevent Codex/GPT tasks from starting or resuming. A held Claude task SHALL not block an eligible Codex task behind it.
+
+The decision SHALL use the same effective provider as task execution: explicit task model, then board model, then the current coding default. Reused or assigned sessions SHALL retain their actual provider. A limit SHALL not switch providers, consume dispatch attempts, create worktrees or topics, or drop pending human updates. Queued tasks SHALL become eligible again when the relevant limit ends.
+
+#### Scenario: Mixed queue during a Claude plan hold
+- **GIVEN** a held Claude task ahead of a task explicitly assigned to GPT
+- **WHEN** dispatch runs with Codex available
+- **THEN** only the GPT task starts, through Codex, and the Claude task remains queued without consuming an attempt.
+
+#### Scenario: A bound session outlives a default change
+- **GIVEN** an existing Claude session and a new Codex default
+- **WHEN** a Claude hold is active and a human update requests resume
+- **THEN** the update waits for Claude without changing the session; an existing Codex session may resume.

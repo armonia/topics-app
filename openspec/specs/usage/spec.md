@@ -730,7 +730,7 @@ Una finestra a cinque ore ESAURITA letta dall'evento SHALL produrre lo stesso
 hold della lettura via endpoint (RESUME-04), passando per la stessa regola.
 
 Sopra la soglia di freno, e con un reset ancora futuro, il giro di dispatch NON
-SHALL avviare nessuna card nuova, e SHALL dirne il motivo una volta sola per
+SHALL avviare nuove card Claude; le card Codex/GPT restano eleggibili secondo MP-DISPATCH-01. SHALL dirne il motivo una volta sola per
 istante di reset. Sotto la soglia il giro SHALL comportarsi esattamente come
 prima; senza nessuna lettura registrata SHALL avviare, perché «non lo so» non è
 «sei al limite». La soglia SHALL guardare la sola finestra a cinque ore: una
