@@ -4,6 +4,10 @@
 `codex/senior-pass-20260908`, in checkout isolato. Nessun rilascio o modifica al
 database operativo. Le evidenze locali sono in `test-results/senior-pass/`.
 
+Il seguito sulla conversazione dei task, sui costi degli aggiornamenti multiplayer
+e sulla velocità dei controlli è documentato in
+[PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md), con misure e verifiche dedicate.
+
 ## Fatto
 
 | Correzione | Prova |

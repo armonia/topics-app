@@ -361,11 +361,23 @@ page but are no longer built, signed, or updated.
 **I quattro cancelli** — verdi tutti e quattro prima di consegnare, non tre su quattro:
 
 ```bash
-bun run typecheck        # client + server + e2e + relay (~15s)
-bun run lint             # eslint (client + relay) (~17s)
-bun run check:deadcode   # knip — un file che nessuno importa È codice morto (~30s)
-bun run test:unit        # bun:test — moduli puri (~260s, 10.650 test)
+bun run typecheck        # client, test client, server, e2e e relay; cache incrementali
+bun run lint             # eslint client + relay; cache basata sul contenuto
+bun run check:deadcode   # knip
+bun run test:unit        # suite completa di unità e integrazione, seriale
 ```
+
+Le cache dei controlli sono in `.cache/checks/`, separate per worktree e ignorate
+da Git. Le modifiche ai sorgenti, alla configurazione e alle dipendenze invalidano
+le parti interessate. Per tutti i controlli statici, tipi e lint insieme:
+`./scripts/qa-gate.sh --veloce`. Il resoconto aggiornato delle misure è in
+[PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md).
+
+Il runner unitario parallelo è disponibile con
+`TOPICS_UNIT_SHARDS=2 bun run test:unit:shards`: stessa selezione del seriale,
+stesso timeout e fallimenti conservati senza tentativi automatici che li
+nascondano. Il comando senza override parte da due worker e si riduce a uno
+sotto carico. Il seriale rimane il comando di riferimento.
 
 **I numeri sono misurati il 2026-08-18, e uno era diventato una bugia comoda.**
 `test:unit` diceva «~70s, ~4100 test»: erano 322s e 10.619 test, cioè quattro
@@ -419,10 +431,24 @@ worker", è PIÙ SUITE — N processi, ognuno col suo server, il suo database e 
 suoi socket (porta, `DATA_DIR` e socket derivano tutti da `E2E_PORT`).
 
 ```bash
-SHARDS=4 ./scripts/e2e-shards.sh          # 4 è il valore che rende su 8-12 core
-SHARDS=4 E2E_BASE_PORT=13360 ./scripts/e2e-shards.sh   # porte alternative
-bun run test:e2e:plan 4                    # vedi la divisione senza eseguirla
+./scripts/e2e-shards.sh 2                # default: due shard, un server per shard
+E2E_SHARD_BASE_PORT=13360 ./scripts/e2e-shards.sh 2   # porte alternative
+bun run test:e2e:plan 2                  # vedi la divisione senza eseguirla
 ```
+
+Ogni esecuzione stampa la propria directory di log, report e artifact. Per
+conservarne esplicitamente il percorso e usarlo nei comandi successivi:
+
+```bash
+export E2E_SHARD_OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/topics-e2e-review.XXXXXX")"
+./scripts/e2e-shards.sh 2
+bun run scripts/e2e-shards-summary.ts 2
+bun run scripts/merge-shard-reports.ts "$E2E_SHARD_OUT_DIR" --out test-results/uat-report.json
+```
+
+La directory esplicita deve essere vuota. Una prenotazione impedisce a due
+esecuzioni del runner di interferire con porte e prove; un'eventuale prenotazione
+abbandonata riporta il proprietario e i comandi di diagnosi.
 
 Gli shard si dividono **per durata misurata**, non per numero di test:
 `scripts/e2e-durations.json` (committato) dice quanto costa ogni file, e
@@ -433,7 +459,7 @@ quanto quaranta file da uno — è quello che produceva shard da 193s, 326s, 186
 riallinea le misure:
 
 ```bash
-bun run test:e2e:durations test-results/shard-*/results.json
+bun run test:e2e:durations "$E2E_SHARD_OUT_DIR"/report-*.json
 ```
 
 **Quanti shard.** Ogni shard è un server Bun + un Chromium + un node: su 12 core,
