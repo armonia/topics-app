@@ -51,3 +51,13 @@ Integrated evidence before the final HTTP spawn guard:
 - `/tmp/topics-live-fix-gate.log`: the complete quick gate passed on `dec1f8f90`.
 
 These focused results do not claim a successful rerun of the entire unit shard suite. The final live readback and pre-review outcome must be recorded after the remaining guard is loaded. Product follow-up, persistent Codex runtime and actor attribution remain separate board work.
+
+## Subsequent verification and effort recovery
+
+The guarded runtime was loaded at 22:12 UTC. The actual Topics history now includes successful `get_task` and `comment_task` MCP events, a running `update_task` while review checks execute, and complete command output. The process stayed alive through the review-check wait. The phase-1 recovery task subsequently reached review through Topics with its existing scope and coding model retained.
+
+One review run on `f75c6d29e` still failed in `relay/gate-coverage.test.ts`. The isolated test, its shard prefix and the complete rerun on the same checkout passed. `/tmp/topics-full-unit-final-20260909.log` records all 1,286 files passing in 255.6 seconds. The earlier result is intermittent; this rerun does not establish its cause or claim a dedicated fix. The failed board verification was stopped to prevent repeated agent generations.
+
+A separate live readback disproved the verification agent's effort claim: its concrete Luna model had survived release, but its automatic effort had not. The process used the global `xhigh` despite the prose saying `low`. The additive `tasks.model_effort` field now preserves the concrete automatic choice alongside the model through fresh requeue and fanout. Manual model changes clear that pair. Concrete models bypass classification; legacy unpaired choices use explicit `medium`, while an existing bound topic keeps its own effort.
+
+Evidence for that correction: 392 focused tests and a clean server typecheck before test consolidation; 201 dispatcher tests after consolidating two redundant cases; and `/tmp/topics-final-effort-integration-tests.log` with 41 provider-hold/fanout tests and 180 assertions. The integrated quick gate passed every check except the test-file size threshold; `/tmp/topics-final-bloat.log` covers the documented test-only baseline update after consolidation. No security baseline was relaxed. `/tmp/topics-security-final-after-patch.log` confirms the landing dependency patches leave zero reported advisories.
