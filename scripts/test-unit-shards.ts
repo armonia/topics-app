@@ -67,7 +67,7 @@
  * green shuffle x shard repro (see the header).
  *
  * USAGE
- *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS or 4
+ *   bun run scripts/test-unit-shards.ts            # N = TOPICS_UNIT_SHARDS or 2
  *   TOPICS_UNIT_SHARDS=6 bun run scripts/test-unit-shards.ts
  * In production it enters from the bar as:
  *   bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'
@@ -81,9 +81,9 @@ import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 
 /**
- * How many shards, and how long a test may take, on THIS machine right now.
+ * How many shards to run on THIS machine, with the serial suite's timeout.
  *
- * WHY THE PLAN LOOKS AT THE LOAD. The bar is sized for a quiet box: four shards
+ * WHY THE PLAN LOOKS AT THE LOAD. The bar was sized for a quiet box: four shards
  * on twelve cores, 30 s per test. Under a fleet it is not quiet: on 05/09/2026
  * the load sat at 46 on 12 cores (four agents, three gate slots each running
  * four shards, typecheck and lint beside them). At that pressure every test
@@ -92,11 +92,10 @@ import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-sl
  * a shard killed by timeouts on a branch identical to main. A gate that goes
  * red with the load measures the machine, not the code.
  *
- * So above a pressure of 1.25 (load per core) the run adds fewer processes
- * (shards divided by the pressure, never below two) and gives each test more
- * time (the cap multiplied by the pressure, at most 4x). Explicit env values
- * are respected: whoever set TOPICS_UNIT_SHARDS or TOPICS_TEST_TIMEOUT_MS
- * made a choice, and the plan does not overrule a person.
+ * Above a pressure of 1.25 (load per core) the run adds fewer processes
+ * (shards divided by the pressure, never below one). The per-test timeout is
+ * unchanged: parallel execution must not turn a serial timeout failure green.
+ * Explicit TOPICS_UNIT_SHARDS and TOPICS_TEST_TIMEOUT_MS remain authoritative.
  */
 export interface LoadPlan {
   shards: number;
@@ -114,30 +113,27 @@ export interface LoadPlan {
   note: string | null;
 }
 export const LOAD_PRESSURE_FLOOR = 1.25;
-export const LOAD_TIMEOUT_CAP = 4;
 export function planUnderLoad(input: {
   load: number;
   cores: number;
   shards: number;
   timeoutMs: number;
   shardsExplicit?: boolean;
-  timeoutExplicit?: boolean;
 }): LoadPlan {
   const cores = Math.max(1, input.cores);
   const pressure = Math.max(0, input.load) / cores;
   if (!Number.isFinite(pressure) || pressure <= LOAD_PRESSURE_FLOOR) {
     return { shards: input.shards, timeoutMs: input.timeoutMs, pressure, slowdown: 1, note: null };
   }
-  const shards = input.shardsExplicit ? input.shards : Math.max(2, Math.min(input.shards, Math.floor(input.shards / pressure)));
-  const factor = Math.min(LOAD_TIMEOUT_CAP, pressure);
-  const timeoutMs = input.timeoutExplicit ? input.timeoutMs : Math.round(input.timeoutMs * factor);
-  const changed = shards !== input.shards || timeoutMs !== input.timeoutMs;
+  const shards = input.shardsExplicit ? input.shards : Math.max(1, Math.min(input.shards, Math.floor(input.shards / pressure)));
+  const timeoutMs = input.timeoutMs;
+  const changed = shards !== input.shards;
   // Only the shards move the WALL CLOCK: the per-test cap is a ceiling on a
   // single test, not time anybody spends. The same files across half the
   // workers take about twice as long, and that is the number to declare.
   const slowdown = clampSlowdown(input.shards / Math.max(1, shards));
   const note = changed
-    ? `carico ${input.load.toFixed(1)} su ${cores} core (pressione ${pressure.toFixed(2)}): ${shards} shard invece di ${input.shards}, timeout per test ${timeoutMs} ms invece di ${input.timeoutMs}`
+    ? `carico ${input.load.toFixed(1)} su ${cores} core (pressione ${pressure.toFixed(2)}): ${shards} shard invece di ${input.shards}, timeout per test invariato (${timeoutMs} ms)`
     : null;
   return { shards, timeoutMs, pressure, slowdown, note };
 }
@@ -338,7 +334,7 @@ interface RunResult {
 async function runBunTest(
   files: string[],
   xmlPath: string,
-  timeoutMs: number,
+  timeoutMs: string,
 ): Promise<RunResult> {
   const t0 = Date.now();
   const proc = Bun.spawn(
@@ -347,7 +343,6 @@ async function runBunTest(
       cwd: REPO_ROOT,
       env: {
         ...process.env,
-        CI: "1",
         // Covers the children with the slot this process already holds: bun's
         // preload sees the marker and does NOT queue for a second slot.
         [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
@@ -377,14 +372,16 @@ async function runBunTest(
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 if (import.meta.main) {
-  const baseShards = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 4);
+  const baseShards = Math.max(1, Number(process.env.TOPICS_UNIT_SHARDS) || 2);
+  // Exactly the shell expansion used by test:unit. Preserve the raw override
+  // too: an invalid value must reach Bun and fail, not silently become 30s.
+  const timeoutMs = process.env.TOPICS_TEST_TIMEOUT_MS || "30000";
   const plan = planUnderLoad({
     load: loadavg()[0] ?? 0,
     cores: cpus().length || 1,
     shards: baseShards,
-    timeoutMs: Number(process.env.TOPICS_TEST_TIMEOUT_MS) || 30000,
+    timeoutMs: Number(timeoutMs),
     shardsExplicit: Number(process.env.TOPICS_UNIT_SHARDS) > 0,
-    timeoutExplicit: Number(process.env.TOPICS_TEST_TIMEOUT_MS) > 0,
   });
   if (plan.note) console.error(`test-unit-shards: ${plan.note}`);
   /**
@@ -407,7 +404,6 @@ if (import.meta.main) {
     console.error(gateSlowdownLine(plan.slowdown, reason));
   }
   const shardsN = plan.shards;
-  const timeoutMs = plan.timeoutMs;
 
   const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
   if (files.length === 0) {
@@ -428,21 +424,11 @@ if (import.meta.main) {
   );
 
   // ── PHASE 2: the serial ai-bridge racers (after phase 1: no CPU contention) ──
-  // "No contention" holds for THIS run: the semaphore (`gate-slot.ts`, cores/4
-  // slots) lets up to three bars run together, and another card's phase 1 can
-  // hammer the cores while the ai-bridge singleton measures its 15 s deadline
-  // here (measured 15.2 s under 4 workers). A clock red on a card that never
-  // touched ai-bridge costs an agent turn: phase 2 is retried ONCE, and says
-  // so. Phase 1 is not: a red there belongs to the code.
-  let phase2 = serial.length
+  // A red in this tail is a red for the whole run, just as in test:unit.
+  // Retrying and replacing its result hid both the failure and its stdout.
+  const phase2 = serial.length
     ? await runBunTest(serial, join(xmlDir, "p2-serial.xml"), timeoutMs)
     : null;
-  if (phase2 && phase2.code !== 0) {
-    console.error(`\n───── fase2 seriale rossa (exit ${phase2.code}): i racer ai-bridge sono sensibili alla contesa CPU, riprovo una volta ─────`);
-    if (phase2.stderr.trim()) console.error(phase2.stderr.trimEnd());
-    phase2 = await runBunTest(serial, join(xmlDir, "p2-serial-retry.xml"), timeoutMs);
-    console.error(`───── fase2 seriale, secondo tentativo: ${phase2.code === 0 ? "verde" : `ancora rossa (exit ${phase2.code})`} ─────`);
-  }
 
   const totalWallS = (Date.now() - started) / 1000;
 

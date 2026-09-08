@@ -27,10 +27,7 @@ describe("planUnderLoad", () => {
   });
 
   test("halving the shards is declared as a 2x slowdown, so an outside cap can follow it", () => {
-    // Card 40dc7674: at 4 shards the suite is green in 7m59s, at 2 shards under
-    // the fleet it runs past the board's fixed 20 minutes. The plan knows it
-    // will be slower before the first shard starts; the number has to travel.
-    const p = planUnderLoad({ load: 46, cores: 12, shards: 4, timeoutMs: 30000 });
+    const p = planUnderLoad({ load: 24, cores: 12, shards: 4, timeoutMs: 30000 });
     expect(p.shards).toBe(2);
     expect(p.slowdown).toBe(2);
   });
@@ -41,27 +38,28 @@ describe("planUnderLoad", () => {
     expect(p.slowdown).toBe(1);
   });
 
-  test("load 46 on 12 cores (measured 05/09/2026): two shards, the cap scaled by the pressure, and it says so", () => {
-    const p = planUnderLoad({ load: 46, cores: 12, shards: 4, timeoutMs: 30000 });
-    expect(p.shards).toBe(2);
-    expect(p.timeoutMs).toBe(Math.round(30000 * (46 / 12)));
+  test("load 46 on 12 cores: the default two workers become one with the serial timeout", () => {
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 2, timeoutMs: 30000 });
+    expect(p.shards).toBe(1);
+    expect(p.timeoutMs).toBe(30000);
+    expect(p.slowdown).toBe(2);
     expect(p.note).toContain("46.0 su 12 core");
   });
 
-  test("the timeout never grows past 4x, whatever the load", () => {
+  test("the timeout never grows, whatever the load", () => {
     const p = planUnderLoad({ load: 120, cores: 12, shards: 4, timeoutMs: 30000 });
-    expect(p.timeoutMs).toBe(120000);
-    expect(p.shards).toBe(2);
+    expect(p.timeoutMs).toBe(30000);
+    expect(p.shards).toBe(1);
   });
 
-  test("moderate pressure: the shards shrink in proportion, the timeout grows in proportion", () => {
+  test("moderate pressure: the shards shrink in proportion, the timeout is unchanged", () => {
     const p = planUnderLoad({ load: 24, cores: 12, shards: 4, timeoutMs: 30000 });
     expect(p.shards).toBe(2);
-    expect(p.timeoutMs).toBe(60000);
+    expect(p.timeoutMs).toBe(30000);
   });
 
   test("explicit env choices are respected", () => {
-    const p = planUnderLoad({ load: 46, cores: 12, shards: 8, timeoutMs: 10000, shardsExplicit: true, timeoutExplicit: true });
+    const p = planUnderLoad({ load: 46, cores: 12, shards: 8, timeoutMs: 10000, shardsExplicit: true });
     expect(p.shards).toBe(8);
     expect(p.timeoutMs).toBe(10000);
     expect(p.note).toBeNull();

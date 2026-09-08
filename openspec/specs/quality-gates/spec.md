@@ -532,6 +532,9 @@ Il cancello `test:unit` in un solo processo costava ~462 s a macchina scarica e
 lavoro che controlla viene spento dal primo che ha fretta. La suite SHALL quindi
 poter girare in N `bun test` concorrenti (`test:unit:shards`), e il verdetto
 SHALL essere l'aggregato: verde solo se OGNI shard è verde.
+Anche un fallimento nella coda seriale SHALL restare rosso: nessun retry
+automatico SHALL sostituirne l'esito. L'output completo del primo fallimento,
+stdout incluso, SHALL restare nel referto.
 
 La divisione SHALL coprire gli STESSI file del cancello seriale (le radici sono
 le stesse di `test:unit` in package.json): un file che la divisione perde è un
@@ -559,19 +562,25 @@ SHALL dirlo, non tacere.
 - **GIVEN** uno shard che esce 1 con un test case che porta `<failure>`
 - **THEN** il sommario SHALL chiudersi con il nome di quel test, file e titolo
 
-Il piano SHALL guardare il CARICO della macchina prima di partire. La misura è
-tarata su una macchina scarica (quattro shard, 30 s per test); sotto una flotta
-non lo è: il 05/09/2026 il carico stava a 46 su 12 core e due card si sono
-parcheggiate in un'ora su «test:unit rosso senza test rossi nel referto», cioè
-uno shard ucciso dai timeout su un ramo identico a main. Sopra una pressione
-di 1,25 (carico per core) la corsa SHALL usare meno shard (divisi per la
-pressione, mai sotto due) e SHALL dare a ogni test più tempo (il tetto per la
-pressione, al più 4×), e SHALL scriverlo nell'output. Un valore scelto a mano
+Il piano SHALL guardare il CARICO della macchina prima di partire. Il runner
+esplicito `test:unit:shards` SHALL partire con due shard per default. Sopra una
+pressione di 1,25 (carico per core) SHALL usarne meno (divisi per la pressione,
+mai sotto uno) e SHALL scriverlo nell'output. Un numero di shard scelto a mano
 via ambiente NON SHALL essere sovrascritto.
+
+Il timeout per test SHALL essere lo stesso del comando seriale: 30 s oppure
+l'override esplicito `TOPICS_TEST_TIMEOUT_MS`, senza aumenti dovuti al carico.
+L'ambiente, incluso `CI`, SHALL essere ereditato. La parallelizzazione cambia
+quali file lavorano insieme, non le condizioni che ne determinano il verdetto.
+Il comando seriale resta disponibile per confronto e diagnosi.
 
 #### Scenario: macchina satura
 - **GIVEN** carico 46 su 12 core, nessuna scelta esplicita via ambiente
-- **THEN** la corsa SHALL usare due shard e un tetto per test di circa 115 s, e la prima riga dell'output SHALL dirlo
+- **THEN** la corsa SHALL usare uno shard e mantenere il timeout di 30 s, e la prima riga dell'output SHALL dirlo
+
+#### Scenario: la coda seriale fallisce una volta
+- **GIVEN** tutti gli shard verdi e la coda seriale che esce 7
+- **THEN** la corsa SHALL uscire 7, stampare stdout e stderr del fallimento e non riprovare la coda
 
 #### Scenario: il file più lento va nel secchio più leggero
 - **GIVEN** durate note e N secchi

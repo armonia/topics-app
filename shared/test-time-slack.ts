@@ -30,10 +30,9 @@
 export const TIME_SLACK_ENV = "TOPICS_TEST_TIME_SLACK";
 
 /**
- * The ceiling. Four is where `planUnderLoad` already caps the per-test timeout
- * (`LOAD_TIMEOUT_CAP` in scripts/test-unit-shards.ts): past that the machine is
- * not slow, it is thrashing, and a window that keeps growing would swallow the
- * hang the test is there to catch.
+ * The ceiling for these explicit wait helpers, in both serial and sharded
+ * runs. The runner's per-test timeout is independent and stays unchanged:
+ * this factor must not silently widen the limit of the whole test.
  */
 export const MAX_TIME_SLACK = 4;
 
