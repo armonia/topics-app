@@ -203,7 +203,13 @@ describe("relay/ is inside the gates", () => {
     expect(SCRIPTS.lint).toContain("bun run lint:relay");
     const fixture = mkdtempSync(join(tmpdir(), "relay-lint-gate-"));
     try {
-      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/eslint.config.js", "scripts/lint.ts"]) {
+      // `client/package.json` is in the list for ONE line it carries:
+      // `"type": "module"`. Node reads the module kind of `eslint.config.js`
+      // from the nearest package.json, and the root one does not declare it, so
+      // without this copy the flat config loads as CommonJS, dies on its first
+      // `import`, and eslint exits 2 in both runs: a broken fixture reading as
+      // a broken gate.
+      for (const file of ["package.json", "bun.lock", "client/bun.lock", "client/package.json", "client/eslint.config.js", "scripts/lint.ts"]) {
         const path = join(fixture, file);
         mkdirSync(dirname(path), { recursive: true });
         copyFileSync(join(ROOT, file), path);
