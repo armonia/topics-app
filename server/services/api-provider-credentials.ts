@@ -1,8 +1,9 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveStateDir } from "../lib/data-dir";
+import type { ApiProviderName } from "../../shared/api-provider-credentials";
 
-export type ApiProviderName = "openai" | "claude";
+export type { ApiProviderName } from "../../shared/api-provider-credentials";
 type Credentials = Partial<Record<ApiProviderName, string>>;
 const ENV_KEYS = { openai: "OPENAI_API_KEY", claude: "ANTHROPIC_API_KEY" } as const;
 let configuredRoot: string | undefined;

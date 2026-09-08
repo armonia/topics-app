@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
@@ -2188,9 +2189,10 @@ describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
     expect(resumed).toEqual([]);
     expect(todos).toEqual([p.id]);
     const note = db.prepare(
-      "SELECT content FROM task_comments WHERE task_id = ? AND author = 'system' AND content LIKE 'Rifiutata senza una sessione%'",
-    ).get(p.id) as { content: string } | null;
-    expect(note).not.toBeNull();
+      "SELECT content FROM task_comments WHERE task_id = ? AND author = 'system' AND kind = 'service' AND content = ?",
+    ).get(p.id, FRESH_SESSION_NOTE) as { content: string } | null;
+    expect(note?.content).toBe(FRESH_SESSION_NOTE);
+    expect(FRESH_SESSION_NOTE.length).toBeGreaterThan(20);
   });
 
   test("«archivia»: il figlio sparisce e il padre torna in coda", async () => {

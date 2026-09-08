@@ -90,9 +90,9 @@ async function harness(sessionKey: string): Promise<Harness> {
     const req = new Request(url.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      // La forma che manda `runHeadlessWoken`: nessun messaggio, il provider
-      // dichiarato, e il modo.
-      body: JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code" }),
+      // Il provider proprietario è già fissato sulla topic. La route deve
+      // adottarlo senza trasformare il risveglio in un override del composer.
+      body: JSON.stringify({ sessionKey, messages: [], mode: "woken" }),
     });
     const resp = (await chatRouter(req, url, "/api/chat", "POST")) as Response | null;
     resp?.body?.cancel().catch(() => {});
@@ -270,7 +270,7 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
     const resp = (await chatRouter(
       new Request(url.toString(), {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "senza-adozione" }),
+        body: JSON.stringify({ sessionKey, messages: [], mode: "woken" }),
       }),
       url, "/api/chat", "POST",
     )) as Response | null;
