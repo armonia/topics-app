@@ -1,7 +1,9 @@
+/** @covers CODEX-01 */
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, rmSync } from "fs";
 import net from "net";
 import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
+import type { AppContext } from "../types";
 
 const originalGatewayToken = process.env.GATEWAY_TOKEN;
 const originalStandalone = process.env.TOPICS_DISABLE_PTY_BRIDGE;
@@ -65,27 +67,28 @@ test("Codex bridge-only HTTP spawn is refused before a Claude PTY create frame",
     },
     broadcastToAll: () => {},
     worktreeStore: {},
-  } as any;
-  const router = createTerminalRouter(ctx);
-  const url = new URL("http://topics.test/api/sessions/topic%3Ablocked/agents/spawn");
-  const response = await router(
-    new Request(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-gateway-token": "test-agent-token" },
-      body: JSON.stringify({ prompt: "must not start" }),
-    }),
-    url,
-    url.pathname,
-    "POST",
-  );
+  } as unknown as AppContext;
+  try {
+    const router = createTerminalRouter(ctx);
+    const url = new URL("http://topics.test/api/sessions/topic%3Ablocked/agents/spawn");
+    const response = await router(
+      new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-gateway-token": "test-agent-token" },
+        body: JSON.stringify({ prompt: "must not start" }),
+      }),
+      url,
+      url.pathname,
+      "POST",
+    );
 
-  expect(response?.status).toBe(403);
-  expect((await response!.json()).error).toMatch(/cannot spawn Claude sub-agents/i);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(frames.filter((frame) => frame.type === "create")).toHaveLength(0);
-
-  process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
-  disconnectBridge();
-  await new Promise<void>((resolve) => bridge.close(() => resolve()));
-  if (existsSync(socketPath)) rmSync(socketPath, { force: true });
+    expect(response?.status).toBe(403);
+    expect((await response!.json()).error).toMatch(/cannot spawn Claude sub-agents/i);
+    expect(frames.filter((frame) => frame.type === "create")).toHaveLength(0);
+  } finally {
+    process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
+    disconnectBridge();
+    await new Promise<void>((resolve) => bridge.close(() => resolve()));
+    if (existsSync(socketPath)) rmSync(socketPath, { force: true });
+  }
 });

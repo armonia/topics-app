@@ -34,3 +34,20 @@ The first quick gate passed types, lint and 18 other checks; only spec coverage 
 - `final-static-deadcode.log`: green.
 - `git diff --cached --check`: exit 0.
 - No server ESLint target exists in this repository (`scripts/lint.ts` accepts only client/relay); server checks above are its applicable targeted checks. The integrated main quick gate is intentionally left to the parent to avoid duplicating aggregate runs.
+
+## Integrated live follow-up, 2026-09-09
+
+The initial author verification above made no live calls. The subsequent integration was loaded through the idle daemon restart on 2026-09-08 at 21:43 UTC. A lightweight board verification started with Codex, `gpt-5.6-luna`, effort `low`; two existing coding tasks started with `gpt-5.6-sol` while the Claude quota hold remained active. Task/topic readback confirmed the bindings, and the agents published comments through the Topics bridge.
+
+The live run exposed an adapter defect: Codex MCP calls were not represented in the stream and process liveness was not implemented, so waiting for review checks was mistaken for a dead turn. The redundant verification was stopped after three attempts. The adapter now represents MCP execution/results, accepts nullable transport errors, preserves final command output, and reports liveness only for its owned process. Codex task bridges also exclude the Claude-only child-spawn tool; this is not multi-provider child execution.
+
+The complete pre-review unit run reported eleven failures in six files. Focused investigation corrected the shared API-provider type, the readable requeue-note assertion, the documentation contract parser, and the woken-turn test's named-provider dependency. The latter still sends the production `provider` field; it does not avoid the registry path under test.
+
+Integrated evidence before the final HTTP spawn guard:
+
+- `/tmp/topics-codex-live-final-tests.log`: 48 tests, 91 assertions, no failures, including process ownership, workspace, deadlines and liveness routing.
+- `/tmp/topics-gate-regressions-final.log`: 174 tests, 670 assertions, no failures across the six reported files and provider-selection regression.
+- `/tmp/topics-codex-dispatch-bridge-tests.log`: 178 tests, 569 assertions, no failures.
+- `/tmp/topics-live-fix-gate.log`: the complete quick gate passed on `dec1f8f90`.
+
+These focused results do not claim a successful rerun of the entire unit shard suite. The final live readback and pre-review outcome must be recorded after the remaining guard is loaded. Product follow-up, persistent Codex runtime and actor attribution remain separate board work.
