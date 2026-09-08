@@ -16,13 +16,20 @@
  * says "dev" when this is a development install, where the shell is precisely
  * the piece that does not arrive on its own.
  *
+ * IT IS NOT A BUTTON ANY MORE. It used to carry its own popover, which opened
+ * ON TOP of the menu the chip lives in; the row around it is the trigger now
+ * (`SidebarSystemMenu`, a submenu level like every other nested thing in that
+ * menu), and a button inside a button is invalid HTML the browser takes apart
+ * on its own. What is left here is what the chip was always for: the number,
+ * the stale-bundle dot and the «dev» badge, READ without opening anything.
+ *
  * It lives in its own file so the divergence can be MOUNTED in a unit test.
  * `SidebarStatusBar` pulls in the perf metrics, the system status, the shell
  * bridge and a dozen stores: it does not mount, and "the number stopped saying
  * it" is a one-line change.
  */
 import { useT } from '../../hooks/useT';
-import { SIDEBAR_ACTIVE, SIDEBAR_HOVER } from '../../lib/selectionStyles';
+import { SIDEBAR_ACTIVE } from '../../lib/selectionStyles';
 import { PALLINO_ATTESA, SEGNALE_ATTESA } from './chromeSignals';
 import { shellGap, versionBadgeText } from './shellGap';
 import type { BundleDrift } from './bundleDrift';
@@ -35,7 +42,6 @@ export function VersionChip({
   hmrAge,
   desktop,
   popoverOpen,
-  onOpen,
 }: {
   /** The client bundle version actually running (what a deploy moves). */
   appVersion: string;
@@ -49,8 +55,8 @@ export function VersionChip({
   hmrAge?: string;
   /** False in a browser: there is no native shell to disagree with. */
   desktop?: boolean;
+  /** The level this chip sits on is open: the row is drawn as active. */
   popoverOpen?: boolean;
-  onOpen: (anchor: HTMLButtonElement) => void;
 }) {
   const tr = useT();
   const gap = shellGap(appVersion, shellVersion, { desktop });
@@ -68,10 +74,9 @@ export function VersionChip({
 
   return (
     <>
-      <button
+      <span
         data-version-anchor
-        onClick={(e) => onOpen(e.currentTarget)}
-        className={`tap-expand-y text-app-text-muted hover:text-app-text-secondary ${SIDEBAR_HOVER} rounded px-1 py-1 -mx-0.5 transition-colors ${popoverOpen ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
+        className={`text-app-text-muted rounded px-1 py-1 -mx-0.5 transition-colors ${popoverOpen ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
         title={drift
           ? tr('version.driftTitle', { bundle: drift.bundle, repo: drift.repo })
           : tr('statusBar.versionTitle')}
@@ -87,7 +92,7 @@ export function VersionChip({
             className={`inline-block align-middle ml-1 w-1.5 h-1.5 rounded-full ${PALLINO_ATTESA}`}
           />
         )}
-      </button>
+      </span>
       {/* ONE badge for the two facts, not two chips. The bottom bar has around
           200px for seven things, and splitting the dev state from the build age
           is what tipped it past the sidebar width the last time. */}

@@ -157,7 +157,6 @@
     "client/src/components/Shared/PaneAddMenu.tsx": 1,
     "client/src/components/Shared/SessionActivity.tsx": 4,
     "client/src/components/Sidebar/CronJobsPanel.tsx": 1,
-    "client/src/components/Sidebar/SidebarSystemMenu.tsx": 1,
     "client/src/components/Sidebar/TopicItem.tsx": 1,
     "client/src/components/Sidebar/TopicTree.tsx": 14,
     "client/src/components/Terminal/SingleTerminalPane.tsx": 1

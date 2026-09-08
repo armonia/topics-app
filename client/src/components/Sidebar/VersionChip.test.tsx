@@ -23,8 +23,6 @@ import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { VersionChip } from './VersionChip';
 
-const noop = () => {};
-
 describe('the version chip on a development machine', () => {
   const html = renderToStaticMarkup(
     <VersionChip
@@ -32,7 +30,6 @@ describe('the version chip on a development machine', () => {
       shellVersion="2.2.179"
       devInstall
       desktop
-      onOpen={noop}
     />,
   );
 
@@ -55,7 +52,7 @@ describe('the version chip on a development machine', () => {
 describe('the chip stays one number wide when there is nothing to say', () => {
   test('an installed app in agreement carries no badge', () => {
     const html = renderToStaticMarkup(
-      <VersionChip appVersion="2.2.214" shellVersion="2.2.214" desktop onOpen={noop} />,
+      <VersionChip appVersion="2.2.214" shellVersion="2.2.214" desktop />,
     );
     expect(html).toContain('v2.2.214');
     expect(html).not.toContain('version-install-badge');
@@ -63,14 +60,14 @@ describe('the chip stays one number wide when there is nothing to say', () => {
 
   test('in the browser there is no shell, so no divergence is invented', () => {
     const html = renderToStaticMarkup(
-      <VersionChip appVersion="2.2.214" shellVersion="2.2.179" desktop={false} onOpen={noop} />,
+      <VersionChip appVersion="2.2.214" shellVersion="2.2.179" desktop={false} />,
     );
     expect(html).not.toContain('version-install-badge');
   });
 
   test('an unreachable shell version is a missing fact, not a divergence', () => {
     const html = renderToStaticMarkup(
-      <VersionChip appVersion="2.2.214" shellVersion="" desktop onOpen={noop} />,
+      <VersionChip appVersion="2.2.214" shellVersion="" desktop />,
     );
     expect(html).not.toContain('version-install-badge');
   });
@@ -107,7 +104,6 @@ describe('the stale bundle mark is still there', () => {
         appVersion="2.2.214"
         drift={{ bundle: '2.2.211', repo: '2.2.214' }}
         desktop
-        onOpen={noop}
       />,
     );
     expect(html).toContain('data-testid="version-drift-dot"');

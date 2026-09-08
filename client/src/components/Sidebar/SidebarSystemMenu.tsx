@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { ChevronRight, Gauge, RefreshCw, RotateCcw, Tag } from 'lucide-react';
+import { Gauge, MonitorCog, RefreshCw, RotateCcw, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -13,11 +13,14 @@ import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 
 import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
+import { SubmenuItem } from '../Shared/SubmenuItem';
+import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
-import { VersionPopover } from './VersionPopover';
+import { VersionPanel } from './VersionPanel';
 import { bundleDrift } from './bundleDrift';
 import { loadTint } from './loadTint';
+import type { WorkSignal } from './workSignals';
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_TIME__: string;
@@ -130,14 +133,17 @@ export interface SidebarSystemMenuProps {
    *  that owns this menu has already decided, and deciding twice is how the
    *  trigger and its panel end up sized for two different hands. */
   isMobile?: boolean;
+  /** What the installation is running right now, already picked and tiered by
+   *  `workSignals`. It rides on the same row as the machine's numbers because
+   *  «who is working» and «what it costs» are one question at two zooms. */
+  signals?: WorkSignal[];
 }
 
-export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: SidebarSystemMenuProps) {
+export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals = [] }: SidebarSystemMenuProps) {
   const tr = useT();
   const [mostraStato, setMostraStato] = useState(false);
   const [versioneGuscio, setVersioneGuscio] = useState('');
   const [versioneServer, setVersioneServer] = useState('');
-  const [ancora, setAncora] = useState<HTMLButtonElement | null>(null);
   const [mostraVersione, setMostraVersione] = useState(false);
   const [riavviando, setRiavviando] = useState(false);
   const load = useLoad();
@@ -258,69 +264,99 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
 
   return (
     <div data-testid="sidebar-system-menu">
-      <button
-        type="button"
-        onClick={() => setMostraStato((v) => !v)}
-        className={VOCE}
-        aria-expanded={mostraStato}
-        data-testid="menu-system-status"
+      {/* ONE ROW FOR THE WORK AND ITS COST, and a LEVEL, not an accordion.
+          «Active agents» and «performance» were two rows one above the other,
+          and they are the same question at two zooms: who is working, and what
+          the machine is paying for it. The accordion under this row pushed the
+          version and the restart down the panel every time it opened. */}
+      <SubmenuItem
+        icon={Gauge}
+        label={tr('statusBar.system.title')}
+        testId="menu-system-status"
+        minWidth={312}
+        // The tallest level of the menu: the names of what is running, then
+        // the numbers. On a short window the two together are more than the
+        // screen, and the placement can only move a panel, not shrink it.
+        className="max-h-[min(78vh,560px)] overflow-y-auto"
+        onOpenChange={setMostraStato}
+        tail={
+          <>
+            <WorkSignals signals={signals} />
+            {/* ALWAYS RENDERED, numbers or not: this span is what carries the
+                tooltip, and a host that appears only once a sample has landed
+                is a tooltip that is missing exactly when somebody opens the
+                menu to find out why nothing is being measured.
+                `mouseenter`/`focus` rather than hover styling because it lives
+                inside a <button>: the button is the thing that gets hovered,
+                this is the thing that has to notice. */}
+            <span
+              data-testid="metrics-total"
+              title={usageTitle}
+              onMouseEnter={showInventory}
+              onFocus={showInventory}
+              className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums"
+            >
+              {load?.misurato && (
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
+              )}
+              {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+              {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
+            </span>
+          </>
+        }
       >
-        <Gauge size={glyph} className="flex-shrink-0" />
-        <span className="flex-1 text-left">Prestazioni e sistema</span>
-        {/* THE HEADLINE THE STRIP USED TO SHOW, and the dot's own colour with
-            it. One number for memory and one for CPU: the halves, the metric
-            and the inventory are in the panel below, which is what "open" now
-            means. */}
-        {/* ALWAYS RENDERED, numbers or not: this span is what carries the
-            tooltip, and a host that appears only once a sample has landed is a
-            tooltip that is missing exactly when somebody opens the menu to find
-            out why nothing is being measured. `mouseenter`/`focus` rather than
-            hover styling because it lives inside a <button>: the button is the
-            thing that gets hovered, this is the thing that has to notice. */}
-        <span
-          data-testid="metrics-total"
-          title={usageTitle}
-          onMouseEnter={showInventory}
-          onFocus={showInventory}
-          className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums"
-        >
-          {load?.misurato && (
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
-          )}
-          {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
-          {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
-        </span>
-        <ChevronRight size={isMobile ? 16 : 14} className={`flex-shrink-0 text-app-text-tertiary transition-transform ${mostraStato ? 'rotate-90' : ''}`} />
-      </button>
-      {mostraStato && (
-        <div className="border-y border-app-border">
-          <PerfSection />
-          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
+        {/* WHO IS WORKING FIRST, then what it costs: the names answer the
+            question the numbers only quantify. */}
+        <AgentLines />
+        <div className="border-t border-app-border" />
+        <PerfSection />
+        {/* THE MACHINE ITSELF ONE LEVEL FURTHER IN: cores, disks, the server's
+            own processes. It is the answer AFTER «is Topics heavy», it is the
+            tallest block of the three, and behind its own row it costs
+            nothing until somebody asks for it. */}
+        <SubmenuItem icon={MonitorCog} label={tr('statusBar.system.machine')} testId="menu-system-machine" minWidth={300}>
+          <Suspense fallback={<div className="p-3 text-center text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
             <SystemStatusPanel enabled />
           </Suspense>
-        </div>
-      )}
+        </SubmenuItem>
+      </SubmenuItem>
 
-      {/* THE VERSION IS A ROW AND NOT A BUTTON, because the number itself is
-          already one: the chip carries its own popover, its drift dot and the
-          "dev install" badge, and a button wrapping a button is invalid HTML
-          the browser takes apart on its own. */}
-      <div className={`${VOCE} cursor-default`} data-testid="menu-version">
-        <Tag size={glyph} className="flex-shrink-0" />
-        <span className="flex-1 text-left">Versione</span>
-        <span className="flex flex-shrink-0 items-center gap-1.5 text-[12px] tabular-nums">
-          <VersionChip
-            appVersion={version}
-            shellVersion={versioneGuscio}
-            drift={drift}
-            devInstall={devInstall}
-            hmrAge={isDev && lastChange ? formatChangeAge(lastChange) : undefined}
-            desktop={isDesktop}
-            popoverOpen={mostraVersione}
-            onOpen={(anchor) => { setAncora(anchor); setMostraVersione((v) => !v); }}
-          />
-        </span>
-      </div>
+      {/* THE VERSION OPENS SIDEWAYS TOO. It used to be a chip carrying its own
+          popover, which landed ON TOP of the menu it was opened from: the one
+          row of this panel that answered somewhere else. The chip stays as the
+          tail (the number, the drift dot, the «dev» badge are read without
+          opening anything) and the row is the trigger. */}
+      <SubmenuItem
+        icon={Tag}
+        label={tr('statusBar.version.title')}
+        testId="menu-version"
+        minWidth={260}
+        className="p-3 space-y-3"
+        onOpenChange={setMostraVersione}
+        tail={
+          <span className="flex flex-shrink-0 items-center gap-1.5 text-[12px] tabular-nums">
+            <VersionChip
+              appVersion={version}
+              shellVersion={versioneGuscio}
+              drift={drift}
+              devInstall={devInstall}
+              hmrAge={isDev && lastChange ? formatChangeAge(lastChange) : undefined}
+              desktop={isDesktop}
+              popoverOpen={mostraVersione}
+            />
+          </span>
+        }
+      >
+        <VersionPanel
+          appVersion={version}
+          shellVersion={versioneGuscio}
+          drift={drift}
+          isDev={isDev}
+          buildDate={typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__ ? formatBuildDate(__BUILD_TIME__) : ''}
+          buildSha={typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : ''}
+          onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(version); }}
+        />
+      </SubmenuItem>
 
       {/* RESTART, and it says which of the two things it does. On the desktop
           it replaces the process (the way an update lands); in a browser it
@@ -339,20 +375,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false }: Sidebar
           {isDesktop ? tr('statusBar.restartApp') : updateAvailable ? tr('statusBar.updateAvailable') : tr('statusBar.reload')}
         </span>
       </button>
-
-      {mostraVersione && (
-        <VersionPopover
-          anchorEl={ancora}
-          appVersion={version}
-          shellVersion={versioneGuscio}
-          drift={drift}
-          isDev={isDev}
-          buildDate={typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__ ? formatBuildDate(__BUILD_TIME__) : ''}
-          buildSha={typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : ''}
-          onClose={() => setMostraVersione(false)}
-          onOpenChangelog={() => { setMostraVersione(false); onOpenChangelog(version); }}
-        />
-      )}
     </div>
   );
 }

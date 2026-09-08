@@ -36,7 +36,7 @@ const BUILD_RS = read("desktop-tauri/src-tauri/build.rs");
 const INTEGRITY_RS = read("desktop-tauri/src-tauri/src/sidecar_integrity.rs");
 const LIB_RS = read("desktop-tauri/src-tauri/src/lib.rs");
 const CLIENT = read("client/src/lib/sidecarIntegrity.ts");
-const POPOVER = read("client/src/components/Sidebar/VersionPopover.tsx");
+const POPOVER = read("client/src/components/Sidebar/VersionPanel.tsx");
 const IT = read("client/src/lib/i18n-it.ts");
 const EN = read("client/src/lib/i18n-en.ts");
 

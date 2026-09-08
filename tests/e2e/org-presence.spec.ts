@@ -308,7 +308,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(chips.getByTestId("friend-chip")).toHaveAttribute("aria-label", "Anna Rossi");
     // And the menu says the same number, and keeps the door to the page.
     const { menu, level } = await openFriends(page);
-    await expect(menu.getByTestId("friends-count")).toContainText("1 di 1");
+    await expect(menu.getByTestId("friends-count")).toContainText("1 online");
     await level.getByTestId("friends-open-all").click();
     await expect(page.getByTestId("profile-pane")).toBeVisible({ timeout: 20000 });
     // The profile pane stopped being a tab strip: "manage friends" opens the
@@ -471,9 +471,11 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("friend-chips")).toHaveCount(0);
     const menu = await openMenu(page);
     const row = menu.getByTestId("profile-menu-friends");
-    // The row carries its own name and a zero, not bad news.
+    // The row carries its own name and NOTHING else: with nobody online there
+    // is no number to read, and «0 di 0» was a zero dressed as a measurement
+    // (STATUSLINE-05). The count comes back the moment somebody is there.
     await expect(row).toContainText("Amici");
-    await expect(row.getByTestId("friends-count")).toContainText("0 di 0");
+    await expect(row.getByTestId("friends-count")).toHaveCount(0);
     await expect(row).not.toContainText("Nessuno online");
     // And its level explains where friends come from, instead of being empty.
     await row.click();
@@ -505,7 +507,8 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId("friend-chips")).toHaveCount(0);
     const menu = await openMenu(page);
-    await expect(menu.getByTestId("friends-count")).toContainText("0 di 0");
+    // No friends online, so the friends row says nothing: see BAND-05.
+    await expect(menu.getByTestId("friends-count")).toHaveCount(0);
     // The colleague is still there, in the section that is about groups.
     await expect(menu.getByTestId("orgs-count")).toContainText("1 di 1");
   });
