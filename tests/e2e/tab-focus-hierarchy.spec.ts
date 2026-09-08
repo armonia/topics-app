@@ -144,68 +144,67 @@ test("CHROME-13: l'attiva di una cella senza fuoco sta FRA le altre due", async 
   await expect(page.locator(tabSelector(uno.id))).toBeVisible({ timeout: 20000 });
   await expect(page.locator(tabSelector(tre.id))).toBeVisible({ timeout: 20000 });
 
-  // La seconda scheda se ne va in una cella sua: restano due schede nella prima
-  // cella (una selezionata, una a riposo) e una nella seconda, che e' attiva nel
-  // suo gruppo ma non ha il fuoco. I tre gradini in un colpo solo.
+  // The second tab moves into a cell of its own: two tabs are left in the first
+  // cell (one selected, one resting) and one in the second, which is active in
+  // its group and does not hold focus. All three rungs in one shot.
   await splitViaContextMenu(page, "Dividi a destra", 1);
 
-  // SI CLICCA LA SCHEDA A RIPOSO, non quella gia' attiva nella sua cella.
+  // CLICK THE RESTING TAB, not the one already active in its cell.
   //
-  // Il fuoco passa di cella al clic, ma `data-active` porta solo «e' l'attiva
-  // del suo gruppo»: su una scheda gia' attiva quell'attributo e' vero PRIMA
-  // del clic, quindi attenderlo non attende niente e la misura parte mentre il
-  // fuoco e' ancora nell'altra cella. Misurato: la prima stesura di questa spec
-  // e' passata al riavvio e non al primo colpo. Cliccare una scheda inattiva
-  // rende l'attributo una vera barriera.
-  const selezionata = page.locator(tabSelector(tre.id));
-  await expect(selezionata).toHaveAttribute("data-active", "false");
-  await selezionata.click();
-  await expect(selezionata).toHaveAttribute("data-active", "true", { timeout: 10000 });
+  // The click moves focus between cells, but `data-active` only carries "it is
+  // the active one of its group": on an already-active tab that attribute is
+  // true BEFORE the click, so awaiting it awaits nothing and the measurement
+  // starts while focus is still in the other cell. Measured: the first draft of
+  // this spec passed on the retry and not on the first run. Clicking an
+  // inactive tab turns the attribute into a real barrier.
+  const selectedTab = page.locator(tabSelector(tre.id));
+  await expect(selectedTab).toHaveAttribute("data-active", "false");
+  await selectedTab.click();
+  await expect(selectedTab).toHaveAttribute("data-active", "true", { timeout: 10000 });
 
-  const attivaSenzaFuoco = page.locator(tabSelector(due.id));
-  await expect(attivaSenzaFuoco).toHaveAttribute("data-active", "true", { timeout: 10000 });
+  const activeUnfocused = page.locator(tabSelector(due.id));
+  await expect(activeUnfocused).toHaveAttribute("data-active", "true", { timeout: 10000 });
   await fillsSettled(page, [uno.id, due.id, tre.id]);
 
-  const sel = await fillOf(page, tre.id);
-  const soft = await fillOf(page, due.id);
-  const rest = await fillOf(page, uno.id);
+  const selectedFill = await fillOf(page, tre.id);
+  const softFill = await fillOf(page, due.id);
+  const restingFill = await fillOf(page, uno.id);
 
-  // Ogni gradino si vede, e l'ordine e' quello del fuoco: se la scala si
-  // inverte i due rapporti restano alti e il messaggio e' il contrario.
-  expect(contrastRatio(sel, soft), `selezionata ${sel.map(Math.round)} contro attiva-senza-fuoco ${soft.map(Math.round)}`)
+  // Every rung is visible, and the order is the order of focus: an inverted
+  // scale keeps both ratios high while saying the opposite thing.
+  expect(contrastRatio(selectedFill, softFill), `selezionata ${selectedFill.map(Math.round)} contro attiva-senza-fuoco ${softFill.map(Math.round)}`)
     .toBeGreaterThanOrEqual(PERCEPTIBLE);
-  expect(contrastRatio(soft, rest), `attiva-senza-fuoco ${soft.map(Math.round)} contro riposo ${rest.map(Math.round)}`)
+  expect(contrastRatio(softFill, restingFill), `attiva-senza-fuoco ${softFill.map(Math.round)} contro riposo ${restingFill.map(Math.round)}`)
     .toBeGreaterThanOrEqual(PERCEPTIBLE);
 
   const ground = await effectiveBgOf(page, '[role="main"]');
-  const distanza = (c: Rgb) => contrastRatio(c, ground);
-  expect(distanza(sel)).toBeGreaterThan(distanza(soft));
-  expect(distanza(soft)).toBeGreaterThan(distanza(rest));
+  const offGround = (c: Rgb) => contrastRatio(c, ground);
+  expect(offGround(selectedFill)).toBeGreaterThan(offGround(softFill));
+  expect(offGround(softFill)).toBeGreaterThan(offGround(restingFill));
 });
 
 test("si legge se il progetto e' la scheda selezionata", async ({ request, page }) => {
-  // La scheda di un progetto passa dallo stesso ramo di quella di una chat, e
-  // «lo stesso ramo» e' proprio la frase che ha lasciato passare il difetto:
-  // finche' nessuno la misura, resta una deduzione. Qui la scheda misurata e'
-  // quella del progetto, che e' la superficie con cui si risponde alla domanda
-  // «e' selezionato il progetto?».
+  // A project tab goes through the same branch as a chat tab, and "the same
+  // branch" is exactly the sentence that let the defect through: until someone
+  // measures it, it stays a deduction. The tab measured here is the project
+  // one, which is the surface that answers "is the project the selected one?".
   await resetPaneStore(request, [topics[0].id, PROJECT_PANE]);
   await goToApp(page);
 
-  const progetto = page.locator(tabSelector(PROJECT_PANE));
-  const chat = page.locator(tabSelector(topics[0].id));
-  await expect(progetto).toBeVisible({ timeout: 20000 });
-  await expect(chat).toBeVisible({ timeout: 20000 });
+  const projectTab = page.locator(tabSelector(PROJECT_PANE));
+  const chatTab = page.locator(tabSelector(topics[0].id));
+  await expect(projectTab).toBeVisible({ timeout: 20000 });
+  await expect(chatTab).toBeVisible({ timeout: 20000 });
 
-  await progetto.click();
-  await expect(progetto).toHaveAttribute("data-active", "true", { timeout: 10000 });
-  await expect(chat).toHaveAttribute("data-active", "false");
+  await projectTab.click();
+  await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10000 });
+  await expect(chatTab).toHaveAttribute("data-active", "false");
   await fillsSettled(page, [PROJECT_PANE, topics[0].id]);
 
-  const selezionato = await fillOf(page, PROJECT_PANE);
-  const riposo = await fillOf(page, topics[0].id);
+  const projectFill = await fillOf(page, PROJECT_PANE);
+  const chatFill = await fillOf(page, topics[0].id);
   expect(
-    contrastRatio(selezionato, riposo),
-    `progetto ${selezionato.map(Math.round)} contro chat a riposo ${riposo.map(Math.round)}`,
+    contrastRatio(projectFill, chatFill),
+    `progetto ${projectFill.map(Math.round)} contro chat a riposo ${chatFill.map(Math.round)}`,
   ).toBeGreaterThanOrEqual(SELECTED_VS_RESTING);
 });
