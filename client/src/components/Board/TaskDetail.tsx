@@ -64,6 +64,8 @@ import { holdTopic } from '../../state/topicSubscriptions';
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
+import { deliveryNotesToFold } from './taskDeliveryNotes';
+import { stripMarkdown } from '../../lib/stripMarkdown';
 import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -1705,6 +1707,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     [...timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []), ...(pinnedDeliveryId && deliveryWord ? [deliveryWord] : [])],
     timeline.flatMap((item) => item.source === 'session' ? [item.msg] : []),
   ), [task?.previewImage, timeline, pinnedDeliveryId, deliveryWord]);
+  const foldedDeliveryNotes = useMemo(() => deliveryNotesToFold(
+    timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []),
+  ), [timeline]);
   const renderThread = useCallback((details?: React.ReactNode): React.ReactNode => {
     if (!task) return null;
     /**
@@ -1720,6 +1725,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     const row = (item: TimelineItem) => {
       if (item.source === 'comment') {
         const chip = item.delivery;
+        if (foldedDeliveryNotes.has(item.id)) return (
+          <details key={item.id} data-testid="task-delivery-note" className="group rounded border border-app-border-subtle">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text">
+              <ChevronRight className="h-3 w-3 shrink-0 group-open:rotate-90" />
+              <span className="shrink-0">{tr('board.task.deliveryNote')}</span>
+              <span data-testid="task-delivery-note-preview" className="truncate text-app-text-secondary">{stripMarkdown(item.comment.content)}</span>
+            </summary>
+            <div data-testid="task-delivery-note-body" className="px-2 pb-2"><CommentBubble comment={item.comment} ownerName={ownerName} /></div>
+          </details>
+        );
         return (
           <div key={item.id} className="space-y-0.5">
             <CommentBubble
@@ -1838,7 +1853,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent is stable enough; the meaningful inputs are listed
-  }, [task, timeline, deliveryWord, agentBusy, busy, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread]);
+  }, [task, timeline, deliveryWord, agentBusy, busy, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)

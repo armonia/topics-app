@@ -72,6 +72,18 @@ test('a task opens on one conversation; repeated preview and long brief never st
     ],
   });
   await post(request, `/api/test/tasks/${taskId}/anchored-comment`, { content: answer, author: 'agent', messageId: message.id });
+  const delivery = 'The source needs a contract key.\n\nThe explanation and source diagram have been delivered.';
+  const { comment: deliveryComment } = await post(request, `/api/test/tasks/${taskId}/anchored-comment`, {
+    content: delivery, author: 'agent', messageId: message.id,
+  });
+  // The fixture endpoint writes ordinary comments. Exercise the persisted
+  // delivery shape without adding a production mutation for this UI test.
+  await page.route(`**/api/boards/${projectId}/tasks/${taskId}`, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.comments = data.comments.map((comment: { id: string; kind: string }) => comment.id === deliveryComment.id ? { ...comment, kind: 'delivery' } : comment);
+    await route.fulfill({ response, json: data });
+  });
   await page.goto(`/task/${taskId}`);
 
   const drawer = page.getByTestId('task-detail-drawer');
@@ -82,6 +94,15 @@ test('a task opens on one conversation; repeated preview and long brief never st
   const header = drawer.getByTestId('task-brief-header');
   await expect(header.getByText(title, { exact: true })).toBeVisible();
   await expect(conversation.getByText(answer, { exact: true })).toBeVisible();
+  const deliveryNote = conversation.getByTestId('task-delivery-note');
+  await expect(deliveryNote).toBeVisible();
+  await expect(deliveryNote.getByTestId('task-delivery-note-preview')).toBeVisible();
+  await expect(deliveryNote.getByTestId('task-delivery-note-preview')).toContainText('The source needs a contract key.');
+  await expect(deliveryNote.getByTestId('task-delivery-note-body')).toBeHidden();
+  await deliveryNote.locator('summary').press('Enter');
+  await expect(deliveryNote.getByTestId('task-delivery-note-body')).toBeVisible();
+  await expect(deliveryNote.getByTestId('task-delivery-note-body')).toContainText('The explanation and source diagram have been delivered.');
+  await deliveryNote.locator('summary').click();
   await expect(workspace).toHaveAttribute('data-open', '0');
   await expect(drawer.getByTestId('task-drawer-body')).toHaveCount(0);
   await expect(drawer.getByTestId('task-brief-scroll')).toHaveCount(0);

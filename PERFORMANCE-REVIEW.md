@@ -141,9 +141,9 @@ in un pannello separato. Un allegato presente soltanto sulla card conserva un
 comando compatto per aprirlo. Leggere o chiudere un task non apre o chiude piu
 tab nel workspace condiviso. Eliminato anche il relativo modulo automatico.
 
-Verifica del seguito: build client riuscita (`index-DybUS7F2.js`), 420 test
-unitari della board verdi in 35 file e cancello QA veloce interamente verde
-(tipi 8 s, lint 3 s). Le sei spec browser pertinenti hanno prodotto 25 verdi e
+Verifica del seguito: build client riuscita, 422 test
+unitari della board verdi in 36 file e cancello QA veloce interamente verde.
+Le sei spec browser pertinenti hanno prodotto 25 verdi e
 un rosso per un test ancora legato ai pannelli precedenti. Adeguato il contratto
 del test alla nuova interfaccia, il caso di durabilita RIGA 2 passa in una corsa
 mirata senza retry. Una sola prova di conversazione viene poi eseguita con
@@ -156,3 +156,15 @@ della corsa 13343 mostra apertura della sessione, allegato e ritorno alla
 conversazione. Nel test con 36 tool,
 il dettaglio chiuso contiene 141 nodi DOM e quello aperto 161: i componenti
 tecnici si montano soltanto all'espansione. Non e un benchmark di latenza.
+
+Il controllo sul task reale ha individuato anche le note di consegna successive
+alla risposta dello stesso turno. Ora sono compatte ed espandibili, conservando
+un'anteprima dell'esito visibile. Domande in prosa o strutturate, allegati e link
+Markdown restano visibili per intero; la consegna fissata dei task conclusi
+resta visibile. La revisione indipendente ha verificato questi casi, compresa
+la differenza fra un commento di avanzamento e il successivo esito.
+Build finale `index-DNa6C2ay.js`; QA finale verde (tipi 7 s, lint 2 s).
+Le tre prove browser della conversazione passano dopo questa rifinitura,
+senza retry e con video conservati nella corsa 13345. Log:
+`conversation-focus-e2e-delivery-final.log` e
+`conversation-focus-qa-delivery-final.log`.

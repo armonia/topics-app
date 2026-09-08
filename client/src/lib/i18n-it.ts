@@ -892,6 +892,7 @@ const IT: Dict = {
   // conversation, not a log.
   'board.task.threadLabel': 'Conversazione',
   'board.task.detailsLabel': 'Dettagli',
+  'board.task.deliveryNote': 'Nota di consegna',
   // Where what you wrote got to, derived from the envelopes at every read:
   // nothing writes it into the thread.
   'board.task.delivered': 'consegnato',

@@ -790,6 +790,7 @@ const EN = {
   'board.task.workspaceLabel': 'Workspace',
   'board.task.threadLabel': 'Conversation',
   'board.task.detailsLabel': 'Details',
+  'board.task.deliveryNote': 'Delivery note',
   'board.task.delivered': 'delivered',
   'board.task.queuedForTurn': 'queued',
   'board.task.deliveryLabel': 'Delivery',

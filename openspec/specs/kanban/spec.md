@@ -3209,6 +3209,12 @@ contenuto. Le regole SHALL essere applicate in quest'ordine:
    filo. L'apertura normale SHALL mostrare una sola conversazione, anche con
    preferenze precedenti che tenevano aperti descrizione e workspace. Il dettaglio
    tecnico espandibile SHALL restare nel punto del turno a cui appartiene.
+9. Una nota `delivery` senza allegati, link markdown o domande, successiva a una
+   risposta dello stesso agente con lo stesso `messageId`, SHALL essere
+   espandibile come «Nota di consegna» nel suo punto della conversazione.
+   L'incipit SHALL restare visibile anche a nota chiusa, per non nascondere
+   l'esito dietro la sola etichetta. Il testo completo SHALL restare consultabile. Senza questa correlazione,
+   o se costituisce la consegna fissata di un task concluso, SHALL restare visibile.
 
 #### Scenario: conversazione al centro con consegna illustrata
 - **GIVEN** un task con descrizione lunga e la stessa immagine in preview e sessione
