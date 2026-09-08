@@ -127,7 +127,20 @@ export function Menu({
     reposition();
     window.addEventListener('resize', reposition);
     window.addEventListener('scroll', reposition, true);
+    // AND WHEN THE PANEL ITSELF GROWS, which is not a resize of the window.
+    //
+    // The placement is computed from the panel as it is at that instant. A
+    // panel whose content arrives later — a `lazy` child behind a Suspense
+    // fallback is the common one — is measured while it holds the fallback,
+    // placed on the trigger's top, and then grows downward with nobody
+    // looking. Measured on 1280x800: the machine level of the user menu opened
+    // three rows tall, the real panel landed a beat later, and the restart
+    // button ended up below the bottom edge with nothing to scroll — the
+    // clamp in `placeBeside` had already run against the wrong height.
+    const observer = new ResizeObserver(() => reposition());
+    if (panelRef.current) observer.observe(panelRef.current);
     return () => {
+      observer.disconnect();
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
     };

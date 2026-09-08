@@ -23,7 +23,7 @@ import { test, expect } from "./fixtures/topic-management.fixture";
 import { createTopic, archiveTopic, cleanupAll, fetchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
-import { openProfileMenu } from "./helpers/open-perf-panel";
+import { closeProfileMenu, openColumnViewMenu } from "./helpers/open-perf-panel";
 
 hermetic(test);
 
@@ -89,11 +89,11 @@ test.describe("Topics — the archive is off the boot path", () => {
     // toggle sits in the menu under the user card, the one door of the chrome
     // since card 022db87b (on the phone, the title button): `openProfileMenu`
     // picks the trigger for the screen.
-    await openProfileMenu(page);
-    const archiveToggle = page.getByRole("button", { name: "Mostra archiviati" });
+    await openColumnViewMenu(page);
+    const archiveToggle = page.getByTestId("topics-menu-archived");
     await expect(archiveToggle).toBeVisible({ timeout: 3000 });
     await archiveToggle.click();
-    await page.keyboard.press("Escape");
+    await closeProfileMenu(page);
     const row = topicPage.findTopic(new RegExp(name));
     await expect(row).toBeVisible({ timeout: 10000 });
 

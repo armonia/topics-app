@@ -314,7 +314,19 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
             own processes. It is the answer AFTER «is Topics heavy», it is the
             tallest block of the three, and behind its own row it costs
             nothing until somebody asks for it. */}
-        <SubmenuItem icon={MonitorCog} label={tr('statusBar.system.machine')} testId="menu-system-machine" minWidth={300}>
+        {/* AND IT KEEPS ITS OWN CEILING, like the level above it. Without one
+            the panel is as tall as its content and the window simply cuts it:
+            measured on 1280x800, the gateway row landed 30 px from the bottom
+            edge and everything under it — memory, uptime, the restart — was
+            off the screen with nothing to scroll. A level can be moved by the
+            placement, never shrunk by it. */}
+        <SubmenuItem
+          icon={MonitorCog}
+          label={tr('statusBar.system.machine')}
+          testId="menu-system-machine"
+          minWidth={300}
+          className="max-h-[min(78vh,560px)] overflow-y-auto"
+        >
           <Suspense fallback={<div className="p-3 text-center text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
             <SystemStatusPanel enabled />
           </Suspense>

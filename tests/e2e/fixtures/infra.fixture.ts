@@ -1,6 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
 import { mockOpenClawAvailable, openAddMenuPane } from "../helpers/openclaw";
-import { openPerfPanel } from "../helpers/open-perf-panel";
+import { openMachinePanel } from "../helpers/open-perf-panel";
 
 /**
  * Mock data for infrastructure panel E2E tests.
@@ -105,7 +105,7 @@ export class InfraPage {
     // is three rows there rather than one dense strip. Which trigger opens
     // that door (the user card on the desktop, the title on the phone) is the
     // helper's business: this fixture only knows the row it wants.
-    await openPerfPanel(this.page);
+    await openMachinePanel(this.page);
     await this.page
       .locator("text=Gateway")
       .first()

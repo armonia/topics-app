@@ -25,14 +25,31 @@ let calendar: ReturnType<typeof createCalendarRouter>;
 let settings: ReturnType<typeof createAppSettingsRouter>;
 const realFetch = globalThis.fetch;
 
+/**
+ * THE ONE EVENT OF THE FEED, DATED TOMORROW AND NOT ON A FIXED DAY.
+ *
+ * It used to read `DTSTART:20260908T090000Z`, and on 2026-09-08 at 10:00 UTC
+ * that hour went past: the agenda answers with the events INSIDE the horizon,
+ * so from that minute on the feed had nothing to show and the test that counts
+ * one event went red on every machine at once. A fixture pinned to a calendar
+ * day is a test with an expiry date written into it.
+ *
+ * Tomorrow, computed at load: inside every horizon these tests set (30 days and
+ * up), never in the past, and it says the same thing about the route.
+ */
+function icsStamp(date: Date): string {
+  return `${date.toISOString().slice(0, 19).replace(/[-:]/g, "")}Z`;
+}
+const TOMORROW_9 = new Date(Date.now() + 24 * 60 * 60 * 1000);
+TOMORROW_9.setUTCHours(9, 0, 0, 0);
 const FEED = [
   "BEGIN:VCALENDAR",
   "X-WR-CALNAME:Personal",
   "BEGIN:VEVENT",
   "UID:one@example.com",
   "SUMMARY:Design review",
-  "DTSTART:20260908T090000Z",
-  "DTEND:20260908T100000Z",
+  `DTSTART:${icsStamp(TOMORROW_9)}`,
+  `DTEND:${icsStamp(new Date(TOMORROW_9.getTime() + 60 * 60 * 1000))}`,
   "END:VEVENT",
   "END:VCALENDAR",
 ].join("\r\n");

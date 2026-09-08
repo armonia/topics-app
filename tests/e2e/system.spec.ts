@@ -9,7 +9,7 @@ import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { mockOpenClawAvailable } from "./helpers/openclaw";
-import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
+import { openMachinePanel, openProfileMenu } from "./helpers/open-perf-panel";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -38,7 +38,7 @@ test.describe("System & Infrastructure", () => {
     const lamp = page.getByTestId("connection-status");
     await expect(lamp).toBeVisible({ timeout: 15000 });
 
-    await openPerfPanel(page);
+    await openMachinePanel(page);
     const panel = page.getByTestId("system-status-panel");
     await expect(panel).toBeVisible({ timeout: 15000 });
     // Accept "Online", "Connecting", or "Offline" — the gateway may not be
@@ -60,6 +60,10 @@ test.describe("System & Infrastructure", () => {
     await expect(total).toBeVisible({ timeout: 15000 });
 
     await page.getByTestId("menu-system-status").click();
+    // The machine sits one level further in: the work row carries who is
+    // running, and gateway/memory/restart go down a level of their own instead
+    // of making the first one taller than the screen.
+    await page.getByTestId("menu-system-machine").click();
     // Niente networkidle (SSE/WS non lo raggiungono mai) e nemmeno una pausa
     // fissa: si polla la condizione finale, che ritorna appena e' vera.
     await expect

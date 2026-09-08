@@ -65,3 +65,67 @@ export async function openPerfPanel(page: Page): Promise<void> {
   // would find one of them empty and blame the panel.
   await page.mouse.move(0, 0);
 }
+
+/**
+ * SHUTS THE MENU, however many levels are open.
+ *
+ * One Escape closes the level under the pointer, not the whole menu: a spec
+ * that opened a sub-level and then pressed Escape once was left with the menu
+ * still over the column, and the click it made next went to the dismiss layer
+ * instead of the row it aimed at. What that looks like from the outside is a
+ * row that was clicked and did nothing.
+ */
+export async function closeProfileMenu(page: Page): Promise<void> {
+  const rows = page.getByTestId("sidebar-system-menu");
+  for (let i = 0; i < 4 && (await rows.count()) > 0; i++) {
+    await page.keyboard.press("Escape");
+    await expect(rows).toHaveCount(0, { timeout: 2_000 }).catch(() => {});
+  }
+  await expect(rows).toHaveCount(0, { timeout: 5_000 });
+}
+
+/**
+ * WHAT THE COLUMN SHOWS, one level in.
+ *
+ * «Show archived» and the view mode were two flat rows of the menu and are now
+ * inside the row that groups them by subject (`topics-menu-view`), which
+ * carries the current state in its tail. Both are still one component, so this
+ * is the gesture, and the specs address them by testid rather than by the label
+ * they happen to have in the current view: `topics-menu-archived` and
+ * `topics-menu-view-mode`.
+ */
+export async function openColumnViewMenu(page: Page): Promise<void> {
+  await openProfileMenu(page);
+  const row = page.locator('[data-testid="topics-menu-view"]');
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  if ((await page.getByTestId("topics-menu-view-menu").count()) === 0) {
+    await row.click();
+  }
+  await expect(page.getByTestId("topics-menu-view-menu")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
+}
+
+/**
+ * ONE LEVEL FURTHER IN: the machine itself.
+ *
+ * The row that opens the work now answers two questions at two zooms — WHO is
+ * running (the agent lines, plus the counts in its tail) and what the MACHINE
+ * is doing (gateway, memory, the restart) — and the second went down a level of
+ * its own rather than making the first one taller than the screen. So a spec
+ * that reads a status row, the word «Gateway» or the restart button needs two
+ * gestures, not one, and this is where that knowledge lives instead of in each
+ * of them.
+ *
+ * `openPerfPanel` stops at the first level on purpose: the agents and the
+ * per-section weights are there, and that is what `perf-panel` and
+ * `feature-weight` read.
+ */
+export async function openMachinePanel(page: Page): Promise<void> {
+  await openPerfPanel(page);
+  const machine = page.locator('[data-testid="menu-system-machine"]');
+  await expect(machine).toBeVisible({ timeout: 15_000 });
+  await machine.click();
+  await expect(page.getByTestId("menu-system-machine-menu")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("system-status-panel")).toBeVisible({ timeout: 15_000 });
+  await page.mouse.move(0, 0);
+}

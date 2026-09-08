@@ -13,7 +13,7 @@ import {
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 import { PAGE_LAYER_SELECTOR, SIDEBAR_SELECTOR, luminance, surfaceBg } from "./helpers/surfaces";
-import { openProfileMenu } from "./helpers/open-perf-panel";
+import { openColumnViewMenu, openProfileMenu } from "./helpers/open-perf-panel";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -276,14 +276,19 @@ test.describe("Sidebar — Unified Timeline", () => {
     // the title is a plain word again, the card is the one door of the chrome
     // and `openProfileMenu` knows which trigger belongs to which screen. The
     // rows are the same component (`TopicsMenuItems`) on both.
-    await openProfileMenu(page);
+    // And the column commands are grouped by subject now: "what the column
+    // shows" is a level of its own, carrying the current state in the tail of
+    // its row. The toggle is addressed by testid and not by label, because the
+    // label names the NEXT mode and therefore changes on every click.
+    await openColumnViewMenu(page);
 
     // Il modo per tipo non e' piu' nemmeno offerto.
     await expect(page.getByRole("button", { name: "Vista per tipo" })).toHaveCount(0);
 
-    // Timeline → per stato. L'etichetta dice il modo SUCCESSIVO.
-    const stateToggle = page.getByRole("button", { name: "Vista per stato" });
+    // Timeline to by-state.
+    const stateToggle = page.getByTestId("topics-menu-view-mode");
     await expect(stateToggle).toBeVisible({ timeout: 5000 });
+    await expect(stateToggle).toContainText("stato");
     await stateToggle.click();
 
     // Vista per stato: le sezioni sono gli STATI, mai i tipi.
@@ -294,9 +299,11 @@ test.describe("Sidebar — Unified Timeline", () => {
       page.getByRole("button", { name: /sezione Chat/ })
     ).toHaveCount(0);
 
-    // Il giro si chiude in due: da "per stato" si torna a timeline.
-    const timelineToggle = page.getByRole("button", { name: "Vista timeline" });
+    // The cycle closes in two: from by-state back to timeline, and it is the
+    // same row that says so, now naming timeline.
+    const timelineToggle = page.getByTestId("topics-menu-view-mode");
     await expect(timelineToggle).toBeVisible({ timeout: 3000 });
+    await expect(timelineToggle).toContainText("timeline");
     await timelineToggle.click();
 
     // Timeline: nessuna sezione di nessun genere.
@@ -346,8 +353,8 @@ test.describe("Sidebar — Unified Timeline", () => {
     // for the screen). It's a single row ("Mostra archiviati") that flips
     // showArchived on each click; the menu stays open, so the same locator
     // toggles both ways.
-    await openProfileMenu(page);
-    const archiveToggle = page.getByRole("button", { name: "Mostra archiviati" });
+    await openColumnViewMenu(page);
+    const archiveToggle = page.getByTestId("topics-menu-archived");
     await expect(archiveToggle).toBeVisible({ timeout: 3000 });
 
     // Reveal archived items
@@ -377,15 +384,13 @@ test.describe("Sidebar — Unified Timeline", () => {
     // View-mode + archive toggles live in the menu under the user card (the
     // one door of the chrome since card 022db87b; on the phone the same rows
     // hang off the title button, and `openProfileMenu` picks).
-    await openProfileMenu(page);
-    await expect(
-      page.getByRole("button", { name: "Mostra archiviati" })
-    ).toBeVisible({ timeout: 3000 });
+    await openColumnViewMenu(page);
+    await expect(page.getByTestId("topics-menu-archived")).toBeVisible({ timeout: 3000 });
     // Il toggle c'e' e nomina il modo SUCCESSIVO. Da timeline il successivo e'
     // "per stato": il modo "per tipo" e' stato rimosso il 06/08.
-    await expect(
-      page.getByRole("button", { name: "Vista per stato" })
-    ).toBeVisible({ timeout: 3000 });
+    const viewToggle = page.getByTestId("topics-menu-view-mode");
+    await expect(viewToggle).toBeVisible({ timeout: 3000 });
+    await expect(viewToggle).toContainText("stato");
   });
 
   // AC-1: Clicking a topic in timeline still switches panel
