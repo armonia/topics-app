@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.294",
+    "date": "2026-09-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La coda della riga agenti porta due numeri, non tre su cinque",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il verdetto sulla pane browser e' l'indirizzo, non i pixel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rapporto Windows 2.2.292: il banco esce zero e la pane prende un indirizzo digitato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.292",
     "date": "2026-09-08",
     "sections": {
