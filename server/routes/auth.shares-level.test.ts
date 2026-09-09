@@ -13,15 +13,15 @@ import type { AppContext } from "../types";
 import { createAuthRouter } from "./auth";
 import { putGrant } from "../lib/grants-query";
 
-const RADICE = join(import.meta.dir, "..", "..");
-const MIGRAZIONI = [
+const ROOT = join(import.meta.dir, "..", "..");
+const MIGRATIONS = [
   "080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql",
   "20260816230500-grants-project.sql", "20260909180634-grant-levels-write-scope.sql",
 ];
 
 function dbFresco(): Database {
   const db = new Database(":memory:");
-  for (const m of MIGRAZIONI) db.run(readFileSync(join(RADICE, "server/db/migrations", m), "utf8"));
+  for (const m of MIGRATIONS) db.run(readFileSync(join(ROOT, "server/db/migrations", m), "utf8"));
   // subjectRejection needs a real, non-revoked device row to accept the
   // share, or it reads the subject as unknown and 404s.
   for (const id of ["o1", "g1", "g2", "g3", "g4"]) {
@@ -44,7 +44,7 @@ function creaCtx(db: Database, identity: { role: "owner" | "guest"; deviceId: st
   } as unknown as AppContext;
 }
 
-function chiama(rotta: ReturnType<typeof createAuthRouter>, method: string, percorso: string, corpo?: unknown) {
+function call(rotta: ReturnType<typeof createAuthRouter>, method: string, percorso: string, corpo?: unknown) {
   const url = new URL(`http://127.0.0.1:3333${percorso}`);
   const req = new Request(url, {
     method,
@@ -63,7 +63,7 @@ describe("POST /api/auth/shares · il livello", () => {
 
   test("il default resta `read`, come prima di questo cambio", async () => {
     const owner = createAuthRouter(creaCtx(db, { role: "owner", deviceId: "o1" }));
-    const res = await chiama(owner, "POST", "/api/auth/shares", {
+    const res = await call(owner, "POST", "/api/auth/shares", {
       resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "g1",
     });
     expect(res?.status).toBe(200);
@@ -73,7 +73,7 @@ describe("POST /api/auth/shares · il livello", () => {
 
   test("un livello esplicito viene registrato", async () => {
     const owner = createAuthRouter(creaCtx(db, { role: "owner", deviceId: "o1" }));
-    const res = await chiama(owner, "POST", "/api/auth/shares", {
+    const res = await call(owner, "POST", "/api/auth/shares", {
       resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "g1", level: "edit",
     });
     expect(res?.status).toBe(200);
@@ -83,7 +83,7 @@ describe("POST /api/auth/shares · il livello", () => {
 
   test("un livello inventato è rifiutato, 400", async () => {
     const owner = createAuthRouter(creaCtx(db, { role: "owner", deviceId: "o1" }));
-    const res = await chiama(owner, "POST", "/api/auth/shares", {
+    const res = await call(owner, "POST", "/api/auth/shares", {
       resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "g1", level: "publish",
     });
     expect(res?.status).toBe(400);
@@ -100,7 +100,7 @@ describe("POST/DELETE /api/auth/shares · un ospite con `manage`", () => {
 
   test("può condividere la STESSA risorsa con un terzo", async () => {
     const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
-    const res = await chiama(guest, "POST", "/api/auth/shares", {
+    const res = await call(guest, "POST", "/api/auth/shares", {
       resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "g2", level: "comment",
     });
     expect(res?.status).toBe(200);
@@ -110,7 +110,7 @@ describe("POST/DELETE /api/auth/shares · un ospite con `manage`", () => {
 
   test("non può toccare una risorsa dove non ha `manage`", async () => {
     const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
-    const res = await chiama(guest, "POST", "/api/auth/shares", {
+    const res = await call(guest, "POST", "/api/auth/shares", {
       resourceType: "task", resourceId: "altro-task", subjectType: "device", subjectId: "g2", level: "read",
     });
     expect(res?.status).toBe(403);
@@ -119,7 +119,7 @@ describe("POST/DELETE /api/auth/shares · un ospite con `manage`", () => {
   test("con solo `edit` (non `manage`) resta fuori", async () => {
     putGrant(db, { kind: "device", id: "g3" }, "task", "t2", { level: "edit", grantedAt: Date.now() });
     const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g3" }));
-    const res = await chiama(guest, "POST", "/api/auth/shares", {
+    const res = await call(guest, "POST", "/api/auth/shares", {
       resourceType: "task", resourceId: "t2", subjectType: "device", subjectId: "g4", level: "read",
     });
     expect(res?.status).toBe(403);

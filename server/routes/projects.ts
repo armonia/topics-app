@@ -336,7 +336,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         if (method === "PATCH") {
           const body = await readJSON(req);
           if (!body) return errorResponse(400, "body required");
-          const patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean } = {};
+          const patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean; orgId?: string | null } = {};
           // L'interruttore incognito. Booleano stretto: un `"true"` di stringa o
           // un `1` NON valgono, perché un cast permissivo su una leva di
           // visibilità trasforma ogni errore di battitura del client in una
@@ -373,6 +373,25 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
               }
               patch.icon = v;
             }
+          }
+          // Moving a project into/out of org visibility — a sharing decision,
+          // not a cosmetic one, so it is scoped to `null` (personal again) or
+          // the ONE installation org this server knows about: there is no
+          // second org to accidentally hand the project to. Only the owner
+          // decides, same as `incognito` — a guest never reaches this route
+          // (`isGuestAllowedPath` does not list `/api/projects`), but a
+          // second member of the org should not be able to hand a colleague's
+          // project to the org either.
+          if (body.orgId !== undefined) {
+            if (body.orgId !== null && body.orgId !== installationOrgId(ctx.db as never)) {
+              return errorResponse(400, "unknown orgId");
+            }
+            const actingId = actingPersonId(ctx.db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
+            const currentProject = projectStore.get(idParams.id);
+            if (currentProject?.ownerPersonId && currentProject.ownerPersonId !== actingId) {
+              return errorResponse(403, "only the owner can change org visibility");
+            }
+            patch.orgId = body.orgId;
           }
           const project = projectStore.update(idParams.id, patch);
           if (!project) return errorResponse(404, "Project not found");

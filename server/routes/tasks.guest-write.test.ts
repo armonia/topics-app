@@ -15,7 +15,7 @@ import { createTasksRouter, matchGuestTaskAction } from "./tasks";
 import { putGrant, dropGrant } from "../lib/grants-query";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 
-const RADICE = join(import.meta.dir, "..", "..");
+const ROOT = join(import.meta.dir, "..", "..");
 
 // The real chain, up to and including ours: 080 creates `devices`, 082/083
 // bring `grants` from `task_shares`, 084 adds people/orgs, 20260816230500
@@ -23,13 +23,13 @@ const RADICE = join(import.meta.dir, "..", "..");
 // of a hand-rolled schema is what `orgs.test.ts` already does — copied here
 // so a future CHECK drifting from the TypeScript union fails a test, not a
 // guest in production.
-const MIGRAZIONI = [
+const MIGRATIONS = [
   "080-devices.sql", "082-task-shares.sql", "083-grants.sql", "084-people-orgs.sql",
   "20260816230500-grants-project.sql", "20260909180634-grant-levels-write-scope.sql",
 ];
 
 function withGrants(db: Database): void {
-  for (const m of MIGRAZIONI) db.run(readFileSync(join(RADICE, "server/db/migrations", m), "utf8"));
+  for (const m of MIGRATIONS) db.run(readFileSync(join(ROOT, "server/db/migrations", m), "utf8"));
 }
 
 function guestCtx(db: Database, broadcasts: unknown[], deviceId: string) {
@@ -104,7 +104,7 @@ describe("a guest with a level on a shared task", () => {
     // no second dispatch, no ghost task.
     const again = await (await call(guest, "POST", `/api/tasks/${taskId}/run`))!.json();
     expect(again.status).toBe("todo");
-    // Stop reuses the same "cut the live turn" the human's Ferma button calls;
+    // Stop reuses the same "cut the live turn" the human's stop button calls;
     // with no attempt actually running there is nothing to cut, so the card
     // is left exactly where it was rather than reporting a fake success.
     const stopped = (await call(guest, "POST", `/api/tasks/${taskId}/stop`))!;

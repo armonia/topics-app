@@ -47,7 +47,13 @@ export interface ProjectStore {
   list(opts?: { archived?: boolean }): Project[];
   update(
     id: string,
-    patch: { name?: string; color?: string | null; icon?: string | null; incognito?: boolean }
+    patch: {
+      name?: string; color?: string | null; icon?: string | null; incognito?: boolean;
+      /** Moves a project into or out of org visibility. `null` = personal
+       *  again, a live org id = shared with that org's members (subject to
+       *  each member's grants). Missing = leave the existing value alone. */
+      orgId?: string | null;
+    }
   ): Project | null;
   archive(id: string): Project | null;
   restore(id: string): Project | null;
@@ -77,7 +83,7 @@ export function createProjectStore(db: Database): ProjectStore {
     listAll: db.prepare(`SELECT * FROM projects ORDER BY updated_at DESC`),
     update: db.prepare(`
       UPDATE projects SET name = $name, color = $color, icon = $icon, incognito = $incognito,
-                          updated_at = $updated_at WHERE id = $id
+                          org_id = $org_id, updated_at = $updated_at WHERE id = $id
     `),
     setArchived: db.prepare(
       `UPDATE projects SET archived = $archived, updated_at = $updated_at WHERE id = $id`,
@@ -174,6 +180,7 @@ export function createProjectStore(db: Database): ProjectStore {
         $color: patch.color !== undefined ? patch.color : existing.color,
         $icon: patch.icon !== undefined ? patch.icon : existing.icon,
         $incognito: patch.incognito !== undefined ? (patch.incognito ? 1 : 0) : existing.incognito,
+        $org_id: patch.orgId !== undefined ? patch.orgId : existing.org_id,
         $updated_at: now,
       });
       const row = stmts.getById.get(id);
