@@ -2681,7 +2681,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               )}
               <div className={POPOVER_DIVIDER} />
               <button
-                role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
+                role="menuitem" onClick={() => {
+                  setOptionsMenuOpen(false);
+                  setSubtasksOpen(true);
+                  setSubtaskComposerOpen(true);
+                  setDetailsOpen(true);
+                  setDeliveryOpen(false);
+                  setWorkspaceOpen(false);
+                }}
                 className={POPOVER_ITEM}
               ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> {tr('board.task.addSubtask')}</button>
               <div className={POPOVER_DIVIDER} />

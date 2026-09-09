@@ -159,6 +159,7 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     await card.getByText(EPICA).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("task-details-toggle").click();
 
     // (a) The parent holds the turn: the step's row says so, quietly.
     //
@@ -194,7 +195,10 @@ test.describe("Sottotask senza agente suo · chi lo lavora", () => {
     await beat(page, 2600);
 
     // And on opening the step, the in-line chip in its drawer says the same thing.
+    // The drawer remounts per task (`key={selected.id}` — fresh edit/scroll
+    // state on every navigation), so the Details tab resets and needs its own click.
     await drawer.getByTestId(`subtask-open-${step.id}`).click();
+    await drawer.getByTestId("task-details-toggle").click();
     const chip = page.getByTestId("task-subtask-work-chip");
     await expect(chip).toHaveAttribute("data-kind", "unattended", { timeout: 10000 });
     await beat(page, 2400);
