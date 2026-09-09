@@ -109,6 +109,7 @@ test.describe("Banner · il tasto su un sottotask esegue davvero", () => {
     await page.goto(`/task/${epica.id}`);
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 20000 });
+    await drawer.getByTestId("task-details-toggle").click();
     const stepRow = page.getByTestId(`subtask-open-${step.id}`);
     await expect(stepRow).toBeVisible({ timeout: 10000 });
     const stato = () => stepRow.locator("xpath=preceding-sibling::span[1]");
@@ -139,6 +140,7 @@ test.describe("Banner · il tasto su un sottotask esegue davvero", () => {
     // E la stessa cosa si vede: ricaricato il drawer, il glifo dello step è Todo.
     await page.goto(`/task/${epica.id}`);
     await expect(page.getByTestId("task-detail-drawer")).toBeVisible({ timeout: 20000 });
+    await page.getByTestId("task-detail-drawer").getByTestId("task-details-toggle").click();
     await expect(page.getByTestId(`subtask-open-${step.id}`)).toBeVisible({ timeout: 10000 });
     await expect(stato()).toHaveAttribute("title", "Todo", { timeout: 10000 });
     await didascalia(page, "Il tasto ha eseguito: lo step è in Todo");
