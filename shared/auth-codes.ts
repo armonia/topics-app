@@ -126,6 +126,13 @@ export const CODICI_AUTH = [
   'resource_id_required',
   'subject_required',
   'bad_person_id',
+
+  // ── GRANULAR LEVELS on a share. A guest reaches this route through the
+  //    gate, but changing who-can-see-what still needs `manage` on the exact
+  //    resource, and the level named in the body must be one this scale
+  //    knows.
+  'manage_level_required',
+  'unknown_level',
 ] as const;
 
 export type CodiceAuth = (typeof CODICI_AUTH)[number];
