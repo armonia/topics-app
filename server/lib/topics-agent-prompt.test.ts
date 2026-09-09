@@ -49,6 +49,12 @@ afterAll(() => {
 });
 
 describe('resolveCodexReasoningEffort', () => {
+  test('task topic effort wins over the global setting, including max', () => {
+    process.env.TOPICS_CODEX_REASONING_EFFORT = 'xhigh';
+    expect(resolveCodexReasoningEffort({ topicOverride: 'low' })).toBe('low');
+    expect(resolveCodexReasoningEffort({ topicOverride: 'max' })).toBe('max');
+    expect(resolveCodexReasoningEffort({ topicOverride: null })).toBe('xhigh');
+  });
   test('explicit Topics override wins over everything', () => {
     process.env.TOPICS_CODEX_REASONING_EFFORT = 'medium';
     process.env.CODEX_REASONING_EFFORT = 'low';

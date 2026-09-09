@@ -29,7 +29,7 @@ export function TurnCheckpointsChoice({
 }) {
   const tr = useT();
   return (
-    <div className="mb-3 rounded-lg border border-app-border bg-surface/40 px-3 py-1">
+    <div className="border-t border-app-border pt-2">
       <ToggleRow
         label={tr('settings.turnCheckpoints.label')}
         description={tr('settings.turnCheckpoints.blurb')}

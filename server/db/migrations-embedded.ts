@@ -157,6 +157,7 @@ import m20260907120000_agent_bin_paths from "./migrations/20260907120000-agent-b
 import m20260907132557_board_id_windows_path from "./migrations/20260907132557-board-id-windows-path.sql" with { type: "text" };
 import m20260907141503_calendar_feed from "./migrations/20260907141503-calendar-feed.sql" with { type: "text" };
 import m20260907214600_board_machine_budget from "./migrations/20260907214600-board-machine-budget.sql" with { type: "text" };
+import m20260909090000_task_model_effort from "./migrations/20260909090000-task-model-effort.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -318,4 +319,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260907132557, name: "20260907132557-board-id-windows-path.sql", sql: m20260907132557_board_id_windows_path },
   { version: 20260907141503, name: "20260907141503-calendar-feed.sql", sql: m20260907141503_calendar_feed },
   { version: 20260907214600, name: "20260907214600-board-machine-budget.sql", sql: m20260907214600_board_machine_budget },
+  { version: 20260909090000, name: "20260909090000-task-model-effort.sql", sql: m20260909090000_task_model_effort },
 ];

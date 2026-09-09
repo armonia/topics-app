@@ -1,5 +1,7 @@
+import { ApiConnectionError, configureApiProvider, parseApiConfig } from "../services/configure-api-provider";
+import { saveApiProviderKey } from "../services/api-provider-credentials";
 import type { AppContext, RouteHandler } from "../types";
-import type { ClaudeProviderConfig, ClaudeCodeProviderConfig, OpenAIProviderConfig } from "../providers/types";
+import type { ClaudeCodeProviderConfig } from "../providers/types";
 import {
   listProviders,
   getDefaultProviderName,
@@ -7,6 +9,7 @@ import {
   registerProvider,
   removeProvider,
   initProviders,
+  configureDirectProvider,
 } from "../providers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { updateAppSettings } from "../services/app-settings";
@@ -56,32 +59,37 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
       return json({ ok: true });
     }
 
-    // POST /api/providers/openai/configure — configure OpenAI provider at runtime
-    if (method === "POST" && pathname === "/api/providers/openai/configure") {
+    // A connection is discoverable before registry setup. Probe before saving;
+    // rejected replacements leave both the current key and active turns intact.
+    const apiConfigure = method === "POST" && pathname.match(/^\/api\/providers\/(openai|claude)\/configure$/);
+    if (apiConfigure) {
       try {
-        const body = await req.json();
-        const { apiKey, model, maxTokens } = body ?? {};
-        if (!apiKey || typeof apiKey !== "string") {
-          return json({ ok: false, error: "Missing 'apiKey' in request body" }, 400);
-        }
-        const config: OpenAIProviderConfig = {
-          type: "openai",
-          apiKey,
-          model: model || undefined,
-          maxTokens: maxTokens ? parseInt(String(maxTokens), 10) : undefined,
-        };
-        const provider = registerProvider(config);
-        return json({
-          ok: true,
-          provider: {
-            name: provider.name,
-            connected: provider.connected,
-            capabilities: [...provider.capabilities],
+        const config = parseApiConfig(apiConfigure[1] as "openai" | "claude", await req.json());
+        await configureApiProvider(config, {
+          diagnose: async (candidate) => {
+            if (candidate.type === "openai") {
+              const { OpenAIProvider } = await import("../providers/openai");
+              return new OpenAIProvider(candidate).diagnose();
+            }
+            const { ClaudeProvider } = await import("../providers/claude");
+            return new ClaudeProvider(candidate).diagnose();
+          },
+          save: (name, key) => saveApiProviderKey(name, key, ctx.STATE_DIR),
+          apply: (candidate) => {
+            const patch = candidate.type === "openai"
+              ? { ...(candidate.model ? { openaiModel: candidate.model } : {}), ...(candidate.maxTokens ? { openaiMaxTokens: candidate.maxTokens } : {}) }
+              : { ...(candidate.model ? { claudeModel: candidate.model } : {}), ...(candidate.maxTokens ? { claudeMaxTokens: candidate.maxTokens } : {}) };
+            if (Object.keys(patch).length) updateAppSettings(patch);
+            configureDirectProvider({ type: candidate.type, apiKey: candidate.apiKey });
           },
         });
+        return json({ ok: true, provider: { name: config.type, connected: true }, persisted: true });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return json({ ok: false, error: msg }, 500);
+        const code = err instanceof ApiConnectionError ? err.code
+          : err instanceof SyntaxError ? "api_config_invalid" : "api_credentials_storage";
+        const message = err instanceof ApiConnectionError ? err.message
+          : err instanceof SyntaxError ? "Invalid provider configuration." : "Could not save the API connection on this server.";
+        return json({ ok: false, error: message, code }, 400);
       }
     }
 
@@ -111,35 +119,6 @@ export function createProvidersRouter(ctx: AppContext): RouteHandler {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return json({ ok: false, error: msg }, 400);
-      }
-    }
-
-    // POST /api/providers/claude/configure — configure Claude provider at runtime
-    if (method === "POST" && pathname === "/api/providers/claude/configure") {
-      try {
-        const body = await req.json();
-        const { apiKey, model, maxTokens } = body ?? {};
-        if (!apiKey || typeof apiKey !== "string") {
-          return json({ ok: false, error: "Missing 'apiKey' in request body" }, 400);
-        }
-        const config: ClaudeProviderConfig = {
-          type: "claude",
-          apiKey,
-          model: model || undefined,
-          maxTokens: maxTokens ? parseInt(String(maxTokens), 10) : undefined,
-        };
-        const provider = registerProvider(config);
-        return json({
-          ok: true,
-          provider: {
-            name: provider.name,
-            connected: provider.connected,
-            capabilities: [...provider.capabilities],
-          },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return json({ ok: false, error: msg }, 500);
       }
     }
 

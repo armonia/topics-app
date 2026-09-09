@@ -1379,7 +1379,7 @@ function App() {
         // c'è — desktop, o tastiera aperta — quindi non c'è nessun ramo, e
         // niente cambia fuori dal telefono. Senza questa riga la fila
         // coprirebbe l'ultimo messaggio della chat e il composer.
-        paddingBottom: 'var(--mobile-chrome-h, 0px)',
+        paddingBottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
         position: 'fixed',
         top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
         bottom: viewportHeight != null ? undefined : 0,
@@ -1488,7 +1488,7 @@ function App() {
           // La colonna è `fixed inset-y-0`: sfugge al padding della radice,
           // quindi la banda della fila in basso se la riserva da sé. Stessa
           // variabile, stesso valore, un posto solo a deciderlo.
-          paddingBottom: 'var(--mobile-chrome-h, 0px)',
+          paddingBottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px))',
         }}
       >
 
@@ -1937,7 +1937,7 @@ function App() {
           identity band stays desktop-only, which is the other half. */}
       {isMobile && (
         <ErrorBoundary fallbackMessageKey="crash.transportBand">
-          <MobileTransportBand wsStatus={wsStatus} dataNotice={topicsError} />
+          <MobileTransportBand wsStatus={wsStatus} dataNotice={topicsError} keyboardVisible={viewportHeight !== null} />
         </ErrorBoundary>
       )}
 

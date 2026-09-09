@@ -543,11 +543,11 @@ test('the current question is actionable once; history and centered status stay 
   await reopened.locator('summary').click();
   await page.screenshot({ path: testInfo.outputPath('conversation-mobile-correction.png') });
   await input.fill('');
-  const answer = page.waitForResponse((response) => response.url().endsWith(`/tasks/${taskId}/review`) && response.request().method() === 'POST');
+  const answer = page.waitForResponse((response) => response.url().endsWith(`/tasks/${taskId}/comments`) && response.request().method() === 'POST');
   await choices.getByRole('button', { name: 'Build the source editor', exact: true }).click();
   const answered = await answer;
   expect(answered.ok()).toBe(true);
-  expect(answered.request().postDataJSON().comment).toBe('**Build the source editor**');
+  expect(answered.request().postDataJSON().content).toBe('**Build the source editor**');
   await expect(choices).toHaveCount(0);
 });
 
@@ -576,20 +576,17 @@ for (const gesture of ['button', 'enter', 'attachment'] as const) {
       expect((await uploaded).ok()).toBe(true);
       await expect(drawer.getByTestId('task-composer-submit')).toBeEnabled();
     }
-    const sent = page.waitForResponse((response) => response.url().includes(`/tasks/${taskId}/${gesture === 'attachment' ? 'comments' : 'review'}`) && response.request().method() === 'POST');
+    const sent = page.waitForResponse((response) => response.url().endsWith(`/tasks/${taskId}/comments`) && response.request().method() === 'POST');
     if (gesture === 'enter') await input.press('Enter');
     else await drawer.getByTestId('task-composer-submit').click();
     const response = await sent;
     expect(response.ok()).toBe(true);
     const payload = response.request().postDataJSON();
+    expect(payload.content).toBe(correction);
+    expect(payload.quiet).not.toBe(true);
     if (gesture === 'attachment') {
-      expect(payload.content).toBe(correction);
-      expect(payload.quiet).not.toBe(true);
       media = payload.media;
       expect(media).toHaveLength(1);
-    } else {
-      expect(payload.decision).toBe('reject');
-      expect(payload.comment).toBe(correction);
     }
     await expect(input).toHaveValue('');
     const stored = await request.get(`/api/boards/${projectId}/tasks/${taskId}`);

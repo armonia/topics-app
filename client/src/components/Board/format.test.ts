@@ -11,10 +11,10 @@
  * («1 file», «3 file»).
  *
  * L'inglese si prova a parte, perché lì il plurale esiste davvero.
-  * @covers KANBAN-53
+  * @covers KANBAN-53 MP-TASK-01 MP-TASK-03
  */
 import { describe, test, expect } from 'bun:test';
-import { attemptStat, descSummary, fmtCount, fmtUsd, liveToolLabel, LIVE_TOOL_INPUT_CHARS, taskCopyText } from './format';
+import { attemptStat, descSummary, fmtCount, fmtModel, fmtUsd, friendlyModelLabel, liveToolLabel, LIVE_TOOL_INPUT_CHARS, taskCopyText } from './format';
 import { formatAttemptStat } from '../../../../shared/task-attempt';
 import { t, ensureLocaleLoaded } from '../../lib/i18n';
 import type { TaskAttempt } from '../../lib/board';
@@ -27,6 +27,24 @@ await ensureLocaleLoaded('en');
 
 const it = (key: string, vars?: Record<string, string | number>) => t(key, 'it', vars);
 const en = (key: string, vars?: Record<string, string | number>) => t(key, 'en', vars);
+
+describe('resolved task models', () => {
+  test('preserves model identity instead of collapsing every GPT model to gpt', () => {
+    expect(fmtModel('gpt-5.5')).toBe('GPT-5.5');
+    expect(fmtModel('gpt-5.6-mini')).toBe('GPT-5.6-mini');
+    expect(fmtModel('codex:custom-model-v2')).toBe('custom-model-v2 · Codex');
+    expect(fmtModel('claude-opus-4-8[1m]')).toBe('Opus 4.8 · 1M');
+    expect(fmtModel('claude-sonnet-4-8')).toBe('Sonnet 4.8');
+  });
+
+  test('uses the same recognizable model in the picker and task chip', () => {
+    for (const model of ['gpt-5.5', 'codex:custom-model-v2', 'claude-opus-4-8[1m]', 'codex']) {
+      expect(fmtModel(model)).toBe(friendlyModelLabel(model));
+    }
+    expect(fmtModel(null)).toBe('auto');
+    expect(fmtModel(undefined)).toBe('auto');
+  });
+});
 
 function attempt(over: Partial<TaskAttempt> = {}): TaskAttempt {
   return {

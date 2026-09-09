@@ -396,3 +396,6 @@ tools/out/win/*.png
 # The probe writes one capture per step per run and calls them evidence: the
 # report next to them keeps the two or three that carry an answer.
 tools/out/win/probe/
+
+# Private, installation-scoped AI credentials (never shipped).
+.topics-secrets/

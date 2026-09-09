@@ -349,6 +349,9 @@ export function writeCredentials(path: string, next: OAuthCredentials): void {
 const LOCK_STALE_MS = 30_000;
 const LOCK_TIMEOUT_MS = 20_000;
 const LOCK_RETRY_MS = 50;
+// Leave time to persist the rotating pair before another process may regard
+// our lock as abandoned. The signal also bounds response-body consumption.
+export const OAUTH_REFRESH_TIMEOUT_MS = 10_000;
 
 function lockPath(credPath: string): string {
   // The Keychain has no file to sit next to: its lock lives beside the CLI's
@@ -406,6 +409,7 @@ function releaseLock(credPath: string): void {
 export async function refreshCredentials(current: OAuthCredentials): Promise<OAuthCredentials> {
   const res = await fetch(TOKEN_URL, {
     method: "POST",
+    signal: AbortSignal.timeout(OAUTH_REFRESH_TIMEOUT_MS),
     headers: {
       "content-type": "application/json",
       accept: "application/json",
@@ -488,10 +492,9 @@ function renewSerialized(
   _inFlight = (async () => {
     const sourcePath = _sourcePath;
 
-    // Without a known path we can neither lock nor save: renew without either,
-    // accepting the remote race.
+    // A rotating token must never be renewed without a place to lock and save.
     if (!sourcePath) {
-      return refreshCredentials(creds);
+      throw new Error("OAUTH_REFRESH_SOURCE_MISSING: impossibile salvare le credenziali rinnovate.");
     }
 
     // Inter-process lock: one process at a time performs the renewal.
@@ -502,6 +505,13 @@ function renewSerialized(
       const reread = readCredentials() as (OAuthCredentials & { sourcePath?: string }) | null;
       if (reread && !stillStale(reread)) {
         return reread;
+      }
+
+      // A timeout is not lock ownership. Re-read above first, since the owner
+      // may have finished just as our wait expired, then fail without rotating
+      // the same refresh token concurrently or unlinking the owner's lock.
+      if (!acquired) {
+        throw new Error("OAUTH_REFRESH_LOCK_TIMEOUT: rinnovo delle credenziali già in corso; riprova tra poco.");
       }
 
       const next = await refreshCredentials(reread ?? creds);

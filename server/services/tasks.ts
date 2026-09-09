@@ -713,7 +713,7 @@ export interface TaskService {
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
    *  the card stops showing "auto" once the agent has run. */
-  setModel(args: { taskId: string; model: string | null }): Task;
+  setModel(args: { taskId: string; model: string | null; effort?: string | null }): Task;
   /**
    * Ricorda il peso letto dal classificatore (migration 090). È il promemoria
    * che permette al CLAIM di decidere: il giudice parla al lancio, il gate serve
@@ -2329,6 +2329,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `tasks.model` può essere nullo («auto») anche dopo il dispatch, ma il
       // TOPIC dell'agente è stato creato col modello risolto.
       model: r.model ?? topic?.model ?? null,
+      ...(r.model_effort ? { modelEffort: r.model_effort } : {}),
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
@@ -3282,6 +3283,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const current: TaskStatus = row.status;
 
+      // A task model choice configures its next new session. Updating this
+      // field cannot migrate an already-bound conversation to another agent.
+      if (patch.model !== undefined && row.assigned_topic_id
+        && ((patch.model ?? "").trim() || null) !== (row.model || null)) {
+        throw new TaskServiceError("invalid_input", "Il modello è fissato alla sessione già assegnata a questo task. Non è possibile cambiarlo dal task dopo l'avvio.");
+      }
+
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
         // Il task NON è più tuo: un agente a cui il dispatcher ha tolto il task
@@ -3448,6 +3456,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
         put("model", m || null);
+        put("model_effort", null);
       }
       // WHERE it runs. Empty string and null both mean «this machine»: the
       // picker clears the choice by sending the empty value, and a card with
@@ -5169,11 +5178,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    setModel({ taskId, model }): Task {
+    setModel({ taskId, model, effort }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-      db.prepare("UPDATE tasks SET model = ?, updated_at = ? WHERE id = ?")
-        .run(model || null, now(), taskId);
+      const normalizedModel = model || null;
+      const sets = ["model = ?", "updated_at = ?"];
+      const params: Array<string | null> = [normalizedModel, now()];
+      if (effort !== undefined) {
+        if (effort !== null && (!VALID_EFFORT.has(effort) || effort === "auto")) {
+          throw new TaskServiceError("invalid_input", `invalid task model effort: ${effort}`);
+        }
+        sets.splice(1, 0, "model_effort = ?");
+        params.splice(1, 0, effort);
+      } else if (normalizedModel !== (row.model ?? null)) {
+        // An effort belongs to its resolved model. Callers that change a model
+        // without a fresh automatic judgment must not inherit the old model's.
+        sets.splice(1, 0, "model_effort = NULL");
+      }
+      params.push(taskId);
+      db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
       return rowToTask(getTaskRow(taskId));
     },
 

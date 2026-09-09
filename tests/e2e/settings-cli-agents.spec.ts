@@ -33,6 +33,7 @@ test.describe("Settings · agent CLIs", () => {
     const panel = page.locator('[data-testid="settings-panel"]');
     await expect(panel).toBeVisible({ timeout: 10000 });
     await panel.locator("nav button", { hasText: /AI|Provider/i }).first().click();
+    await panel.getByTestId("ai-providers-advanced-toggle").click();
     return panel;
   }
 

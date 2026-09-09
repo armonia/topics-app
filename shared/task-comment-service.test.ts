@@ -7,17 +7,29 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   FOLD_MIN_RUN,
+  FRESH_SESSION_NOTE,
   LEGACY_DISPATCHER_NOTES,
   SERVICE_KIND,
   foldsAway,
   groupServiceRuns,
   isDoneThreadService,
+  isFreshSessionNote,
   isLandHygieneNote,
   isLegacyDispatcherNote,
   isMarkedService,
   isServiceComment,
   type ThreadComment,
 } from './task-comment-service';
+
+it('recognises fresh-session events without rewriting human or agent speech', () => {
+  const legacy = "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno.";
+  for (const content of [legacy, FRESH_SESSION_NOTE]) {
+    expect(isFreshSessionNote({ author: 'system', kind: 'service', content })).toBe(true);
+    expect(isFreshSessionNote({ author: 'user', kind: 'comment', content })).toBe(false);
+    expect(isFreshSessionNote({ author: 'agent:sample', kind: 'comment', content })).toBe(false);
+  }
+  expect(isFreshSessionNote({ author: 'system', kind: 'service', content: 'A different event.' })).toBe(false);
+});
 
 function row(p: Partial<ThreadComment> = {}): ThreadComment {
   return {

@@ -54,6 +54,7 @@ import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { activeFrozenCount } from "../services/budget-governor";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
@@ -3321,7 +3322,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               try {
                 svc.addComment({
                   taskId: bReview.taskId, author: "system", kind: "service",
-                  content: "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno.",
+                  content: FRESH_SESSION_NOTE,
                 });
               } catch { /* the requeue is what matters */ }
               broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: backInQueue });
@@ -3515,6 +3516,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (bComments && method === "POST") {
         const body = (await readJSON(req)) as any;
         try {
+          let delivery: import('../../shared/task-comment-ack').TaskCommentAcknowledgement['delivery'] = 'note';
           const comment = svc.addComment({
             taskId: bComments.taskId, author: HUMAN, content: body?.content,
             mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
@@ -3539,7 +3541,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // stato del root — il gesto quieto è quieto anche quando il task è in
           // corso o quando c'è una domanda in sospeso, perché una nota non è la
           // risposta a una domanda che nessuno ha detto di voler chiudere.
-          if (body?.quiet === true) return json(comment, 201);
+          if (body?.quiet === true) return json({ ...comment, delivery }, 201);
           // C'È UNA DOMANDA APERTA SU QUESTO TASK? Allora questo commento è la
           // RISPOSTA, e va a chi sta fermo ad aspettarla — che può essere il
           // coordinatore o una delle sue sessioni di lavoro. La consegna sblocca
@@ -3555,7 +3557,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
             const target = root?.id ?? bComments.taskId;
             if (pendingRoutedAsk(target) && answerRoutedAsk(askRouting, target, String(body?.content ?? ""))) {
-              return json(comment);
+              return json({ ...comment, delivery: 'answered' });
             }
           }
           // A SYSTEM LABEL CLICKED FROM THE DRAWER IS AN UPDATE, NEVER A TURN.
@@ -3616,9 +3618,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // lets a reader draw them once instead of twice.
               dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
                 .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
+              delivery = 'queued';
             }
           } catch { /* the root may have moved meanwhile */ }
-          return json(comment, 201);
+          return json({ ...comment, delivery }, 201);
         } catch (e) { return fail(e); }
       }
 

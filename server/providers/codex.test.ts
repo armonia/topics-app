@@ -10,12 +10,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { CodexProvider, extractCodexErrorMessage, extractCodexUsage } from "./codex";
+import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage } from "./codex";
 import type { ProviderUsage, StreamHandler, ToolArgs } from "./types";
 
 interface RecordedHandler extends StreamHandler {
   text: { delta: string; full: string }[];
-  tools: { type: "start" | "update" | "result"; id: string; payload: string | ToolArgs | undefined }[];
+  tools: { type: "start" | "update" | "result"; id: string; payload: string | ToolArgs | undefined; error?: boolean }[];
+  toolNames: { id: string; name: string }[];
+  executing: string[];
+  activity: string[];
   errors: string[];
   done: { usage?: ProviderUsage; result?: string }[];
   aborted: { usage?: ProviderUsage; result?: string }[];
@@ -26,6 +29,9 @@ function makeHandler(): RecordedHandler {
   const h = {
     text: [],
     tools: [],
+    toolNames: [],
+    executing: [],
+    activity: [],
     errors: [],
     done: [],
     aborted: [],
@@ -33,9 +39,11 @@ function makeHandler(): RecordedHandler {
   } as unknown as RecordedHandler;
   h.onContextSize = (tokens, model, windowTokens) => { h.context.push({ tokens, model, windowTokens }); };
   h.onTextDelta = (text, fullText) => { h.text.push({ delta: text, full: fullText }); };
-  h.onToolStart = (id, _name, args) => { h.tools.push({ type: "start", id, payload: args }); };
+  h.onToolStart = (id, name, args) => { h.toolNames.push({ id, name }); h.tools.push({ type: "start", id, payload: args }); };
+  h.onToolExecStart = (id) => { h.executing.push(id); };
+  h.onToolActivity = (id) => { h.activity.push(id); };
   h.onToolUpdate = (id, partial) => { h.tools.push({ type: "update", id, payload: partial }); };
-  h.onToolResult = (id, result) => { h.tools.push({ type: "result", id, payload: result }); };
+  h.onToolResult = (id, result, error) => { h.tools.push({ type: "result", id, payload: result, ...(error ? { error } : {}) }); };
   h.onError = (err) => { h.errors.push(err); };
   h.onDone = (msg) => { h.done.push({ usage: msg?.usage, result: msg?.result }); };
   h.onAborted = (msg) => { h.aborted.push({ usage: msg?.usage, result: msg?.result }); };
@@ -149,6 +157,14 @@ describe("extractCodexUsage", () => {
   });
 });
 
+describe("codexTopicsMcpProfile", () => {
+  test("dispatches bridge-only task sessions without exposing Claude-only spawning", () => {
+    expect(codexTopicsMcpProfile(false, "bridge-only")).toBe("codex-dispatch");
+    expect(codexTopicsMcpProfile(false, null)).toBeUndefined();
+    expect(codexTopicsMcpProfile(true, "bridge-only")).toBe("global-orchestrator");
+  });
+});
+
 describe("extractCodexErrorMessage", () => {
   test("returns a default when no message fields are present", () => {
     expect(extractCodexErrorMessage({})).toBe("Codex error");
@@ -226,6 +242,90 @@ describe("routeCodexEvent — text + tool wiring", () => {
       { type: "update", id: "cmd-1", payload: "file1.txt\nfile2.txt\n" },
       { type: "result", id: "cmd-1", payload: "file1.txt\nfile2.txt\n" },
     ]);
+  });
+
+  test("completed command_execution keeps its actual aggregated_output even without an update event", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", {
+      type: "item.started",
+      item: { type: "command_execution", id: "cmd-final", command: "bun test" },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.completed",
+      item: { type: "command_execution", id: "cmd-final", aggregated_output: "12 pass\\n", exit_code: 0 },
+    }, h);
+
+    expect(h.tools.at(-1)).toEqual({ type: "result", id: "cmd-final", payload: "12 pass\\n" });
+  });
+
+  test("MCP item lifecycle is rendered as the canonical Topics MCP tool, including update and error", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", {
+      type: "item.started",
+      item: { type: "mcp_tool_call", id: "mcp-ok", server: "topics", tool: "update_task", arguments: { status: "review" } },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.updated",
+      item: { type: "mcp_tool_call", id: "mcp-ok", result: { progress: "writing review" } },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        id: "mcp-ok",
+        status: "completed",
+        error: null,
+        result: { content: [{ type: "text", text: "task updated" }], isError: false },
+      },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.started",
+      item: { type: "mcp_tool_call", id: "mcp-fail", server: "topics", tool: "update_task", arguments: {} },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.completed",
+      item: { type: "mcp_tool_call", id: "mcp-fail", status: "failed", error: { message: "conflict" } },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.started",
+      item: { type: "mcp_tool_call", id: "mcp-tool-error", server: "topics", tool: "update_task", arguments: {} },
+    }, h);
+    pushEvent(provider, "s1", {
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        id: "mcp-tool-error",
+        status: "completed",
+        error: null,
+        result: { content: [{ type: "text", text: "task is locked" }], isError: true },
+      },
+    }, h);
+
+    expect(h.toolNames).toEqual([
+      { id: "mcp-ok", name: "mcp__topics__update_task" },
+      { id: "mcp-fail", name: "mcp__topics__update_task" },
+      { id: "mcp-tool-error", name: "mcp__topics__update_task" },
+    ]);
+    expect(h.executing).toEqual(["mcp-ok", "mcp-fail", "mcp-tool-error"]);
+    expect(h.activity).toEqual(["mcp-ok"]);
+    expect(h.tools).toContainEqual({ type: "update", id: "mcp-ok", payload: '{"progress":"writing review"}' });
+    expect(h.tools).toContainEqual({ type: "result", id: "mcp-ok", payload: '{"content":[{"type":"text","text":"task updated"}],"isError":false}' });
+    expect(h.tools).toContainEqual({ type: "result", id: "mcp-fail", payload: '{"message":"conflict"}', error: true });
+    expect(h.tools).toContainEqual({ type: "result", id: "mcp-tool-error", payload: '{"content":[{"type":"text","text":"task is locked"}],"isError":true}', error: true });
+  });
+
+  test("the watchdog sees only the provider-owned child that has not exited", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const internals = provider as unknown as { activeChildren: Map<string, { exitCode: number | null; signalCode: NodeJS.Signals | null }> };
+    internals.activeChildren.set("s1", { exitCode: null, signalCode: null });
+    expect(provider.isTurnProcessAlive("s1")).toBe(true);
+    internals.activeChildren.get("s1")!.exitCode = 0;
+    expect(provider.isTurnProcessAlive("s1")).toBe(false);
+    internals.activeChildren.set("s2", { exitCode: null, signalCode: "SIGTERM" });
+    expect(provider.isTurnProcessAlive("s2")).toBe(false);
+    expect(provider.isTurnProcessAlive("unowned")).toBe(false);
   });
 
   test("flat exec_command_output_delta accumulates partial output by command_id", () => {

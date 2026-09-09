@@ -157,6 +157,8 @@ export interface Task {
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
   model: string | null;
+  /** Automatic effort paired with a concrete model. Cleared on a manual model change. */
+  modelEffort?: string;
   /**
    * WHERE the card runs (KANBAN-76). `null` = this machine, which is every
    * card that exists today. A non-null id names a PAIRED node: the dispatcher

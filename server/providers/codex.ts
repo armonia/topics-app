@@ -15,12 +15,14 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
-import { existsSync, mkdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import type {
   AIProvider,
   ChatMessage,
   CompletionResult,
+  CompletionOptions,
   ProviderCapability,
   ProviderDiagnostic,
   ProviderDoneMessage,
@@ -32,8 +34,9 @@ import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
-import { topicsMcpBridgeSpec } from "./claude-code";
+import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
+import { readCodexModels } from "./codex/models";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
@@ -50,6 +53,15 @@ export interface CodexProviderConfig {
   model?: string;
   approvalMode?: "auto" | "full-access";
   defaultWorkspace?: string;
+}
+
+/** The dispatch bridge is narrower than the ordinary interactive bridge. */
+export function codexTopicsMcpProfile(
+  globalOrchestrator: boolean,
+  mcpPolicy: string | null | undefined,
+): "global-orchestrator" | "codex-dispatch" | undefined {
+  if (globalOrchestrator) return "global-orchestrator";
+  return mcpPolicy === "bridge-only" ? "codex-dispatch" : undefined;
 }
 
 // ============ Constants ============
@@ -337,6 +349,17 @@ export class CodexProvider implements AIProvider {
     console.log("[codex] Provider stopped");
   }
 
+  /**
+   * The stream watchdog asks about the child that owns THIS turn, not whether
+   * some process with a matching pid happens to be alive. `codex exec` is a
+   * one-shot child, so the map entry plus an unreported exit is the complete
+   * ownership/liveness contract.
+   */
+  isTurnProcessAlive(sessionKey: string): boolean {
+    const child = this.activeChildren.get(sessionKey);
+    return !!child && child.exitCode === null && child.signalCode === null;
+  }
+
   // --- Streaming chat ---
 
   async sendChat(
@@ -392,7 +415,16 @@ export class CodexProvider implements AIProvider {
       // only special capability is this registry-backed tool profile; it does
       // not imply, observe, or connect any voice session.
       globalOrchestrator = isEligibleGlobalOrchestratorSession(getDatabase(), sessionKey);
-      const profile = globalOrchestrator ? "global-orchestrator" : undefined;
+      // Codex task agents get the narrow dispatch surface, which keeps the
+      // Claude-only `spawn_agent` tool out of their bridge. Without this Codex
+      // silently mounted the full bridge and could launch unrelated sessions.
+      let policy: { mcp_policy?: string | null } | undefined;
+      try {
+        policy = getDatabase()
+          .prepare("SELECT mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+          .get(sessionKey) as { mcp_policy?: string | null } | undefined;
+      } catch { /* an early/unmigrated DB keeps the ordinary bridge */ }
+      const profile = codexTopicsMcpProfile(globalOrchestrator, policy?.mcp_policy);
       bridge = topicsMcpBridgeSpec(sessionKey, profile);
     } catch (err) {
       console.warn(`[codex] MCP bridge config failed for ${sessionKey}:`, err);
@@ -412,7 +444,7 @@ export class CodexProvider implements AIProvider {
     // its sandbox flag.
     const workspace = globalOrchestrator
       ? globalOrchestratorWorkspace()
-      : (this.config.defaultWorkspace || process.env.HOME || "/tmp");
+      : (getTopicWorkspaceForSession(sessionKey) || this.config.defaultWorkspace || process.env.HOME || "/tmp");
 
     // Force the reasoning-effort tier explicitly — the codex mirror of the
     // `--effort` flag claude-code sessions get. Deterministic under launchd
@@ -420,7 +452,12 @@ export class CodexProvider implements AIProvider {
     // resolver). The resolver honours the user's own config.toml value, so
     // this never downgrades an explicit user choice; null (disabled or
     // unrecognised tier) means no override at all.
-    const reasoningEffort = resolveCodexReasoningEffort();
+    let topicEffort: string | null = null;
+    try {
+      const row = getDatabase().prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1").get(sessionKey) as { effort?: string | null } | undefined;
+      topicEffort = row?.effort ?? null;
+    } catch { /* Unbound sessions retain the global default. */ }
+    const reasoningEffort = resolveCodexReasoningEffort({ topicOverride: topicEffort });
 
     // L'elenco delle flag vive in `codex/args.ts`, funzione pura sotto snapshot:
     // è la superficie che si rompe a ogni release della CLI. Qui restano le
@@ -614,6 +651,50 @@ export class CodexProvider implements AIProvider {
         return null;
       }
 
+      // `codex exec --json` represents calls to an MCP server as a distinct
+      // item, rather than the generic `tool_call` item used for commands. The
+      // installed 0.153 CLI exposes `server`, `tool`, `arguments`, `result`,
+      // `error`, and `status` on this shape. Keep the canonical MCP spelling so
+      // Topics' normal tool renderer and task-comment anchoring see the call.
+      if (itemType === "mcp_tool_call") {
+        const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const server = typeof item.server === "string" ? item.server : "mcp";
+        const tool = typeof item.tool === "string" ? item.tool : "tool";
+        const name = `mcp__${server}__${tool}`;
+        const state = this.sessionState.get(sessionKey);
+
+        if (t === "item.started") {
+          state?.runningTools.set(id, { toolCallId: id, partial: "" });
+          handler.onToolStart(id, name, this.coerceArgs(item.arguments));
+          handler.onToolExecStart?.(id);
+        } else if (t === "item.updated") {
+          handler.onToolActivity?.(id);
+          const update = this.codexItemText(item.result ?? item.error);
+          if (update !== null) {
+            const ctx = state?.runningTools.get(id);
+            if (ctx) ctx.partial = update;
+            handler.onToolUpdate?.(id, update);
+          }
+        } else {
+          const ctx = state?.runningTools.get(id);
+          state?.runningTools.delete(id);
+          // `error` is nullable on successful MCP completions. A tool can
+          // also complete transport-successfully while reporting its own MCP
+          // failure through `result.isError`; retain that result so the UI
+          // renders its message instead of an empty error row.
+          const resultIsError = item.result !== null
+            && typeof item.result === "object"
+            && (item.result as Record<string, unknown>).isError === true;
+          const transportError = item.error != null;
+          const isError = item.status === "failed" || transportError || resultIsError;
+          const result = this.codexItemText(transportError ? item.error : item.result)
+            ?? ctx?.partial
+            ?? "";
+          handler.onToolResult(id, result, isError);
+        }
+        return null;
+      }
+
       if (itemType === "command_execution" || itemType === "tool_call") {
         const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
         const name = typeof item.name === "string" ? item.name
@@ -638,10 +719,16 @@ export class CodexProvider implements AIProvider {
         } else if (t === "item.completed") {
           const ctx = state?.runningTools.get(id);
           state?.runningTools.delete(id);
-          const result = typeof item.output === "string" ? item.output
+          // On the current Codex CLI, a completed CommandExecution carries
+          // its final stdout in `aggregated_output`. It does not promise a
+          // preceding item.updated, so prefer it before the cached partial.
+          const result = typeof item.aggregated_output === "string" ? item.aggregated_output
+            : typeof item.output === "string" ? item.output
             : ctx?.partial && ctx.partial.length > 0 ? ctx.partial
             : JSON.stringify(item.output ?? item.result ?? "");
-          handler.onToolResult(id, result);
+          const failed = (typeof item.exit_code === "number" && item.exit_code !== 0)
+            || item.status === "failed";
+          handler.onToolResult(id, result, failed);
         }
       }
       return null;
@@ -763,9 +850,16 @@ export class CodexProvider implements AIProvider {
     return { value: raw };
   }
 
+  /** MCP results are structured, while the StreamHandler renders text. */
+  private codexItemText(value: unknown): string | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch { return String(value); }
+  }
+
   // --- Non-streaming completion ---
 
-  async complete(messages: ChatMessage[]): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     const bin = resolveCodexBinary();
     if (!bin) return { content: "Codex CLI not found." };
 
@@ -775,45 +869,60 @@ export class CodexProvider implements AIProvider {
                   m.content)
       .join("\n\n");
 
-    const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
+    const scratch = options?.isolated ? mkdtempSync(join(tmpdir(), 'topics-codex-classifier-')) : null;
+    const workspace = scratch ?? (this.config.defaultWorkspace || process.env.HOME || "/tmp");
 
     // Only forward --model when explicitly configured; otherwise let the CLI
     // pick from ~/.codex/config.toml so ChatGPT-account-bound models work
     // (e.g. gpt-5-codex is rejected for ChatGPT-account auth). Mirrors sendChat.
-    const args = buildCodexOneshotArgs({ model: this.config.model });
+    const args = buildCodexOneshotArgs({ ...options, model: options?.model ?? this.config.model });
 
-    return new Promise<CompletionResult>((resolve, reject) => {
-      const child = spawn(bin, args, {
-        cwd: workspace,
-        stdio: ["pipe", "pipe", "pipe"],
-        env: buildSafeEnv(),
+    try {
+      return await new Promise<CompletionResult>((resolve, reject) => {
+        // The installed CLI may be a Node wrapper around a native child.
+        // Own a group so a deadline closes both and their inherited pipes.
+        const ownedGroup = process.platform !== "win32";
+        const child = spawn(bin, args, {
+          detached: ownedGroup,
+          cwd: workspace,
+          stdio: ["pipe", "pipe", "pipe"],
+          env: buildSafeEnv(),
+        });
+
+        let stdout = "";
+        let stderr = "";
+        child.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
+        child.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            if (ownedGroup && child.pid) process.kill(-child.pid, "SIGKILL");
+            else child.kill("SIGKILL");
+          } catch { /* The process may already have closed. */ }
+        }, Math.min(MESSAGE_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? MESSAGE_TIMEOUT_MS)));
+
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (timedOut) { reject(new Error("Codex completion timed out")); return; }
+          if (code !== 0) {
+            if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
+            resolve({ content: `Error: Codex exited with code ${code}` });
+            return;
+          }
+          resolve({ content: stdout.trim() });
+        });
+
+        child.on("error", (err) => { clearTimeout(timer); reject(err); });
+
+        child.stdin!.on("error", () => { /* Early CLI exit is reported by close. */ });
+        child.stdin!.write(prompt);
+        child.stdin!.end();
       });
-
-      let stdout = "";
-      let stderr = "";
-      child.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
-      child.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-      const timer = setTimeout(() => {
-        try { child.kill("SIGKILL"); } catch {}
-        reject(new Error("Codex completion timed out"));
-      }, MESSAGE_TIMEOUT_MS);
-
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code !== 0) {
-          if (stderr) console.warn(`[codex] complete exit ${code}: ${stderr.slice(0, 500)}`);
-          resolve({ content: `Error: Codex exited with code ${code}` });
-          return;
-        }
-        resolve({ content: stdout.trim() });
-      });
-
-      child.on("error", (err) => { clearTimeout(timer); reject(err); });
-
-      child.stdin!.write(prompt);
-      child.stdin!.end();
-    });
+    } finally {
+      if (scratch) rmSync(scratch, { recursive: true, force: true });
+    }
   }
 
   // --- Abort ---
@@ -888,23 +997,9 @@ export class CodexProvider implements AIProvider {
     // exactly what the user can actually call — different ChatGPT plans expose
     // different model sets, and the codex-specific slugs (gpt-5-codex, etc.)
     // are rejected for ChatGPT-account auth.
-    const codexHome = process.env.CODEX_HOME || join(process.env.HOME || "", ".codex");
-    const cachePath = join(codexHome, "models_cache.json");
-    try {
-      const raw = readFileSync(cachePath, "utf-8");
-      const parsed = JSON.parse(raw) as { models?: Array<{ slug?: unknown; visibility?: unknown }> };
-      const slugs = (parsed.models ?? [])
-        .filter((m): m is { slug: string; visibility: string } =>
-          typeof m?.slug === "string" && m.visibility === "list",
-        )
-        .map((m) => m.slug);
-      if (slugs.length > 0) return slugs;
-    } catch {
-      // No cache yet — fall through.
-    }
     // Empty list signals "use whatever the CLI has configured" — picker shows
     // the provider but no model rows; user can still trigger via no-override.
-    return [];
+    return readCodexModels().map(model => model.slug);
   }
 
   /**

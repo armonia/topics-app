@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
@@ -438,7 +439,8 @@ describe("board router (human, project-scoped)", () => {
 
   test("human comment is authored 'user'", async () => {
     const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
-    await call(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "hi" });
+    const acknowledgement = await (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "hi" }))!.json();
+    expect(acknowledgement.delivery).toBe('note');
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
     expect(got.comments[0].author).toBe("user");
   });
@@ -481,6 +483,7 @@ describe("board router (human, project-scoped)", () => {
 
     const resp = (await call(r, "POST", `/api/boards/pX/tasks/${step.id}/comments`, { content: "copri anche il caso B" }))!;
     expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe('queued');
     expect(resumed.length).toBe(1);
     expect(resumed[0][0]).toBe(root.id);
     expect(resumed[0][1]).toContain("step uno");
@@ -518,6 +521,7 @@ describe("board router (human, project-scoped)", () => {
       content: "verificata, il video mostra il caso B", quiet: true,
     }))!;
     expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe('note');
     // La nota c'è, e si legge sul thread come qualunque altro commento.
     const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
     expect(got.comments.at(-1).content).toBe("verificata, il video mostra il caso B");
@@ -2185,9 +2189,10 @@ describe("le due risposte allo stallo dei sottotask parcheggiati", () => {
     expect(resumed).toEqual([]);
     expect(todos).toEqual([p.id]);
     const note = db.prepare(
-      "SELECT content FROM task_comments WHERE task_id = ? AND author = 'system' AND content LIKE 'Rifiutata senza una sessione%'",
-    ).get(p.id) as { content: string } | null;
-    expect(note).not.toBeNull();
+      "SELECT content FROM task_comments WHERE task_id = ? AND author = 'system' AND kind = 'service' AND content = ?",
+    ).get(p.id, FRESH_SESSION_NOTE) as { content: string } | null;
+    expect(note?.content).toBe(FRESH_SESSION_NOTE);
+    expect(FRESH_SESSION_NOTE.length).toBeGreaterThan(20);
   });
 
   test("«archivia»: il figlio sparisce e il padre torna in coda", async () => {

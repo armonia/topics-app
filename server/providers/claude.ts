@@ -1,3 +1,4 @@
+import { resolveClaudeModel, resolveClaudeMaxTokens } from "../services/app-settings";
 /**
  * ClaudeProvider — AIProvider implementation using the Anthropic SDK directly.
  *
@@ -68,6 +69,15 @@ export class ClaudeProvider implements AIProvider {
     this.config = config;
   }
 
+  defaultModel(): string {
+    return resolveClaudeModel() ?? this.config.model ?? DEFAULT_MODEL;
+  }
+
+  updateConfig(config: ClaudeProviderConfig): void {
+    this.config = { ...config };
+    this.client = new Anthropic({ apiKey: config.apiKey });
+  }
+
   get connected(): boolean {
     // A client built with an empty/missing key is NOT usable: `new Anthropic({})`
     // still yields a non-null client, so keying "connected" off `this.client`
@@ -108,8 +118,8 @@ export class ClaudeProvider implements AIProvider {
     this.activeAbortControllers.set(runId, abortController);
     this.runIdToSessionKey.set(runId, sessionKey);
 
-    const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
-    const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const model = options?.model ?? this.defaultModel();
+    const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     // Build the full message array. Anthropic API is stateless — we MUST
     // resend the entire conversation history every turn. Without `history`
@@ -228,8 +238,8 @@ export class ClaudeProvider implements AIProvider {
     options?: { sessionKey?: string; signal?: AbortSignal }
   ): Promise<Response> {
     const client = this.requireClient();
-    const model = this.config.model ?? DEFAULT_MODEL;
-    const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const model = this.defaultModel();
+    const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     // Separate system message from conversation messages
     const { system, conversationMessages } = this.splitSystemMessage(messages);
@@ -303,8 +313,8 @@ export class ClaudeProvider implements AIProvider {
 
   async complete(messages: ChatMessage[]): Promise<CompletionResult> {
     const client = this.requireClient();
-    const model = this.config.model ?? DEFAULT_MODEL;
-    const maxTokens = this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const model = this.defaultModel();
+    const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
 
     const { system, conversationMessages } = this.splitSystemMessage(messages);
 

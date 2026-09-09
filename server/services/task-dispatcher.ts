@@ -35,6 +35,7 @@ import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, c
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
+import { taskModelMatchesSession, taskModelSelection } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -112,7 +113,7 @@ export interface DispatcherDeps {
    */
   catchAllProjectPath?: string;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; provider?: string; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -246,12 +247,13 @@ export interface DispatcherDeps {
    * the agent spawns — a fast one-shot classifier (see task-model-picker.ts).
    * Returns the concrete model id (null = keep the provider default). Absent =
    * host without a classifier (tests / degraded); "auto" then keeps the default.
-   * MUST resolve fast and never reject (the picker swallows its own errors).
+   * Classification failures fall back within the chosen provider. Missing
+   * provider/catalog errors stay actionable and never cross to another provider.
    */
-  /** Il giudice haiku legge il task e sceglie modello, SFORZO e PESO prima che
-   *  l'agente nasca. `effort: null` = non deciso, e la board decide; `weight`
-   *  assente/null = leggero, cioè niente cambia (vedi `TASK_WEIGHTS`). */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null; effort?: string | null; weight?: string | null }>;
+  /** The classifier selects model/provider, reasoning effort and independent machine weight. */
+  pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
+  /** An unconstrained Auto task may choose a ready non-Claude coding runtime during a Claude hold. */
+  automaticModelOutsideClaude?: () => boolean;
   /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
    *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
    *  back to that row's fixed number. There is no per-board cap: the field that
@@ -379,6 +381,10 @@ export interface DispatcherDeps {
    * are trusted as-is (the pre-existing behaviour).
    */
   topicExists?: (topicId: string) => boolean;
+  /** The actual binding inherited when a dependent reuses its blocker's session. */
+  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null } | null;
+  /** Same coding-provider resolution as createTopic, including the live default. */
+  resolveTaskProvider?: (model?: string | null) => string;
   /**
    * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
    * del suo repo?
@@ -1087,6 +1093,69 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   let holdAnnounced = 0;
   /** The reset instant of the plan window already logged by `tick`: once per window. */
   let planWindowAnnounced = 0;
+
+  /** The memo belongs to the Claude plan, never to the whole machine. */
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string } | null {
+    const hold = providerHold();
+    const window = starting ? planUsage()?.fiveHour : null;
+    const nearLimit = window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null
+      && window.resetsAtMs > Date.now();
+    if (!hold && !nearLimit) return null;
+    let topicId = task.assignedTopicId;
+    if (!topicId && task.reuseBlockerContext && task.blockedByTaskId) {
+      topicId = deps.svc.get(task.blockedByTaskId)?.task.assignedTopicId ?? null;
+    }
+    const session = topicId ? deps.topicModelSelection?.(topicId) : null;
+    let provider = session?.provider;
+    if (!provider) {
+      const selected = model ?? task.model;
+      const selection = taskModelSelection(selected);
+      if (!topicId && !selection.model && !selection.provider && deps.automaticModelOutsideClaude?.()) return null;
+      try { provider = deps.resolveTaskProvider?.(selected) ?? taskModelSelection(selected).provider ?? "topics"; }
+      catch { return null; } // Unavailable routing is reported by createTopic, not disguised as quota.
+    }
+    if (!["topics", "claude-code", "claude-code-team", "jcode"].includes(provider)) return null;
+    if (hold) {
+      if (holdAnnounced !== hold.sinceMs) {
+        holdAnnounced = hold.sinceMs;
+        log(`Claude dispatch waiting: ${hold.reason}, resumes at ${holdUntilLabel(hold)}`);
+      }
+      return { untilMs: hold.untilMs, reason: `Claude: ${hold.reason}. Ripresa dopo il reset delle ${holdUntilLabel(hold)}.` }; // allow-italian: task queue reason
+    }
+    const untilMs = window!.resetsAtMs!;
+    const pct = Math.round(window!.utilization);
+    const at = holdUntilLabel({ untilMs });
+    if (planWindowAnnounced !== untilMs) {
+      planWindowAnnounced = untilMs;
+      log(`Claude dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
+    }
+    return { untilMs, reason: `Claude: finestra di 5 ore al ${pct}%. Nuovi task in attesa del reset delle ${at}.` }; // allow-italian: task queue reason
+  }
+
+  function markPlanWait(task: Task, reason: string): void {
+    if (task.dispatchState === CHIP_QUEUED && task.dispatchError === reason) return;
+    emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED, error: reason }));
+  }
+
+  /** A hold may arrive while the async model picker runs, before any resources exist. */
+  function deferHeldLaunch(task: Task, model?: string): boolean {
+    const wait = taskPlanWait(task, model, true);
+    if (!wait) return false;
+    const queued = releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true, reason: wait.reason });
+    markPlanWait(queued, wait.reason);
+    return true;
+  }
+
+  function pendingProviderReason(error: unknown): string | null {
+    return error instanceof Error && 'code' in error && error.code === 'task_provider_pending' ? error.message : null;
+  }
+
+  function deferPendingProvider(taskId: string, reason: string): void {
+    const queued = releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true, reason });
+    markPlanWait(queued, reason);
+  }
+
+
 
   /**
    * One in-flight run: a turn being set up, running, or winding down.
@@ -1909,6 +1978,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     parts.push(task.text);
     if (task.description && task.description.trim()) parts.push("", task.description.trim());
     parts.push("------------");
+    parts.push(
+      `Before planning or modifying files, call get_task(task_id="${task.id}") and read its full discussion, including the latest human feedback and prior delivery. A new session does not imply a new brief.`,
+    );
     // I sottotask GIÀ sulla board sono lavoro di questo task, non contorno: un
     // padre nasce anche accorpando card che esistevano da sole, e la loro
     // sostanza vive nei figli, non nella descrizione del padre. Senza questo
@@ -2066,7 +2138,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string },
+    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     // THE REMOTE LANE COMES FIRST, and nothing under it may run for a card that
@@ -2109,26 +2181,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // dietro, che è il modo in cui si orfanano le cartelle). Qui non è ancora
       // nato niente da disfare.
       //
-      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
-      // before spawn (never for a reused topic — it inherits the blocker's).
-      // The picker never rejects and returns fast; a null/absent result keeps
-      // the provider default, so dispatch is never blocked on this.
-      // Priority: explicit per-task model > board default (settings.model, when the
-      // board pins one instead of 'auto') > classifier pick. The board default skips
-      // the classifier entirely — a pinned board dispatches every task on that model.
+      // Concrete task model > concrete board model > general Auto. A legacy
+      // provider alias restricts the automatic catalog, not the final model.
+      // Reused topics retain their binding and never call the classifier.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      let chosenProvider: string | undefined;
+      if (reuseTopicId && (chosenModel || deps.topicModelSelection)
+        && !taskModelMatchesSession(chosenModel, deps.topicModelSelection?.(reuseTopicId))) {
+        releaseAndEmit({
+          taskId, requeue: false, parkState: CHIP_BLOCKED,
+          reason: chosenModel
+            ? "Il modello scelto per questo task non coincide con la sessione precedente. Disattiva il riuso della sessione o scegli lo stesso modello prima di avviare il task."
+            : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
+        });
+        return;
+      }
       // L'effort segue la stessa regola del modello: la board può fissarlo e
       // allora comanda lei; su "auto" lo sceglie il classificatore task per
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
       // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
       // significa pagarla uguale su un typo e su un refactor.
-      let chosenEffort = settings.effort;
-      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
-        // Persist the board-default so the card shows the real model, not "auto".
-        deps.svc.setModel({ taskId, model: chosenModel });
-      }
-      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task);
+      const modelIsConcrete = !!taskModelSelection(chosenModel).model;
+      const reuseAutomaticEffort = settings.effort === "auto" && !!task.modelEffort && modelIsConcrete;
+      let chosenEffort = reuseAutomaticEffort
+        ? task.modelEffort!
+        : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
+      // A concrete task or board model is a complete model decision. Its
+      // automatic effort falls back to medium until a paired value exists;
+      // never ask a provider-only classifier to judge another model's effort.
+      if (!modelIsConcrete && !reuseTopicId && deps.pickAutoModel) {
+        const picked = await deps.pickAutoModel(task, chosenModel, { effort: settings.effort });
         // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
         // deve fermarsi qui — prima del worktree, prima del topic, prima
         // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
@@ -2137,13 +2219,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // metà.)
         if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
         if (absorbWeight(task, picked.weight)) return;
+        chosenProvider = picked.provider;
         chosenModel = picked.model ?? undefined;
-        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
-        // modello concreto lo persisto sul task, così la card mostra quello
-        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
-        // subito sotto rilegge la riga e ne fa il broadcast.
-        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
+        // Persist only after topic binding below. Until then a pending setup
+        // retains Auto, so retry cannot lose the effort half of the plan.
       }
+
+      if (deferHeldLaunch(task, chosenModel)) return;
 
       if (!reuseTopicId && settings.useWorktree) {
         if (!deps.createWorktree || !resolved.projectStoreId) {
@@ -2160,6 +2242,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           return;
         }
         worktreeId = await deps.createWorktree(resolved.projectStoreId);
+        if (deferHeldLaunch(task, chosenModel)) {
+          await cleanupWorktree(worktreeId, { preserveWork: true });
+          return;
+        }
       }
 
       let kickoff = buildKickoff(task);
@@ -2191,6 +2277,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             systemPrompt: rolePrompt(langFor(task.projectId)),
             effort: chosenEffort,
             model: chosenModel,
+            provider: chosenProvider,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
             standalone: isCatchAll,
@@ -2252,6 +2339,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // quattro (misurato il 18/08 su `eef64e32`: tre dispatch, tre topic, e al
       // terzo la sessione aveva due messaggi).
       deps.svc.bindTopic({ taskId, topicId, freshSession: !reuseTopicId });
+      if (chosenModel && !reuseTopicId) {
+        deps.svc.setModel({ taskId, model: chosenModel, effort: settings.effort === "auto" ? chosenEffort : undefined });
+      }
 
       // DIRLO: il cambio di worktree era muto, e l'umano non sapeva dove
       // cercarlo se la GC l'avesse tenuto aperto per sporco. Un commento di
@@ -2361,6 +2451,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (worktreeId && (after === "todo" || after === "backlog")) await cleanupWorktree(worktreeId, { preserveWork: true });
     } catch (err) {
       log(`launch failed for task ${taskId}`, err);
+      const pending = pendingProviderReason(err);
+      if (pending && !attemptId) {
+        deferPendingProvider(taskId, pending);
+        if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
+        return;
+      }
+      if (!attemptId && err instanceof Error && 'code' in err && err.code === 'task_model_unavailable') {
+        releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: err.message });
+        if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
+        return;
+      }
       // Il setup e' esploso (worktree/topic/bind): se il tentativo era gia'
       // nato, si chiude come fallito invece di restare `running` per sempre —
       // una riga eternamente in corso e' peggio di nessuna riga, perche'
@@ -2462,9 +2563,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     task: Task,
     idx: number,
     total: number,
-    opts: { timeoutMs: number; idleMs: number; effort: string; mcp: string; model?: string },
+    opts: { timeoutMs: number; idleMs: number; effort: string; autoEffort?: boolean; mcp: string; model?: string; provider?: string },
     resolved: { path: string; projectStoreId: string },
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const store = deps.attempts!;
     const attempt = store.create({ taskId: task.id, idx, model: opts.model ?? null });
     let worktreeId: string | null = null;
@@ -2474,6 +2575,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let failure: string | null = null;
     try {
       worktreeId = await deps.createWorktree!(resolved.projectStoreId);
+      const wait = taskPlanWait(task, opts.model, true);
+      if (wait) {
+        try { store.finish(attempt.id, { state: "failed", error: wait.reason }); }
+        catch (err) { log(`fan-out: held attempt ${attempt.id} not recorded`, err); }
+        await cleanupWorktree(worktreeId, { preserveWork: true });
+        return wait.reason;
+      }
       let branch: string | null = null;
       try { branch = deps.worktreeBranch?.(worktreeId) ?? null; } catch { /* etichetta, non un requisito */ }
       const topic = deps.createTopic({
@@ -2483,10 +2591,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         systemPrompt: rolePrompt(langFor(task.projectId)),
         effort: opts.effort,
         model: opts.model,
+        provider: opts.provider,
         mcpPolicy: opts.mcp === "inherit" ? undefined : "bridge-only",
       });
       sessionKey = topic.sessionKey;
       store.bind(attempt.id, { topicId: topic.topicId, worktreeId, branch });
+      if (opts.model) deps.svc.setModel({ taskId: task.id, model: opts.model, effort: opts.autoEffort ? opts.effort : undefined });
       // Il tentativo 1 tiene il deep-link del task finché l'umano non sceglie:
       // `assigned_topic_id` ha una FK su topics ed è il bersaglio di "Apri la
       // chat". Alla scelta viene ri-puntato sul vincitore.
@@ -2501,6 +2611,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       })) || undefined;
       if (turnEnd && turnEnd.end !== "end_turn") failure = describeTurnEnd(turnEnd);
     } catch (err) {
+      const pending = pendingProviderReason(err);
+      if (pending && !sessionKey) {
+        store.finish(attempt.id, { state: "failed", error: pending });
+        if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
+        return pending;
+      }
       failure = describeTurnEnd(classifyTurnError(err));
       log(`fan-out: tentativo ${idx} del task ${task.id} caduto`, err);
     }
@@ -2535,6 +2651,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // sessioni si sommano da soli: è l'unico posto in cui la somma è la
     // risposta giusta, e qui la dà la stessa funzione degli altri.
     if (sessionKey) { bookUsageFloor(task.id, sessionKey, opts.model ?? null); recordTurnMs(task.id, t0); }
+    return undefined;
   }
 
   /** Pota worktree e chat dei tentativi di un task (il vincitore, se c'è, resta). */
@@ -2677,23 +2794,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // confronto un esperimento su due variabili insieme, e il fan-out serve a
       // confrontare STRADE, non provider.
       let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      let chosenProvider: string | undefined;
       // L'effort segue la stessa regola del modello: la board può fissarlo e
       // allora comanda lei; su "auto" lo sceglie il classificatore task per
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
       // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
       // significa pagarla uguale su un typo e su un refactor.
-      let chosenEffort = settings.effort;
-      if (chosenModel && chosenModel !== task.model) deps.svc.setModel({ taskId, model: chosenModel });
-      if (!chosenModel && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task);
+      const modelIsConcrete = !!taskModelSelection(chosenModel).model;
+      const reuseAutomaticEffort = settings.effort === "auto" && !!task.modelEffort && modelIsConcrete;
+      let chosenEffort = reuseAutomaticEffort
+        ? task.modelEffort!
+        : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
+      if (!modelIsConcrete && deps.pickAutoModel) {
+        const picked = await deps.pickAutoModel(task, chosenModel, { effort: settings.effort });
         // Vale a maggior ragione qui: un task pesante in fan-out sono N
         // macinate in parallelo, cioè il caso peggiore che il peso esiste per
         // evitare. Il `finally` restituisce gli slot prenotati.
         if (settings.effort === "auto") chosenEffort = picked.effort ?? DEFAULT_AUTO_EFFORT;
         if (absorbWeight(task, picked.weight)) return;
+        chosenProvider = picked.provider;
         chosenModel = picked.model ?? undefined;
-        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
+
+      if (deferHeldLaunch(task, chosenModel)) return;
 
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       try {
@@ -2709,18 +2832,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const idleMs = Math.max(1, settings.idleMin) * 60_000;
       // allSettled e non all: un tentativo che esplode in modo imprevisto non
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, mcp: settings.mcp, model: chosenModel }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, autoEffort: settings.effort === "auto", mcp: settings.mcp, model: chosenModel, provider: chosenProvider }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run
       // nuovo): non è più roba nostra, e chiudere il fan-out adesso pesterebbe
       // lo stato di chi ci ha sostituito.
       if (!ownsRun(taskId, runId)) return;
+      const held = results.map(result => result.status === "fulfilled" ? result.value : undefined);
+      // Only an entirely unstarted batch refunds its claim. A sibling already
+      // running keeps its work and follows the normal delivery path.
+      if (held.every(reason => reason !== undefined)) {
+        const queued = releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true, reason: held[0] });
+        markPlanWait(queued, held[0]!);
+        return;
+      }
       await closeFanOut(taskId, n);
     } catch (err) {
       log(`fan-out fallito per il task ${taskId}`, err);
+      const pending = pendingProviderReason(err);
+      if (pending) {
+        deferPendingProvider(taskId, pending);
+        return;
+      }
+      if (err instanceof Error && 'code' in err && err.code === 'task_model_unavailable') {
+        releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: err.message });
+        return;
+      }
       try {
         const failTask = deps.svc.get(taskId)?.task;
         const cap = failTask ? retryCap(failTask.projectId) : DEFAULT_RETRY_CAP;
@@ -3022,7 +3162,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           clearRetryWait(taskId);
           // A spent usage window has a published end: the card waits for it
           // (plus its backoff), instead of resuming into the same 429.
-          const holdMs = Math.max(0, (providerHold()?.untilMs ?? 0) - Date.now());
+          const holdMs = Math.max(0, (taskPlanWait(bumped)?.untilMs ?? 0) - Date.now());
           const waitMs = outage ? Math.max(backoff, holdMs) : 0;
           const retryTimer = setTimeout(() => {
             retryWaits.delete(taskId);
@@ -3329,7 +3469,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // resumed turn is a full agent turn on the same machine: letting it through
     // over the threshold would be the count-mode leak (resumes outside the
     // cap) reborn under another name.
-    const floorBlock = drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
+    const floorBlock = taskPlanWait(t)?.reason ?? drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3475,35 +3615,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A restart is waiting for the fleet to go quiet: picking a card now would
     // keep it waiting forever. The card is not lost, it is next after the boot.
     if (draining) return;
-    // The plan's usage window is spent (`provider-hold.ts`): a card started
-    // now would only add its own 429s to the pile. Said once per hold.
-    const hold = providerHold();
-    if (hold) {
-      if (holdAnnounced !== hold.sinceMs) {
-        holdAnnounced = hold.sinceMs;
-        log(`dispatch fermo: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
-      }
-      return;
-    }
-    // NEARLY spent is not spent, and it is the state that matters on a
-    // subscription: the hold above only fires at the wall, when the window is
-    // already gone and every card in flight has died into it. Above the
-    // threshold the queue stops STARTING cards - the running ones and the
-    // person's own chats keep the rest of the window, which is what it is worth
-    // more to. With no reading at all nothing brakes: "I do not know" is not
-    // "you are at the limit". The five-hour window only: a nearly full week
-    // does not stop today's queue, it stops nothing anybody can wait out.
-    const window = planUsage()?.fiveHour;
-    if (window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null && window.resetsAtMs > Date.now()) {
-      const pct = Math.round(window.utilization);
-      const at = holdUntilLabel({ untilMs: window.resetsAtMs });
-      if (planWindowAnnounced !== window.resetsAtMs) {
-        planWindowAnnounced = window.resetsAtMs;
-        log(`dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
-      }
-      publishDispatchBlock(null, null, null, `Finestra di 5 ore del piano al ${pct}%: non parte niente di nuovo fino al reset delle ${at}.`);   // allow-italian: the sentence shown on the card
-      return;
-    }
     // IL FRENO DI QUESTA BOARD, e viene dopo il globale di proposito: puo' solo
     // FERMARE. Il dispatch parte se il globale e' acceso E questa board non e'
     // in pausa; una board non in pausa con il globale spento non parte lo
@@ -3627,6 +3738,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Dependency gate: a todo whose blocker is still open WAITS (no claim
       // attempt, no chip). Same predicate as the claim CAS, so no divergence.
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
+      .filter((t) => {
+        const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
+        if (!wait) return true;
+        markPlanWait(t, wait.reason);
+        return false;
+      })
       // Priority is the queue discipline (4=urgente first), age breaks ties —
       // an urgent task never waits behind an older low-priority one.
       .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));

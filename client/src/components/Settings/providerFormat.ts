@@ -9,6 +9,7 @@
  * esattamente com'era.
  */
 import type { ProviderStatus } from '../../types';
+import type { ApiProviderName } from '../../../../shared/api-provider-credentials';
 
 /** Il pallino accanto al nome del provider. */
 export const STATUS_COLORS: Record<ProviderStatus, string> = {
@@ -31,6 +32,18 @@ export const STATUS_LABELS: Record<ProviderStatus, string> = {
  *  l'assenza di override — cancella il valore salvato e lascia vincere la env
  *  var (o il default interno). */
 export const AUTO = '__auto__';
+
+/** Setup metadata, never a substitute for a registered provider snapshot. */
+export const API_PROVIDERS = {
+  openai: { label: 'OpenAI API', placeholder: 'sk-...', requirement: 'OPENAI_API_KEY' },
+  claude: { label: 'Claude API', placeholder: 'sk-ant-...', requirement: 'ANTHROPIC_API_KEY' },
+} as const;
+
+export type { ApiProviderName } from '../../../../shared/api-provider-credentials';
+
+export function isApiProvider(name: string): name is ApiProviderName {
+  return Object.hasOwn(API_PROVIDERS, name);
+}
 
 /** I campi di `app_settings` che portano il modello di default di un provider. */
 export type ProviderModelField = 'claudeModel' | 'openaiModel' | 'codexModel';

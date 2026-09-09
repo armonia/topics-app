@@ -23,6 +23,7 @@ import { decodeCol, encodeCol } from "../shared/message-blob";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
+import { isTopicsSecretPath } from "./lib/topics-secret-path";
 import { homeDir } from "./lib/broad-cwd";
 import { maybeSendPush, configurePushTriggers, isTopicSilenced } from "./push-triggers";
 import { configureNotificationRegistry, recordAndAnnounce } from "./notification-registry";
@@ -2123,6 +2124,9 @@ export function createAppContext(baseDir: string): AppContext {
       expanded = inputPath.replace(/^~/, home);
     }
     const resolved = resolve(expanded);
+    if (isTopicsSecretPath(resolved)) return null;
+    const real = realPathForNewEntry(resolved);
+    if (real === null || isTopicsSecretPath(real)) return null;
     const isAllowed = allowedBases.some(base => isInsideDir(resolved, base));
     if (!isAllowed) {
       console.warn(`[Security] Path access denied: ${inputPath} -> ${resolved}`);
@@ -2213,10 +2217,11 @@ export function createAppContext(baseDir: string): AppContext {
       expanded = inputPath.replace(/^~/, home);
     }
     const resolved = resolve(expanded);
+    if (isTopicsSecretPath(resolved)) return null;
     // Il confronto è sul path REALE: senza `realpath` un symlink dentro un
     // progetto noto è una porta verso qualunque punto del disco.
     const real = realPathForNewEntry(resolved);
-    if (real === null) return null;
+    if (real === null || isTopicsSecretPath(real)) return null;
     if (!isInsideKnownProject(real, allowedProjectDirs())) {
       // Prima di negare, si guarda una volta se la lista è solo VECCHIA — vedi
       // `allowedProjectDirsFresh`. Il confine non cambia: cambia solo che non
@@ -2284,9 +2289,13 @@ export function createAppContext(baseDir: string): AppContext {
 
   function isPathAllowed(filepath: string): boolean {
     const resolved = resolve(filepath);
-    if (isInsideDir(resolved, UPLOADS_DIR)) return true;
-    if (isInsideDir(resolved, CONTEXT_DIR)) return true;
-    return ALLOWED_MEDIA_BASES.some((base) => isInsideDir(resolved, base));
+    if (isTopicsSecretPath(resolved)) return false;
+    const allowed = isInsideDir(resolved, UPLOADS_DIR)
+      || isInsideDir(resolved, CONTEXT_DIR)
+      || ALLOWED_MEDIA_BASES.some((base) => isInsideDir(resolved, base));
+    if (!allowed) return false;
+    const real = realPathForNewEntry(resolved);
+    return real !== null && !isTopicsSecretPath(real);
   }
 
   // Same two roots as the allowlist: the media a turn produced can land in

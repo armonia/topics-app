@@ -34,6 +34,7 @@ hermetic(test);
 
 test.use({
   viewport: { width: 390, height: 844 },
+  locale: 'it-IT',
   hasTouch: true,
   isMobile: true,
 });
@@ -133,7 +134,8 @@ const SCHEDE = [
   "Aspetto",
   "Notifiche",
   "Calendario",
-  "Provider AI",
+  "Providers AI",
+  "Strumenti",
   "Profilo",
   "Follower",
   "Privacy",
@@ -305,8 +307,8 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // commands live in the «Pannelli» level (STATUSLINE-05), and where panels do
   // not exist there is no level to open.
   await expect(page.getByTestId("topics-menu-panels")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Reimposta pannelli|Reset panels/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Disponi automaticamente|Arrange automatically/ })).toHaveCount(0);
   await didascalia(page, "390px: niente comandi sui pannelli");
   await beat(page);
   await page.keyboard.press("Escape");
@@ -319,8 +321,8 @@ test("i comandi sui pannelli non compaiono dove non ci sono pannelli", async ({ 
   // trigger from the viewport.
   await openProfileMenu(page);
   await page.getByTestId("topics-menu-panels").click();
-  await expect(page.getByRole("button", { name: "Reimposta pannelli" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Disponi automaticamente" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Reimposta pannelli|Reset panels/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Disponi automaticamente|Arrange automatically/ })).toBeVisible();
   await didascalia(page, "1280px: ci sono, perché lì hanno effetto");
   await beat(page);
 });

@@ -100,10 +100,10 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
         work: fmtLive(ms),
         tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
       })}
-      className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
+      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300 tabular-nums"
     >
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-      {fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}
+      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-400" />
+      <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
     </span>
   );
 }

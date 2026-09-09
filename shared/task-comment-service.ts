@@ -77,6 +77,15 @@ export const SERVICE_KIND = 'service';
  */
 export type ThreadComment = Pick<TaskComment, 'author' | 'kind' | 'content'>;
 
+/** Stable wording for the requeue event, also recognised in older threads. */
+export const FRESH_SESSION_NOTE = 'Task in coda per una nuova sessione. Conversazione e feedback sono conservati.'; // allow-italian: server-written service event
+
+export function isFreshSessionNote(comment: ThreadComment): boolean {
+  return comment.author === SYSTEM_AUTHOR && comment.kind === SERVICE_KIND
+    && (comment.content === FRESH_SESSION_NOTE
+      || comment.content === "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno."); // allow-italian: exact historical service event
+}
+
 /**
  * Marked at the source: the writer said so. The rule that carries every row
  * from here on, and the reason a reworded note keeps folding.
