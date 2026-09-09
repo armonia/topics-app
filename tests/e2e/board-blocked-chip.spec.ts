@@ -136,6 +136,7 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     await card.getByText(DIPENDENTE).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("task-details-toggle").click();
     const chip = drawer.getByTestId("task-blocked-by-chip");
     await expect(chip).toContainText(`aspetta: ${STEP}`);
     await beat(page, 2000);
@@ -203,6 +204,7 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     expect(writes, `il click ha scritto sui task: ${writes.join(", ")}`).toEqual([]);
+    await drawer.getByTestId("task-details-toggle").click();
     // Still blocked after the click: the chip is the state, not the drawing.
     await expect(drawer.getByTestId("task-blocked-by-chip")).toContainText(`aspetta: ${SHORT_BLOCKER}`);
     // For extenso the row is still there, in the drawer: nothing was lost, it

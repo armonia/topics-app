@@ -48,7 +48,8 @@ export function freshDb(): Database {
     content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'comment',
     -- migration 20260904190855: the assistant row an agent said this in.
-    message_id TEXT
+    message_id TEXT,
+    origin TEXT CHECK (origin IN ('interface', 'mcp', 'api', 'system'))
   )`);
   // migration 100 — le etichette. `rowToTask` la legge per OGNI riga, quindi
   // senza questa tabella non fallisce il test delle etichette: falliscono tutti.

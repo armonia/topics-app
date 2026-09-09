@@ -21,6 +21,7 @@
  * provare senza rete.
  */
 import type { CommentAuthorLabel, CommentAuthorKind } from '../../../shared/comment-author';
+import type { TaskActionOrigin } from '../../../shared/board';
 
 export type { CommentAuthorKind };
 
@@ -46,6 +47,26 @@ export const AUTHOR_NAME_KEYS: Record<CommentAuthorKind, string> = {
   agent: 'board.task.author.agent',
 };
 
+export const ACTION_ORIGIN_KEYS: Record<TaskActionOrigin, string> = {
+  interface: 'board.task.origin.interface',
+  mcp: 'board.task.origin.mcp',
+  api: 'board.task.origin.api',
+  system: 'board.task.origin.system',
+};
+
+/** The compact provenance label, or null for history whose source was not stored. */
+export function actionOriginDisplay(
+  origin: TaskActionOrigin | null | undefined,
+  tr: (key: string, vars?: Record<string, string | number>) => string,
+): string | null {
+  return origin ? tr(ACTION_ORIGIN_KEYS[origin]) : null;
+}
+
+/** A profile label is personal display data, not an authorization identity. */
+export function shortProfileName(ownerName: string | null | undefined): string | null {
+  return ownerName?.trim().split(/\s+/)[0] || null;
+}
+
 /**
  * Il nome da stampare per un'identità.
  *
@@ -65,7 +86,7 @@ export function authorDisplay(
 ): AuthorDisplay {
   const kind = who.kind;
   if (kind === 'user') {
-    const name = ownerName?.trim() || tr(AUTHOR_NAME_KEYS.user);
+    const name = shortProfileName(ownerName) || tr(AUTHOR_NAME_KEYS.user);
     return { name, detail: 'user', kind, self: true };
   }
   if (kind === 'agent') {

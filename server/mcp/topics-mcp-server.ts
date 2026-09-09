@@ -1184,6 +1184,9 @@ async function httpJson<T>(
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
+  // Assigned at the adapter boundary: a direct caller of the same session API
+  // is still API traffic and must not inherit MCP attribution from the path.
+  headers["X-Topics-Action-Origin"] = "mcp";
 
   const send = (): Promise<Response> => fetchImpl(`${args.baseUrl}${path}`, {
     method,

@@ -83,20 +83,33 @@ finito, non un blocco.
 - **GIVEN** un evento alle 9:00 di un fuso con ora legale
 - **THEN** le occorrenze dopo il cambio SHALL essere ancora alle 9:00 di quel fuso
 
-### Requirement: CAL-04 — Fissare il calendario dà l'agenda
+### Requirement: CAL-04 — Fissare il calendario dà una piccola anteprima al hover, non un pannello al click
 
-La tessera FISSATA di una pagina di calendario SHALL potersi aprire sull'agenda:
-i prossimi eventi con orario, e il link della videochiamata quando l'evento ne
-porta uno.
+La tessera FISSATA di una pagina di calendario SHALL mostrare una piccola
+anteprima al passaggio del mouse o al focus da tastiera: uno screenshot della
+sessione browser GIÀ aperta per quel fissaggio, mai un nuovo browser e mai il
+feed ICS configurato in Settings (quel sottosistema resta per CAL-01..CAL-03,
+ma non è più la fonte di questa anteprima).
 
-Quando la sincronizzazione NON è configurata, la fascia SHALL mostrare la PORTA
-per configurarla invece di un'agenda vuota.
+Il click SHALL continuare ad attivare/aprire la tab, come per ogni altra
+tessera fissata — non ad espandere un pannello.
 
-Una pagina che non è un calendario NON SHALL avere quella fascia.
+Su un dispositivo senza puntatore ad hover (touch), il tap SHALL attivare
+direttamente la tessera: l'anteprima non SHALL comparire prima.
 
-#### Scenario: fissato ma non configurato
-- **GIVEN** la pagina di un calendario fissata e nessun feed configurato
-- **THEN** la fascia SHALL offrire di configurarlo
+Una pagina che non è un calendario NON SHALL avere questa anteprima.
+
+#### Scenario: hover mostra l'anteprima, il click apre comunque la tab
+- **GIVEN** la pagina di un calendario fissata con una sessione browser già aperta per quel fissaggio
+- **WHEN** si passa il mouse sulla tessera
+- **THEN** SHALL comparire una piccola anteprima presa da quella sessione
+- **WHEN** si clicca la tessera
+- **THEN** la tab SHALL attivarsi, come per ogni altra tessera fissata
+
+#### Scenario: touch salta l'anteprima
+- **GIVEN** la stessa tessera su un dispositivo senza hover
+- **WHEN** si tocca la tessera
+- **THEN** SHALL attivarsi direttamente, senza che l'anteprima compaia prima
 
 ### Requirement: CAL-05 — Le manopole sono chiuse, e spegnere non cancella
 

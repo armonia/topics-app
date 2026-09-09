@@ -17,7 +17,7 @@ import { TopicItem } from './TopicItem';
 import { topicsApi, projectsApi } from '@/lib/api';
 import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
-import { CalendarAgendaBand } from './CalendarAgendaBand';
+import { CalendarTilePreview } from './CalendarTilePreview';
 import { isCalendarPageUrl } from '../../../../shared/calendar';
 import type { PinnedRow } from './pinnedLayout';
 import { draggedPaneId, rememberDraggedPane } from '@/lib/dragPayload';
@@ -683,6 +683,11 @@ export function TopicTree({
     window.addEventListener('dragend', fine);
     return () => window.removeEventListener('dragend', fine);
   }, []);
+
+  // Which browser ids have a REAL session open right now -- the calendar
+  // hover preview reads a screenshot from one of these, never from a
+  // synthetic "closed tab" fallback.
+  const openBrowserContextIds = useMemo(() => new Set(browserContexts.map(bc => bc.id)), [browserContexts]);
 
   const pinnedBlock = useMemo(() => {
     if (pinnedItems.length === 0) return [];
@@ -1671,6 +1676,14 @@ export function TopicTree({
       // La fascia porta le TAB del progetto — chat, terminali, browser — con lo
       // stesso `renderItem` delle righe dell'albero: nessun renderer nuovo,
       // quindi nessun modo di divergere da come quelle righe si comportano.
+      // The small hover/focus preview of a pinned calendar tile (card
+      // 25775e23): a screenshot of the browser pane ALREADY open for that
+      // pin, never the ICS feed -- that stays Settings' business. Any other
+      // pinned page has nothing to preview here.
+      renderHoverPreview={item => {
+        if (item.type !== 'browser' || !isCalendarPageUrl(item.browser?.url) || !item.browser) return null;
+        return <CalendarTilePreview browserId={item.browser.id} active={openBrowserContextIds.has(item.browser.id)} />;
+      }}
       renderExpanded={item => {
         // La board non ha «tab figlie», e i suoi task NON si aprono qui sotto:
         // il riassunto per stato sta sulla riga, dove si legge senza gesti, e
@@ -1678,16 +1691,9 @@ export function TopicTree({
         // due superfici possono dire cose diverse; una sola non può.
         // `null` ⇒ la tessera non si espande e il click porta alla board.
         if (item.id === BOARD_ID) return null;
-        // THE PINNED CALENDAR OPENS ON THE AGENDA (card aa641133). Pinning the
-        // calendar page is already the statement "I look at this every day",
-        // and what is actually looked at is two lines: the next meeting and the
-        // link to join it. The band gives those two lines where the pin already
-        // is, instead of behind a page load. Any other pinned page keeps
-        // opening nothing, which is why the check is on the URL and not on the
-        // type.
-        if (item.type === 'browser') {
-          return isCalendarPageUrl(item.browser?.url) ? <CalendarAgendaBand /> : null;
-        }
+        // A pinned calendar no longer opens a click-expand band here (card
+        // 25775e23): it gets a hover/focus preview instead, wired below via
+        // `renderHoverPreview`. `browser` items never have a band.
         if (item.type !== 'project') return null;
         const children = item.children ?? [];
         // Zero tab aperte ⇒ NIENTE fascia, e quindi niente chevron sulla

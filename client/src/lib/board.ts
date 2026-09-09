@@ -683,7 +683,13 @@ export { projectIdForPath as boardIdForPath } from '../../../shared/board';
 async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
   const fullInit: RequestInit = {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      // The server accepts only this exact UI marker. Missing means a direct
+      // local API caller; privileged origins are assigned server-side.
+      'X-Topics-Action-Origin': 'interface',
+      ...(init?.headers || {}),
+    },
   };
   const resp = read
     ? await coalescedFetch(`/api${path}`, fullInit, read)
