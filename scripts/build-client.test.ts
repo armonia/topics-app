@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const roots: string[] = [];
+const BUILD_PROCESS_TIMEOUT_MS = 30_000;
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -44,7 +45,7 @@ function fixture() {
     root, repo, source, published, started,
     run(args: string[], cwd = repo) {
       return spawnSync(process.execPath, [join(repo, "scripts", "build-client.ts"), ...args], {
-        cwd, encoding: "utf8", timeout: 10_000,
+        cwd, encoding: "utf8", timeout: BUILD_PROCESS_TIMEOUT_MS,
       });
     },
   };

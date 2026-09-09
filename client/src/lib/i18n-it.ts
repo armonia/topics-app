@@ -738,6 +738,10 @@ const IT: Dict = {
   'board.task.author.app': 'Topics',
   'board.task.author.verifier': 'Verifica',
   'board.task.author.agent': 'Agent',
+  'board.task.origin.interface': 'via interfaccia',
+  'board.task.origin.mcp': 'via MCP',
+  'board.task.origin.api': 'via API',
+  'board.task.origin.system': 'sistema',
   'board.task.statusTrail': 'Passaggi di stato',
   'board.task.statusTrailTitle': '{who} · {when}',
   'board.task.copyText': 'Copia il task',
@@ -958,6 +962,8 @@ const IT: Dict = {
   //    (Intl.PluralRules, categorie `few`/`many`) sarebbe macchinario per una
   //    distinzione che qui è un `=== 1`.
   'board.task.checks.running': 'Checks pre-review in corso…',
+  'board.task.checks.runningProgress': 'Checks pre-review {done}/{total}',
+  'board.task.checks.numbered': 'check {n}',
   'board.task.checks.pass': 'Checks verdi',
   'board.task.checks.fail': 'Checks ROSSI',
   'board.task.checks.at': 'alle {t}',

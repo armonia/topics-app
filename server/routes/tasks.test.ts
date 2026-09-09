@@ -443,6 +443,34 @@ describe("board router (human, project-scoped)", () => {
     expect(acknowledgement.delivery).toBe('note');
     const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
     expect(got.comments[0].author).toBe("user");
+    expect(got.comments[0].origin).toBe("api");
+  });
+
+  test("action origin is assigned by the route and cannot claim a privileged source", async () => {
+    const task = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "origin" }))!.json();
+    await call(router, "POST", `/api/boards/pX/tasks/${task.id}/comments`, { content: "from ui" }, {
+      "X-Topics-Action-Origin": "interface",
+    });
+    await call(router, "POST", `/api/boards/pX/tasks/${task.id}/comments`, { content: "spoof" }, {
+      "X-Topics-Action-Origin": "mcp",
+    });
+    await call(router, "PATCH", `/api/boards/pX/tasks/${task.id}`, { status: "todo" }, {
+      "X-Topics-Action-Origin": "interface",
+    });
+    await call(router, "PATCH", `/api/boards/pX/tasks/${task.id}`, { status: "in_progress" });
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${task.id}`))!.json();
+    const speech = got.comments.filter((comment: { kind: string }) => comment.kind === "comment");
+    const status = got.comments.filter((comment: { kind: string }) => comment.kind === "status");
+    expect(speech.map((comment: { origin: string | null }) => comment.origin)).toEqual(["interface", "api"]);
+    expect(status.map((comment: { origin: string | null }) => comment.origin)).toEqual(["interface", "api"]);
+
+    const agentTask = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "agent origin" }))!.json();
+    await call(router, "POST", `/api/sessions/s1/tasks/${agentTask.id}/comments`, { content: "from agent" });
+    await call(router, "POST", `/api/sessions/s1/tasks/${agentTask.id}/comments`, { content: "from adapter" }, {
+      "X-Topics-Action-Origin": "mcp",
+    });
+    const agent = await (await call(router, "GET", `/api/sessions/s1/tasks/${agentTask.id}`))!.json();
+    expect(agent.comments.map((comment: { origin: string | null }) => comment.origin)).toEqual(["api", "mcp"]);
   });
 
   test("review with bad decision → 400", async () => {
@@ -1112,6 +1140,11 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
     expect(got.task.status).not.toBe("review");
     expect(got.task.checksState).toBe("fail");
+    const threadResult = got.comments.find((comment: { author: string; content: string }) =>
+      comment.author === "system" && comment.content.includes("controlli automatici"));
+    expect(threadResult?.content).toContain("exit 3");
+    expect(threadResult?.content).not.toContain("bella-riga-rossa");
+    expect(got.task.checks[0].tail).toContain("bella-riga-rossa");
   });
 
   /**
@@ -1209,7 +1242,10 @@ describe("checks pre-review (gate review_needs_green_checks)", () => {
     const still = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
     expect(still.task.status).not.toBe("review");
     expect(still.task.checksState).toBe("fail");
-    expect(still.comments.some((c: any) => c.author === "system" && c.content.includes("riga-rossa"))).toBe(true);
+    expect(still.comments.some((comment: any) =>
+      comment.author === "system" && comment.content.includes("controlli automatici"))).toBe(true);
+    expect(still.comments.every((comment: any) => !comment.content.includes("riga-rossa"))).toBe(true);
+    expect(still.task.checks[0].tail).toContain("riga-rossa");
   });
 
   test("la board sa che stanno girando: broadcast 'running' PRIMA dell'esito", async () => {

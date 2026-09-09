@@ -1414,6 +1414,9 @@ export function deriveQueueReason(
   };
 }
 
+export const TASK_ACTION_ORIGINS = ['interface', 'mcp', 'api', 'system'] as const;
+export type TaskActionOrigin = (typeof TASK_ACTION_ORIGINS)[number];
+
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -1468,6 +1471,13 @@ export interface TaskComment {
    * reader treats it as "no anchor" and draws both rows.
    */
   messageId?: string | null;
+  /**
+   * The surface that actually produced this row. Missing means the historical
+   * writer did not record it, so readers must not guess from the author.
+   * Presentation only: authorization continues to use the verified request
+   * session and the service's Actor argument.
+   */
+  origin?: TaskActionOrigin | null;
 }
 
 /**
@@ -1484,7 +1494,7 @@ export interface TaskComment {
  * quello del thread, o `kind` diventa una `string` da una parte e un'unione
  * dall'altra senza che niente lo dica.
  */
-export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId'>;
+export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId' | 'origin'>;
 
 /**
  * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.

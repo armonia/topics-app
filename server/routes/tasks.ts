@@ -64,7 +64,7 @@ import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
@@ -1107,6 +1107,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
+        const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
         try {
           // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
           // la parola del commento: uno SCADUTO non ha misurato niente, e
@@ -1115,13 +1116,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
           // qualcuno non e' arrivato in fondo.
           svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
-          // VERDE ⇒ servizio, ROSSO ⇒ parola. Il verde è già un chip sulla card
-          // (`card-checks-green`) e il paragrafo lo ripete comando per comando,
-          // bruciando uno slot su OGNI consegna — misurate 92 copie in 7 giorni.
-          // Il rosso invece cambia cosa fa l'umano: elenca quali comandi sono
-          // caduti, e su una card in review è metà della decisione. Un chip col
-          // tooltip non basta a portare quel dettaglio in una colonna.
-          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: comment });
+          // Green is service bookkeeping; red is a visible outcome. The thread
+          // keeps only the compact verdict and first failure. Commands and logs
+          // remain in checks_json, rendered by the expandable ChecksSection.
+          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
           const t = svc.get(taskId, { projectId })?.task;
           if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* l'esito conta più della sua registrazione */ }
@@ -2194,6 +2192,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     session: { actor: string; sessionKey: string; topicId: string },
     body: Record<string, unknown> | null,
     pathname: string,
+    origin: "mcp" | "api",
   ): Promise<Response> {
     const noDelivery = rejectDeliveryPatch(body);
     if (noDelivery) return noDelivery;
@@ -2224,6 +2223,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         taskId,
         actor: "agent",
         by: session.actor,
+        origin,
         projectId,
         // Deliberately no `agentTopicId`: that ordinary dispatched-agent
         // ownership carve-out would make a registry-authorized cross-board
@@ -2250,6 +2250,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    const sessionActionOrigin = req.headers.get("X-Topics-Action-Origin") === "mcp" ? "mcp" : "api";
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
     // router owns because it reads the same dispatch config).
@@ -2786,6 +2787,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // and approve/reject a pending review.
     if (isBoard) {
       const HUMAN = "user";
+      // Presentation metadata only. A caller cannot claim MCP/system through
+      // this header, and it never participates in the human permission gates.
+      const actionOrigin = req.headers.get("X-Topics-Action-Origin") === "interface" ? "interface" : "api";
 
       /**
        * Stacca l'agente vivo da un task e taglia il suo turno.
@@ -3033,7 +3037,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               try {
                 svc.addComment({
                   taskId: task.id, author: HUMAN, content: "Allegati al task.",
-                  media: bornMedia, projectId: effectiveProjectId,
+                  media: bornMedia, projectId: effectiveProjectId, origin: actionOrigin,
                 });
               } catch (err) { console.warn(`[Tasks] birth attachments failed for ${task.id}:`, err); }
             }
@@ -3080,7 +3084,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               if (dispatcher && task.parentTaskId) {
                 const root = svc.boundRootOf(task.id);
                 if (root && root.status === "review" && root.assignedTopicId) {
-                  const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId });
+                  const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId, origin: actionOrigin });
                   broadcastToAll({ type: "task:updated", projectId, task: rejected });
                   dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`)
                     .catch((err) => console.warn(`[Tasks] resume after add-step failed for ${root.id}:`, err));
@@ -3290,13 +3294,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             try {
               rejectCommentId = svc.addComment({
                 taskId: bReview.taskId, author: HUMAN, content: comment,
-                projectId: bReview.projectId,
+                projectId: bReview.projectId, origin: actionOrigin,
               }).id;
             } catch { rejectCommentId = null; }
           }
           const task = svc.reviewDecision({
             taskId: bReview.taskId, by: HUMAN, decision, comment,
-            projectId: bReview.projectId,
+            projectId: bReview.projectId, origin: actionOrigin,
           });
           broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
           // Reject re-kicks the SAME agent tab with the human's feedback (a
@@ -3317,7 +3321,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             try {
               const backInQueue = svc.update({
                 taskId: bReview.taskId, actor: "human", by: HUMAN, projectId: bReview.projectId,
-                patch: { status: "todo" },
+                patch: { status: "todo" }, origin: actionOrigin,
               });
               try {
                 svc.addComment({
@@ -3521,7 +3525,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             taskId: bComments.taskId, author: HUMAN, content: body?.content,
             mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
             media: filterMedia(body?.media),
-            projectId: bComments.projectId,
+            projectId: bComments.projectId, origin: actionOrigin,
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
           broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });
@@ -3602,7 +3606,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 && (root.status === "review" || root.status === "in_progress")) {
               if (root.status === "review") {
                 const rejected = svc.reviewDecision({
-                  taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId,
+                  taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
                 });
                 broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
               }
@@ -3675,7 +3679,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               if (old) invalidateProbeCache(old);
             }
             let task = svc.update({
-              taskId, actor: "human", by: HUMAN, projectId,
+              taskId, actor: "human", by: HUMAN, projectId, origin: actionOrigin,
               patch: parsed.patch,
             });
             task = await captureDelivery(task, prevStatus);
@@ -3857,6 +3861,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
+          origin: sessionActionOrigin,
           content: typeof body?.content === "string" ? body.content : "",
           projectId: target.projectId,
           questionOptions: Array.isArray(body?.options)
@@ -3897,6 +3902,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           { ...globalSession, sessionKey: sk },
           body,
           pathname,
+          sessionActionOrigin,
         );
       }
       return null;
@@ -4036,6 +4042,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // The same identity the status row carries. What a person reads on
           // the card is derived from it (`shared/comment-author.ts`).
           author: sess.actor,
+          origin: sessionActionOrigin,
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
           // The agent can attach files too (screenshots/artifacts it produced).
@@ -4194,6 +4201,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // L'ATTORE, non il nome da mostrare: questo finisce nello storico
             // di stato, dove serve sapere CHI ha mosso il task.
             by: sess.actor,
+            origin: sessionActionOrigin,
             projectId: sess.projectId,
             agentTopicId: sess.topicId,
             patch: parsed.patch,

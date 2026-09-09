@@ -6,7 +6,7 @@ import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallbac
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useOwnerName } from '../../hooks/useOwnerName';
-import { authorDisplay } from '../../lib/authorDisplay';
+import { actionOriginDisplay, authorDisplay } from '../../lib/authorDisplay';
 import { AlertTriangle, ArrowUp, ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Copy, Download, ExternalLink, GitCompare, GitMerge, Globe, Hourglass, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Plus, Rocket, Send, Server, ShieldCheck, Sparkles, Square, StickyNote, Tag, TriangleAlert, UserRound, WifiOff, X } from 'lucide-react';
 import { SectionHeader, useSectionOpen } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -237,16 +237,25 @@ function ChecksSection({ task }: { task: BoardTask }) {
   if (!task.checksState) return null;
 
   if (task.checksState === 'running') {
+    const progress = task.checksProgress;
     return (
       <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-app-text-heading">
         <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
-        {tr('board.task.checks.running')}
+        {progress
+          ? tr('board.task.checks.runningProgress', { done: progress.done, total: progress.total })
+          : tr('board.task.checks.running')}
       </div>
     );
   }
 
   const runs = task.checks ?? [];
   const failed = runs.find((r) => !r.ok);
+  const failedIndex = failed ? runs.indexOf(failed) : -1;
+  const failedLabel = failed
+    ? failed.name !== failed.cmd && failed.name.length <= 64
+      ? failed.name
+      : tr('board.task.checks.numbered', { n: failedIndex + 1 })
+    : null;
   const short = (r: CheckRun) =>
     r.spawnError ? tr('board.task.checks.notStarted')
       : r.timedOut ? tr('board.task.checks.timedOut')
@@ -277,7 +286,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.fail')}{at}{failed ? `: ${failed.name} (${short(failed)})` : ''}
+          {tr('board.task.checks.fail')}{at}{failed ? `: ${failedLabel} (${short(failed)})` : ''}
         </span>
       </button>
       {open && (
@@ -3361,17 +3370,20 @@ function StatusChip({ comment, ownerName }: { comment: TaskComment; ownerName: s
   const valid = !!to && TASK_STATUSES.includes(to);
   const at = new Date(comment.createdAt);
   const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName);
+  const origin = actionOriginDisplay(comment.origin, tr);
   // L'app che sposta una card da sé non è una notizia: il nome resta solo per
   // chi lo è (tu, un agent, la verifica).
   const mover = who.kind === 'system' || who.kind === 'dispatcher' ? null : who.name;
   return (
     <span
       className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-1 px-1.5 py-0.5 text-[11px] text-app-text-muted"
-      title={`${who.name} (${who.detail}) · ${comment.content} · ${at.toLocaleString('it-IT')}`}
+      title={`${who.name} (${who.detail})${origin ? ` · ${origin}` : ''} · ${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
       {valid ? <StatusIcon status={to} /> : <span className="h-1 w-1 shrink-0 rounded-full bg-app-text-faint" />}
-      {mover && <span className="shrink-0 text-app-text-secondary">{mover} →</span>}
+      {mover && <span className="shrink-0 text-app-text-secondary">{mover}</span>}
+      {origin && <span className="shrink-0 text-app-text-faint">{origin}</span>}
+      {mover && <span className="shrink-0 text-app-text-secondary">→</span>}
       <span className="shrink-0">{valid ? STATUS_LABEL[to] : comment.content}</span>
       {/* Reasons wrap so touch users can read them without a tooltip. */}
       {valid && ev?.reason && <span className="min-w-0 break-words text-app-text-secondary">· {ev.reason}</span>}
@@ -3422,6 +3434,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   continuation?: boolean;
 }) {
   const tr = useT();
+  const origin = actionOriginDisplay(comment.origin, tr);
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.
   //
@@ -3435,6 +3448,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div className="pr-8">
         <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
           <Camera size={11} /> {tr('board.task.reviewPreview')}
+          {origin && <span className="normal-case tracking-normal text-app-text-faint">{origin}</span>}
           <span className="ml-auto normal-case tracking-normal text-app-text-faint">{commentTime(comment.createdAt)}</span>
         </p>
         <div className="text-sm text-app-text"><CommentBody content={comment.content} /></div>
@@ -3467,9 +3481,10 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div
         className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 px-1.5 py-0.5 text-center text-[11px] text-app-text-muted"
         data-testid="task-app-note"
-        title={`${who.name} (${who.detail}) · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
+        title={`${who.name} (${who.detail})${origin ? ` · ${origin}` : ''} · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
       >
         <Bot className="h-3 w-3 shrink-0" />
+        {origin && <span className="shrink-0 text-app-text-faint">{origin}</span>}
         <span className="min-w-0 break-words">{isFreshSessionNote(comment) ? tr('board.task.freshSessionQueued') : parseQuestionBlock(comment.content)?.question ?? comment.content}</span>
         <span className="ml-auto shrink-0 text-app-text-faint">{commentTime(comment.createdAt)}</span>
       </div>
@@ -3484,6 +3499,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div className="pr-8">
         {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-[10px]" title={who.detail}>
           <span className={`font-medium uppercase tracking-wide ${app ? 'text-app-text-faint' : 'text-app-text-secondary'}`}>{who.name}</span>
+          {origin && <span className="text-app-text-faint">{origin}</span>}
           <span className="ml-auto text-app-text-faint">{commentTime(comment.createdAt)}</span>
         </p>}
         <div className={`text-sm ${app ? 'text-app-text-muted' : 'text-app-text'}`}>
@@ -3503,7 +3519,9 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-sm text-app-text">
         <CommentBody content={comment.content} />
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-right text-[9px] text-app-text-muted" title={who.name}>{commentTime(comment.createdAt)}</p>
+        <p className="mt-0.5 text-right text-[9px] text-app-text-muted" title={who.detail}>
+          {who.name}{origin ? ` · ${origin}` : ''} · {commentTime(comment.createdAt)}
+        </p>
       </div>
     </div>
   );
