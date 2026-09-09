@@ -157,6 +157,7 @@ export function PinnedTiles({
   resolveItem,
   renderActions,
   renderExpanded,
+  renderHoverPreview,
 }: {
   /** I fissati da mostrare, in ordine di pin. Il layout si riconcilia su questi. */
   items: SidebarItem[];
@@ -209,8 +210,25 @@ export function PinnedTiles({
   renderActions?: (item: SidebarItem, aperta: boolean) => ReactNode;
   /** Il contenuto della fascia sotto la riga. `null` ⇒ la tessera non si espande. */
   renderExpanded: (item: SidebarItem) => ReactNode;
+  /** A small floating preview shown on HOVER or FOCUS only (never on touch,
+   *  never as a click target): the caller decides per item, `null`/`undefined`
+   *  means this tile has nothing to preview. Mounted only while shown, so it
+   *  is also where any fetch for the preview's content belongs -- nothing
+   *  runs while the tile is closed. */
+  renderHoverPreview?: (item: SidebarItem) => ReactNode | null;
 }) {
-  const { isMobile } = useMobile();
+  const { isMobile, hasHover } = useMobile();
+  // Small delay so a mouse merely passing over the row does not fire a
+  // preview fetch; cleared on leave before it has a chance to run.
+  const [hoverPreviewKey, setHoverPreviewKey] = useState<string | null>(null);
+  const hoverPreviewTimer = useRef<number | null>(null);
+  const clearHoverPreviewTimer = () => {
+    if (hoverPreviewTimer.current !== null) {
+      window.clearTimeout(hoverPreviewTimer.current);
+      hoverPreviewTimer.current = null;
+    }
+  };
+  useEffect(() => clearHoverPreviewTimer, []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragKey, setDragKey] = useState<string | null>(null);
   // `fromThisRow` si decide all'EVENTO, non al render: `dragKey` è stato, e il
@@ -1009,6 +1027,7 @@ export function PinnedTiles({
                 if (!item) return null;
                 const meta = metaFor(item);
                 const actions = renderActions?.(item, aperta(key)) ?? null;
+                const hoverPreview = hasHover ? (renderHoverPreview?.(item) ?? null) : null;
                 return (
                   <div
                     key={key}
@@ -1022,6 +1041,20 @@ export function PinnedTiles({
                     className={`${PINNED_TILE_CONTAINER} relative group/cell min-w-0 ${
                       dropAt?.movingKey === key ? 'opacity-70 transition-opacity' : ''
                     }`}
+                    // The hover/focus preview: only real pointer hover starts
+                    // it (guarded by `hasHover` above), a small delay tells a
+                    // pass-by from an intent, and it unmounts on leave/blur --
+                    // which is also what stops any fetch it started.
+                    onMouseEnter={hoverPreview ? () => {
+                      clearHoverPreviewTimer();
+                      hoverPreviewTimer.current = window.setTimeout(() => setHoverPreviewKey(key), 200);
+                    } : undefined}
+                    onMouseLeave={hoverPreview ? () => {
+                      clearHoverPreviewTimer();
+                      setHoverPreviewKey(prev => (prev === key ? null : prev));
+                    } : undefined}
+                    onFocus={hoverPreview ? () => setHoverPreviewKey(key) : undefined}
+                    onBlur={hoverPreview ? () => setHoverPreviewKey(prev => (prev === key ? null : prev)) : undefined}
                   >
                     {/* I comandi stanno SOPRA la tessera, non dentro: fratelli
                         del bottone, non figli. Al centro del lato destro — un
@@ -1081,6 +1114,14 @@ export function PinnedTiles({
                       onTouchDragMove={onTouchDragMove(key)}
                       onTouchDragDrop={onTouchDragDrop(key)}
                     />
+                    {hoverPreview && hoverPreviewKey === key && (
+                      <div
+                        data-testid="pinned-hover-preview"
+                        className="absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2"
+                      >
+                        {hoverPreview}
+                      </div>
+                    )}
                   </div>
                 );
               })}

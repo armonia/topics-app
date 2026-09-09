@@ -1033,7 +1033,7 @@ const IT: Dict = {
   'settings.section.devices': 'Dispositivi',
   'settings.section.plan': 'Piano',
   'settings.section.calendar': 'Calendario',
-  'calendar.blurb': 'Fissa il calendario nella barra e la tessera si apre sull’agenda: cosa viene dopo, e il link per entrarci.',
+  'calendar.blurb': 'Fissa il calendario nella barra e passa il mouse sulla tessera per una piccola anteprima della tab aperta; il click continua ad aprirla.',
   'calendar.sync': 'Sincronizza questo calendario',
   'calendar.sync.configured': 'L’agenda si legge dal feed che hai salvato.',
   'calendar.sync.needsUrl': 'Serve prima un indirizzo del feed.',
@@ -1065,6 +1065,10 @@ const IT: Dict = {
   'calendar.agenda.refresh': 'Rileggi il calendario',
   'calendar.agenda.today': 'Oggi',
   'calendar.agenda.tomorrow': 'Domani',
+  'calendar.preview.notOpen': 'Apri la tab per vederne l’anteprima.',
+  'calendar.preview.loading': 'Carico l’anteprima…',
+  'calendar.preview.unavailable': 'Anteprima non disponibile.',
+  'calendar.preview.alt': 'Anteprima della tab del calendario aperta',
   // Le intestazioni delle tre pagine. Una pagina senza titolo e senza una riga
   // che dica a cosa serve e' un riquadro, non una pagina.
   'settings.page.profile.title': 'Il tuo profilo',
