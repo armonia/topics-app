@@ -50,6 +50,7 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/messages/abc",
       "/api/auth/session",
       "/api/auth/logout",
+      "/api/auth/shares",
       "/media/anteprima.png",
       "/ws",
     ]) {
@@ -70,7 +71,6 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/files/read",
       "/api/browser/navigate",
       "/api/auth/devices",
-      "/api/auth/shares",
       "/api/all-boards/settings",
       "/api/all-boards/publish-status",
       "/preview/etc/hosts",
@@ -263,32 +263,48 @@ describe("grants · quale socket va confinata", () => {
   });
 });
 
-describe("grants · un ospite legge e basta", () => {
+describe("grants · un ospite legge, e ora può anche le QUATTRO scritture concesse", () => {
   it("le letture passano", () => {
     for (const m of ["GET", "HEAD", "OPTIONS", "get"]) {
       expect(isGuestAllowedMethod("/api/tasks/abc", m)).toBe(true);
     }
   });
 
-  it("le SCRITTURE no — è il terzo asse, e mancava", () => {
-    // `level='read'` esisteva nello schema, nel CHECK e nel tipo, e nessuno lo
-    // faceva valere: il gate autorizzava il sostantivo (il percorso, poi
-    // l'entità) e mai il verbo. Un ospite poteva quindi modificare, commentare
-    // o cancellare la scheda che gli avevi condiviso — mentre la sua schermata
-    // gli diceva «sola lettura».
-    for (const m of ["POST", "PATCH", "PUT", "DELETE"]) {
+  it("commento, testo, avvio e stop passano la STRADA — il livello si controlla più dentro", () => {
+    // This function only opens the road (the verb is reachable AT ALL on
+    // this path); WHETHER the guest has the level to use it is decided
+    // inside the tasks router (`matchGuestTaskAction` + `levelFor`), not here.
+    expect(isGuestAllowedMethod("/api/tasks/abc", "PATCH")).toBe(true);
+    expect(isGuestAllowedMethod("/api/tasks/abc/comments", "POST")).toBe(true);
+    expect(isGuestAllowedMethod("/api/tasks/abc/run", "POST")).toBe(true);
+    expect(isGuestAllowedMethod("/api/tasks/abc/stop", "POST")).toBe(true);
+  });
+
+  it("tutto il resto resta fuori: PUT/DELETE su un task, e ogni scrittura su topic/messaggi", () => {
+    // `level='read'` existed in the schema, in the CHECK and in the type, and
+    // nobody enforced it: the gate authorized the noun (the path, then the
+    // entity) and never the verb. The lesson still holds for everything NOT
+    // in the list of the four actions: a guest cannot delete the card, nor
+    // write to a shared chat.
+    for (const m of ["PUT", "DELETE"]) {
       expect(isGuestAllowedMethod("/api/tasks/abc", m)).toBe(false);
+    }
+    for (const m of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(isGuestAllowedMethod("/api/topics/abc", m)).toBe(false);
       expect(isGuestAllowedMethod("/api/messages/abc", m)).toBe(false);
     }
   });
 
-  it("uscire è l'unica scrittura concessa", () => {
+  it("uscire è sempre concessa, e le condivisioni passano LA PORTA (il livello si controlla dentro auth.ts)", () => {
     // Negarla vorrebbe dire che l'unico modo per un ospite di andarsene è che
     // qualcun altro lo revochi.
     expect(isGuestAllowedMethod("/api/auth/logout", "POST")).toBe(true);
+    // `/api/auth/shares` opens the door: whoever holds `manage` on the
+    // resource named in the body/query may use it, but that check lives in
+    // `auth.ts`, not here.
+    expect(isGuestAllowedMethod("/api/auth/shares", "POST")).toBe(true);
+    expect(isGuestAllowedMethod("/api/auth/shares", "DELETE")).toBe(true);
     // E vale solo per quel percorso, non per tutto ciò che sta sotto /api/auth.
-    expect(isGuestAllowedMethod("/api/auth/shares", "POST")).toBe(false);
     expect(isGuestAllowedMethod("/api/auth/devices/x", "DELETE")).toBe(false);
   });
 });

@@ -442,3 +442,61 @@ nuova per un tipo nuovo.
 #### Scenario: la voce di condivisione
 - **GIVEN** il gesto sulla voce
 - **THEN** SHALL aprirsi il pannello di condivisione consueto
+
+### Requirement: GUEST-09 — A guest can be granted more than read: comment, edit, run, manage
+
+`GUEST-02` gave a guest read and nothing else, on purpose: the write path did
+not exist yet, and `deny` alone was the vocabulary in the schema. This
+requirement is that deferred write path.
+
+A grant's level SHALL be one of, in increasing power: `read` (look), `comment`
+(+ comment on the task), `edit` (+ change the task's own text), `run` (+
+start/stop its execution), `manage` (+ decide who else is granted on THIS
+resource). `deny` SHALL still override every one of them regardless of how it
+arrived.
+
+Code changes, review approval and publishing SHALL remain distinct actions,
+reserved to the resource's owner exactly where they already are: no level on
+this scale SHALL grant any of them implicitly.
+
+Starting a run SHALL be IDEMPOTENT: asking to start a task already in
+`todo`/`in_progress` SHALL return the task unchanged, not queue it twice.
+Stopping SHALL cut the agent's live turn the same way the owner's "Ferma"
+button does — no ghost agent SHALL keep running after a guest with `run`
+leaves.
+
+#### Scenario: comment needs `comment`, nothing less
+- **GIVEN** a guest holding only `read` on a task
+- **WHEN** it posts a comment
+- **THEN** the server SHALL answer 403 `guest_level_denied`
+
+#### Scenario: `comment` is enough to comment, not to edit
+- **GIVEN** a guest holding `comment`
+- **WHEN** it posts a comment
+- **THEN** the server SHALL accept it
+- **WHEN** the same guest edits the task's text
+- **THEN** the server SHALL answer 403 `guest_level_denied`
+
+#### Scenario: `run` starts and stops, idempotently
+- **GIVEN** a guest holding `run` on a backlog task
+- **WHEN** it starts the task twice in a row
+- **THEN** the second call SHALL leave the task exactly where the first left it
+- **WHEN** it then stops the task
+- **THEN** the server SHALL cut the live turn and park the task
+
+#### Scenario: nothing above `run` unlocks code, approval or publishing
+- **GIVEN** a guest holding `manage` on a task
+- **WHEN** it attempts any route this project reserves to the owner (retitle, label, move, merge, land, publish, deploy)
+- **THEN** the server SHALL answer 403, same as at `read`
+
+#### Scenario: `manage` lets a guest share and revoke on that same resource, nothing else
+- **GIVEN** a guest holding `manage` on a resource
+- **WHEN** it calls `POST` or `DELETE /api/auth/shares` for that same resource
+- **THEN** the server SHALL accept it, granting or revoking a third party on that resource
+- **WHEN** it calls the same route for a DIFFERENT resource where it holds no `manage`
+- **THEN** the server SHALL answer 403 `manage_level_required`
+
+#### Scenario: the sharing panel shows and lets you change the effective level
+- **GIVEN** the owner's sharing panel for a resource with existing guests
+- **THEN** each row SHALL show that guest's current level, editable in place
+- **AND** picking a different level SHALL take effect immediately, for both new API calls and any live socket already open

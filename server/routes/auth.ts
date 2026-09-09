@@ -14,7 +14,8 @@ import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
-  grantedByType, subjectsOf, putGrant, dropGrant, type SubjectKind,
+  grantedByType, subjectsOf, putGrant, dropGrant, levelFor, meetsLevel,
+  isAssignableGrantLevel, type SubjectKind, type GrantLevel,
 } from "../lib/grants-query";
 import {
   installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
@@ -1448,13 +1449,28 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
                 ? nameDevice.get(r.subjectId) ?? r.subjectId
                 : nameSubject.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
               sharedAt: r.grantedAt,
+              level: r.level,
             })),
         });
       }
+      // A GUEST can reach this route (the gate opens the door), but only for
+      // a resource where its own device already holds `manage` — the level
+      // that "manage sharing" names in the model. The owner device (role !==
+      // "guest") keeps the free hand it always had.
+      const actor = ctx.requestIdentity?.(req) ?? null;
+      const guestCanManage = (tipo: string, risorsa: string): boolean => {
+        if (actor?.role !== "guest") return true;
+        if (!actor.deviceId) return false;
+        const principals = resolvePrincipals(db as never, actor.deviceId).list;
+        const level = levelFor(db as never, principals, tipo as never, risorsa);
+        return level !== null && meetsLevel(level, "manage");
+      };
+
       if (method === "POST") {
         const body = await readJSON(req) as {
           taskId?: string; resourceType?: string; resourceId?: string;
           deviceId?: string; subjectType?: string; subjectId?: string;
+          level?: string;
         } | null;
         const tipo = body?.resourceType ?? "task";
         const risorsa = body?.resourceId ?? body?.taskId;
@@ -1468,6 +1484,16 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const sogId = body?.subjectId ?? body?.deviceId;
         if (!risorsa || !sogId || !sogTipo) return json({ error: "subject_required" }, 400);
         if (!isSubjectKind(sogTipo)) return json({ error: "unknown_subject_kind" }, 400);
+        if (!guestCanManage(tipo, risorsa)) return json({ error: "manage_level_required" }, 403);
+
+        // The default level stays `read`: an older client that does not send
+        // `level` keeps sharing read-only, identical to the behaviour before
+        // this extension.
+        const requestedLevel = body?.level;
+        if (requestedLevel !== undefined && !isAssignableGrantLevel(requestedLevel)) {
+          return json({ error: "unknown_level" }, 400);
+        }
+        const level: GrantLevel = requestedLevel ?? "read";
 
         // Condividere con chi vede GIÀ tutto non vuol dire niente, e lasciarlo
         // fare darebbe l'idea che quella riga stia limitando qualcosa. La
@@ -1481,7 +1507,10 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const rifiuto = subjectRejection(db as never, sogTipo, sogId);
         if (rifiuto) return json({ error: rifiuto.codice }, rifiuto.status);
 
-        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { grantedAt: now });
+        // A level that changes is drop-then-put: the UNIQUE index on
+        // (subject, resource) would otherwise IGNORE the second row.
+        dropGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa);
+        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { level, grantedAt: now });
         // Senza questo, condividere qualcosa non si vedeva dall'altra parte
         // finche' l'ospite non premeva Ricarica: i dati c'erano e nessuno
         // glielo diceva. Mirato, non in broadcast — vedi `sendToDevice`.
@@ -1497,6 +1526,7 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const sogId = url.searchParams.get("subjectId") ?? url.searchParams.get("deviceId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
         if (!isSubjectKind(sogTipoRaw)) return json({ error: "unknown_subject_kind" }, 400);
+        if (!guestCanManage(tipo, risorsa)) return json({ error: "manage_level_required" }, 403);
         // I dispositivi si prendono PRIMA di togliere la riga: dopo, se il
         // soggetto è un'organizzazione, non ci sarebbe più modo di sapere a chi
         // dirlo. Il frame va mandato comunque — proprio perché la concessione

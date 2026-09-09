@@ -105,6 +105,11 @@ export function isGuestAllowedPath(pathname: string): boolean {
     pathname === '/api/auth/shared' ||
     pathname === '/api/auth/session' ||
     pathname === '/api/auth/logout' ||
+    // `manage` capability: a guest with that level on a resource can share
+    // and revoke shares of THAT resource — checked inside the route itself
+    // (the target is in the body/query, not the path, so the gate here only
+    // opens the door; `auth.ts` still asks `levelFor(...) >= 'manage'`).
+    pathname === '/api/auth/shares' ||
     pathname.startsWith('/media/') ||
     // Gli aggiornamenti dal vivo. Il socket è concesso, ma ciò che ci viaggia
     // dentro è filtrato per TIPO di frame — vedi `isGuestSafeFrame`.
@@ -126,10 +131,31 @@ export function isGuestAllowedPath(pathname: string): boolean {
  * L'unica eccezione è uscire. È una POST, e negarla vorrebbe dire che l'unico
  * modo per un ospite di andarsene è che qualcun altro lo revochi.
  */
+/**
+ * FOUR writes, and no others: a comment, the task's text, starting and
+ * stopping its execution. This gate does not decide WHETHER a guest may do
+ * it — that lives in the granted level, inside the tasks router
+ * (`matchGuestTaskAction` + `levelFor`) — it is the road that makes those
+ * four routes reachable AT ALL. Everything else stays read-only for a guest,
+ * as before: retitle, label, move, merge, land, publish, deploy, sharing,
+ * deletion do not pass through here at any level.
+ */
+const GUEST_WRITE_ROUTES = [
+  /^\/api\/tasks\/[^/]+$/, // PATCH — the task's text (needs at least `edit`)
+  /^\/api\/tasks\/[^/]+\/comments$/, // POST — a comment (needs at least `comment`)
+  /^\/api\/tasks\/[^/]+\/run$/, // POST — start the run (needs `run`)
+  /^\/api\/tasks\/[^/]+\/stop$/, // POST — stop it (needs `run`)
+];
+
 export function isGuestAllowedMethod(pathname: string, method: string): boolean {
   const m = method.toUpperCase();
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
-  return pathname === '/api/auth/logout';
+  if (pathname === '/api/auth/logout') return true;
+  if ((m === 'POST' || m === 'PATCH') && GUEST_WRITE_ROUTES.some((r) => r.test(pathname))) return true;
+  // `manage`-level self-service on the resource named in the body/query — the
+  // level itself is checked inside `auth.ts`, not here.
+  if ((m === 'POST' || m === 'DELETE') && pathname === '/api/auth/shares') return true;
+  return false;
 }
 
 /**

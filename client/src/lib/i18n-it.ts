@@ -2399,6 +2399,12 @@ const IT: Dict = {
   'share.nobodyYet': 'Ancora nessuno con cui condividere. Approva un dispositivo come ospite da Impostazioni → Account e comparirà qui.',
   'share.alreadyAll': 'Già condivisa con tutti.',
   'share.loadFailed': 'Non riesco a caricare la condivisione.',
+  'share.levelFor': 'Livello di accesso per {name}',
+  'share.level.read': 'Può vedere',
+  'share.level.comment': 'Può commentare',
+  'share.level.edit': 'Può modificare',
+  'share.level.run': 'Può avviare',
+  'share.level.manage': 'Può gestire la condivisione',
 
   // Permissions: the panel where a person decides whether the agent may act.
   'permission.asks': "L'agente chiede un permesso",

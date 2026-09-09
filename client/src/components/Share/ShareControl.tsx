@@ -48,6 +48,20 @@ interface LinkOutsideNetwork {
   scaduto: boolean;
 }
 
+/** Must stay in sync with `ASSIGNABLE_GRANT_LEVELS` in
+ *  `server/lib/grants-query.ts` — that is the order the server compares
+ *  against, so it is also the order this choice is presented in, low to
+ *  high. */
+type GrantLevel = 'read' | 'comment' | 'edit' | 'run' | 'manage';
+const LEVELS: readonly GrantLevel[] = ['read', 'comment', 'edit', 'run', 'manage'];
+const KEY_LEVEL: Record<GrantLevel, string> = {
+  read: 'share.level.read',
+  comment: 'share.level.comment',
+  edit: 'share.level.edit',
+  run: 'share.level.run',
+  manage: 'share.level.manage',
+};
+
 interface Share {
   subjectType: 'device' | 'person' | 'org';
   subjectId: string;
@@ -55,6 +69,7 @@ interface Share {
   deviceId?: string;
   name: string;
   sharedAt: number;
+  level: GrantLevel;
 }
 
 const ETICHETTA: Record<Subject['subjectType'], string> = {
@@ -170,7 +185,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
 
   useEffect(() => { if (aperto) void carica(); }, [aperto, carica]);
 
-  const condividi = async (sog: Subject) => {
+  const condividi = async (sog: Subject, level: GrantLevel = 'read') => {
     setInCorso(true);
     try {
       const r = await fetch('/api/auth/shares', {
@@ -178,7 +193,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
-          resourceType, resourceId,
+          resourceType, resourceId, level,
           subjectType: sog.subjectType, subjectId: sog.subjectId,
         }),
       });
@@ -188,6 +203,14 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
       if (!r.ok) setErrore(t(chiaveErroreAuth(((await r.json()) as { error?: string }).error)));
       await carica();
     } finally { setInCorso(false); }
+  };
+
+  /** Changing the level is the SAME POST as the first share: `putGrant` on
+   *  the server is an upsert on the subject+resource pair, not a second
+   *  endpoint for a second gesture that would be the same gesture. */
+  const changeLevel = async (s: Share, level: GrantLevel) => {
+    if (level === s.level) return;
+    await condividi({ subjectType: s.subjectType, subjectId: s.subjectId, name: s.name, devices: 0 }, level);
   };
 
   /**
@@ -311,6 +334,21 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                       {ETICHETTA[s.subjectType]}
                     </span>
                   </span>
+                  {/* The effective level, chosen right here — this is the
+                      "effective access summary" the requirement asks for:
+                      not an implicit permission inferred elsewhere, the
+                      `select` row SAYS what whoever reads it can do. */}
+                  <select
+                    aria-label={t('share.levelFor', { name: s.name })}
+                    value={s.level}
+                    disabled={inCorso}
+                    onChange={(e) => void changeLevel(s, e.target.value as GrantLevel)}
+                    className="flex-shrink-0 rounded border border-app-border bg-app-bg px-1 py-0.5 text-[10px] text-app-text disabled:opacity-50"
+                  >
+                    {LEVELS.map((l) => (
+                      <option key={l} value={l}>{t(KEY_LEVEL[l])}</option>
+                    ))}
+                  </select>
                   <button
                     aria-label={t('share.removeAccess', { name: s.name })}
                     disabled={inCorso}

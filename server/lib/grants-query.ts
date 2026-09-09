@@ -26,10 +26,47 @@ export interface Principal {
   id: string;
 }
 
-/** Cosa consente una riga. `deny` esiste nello schema e qui, non ancora
- *  nell'interfaccia — allargare un CHECK in SQLite vuol dire ricreare la
- *  tabella, quindi il vocabolario si mette adesso o si paga due volte. */
-export type GrantLevel = "read" | "deny";
+/**
+ * What a row allows, in rising order of power: `read` < `comment` < `edit` <
+ * `run` < `manage`. `deny` is not a level above `manage` — it is a block that
+ * beats every level, handled separately in `LEVEL_RANK` and in `meetsLevel`.
+ *
+ * `read` (view) · `comment` (+ comment) · `edit` (+ create/edit the task) ·
+ * `run` (+ start/stop an execution) · `manage` (+ decide who else is shared
+ * on THIS resource). Code changes, approval and publishing are not a level of
+ * this scale: they stay separate actions, reserved for the owner wherever
+ * they already are today — no level here grants them.
+ */
+export type GrantLevel = "read" | "comment" | "edit" | "run" | "manage" | "deny";
+
+/** The order of the levels, `deny` excluded: compare with `meetsLevel`, not
+ *  an `if` copied by hand at each call site — a hand-copied order is one that
+ *  the second caller writes backwards. */
+const LEVEL_RANK: Record<Exclude<GrantLevel, "deny">, number> = {
+  read: 0,
+  comment: 1,
+  edit: 2,
+  run: 3,
+  manage: 4,
+};
+
+/**
+ * Does this level cover THIS action? `deny` never covers any request — not
+ * even `read`.
+ */
+export function meetsLevel(level: GrantLevel, min: Exclude<GrantLevel, "deny">): boolean {
+  if (level === "deny") return false;
+  return LEVEL_RANK[level] >= LEVEL_RANK[min];
+}
+
+/** The levels a writer CAN pick — `deny` is removed via revoke, not assigned
+ *  from the sharing panel. */
+export const ASSIGNABLE_GRANT_LEVELS: readonly Exclude<GrantLevel, "deny">[] =
+  ["read", "comment", "edit", "run", "manage"] as const;
+
+export function isAssignableGrantLevel(v: unknown): v is Exclude<GrantLevel, "deny"> {
+  return typeof v === "string" && (ASSIGNABLE_GRANT_LEVELS as readonly string[]).includes(v);
+}
 
 /**
  * Una riga di concessione, come è scritta.
@@ -69,6 +106,16 @@ export interface GrantRow {
 /** Forma minima del database che serve a questo modulo — così i test possono
  *  passare uno SQLite in memoria senza costruire l'AppContext intero. */
 type Db = Pick<Database, "query">;
+
+/** A row read from the DB, narrowed to the known vocabulary. A value the
+ *  CHECK constraint does not know yet (a rollback, an older DB) falls back to
+ *  `read`: the safe direction grants LESS, not the one that rejects the
+ *  whole row. */
+function asGrantLevel(v: unknown): GrantLevel {
+  return v === "deny" || v === "comment" || v === "edit" || v === "run" || v === "manage"
+    ? v
+    : "read";
+}
 
 /**
  * Le righe che riguardano QUESTI principali su QUESTA risorsa, la più forte per
@@ -118,7 +165,7 @@ export function grantRowsFor(
   return righe.map((r) => ({
     subjectType: String(r.subject_type) as SubjectKind,
     subjectId: String(r.subject_id),
-    level: r.level === "deny" ? "deny" : "read",
+    level: asGrantLevel(r.level),
     grantedAt: Number(r.granted_at ?? 0),
   }));
 }
@@ -174,6 +221,46 @@ export function hasGrant(
   const onContainer = grantRowsFor(db, principals, dentro.tipo, dentro.id);
   if (onContainer.length === 0) return false;
   return onContainer[0].level !== "deny";
+}
+
+/**
+ * The EFFECTIVE level of a set of rows: `deny` if a single one says so,
+ * otherwise the HIGHEST among the rest. Not the first one — a device with
+ * direct `edit` and an org with `manage` on the same resource must resolve
+ * to `manage`, not to the order the rows were written in.
+ */
+function effectiveLevel(rows: readonly GrantRow[]): GrantLevel | null {
+  if (rows.length === 0) return null;
+  if (rows.some((r) => r.level === "deny")) return "deny";
+  let best: Exclude<GrantLevel, "deny"> = "read";
+  for (const r of rows) {
+    if (r.level !== "deny" && LEVEL_RANK[r.level] > LEVEL_RANK[best]) best = r.level;
+  }
+  return best;
+}
+
+/**
+ * The level these principals hold on this resource — what is needed to
+ * compare against `meetsLevel`, not just the "can it read?" boolean from
+ * `hasGrant`. Also looks at the CONTAINER, with the same precedence as
+ * `hasGrant`: a `deny` on the resource beats the container too, and the
+ * container is only consulted when the resource itself said nothing.
+ *
+ * `null` = no grant at all, neither direct nor from the container — "never
+ * shared", distinct from `deny` which is "shared, then denied".
+ */
+export function levelFor(
+  db: Db,
+  principals: readonly Principal[],
+  resourceType: ResourceType,
+  resourceId: string,
+): GrantLevel | null {
+  const direct = grantRowsFor(db, principals, resourceType, resourceId);
+  if (direct.length > 0) return effectiveLevel(direct);
+
+  const container = containerOf(db, resourceType, resourceId);
+  if (!container) return null;
+  return effectiveLevel(grantRowsFor(db, principals, container.tipo, container.id));
 }
 
 /**
@@ -273,7 +360,7 @@ export function subjectsOf(
   return righe.map((r) => ({
     subjectType: String(r.subject_type) as SubjectKind,
     subjectId: String(r.subject_id),
-    level: r.level === "deny" ? "deny" : "read",
+    level: asGrantLevel(r.level),
     grantedAt: Number(r.granted_at ?? 0),
   }));
 }

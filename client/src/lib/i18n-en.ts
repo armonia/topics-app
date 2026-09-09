@@ -2073,6 +2073,12 @@ const EN = {
   'share.nobodyYet': 'Nobody to share with yet. Approve a device as a guest from Settings → Account, and it will show up here.',
   'share.alreadyAll': 'Already shared with everyone.',
   'share.loadFailed': 'Could not load sharing.',
+  'share.levelFor': 'Access level for {name}',
+  'share.level.read': 'Can view',
+  'share.level.comment': 'Can comment',
+  'share.level.edit': 'Can edit',
+  'share.level.run': 'Can run',
+  'share.level.manage': 'Can manage sharing',
 
   // Permissions: the panel where a person decides whether the agent may act.
   'permission.asks': 'The agent is asking for a permission',
