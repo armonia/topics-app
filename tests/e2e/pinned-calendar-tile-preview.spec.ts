@@ -1,7 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import { BrowserProcessPage } from "./fixtures/browser.fixture";
 import { hermetic } from "./fixtures/hermetic";
-import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, setPins, gotoSidebar, calendarTile } from "./helpers/pinned-calendar-tile";
+import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, setPins, navigateToSidebar, calendarTile } from "./helpers/pinned-calendar-tile";
 
 /**
  * @covers CAL-04
@@ -40,7 +40,7 @@ test.describe("Pinned calendar tile — hover/focus preview", () => {
 
   test("hovering the tile shows the screenshot preview, leaving hides it", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CAL-04" });
-    await gotoSidebar(page);
+    await navigateToSidebar(page);
     const tile = calendarTile(page);
     await expect(tile).toBeVisible();
 
@@ -57,7 +57,7 @@ test.describe("Pinned calendar tile — hover/focus preview", () => {
 
   test("focusing the tile shows the preview, blurring hides it", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CAL-04" });
-    await gotoSidebar(page);
+    await navigateToSidebar(page);
     const tile = calendarTile(page);
     await expect(tile).toBeVisible();
     await tile.focus();
@@ -68,7 +68,7 @@ test.describe("Pinned calendar tile — hover/focus preview", () => {
 
   test("clicking the tile still activates it, popover or not", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CAL-04" });
-    await gotoSidebar(page);
+    await navigateToSidebar(page);
     const tile = calendarTile(page);
     await expect(tile).toBeVisible();
     await tile.click();

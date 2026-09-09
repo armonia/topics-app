@@ -1,7 +1,7 @@
 import { test as base, expect, devices } from "@playwright/test";
 import { BrowserProcessPage } from "./fixtures/browser.fixture";
 import { hermetic } from "./fixtures/hermetic";
-import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, setPins, gotoSidebar, calendarTile } from "./helpers/pinned-calendar-tile";
+import { CAL_CTX_ID, CAL_PANE_ID, CAL_URL, setPins, navigateToSidebar, calendarTile } from "./helpers/pinned-calendar-tile";
 
 /**
  * @covers CAL-04
@@ -28,7 +28,7 @@ test("a tap activates the pinned calendar tile directly, no preview flashes firs
   ]);
   await bp.mockRemoteBrowserPane({ connected: true, url: CAL_URL, title: "Calendar", hasScreenshot: true });
   await setPins(page, [CAL_PANE_ID]);
-  await gotoSidebar(page);
+  await navigateToSidebar(page);
   const tile = calendarTile(page);
   await expect(tile).toBeVisible();
   await tile.tap();

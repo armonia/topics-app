@@ -18,7 +18,7 @@ export async function setPins(page: Page, ids: string[]): Promise<void> {
   });
 }
 
-export async function gotoSidebar(page: Page): Promise<void> {
+export async function navigateToSidebar(page: Page): Promise<void> {
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 }
