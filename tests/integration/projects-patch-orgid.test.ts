@@ -108,6 +108,33 @@ describe("PATCH /api/projects/:id accepts orgId, owner-only", () => {
     expect(store.get(legacy.id)!.orgId).toBe(orgId);
   });
 
+  test("a project with NO recorded owner cannot be handed to the org, by anybody", async () => {
+    // THE CASE EVERY OTHER TEST HERE MISSES. All of them create the project
+    // WITH an `ownerPersonId`, so none of them ever reached the branch where
+    // the owner is unknown - and that branch used to let the write through for
+    // any caller, because the guard read `if (owner && owner !== acting)`.
+    // Projects created before migration 092 have no owner recorded: they are
+    // the population this lever is for, so the permissive branch was the main
+    // case and not an edge.
+    const store = createProjectStore(db);
+    const orphan = store.create({ name: "Orphan", slug: "orphan-org", path: "/tmp/orphan-org" });
+    expect(orphan.ownerPersonId ?? null).toBeNull();
+
+    // Not even the person who bootstrapped the installation: the refusal is
+    // about what can be PROVEN, not about who is asking.
+    const router = createProjectsRouter(makeCtx(db, null));
+    const r = await call(router, `/api/projects/${orphan.id}`, "PATCH", { orgId });
+    expect(r!.status).toBe(403);
+    expect(await r!.text()).toContain("no recorded owner");
+    expect(store.get(orphan.id)!.orgId).toBeNull();
+
+    // And the same body without `orgId` still works: the refusal is scoped to
+    // the sharing lever, it does not freeze the whole project.
+    const rename = await call(router, `/api/projects/${orphan.id}`, "PATCH", { name: "Orphan renamed" });
+    expect(rename!.status).toBe(200);
+    expect(store.get(orphan.id)!.name).toBe("Orphan renamed");
+  });
+
   test("the owner takes a shared project back to personal", async () => {
     const store = createProjectStore(db);
     const shared = store.create({ name: "Shared", slug: "shared", path: "/tmp/shared", orgId, ownerPersonId });

@@ -388,7 +388,27 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
             }
             const actingId = actingPersonId(ctx.db as never, ctx.requestIdentity?.(req)?.deviceId ?? null);
             const currentProject = projectStore.get(idParams.id);
-            if (currentProject?.ownerPersonId && currentProject.ownerPersonId !== actingId) {
+            if (!currentProject) return errorResponse(404, "Project not found");
+            // AN UNKNOWN OWNER IS NOT AN ABSENT RULE.
+            //
+            // This read `if (owner && owner !== acting)`, so a project whose
+            // `ownerPersonId` is NULL skipped the check entirely and ANY member
+            // could hand it to the org. Those are exactly the projects created
+            // before migration 092, which never recorded an owner - that is,
+            // precisely the ones this lever exists to move. The permissive
+            // branch was therefore not an edge case, it was the main case.
+            //
+            // Doubt refuses. We cannot prove the caller owns a project whose
+            // owner nobody wrote down, and org visibility is a sharing
+            // decision: it is not a lever to pull on a guess. Claiming an
+            // ownerless project for whoever moves it first is a plausible
+            // answer and a PRODUCT decision, not one to smuggle in behind an
+            // `&&` - so it is refused here, in its own words, and asked
+            // elsewhere.
+            if (!currentProject.ownerPersonId) {
+              return errorResponse(403, "this project has no recorded owner, so org visibility cannot be changed");
+            }
+            if (currentProject.ownerPersonId !== actingId) {
               return errorResponse(403, "only the owner can change org visibility");
             }
             patch.orgId = body.orgId;
