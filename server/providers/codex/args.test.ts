@@ -1,4 +1,4 @@
-/** @covers CODEX-RESUME-01 */
+/** @covers CODEX-02 */
 import { expect, test } from 'bun:test';
 import { buildCodexArgs, buildCodexResumeArgs } from './args';
 

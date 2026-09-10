@@ -2104,6 +2104,37 @@ evento SCONOSCIUTO SHALL essere IGNORATO.
 - **GIVEN** un messaggio d'errore codificato dentro un altro
 - **THEN** SHALL essere aperto fino al messaggio leggibile
 
+### Requirement: CODEX-02 — Il turno riprende con `codex exec resume`, non con la cronologia ricostruita a mano
+
+Il thread id del fornitore SHALL essere catturato dal primo evento `thread.started`
+e persistito subito, prima ancora che il turno finisca: un crash o un abort a
+metà turno NON SHALL perdere l'id già ricevuto.
+
+Un turno successivo con un thread id persistito SHALL riprendere via
+`codex exec resume <thread_id>` quando il rollout di quel thread esiste ancora
+su disco. In quel caso SHALL essere inviato SOLO il nuovo messaggio: la
+cronologia NON SHALL essere ricostruita lato client, perché il fornitore la
+tiene già server-side.
+
+Un thread id persistito il cui rollout NON esiste più (o assente) SHALL essere
+scartato, e il turno SHALL ripartire fresco con `codex exec`, tornando alla
+cronologia ricostruita in markdown come SOLO in quel caso di fallback.
+
+#### Scenario: prima riga di un turno fresco
+- **GIVEN** un turno che parte con `codex exec --json` (nessun thread id salvato)
+- **WHEN** arriva l'evento `thread.started`
+- **THEN** il thread id SHALL essere salvato subito, prima di ogni evento successivo
+
+#### Scenario: turno successivo con rollout ancora presente
+- **GIVEN** un thread id persistito il cui rollout esiste ancora
+- **THEN** il turno SHALL usare `codex exec resume <thread_id>`
+- **AND** il prompt inviato SHALL contenere SOLO il nuovo messaggio
+
+#### Scenario: thread id persistito ma rollout sparito
+- **GIVEN** un thread id persistito il cui rollout NON esiste più
+- **THEN** il turno SHALL ripartire fresco con `codex exec`
+- **AND** il thread id stantio SHALL essere dimenticato
+
 ### Requirement: DELTA-01 — Il cumulativo si converte in pezzi per UN fornitore solo
 
 Un fornitore che manda il testo INTERO a ogni evento SHALL essere convertito in
