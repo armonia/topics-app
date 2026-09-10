@@ -364,10 +364,10 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     // refuses is an invented PHOTOGRAPH of a worktree that cannot start — and
     // asserting `null` also made the case flaky, because the sheet is written
     // on a transition this test races with.
-    const evidenza = task.previewImage ?? null;
+    const evidence = task.previewImage ?? null;
     expect(
-      evidenza === null || isDeliverySheetPath(evidenza),
-      `nessuna foto finta: previewImage inattesa ${evidenza}`,
+      evidence === null || isDeliverySheetPath(evidence),
+      `nessuna foto finta: previewImage inattesa ${evidence}`,
     ).toBe(true);
     expect(task.status).toBe("review");
     expect(task.dispatchAttempts ?? 0).toBe(0);
