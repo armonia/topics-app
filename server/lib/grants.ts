@@ -105,11 +105,16 @@ export function isGuestAllowedPath(pathname: string): boolean {
     pathname === '/api/auth/shared' ||
     pathname === '/api/auth/session' ||
     pathname === '/api/auth/logout' ||
-    // `manage` capability: a guest with that level on a resource can share
-    // and revoke shares of THAT resource — checked inside the route itself
-    // (the target is in the body/query, not the path, so the gate here only
-    // opens the door; `auth.ts` still asks `levelFor(...) >= 'manage'`).
-    pathname === '/api/auth/shares' ||
+    // `/api/auth/shares` IS NOT HERE, and its absence is the fix for a hole
+    // this very allowlist opened. While a `manage` level existed, the path was
+    // listed so a guest holding it could re-share that one resource, with the
+    // level checked inside the route. But the GET branch of that route has no
+    // level check at all, and the gate below compares ids found in the PATH
+    // while this route names its resource in the QUERY: a guest with `read` on
+    // a single card could therefore enumerate subjects, names (devices,
+    // people, orgs) and levels of ANY resource whose id it could guess or read
+    // off its own task. `manage` is gone, no guest needs this route any more,
+    // and the door closes where it was closed before.
     pathname.startsWith('/media/') ||
     // Gli aggiornamenti dal vivo. Il socket è concesso, ma ciò che ci viaggia
     // dentro è filtrato per TIPO di frame — vedi `isGuestSafeFrame`.
@@ -132,19 +137,21 @@ export function isGuestAllowedPath(pathname: string): boolean {
  * modo per un ospite di andarsene è che qualcun altro lo revochi.
  */
 /**
- * FOUR writes, and no others: a comment, the task's text, starting and
- * stopping its execution. This gate does not decide WHETHER a guest may do
- * it — that lives in the granted level, inside the tasks router
- * (`matchGuestTaskAction` + `levelFor`) — it is the road that makes those
- * four routes reachable AT ALL. Everything else stays read-only for a guest,
- * as before: retitle, label, move, merge, land, publish, deploy, sharing,
- * deletion do not pass through here at any level.
+ * TWO writes, and no others: a comment, and the task's own text. This gate
+ * does not decide WHETHER a guest may do it - that lives in the granted level,
+ * inside the tasks router (`matchGuestTaskAction` + `levelFor`) - it is the
+ * road that makes those two routes reachable AT ALL. Everything else stays
+ * read-only for a guest, as before: starting or stopping a run, retitle,
+ * label, move, merge, land, publish, deploy, sharing and deletion do not pass
+ * through here at any level.
+ *
+ * `/run` and `/stop` ARE NOT HERE: a guest that can edit the card's text and
+ * then start it hands its own text to an agent running in the owner's repo.
+ * See `GrantLevel` in `grants-query.ts` for the whole reasoning.
  */
 const GUEST_WRITE_ROUTES = [
-  /^\/api\/tasks\/[^/]+$/, // PATCH — the task's text (needs at least `edit`)
-  /^\/api\/tasks\/[^/]+\/comments$/, // POST — a comment (needs at least `comment`)
-  /^\/api\/tasks\/[^/]+\/run$/, // POST — start the run (needs `run`)
-  /^\/api\/tasks\/[^/]+\/stop$/, // POST — stop it (needs `run`)
+  /^\/api\/tasks\/[^/]+$/, // PATCH - the task's text (needs at least `edit`)
+  /^\/api\/tasks\/[^/]+\/comments$/, // POST - a comment (needs at least `comment`)
 ];
 
 export function isGuestAllowedMethod(pathname: string, method: string): boolean {
@@ -152,9 +159,6 @@ export function isGuestAllowedMethod(pathname: string, method: string): boolean 
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
   if (pathname === '/api/auth/logout') return true;
   if ((m === 'POST' || m === 'PATCH') && GUEST_WRITE_ROUTES.some((r) => r.test(pathname))) return true;
-  // `manage`-level self-service on the resource named in the body/query — the
-  // level itself is checked inside `auth.ts`, not here.
-  if ((m === 'POST' || m === 'DELETE') && pathname === '/api/auth/shares') return true;
   return false;
 }
 

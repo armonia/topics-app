@@ -3,7 +3,7 @@
  * it may reach, which methods, and which WebSocket frame types may leave
  * towards it (plus which socket is confined at all).
  *
- * @covers GUEST-01, GUEST-02, GUEST-04
+ * @covers GUEST-01, GUEST-02, GUEST-04, GUEST-10
  */
 import { describe, expect, it } from "bun:test";
 import {
@@ -50,7 +50,6 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/messages/abc",
       "/api/auth/session",
       "/api/auth/logout",
-      "/api/auth/shares",
       "/media/anteprima.png",
       "/ws",
     ]) {
@@ -71,6 +70,12 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/files/read",
       "/api/browser/navigate",
       "/api/auth/devices",
+      // NOT a guest's route, and this line is a REGRESSION guard: it was
+      // briefly listed as allowed so a `manage` level could re-share from
+      // inside. The GET branch there has no level check, and the gate matches
+      // ids in the PATH while that route names its resource in the QUERY - so
+      // one shared card became "read who holds what, on any id you can name".
+      "/api/auth/shares",
       "/api/all-boards/settings",
       "/api/all-boards/publish-status",
       "/preview/etc/hosts",
@@ -263,21 +268,26 @@ describe("grants · quale socket va confinata", () => {
   });
 });
 
-describe("grants · un ospite legge, e ora può anche le QUATTRO scritture concesse", () => {
+describe("grants · un ospite legge, e ora può anche le DUE scritture concesse", () => {
   it("le letture passano", () => {
     for (const m of ["GET", "HEAD", "OPTIONS", "get"]) {
       expect(isGuestAllowedMethod("/api/tasks/abc", m)).toBe(true);
     }
   });
 
-  it("commento, testo, avvio e stop passano la STRADA — il livello si controlla più dentro", () => {
+  it("commento e testo passano la STRADA — il livello si controlla più dentro", () => {
     // This function only opens the road (the verb is reachable AT ALL on
     // this path); WHETHER the guest has the level to use it is decided
     // inside the tasks router (`matchGuestTaskAction` + `levelFor`), not here.
     expect(isGuestAllowedMethod("/api/tasks/abc", "PATCH")).toBe(true);
     expect(isGuestAllowedMethod("/api/tasks/abc/comments", "POST")).toBe(true);
-    expect(isGuestAllowedMethod("/api/tasks/abc/run", "POST")).toBe(true);
-    expect(isGuestAllowedMethod("/api/tasks/abc/stop", "POST")).toBe(true);
+  });
+
+  it("avvio e stop NON passano nemmeno la strada: nessun livello dispaccia un agente", () => {
+    // The card's text becomes the prompt of an agent running in a worktree of
+    // the OWNER's repo, and that text is what `edit` lets a guest rewrite.
+    expect(isGuestAllowedMethod("/api/tasks/abc/run", "POST")).toBe(false);
+    expect(isGuestAllowedMethod("/api/tasks/abc/stop", "POST")).toBe(false);
   });
 
   it("tutto il resto resta fuori: PUT/DELETE su un task, e ogni scrittura su topic/messaggi", () => {
@@ -295,15 +305,14 @@ describe("grants · un ospite legge, e ora può anche le QUATTRO scritture conce
     }
   });
 
-  it("uscire è sempre concessa, e le condivisioni passano LA PORTA (il livello si controlla dentro auth.ts)", () => {
+  it("uscire è sempre concessa; le condivisioni no, in nessun verbo", () => {
     // Negarla vorrebbe dire che l'unico modo per un ospite di andarsene è che
     // qualcun altro lo revochi.
     expect(isGuestAllowedMethod("/api/auth/logout", "POST")).toBe(true);
-    // `/api/auth/shares` opens the door: whoever holds `manage` on the
-    // resource named in the body/query may use it, but that check lives in
-    // `auth.ts`, not here.
-    expect(isGuestAllowedMethod("/api/auth/shares", "POST")).toBe(true);
-    expect(isGuestAllowedMethod("/api/auth/shares", "DELETE")).toBe(true);
+    // Deciding who else sees a resource is an owner action. The path is not in
+    // the allowlist either, so this axis is the second lock, not the only one.
+    expect(isGuestAllowedMethod("/api/auth/shares", "POST")).toBe(false);
+    expect(isGuestAllowedMethod("/api/auth/shares", "DELETE")).toBe(false);
     // E vale solo per quel percorso, non per tutto ciò che sta sotto /api/auth.
     expect(isGuestAllowedMethod("/api/auth/devices/x", "DELETE")).toBe(false);
   });

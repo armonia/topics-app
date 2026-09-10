@@ -14,7 +14,7 @@ import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
-  grantedByType, subjectsOf, putGrant, dropGrant, levelFor, meetsLevel,
+  grantedByType, subjectsOf, putGrant, dropGrant,
   isAssignableGrantLevel, type SubjectKind, type GrantLevel,
 } from "../lib/grants-query";
 import {
@@ -1453,19 +1453,13 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
             })),
         });
       }
-      // A GUEST can reach this route (the gate opens the door), but only for
-      // a resource where its own device already holds `manage` — the level
-      // that "manage sharing" names in the model. The owner device (role !==
-      // "guest") keeps the free hand it always had.
-      const actor = ctx.requestIdentity?.(req) ?? null;
-      const guestCanManage = (tipo: string, risorsa: string): boolean => {
-        if (actor?.role !== "guest") return true;
-        if (!actor.deviceId) return false;
-        const principals = resolvePrincipals(db as never, actor.deviceId).list;
-        const level = levelFor(db as never, principals, tipo as never, risorsa);
-        return level !== null && meetsLevel(level, "manage");
-      };
-
+      // NO GUEST REACHES THIS POINT, and it is not this route's job to say so.
+      // `isGuestAllowedPath` does not list `/api/auth/shares`, so a confined
+      // device is refused at the gate in `server.ts` with `guest_forbidden` -
+      // for GET too, which is the branch that had no level check of its own
+      // and turned "shared one card" into "can read who else holds what, on
+      // any resource whose id you know". Deciding who sees a resource stays an
+      // owner action; there is no level on the scale that delegates it.
       if (method === "POST") {
         const body = await readJSON(req) as {
           taskId?: string; resourceType?: string; resourceId?: string;
@@ -1484,7 +1478,6 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const sogId = body?.subjectId ?? body?.deviceId;
         if (!risorsa || !sogId || !sogTipo) return json({ error: "subject_required" }, 400);
         if (!isSubjectKind(sogTipo)) return json({ error: "unknown_subject_kind" }, 400);
-        if (!guestCanManage(tipo, risorsa)) return json({ error: "manage_level_required" }, 403);
 
         // The default level stays `read`: an older client that does not send
         // `level` keeps sharing read-only, identical to the behaviour before
@@ -1526,7 +1519,6 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const sogId = url.searchParams.get("subjectId") ?? url.searchParams.get("deviceId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
         if (!isSubjectKind(sogTipoRaw)) return json({ error: "unknown_subject_kind" }, 400);
-        if (!guestCanManage(tipo, risorsa)) return json({ error: "manage_level_required" }, 403);
         // I dispositivi si prendono PRIMA di togliere la riga: dopo, se il
         // soggetto è un'organizzazione, non ci sarebbe più modo di sapere a chi
         // dirlo. Il frame va mandato comunque — proprio perché la concessione

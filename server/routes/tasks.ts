@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
-import { grantedResourceIds, levelFor, meetsLevel, type GrantLevel } from "../lib/grants-query";
+import { grantedResourceIds, levelFor, meetsLevel } from "../lib/grants-query";
 import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
@@ -622,11 +622,16 @@ function checksLanes(): number {
 
 /**
  * The only writes a GUEST may make on a shared task, and the minimum level
- * each needs — `read` moves nothing, `unsupported` covers every other route
- * on this router (retitle, label, move, merge, land, publish, deploy, ...):
- * those stay out of reach at ANY level, because "code changes", "approval"
- * and "publishing" are distinct actions that a collaboration capability
- * never grants implicitly.
+ * each needs - `read` moves nothing, `unsupported` covers every other route
+ * on this router (run, stop, retitle, label, move, merge, land, publish,
+ * deploy, ...): those stay out of reach at ANY level, because "start an
+ * agent", "code changes", "approval" and "publishing" are distinct actions
+ * that a collaboration capability never grants implicitly.
+ *
+ * `/run` and `/stop` are `unsupported` DELIBERATELY: starting a card runs the
+ * card's own text as a prompt for an agent inside the owner's repo, and the
+ * text is exactly what a guest with `edit` can rewrite. See `GrantLevel` in
+ * `grants-query.ts`.
  *
  * Pure and testable on its own: `idInPath` is the EXACT segment read from
  * the path (still url-encoded), so comparing against `pathname` does not
@@ -636,12 +641,11 @@ export function matchGuestTaskAction(
   pathname: string,
   idInPath: string,
   method: string,
-): "read" | "comment" | "edit" | "run" | "unsupported" {
+): "read" | "comment" | "edit" | "unsupported" {
   const base = `/api/tasks/${idInPath}`;
   if (method === "GET") return pathname === base ? "read" : "unsupported";
   if (method === "POST" && pathname === `${base}/comments`) return "comment";
   if (method === "PATCH" && pathname === base) return "edit";
-  if (method === "POST" && (pathname === `${base}/run` || pathname === `${base}/stop`)) return "run";
   return "unsupported";
 }
 
@@ -2275,11 +2279,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
-   * THE THREE ACTIONS A GUEST MAY TAKE, each gated by its own level — never
-   * behind `edit` or `run` on the HUMAN/agent routes (retitle, label, move,
-   * merge, land, publish, deploy, ...): those stay out of reach at any
-   * level, because "code changes", "approval" and "publishing" are distinct
-   * actions that no collaboration level grants implicitly.
+   * THE TWO WRITES A GUEST MAY MAKE, each gated by its own level - never
+   * behind `edit` on the HUMAN/agent routes (run, stop, retitle, label, move,
+   * merge, land, publish, deploy, ...): those stay out of reach at any level,
+   * because "start an agent", "code changes", "approval" and "publishing" are
+   * distinct actions that no collaboration level grants implicitly.
    */
   async function handleGuestComment(taskId: string, deviceId: string, req: Request): Promise<Response> {
     const body = (await readJSON(req)) as { content?: unknown } | null;
@@ -2312,43 +2316,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       patch: { text },
     });
     broadcastToAll({ type: "task:updated", projectId: got.task.projectId, task });
-    return json(task);
-  }
-
-  function handleGuestRun(taskId: string, deviceId: string, kind: "start" | "stop"): Response {
-    const got = svc.get(taskId);
-    if (!got) return json({ error: "task not found", code: "not_found" }, 404);
-    const before = got.task;
-    const projectId = before.projectId;
-    // IDEMPOTENT: a card already in Todo/in_progress does not restart a
-    // second time (no second dispatch, no phantom task), and one already
-    // parked has nothing to stop — the guest just re-reads the real state.
-    if (kind === "start") {
-      if (before.status === "todo" || before.status === "in_progress") return json(before);
-      if (before.status !== "backlog") {
-        return json({ error: `cannot start from status ${before.status}`, code: "bad_status" }, 409);
-      }
-      const task = svc.update({
-        taskId,
-        actor: "human",
-        by: `guest:${deviceId}`,
-        projectId,
-        patch: { status: "todo" },
-      });
-      broadcastToAll({ type: "task:updated", projectId, task });
-      dispatcher?.onEnterTodo(projectId, taskId);
-      return json(task);
-    }
-    // stop: the same stop as the "Ferma" button — cuts the agent's live turn
-    // (process + in-flight attempts) before moving the card, so no phantom
-    // agent stays "in progress" after the guest leaves. If there was nothing
-    // to cut, the card stays where it is: stopping twice does nothing the
-    // second time.
-    const cut = cutLiveTurn(before, NOTE_STOPPED_BY_HUMAN);
-    const task = cut
-      ? svc.release({ taskId, requeue: false, by: `guest:${deviceId}`, reason: NOTE_STOPPED_BY_HUMAN, parkState: PARKED_STOPPED })
-      : before;
-    if (cut) broadcastToAll({ type: "task:updated", projectId, task });
     return json(task);
   }
 
@@ -2408,10 +2375,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         return json({ error: "not shared", code: "not_shared" }, 403);
       }
 
-      // The ONLY writes granted to a guest, each with its own minimum level —
-      // everything else on this router (retitle, label, move, merge, land,
-      // publish, deploy, ...) stays out of reach: those are "code change /
-      // approval / publishing", never implicit in a collaboration level.
+      // The ONLY writes granted to a guest, each with its own minimum level -
+      // everything else on this router (run, stop, retitle, label, move,
+      // merge, land, publish, deploy, ...) stays out of reach: those are
+      // "start an agent / code change / approval / publishing", never implicit
+      // in a collaboration level.
       const guestAction = matchGuestTaskAction(pathname, idInPath!, method);
       if (guestAction === "unsupported") return json({ error: "read only", code: "guest_read_only" }, 403);
       if (guestAction !== "read" && !meetsLevel(level, guestAction)) {
@@ -2422,9 +2390,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       if (guestAction === "edit") {
         return await handleGuestEdit(idTask, deviceId, req);
-      }
-      if (guestAction === "run") {
-        return handleGuestRun(idTask, deviceId, pathname.endsWith("/stop") ? "stop" : "start");
       }
       // "read": the task by id, with its thread — no other handler further
       // down answers `/api/tasks/:id` (that prefix only ever served as an

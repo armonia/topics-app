@@ -1933,7 +1933,6 @@ const IT: Dict = {
   'auth.err.resource_id_required': 'Manca la cosa da condividere.',
   'auth.err.subject_required': 'Manca il destinatario.',
   'auth.err.bad_person_id': 'La persona indicata non ha una forma valida.',
-  'auth.err.manage_level_required': 'Serve un permesso di livello "gestione" per modificare questa condivisione.',
   'auth.err.unknown_level': 'Quel livello di accesso non esiste.',
   // ── I DISPOSITIVI autorizzati. Superficie migrata al dizionario insieme
   //    all'area account/gruppi: prima era interamente in italiano in chiaro,
@@ -2406,8 +2405,6 @@ const IT: Dict = {
   'share.level.read': 'Può vedere',
   'share.level.comment': 'Può commentare',
   'share.level.edit': 'Può modificare',
-  'share.level.run': 'Può avviare',
-  'share.level.manage': 'Può gestire la condivisione',
 
   // Permissions: the panel where a person decides whether the agent may act.
   'permission.asks': "L'agente chiede un permesso",

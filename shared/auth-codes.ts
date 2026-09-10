@@ -127,11 +127,10 @@ export const CODICI_AUTH = [
   'subject_required',
   'bad_person_id',
 
-  // ── GRANULAR LEVELS on a share. A guest reaches this route through the
-  //    gate, but changing who-can-see-what still needs `manage` on the exact
-  //    resource, and the level named in the body must be one this scale
-  //    knows.
-  'manage_level_required',
+  // ── GRANULAR LEVELS on a share: the level named in the body must be one
+  //    this scale knows (`read` < `comment` < `edit`). There is no code here
+  //    for "a guest tried to manage a share": no guest reaches this route at
+  //    all, the gate refuses the path with `guest_forbidden`.
   'unknown_level',
 ] as const;
 

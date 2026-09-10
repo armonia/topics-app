@@ -1,8 +1,8 @@
 /**
- * A guest's write capability on a shared task: `comment`, `edit`, `run`
- * gate the four writes this router opens to a guest at all (see
- * `matchGuestTaskAction`), and nothing above `run` reaches an owner-only
- * route (retitle, land, publish, ...).
+ * A guest's write capability on a shared task: `comment` and `edit` gate the
+ * two writes this router opens to a guest at all (see
+ * `matchGuestTaskAction`), and no level reaches a run, a stop, or any other
+ * owner-only route (retitle, land, publish, ...).
  *
  * @covers GUEST-09
  */
@@ -37,16 +37,18 @@ function guestCtx(db: Database, broadcasts: unknown[], deviceId: string) {
   return { ...base, requestIdentity: () => ({ role: "guest" as const, deviceId }) } as unknown as AppContext;
 }
 
-describe("matchGuestTaskAction — the four guest writes, and nothing else", () => {
+describe("matchGuestTaskAction - the two guest writes, and nothing else", () => {
   test("read on the item itself, and only the item", () => {
     expect(matchGuestTaskAction("/api/tasks/t1", "t1", "GET")).toBe("read");
     expect(matchGuestTaskAction("/api/tasks/t1/comments", "t1", "GET")).toBe("unsupported");
   });
-  test("comment / edit / run, each its own subpath", () => {
+  test("comment and edit, each its own subpath", () => {
     expect(matchGuestTaskAction("/api/tasks/t1/comments", "t1", "POST")).toBe("comment");
     expect(matchGuestTaskAction("/api/tasks/t1", "t1", "PATCH")).toBe("edit");
-    expect(matchGuestTaskAction("/api/tasks/t1/run", "t1", "POST")).toBe("run");
-    expect(matchGuestTaskAction("/api/tasks/t1/stop", "t1", "POST")).toBe("run");
+  });
+  test("run and stop are unsupported: no level on this scale dispatches an agent", () => {
+    expect(matchGuestTaskAction("/api/tasks/t1/run", "t1", "POST")).toBe("unsupported");
+    expect(matchGuestTaskAction("/api/tasks/t1/stop", "t1", "POST")).toBe("unsupported");
   });
   test("everything else on this router is unsupported for a guest, at any level", () => {
     expect(matchGuestTaskAction("/api/tasks/t1/land", "t1", "POST")).toBe("unsupported");
@@ -85,42 +87,33 @@ describe("a guest with a level on a shared task", () => {
     expect(denied.status).toBe(403);
   });
 
-  test("`edit`: can rename, cannot start a run", async () => {
+  test("`edit`: can rename the card, and STILL cannot start it", async () => {
     putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "edit", grantedAt: Date.now() });
     const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"));
     const edited = (await call(guest, "PATCH", `/api/tasks/${taskId}`, { text: "renamed by guest" }))!;
     expect(edited.status).toBe(200);
     expect((await edited.json()).text).toBe("renamed by guest");
-    const denied = (await call(guest, "POST", `/api/tasks/${taskId}/run`))!;
-    expect(denied.status).toBe(403);
+    // The pair that made `run` unacceptable: rewrite the text, then dispatch it
+    // as a prompt inside the owner's repository. The second half is refused at
+    // the TOP level of the scale, so the pair cannot be assembled at all.
+    for (const route of ["run", "stop"]) {
+      const denied = (await call(guest, "POST", `/api/tasks/${taskId}/${route}`))!;
+      expect(denied.status).toBe(403);
+      expect((await denied.json()).code).toBe("guest_read_only");
+    }
+    // And nothing was dispatched: the card is still where the edit left it.
+    expect(db.query("SELECT status FROM tasks WHERE id = ?").get(taskId)).toMatchObject({ status: "backlog" });
   });
 
-  test("`run`: starts idempotently; stopping with nothing live is a no-op, not an error", async () => {
-    putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "run", grantedAt: Date.now() });
-    const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"));
-    const started = await (await call(guest, "POST", `/api/tasks/${taskId}/run`))!.json();
-    expect(started.status).toBe("todo");
-    // Idempotent: asking again with the task already in `todo` changes nothing —
-    // no second dispatch, no ghost task.
-    const again = await (await call(guest, "POST", `/api/tasks/${taskId}/run`))!.json();
-    expect(again.status).toBe("todo");
-    // Stop reuses the same "cut the live turn" the human's stop button calls;
-    // with no attempt actually running there is nothing to cut, so the card
-    // is left exactly where it was rather than reporting a fake success.
-    const stopped = (await call(guest, "POST", `/api/tasks/${taskId}/stop`))!;
-    expect(stopped.status).toBe(200);
-    expect((await stopped.json()).id).toBe(taskId);
-  });
-
-  test("`manage` still cannot reach an owner-only route", async () => {
-    putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "manage", grantedAt: Date.now() });
+  test("`edit` still cannot reach an owner-only route", async () => {
+    putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "edit", grantedAt: Date.now() });
     const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"));
     const denied = (await call(guest, "POST", `/api/tasks/${taskId}/land`))!;
     expect(denied.status).toBe(403);
   });
 
   test("a `deny` beats any level, including the ones granted to the guest's own device", async () => {
-    putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "manage", grantedAt: Date.now() });
+    putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "edit", grantedAt: Date.now() });
     // A level change is drop-then-put, same as the sharing UI does — the
     // UNIQUE(subject, resource) index would otherwise silently ignore the
     // second row.

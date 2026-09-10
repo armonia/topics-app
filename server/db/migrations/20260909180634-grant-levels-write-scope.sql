@@ -3,18 +3,26 @@
 -- Both `task-sharing-guests` and `sharing-orgs` named this exact gap and
 -- deliberately left it out: the vocabulary was widened to `('read', 'deny')`
 -- so the CHECK would not need a second rebuild, but the levels a collaborator
--- actually needs — comment on a shared task, edit it, start or stop its
--- execution, manage who else it is shared with — were never added, and
--- neither was anything that enforces them.
+-- actually needs - comment on a shared task, correct its text - were never
+-- added, and neither was anything that enforces them.
 --
--- Five ordered levels replace the binary one: `read` < `comment` < `edit` <
--- `run` < `manage`, plus `deny` which still overrides all of them (see
--- `grants-query.ts`, `LEVEL_RANK`). Ordered so a capability check can ask
--- "at least X" once instead of enumerating every level that qualifies.
+-- Three ordered levels replace the binary one: `read` < `comment` < `edit`,
+-- plus `deny` which still overrides all of them (see `grants-query.ts`,
+-- `LEVEL_RANK`). Ordered so a capability check can ask "at least X" once
+-- instead of enumerating every level that qualifies.
+--
+-- THE SCALE STOPS AT `edit`, and the two levels that are NOT here were
+-- written and then removed rather than never considered. `run` implied `edit`
+-- by construction, so a guest could rewrite the card's text and then start it
+-- - and that text becomes the prompt of an agent running in a worktree of the
+-- OWNER's repo, with no rate limit and no spend cap. `manage` let a guest
+-- revoke shares the OWNER had made on the same resource, and the notification
+-- went to the subject that was cut off, never to the owner. Neither belongs to
+-- a collaboration scale; both stay owner-only actions.
 --
 -- SQLite cannot alter a CHECK in place: the table is recreated and the rows
 -- copied across untouched. The constraint only WIDENS, so every existing row
--- — all of them `read` or `deny` today — still satisfies it.
+-- - all of them `read` or `deny` today - still satisfies it.
 PRAGMA foreign_keys = OFF;
 
 CREATE TABLE grants_nuova (
@@ -23,7 +31,7 @@ CREATE TABLE grants_nuova (
   subject_id TEXT NOT NULL,
   resource_type TEXT NOT NULL CHECK (resource_type IN ('task', 'topic', 'project')),
   resource_id TEXT NOT NULL,
-  level TEXT NOT NULL CHECK (level IN ('read', 'comment', 'edit', 'run', 'manage', 'deny')),
+  level TEXT NOT NULL CHECK (level IN ('read', 'comment', 'edit', 'deny')),
   granted_at INTEGER NOT NULL,
   granted_by_person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
   via_type TEXT,

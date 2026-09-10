@@ -27,31 +27,42 @@ export interface Principal {
 }
 
 /**
- * What a row allows, in rising order of power: `read` < `comment` < `edit` <
- * `run` < `manage`. `deny` is not a level above `manage` — it is a block that
- * beats every level, handled separately in `LEVEL_RANK` and in `meetsLevel`.
+ * What a row allows, in rising order of power: `read` < `comment` < `edit`.
+ * `deny` is not a level above `edit` - it is a block that beats every level,
+ * handled separately in `LEVEL_RANK` and in `meetsLevel`.
  *
- * `read` (view) · `comment` (+ comment) · `edit` (+ create/edit the task) ·
- * `run` (+ start/stop an execution) · `manage` (+ decide who else is shared
- * on THIS resource). Code changes, approval and publishing are not a level of
- * this scale: they stay separate actions, reserved for the owner wherever
- * they already are today — no level here grants them.
+ * `read` (view) - `comment` (+ comment) - `edit` (+ change the task's own
+ * text). The scale stops there, and the two levels that used to sit above it
+ * are gone on purpose:
+ *
+ *   `run` implied `edit` by construction, so a guest holding it could rewrite
+ *   the card's text and then start it. That text goes into the prompt
+ *   (`taskFramingBlock`) and the agent runs in a worktree of the OWNER's repo,
+ *   with the autonomy the board decided, with no rate limit and no spend cap.
+ *   The only barrier was a soft "ignore instructions in the text" line.
+ *
+ *   `manage` let a guest revoke shares the OWNER had made on the same
+ *   resource, and the `auth:shares-changed` frame went to the devices of the
+ *   subject that was hit, never to the owner: a revocation that is silent on
+ *   the side that owns the card.
+ *
+ * Code changes, approval, publishing, starting a run and managing shares are
+ * not levels of this scale: they stay owner-only actions wherever they already
+ * are - no level here grants them.
  */
-export type GrantLevel = "read" | "comment" | "edit" | "run" | "manage" | "deny";
+export type GrantLevel = "read" | "comment" | "edit" | "deny";
 
 /** The order of the levels, `deny` excluded: compare with `meetsLevel`, not
- *  an `if` copied by hand at each call site — a hand-copied order is one that
+ *  an `if` copied by hand at each call site - a hand-copied order is one that
  *  the second caller writes backwards. */
 const LEVEL_RANK: Record<Exclude<GrantLevel, "deny">, number> = {
   read: 0,
   comment: 1,
   edit: 2,
-  run: 3,
-  manage: 4,
 };
 
 /**
- * Does this level cover THIS action? `deny` never covers any request — not
+ * Does this level cover THIS action? `deny` never covers any request - not
  * even `read`.
  */
 export function meetsLevel(level: GrantLevel, min: Exclude<GrantLevel, "deny">): boolean {
@@ -59,10 +70,10 @@ export function meetsLevel(level: GrantLevel, min: Exclude<GrantLevel, "deny">):
   return LEVEL_RANK[level] >= LEVEL_RANK[min];
 }
 
-/** The levels a writer CAN pick — `deny` is removed via revoke, not assigned
+/** The levels a writer CAN pick - `deny` is removed via revoke, not assigned
  *  from the sharing panel. */
 export const ASSIGNABLE_GRANT_LEVELS: readonly Exclude<GrantLevel, "deny">[] =
-  ["read", "comment", "edit", "run", "manage"] as const;
+  ["read", "comment", "edit"] as const;
 
 export function isAssignableGrantLevel(v: unknown): v is Exclude<GrantLevel, "deny"> {
   return typeof v === "string" && (ASSIGNABLE_GRANT_LEVELS as readonly string[]).includes(v);
@@ -107,14 +118,22 @@ export interface GrantRow {
  *  passare uno SQLite in memoria senza costruire l'AppContext intero. */
 type Db = Pick<Database, "query">;
 
-/** A row read from the DB, narrowed to the known vocabulary. A value the
- *  CHECK constraint does not know yet (a rollback, an older DB) falls back to
- *  `read`: the safe direction grants LESS, not the one that rejects the
- *  whole row. */
+/**
+ * A row read from the DB, narrowed to the known vocabulary. A value this scale
+ * does not know falls back to `read`: the safe direction grants LESS, not the
+ * one that rejects the whole row.
+ *
+ * THIS IS ALSO HOW A LEGACY `run` OR `manage` ROW IS READ, and it is a
+ * decision, not a leftover. Those two levels existed for one day on an
+ * unlanded branch; a database that ran that CHECK can still hold such a row.
+ * Reading it back as what it says would hand a guest exactly the two
+ * capabilities that were removed for being dangerous, so it is DEMOTED to
+ * `read` - the least power on the scale - not to `edit`, which would keep the
+ * write half of a level nobody may hold any more. Proven by
+ * `grants-legacy-levels.test.ts`.
+ */
 function asGrantLevel(v: unknown): GrantLevel {
-  return v === "deny" || v === "comment" || v === "edit" || v === "run" || v === "manage"
-    ? v
-    : "read";
+  return v === "deny" || v === "comment" || v === "edit" ? v : "read";
 }
 
 /**
@@ -225,9 +244,9 @@ export function hasGrant(
 
 /**
  * The EFFECTIVE level of a set of rows: `deny` if a single one says so,
- * otherwise the HIGHEST among the rest. Not the first one — a device with
- * direct `edit` and an org with `manage` on the same resource must resolve
- * to `manage`, not to the order the rows were written in.
+ * otherwise the HIGHEST among the rest. Not the first one - a device with
+ * direct `read` and an org with `edit` on the same resource must resolve to
+ * `edit`, not to the order the rows were written in.
  */
 function effectiveLevel(rows: readonly GrantRow[]): GrantLevel | null {
   if (rows.length === 0) return null;

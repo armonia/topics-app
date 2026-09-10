@@ -1686,7 +1686,6 @@ const EN = {
   'auth.err.resource_id_required': 'The thing to share is missing.',
   'auth.err.subject_required': 'The recipient is missing.',
   'auth.err.bad_person_id': 'The person given is not in a valid shape.',
-  'auth.err.manage_level_required': 'You need a manage-level grant to change this share.',
   'auth.err.unknown_level': 'That access level does not exist.',
   'devices.title': 'Authorised devices',
   'devices.blurb': 'Every device other than this computer has to be authorised once. The green dot marks who is connected right now.',
@@ -2080,8 +2079,6 @@ const EN = {
   'share.level.read': 'Can view',
   'share.level.comment': 'Can comment',
   'share.level.edit': 'Can edit',
-  'share.level.run': 'Can run',
-  'share.level.manage': 'Can manage sharing',
 
   // Permissions: the panel where a person decides whether the agent may act.
   'permission.asks': 'The agent is asking for a permission',

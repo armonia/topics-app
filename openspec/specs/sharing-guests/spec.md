@@ -443,27 +443,35 @@ nuova per un tipo nuovo.
 - **GIVEN** il gesto sulla voce
 - **THEN** SHALL aprirsi il pannello di condivisione consueto
 
-### Requirement: GUEST-09 — A guest can be granted more than read: comment, edit, run, manage
+### Requirement: GUEST-09 — A guest can be granted more than read: comment, edit
 
 `GUEST-02` gave a guest read and nothing else, on purpose: the write path did
 not exist yet, and `deny` alone was the vocabulary in the schema. This
-requirement is that deferred write path.
+requirement is that deferred write path, and it stops where collaboration
+stops.
 
 A grant's level SHALL be one of, in increasing power: `read` (look), `comment`
-(+ comment on the task), `edit` (+ change the task's own text), `run` (+
-start/stop its execution), `manage` (+ decide who else is granted on THIS
-resource). `deny` SHALL still override every one of them regardless of how it
-arrived.
+(+ comment on the task), `edit` (+ change the task's own text). `deny` SHALL
+still override every one of them regardless of how it arrived. A guest
+commenting and correcting the text of a card is the whole capability; it does
+not start anything and it does not manage sharing.
+
+Starting or stopping a run SHALL NOT be a level of this scale. The card's text
+becomes the prompt of an agent running in a worktree of the OWNER's repository,
+with the autonomy the board decided and with no rate limit or spend cap, and
+that text is exactly what `edit` lets a guest rewrite: a level that granted
+both would let a guest choose what an owner's agent does. Deciding who else is
+granted on a resource SHALL likewise NOT be a level: it stays an owner action
+(see `GUEST-10`).
 
 Code changes, review approval and publishing SHALL remain distinct actions,
 reserved to the resource's owner exactly where they already are: no level on
 this scale SHALL grant any of them implicitly.
 
-Starting a run SHALL be IDEMPOTENT: asking to start a task already in
-`todo`/`in_progress` SHALL return the task unchanged, not queue it twice.
-Stopping SHALL cut the agent's live turn the same way the owner's "Ferma"
-button does — no ghost agent SHALL keep running after a guest with `run`
-leaves.
+A level this scale does not know — including `run` and `manage`, which existed
+on an unlanded branch and may therefore sit in a database — SHALL be read as
+`read`, the least power on the scale, and SHALL NOT be accepted as a value a
+share can be set to.
 
 #### Scenario: comment needs `comment`, nothing less
 - **GIVEN** a guest holding only `read` on a task
@@ -477,26 +485,50 @@ leaves.
 - **WHEN** the same guest edits the task's text
 - **THEN** the server SHALL answer 403 `guest_level_denied`
 
-#### Scenario: `run` starts and stops, idempotently
-- **GIVEN** a guest holding `run` on a backlog task
-- **WHEN** it starts the task twice in a row
-- **THEN** the second call SHALL leave the task exactly where the first left it
-- **WHEN** it then stops the task
-- **THEN** the server SHALL cut the live turn and park the task
+#### Scenario: no level starts or stops a run
+- **GIVEN** a guest holding the highest level on a task
+- **WHEN** it calls `POST /api/tasks/:id/run` or `POST /api/tasks/:id/stop`
+- **THEN** the server SHALL answer 403, and the task SHALL NOT be dispatched
 
-#### Scenario: nothing above `run` unlocks code, approval or publishing
-- **GIVEN** a guest holding `manage` on a task
+#### Scenario: nothing on the scale unlocks code, approval or publishing
+- **GIVEN** a guest holding `edit` on a task
 - **WHEN** it attempts any route this project reserves to the owner (retitle, label, move, merge, land, publish, deploy)
 - **THEN** the server SHALL answer 403, same as at `read`
 
-#### Scenario: `manage` lets a guest share and revoke on that same resource, nothing else
-- **GIVEN** a guest holding `manage` on a resource
-- **WHEN** it calls `POST` or `DELETE /api/auth/shares` for that same resource
-- **THEN** the server SHALL accept it, granting or revoking a third party on that resource
-- **WHEN** it calls the same route for a DIFFERENT resource where it holds no `manage`
-- **THEN** the server SHALL answer 403 `manage_level_required`
+#### Scenario: a level left over from a wider scale grants nothing extra
+- **GIVEN** a grant row whose level is `run` or `manage`
+- **WHEN** the effective level of that row is read
+- **THEN** it SHALL be `read`
+- **AND** an attempt to set a share to `run` or `manage` SHALL be refused with 400 `unknown_level`
 
 #### Scenario: the sharing panel shows and lets you change the effective level
 - **GIVEN** the owner's sharing panel for a resource with existing guests
 - **THEN** each row SHALL show that guest's current level, editable in place
+- **AND** the choices offered SHALL be exactly `read`, `comment` and `edit`
 - **AND** picking a different level SHALL take effect immediately, for both new API calls and any live socket already open
+
+### Requirement: GUEST-10 — The sharing route is not part of a guest's surface
+
+`/api/auth/shares` SHALL NOT be reachable by a confined device, for any method,
+and the refusal SHALL happen at the gate that decides a guest's allowed paths —
+not inside the route.
+
+The distinction is the requirement, not an implementation note. The `GET`
+branch of that route has no level check of its own, and the gate matches
+resource ids found in the PATH while this route names its resource in the
+QUERY: listed as an allowed path, a guest holding `read` on a single card could
+read the subjects, the names (devices, people, organisations) and the levels of
+any resource whose id it could obtain — and the id of the project containing
+its own card is one it can obtain. A guard added inside the route would leave
+that shape one forgotten branch away from opening again.
+
+#### Scenario: a guest asking who else holds a resource
+- **GIVEN** a guest with a real grant on a task
+- **WHEN** it calls `GET /api/auth/shares?resourceId=<any id>` from outside
+- **THEN** the server SHALL answer 403 with code `guest_forbidden`
+- **AND** the body SHALL NOT contain any subject, name or level
+
+#### Scenario: a guest trying to grant or revoke
+- **GIVEN** the same guest
+- **WHEN** it calls `POST` or `DELETE /api/auth/shares`
+- **THEN** the server SHALL answer 403 with code `guest_forbidden`

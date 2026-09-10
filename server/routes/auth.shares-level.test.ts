@@ -1,9 +1,9 @@
 /**
- * POST /api/auth/shares now takes a `level`, not just an on/off grant, and a
- * guest can call it too, but only on a resource where its own device
- * already holds `manage` on it.
+ * POST /api/auth/shares now takes a `level`, not just an on/off grant - and
+ * the route stays OWNER-ONLY: no guest reaches it, because the gate's path
+ * allowlist does not name it.
  *
- * @covers GUEST-09
+ * @covers GUEST-09, GUEST-10
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createAuthRouter } from "./auth";
-import { putGrant } from "../lib/grants-query";
+import { isGuestAllowedPath, isGuestAllowedMethod } from "../lib/grants";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const MIGRATIONS = [
@@ -90,49 +90,54 @@ describe("POST /api/auth/shares · il livello", () => {
   });
 });
 
-describe("POST/DELETE /api/auth/shares · un ospite con `manage`", () => {
+describe("un livello che questa scala non conosce", () => {
   let db: Database;
+  beforeEach(() => { db = dbFresco(); });
 
-  beforeEach(() => {
-    db = dbFresco();
-    putGrant(db, { kind: "device", id: "g1" }, "task", "t1", { level: "manage", grantedAt: Date.now() });
-  });
-
-  test("può condividere la STESSA risorsa con un terzo", async () => {
-    const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
-    const res = await call(guest, "POST", "/api/auth/shares", {
-      resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "g2", level: "comment",
+  // `run` and `manage` existed on this branch for a day, so a database can
+  // hold a row that says so. Neither may be ASSIGNED any more: the refusal is
+  // the same `unknown_level` as an invented word, because for this scale they
+  // are the same thing.
+  for (const level of ["run", "manage"]) {
+    test(`\`${level}\` non e' piu' assegnabile: 400`, async () => {
+      const owner = createAuthRouter(creaCtx(db, { role: "owner", deviceId: "o1" }));
+      const res = await call(owner, "POST", "/api/auth/shares", {
+        resourceType: "task", resourceId: "t1", subjectType: "device", subjectId: "g1", level,
+      });
+      expect(res?.status).toBe(400);
+      expect((await res!.json()).error).toBe("unknown_level");
+      expect(db.query("SELECT level FROM grants WHERE resource_id = 't1'").get()).toBeNull();
     });
-    expect(res?.status).toBe(200);
-    const row = db.query("SELECT level FROM grants WHERE resource_id = 't1' AND subject_id = 'g2'").get() as { level: string };
-    expect(row.level).toBe("comment");
+  }
+});
+
+/**
+ * THE ROUTE IS CLOSED AT THE GATE, and this is the test that says so.
+ *
+ * It asks the gate's own predicates rather than the router, because that is
+ * where the refusal happens: the router below never sees a guest's request,
+ * and a test that called it directly would be asking the wrong question - the
+ * one the previous version of this file asked, stubbing `requestIdentity` so
+ * the real chain was never crossed. The end-to-end half lives in
+ * `tests/e2e/guest-confinement.spec.ts` (GUEST-10), which comes in from the
+ * tunnel port with a real guest cookie.
+ */
+describe("GET/POST/DELETE /api/auth/shares · nessun ospite passa", () => {
+  test("il percorso non e' nell'allowlist degli ospiti", () => {
+    expect(isGuestAllowedPath("/api/auth/shares")).toBe(false);
+    // The neighbours a guest DOES need stay open: the closure is this one
+    // path, not the whole auth surface.
+    expect(isGuestAllowedPath("/api/auth/shared")).toBe(true);
+    expect(isGuestAllowedPath("/api/auth/session")).toBe(true);
+    expect(isGuestAllowedPath("/api/auth/logout")).toBe(true);
   });
 
-  test("non può toccare una risorsa dove non ha `manage`", async () => {
-    const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
-    const res = await call(guest, "POST", "/api/auth/shares", {
-      resourceType: "task", resourceId: "altro-task", subjectType: "device", subjectId: "g2", level: "read",
-    });
-    expect(res?.status).toBe(403);
-  });
-
-  test("con solo `edit` (non `manage`) resta fuori", async () => {
-    putGrant(db, { kind: "device", id: "g3" }, "task", "t2", { level: "edit", grantedAt: Date.now() });
-    const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g3" }));
-    const res = await call(guest, "POST", "/api/auth/shares", {
-      resourceType: "task", resourceId: "t2", subjectType: "device", subjectId: "g4", level: "read",
-    });
-    expect(res?.status).toBe(403);
-  });
-
-  test("può anche revocare, sulla stessa risorsa", async () => {
-    putGrant(db, { kind: "device", id: "g2" }, "task", "t1", { level: "read", grantedAt: Date.now() });
-    const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
-    const url = new URL("http://127.0.0.1:3333/api/auth/shares?resourceType=task&resourceId=t1&subjectType=device&subjectId=g2");
-    const req = new Request(url, { method: "DELETE" });
-    const res = await guest(req, url, url.pathname, "DELETE");
-    expect(res?.status).toBe(200);
-    const row = db.query("SELECT * FROM grants WHERE resource_id = 't1' AND subject_id = 'g2'").get();
-    expect(row).toBeNull();
+  test("nemmeno in lettura: era il ramo senza alcun controllo di livello", () => {
+    // GET is the branch that had no level check of its own, and the gate
+    // matches ids in the PATH while this route names its resource in the
+    // QUERY. Closed as a path, the query cannot be reached at all.
+    for (const method of ["GET", "POST", "DELETE"]) {
+      expect(isGuestAllowedMethod("/api/auth/shares", method) && isGuestAllowedPath("/api/auth/shares")).toBe(false);
+    }
   });
 });

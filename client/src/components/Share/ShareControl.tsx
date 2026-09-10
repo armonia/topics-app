@@ -49,17 +49,16 @@ interface LinkOutsideNetwork {
 }
 
 /** Must stay in sync with `ASSIGNABLE_GRANT_LEVELS` in
- *  `server/lib/grants-query.ts` — that is the order the server compares
- *  against, so it is also the order this choice is presented in, low to
- *  high. */
-type GrantLevel = 'read' | 'comment' | 'edit' | 'run' | 'manage';
-const LEVELS: readonly GrantLevel[] = ['read', 'comment', 'edit', 'run', 'manage'];
+ *  `server/lib/grants-query.ts` - that is the order the server compares
+ *  against, so it is also the order this choice is presented in, low to high.
+ *  It stops at `edit` on purpose: starting a run and managing who else is
+ *  shared are owner-only actions, not steps on a collaboration scale. */
+type GrantLevel = 'read' | 'comment' | 'edit';
+const LEVELS: readonly GrantLevel[] = ['read', 'comment', 'edit'];
 const KEY_LEVEL: Record<GrantLevel, string> = {
   read: 'share.level.read',
   comment: 'share.level.comment',
   edit: 'share.level.edit',
-  run: 'share.level.run',
-  manage: 'share.level.manage',
 };
 
 interface Share {
