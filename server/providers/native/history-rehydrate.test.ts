@@ -90,11 +90,11 @@ describe("historyFromPersistedThread — ricostruire la storia dopo un riavvio",
    */
   test("la seconda ripete la prima dall'inizio: è lo stesso turno riscritto, vince il più lungo", () => {
     const partial = "Scelgo di non fare l'overwrite CSV: azzererebbe la formattazione.";
-    const full = `${partial} Procedo dalla colonna C e ti lascio il foglio pronto.`;
-    const out = historyFromPersistedThread([u("fai tu"), a(partial), a(full), u("e i costi?")]);
+    const whole = `${partial} Procedo dalla colonna C e ti lascio il foglio pronto.`;
+    const out = historyFromPersistedThread([u("fai tu"), a(partial), a(whole), u("e i costi?")]);
     expect(out).toEqual([
       { role: "user", content: "fai tu" },
-      { role: "assistant", content: full },
+      { role: "assistant", content: whole },
     ]);
   });
 
