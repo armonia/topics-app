@@ -76,6 +76,38 @@ const muteRound = sse([
   { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 0 } },
 ]);
 
+/**
+ * THE REFUSAL, exactly as the API sent it on 2026-09-08 for topic:06519a5d:
+ * HTTP 200, not one content block, zero output tokens, and the whole reason
+ * living in `stop_details`.
+ */
+const refusalRound = sse([
+  { type: "message_start", message: { usage: { input_tokens: 98_492 } } },
+  {
+    type: "message_delta",
+    delta: {
+      stop_reason: "refusal",
+      stop_details: {
+        type: "refusal",
+        category: "reasoning_extraction",
+        explanation: "This request was blocked as it seems to violate Anthropic's Terms of Service restrictions on reverse engineering or duplicating model outputs.",
+      },
+    },
+    usage: { output_tokens: 0 },
+  },
+]);
+
+/** The same refusal from an API that did not explain itself. */
+const bareRefusalRound = sse([
+  { type: "message_start", message: { usage: { input_tokens: 10 } } },
+  { type: "message_delta", delta: { stop_reason: "refusal" }, usage: { output_tokens: 0 } },
+]);
+
+/** The body ends before any `message_delta`, and nothing was ever produced. */
+const silentRound = sse([
+  { type: "message_start", message: { usage: { input_tokens: 10 } } },
+]);
+
 interface Ledger {
   done: number;
   errors: string[];
@@ -165,6 +197,44 @@ describe("il giro che muore a meta' non e' una fine naturale", () => {
   test("un turn che non produce nemmeno una parola, ma si chiude, resta end_turn", async () => {
     const { out } = await turn(muteRound);
     expect(out.turnEnd.end).toBe("end_turn");
+  });
+
+  /**
+   * A REFUSAL WAS INDISTINGUISHABLE FROM AN EMPTY TURN, and that is how a
+   * conversation stayed broken for two days.
+   *
+   * The API answers 200 with `stop_reason: "refusal"`, zero blocks and zero
+   * output tokens; the reason is in `stop_details` and nowhere else. The loop
+   * read `stop_reason` for `max_tokens` only, so this fell through to
+   * `end_turn`, left via `onDone`, and the route stamped the generic «no
+   * answer» notice on the row. Measured on topic:06519a5d: six turns like this,
+   * each billed 98k-113k prompt tokens, and not one line in the log containing
+   * the word refusal. allow-italian: quotes the notice the route writes
+   */
+  describe("il rifiuto dell'API si dice, non si scambia per una risposta mancata", () => {
+    test("stop_reason refusal ⇒ la fine e' refusal, e porta la spiegazione dell'API", async () => {
+      const { out, reg } = await turn(refusalRound);
+      expect(out.turnEnd.end).toBe("refusal");
+      expect(out.turnEnd.detail).toContain("duplicating model outputs");
+      // It is a verdict, not a fault: it goes out of the `done` door, and the
+      // route turns the end into the notice. `onError` would make the
+      // dispatcher treat it as a crash to retry.
+      expect(reg.done).toBe(1);
+      expect(reg.errors).toEqual([]);
+    });
+
+    test("senza stop_details la fine e' la stessa e la spiegazione non si inventa", async () => {
+      const { out } = await turn(bareRefusalRound);
+      expect(out.turnEnd.end).toBe("refusal");
+      expect(out.turnEnd.detail).toContain("senza spiegazione");
+    });
+
+    test("nessun blocco e nessuno stop_reason: lo stream e' morto, non e' una fine naturale", async () => {
+      const { out, reg } = await turn(silentRound);
+      expect(out.turnEnd.end).toBe("error");
+      expect(out.turnEnd.cause).toBe("provider-error");
+      expect(reg.errors.length).toBe(1);
+    });
   });
 
   /**

@@ -1984,7 +1984,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // writes its own error block, and its `max_tokens` classification
             // also covers input-side context overflow, where advice about a
             // single turn's length is wrong.
-            const cutNotice = reason === "done" && endInfo.end === "max_tokens"
+            //
+            // A REFUSAL TAKES THE SAME LEG, for the same reason: the API
+            // answers 200 with no content at all, so without this it fell into
+            // the empty-turn notice below and the verdict — which the API does
+            // explain — was never shown. See `native/agent-loop.ts:roundEnd`.
+            const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
               : null;
             if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
@@ -2005,7 +2010,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // AND THE END MUST SAY IT WENT WRONG, or `stream:end` carries no
               // `reason: "error"` and the push gate mutes the cut turn.
               turnError = cutNotice;
-              console.warn(`[StreamWS] ${sessionKey}: turn cut by the output cap`);
+              console.warn(
+                `[StreamWS] ${sessionKey}: ${endInfo.end === "refusal" ? "turn refused by the API" : "turn cut by the output cap"}`,
+              );
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
               }

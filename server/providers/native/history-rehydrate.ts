@@ -88,6 +88,9 @@ export function configureNativeHistorySource(fn: PersistedThreadLoader | null): 
  * 4. **I ruoli si alternano.** Due `assistant` di fila sono normali qui (una
  *    risposta più una nota di sistema) e non lo sono per l'API: si fondono in
  *    una riga sola, separate da una riga vuota.
+ *    (One exception, in `joinContent`: when one of the two contains the other
+ *    from its very first character it is the same turn written down twice, and
+ *    the longer one wins.)
  *
  * L'ORDINE FRA 3 E 4 È IL PUNTO, e l'ho sbagliato al primo giro. Fondendo prima
  * di togliere, due `user` consecutivi — che qui capitano davvero: una domanda
@@ -158,9 +161,37 @@ export function historyFromPersistedThread(thread: readonly PersistedTurn[]): Re
  * a blank line, as before; anything with blocks becomes blocks, so a
  * `tool_result` message followed by a plain user line keeps the results FIRST,
  * which is where the API wants them inside a user message.
+ *
+ * WITH ONE EXCEPTION, AND IT IS NOT A TIDINESS ONE: when one of the two
+ * CONTAINS the other from its first character, they are not two things said,
+ * they are the same thing written down twice.
+ *
+ * That shape is left behind by a turn whose row is closed from outside — the
+ * stale-stream sweeper, an external finalization — while the turn itself is
+ * still alive in memory. The row stops being `partial`, so nobody can reuse it,
+ * and the turn's next write opens a NEW row and replays itself into it from the
+ * beginning. What lands in the database is a short row and, right after it, a
+ * longer one that starts with those same characters. Measured on the live
+ * database: 65 such pairs across 54 conversations.
+ *
+ * Joining them sends the API an assistant message that says its own opening
+ * twice, and that is not merely wasteful. On 2026-09-08, topic:06519a5d, the
+ * fused pair (887 characters repeated inside 2564) came back as HTTP 200 with
+ * `stop_reason: "refusal"`, category `reasoning_extraction`, zero output
+ * tokens: the request was read as an attempt to duplicate model output. From
+ * that moment the conversation was unusable — the same history goes up on every
+ * retry, so every retry bought the identical refusal. Isolated by bisection
+ * against the real API: either row alone answers normally, the two fused do not.
+ *
+ * So the longer one wins. It is not a truncation: it already contains, letter
+ * for letter, everything the shorter one said.
  */
 function joinContent(a: string | Block[], b: string | Block[]): string | Block[] {
-  if (typeof a === "string" && typeof b === "string") return `${a}\n\n${b}`;
+  if (typeof a === "string" && typeof b === "string") {
+    if (a && b.startsWith(a)) return b;
+    if (b && a.startsWith(b)) return a;
+    return `${a}\n\n${b}`;
+  }
   return [...toBlocks(a), ...toBlocks(b)];
 }
 
