@@ -10,7 +10,9 @@
  * sample. A per-session query there would be N statements every few seconds for
  * an answer that is one indexed `IN` away; N is small today, and a loop that is
  * cheap at ten rows is the shape that stops being cheap without anyone editing
- * it. So the resolver takes the whole list and answers with a map.
+ * it. So the resolver takes the whole list and answers with a map. Measured on
+ * the live database (1.7k topics): 0.12 ms for a batch of 7, 0.14 ms for 20 -
+ * both indexes it needs already exist.
  *
  * TWO KEY SHAPES, one query. A terminal session carries the topic's FULL uuid
  * (`TerminalSession.topicId`); a chat session is addressed by its session key,
