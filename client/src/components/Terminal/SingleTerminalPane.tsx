@@ -18,6 +18,7 @@ import { usePaneAlive } from '../../state/paneLiveness';
 import { isWindowAwake } from '../../state/windowAwake';
 import { useT } from '../../hooks/useT';
 import { restartTerminalSession } from '../../lib/terminalReload';
+import { postTerminalResize } from '../../lib/terminalRosterRetry';
 import { copyText } from '../../lib/clipboard';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
@@ -582,11 +583,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // The attach's resize lives here, not in `ws.onopen`: this is the
               // only frame that proves the session is alive, so the POST cannot
               // land on a 404.
-              fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cols: term.cols, rows: term.rows }),
-              }).catch(() => {});
+              postTerminalResize(sessionId, term.cols, term.rows);
               // The screen the reader was looking at is on screen again, for
               // real this time: the seed has done its job and steps aside, and
               // what it will show NEXT time is written down here.
@@ -726,11 +723,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       // touch client therefore counts as active too.
       const active = document.hasFocus() || (isTouchDevice && document.visibilityState === 'visible');
       if (!active) return;
-      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols, rows }),
-      }).catch(() => {});
+      postTerminalResize(sessionId, cols, rows);
     });
 
     termRef.current = { term, fit: fitAddon, ws: initialWs };
@@ -897,11 +890,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const ref = termRef.current;
       if (!ref) return;
       try { ref.fit.fit(); } catch {}
-      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
-      }).catch(() => {});
+      postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
@@ -926,11 +915,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       if (!ref) return;
       try { ref.fit.fit(); } catch {}
       try { ref.term.refresh(0, ref.term.rows - 1); } catch {}
-      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
-      }).catch(() => {});
+      postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     });
     return () => cancelAnimationFrame(raf);
   }, [isActive, sessionId]);
@@ -945,11 +930,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const ref = termRef.current;
       if (!ref) return;
       try { ref.fit.fit(); } catch {}
-      fetch(`/api/terminal/sessions/${sessionId}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cols: ref.term.cols, rows: ref.term.rows }),
-      }).catch(() => {});
+      postTerminalResize(sessionId, ref.term.cols, ref.term.rows);
     };
     document.addEventListener('visibilitychange', handleVisible);
     return () => document.removeEventListener('visibilitychange', handleVisible);

@@ -38,9 +38,9 @@
  * signed in with, the way in when there is no account, the names of the people
  * behind the chips, the exact numbers behind the dot.
  */
-import { Suspense, useCallback, useState } from 'react';
+import { Suspense, useCallback, useLayoutEffect, useState } from 'react';
 import { Building2, UserRound, Users } from 'lucide-react';
-import { SubmenuItem } from '../Shared/SubmenuItem';
+import { MenuWidthProvider, SubmenuItem } from '../Shared/SubmenuItem';
 import { PresencePopover } from './PresencePopover';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { TopicsMenuItems, type TopicsMenuItemsProps } from './TopicsMenuItems';
@@ -69,10 +69,45 @@ export type SidebarCommands = Omit<TopicsMenuItemsProps, 'isMobile' | 'onClose'>
   onOpenChangelog: (version: string) => void;
 };
 
-/** The width of this panel. Wider than the people-list default (244) because
- *  it holds an email field and a code field: at 244 an address is typed into a
- *  two-word window. */
-const WIDTH = 288;
+/**
+ * THE PANEL IS AS WIDE AS THE COLUMN IT HANGS FROM, and never narrower than
+ * this.
+ *
+ * It was a constant, 288. That was fine while the column measured 256: the
+ * panel overhung by a little and nobody noticed. But the column drags between
+ * 180 and 400 (`useSidebarAndLayout`), and at 400 the ratio inverts - a 288
+ * menu hanging off a 388 card reads as a small window, which is exactly the
+ * defect that was reported.
+ *
+ * THE ANCHOR IS MEASURED, not the state. The real width lives in a `useState`
+ * of `App` that nobody in this chain can read, and it is persisted to
+ * `app-settings` one round late: while the column is being dragged the measure
+ * exists only in the DOM. The card that opens the menu is `w-full` inside the
+ * column, so its rect IS the column, always, and with no new props. Same
+ * precedent as `Select`, which measures its trigger's rect on open.
+ *
+ * THE FLOOR STAYS 288 because this panel holds an email field and a code
+ * field: under 300 an address is typed into a two-word window. With a narrow
+ * column the menu is therefore wider than the column, and that is right - it
+ * is the case the number was chosen for.
+ */
+const MIN_WIDTH = 288;
+
+/** The anchor's width, measured before paint and measured again while it is
+ *  dragged: the `ResizeObserver` costs one call per gesture and removes the
+ *  question "what if the column changes while the menu is open". */
+function useAnchorWidth(anchorEl: HTMLElement | null, floor: number): number {
+  const [width, setWidth] = useState(floor);
+  useLayoutEffect(() => {
+    if (!anchorEl) return;
+    const measure = () => setWidth(Math.max(floor, Math.round(anchorEl.getBoundingClientRect().width)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(anchorEl);
+    return () => observer.disconnect();
+  }, [anchorEl, floor]);
+  return width;
+}
 
 export function ProfileMenu({
   anchorEl, onClose, who, DeviceIcon, facts, orgs, friends, signals, commands, onOpenDevices,
@@ -90,13 +125,14 @@ export function ProfileMenu({
   onOpenDevices?: () => void;
 }) {
   const tr = useT();
+  const width = useAnchorWidth(anchorEl, MIN_WIDTH);
 
   return (
     <PresencePopover
       anchorEl={anchorEl}
       onClose={onClose}
       testId="profile-menu"
-      width={WIDTH}
+      width={width}
       titolo={
         <>
           <UserRound size={12} className="flex-shrink-0 text-app-text-muted" />
@@ -108,6 +144,10 @@ export function ProfileMenu({
           in here now, and the account block plus the performance panel opened
           is taller than a small laptop screen. The popover flips above the card
           by itself; what it cannot do is shrink, so the cap lives here. */}
+      {/* THE MEASURE GOES DOWN TO THE LEVELS. Without it a 400 host opens
+          sublevels at 230 and the menu becomes a staircase: the number written
+          at each call site stays as the floor, and this raises it. */}
+      <MenuWidthProvider width={width}>
       <div className="max-h-[min(70vh,560px)] overflow-y-auto">
         <Suspense fallback={null}>
           <AccountPanel
@@ -119,9 +159,23 @@ export function ProfileMenu({
                 <MenuAction onClick={() => { onClose(); apriProfilo('profile'); }} testId="identity-me-open-profile">
                   {tr('statusBar.me.openProfile')}
                 </MenuAction>
+                {/* ONE DOOR FOR THE DEVICES, with the number in its tail.
+                    They were two adjacent rows: above, a read-only fact
+                    («Authorised devices · 0 of 2 connected») and right under
+                    it this door, which read «Open the list of authorised
+                    devices» - the same thing, written twice, eight pixels
+                    apart. The number is the door's tail, and the label goes
+                    back to being the name of the room instead of the
+                    instructions for reaching it. */}
                 {onOpenDevices && (
-                  <MenuAction onClick={() => { onClose(); onOpenDevices(); }} testId="identity-me-devices">
-                    {tr('statusBar.devicesTitle')}
+                  <MenuAction
+                    onClick={() => { onClose(); onOpenDevices(); }}
+                    testId="identity-me-devices"
+                    tail={facts.devices && facts.devices.total > 0
+                      ? tr('statusBar.me.devicesCount', { n: facts.devices.connected, tot: facts.devices.total })
+                      : undefined}
+                  >
+                    {tr('statusBar.me.devicesRow')}
                   </MenuAction>
                 )}
               </>
@@ -146,6 +200,7 @@ export function ProfileMenu({
           onOpenChangelog={(version) => { onClose(); commands.onOpenChangelog(version); }}
         />
       </div>
+      </MenuWidthProvider>
     </PresencePopover>
   );
 }

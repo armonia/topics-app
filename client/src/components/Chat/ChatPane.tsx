@@ -54,6 +54,7 @@ import {
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
+import { useServedFromCache } from '../../state/historyFromCache';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -1608,6 +1609,19 @@ function ChatPaneComponent({
    */
   const foldTaskWork = !!useTopicTask(topic.id);
 
+  /**
+   * THE ROWS ON SCREEN ARE THE ONES THIS DEVICE ALREADY HAD.
+   *
+   * `loadHistory` falls back to the local copy when its fetch fails, and it
+   * keeps doing so: that is what stops the transcript from emptying out on a
+   * hiccup of the boot. What it may not do is stay quiet about it, and it did,
+   * for as long as the flag it raises had no reader anywhere in the repo. One
+   * line, with the way to ask again, so a person can tell yesterday's answers
+   * from this minute's. The socket gate lives inside the hook, see
+   * `state/historyFromCache.ts`.
+   */
+  const servedFromCache = useServedFromCache(topic.sessionKey);
+
   return (
     <div
       ref={paneRootRef}
@@ -1639,6 +1653,26 @@ function ChatPaneComponent({
           now lives in the bottom block, right above the composer
           (`ChangedFilesStrip` below): what the topic wrote is read where the
           next message is written. */}
+      {servedFromCache && (
+        <div
+          data-testid="chat-cached-history-notice"
+          className="chat-measure px-3 py-1 flex items-center gap-1.5 flex-shrink-0 text-[11px] text-amber-600 dark:text-amber-400"
+        >
+          {/* A dot and not an icon component: it is the same six-pixel signal
+              the status bar uses for a data notice, and at this size a glyph
+              would carry more weight than the sentence next to it. */}
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-500" aria-hidden="true" />
+          <span className="truncate">{tr('chat.cachedHistory.notice')}</span>
+          <button
+            type="button"
+            data-testid="chat-cached-history-retry"
+            className="underline underline-offset-2 hover:no-underline flex-shrink-0"
+            onClick={() => { void loadHistory(topic.sessionKey); }}
+          >
+            {tr('chat.cachedHistory.retry')}
+          </button>
+        </div>
+      )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
       <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />

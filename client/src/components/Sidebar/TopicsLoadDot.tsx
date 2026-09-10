@@ -36,6 +36,7 @@ import { computeTopicsFootprint } from '../../lib/topicsFootprint';
 import { loadLevel, loadWord, loadTint } from './loadTint';
 import { publishLoad } from '../../state/systemLoad';
 import { useT } from '../../hooks/useT';
+import { formatMemoryMB } from '../../lib/formatMemory';
 
 /**
  * The megabytes at which each half counts as fully loaded. These are the SAME
@@ -104,7 +105,7 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
 
   const title = misurato
     ? tr(`statusBar.load.${loadWord(livello)}`, {
-        mem: usage.totalMB !== null ? formatMB(usage.totalMB, partial) : '-',
+        mem: usage.totalMB !== null ? formatMemoryMB(usage.totalMB, { partial }) : '-',
         cpu: usage.totalCpu !== null ? Math.round(usage.totalCpu).toString() : '-',
         fps: fps > 0 ? fps.toString() : '-',
       })
@@ -140,9 +141,3 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
   );
 }
 
-/** The same short form the old strip used: gigabytes past a thousand, and the
- *  leading "~" when the figure covers one half of the app instead of both. */
-function formatMB(mb: number, partial: boolean): string {
-  const text = mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
-  return partial ? `~${text}` : text;
-}

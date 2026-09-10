@@ -47,7 +47,7 @@ import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-s
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -62,6 +62,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
+import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
 import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
@@ -751,6 +752,7 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 // from the canonical envelope inspector (change `topic-context-canonical`).
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
+const usageRouter = createUsageRouter(ctx);
 const authRouter = createAuthRouter(ctx);
 
 // ── LA LICENZA: cosa è concesso su QUESTA installazione.
@@ -2984,10 +2986,33 @@ const opzioniServer = {
         // Reply 202 now; wait for quiescence, then SIGTERM ourselves so
         // gracefulShutdown runs and launchd/start-prod.sh relaunches.
         const busy = taskDispatcher.busyCount();
+        // ASKING AGAIN JOINS THE WAIT, and the answer says so.
+        //
+        // A 202 identical to the first one is why a retry feels like a fix: on
+        // 2026-09-10 this route was asked five times while one native chat turn
+        // held the gate, and every answer read "accepted, 0 in flight" - true,
+        // and useless, because what the second caller needs to know is that a
+        // wait is ALREADY running and WHO is holding it.
+        //
+        // The SIGTERM is attached unconditionally, by every caller, and that is
+        // deliberate: `gracefulShutdown` has a re-entrancy guard, so the second
+        // signal is a logged no-op, whereas attaching it only when this caller
+        // STARTED the wait would make the restart depend on which call site
+        // opened it - and a future one that forgets to attach would leave a
+        // wait that ends in nothing.
+        const pending = attesaQuiescenza.inProgress();
         void waitForDispatcherQuiescent("restart-when-idle").then(() => {
           process.kill(process.pid, "SIGTERM");
         });
-        return new Response(JSON.stringify({ ok: true, inFlight: busy }), {
+        const { busy: holding } = await whatIsStillWorking();
+        return new Response(JSON.stringify({
+          ok: true,
+          inFlight: busy,
+          alreadyWaiting: pending !== null,
+          waitingForMs: pending ? Date.now() - pending.startedAt : 0,
+          // `null` = nothing is holding, so the restart is a tick away.
+          holding,
+        }), {
           status: 202, headers: { "content-type": "application/json" },
         });
       }
@@ -3467,6 +3492,7 @@ const opzioniServer = {
         || await licenseRouter(req, url, pathname, method)
         || await billingRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
+        || await usageRouter(req, url, pathname, method)
         || await profileRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
@@ -5766,7 +5792,22 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   };
 }
 
-async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+/**
+ * ONE WAIT PER PROCESS, however many times somebody asks for a restart.
+ *
+ * The rule and the measurement that produced it live in `sharedWait`, pure and
+ * covered by tests; here it is only applied. Before it, every
+ * `POST /__daemon/restart-when-idle` started a loop of its own - with its own
+ * start instant, its own `avvisato` flag and its own `waitId` - so N asks meant
+ * N held-reload notices and N loops fighting over one `drain` token.
+ */
+const attesaQuiescenza = sharedWait<void>();
+
+function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+  return attesaQuiescenza.join(() => runDispatcherQuiescentWait(label, capMs));
+}
+
+async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   // FIRST CLOSE THE DOOR. Every caller of this wait is a restart, and a wait
   // that lets the dispatcher keep starting turns behind a full cap never ends:
   // on 2026-09-04 `restart-when-idle` was still deferred after 18,482 s, three

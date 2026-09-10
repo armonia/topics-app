@@ -23,6 +23,7 @@
  */
 import { signalsActions } from '../state/signals';
 import { terminalErrorText, terminalUnreachableText } from './terminalActions';
+import { fetchWhileRosterWarms, SHORT_ROSTER_RETRIES } from './terminalRosterRetry';
 
 type ErrorReporter = { error: (message: string, duration?: number) => void };
 
@@ -38,7 +39,16 @@ export function restartTerminalSession(
     signalsActions.clearTerminalReloading(sessionId);
     toast.error(reason);
   };
-  void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' })
+  // A restart clicked in the server's boot window used to be answered "not
+  // found" instantly, and the overlay came off with an error the user could do
+  // nothing about — on a session that was alive the whole time. The SHORT
+  // ladder, on purpose: it has to finish inside the 15s net above, which means
+  // "no answer is coming" and must not fire while a retry is still in flight.
+  void fetchWhileRosterWarms(
+    `/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`,
+    { method: 'POST' },
+    SHORT_ROSTER_RETRIES,
+  )
     .then(async (res) => {
       if (res.ok) return;
       const said = await res.text().catch(() => '');

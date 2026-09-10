@@ -1296,10 +1296,11 @@ function useAgentActivitySlice(): AgentActivitySlice {
 export function activeAgentRowsFrom(
   roster: ReadonlyArray<AgentRosterEntry>,
   topics: Record<string, Topic>,
-  sig: Pick<AgentActivitySlice, 'active' | 'resting' | 'busy' | 'awaitingInputTerm' | 'liveStream' | 'hydratedStream' | 'awaitingInputTopics'>,
-): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[] } {
+  sig: Pick<AgentActivitySlice, 'active' | 'resting' | 'busy' | 'awaitingTerm' | 'awaitingInputTerm' | 'finishedTerms' | 'liveStream' | 'hydratedStream' | 'awaitingTopics' | 'awaitingInputTopics'>,
+): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[]; finished: ActiveAgentRow[] } {
   const working: ActiveAgentRow[] = [];
   const awaitingInput: ActiveAgentRow[] = [];
+  const finished: ActiveAgentRow[] = [];
   for (const t of roster) {
     // The exclusion is THE SHELL, not "everything but the three I remember":
     // written as a negated list it had already left out 'opencode', which
@@ -1312,6 +1313,10 @@ export function activeAgentRowsFrom(
     }
     if (sig.awaitingInputTerm.has(t.id)) {
       awaitingInput.push({ id: t.id, kind: 'terminal', label: t.name });
+      continue; // the loud tier wins: one session is one thing to look at
+    }
+    if (sig.awaitingTerm.has(t.id) || sig.finishedTerms.has(t.id)) {
+      finished.push({ id: t.id, kind: 'terminal', label: t.name });
     }
   }
   // Chat sessions mid-reply (distinct id space from terminals: no overlap).
@@ -1322,7 +1327,10 @@ export function activeAgentRowsFrom(
   for (const id of visibleTopicSignalIds(sig.awaitingInputTopics, topics)) {
     awaitingInput.push({ id, kind: 'topic', label: topics[id].name });
   }
-  return { working, awaitingInput };
+  for (const id of visibleTopicSignalIds(sig.awaitingTopics, topics)) {
+    if (!sig.awaitingInputTopics.has(id)) finished.push({ id, kind: 'topic', label: topics[id].name });
+  }
+  return { working, awaitingInput, finished };
 }
 
 /** The rows behind the "Active agents" submenu and the card badge. See
@@ -1330,7 +1338,7 @@ export function activeAgentRowsFrom(
 export function useActiveAgentRows(
   roster: ReadonlyArray<AgentRosterEntry>,
   topics: Record<string, Topic>,
-): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[] } {
+): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[]; finished: ActiveAgentRow[] } {
   const sig = useAgentActivitySlice();
   return useMemo(() => activeAgentRowsFrom(roster, topics, sig), [roster, topics, sig]);
 }
@@ -1362,27 +1370,23 @@ export function useAgentActivityCounts(
 ): { working: number; awaiting: number; awaitingInput: number } {
   const sig = useAgentActivitySlice();
   return useMemo(() => {
-    // `working` and `awaitingInput` are the LENGTH of the rows the menu lists,
-    // never a second count: see `activeAgentRowsFrom`.
+    // EVERY number here is the LENGTH of a list the menu can name, `awaiting`
+    // included. It did not use to be: it was a union of sets counted apart,
+    // and the difference `awaiting - awaitingInput` ("N to look at") ended up
+    // in a row of the account panel that could not be opened. Those turns are
+    // rows like the others now (`rows.finished`), so the number and the names
+    // have no way left to diverge - the same rule `working` and
+    // `awaitingInput` already followed.
+    //
+    // UNION, not sum: a session can have finished its turn AND sit in
+    // `awaiting-user`, and it is ONE thing to look at. The dedup lives inside
+    // `activeAgentRowsFrom`, which emits one row per session.
+    //
+    // The roster gate now covers EVERY waiting terminal, not just the finished
+    // turns: an id whose session was closed has neither a row nor a tab left,
+    // and its "1" could not be cleared from anywhere.
     const rows = activeAgentRowsFrom(roster, topics, sig);
-    // Awaiting = the blue-fill set across both surfaces.
-    //
-    // Ai terminali si aggiungono i turni FINITI (`terminalFinishedIds`), che
-    // prima non contavano da nessuna parte. È la stessa cosa che badgia la loro
-    // tab, e la barra ne stava fuori: si vedevano N tab col pallino blu «turno
-    // finito» e la barra ne annunciava due. Peggio, il tooltip chiamava
-    // «con il turno finito» il resto di `awaiting`, che sono le sessioni in
-    // `awaiting-user`/`paused` — un'altra cosa, con lo stesso nome.
-    //
-    // UNION, non somma: una sessione può essere in entrambi gli insiemi (ha
-    // finito il turno E la fase è `awaiting-user`) e vale UNA cosa da guardare.
-    const awaitingTermIds = new Set<string>(sig.awaitingTerm);
-    // Solo i terminali che esistono ancora nel roster: un id finito la cui
-    // sessione è stata chiusa non ha più né riga né tab, e il suo "1" non
-    // sarebbe azzerabile da nessuna parte (stessa ragione del gate sugli
-    // archiviati in `visibleTopicSignalCount`).
-    for (const t of roster) if (sig.finishedTerms.has(t.id)) awaitingTermIds.add(t.id);
-    const awaiting = awaitingTermIds.size + visibleTopicSignalCount(sig.awaitingTopics, topics);
+    const awaiting = rows.awaitingInput.length + rows.finished.length;
     return { working: rows.working.length, awaiting, awaitingInput: rows.awaitingInput.length };
   }, [roster, topics, sig]);
 }

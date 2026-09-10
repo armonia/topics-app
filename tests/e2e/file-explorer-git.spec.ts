@@ -200,12 +200,28 @@ test.describe("File Explorer — Git", () => {
     const gitChanges = page.locator('[data-testid="git-changes"]');
     await expect(gitChanges).toBeVisible({ timeout: 10000 });
 
-    // Branch name is shown in a truncated span (max-w-[80px]) - check for main or master
-    // After git init, default branch is usually "main" or "master"
-    const branchButton = gitChanges.locator("button").filter({
-      hasText: /main|master/,
-    });
-    await expect(branchButton.first()).toBeVisible({ timeout: 5000 });
+    // THE BRANCH IS READABLE WHILE CLOSED, but while closed it is no longer a
+    // BUTTON — and that is a decision, not an oversight. Until 2026-09-10 a
+    // closed section mounted the whole of `GitChanges` just to draw its one
+    // row: its chunk (48,4 kB, with `DiffViewer` and CodeMirror behind it) left
+    // at 181 ms and landed at 309, inside the window where the first frame is
+    // decided, for EVERY project window — and the section is born closed. The
+    // row is now drawn by `GitSectionRow` from the status the column already
+    // has; the branch switcher (and pull, push, history, refresh) live inside
+    // the section, one click away. This test is named "shows current branch"
+    // and that still holds: what changed is that the branch, while closed, is
+    // written rather than clickable.
+    await expect(gitChanges.getByText(/^(main|master)$/)).toBeVisible({ timeout: 5000 });
+
+    // And open, the branch is a control again, with its dropdown.
+    const header = gitChanges.locator('[data-testid="project-sidebar-git"]');
+    if ((await header.getAttribute("aria-expanded")) !== "true") {
+      await header.getByText("Git", { exact: true }).click();
+    }
+    await expect(
+      gitChanges.locator('[data-testid="git-branch-button"]'),
+      "open, the branch is the button that opens the branch list",
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test("EXPLORER-19: git section expand and collapse", async ({

@@ -48,8 +48,47 @@ export function useServerState<T>(
   const localWritesRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  /**
+   * THE HYDRATION GATE: until the mount GET has ANSWERED (or failed), this
+   * client has no standing to write.
+   *
+   * It is the same guard `useSidebarState` has carried since the shared pins
+   * were lost the first time, and here it was missing altogether. The PUT
+   * effect below runs ON MOUNT too - `isFromServerRef` is false and nobody has
+   * consumed it yet - so every mount scheduled a write of the LOCAL value (or
+   * of the default) 300 ms later. If the hydrating GET answered after that,
+   * and at boot it does (90 requests over six connections, with 1.2 s of
+   * waiting already measured in `coalesceFetch.ts`), the DEFAULT won, and the
+   * server then broadcast it to every other client.
+   *
+   * The default being rewritten is `claude-prefs-skip = true`, which is
+   * terminals born with `--dangerously-skip-permissions`: whoever had turned
+   * it off found it back on, on every device, for having been quick.
+   *
+   * It is raised in the `.catch` branch as well, and that is not a detail: if
+   * a failed GET left the gate shut, this key would lose EVERY write for the
+   * rest of the session - a much worse defect than the one the gate closes.
+   */
+  const hydratedRef = useRef(false);
 
   useEffect(() => () => { mountedRef.current = false; }, []);
+
+  /**
+   * The PUT itself, without the debounce. Two callers: the effect below, and
+   * the `.finally` of the hydration, which has to be able to recover a choice
+   * made WHILE the GET was in flight. Without that recovery the gate would
+   * open a second hole in place of the first: the user's change would sit in
+   * localStorage and the server would not see it until the NEXT change, which
+   * for a switch may never come.
+   */
+  const putValue = useCallback((next: T) => {
+    // PANE-01-ALLOWED: generic non-pane key (supplied by caller). Pane state uses dedicated middleware, not this hook.
+    fetch(`/api/ui-state/${encodeURIComponent(key)}`, { // PANE-01-ALLOWED
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    }).catch(() => {});
+  }, [key]);
 
   /**
    * Applica un valore che arriva dal SERVER (idratazione di mount, WS, altra
@@ -103,8 +142,18 @@ export function useServerState<T>(
         if (localWritesRef.current !== writesAtStart) return;
         applyFromServer(serverValue);
       })
-      .catch(() => {});
-  }, [key, localStorageKey, applyFromServer]);
+      .catch(() => {})
+      // ANSWERED OR FAILED, from here on writing is allowed. See `hydratedRef`.
+      .finally(() => {
+        if (!mountedRef.current) return;
+        hydratedRef.current = true;
+        // A choice made while the GET was in flight found the gate shut and
+        // never left: it leaves now, and it is the one that wins - the same
+        // reason the branch above refuses to apply the server's value when the
+        // counter has moved.
+        if (localWritesRef.current !== writesAtStart) putValue(valueRef.current);
+      });
+  }, [key, localStorageKey, applyFromServer, putValue, valueRef]);
 
   // WS listener
   useEffect(() => {
@@ -144,21 +193,19 @@ export function useServerState<T>(
       try { localStorage.setItem(localStorageKey, JSON.stringify(value)); } catch {}
     }
 
+    // Never publish before hydrating (see `hydratedRef`). The local copy above
+    // is already written, so nothing is lost: the hydration's `.finally` sends
+    // the server whatever changed in the meantime.
+    if (!hydratedRef.current) return;
+
     // Debounce server PUT
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = setTimeout(() => {
-      // PANE-01-ALLOWED: generic non-pane key (supplied by caller). Pane state uses dedicated middleware, not this hook.
-      fetch(`/api/ui-state/${encodeURIComponent(key)}`, { // PANE-01-ALLOWED
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(value),
-      }).catch(() => {});
-    }, debounceMs);
+    debounceTimerRef.current = setTimeout(() => { putValue(value); }, debounceMs);
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [value, key, localStorageKey, debounceMs]);
+  }, [value, key, localStorageKey, debounceMs, putValue]);
 
   const setValue = useCallback((updater: T | ((prev: T) => T)) => {
     localWritesRef.current++;

@@ -51,8 +51,24 @@ const NOMI: Record<string, { uno: string; molti: string; sub?: { uno: string; mo
  *  un nome, altrimenti la sua riga direbbe «N voci» e nessuno lo noterebbe). */
 export const NOMI_PER_TEST: Readonly<Record<string, unknown>> = NOMI;
 
+/**
+ * Ids BUILT at read time, and the entry above whose name they borrow: one row
+ * per project is still a count of sessions, so it says «sessione/sessioni»,  allow-italian: the two words quoted are the UI copy in NOMI
+ * and it says it by POINTING at `fleet.sessions` rather than repeating the two
+ * words. One name, one place.
+ *
+ * A prefix list and not a wildcard, so the fallback stays a decision: an id
+ * nobody named still lands on «voce/voci», which is what the gate in
+ * `featureWeightSources.test.ts` exists to make visible.
+ */
+const ALIAS_BY_PREFIX: [string, string][] = [
+  ['fleet.project.', 'fleet.sessions'],
+];
+
 /** Singolare o plurale del nome giusto per questa voce. */
 function nome(id: string, n: number, sub = false): string {
+  const alias = ALIAS_BY_PREFIX.find(([prefix]) => id.startsWith(prefix))?.[1];
+  if (alias) id = alias;
   const def = NOMI[id];
   const coppia = sub ? def?.sub : def && { uno: def.uno, molti: def.molti };
   if (!coppia) return sub ? (n === 1 ? 'elemento' : 'elementi') : (n === 1 ? 'voce' : 'voci');

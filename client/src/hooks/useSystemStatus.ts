@@ -3,6 +3,42 @@ import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 
 export type GatewayStatus = "online" | "offline" | "timeout" | "connection_refused" | "server_error" | "auth_error";
 
+/**
+ * One live session inside the fleet, and WHICH PROJECT it belongs to.
+ *
+ * Mirror of `FleetSessionUsage` in `server/lib/fleet-usage.ts`. The three
+ * attribution fields are OPTIONAL: they arrive from the session registry, which
+ * knows them for a terminal or a chat with a topic and not for a bare pid.
+ *
+ * Absent is NOT zero and NOT "no project": it means the server could not
+ * resolve one for this row. Group by `projectIdForPath(projectPath)` (from
+ * `shared/board.ts`) to line these rows up with `/api/usage/projects`, which is
+ * keyed by that same id.
+ */
+export interface FleetSessionRow {
+  sessionId: string;
+  name: string;
+  pid: number;
+  processCount: number;
+  memoryMB: number;
+  /** `null` = not measured yet (no CPU delta), which is not "idle". */
+  cpuPercent: number | null;
+  /** Full topic uuid, when this session belongs to one. */
+  topicId?: string;
+  /** Working directory of the session's root process. */
+  cwd?: string;
+  /** Absolute project path. Absent = unresolved, not "outside any project". */
+  projectPath?: string;
+  /**
+   * How strong the attribution is. `topic` = the session's topic declares this
+   * project. `cwd` = nothing declared one and the working directory stands in,
+   * which is right for a terminal opened inside a repo and wrong for a shell in
+   * `$HOME`: filter those against the projects you actually know before rolling
+   * them up, or the home directory becomes a project.
+   */
+  projectSource?: 'topic' | 'cwd';
+}
+
 export interface SystemStatus {
   timestamp: string;
   gateway: {
@@ -58,7 +94,7 @@ export interface SystemStatus {
       /** Ripartizione per SESSIONE dentro il pty-bridge: `roots` dice quanto
        *  tiene il bridge in tutto, questo quanto ne tiene ciascuna sessione.
        *  `cpuPercent: null` = non ancora misurata, che non è zero. */
-      sessions: { sessionId: string; name: string; pid: number; processCount: number; memoryMB: number; cpuPercent: number | null }[];
+      sessions: FleetSessionRow[];
       /** Memoria dei processi-script (lavoro degli agenti): esclusa dal totale
        *  server, mostrata come terzo asse dalla UI. */
       scriptsMB: number;

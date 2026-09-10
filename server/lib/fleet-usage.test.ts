@@ -186,6 +186,30 @@ describe("summarizeFleet", () => {
     expect(b.memoryMB).toBe(Math.round(540000 / 1024));
   });
 
+  it("carries the session's project attribution through to the usage row", () => {
+    // THE BRIDGE THIS FILE EXISTS TO PIN. Adding the fields to the interface is
+    // not the work: `summarizeFleet` builds `sessions` itself, so a change that
+    // stopped at the type would compile, ship, and leave every row's project
+    // empty at runtime — a hole nothing else here would go red for.
+    const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [
+      { sessionId: "s-a", name: "A", pid: 21, topicId: "t-1", cwd: "/w/a", projectPath: "/p/alpha", projectSource: "topic" as const },
+      { sessionId: "s-b", name: "B", pid: 40 },
+    ]);
+    const a = out.sessions.find(s => s.sessionId === "s-a")!;
+    expect(a.topicId).toBe("t-1");
+    expect(a.cwd).toBe("/w/a");
+    expect(a.projectPath).toBe("/p/alpha");
+    expect(a.projectSource).toBe("topic");
+    // …and a ref without them stays WITHOUT them: an empty string here would be
+    // read as "no project" instead of "not known".
+    const b = out.sessions.find(s => s.sessionId === "s-b")!;
+    expect(b.topicId).toBeUndefined();
+    expect(b.projectPath).toBeUndefined();
+    expect(b.projectSource).toBeUndefined();
+    // The measurement is untouched by the decoration.
+    expect(a.memoryMB).toBe(Math.round((2000000 + 500000) / 1024));
+  });
+
   it("i totali di flotta NON cambiano quando si attribuiscono le sessioni", () => {
     // Il punto più importante: l'attribuzione è una LENTE su processi già
     // contati. Se togliesse pid ai root, la barra cambierebbe numero per un
