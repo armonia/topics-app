@@ -593,3 +593,59 @@ countdown stops instead of firing into the void.
 - **WHEN** the bridge never answers within the deadline
 - **THEN** the awaiting caller SHALL receive the timeout error
 - **AND** the API SHALL answer 502
+
+### Requirement: TERM-WARM-01 — "Not Yet" And "Gone" SHALL NOT Look The Same To The Client
+
+Between accepting connections and finishing its reconcile against the pty
+bridge, the server does not yet know which sessions exist. Answering a terminal
+route with 404 in that window states a verdict it has not reached, and the
+client acts on it: the gesture is dropped and the tab is treated as dead. The
+window SHALL therefore answer 503 with `TERMINAL_ROSTER_WARMING_CODE` and a
+`Retry-After`, and the client SHALL act on the difference.
+
+The measured incident: 33.246 of the 60.000 lines in the client error log were
+that false 404, all of them from the seconds after a restart.
+
+Distinguishing the two is only half of it. These same routes answer 503 for
+reasons that are NOT warming — no pty bridge in this build, a reload whose
+session would not stop — and retrying those turns one answer into a hammer and
+the other into a lie. So the client SHALL retry the warming 503 alone, until it
+stops being one, and SHALL hand the caller only the final answer.
+
+The response handed back SHALL still have an UNREAD body: the retry reads the
+envelope to recognise itself, and the caller reads it again to build the
+sentence it shows.
+
+#### Scenario: the reconcile has not finished
+- **GIVEN** a terminal route whose session map is not yet reconciled against the pty bridge
+- **WHEN** a client asks it about a session id
+- **THEN** it SHALL answer 503 with `TERMINAL_ROSTER_WARMING_CODE`
+- **AND** it SHALL carry a `Retry-After`
+
+#### Scenario: the reconcile has finished and the id is unknown
+- **GIVEN** the same route once the reconcile has completed
+- **WHEN** a client asks it about an id nobody ever created
+- **THEN** it SHALL answer 404
+
+#### Scenario: the roster is still warming
+- **GIVEN** a terminal route answering 503 with the warming code
+- **WHEN** the client calls it
+- **THEN** the call SHALL be retried until the answer is no longer a warming 503
+- **AND** the caller SHALL see only that final answer
+
+#### Scenario: the session really is gone
+- **GIVEN** a terminal route answering 404
+- **WHEN** the client calls it
+- **THEN** the call SHALL NOT be retried
+- **AND** the 404 SHALL be handed straight back
+
+#### Scenario: a 503 that is not warming
+- **GIVEN** a terminal route answering 503 without the warming code
+- **WHEN** the client calls it
+- **THEN** the call SHALL NOT be retried
+- **AND** the answer SHALL be handed straight back
+
+#### Scenario: the caller still has a body to read
+- **GIVEN** a retry that inspected the envelope to recognise a warming 503
+- **WHEN** the final answer is handed to the caller
+- **THEN** that response body SHALL still be unread

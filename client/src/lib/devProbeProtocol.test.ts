@@ -1,4 +1,6 @@
 /**
+ * @covers DEVPROBE-01
+ *
  * How a dev probe learns it is armed — and, above all, what it does NOT do to
  * find out.
  *

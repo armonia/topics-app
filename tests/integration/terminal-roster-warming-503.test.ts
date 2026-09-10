@@ -1,4 +1,6 @@
 /**
+ * @covers TERM-WARM-01
+ *
  * A 404 IS A VERDICT. THE BOOT WINDOW HAS NO RIGHT TO ONE.
  *
  * Five terminal routes decide whether a session exists by looking at the
