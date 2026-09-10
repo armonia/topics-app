@@ -32,7 +32,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const ENV = ["AI_PROVIDER", "ACP_AGENTS", "TOPICS_AGENT_RUNTIME"] as const;
+// `TOPICS_CREDENTIALS_KEYCHAIN` sta qui insieme alle altre: senza, un runner
+// macOS con la variabile impostata a "1" nell'ambiente di chi lancia `bun
+// test` (misurato: eredita dal processo padre, non da questo file) fa leggere
+// a `readCredentials()` il vero Keychain invece del solo `HOME` finto sotto
+// test, e "SENZA credenziale" smette di essere vero. Riproduce da solo:
+// `TOPICS_CREDENTIALS_KEYCHAIN=1 bun test runtime-default-safety.test.ts`.
+const ENV = ["AI_PROVIDER", "ACP_AGENTS", "TOPICS_AGENT_RUNTIME", "TOPICS_CREDENTIALS_KEYCHAIN"] as const;
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV) saved[k] = process.env[k];
 

@@ -2220,8 +2220,19 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);
 
     h.finishTurnWith({ end: "end_turn" });
-    await new Promise((r) => setTimeout(r, 80));
-    await flush();
+    // The nudge fires through TWO real timers (the 30ms fake `attemptStats`,
+    // then the zero-delay retry timer), and a fixed real wait after them races
+    // the machine, not the code: measured in the full shard (dozens of
+    // parallel `bun test` workers fighting for the CPU), a bare
+    // `setTimeout(80)` fired late often enough to leave `turns.length` at 1 —
+    // standalone or with only these files, the shortfall never showed because
+    // nothing else was competing for the event loop. Polling for the actual
+    // condition (bounded, not widened) passes the instant the nudge lands and
+    // only spends more wall time when the machine is genuinely slower.
+    for (let i = 0; i < 200 && h.turns.length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      await flush();
+    }
 
     expect(h.turns.length).toBe(2);                             // the nudge started the next turn
     const topic = h.task("t1")!.assignedTopicId!;

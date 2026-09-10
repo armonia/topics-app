@@ -15,6 +15,12 @@ import { join } from "path";
 import { recoverAfter401 } from "./auth";
 
 const HOME_VERA = process.env.HOME;
+// Come in `runtime-default-safety.test.ts`: senza azzerarlo, un
+// `TOPICS_CREDENTIALS_KEYCHAIN=1` ereditato dall'ambiente di chi lancia `bun
+// test` fa leggere a `readCredentials()` il vero token del Keychain invece del
+// file finto sotto `homeDir`, e ognuno dei quattro test qui sotto vede tornare
+// il token vero al posto del `null`/token atteso.
+const KEYCHAIN_VERA = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
 const realFetch = globalThis.fetch;
 let homeDir: string;
 let credentialsPath: string;
@@ -31,11 +37,14 @@ describe("recoverAfter401", () => {
     mkdirSync(join(homeDir, ".claude"), { recursive: true });
     credentialsPath = join(homeDir, ".claude", ".credentials.json");
     process.env.HOME = homeDir;
+    delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
   });
 
   afterEach(() => {
     globalThis.fetch = realFetch;
     if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
+    if (KEYCHAIN_VERA === undefined) delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+    else process.env.TOPICS_CREDENTIALS_KEYCHAIN = KEYCHAIN_VERA;
     try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* scratch */ }
   });
 
