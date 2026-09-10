@@ -2107,6 +2107,23 @@ const IT: Dict = {
   // IL PANNELLO PERFORMANCE RISPONDE A TRE DOMANDE, in quest'ordine. Prima
   // erano nove blocchi di numeri con etichette diverse per la stessa cosa:
   // «troppa informazione messa in maniera confusionaria», ed era vero.
+  'usage.range.1d': 'Oggi',
+  'usage.range.7d': '7 giorni',
+  'usage.range.30d': '30 giorni',
+  'usage.range.all': 'Tutto',
+  'usage.readAt': 'letto alle {time}',
+  'usage.failed': 'Il conto non e\u2019 arrivato. Riapri il pannello per riprovare.',
+  'usage.none': 'Nessun consumo in questa finestra.',
+  'usage.colProject': 'Progetto',
+  'usage.colTokens': 'Token',
+  'usage.colCost': 'Costo',
+  'usage.more': 'e altri {n} sotto la soglia',
+  'usage.costFloor': 'Il costo e\u2019 un pavimento: {tokens} token su {total} sono lavoro della board, che non ha la scomposizione input/output e non si puo\u2019 tariffare.',
+  'usage.unpricedModels': 'Senza prezzo anche: {models}.',
+  'usage.rowChats': 'Chat: {tokens} token su {n} messaggi',
+  'usage.rowTasks': 'Board: {tokens} token su {n} task (non tariffabili)',
+  'usage.rowUnpriced': '{n} messaggi con un costo registrato prima dello scorporo cache: esclusi dal denaro.',
+  'usage.perProject': 'Consumo per progetto',
   'perf.q1': 'Va veloce?',
   'perf.q2': 'Quanto costa?',
   'perf.fpsAvg': 'fps · media {n}',
@@ -2115,6 +2132,7 @@ const IT: Dict = {
   // those numbers are COUNTS, not megabytes, and the section exists precisely
   // to say that they do not add up with the ones above.
   'perf.inventory.heldHeading': 'Trattenuto (conteggi, non MB)',
+  'perf.inventory.sessionsNoProject': 'Sessioni senza progetto',
   'perf.inventory.includesSessions': '(comprende le sessioni)',
   'perf.inventory.insideBridge': '(dentro il ponte)',
   'perf.inventory.insideApp': "(dentro «L'app»)",

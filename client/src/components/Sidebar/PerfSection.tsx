@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Activity, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
@@ -9,6 +9,7 @@ import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { vociPerNatura, quantitaBreve, rigaVoce } from '@/lib/featureWeightText';
 import { webviewSnapshot, ensurePaneUsageFresh } from '@/lib/paneUsage';
 import { useT } from '@/hooks/useT';
+import { useTopics } from '@/contexts/TopicsContext';
 import { formatMemoryMB } from '@/lib/formatMemory';
 
 /**
@@ -34,6 +35,14 @@ const SCOPE_NOTE: Record<string, string> = {
   'shell.browserPanes': 'perf.inventory.insideApp',
   'fleet.scripts': 'perf.inventory.outsideTotal',
 };
+
+/** The per-project rows are built at read time (one id per path), so they are
+ *  matched by prefix. They are sessions, so they sit inside the bridge exactly
+ *  like the row they were split out of. */
+function scopeNote(id: string): string | undefined {
+  if (id.startsWith('fleet.project.')) return 'perf.inventory.insideBridge';
+  return SCOPE_NOTE[id];
+}
 
 const SPARK_W = 288;
 const SPARK_H = 40;
@@ -112,6 +121,21 @@ function PerfStat({ label, value, sub, color, title, className }: { label: strin
  */
 export function PerfSection() {
   const tr = useT();
+  // WHICH FOLDERS ARE PROJECTS, from the topics that name one. The server can
+  // attribute a session to a working directory, and a working directory is not
+  // a project just because something runs in it: measured on the live machine,
+  // four shells in $HOME hold 1.3 GB and would invent a project out of the home
+  // folder. Only a path this installation already treats as a project is
+  // allowed to stand in - see `progettiNoti` in `featureUsage.ts`.
+  const topics = useTopics();
+  const knownProjects = useMemo(() => {
+    const paths = new Set<string>();
+    for (const id in topics) {
+      const p = topics[id]?.projectPath;
+      if (p) paths.add(p);
+    }
+    return paths;
+  }, [topics]);
   const fps = useFps();
   const history = useFpsHistory();
   const perf = usePerfMetrics(true);
@@ -211,6 +235,7 @@ export function PerfSection() {
     radici: fleet?.roots ?? [],
     scriptsMB: fleet?.scriptsMB ?? 0,
     scriptsProcessCount: fleet?.scriptsProcessCount ?? 0,
+    knownProjects,
   }, status?.timestamp);
   const measuredVisibleEntries = vociPerNatura(vociPeso, 'misurato');
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
@@ -354,9 +379,9 @@ export function PerfSection() {
             {measuredVisibleEntries.map(v => (
               <div key={v.id} data-testid="perf-inventory-row" className="flex items-center justify-between gap-2" title={rigaVoce(v)}>
                 <span className="min-w-0 truncate">
-                  {v.label}
-                  {SCOPE_NOTE[v.id] && (
-                    <span className="text-app-text-faint"> {tr(SCOPE_NOTE[v.id])}</span>
+                  {v.labelKey ? tr(v.labelKey) : v.label}
+                  {scopeNote(v.id) && (
+                    <span className="text-app-text-faint"> {tr(scopeNote(v.id)!)}</span>
                   )}
                 </span>
                 <span className="tabular-nums whitespace-nowrap text-app-text">

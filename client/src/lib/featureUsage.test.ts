@@ -143,3 +143,70 @@ describe('ogni voce prodotta e\' MISURATA', () => {
     expect(v.every(x => (x.peso.memoryMB ?? 0) > 0)).toBe(true);
   });
 });
+
+describe('one row per project', () => {
+  const session = (id: string, mb: number, extra: Record<string, unknown> = {}) =>
+    ({ sessionId: id, name: id, memoryMB: mb, processCount: 1, ...extra }) as never;
+
+  it('a topic that DECLARES a project groups without asking anybody', () => {
+    // «Which project is costing me the RAM» is the question that gets asked in
+    // front of a big number, and a single row of «terminals» could not answer
+    // it. A topic naming its project is a declaration, so it is taken as it is.
+    const v = vociMisurate({
+      ...vuoto,
+      sessioni: [
+        session('a', 300, { projectPath: '/p/alpha', projectSource: 'topic' }),
+        session('b', 200, { projectPath: '/p/alpha', projectSource: 'topic' }),
+        session('c', 100, { projectPath: '/p/beta', projectSource: 'topic' }),
+      ],
+    });
+    expect(v.map(x => x.id)).toEqual(['fleet.project./p/alpha', 'fleet.project./p/beta']);
+    expect(v[0].label).toBe('alpha');
+    expect(v[0].peso.memoryMB).toBe(500);
+    expect(v[0].peso.entries).toBe(2);
+  });
+
+  it('a working directory is NOT a project just because something runs in it', () => {
+    // Measured on the live machine: four shells sitting in $HOME hold 1.3 GB
+    // between them, and grouping by working directory alone invents a project
+    // called «zorahrel» that outweighs every real one. A `cwd` attribution is
+    // only accepted for a folder the installation already knows as a project.
+    const v = vociMisurate({
+      ...vuoto,
+      sessioni: [
+        session('shell', 900, { projectPath: '/Users/zorahrel', projectSource: 'cwd' }),
+        session('work', 120, { projectPath: '/p/alpha', projectSource: 'cwd' }),
+      ],
+      knownProjects: new Set(['/p/alpha']),
+    });
+    // Emitted projects-first; `ordinaVoci` is what puts the heaviest on top
+    // when the panel draws them, and it is tested where it lives.
+    expect(v.map(x => x.id)).toEqual(['fleet.project./p/alpha', 'fleet.sessions']);
+    const leftover = v[1];
+    expect(leftover.peso.memoryMB).toBe(900);
+    // The leftover row says WHY it is a leftover, and only when there is
+    // something to be left over FROM.
+    expect(leftover.labelKey).toBe('perf.inventory.sessionsNoProject');
+  });
+
+  it('with nothing to group by, the old row keeps its old id and its old name', () => {
+    const v = vociMisurate({ ...vuoto, sessioni: [session('a', 50), session('b', 30)] });
+    expect(v).toHaveLength(1);
+    expect(v[0].id).toBe('fleet.sessions');
+    expect(v[0].labelKey).toBeUndefined();
+    expect(v[0].peso.memoryMB).toBe(80);
+  });
+
+  it('CPU sums only the sessions that HAVE a reading', () => {
+    // `null` means "no delta yet", not "idle": counting it as zero would state
+    // a measurement nobody took.
+    const v = vociMisurate({
+      ...vuoto,
+      sessioni: [
+        session('a', 100, { projectPath: '/p/a', projectSource: 'topic', cpuPercent: 12.5 }),
+        session('b', 100, { projectPath: '/p/a', projectSource: 'topic', cpuPercent: null }),
+      ],
+    });
+    expect(v[0].peso.detail?.cpu).toBe(12.5);
+  });
+});

@@ -22,6 +22,16 @@ export interface MeasuredSession {
   name: string;
   memoryMB: number;
   processCount: number;
+  /** Normalised over the machine's cores. `null` = no delta yet, which is not
+   *  "idle". */
+  cpuPercent?: number | null;
+  /** Absolute path of the project this session belongs to, when the server
+   *  could resolve one. */
+  projectPath?: string;
+  /** How strong that attribution is. `topic` = a topic DECLARES this project.
+   *  `cwd` = nothing declared one and the working directory stands in, which is
+   *  right for a terminal inside a repo and wrong for a shell in $HOME. */
+  projectSource?: 'topic' | 'cwd';
 }
 
 /** Una radice del lato server (pty-bridge, ai-bridge, il server stesso). */
@@ -41,6 +51,18 @@ export interface IngressiMisurati {
   /** Il lavoro lanciato dagli agenti (npm install, build, test). */
   scriptsMB: number;
   scriptsProcessCount: number;
+  /**
+   * The paths this installation knows as PROJECTS, for deciding whether a
+   * working directory may stand in for one.
+   *
+   * It exists because of a measurement: on the live machine four shells sitting
+   * in `/Users/zorahrel` hold 1.3 GB between them, and grouping by working
+   * directory alone invents a project called «zorahrel» that holds more memory
+   * than any real one. A folder is not a project because something is running
+   * in it. Absent or empty, only the sessions whose TOPIC names a project are
+   * grouped, and the rest stay together in one row.
+   */
+  knownProjects?: ReadonlySet<string>;
 }
 
 /**
@@ -63,24 +85,56 @@ const MIN_MB = 1;
 export function vociMisurate(x: IngressiMisurati): VocePeso[] {
   const out: VocePeso[] = [];
 
+  // ONE ROW PER PROJECT, because that is the question people bring here.
+  //
+  // These were a single row, «Terminali e sessioni: 749 MB», with the heaviest  allow-italian: the label being quoted is the row's own text
+  // one hidden in `detail`. It answered "how much do the terminals cost" and
+  // not the question that gets asked, which is WHICH project is costing it -
+  // the one you can act on, by closing a window instead of hunting a session.
+  // A session with no trustworthy project stays in the old row, under its old
+  // id, so nothing that pointed at it has to move.
   if (x.sessioni.length > 0) {
-    let mb = 0;
-    let proc = 0;
-    let maggiore = '';
-    let maxMb = 0;
+    const byProject = new Map<string, MeasuredSession[]>();
+    const withoutProject: MeasuredSession[] = [];
     for (const s of x.sessioni) {
-      mb += s.memoryMB;
-      proc += s.processCount;
-      if (s.memoryMB > maxMb) { maxMb = s.memoryMB; maggiore = s.name || s.sessionId; }
+      const path = trustedProjectOf(s, x.knownProjects);
+      if (path === null) { withoutProject.push(s); continue; }
+      const group = byProject.get(path);
+      if (group) group.push(s); else byProject.set(path, [s]);
     }
-    if (mb >= MIN_MB) {
+
+    for (const [path, group] of byProject) {
+      const v = sumSessions(group);
+      if (v.mb < MIN_MB) continue;
       out.push({
-        id: 'fleet.sessions', label: 'Terminali e sessioni', natura: 'misurato',
+        id: `fleet.project.${path}`,
+        label: folderName(path),
+        natura: 'misurato',
         peso: {
-          entries: x.sessioni.length, memoryMB: mb, processCount: proc,
-          detail: { piuPesante: maggiore, mbDelPiuPesante: maxMb },
+          entries: group.length, memoryMB: v.mb, processCount: v.proc,
+          detail: { progetto: path, cpu: v.cpu, piuPesante: v.maggiore, mbDelPiuPesante: v.maxMb },
         },
       });
+    }
+
+    if (withoutProject.length > 0) {
+      const v = sumSessions(withoutProject);
+      if (v.mb >= MIN_MB) {
+        out.push({
+          id: 'fleet.sessions',
+          // The label says WHY they are together: not "the others", which reads
+          // as a leftover bin, but "no project of their own", which is a fact
+          // about them and is what a reader has to know before comparing this
+          // number with the rows above.
+          label: 'Terminali e sessioni',
+          labelKey: byProject.size > 0 ? 'perf.inventory.sessionsNoProject' : undefined,
+          natura: 'misurato',
+          peso: {
+            entries: withoutProject.length, memoryMB: v.mb, processCount: v.proc,
+            detail: { cpu: v.cpu, piuPesante: v.maggiore, mbDelPiuPesante: v.maxMb },
+          },
+        });
+      }
     }
   }
 
@@ -131,4 +185,41 @@ function labelRoot(kind: string): string {
     case 'webrtc-bridge': return 'Ponte WebRTC';
     default: return kind;
   }
+}
+
+/**
+ * Which project a session may be grouped under, or `null` for none.
+ *
+ * `topic` is taken as it comes: a topic naming a project is a declaration, not
+ * a guess. `cwd` is only accepted when the folder is one this installation
+ * already knows as a project - see `knownProjects` for the 1.3 GB of shells in
+ * $HOME that made the check necessary.
+ */
+function trustedProjectOf(s: MeasuredSession, noti?: ReadonlySet<string>): string | null {
+  if (!s.projectPath) return null;
+  if (s.projectSource === 'topic') return s.projectPath;
+  return noti?.has(s.projectPath) ? s.projectPath : null;
+}
+
+/** The four numbers a group of sessions carries. CPU is summed only over the
+ *  sessions that HAVE a reading: a `null` means "not measured yet", and
+ *  counting it as zero would state a measurement nobody took. */
+function sumSessions(group: readonly MeasuredSession[]): {
+  mb: number; proc: number; cpu: number | null; maggiore: string; maxMb: number;
+} {
+  let mb = 0, proc = 0, cpu = 0, misurate = 0, maxMb = 0, maggiore = '';
+  for (const s of group) {
+    mb += s.memoryMB;
+    proc += s.processCount;
+    if (typeof s.cpuPercent === 'number') { cpu += s.cpuPercent; misurate++; }
+    if (s.memoryMB > maxMb) { maxMb = s.memoryMB; maggiore = s.name || s.sessionId; }
+  }
+  return { mb, proc, cpu: misurate > 0 ? Math.round(cpu * 10) / 10 : null, maggiore, maxMb };
+}
+
+/** The last segment of a path, which is what a project is called out loud.
+ *  Both separators, because a Windows path reaches this the same way. */
+function folderName(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts[parts.length - 1] || path;
 }
