@@ -60,6 +60,15 @@ export const loadGitChanges = () => import('../../components/Project/GitChanges'
 // which the first frame is decided.
 export const loadCodeEditor = () => import('../../components/Editor/CodeEditor');
 export const loadEditorTabs = () => import('../../components/Editor/EditorTabs');
+/**
+ * The project window's own column. It used to be a STATIC import inside
+ * `ProjectWindow`, which put it - and `FileExplorer`, which it imports the same
+ * way - in the eager entry chunk: 52 kB parsed on every boot of every window,
+ * project open or not, and `loadFileExplorer` above was a split that could
+ * never split anything because the module was already in the entry. Measured
+ * with `check:bundle`: entry_eager 1.418.177 -> 1.365.938 raw.
+ */
+export const loadProjectSidebar = () => import('../../components/Project/ProjectSidebar');
 export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
 export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
 // The destructured `await` and not `import().then(m => ...)`: with the `.then`
@@ -118,7 +127,10 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   // it is no longer part of a project window's first frame, and warming it
   // would put its 48 kB - plus `DiffViewer` and CodeMirror behind it - back
   // inside the cap for a section that is closed by default.
-  project: [loadFilePane, loadFileExplorer, loadEditorTabs],
+  // `loadProjectSidebar` first: it is the window's CHROME, the one piece whose
+  // absence for a frame moves everything else sideways, so it is the one the
+  // gate must not render without.
+  project: [loadProjectSidebar, loadFilePane, loadFileExplorer, loadEditorTabs],
 };
 
 /** The shape of a project's local tab record, as far as warming is concerned. */

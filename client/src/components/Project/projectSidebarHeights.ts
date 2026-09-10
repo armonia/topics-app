@@ -37,3 +37,46 @@ export const SEZIONI = ['files', 'git', 'processes'] as const;
 export function capSezione(n: number = SEZIONI.length): string {
   return `calc(100% / ${n})`;
 }
+
+/** The column it opens at: 224px, the old hard-wired `w-56`. */
+export const DEFAULT_SIDEBAR_W = 224;
+/** Below this the file tree stops being readable; above it, it eats the window. */
+export const MIN_SIDEBAR_W = 160;
+export const MAX_SIDEBAR_W = 560;
+
+/** Per project, like the open sections and the heights: a deep tree and a flat
+ *  one do not want the same column. */
+export function projectSidebarWidthKey(projectPath: string): string {
+  return `project-sidebar-width:${projectPath}`;
+}
+
+/**
+ * THE WIDTH THE COLUMN WILL OPEN AT, readable BEFORE the column exists.
+ *
+ * `ProjectSidebar` is a lazy chunk now (it and `FileExplorer` were 52 kB of
+ * the eager entry, parsed on every boot even with no project window open), and
+ * a lazy component means a frame in which its `Suspense` fallback stands where
+ * it will be. A fallback of the wrong width is a layout shift on the ONE
+ * surface this whole line of work exists to keep still - so the placeholder
+ * reserves the exact column, and it can only do that if the number lives out
+ * here rather than inside the component's `useState` initialiser.
+ *
+ * Both stores, in the same order the column itself reads them: localStorage is
+ * the real one, sessionStorage is where an E2E fixture seeds a layout.
+ */
+export function readProjectSidebarWidth(projectPath: string): number {
+  const key = projectSidebarWidthKey(projectPath);
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  } catch {
+    /* storage denied: the default is the answer */
+  }
+  const n = saved ? parseInt(saved, 10) : NaN;
+  return Number.isFinite(n) ? clampSidebarWidth(n) : DEFAULT_SIDEBAR_W;
+}
+
+/** The drag, the saved value and the placeholder all obey the same two ends. */
+export function clampSidebarWidth(w: number): number {
+  return Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, w));
+}

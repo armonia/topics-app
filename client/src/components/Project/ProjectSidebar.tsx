@@ -5,7 +5,7 @@ import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOp
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE } from '../../lib/selectionStyles';
-import { capSezione } from './projectSidebarHeights';
+import { capSezione, clampSidebarWidth, projectSidebarWidthKey, readProjectSidebarWidth, DEFAULT_SIDEBAR_W } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
 import { useScripts } from '../../hooks/useScripts';
@@ -77,11 +77,6 @@ interface ProjectSidebarProps {
 
 type SectionId = 'files' | 'git' | 'processes';
 
-/** La colonna di partenza: 224px, cioè il vecchio `w-56` cablato. */
-const DEFAULT_SIDEBAR_W = 224;
-/** Sotto, l'albero dei file diventa illeggibile; sopra, mangia la finestra. */
-const MIN_SIDEBAR_W = 160;
-const MAX_SIDEBAR_W = 560;
 
 /**
  * Sotto questa altezza una sezione aperta non mostra nulla: è solo chrome.
@@ -540,15 +535,12 @@ export function ProjectSidebar({
   // Per progetto, come apertura e altezze: un albero di file profondo e uno
   // piatto non vogliono la stessa colonna, e la misura giusta è quella che hai
   // scelto lì.
-  const WIDTH_KEY = `project-sidebar-width:${projectPath}`;
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    try {
-      const saved = readLayout(WIDTH_KEY);
-      const n = saved ? parseInt(saved, 10) : NaN;
-      if (Number.isFinite(n)) return Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, n));
-    } catch {}
-    return DEFAULT_SIDEBAR_W;
-  });
+  // The number and its reader live in `projectSidebarHeights`, not here: now
+  // that this column is a lazy chunk, the Suspense placeholder waiting for it
+  // has to read the width BEFORE the component exists, or it would reserve the
+  // wrong one - which is a layout shift.
+  const WIDTH_KEY = projectSidebarWidthKey(projectPath);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => readProjectSidebarWidth(projectPath));
   useEffect(() => {
     writeLayout(WIDTH_KEY, String(sidebarWidth));
   }, [WIDTH_KEY, sidebarWidth]);
@@ -643,7 +635,7 @@ export function ProjectSidebar({
         const dx = e.clientX - w.startX;
         if (!dragOverlay.current && Math.abs(dx) <= DRAG_SLOP_PX) return;
         raiseChrome('col-resize');
-        setSidebarWidth(Math.min(MAX_SIDEBAR_W, Math.max(MIN_SIDEBAR_W, w.startWidth + dx)));
+        setSidebarWidth(clampSidebarWidth(w.startWidth + dx));
         return;
       }
       const r = dragRef.current;
