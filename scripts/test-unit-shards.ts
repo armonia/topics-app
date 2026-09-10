@@ -179,6 +179,10 @@ export const SUITE_ROOTS = [
 export const SERIAL_GLOBS = [
   "server/ai-bridge-singleton.test.ts",
   "server/ai-bridge.test.ts",
+  // Spawns a real wrapper process tree and asserts a 4500ms wall-clock kill
+  // deadline: reproduced red on shard 1 under phase-1 CPU contention three
+  // times in a row (10/09/2026), green standalone every time.
+  "server/providers/codex-complete.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;
