@@ -17,7 +17,6 @@ import {
   API_PROVIDERS,
   isApiProvider,
   STATUS_COLORS,
-  STATUS_LABELS,
   relativeTime,
   PROVIDER_MODEL_FIELD,
 } from './providerFormat';
@@ -76,15 +75,22 @@ export function AIProvidersSection() {
     if (!previousAt || entry.fetchedAt === previousAt) return;
     // A fresh row landed — derive result from it.
     const ok = entry.status === 'ready';
+    // Lo stato a parole viene dal dizionario, come il pallino accanto al nome:
+    // era l'unico punto della scheda che rispondeva in italiano fisso (e in
+    // inglese fisso, via `STATUS_LABELS`) qualunque lingua avesse scelto chi legge.
     const message = ok
-      ? `Connesso${entry.models.length ? ` · ${entry.models.length} modelli` : ''}${entry.version ? ` · v${entry.version}` : ''}`
-      : entry.lastError ?? STATUS_LABELS[entry.status];
+      ? [
+        tr('ai.status.ready'),
+        entry.models.length ? tr('ai.test.models', { count: entry.models.length }) : '',
+        entry.version ? `v${entry.version}` : '',
+      ].filter(Boolean).join(' · ')
+      : entry.lastError ?? tr(`ai.status.${entry.status}`);
     if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- converging external-store sync: derives the test result from a freshly-arrived WS snapshot and clears `testing`, which guards against re-runs (no cascade)
     setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
     testTriggeredAt.current.delete(testing);
     setTesting(null);
-  }, [entries, testing]);
+  }, [entries, testing, tr]);
 
   const setDefault = async (name: string) => {
     setDefaultError(null);
@@ -127,7 +133,7 @@ export function AIProvidersSection() {
       await refresh(name);
     } catch (err) {
       if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
-      const message = err instanceof Error ? err.message : 'Prova non riuscita';
+      const message = err instanceof Error ? err.message : tr('ai.test.failed');
       setResults((prev) => ({ ...prev, [name]: { ok: false, message, at: Date.now() } }));
       testTriggeredAt.current.delete(name);
       setTesting(null);

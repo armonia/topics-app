@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-08",
+  "generated": "2026-09-10",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -4459,8 +4459,7 @@
       "ereditato",
       "fuori",
       "radice",
-      "ricopiato",
-      "vuoto"
+      "ricopiato"
     ],
     "server/services/browser-orphan-reap.test.ts": [
       "CASA"
