@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Gauge, MonitorCog, RefreshCw, RotateCcw, Tag } from 'lucide-react';
+import { Coins, Gauge, MonitorCog, RefreshCw, RotateCcw, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -13,6 +13,7 @@ import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 
 import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
+import { formatMemoryMB } from '@/lib/formatMemory';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
@@ -20,6 +21,7 @@ import { VersionChip } from './VersionChip';
 import { bundleDrift } from './bundleDrift';
 import { loadTint } from './loadTint';
 import type { WorkSignal } from './workSignals';
+import type { UsageRange } from '@/hooks/useProjectUsage';
 
 declare const __APP_VERSION__: string;
 declare const __BUILD_TIME__: string;
@@ -117,6 +119,11 @@ const importVersionPanel = async () => {
   return { default: Component };
 };
 const VersionPanel = lazy(importVersionPanel);
+const importProjectUsagePanel = async () => {
+  const { ProjectUsagePanel: Component } = await import('./ProjectUsagePanel');
+  return { default: Component };
+};
+const ProjectUsagePanel = lazy(importProjectUsagePanel);
 
 /** A row of this menu. The two sizes are the finger and the mouse, and the
  *  predicate is the same one the header uses: a `md:` breakpoint here would be
@@ -149,6 +156,11 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   // the app's initial download without waiting for the submenu gesture.
   useEffect(() => { void importVersionPanel().catch(() => {}); }, []);
   const [mostraStato, setMostraStato] = useState(false);
+  // The window the usage level is reading. It lives HERE and not in the panel
+  // so that closing the level and reopening it does not silently snap back to
+  // «all» and re-run the expensive query: the choice is the person's, and it
+  // outlives the panel that shows it.
+  const [usageRange, setUsageRange] = useState<UsageRange>('all');
   const [versioneGuscio, setVersioneGuscio] = useState('');
   const [versioneServer, setVersioneServer] = useState('');
   const [mostraVersione, setMostraVersione] = useState(false);
@@ -306,7 +318,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
               {load?.misurato && (
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
               )}
-              {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+              {load?.totalMB != null && <span>{formatMemoryMB(load.totalMB, { partial: load.partial })}</span>}
               {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
             </span>
           </>
@@ -317,6 +329,26 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         <AgentLines />
         <div className="border-t border-app-border" />
         <PerfSection />
+        {/* WHAT EACH PROJECT HAS COST, in the third unit.
+            The rows above say megabytes, and one of them is now per project:
+            this says TOKENS and the dollars that have a price, for the same
+            subject. It is a level and not a column because the panel's whole
+            discipline is that two units never share one (`featureWeight.ts`),
+            and because the read behind it is a GROUP BY over the whole message
+            table - 1,2 s cold - which must not happen because a menu opened.
+            Behind its own row it costs nothing until somebody asks. */}
+        <SubmenuItem
+          icon={Coins}
+          label={tr('usage.perProject')}
+          testId="menu-usage-projects"
+          minWidth={320}
+          className="max-h-[min(78vh,560px)] overflow-y-auto"
+        >
+          <Suspense fallback={<div className="p-3 text-center text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
+            <ProjectUsagePanel range={usageRange} onRange={setUsageRange} />
+          </Suspense>
+        </SubmenuItem>
+
         {/* THE MACHINE ITSELF ONE LEVEL FURTHER IN: cores, disks, the server's
             own processes. It is the answer AFTER «is Topics heavy», it is the
             tallest block of the three, and behind its own row it costs
@@ -400,11 +432,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   );
 }
 
-/** Gigabytes past a thousand: the row has one line and four digits of memory
- *  would be read as a phone number. */
-function formatMB(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`;
-}
 
 function formatBuildDate(iso: string): string {
   try {

@@ -1568,6 +1568,8 @@ const IT: Dict = {
   'chat.turnStopped': 'Turno interrotto',
   'chat.turnStopped.detail': "L'hai fermato tu. Il messaggio è ancora qui.",
   'chat.noAnswer': 'Nessuna risposta',
+  'chat.cachedHistory.notice': 'Da copia locale: il server non ha risposto',
+  'chat.cachedHistory.retry': 'Riprova',
   'chat.noAnswer.detail': 'La connessione può essersi interrotta',
   'chat.turnInterrupted': 'Risposta interrotta',
   'chat.turnInterrupted.retry': 'Riprova',
@@ -2097,14 +2099,6 @@ const IT: Dict = {
   //    chiave: i titoli si compongono per concatenazione e mescolare pezzi
   //    tradotti con pezzi in chiaro darebbe una frase mezza e mezza.
   'perf.na': 'n/d',
-  'perf.cpuShellTitle': 'CPU del processo shell di Topics · non include i processi WKWebView dei pannelli · può superare 100% (per core)',
-  'perf.cpuAllTitle': 'CPU di TUTTI i processi di Topics ({n}) · somma per-core, può superare 100% come in Activity Monitor',
-  'perf.cpuSampled': 'misura su {sampled}/{pids} processi: gli altri sono appena comparsi e non hanno ancora un delta',
-  'perf.cpuRendererTitle': 'CPU dei processi WKWebView di contenuto · uno per pannello browser',
-  'perf.cpuGpuTitle': 'CPU del processo GPU/compositor di Topics',
-  'perf.cpuServerTitle': 'CPU del server e di tutto ciò che ne dipende, sui {cores} core della macchina',
-  'perf.cpuServerRoot': ' · {kind} {pct}%',
-  'perf.cpuServerSideLabel': 'CPU lato server ×{n}',
   'perf.serverTitleFleet': 'Somma RSS dei {n} processi lato server: server Bun',
   'perf.serverTitleRoot': ' + {kind} ({procs} proc., {mb} MB)',
   'perf.serverTitleHeap': ' · heap del server {mb} MB',
@@ -2113,14 +2107,38 @@ const IT: Dict = {
   // IL PANNELLO PERFORMANCE RISPONDE A TRE DOMANDE, in quest'ordine. Prima
   // erano nove blocchi di numeri con etichette diverse per la stessa cosa:
   // «troppa informazione messa in maniera confusionaria», ed era vero.
+  'usage.range.1d': 'Oggi',
+  'usage.range.7d': '7 giorni',
+  'usage.range.30d': '30 giorni',
+  'usage.range.all': 'Tutto',
+  'usage.readAt': 'letto alle {time}',
+  'usage.failed': 'Il conto non e\u2019 arrivato. Riapri il pannello per riprovare.',
+  'usage.none': 'Nessun consumo in questa finestra.',
+  'usage.colProject': 'Progetto',
+  'usage.colTokens': 'Token',
+  'usage.colCost': 'Costo',
+  'usage.more': 'e altri {n} sotto la soglia',
+  'usage.costFloor': 'Il costo e\u2019 un pavimento: {tokens} token su {total} sono lavoro della board, che non ha la scomposizione input/output e non si puo\u2019 tariffare.',
+  'usage.unpricedModels': 'Senza prezzo anche: {models}.',
+  'usage.rowChats': 'Chat: {tokens} token su {n} messaggi',
+  'usage.rowTasks': 'Board: {tokens} token su {n} task (non tariffabili)',
+  'usage.rowUnpriced': '{n} messaggi con un costo registrato prima dello scorporo cache: esclusi dal denaro.',
+  'usage.perProject': 'Consumo per progetto',
   'perf.q1': 'Va veloce?',
-  'perf.q2': 'Quanto costa',
-  'perf.fpsAvg': 'media {n}',
+  'perf.q2': 'Quanto costa?',
+  'perf.fpsAvg': 'fps · media {n}',
   'perf.procCount': '{n} processi',
   // The weight inventory broken down by feature. "Held" and not "in memory":
   // those numbers are COUNTS, not megabytes, and the section exists precisely
   // to say that they do not add up with the ones above.
   'perf.inventory.heldHeading': 'Trattenuto (conteggi, non MB)',
+  'perf.inventory.sessionsNoProject': 'Sessioni senza progetto',
+  'perf.inventory.includesSessions': '(comprende le sessioni)',
+  'perf.inventory.insideBridge': '(dentro il ponte)',
+  'perf.inventory.insideApp': "(dentro «L'app»)",
+  'perf.inventory.outsideTotal': '(fuori dal totale)',
+  'perf.sampling': 'campionamento…',
+  'perf.partialReading': 'lettura parziale',
   'perf.inventory.unmeasured': 'non misurato',
   // La percentuale in anteprima: e' il TOTALE (app + agenti e servizi), sulla
   // scala 0-100 dell'intera macchina. La stessa chiave serve alle due tessere,
@@ -2135,32 +2153,10 @@ const IT: Dict = {
   'perf.compressedInline': 'Compressi o in swap: {n} MB.',
   'perf.cpuInline': 'CPU dell\'app: {pct}% della macchina.',
   'perf.cpuServerInline': 'CPU di agenti e servizi: {pct}% della macchina.',
-  'perf.memLabel': 'Memoria',
   'perf.memShellTitle': 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli).',
   'perf.memFootprintTitle': 'Footprint di TUTTI i {n} processi della shell (finestra + WKWebView dei pannelli) · lo stesso valore della colonna "Memoria" di Activity Monitor.',
   'perf.memRssTitle': 'Memoria residente (RSS) dei processi della shell. Activity Monitor mostra un valore più alto (footprint).',
-  'perf.memPlus': ' PIÙ {rest}.',
-  'perf.memShellPlusServer': 'shell + {n} lato server',
-  'perf.memProcesses': '{n} processi · {metric} + RSS',
-  'perf.residentTitle': "Quanta di quella memoria è davvero nella RAM fisica adesso. Il resto lo ha compresso o spostato in swap il sistema: rientrarci costa tempo, ed è quello che fa scattare l'interfaccia.",
-  'perf.residentLabel': 'di cui in RAM',
-  'perf.compressed': '{n} MB compressi',
   'perf.shellRssTitle': 'RSS del processo shell di Topics · i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)',
-  'perf.serverSideLabel': 'Lato server ×{n}',
-  'perf.serverBun': 'Server Bun',
-  'perf.server': 'Server',
-  'perf.serverN': 'Server ×{n}',
-  'perf.memRendererTitle': 'Memoria dei processi renderer · finestre e ogni pannello browser nativo',
-  'perf.memGpuTitle': 'Memoria del processo GPU/compositor',
-  'perf.otherLabel': 'Altri',
-  'perf.memOtherTitle': 'Processo main + utility (network, storage, audio)',
-  'perf.webNoShellMem': ' · in modalità web la memoria della shell non è disponibile',
-  'perf.webNoPerProcess': "In modalità web la memoria per-processo non è disponibile: mostriamo solo l'RSS del server",
-  'perf.hwAccel': 'Accelerazione hardware',
-  'perf.hwAccelOn': 'attiva',
-  'perf.softwareRendering': 'Rendering software',
-  'perf.noGpu': 'no GPU',
-  'perf.topCpuScope': 'sistema · per core',
   'perf.verdict.noAccel': 'Accelerazione hardware OFF. È la causa principale dei pochi FPS.',
   'perf.verdict.compressed': '{gb} GB compressi o in swap. Chiudi qualche pannello browser.',
   // This is not an alarm, it is the opposite. It says the big number is
@@ -2231,7 +2227,6 @@ const IT: Dict = {
   // into swap. This row says how much of it is REALLY taken, right on the
   // number people read first instead of two clicks further along.
   'statusBar.residenteInline': 'di cui in RAM adesso: {mb} MB (il resto e\' gia\' compresso o in swap)',
-  'statusBar.agents.heading': 'Agenti Claude Code',
   'statusBar.agents.awaitingInput': '· {n} in attesa di una tua risposta',
   'statusBar.agents.toLookAt': '· {n} da guardare (turno finito o in pausa)',
   'statusBar.presenceTitle': 'Lo stesso riepilogo che Topics pubblica sulla presence Discord. Sessioni aperte, quante lavorano adesso, task della board in corso.',
@@ -2281,7 +2276,6 @@ const IT: Dict = {
   // the click takes you.
   'statusBar.me.openProfile': 'Apri il tuo profilo',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
-  'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
   // THE CHIP SIGNALS: on the row they are a glyph and a digit, here is the
   // word that glyph draws. The number stays inside the sentence because the
   // tooltip is read on its own, detached from the row that produced it.
@@ -2292,6 +2286,7 @@ const IT: Dict = {
   'statusBar.system.machine': 'Questo computer',
   'statusBar.version.title': 'Versione',
   'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
+  'statusBar.agents.finishedHeading': 'Turno finito, da guardare',
   'statusBar.agents.none': 'Nessun agente al lavoro adesso',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
@@ -2300,7 +2295,6 @@ const IT: Dict = {
   'statusBar.me.machine': 'Da questo dispositivo',
   'statusBar.me.devicesRow': 'Dispositivi autorizzati',
   'statusBar.me.devicesCount': '{n} connessi di {tot}',
-  'statusBar.me.workRow': 'Adesso',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
   // THE SUBJECT AT ZERO. The chip stays even with no group at all, and this is
@@ -2551,6 +2545,7 @@ const IT: Dict = {
   'crash.transportBand': 'Lo stato della connessione si è rotto',
   'crash.panel': 'Questo pannello si è rotto',
   'crash.settings': 'Le impostazioni si sono rotte',
+  'crash.app': 'Topics si è fermata',
   'crash.pane': 'Questa pane si è rotta',
   'crash.toolInput': 'Il modulo di risposta si è rotto',
 

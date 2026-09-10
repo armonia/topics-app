@@ -66,6 +66,16 @@ export interface VocePeso {
   /** Come la chiama chi usa l'app. Non il nome del modulo che la implementa:
    *  «Le tue schede», non `pane.store`. */
   label: string;
+  /**
+   * An i18n key the renderer prefers over `label`, when the row has one.
+   *
+   * The labels in this subsystem are hard-coded Italian, which is old debt: the
+   * entries declare themselves from modules that have no `tr()` in scope. New
+   * rows do not add to it - they name a key here, and whoever draws them
+   * translates it. `label` stays as the fallback for a surface with no
+   * translator (a test, a log line).
+   */
+  labelKey?: string;
   natura: NatureWeight;
   peso: PesoDichiarato;
   /** Il proprietario e' esploso: NON MISURATO, che non e' zero. */

@@ -27,6 +27,7 @@ import { useRefMirror } from './useRefMirror';
 import { reconcileMessages, mergeFetchedHistory, adoptDurableMessageId } from './reconcileMessages';
 import { buildRequestMessages } from './chatRequestPayload';
 import { reconcileOrphanStreams } from '../state/signals';
+import { clearHistoryFromCache, markHistoryFromCache } from '../state/historyFromCache';
 import { answerFromText, findPendingAsk } from '../state/pendingAsk';
 import { armPushAsk } from '../state/pushAsk';
 import {
@@ -578,7 +579,6 @@ export function useChat() {
   const [error, setError] = useState<Record<string, string | null>>({});
   const [gatewayConnected, setGatewayConnected] = useState(true); // Assume connected until told otherwise
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
-  const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
   const [pendingQueue, setPendingQueue] = useState<QueuedMessage[]>(getOutboundQueue);
   // Gli scaduti si idratano dallo storage, non partono vuoti: il banner "N
   // messages not sent" col retry deve sopravvivere al reload, altrimenti la
@@ -2534,11 +2534,9 @@ export function useChat() {
 
       // Cache messages for offline fallback
       cacheMessages(sessionKey, chatMessages);
-      setCachedSessions(prev => {
-        const next = new Set(prev);
-        next.delete(sessionKey);
-        return next;
-      });
+      // The server answered: whatever the pane was saying about the local copy
+      // stops being true here (see `state/historyFromCache.ts`).
+      clearHistoryFromCache(sessionKey);
       // Mark this session as freshly loaded — subsequent re-mounts within
       // HISTORY_DEDUP_MS will short-circuit instead of re-fetching.
       lastHistoryFetchAtRef.current.set(sessionKey, Date.now());
@@ -2586,20 +2584,25 @@ export function useChat() {
       return true;
     } catch (err) {
       console.error('Failed to load history:', err);
-      // Serve cached messages silently when available — the error banner
-      // was firing on every transient load failure (e.g. the first request
-      // racing with WS connect on initial page mount), causing a visible
-      // flash of "Cached messages — may not be current" before the retry
-      // succeeded. Only surface the error when we genuinely have nothing
-      // to show.
+      // Serve cached messages instead of an error banner when there are any:
+      // the banner was firing on every transient load failure (e.g. the first
+      // request racing with WS connect on initial page mount), and a red line
+      // over rows that are perfectly readable is the wrong size of alarm.
+      //
+      // SILENTLY, THOUGH, IS WHAT IT USED TO BE, and that is the half that was
+      // wrong: the rows on screen were the ones the server had answered LAST
+      // TIME, presented exactly like rows fetched a second ago. The flag is
+      // raised here and read by the pane (`state/historyFromCache.ts`), which
+      // draws one discreet line with a way to ask again. The error is still
+      // reserved for the case with nothing at all to show.
       const cached = getCachedMessages(sessionKey);
       if (cached && cached.length > 0) {
         setMessages(prev => ({ ...prev, [sessionKey]: cached }));
-        setCachedSessions(prev => new Set([...prev, sessionKey]));
+        markHistoryFromCache(sessionKey);
       } else {
         const existing = messagesRef.current[sessionKey];
         if (existing && existing.length > 0) {
-          setCachedSessions(prev => new Set([...prev, sessionKey]));
+          markHistoryFromCache(sessionKey);
         } else {
           // Genuinely empty state — show the error so the user knows
           // something is wrong.
@@ -3110,10 +3113,6 @@ export function useChat() {
     setExpiredMessages(removeQueueSession(queueStorage, EXPIRED_QUEUE_KEY, sessionKey));
   }, []);
 
-  const isSessionCached = useCallback((sessionKey: string): boolean => {
-    return cachedSessions.has(sessionKey);
-  }, [cachedSessions]);
-
   return {
     sendMessage,
     editMessage,
@@ -3128,7 +3127,6 @@ export function useChat() {
     reconcileServerStreams,
     isSessionThinking,
     wasSessionStopped,
-    isSessionCached,
     loadHistory,
     appendMediaToLastAssistant,
     clearSession,

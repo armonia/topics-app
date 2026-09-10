@@ -67,6 +67,43 @@ export interface FleetSessionRef {
   sessionId: string;
   name: string;
   pid: number;
+  /**
+   * THE SESSION-TO-PROJECT BRIDGE, and it costs nothing to carry.
+   *
+   * A per-session memory figure answers "how much is this terminal holding".
+   * It cannot answer "how much is this PROJECT holding", which is the question
+   * anyone looking at the panel actually has, because the row has no idea which
+   * project it belongs to. The producer of these refs (`getFleetSessionRefs` in
+   * `routes/terminal.ts`) builds them from a `TerminalSession` that already
+   * carries `cwd` and `topicId` and was throwing both away.
+   *
+   * All three are OPTIONAL and ADDITIVE: `paneUsage.ts` and `featureUsage.ts`
+   * read this shape and must keep compiling untouched. Absent means "not
+   * known", never "no project" - a shell opened outside any project has no
+   * `projectPath`, and so does a chat whose topic row was not resolved.
+   */
+  topicId?: string;
+  /** Working directory of the session's root process, when the producer knows it. */
+  cwd?: string;
+  /**
+   * Absolute project path this session belongs to, when it could be resolved
+   * without a per-session query. For a terminal it is the topic's project (or
+   * the session `cwd` as the fallback); for a chat it is `topics.project_path`.
+   * Group by `projectIdForPath(projectPath)` to line these rows up with the
+   * per-project token totals, which are keyed by that same id.
+   */
+  projectPath?: string;
+  /**
+   * WHERE `projectPath` came from, because the two are not equally strong.
+   *
+   * `topic` = the session's topic declares this project: a claim. `cwd` = no
+   * topic said, so the working directory is standing in for one: an inference,
+   * and a good one for a terminal opened inside a repo, a bad one for a shell
+   * sitting in `$HOME` — which would otherwise turn the home directory into a
+   * project with no rows behind it. A client rolling sessions up per project
+   * can trust the first and filter the second against the projects it knows.
+   */
+  projectSource?: "topic" | "cwd";
 }
 
 /** Un processo lanciato da un agente (via runningScripts in processes.ts).
@@ -126,6 +163,14 @@ export interface FleetSessionUsage {
    *  percentuale; dichiararla `0` la farebbe passare per ferma. Stessa regola
    *  che `makeInstantCpu` applica ai pid senza base. */
   cpuPercent: number | null;
+  /** Topic this session belongs to, from the ref. Absent = not known. */
+  topicId?: string;
+  /** Working directory of the session's root process, from the ref. */
+  cwd?: string;
+  /** Absolute project path, from the ref. Absent = not resolved, NOT "no project". */
+  projectPath?: string;
+  /** `topic` = declared by the session's topic; `cwd` = inferred from the folder. */
+  projectSource?: "topic" | "cwd";
 }
 
 export interface FleetUsage {
@@ -433,6 +478,13 @@ export function summarizeFleet(
       sessionId: s.sessionId,
       name: s.name,
       pid: s.pid,
+      // Carried through, not recomputed: this function only knows pids. Changing
+      // the interface alone would have left every reading with the fields empty,
+      // which is the failure this line exists to prevent.
+      ...(s.topicId ? { topicId: s.topicId } : {}),
+      ...(s.cwd ? { cwd: s.cwd } : {}),
+      ...(s.projectPath ? { projectPath: s.projectPath } : {}),
+      ...(s.projectSource ? { projectSource: s.projectSource } : {}),
       processCount: procs,
       memoryMB: Math.round(memKB / 1024),
       // Nessun pid con una base => non misurata. Uno `0` qui direbbe "ferma",

@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.295",
+    "date": "2026-09-08",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Nel menu utente nessuna voce si apre piu' dentro la colonna",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un livello che cresce dopo essere stato piazzato finisce fuori dallo schermo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.294",
     "date": "2026-09-08",
     "sections": {

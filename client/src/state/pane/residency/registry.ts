@@ -281,12 +281,17 @@ export function getResidencySnapshot(): ReadonlySet<string> {
  */
 export function residencyHeapReport(): {
   entries: number;
-  items: number;
   detail: Record<string, unknown>;
 } {
+  // NO `items` HERE, ON PURPOSE. The inventory row reads `items` when it is
+  // there, and this one used to report `lastTouchedAt + holds + surfaces` -
+  // three internal registers summed - under the generic word "elements", next
+  // to rows that say megabytes. It was the one row of the panel where the
+  // number was not what the label promised. Without it the row falls back to
+  // `entries` and reads "6 mounted panes", which is what it says it is. The
+  // three registers are still here, in `detail`, where a diagnosis looks.
   return {
     entries: resident.size,
-    items: lastTouchedAt.size + holds.size + surfaces.size,
     detail: {
       residenti: resident.size,
       recency: lastTouchedAt.size,

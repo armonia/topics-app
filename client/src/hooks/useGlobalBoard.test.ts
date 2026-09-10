@@ -25,7 +25,7 @@ import { createElement } from 'react';
 import { mount } from '../test/reactHarness';
 import { boardApi, type BoardTask } from '../lib/board';
 import { dispatchLifecycle } from '../lib/wsFrameBus';
-import { __resetBoardTasks, getBoardTasks } from '../lib/boardTasksStore';
+import { __resetBoardTasks, getBoardTasks, getBoardTasksError, hasLoadedBoardTasks, setBoardTasks } from '../lib/boardTasksStore';
 import { useGlobalBoard } from './useGlobalBoard';
 import type { WSMessage } from '../types';
 
@@ -296,6 +296,56 @@ describe('useGlobalBoard: the frame is the answer', () => {
     flushCoalescer();
     await settle();
     expect(reads, 'the waiting reason of the OTHER cards has an expiry').toBe(2);
+    b.unmount();
+  });
+});
+
+/**
+ * A FEED THAT DOES NOT ANSWER HAS A NAME, AND IT REACHES THE STORE.
+ *
+ * The branch was `catch { return null }` followed by "settled": the failure
+ * was thrown away at the exact point where it existed, and from there on the
+ * cross-project board had no way to tell "the server is not answering" from
+ * "there are no tasks". With the seed from the local copy (`boardRowsCache`)
+ * the worst case is not even an empty board: it is yesterday's columns, drawn
+ * exactly like the ones from a second ago. The project twin (`useBoardFeed`)
+ * keeps the rows AND raises the message; this is the half that was missing.
+ * @covers KANBAN-06
+ */
+describe('useGlobalBoard: a failed read is not an empty board', () => {
+  const row = (id: string): BoardTask =>
+    ({ id, projectId: 'p1', text: id, status: 'todo', kanbanOrder: 0, parentTaskId: null } as BoardTask);
+  const settle = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve(); };
+
+  beforeEach(() => { __resetBoardTasks(); });
+  afterEach(() => { __resetBoardTasks(); });
+
+  test('the failure reaches the store as a message, with the rows still there', async () => {
+    // The rows the reader already had in hand: on a real device that is the
+    // local copy, here it is the store seeded by hand - same starting point.
+    setBoardTasks([row('a'), row('b')]);
+    boardApi.listAll = (() => { reads++; return Promise.reject(new Error('Load failed')); }) as typeof boardApi.listAll;
+
+    const b = mountBoard();
+    await settle();
+    expect(reads).toBe(1);
+    expect(getBoardTasks().map((t) => t.id), 'the rows stay: vanishing would be worse').toEqual(['a', 'b']);
+    expect(hasLoadedBoardTasks(), 'the waiting ring stops anyway').toBe(true);
+    expect(getBoardTasksError()).toBe('Load failed');
+    b.unmount();
+  });
+
+  test('the next read that comes back takes the message down', async () => {
+    boardApi.listAll = (() => { reads++; return Promise.reject(new Error('Load failed')); }) as typeof boardApi.listAll;
+    const b = mountBoard();
+    await settle();
+    expect(getBoardTasksError()).toBe('Load failed');
+
+    boardApi.listAll = (() => { reads++; return Promise.resolve([row('a')] as BoardTask[]); }) as typeof boardApi.listAll;
+    b.taskEvent();
+    flushCoalescer();
+    await settle();
+    expect(getBoardTasksError(), 'the server answered: there is nothing left to report').toBeNull();
     b.unmount();
   });
 });

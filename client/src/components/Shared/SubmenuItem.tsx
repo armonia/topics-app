@@ -75,6 +75,30 @@ function createSiblingSlot(): SiblingSlot {
 
 const SiblingContext = createContext<SiblingSlot>(createSiblingSlot());
 
+/**
+ * HOW WIDE THE PANEL THIS ROW LIVES IN IS, so its own level can be at least as
+ * wide.
+ *
+ * Without it every call site wrote its own `minWidth` by hand - 244, 230, 312,
+ * 300, 260 - and while the host was a constant too, nobody could see the
+ * staircase. Now that the user menu is as wide as the column (which drags
+ * between 180 and 400) a host can be 400 while its levels stay at 230: a
+ * ragged staircase, caused by nothing anyone could read in one place. The
+ * number at the call site survives, as a FLOOR: the wider of it and the host
+ * wins.
+ *
+ * Every level republishes its own width to its children, so a third level
+ * inherits from the second and not from the first.
+ */
+const HostWidthContext = createContext<number>(0);
+
+/** For whoever owns a panel of known width (the user menu, which measures the
+ *  card that opens it) to hand that measure down to every level it contains,
+ *  at any depth. */
+export function MenuWidthProvider({ width, children }: { width: number; children: React.ReactNode }) {
+  return <HostWidthContext.Provider value={width}>{children}</HostWidthContext.Provider>;
+}
+
 /** A lucide icon, or anything with the same two props. */
 type Glyph = React.ComponentType<{ size?: number; className?: string }>;
 
@@ -136,6 +160,10 @@ export function SubmenuItem({
   // Opened on purpose, so hover-out must not take it away.
   const pinned = useRef(false);
   const siblings = useContext(SiblingContext);
+  // The call site's number is a FLOOR, not the measure: the wider of it and
+  // the host's width wins. See `HostWidthContext`.
+  const hostWidth = useContext(HostWidthContext);
+  const levelWidth = Math.max(minWidth, hostWidth);
   // Who this row is, for the slot it competes in: an identity, created once.
   const token = useMemo(() => ({}), []);
   // The slot THIS level hands to its own rows, so a nested level registers
@@ -260,13 +288,15 @@ export function SubmenuItem({
           onClose={close}
           side="right"
           exclusive={false}
-          minWidth={minWidth}
+          minWidth={levelWidth}
           className={className}
           ariaLabel={ariaLabel ?? label}
           testId={testId ? `${testId}-menu` : undefined}
         >
           <div onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave}>
-            <SiblingContext.Provider value={nested}>{children}</SiblingContext.Provider>
+            <SiblingContext.Provider value={nested}>
+              <HostWidthContext.Provider value={levelWidth}>{children}</HostWidthContext.Provider>
+            </SiblingContext.Provider>
           </div>
         </Menu>
       </span>

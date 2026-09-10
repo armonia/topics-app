@@ -1580,10 +1580,33 @@ export function createAppContext(baseDir: string): AppContext {
    *  adesso). Chi ricostruisce ci scrive SOPRA — le scritture del turno sono
    *  assolute, e i tool si fondono per id — e chi muore non lascia il vuoto.
    *  Ad azzerarsi è la VISTA, non il record: `stream:start` porta
-   *  `reattached`, e il client svuota la bolla prima di riempirla col replay. */
+   *  `reattached`, e il client svuota la bolla prima di riempirla col replay.
+   *
+   *  A CLOSE FROM OUTSIDE IS NOT AN END. The StaleStream sweeper,
+   *  `/api/chat/abort`, and the soft/hard timeouts in `routes/chat.ts` can all
+   *  close this row (`partial=0`) while the turn's process is still alive —
+   *  the `abort` they send it is an attempt, not a synchronous guarantee. If
+   *  the process keeps going, the NEXT restart finds it still open
+   *  (`reattachSurvivingChatTurns`, server.ts, asks the broker BEFORE calling
+   *  in here: by the time this function runs, the caller already has proof
+   *  the turn is alive). With `partial===1` as the only pass, that row was
+   *  never reused again: a new one opened and the JSONL replay poured the
+   *  turn into it FROM THE START — two consecutive rows, the second starting
+   *  exactly like the first. Measured on the live DB on 2026-09-10: 65 pairs
+   *  across 54 conversations.
+   *
+   *  The discriminant is `latency_ms`: only the turn's legitimate completion
+   *  writes it (`routes/chat.ts`, `Date.now() - turnStartMs`, never null). None
+   *  of the external closes pass it — `updateMessage` does
+   *  `COALESCE($latency_ms, latency_ms)`, so it stays null. A row closed with
+   *  `latency_ms` set is a REAL answer and is left alone; one closed without
+   *  it is, given the caller's guarantee, still this turn's own row. */
   function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
     const row = stmts.getLastMessage.get(sessionKey) as any;
-    if (row && row.role === "assistant" && (row.partial === 1 || row.partial === true)) {
+    const isAssistant = row && row.role === "assistant";
+    const stillPartial = isAssistant && (row.partial === 1 || row.partial === true);
+    const closedFromOutsideWhileAlive = isAssistant && !stillPartial && row.latency_ms == null;
+    if (isAssistant && (stillPartial || closedFromOutsideWhileAlive)) {
       const now = new Date().toISOString();
       db.run("UPDATE messages SET streamed_at = ?, partial = 1 WHERE id = ?", [now, String(row.id)]);
       return {

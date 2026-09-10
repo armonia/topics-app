@@ -21,6 +21,7 @@
  */
 import { STANDALONE_NO_PTY_CODE } from '../../../shared/terminal-messages';
 import type { TerminalSessionType } from '../../../shared/terminal-session-types';
+import { fetchWhileRosterWarms } from './terminalRosterRetry';
 
 type ErrorReporter = { error: (message: string, duration?: number) => void };
 type Translate = (key: string) => string;
@@ -139,7 +140,12 @@ export function renameTerminalSession(
   toast: ErrorReporter,
   tr: Translate,
 ): void {
-  void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, {
+  // Through the warming retry, not a bare fetch: a rename typed in the seconds
+  // after a server reload lands while the roster is still empty, and the toast
+  // it would earn ("the terminal server is not ready") is a sentence about the
+  // server's boot, shown to someone who was renaming a tab. Waiting the window
+  // out silently is what they meant.
+  void fetchWhileRosterWarms(`/api/terminal/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),

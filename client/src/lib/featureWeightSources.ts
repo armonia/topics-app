@@ -107,7 +107,9 @@ export function registerFeatureWeightSources(): () => void {
   // di residenza: quante pane sono vive contro quante ne sono state aperte.
   off.push(registerFeatureWeight('pane.residency', 'Schede montate adesso', 'trattenuto', () => {
     const r = residencyHeapReport();
-    return { entries: r.entries, items: r.items, detail: r.detail };
+    // No `items`: the row must count PANES, which is `entries`. See
+    // `residencyHeapReport` for what used to be reported here and why it lied.
+    return { entries: r.entries, detail: r.detail };
   }));
 
   return () => { for (const f of off) f(); };
