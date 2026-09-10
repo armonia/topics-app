@@ -60,3 +60,38 @@ export const TERMINAL_WS_CLOSE_DORMANT = 4001;
  * client that ignores it behaves exactly as before.
  */
 export const ROSTER_RECONCILED_HEADER = "X-Roster-Reconciled";
+
+/**
+ * `code` on the 503 of the five terminal routes that decide existence on the
+ * IN-MEMORY roster, while that roster is still being reconciled against the PTY
+ * bridge.
+ *
+ * WHY IT IS NOT A 404. The HTTP layer starts answering before
+ * `reconcileSessions` has finished (it is fire-and-forget), and until it does
+ * the `sessions` map is the EMPTY one from boot. A `sessions.get(id)` there returns undefined for a
+ * PTY that is alive in the bridge, so the route used to answer "Terminal
+ * session not found" about a terminal the user is looking at. Measured on the
+ * production error log on 2026-09-10: 33.246 of the last 60.000 lines (55%) are
+ * that one warning, in bursts, and the reconcile window that produces them is
+ * up to ~24s wide (a `list` that goes unanswered retries 8 times: 2s timeout +
+ * 1s pause).
+ *
+ * The distinction is the whole point, so it has to survive the trip: 404 means
+ * the session is gone and the client should prune the pane, 503+this code means
+ * the server cannot tell YET and the client should ask again. A bare 503 could
+ * not be told apart from the other two 503s these very routes already answer
+ * (no bridge in this build — `STANDALONE_NO_PTY_CODE` — and a reload whose
+ * session refused to stop in time), and only one of the three is worth retrying
+ * on a short backoff.
+ */
+export const TERMINAL_ROSTER_WARMING_CODE = "terminal-roster-warming";
+
+/**
+ * `Retry-After` on that 503, in seconds.
+ *
+ * One second, not the window's width: the reconcile usually answers on its
+ * first `list` (the 8-attempt ladder is the bridge-is-down path), so telling
+ * every caller to wait 24s would make the common case slow to fix itself. The
+ * client's own backoff is what covers the long tail.
+ */
+export const TERMINAL_ROSTER_WARMING_RETRY_AFTER_S = 1;

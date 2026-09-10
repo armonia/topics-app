@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
-import { ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
+import { ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -1316,13 +1316,113 @@ function restoreDbSessionsOptimistically(): void {
  *  porte sullo stesso bit, e una murata. */
 let rosterReconciled = false;
 
+/**
+ * How many requests the warming gate below turned away during THIS boot window.
+ *
+ * It exists to leave exactly one line in the log instead of one per request.
+ * The whole point of the gate is that the old code wrote 33.246 warnings into
+ * the last 60.000 lines of the production error log; answering 503 and logging
+ * each of those would only rename the noise. One line at the end of the window
+ * says the same thing and can be counted: `grep -c "roster warming"`.
+ */
+let warmingDeferrals = 0;
+
+/**
+ * The roster now matches the truth (the bridge's, or the DB's when the bridge
+ * never answered): promote the bit, tell the connected clients, and — if the
+ * gate turned anyone away meanwhile — say how many in one line.
+ *
+ * The three call sites used to write `rosterReconciled = true;
+ * broadcastTerminalSessions();` by hand. Three copies of a two-step promotion
+ * is how one of them ends up doing only the first step.
+ */
+function markRosterReconciled(): void {
+  rosterReconciled = true;
+  if (warmingDeferrals > 0) {
+    console.log(`[Terminal] roster warming finished — ${warmingDeferrals} request(s) answered 503 instead of a false 404`);
+    warmingDeferrals = 0;
+  }
+  broadcastTerminalSessions();
+}
+
+/**
+ * Test seam — put the roster back to "not yet compared", the way it is at boot.
+ *
+ * Same reason as `_setPtyBridgeSocketPath` above, and the same shape: under
+ * `bun test` every file shares ONE instance of this module, and this bit only
+ * ever travels one way (false → true). So the first file that lets a reconcile
+ * finish closes the boot window for every file that runs after it, and a test
+ * about what happens INSIDE that window would go green against a roster that
+ * had already been promoted — the worst kind of green, since it asserts the old
+ * behaviour and passes. Nothing in production calls this.
+ */
+export function _resetRosterReconciled(): void {
+  rosterReconciled = false;
+  warmingDeferrals = 0;
+}
+
+/**
+ * The five routes that decide "does this session exist?" on the IN-MEMORY map,
+ * and therefore lie while that map is still the empty one from boot.
+ *
+ * `sessions` is repopulated by `reconcileSessions`, which the HTTP layer does
+ * not wait for. So between the HTTP layer accepting connections and the bridge
+ * answering `list` — up to ~24s when the bridge is slow to come up — every one
+ * of these answers "Terminal session not found" about PTYs that are alive.
+ * That window is what the client's reconnect loops land in right after a server
+ * reload, and it is the single biggest writer in the production error log.
+ *
+ * Listed here rather than guarded five times inside the handlers: five copies
+ * of the same precondition is five chances for the sixth route to forget it.
+ * `/revive` is deliberately absent — it reads the DB (`status = 'dormant'`),
+ * not the map, so it is already right during the window and its 404 ("Dormant
+ * session not found") is a different, truthful sentence.
+ */
+function isRosterDependentRoute(pathname: string, method: string): boolean {
+  const parts = pathname.split("/");
+  // /api/terminal/sessions/:id/<verb>  → 6 parts, or /api/terminal/:id/resize → 5
+  const tail = parts[parts.length - 1];
+  const underSessions = parts.length === 6 && parts[1] === "api" && parts[2] === "terminal" && parts[3] === "sessions";
+  const underTerminal = parts.length === 5 && parts[1] === "api" && parts[2] === "terminal";
+  if (method === "POST" && underSessions && (tail === "send" || tail === "resize" || tail === "reload")) return true;
+  if (method === "POST" && underTerminal && tail === "resize") return true;
+  // DELETE/PATCH /api/terminal/sessions/:id  → 5 parts; DELETE /api/terminal/:id → 4.
+  // `/api/terminal/sessions/dormant` is a GET, so it can never reach here.
+  const sessionById = parts.length === 5 && parts[1] === "api" && parts[2] === "terminal" && parts[3] === "sessions";
+  const terminalById = parts.length === 4 && parts[1] === "api" && parts[2] === "terminal" && parts[3] !== "sessions";
+  if ((method === "DELETE" || method === "PATCH") && sessionById) return true;
+  if (method === "DELETE" && terminalById) return true;
+  return false;
+}
+
+/**
+ * "Ask me again in a moment", not "it does not exist".
+ *
+ * Built by hand instead of through `errorResponse` for two reasons: it must
+ * carry `Retry-After`, and it must NOT log. A per-request warning here would
+ * swap 33k false 404 lines for 33k 503 lines and cure nothing — the count goes
+ * out once, in `markRosterReconciled`.
+ */
+function rosterWarming(): Response {
+  warmingDeferrals++;
+  return new Response(
+    JSON.stringify({ error: "terminal roster is still reconciling", code: TERMINAL_ROSTER_WARMING_CODE }),
+    {
+      status: 503,
+      headers: {
+        "content-type": "application/json",
+        "Retry-After": String(TERMINAL_ROSTER_WARMING_RETRY_AFTER_S),
+      },
+    },
+  );
+}
+
 async function reconcileSessions(attempt = 0): Promise<void> {
   // Standalone bundle: no bridge to reconcile against. Short-circuit so we don't
   // burn the 8× reconnect-retry cycle against a socket that will never answer.
   // Niente da riconciliare ⇒ il roster è autorevole da subito, non "mai".
   if (isPtyBridgeDisabled()) {
-    rosterReconciled = true;
-    broadcastTerminalSessions();
+    markRosterReconciled();
     return;
   }
   // Ask the bridge which PTYs are still alive. CRITICAL: distinguish a real
@@ -1356,8 +1456,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
     // Il bridge non ha risposto, ma il roster ora contiene ciò che il DB sa: è la
     // migliore verità disponibile, e tenerlo "non autorevole" per sempre
     // lascerebbe i client senza un vuoto di cui fidarsi mai più.
-    rosterReconciled = true;
-    broadcastTerminalSessions();
+    markRosterReconciled();
     return;
   }
 
@@ -1478,8 +1577,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
   // significa davvero "nessuna sessione". Il broadcast porta la promozione ai
   // client già connessi, che altrimenti resterebbero con l'ultimo roster
   // ricevuto e senza sapere che ora può essere creduto.
-  rosterReconciled = true;
-  broadcastTerminalSessions();
+  markRosterReconciled();
 }
 
 // --- Buffer request from bridge ---
@@ -2653,6 +2751,24 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       /^\/api\/sessions\/[^/]+\/agents(\/|$)/.test(pathname)
     )) {
       return ptyBridgeUnavailable();
+    }
+
+    // The boot window, refused honestly. Until `reconcileSessions` has compared
+    // the in-memory roster with the bridge, `sessions` is the empty map from
+    // boot: the five routes listed in `isRosterDependentRoute` would answer
+    // "Terminal session not found" about PTYs that are alive and on screen. A
+    // 404 is a VERDICT — the client is entitled to prune the pane on it — so
+    // spending it on a question we cannot answer yet is what turned this one
+    // warning into 55% of the production error log (33.246 lines out of the
+    // last 60.000, measured 2026-09-10).
+    //
+    // It sits ahead of the token gate on `/send` for the same reason the
+    // standalone gate above does: both REFUSE, neither admits, so ordering them
+    // before the auth check cannot let anything through. What an unauthorized
+    // caller learns from the 503 is that the server restarted in the last few
+    // seconds — which the standalone 503 already tells anyone who asks.
+    if (!rosterReconciled && isRosterDependentRoute(pathname, method)) {
+      return rosterWarming();
     }
 
     if (method === "GET" && pathname === "/api/terminal/sessions") {
