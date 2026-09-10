@@ -4459,7 +4459,8 @@
       "ereditato",
       "fuori",
       "radice",
-      "ricopiato"
+      "ricopiato",
+      "vuoto"
     ],
     "server/services/browser-orphan-reap.test.ts": [
       "CASA"
