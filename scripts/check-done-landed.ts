@@ -193,9 +193,15 @@ for (const r of rows) {
     });
     continue;
   }
-  const status: BranchStatus | "no-repo" = repoPath
-    ? await commitStatusFromRepo(repoPath, r.delivery_commit)
-    : "no-repo";
+  // `empty` — the delivery commit touches nothing (the no-op used to retrigger
+  // the checks) — enters here as `unmerged`, and that is not the opposite lie:
+  // it is the only door in this tally that sends the question to the BRANCH
+  // (`aliveOutside` -> `classifyBranchLanding`), which is the only one that can
+  // answer. Counting it `merged`, as before, closed the case on empty evidence;
+  // leaving it out of every bucket would drop it from the count altogether.
+  const commitStatus = repoPath ? await commitStatusFromRepo(repoPath, r.delivery_commit) : null;
+  const status: BranchStatus | "no-repo" =
+    commitStatus === null ? "no-repo" : commitStatus === "empty" ? "unmerged" : commitStatus;
   verdicts.push({
     id: r.id, text: r.text ?? "", projectId: r.project_id,
     branch: r.delivery_branch, commit: r.delivery_commit,

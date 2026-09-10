@@ -256,3 +256,22 @@ Il sistema SHALL mostrare una tool call come attiva (`running`) per tutta la fin
 - **GIVEN** una tool call completata
 - **WHEN** l'utente guarda la riga
 - **THEN** vede la durata effettiva (endedAt − startedAt) accanto allo stato
+
+#### Scenario: Codex MCP tool resta visibile e mantiene vivo il turno
+- **GIVEN** un turno Codex che esegue `mcp__topics__update_task`
+- **WHEN** `codex exec --json` emette gli item `mcp_tool_call` started, updated e completed
+- **THEN** la stessa riga della tool call mostra args, aggiornamenti e risultato oppure errore
+- **AND** un `error: null` non trasforma un risultato MCP riuscito in errore, mentre `result.isError: true` conserva e mostra il messaggio della tool
+- **AND** il watchdog considera vivo soltanto il child Codex ancora posseduto e non terminato, quindi non riavvia quel turno durante un controllo MCP lungo
+
+#### Scenario: Codex CommandExecution consegna l'output finale
+- **GIVEN** un item Codex `command_execution` completed con `aggregated_output`
+- **WHEN** non è arrivato un precedente item updated
+- **THEN** `aggregated_output` è il risultato mostrato della tool call
+
+#### Scenario: Codex rispetta il bridge ristretto del task
+- **GIVEN** un topic Codex con `mcp_policy = bridge-only`
+- **WHEN** il provider costruisce il bridge Topics per il turno
+- **THEN** passa il profilo `codex-dispatch`, senza allargare le capability della card
+- **AND** `spawn_agent`, che apre una PTY Claude, non è né pubblicato né chiamabile via MCP né raggiungibile via HTTP diretto; gli strumenti task, browser e di lettura/stop delle figlie già possedute restano disponibili
+- **AND** il profilo `global-orchestrator` mantiene precedenza quando la sessione è registrata come coordinatore

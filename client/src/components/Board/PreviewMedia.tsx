@@ -152,6 +152,14 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
    *  Chi non ne ha piu' d'una non passa niente e il componente si comporta
    *  esattamente come prima. */
   paths?: readonly string[];
+  /**
+   * ONLY `card` HAS A CALL SITE TODAY (`Card.tsx`), and that is worth writing
+   * down: an e2e spent days red waiting for `preview-drawer`, a testid this
+   * component can produce in principle and nothing ever asks it for. The
+   * `drawer` branches and the reasoning around them are kept because the
+   * measurements behind them are still the ones that would apply, but do not
+   * assert on a surface no call site renders.
+   */
   variant: 'card' | 'drawer';
   onOpenTab?: () => void;
 }) {

@@ -1,0 +1,4 @@
+- [x] Confirm persistence and the reported task state with read-only API calls.
+- [x] Reproduce stale reads and delayed comment feedback with isolated fixtures.
+- [x] Implement acknowledged-comment reconciliation and truthful delivery feedback.
+- [x] Verify targeted unit, route and browser tests, retaining video evidence.

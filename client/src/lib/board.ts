@@ -683,7 +683,13 @@ export { projectIdForPath as boardIdForPath } from '../../../shared/board';
 async function req<T>(path: string, init?: RequestInit, read?: { ttlMs: number }): Promise<T> {
   const fullInit: RequestInit = {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      // The server accepts only this exact UI marker. Missing means a direct
+      // local API caller; privileged origins are assigned server-side.
+      'X-Topics-Action-Origin': 'interface',
+      ...(init?.headers || {}),
+    },
   };
   const resp = read
     ? await coalescedFetch(`/api${path}`, fullInit, read)
@@ -879,6 +885,19 @@ export function hasCodeQuestion(
     || t.status === 'review' || t.status === 'done';
 }
 
+export type TaskLandingEvidence = Pick<BoardTask, 'assignedTopicId' | 'deliveryBranch'>
+  & Partial<Pick<BoardTask, 'deliveryCommit' | 'deliveryFilesChanged' | 'deliveryUncommittedFiles' | 'landingState'>>;
+
+/** A session or an empty analysis branch is not a delivery to merge. */
+export function hasDeliveryToMerge(task: TaskLandingEvidence): boolean {
+  if (!task.assignedTopicId || !task.deliveryBranch) return false;
+  if (task.landingState === 'landed' || task.landingState === 'superseded') return false;
+  // Outstanding edits block the server's merge; send the task back to finish.
+  if ((task.deliveryUncommittedFiles ?? 0) > 0) return false;
+  if (task.deliveryFilesChanged != null) return task.deliveryFilesChanged > 0;
+  return !!task.deliveryCommit;
+}
+
 /**
  * Nota di revisione ancorata a una riga del diff, in sospeso finché non parte
  * come commento all'agente. Vive qui e non accanto al componente perché è una
@@ -1014,7 +1033,7 @@ export const boardApi = {
    *  server si ferma lì. Nessun reject, nessun resume, la card non si muove.
    *  Senza, un commento su una card in review RIMANDA il task all'agent. */
   comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[]; quiet?: boolean }) =>
-    req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media, quiet: opts?.quiet }) }),
+    req<import('../../../shared/task-comment-ack').TaskCommentAcknowledgement>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media, quiet: opts?.quiet }) }),
   /** `force` scavalca il gate sui checks rossi: è una scelta esplicita dell'umano,
    *  mai il default (il server risponde 409 `checks_failed` senza). */
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>

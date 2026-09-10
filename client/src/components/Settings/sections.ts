@@ -23,13 +23,14 @@
  * that the labels are in the dictionary in both languages, without mounting a
  * DOM the project does not have.
  */
-import { Bell, Building2, CalendarDays, Cpu, CreditCard, MonitorSmartphone, Palette, ShieldCheck, UserRound, Users } from 'lucide-react';
+import { Bell, Building2, CalendarDays, Cpu, CreditCard, MonitorSmartphone, Palette, Plug, ShieldCheck, UserRound, Users } from 'lucide-react';
 
 export type SectionId =
   | 'appearance'
   | 'notifications'
   | 'calendar'
   | 'providers'
+  | 'tools'
   | 'profile'
   | 'organization'
   | 'followers'
@@ -55,6 +56,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   // keeps in sight.
   { id: 'calendar', labelKey: 'settings.section.calendar', icon: CalendarDays },
   { id: 'providers', labelKey: 'settings.section.providers', icon: Cpu },
+  { id: 'tools', labelKey: 'settings.section.tools', icon: Plug },
   { id: 'profile', labelKey: 'settings.section.profile', icon: UserRound },
   { id: 'followers', labelKey: 'settings.section.followers', icon: Users },
   { id: 'privacy', labelKey: 'settings.section.privacy', icon: ShieldCheck },

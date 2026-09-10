@@ -11,6 +11,7 @@ import { gateSlowdownLine } from "../../shared/gate-slowdown";
 import { slackMs } from "../../tests/helpers/time-slack";
 import {
   formatChecksComment,
+  formatChecksThreadSummary,
   formatChecksWait,
   parseReviewChecks,
   runReviewChecks,
@@ -466,6 +467,22 @@ describe("formatChecksComment", () => {
 
   test("nessun comando dichiarato non è un verde", () => {
     expect(formatChecksComment([])).not.toContain("verdi");
+  });
+});
+
+describe("formatChecksThreadSummary", () => {
+  test("keeps the first actionable error without persisting command output", () => {
+    const failed: CheckRun = {
+      name: "lint", cmd: "bun run lint --all", ok: false, code: 2, ms: 800,
+      timedOut: false, tail: "service log\n".repeat(4_000),
+    };
+    const summary = formatChecksThreadSummary([failed], { commit: "abcdef123456" });
+    expect(summary).toContain("controlli automatici");
+    expect(summary).toContain("lint");
+    expect(summary).toContain("exit 2");
+    expect(summary).not.toContain(failed.cmd);
+    expect(summary).not.toContain("service log");
+    expect(summary.length).toBeLessThan(220);
   });
 });
 

@@ -128,7 +128,7 @@ describe("unit shards CLI", () => {
     expect(actual).toEqual(expected);
     expect(new Set(actual).size).toBe(actual.length);
     expect(result.calls.find(call => call.phase === 2)!.files).toEqual([
-      "server/ai-bridge-singleton.test.ts", "server/ai-bridge.test.ts",
+      "server/ai-bridge-singleton.test.ts", "server/ai-bridge.test.ts", "server/providers/codex-complete.test.ts",
     ]);
   });
 });

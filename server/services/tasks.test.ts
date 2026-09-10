@@ -7,7 +7,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
-import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock } from "../../shared/board";
+import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
 describe("reserved action labels", () => {
@@ -1326,6 +1326,37 @@ describe("blocked-by dependency", () => {
     expect(upd.model).toBeNull();
     expect(upd.reuseBlockerContext).toBe(false);
   });
+
+  test("automatic effort is paired with its model and cleared by a manual replacement", () => {
+    const task = s.create({ projectId: PID, text: "a", model: "gpt-5.6-luna" });
+    expect(s.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "low" }).modelEffort).toBe("low");
+
+    const replaced = s.setModel({ taskId: task.id, model: "claude-haiku-4-5" });
+    expect(replaced.modelEffort).toBeUndefined();
+
+    s.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "low" });
+    const manuallyChanged = s.update({ taskId: task.id, actor: "human", by: "u", patch: { model: "claude-haiku-4-5" } });
+    expect(manuallyChanged.modelEffort).toBeUndefined();
+    expect(() => s.setModel({ taskId: task.id, model: "gpt-5.6-luna", effort: "auto" })).toThrow("invalid task model effort");
+  });
+
+  test("a bound task rejects a model change from any caller without changing its session or task", () => {
+    const task = s.create({ projectId: PID, text: "Bound task", model: "claude-opus-5" });
+    db.run("INSERT INTO topics (id) VALUES ('model-bound-topic')");
+    s.bindTopic({ taskId: task.id, topicId: "model-bound-topic" });
+    for (const actor of ["human", "agent"] as const) {
+      expect(() => s.update({ taskId: task.id, actor, by: "test", patch: { model: "gpt-5.4", text: "Must not change" } }))
+        .toThrow("Il modello è fissato alla sessione");
+    }
+    expect(() => s.update({ taskId: task.id, actor: "human", by: "test", patch: { model: null } }))
+      .toThrow("Il modello è fissato alla sessione");
+    const unchanged = s.get(task.id)!.task;
+    expect(unchanged.model).toBe("claude-opus-5");
+    expect(unchanged.text).toBe("Bound task");
+    expect(unchanged.assignedTopicId).toBe("model-bound-topic");
+    expect(s.update({ taskId: task.id, actor: "human", by: "test", patch: { model: "claude-opus-5" } }).model)
+      .toBe("claude-opus-5");
+  });
 });
 
 describe("priorità automatica", () => {
@@ -2024,6 +2055,24 @@ describe("la lista: filtro per id, stato validato, commenti sulla card", () => {
     expect(afterWrite.recentComments.map((c) => c.content)).toEqual(["parola 2", "parola 3", "parola 4"]);
   });
 
+  test('recentComments preserve human, answer, question and delivery with the same assistant anchor', () => {
+    const t = s.create({ projectId: PID, text: 'Source question', status: 'review' });
+    const messageId = 'assistant-source-review';
+    const human = s.addComment({ taskId: t.id, author: 'user', content: 'Explain the source and show me the chart.' });
+    const answer = s.addComment({ taskId: t.id, author: 'agent:source', messageId, content: 'The source registry supplies the chart data.' });
+    const question = s.addComment({ taskId: t.id, author: 'agent:source', messageId, content: '```question\nWhich source?\n- Orders\n- Contracts\n```' });
+    const delivery = s.addComment({ taskId: t.id, author: 'agent:source', messageId, kind: 'delivery', content: 'The source diagram is ready.' });
+    const card = s.list({ scope: 'all', rootsOnly: true, ids: [t.id] })[0]!;
+    // The three most recent spoken rows include the answer and question;
+    // the latest-human exception also carries the request outside that window.
+    expect(card.recentComments).toEqual([human, answer, question, delivery].map((c) => ({
+      author: c.author, content: c.content, kind: c.kind,
+      ...(c.messageId ? { messageId: c.messageId } : {}),
+    })));
+    expect(pendingQuestion(card.recentComments)).toEqual({ text: 'Which source?', options: ['Orders', 'Contracts'] });
+    expect(s.get(t.id)!.comments.map((c) => c.messageId)).toEqual([null, messageId, messageId, messageId]);
+  });
+
   /**
    * I COMMENTI VIAGGIANO SOLO DOVE LA CARD LI DISEGNA.
    *
@@ -2198,7 +2247,8 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20260906115130: WHERE the card runs. Same reason as the columns
          -- above: left NULL it would fall outside the list-against-detail
          -- comparison, and the node chip reads it on both doors.
-         machine_id = 'mac-1'
+         machine_id = 'mac-1',
+         model_effort = 'low'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

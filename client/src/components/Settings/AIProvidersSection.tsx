@@ -8,15 +8,15 @@ import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../../../shared/effort';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types';
-import { PermissionsSection } from './PermissionsSection';
 import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
+import { ApiKeyForm, ApiProviderSetup } from './ApiProviderSetup';
 import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
-import { McpFleetPanel } from './McpFleetPanel';
 import { CliAgentsPanel } from './CliAgentsPanel';
 import {
+  API_PROVIDERS,
+  isApiProvider,
   STATUS_COLORS,
-  STATUS_LABELS,
   relativeTime,
   PROVIDER_MODEL_FIELD,
 } from './providerFormat';
@@ -27,45 +27,14 @@ interface TestResult {
   at: number;
 }
 
-/**
- * La scheda dei provider: UNA riga per provider, e ogni riga si configura da sé.
- *
- * Prima qui sopra c'era un blocco «Behaviour defaults» con cinque tendine
- * globali, e quattro di quelle cinque erano impostazioni PER-PROVIDER travestite
- * da globali (l'effort di claude-code, l'effort e la modalità di approvazione di
- * codex, l'interruttore di claude-code). La quinta — «Default provider» — era
- * peggio: era una SECONDA superficie sullo stesso campo che governa il bottone
- * «imposta come predefinito» delle righe, e le due potevano contraddirsi.
- *   • leggevano cose diverse: la tendina leggeva `app_settings.aiProvider`, la
- *     riga leggeva `isDefault` dello snapshot — a campo vuoto la tendina diceva
- *     «Auto» mentre una riga portava il badge «Default»;
- *   • la tendina non si rileggeva dopo un «imposta come predefinito», quindi
- *     restava sul valore vecchio;
- *   • la tendina elencava cinque nomi cablati, anche non registrati: sceglierne
- *     uno assente scriveva la riga in DB senza che il default cambiasse davvero.
- * Ora la superficie è una sola. Il caso che solo la tendina sapeva dire — «non
- * scegliere, decidi tu» — è diventato un'azione della riga che ha il badge.
- */
+/** Provider cards own their model settings and the validated default action. */
 export function AIProvidersSection() {
   const tr = useT();
   // Single subscription point — replaces the per-component fetches the section
   // used to do. Snapshot updates arrive via WS, so opening Settings in two
   // windows shows identical state without either window polling.
   const { snapshot, loading, error, refresh, retry } = useProvidersSnapshot();
-  // RUNTIMES ARE NOT PROVIDERS, and do not belong in this list.
-  //
-  // A provider answers "WHO answers" — Claude over the API, Claude Code, an ACP
-  // agent — and has a key, a model, an endpoint. A RUNTIME answers "HOW it is
-  // run": `cli` starts one CLI per session, `jcode` sends them to a shared daemon,
-  // `topics` keeps them inside this server. The server's registry holds both in
-  // the same map, for a legitimate reason of its own (either can serve a turn),
-  // but the Settings pane is not the registry: here "topics" among the providers
-  // reads as a model vendor it is not — reported 2026-08-26, "Topics is a runtime
-  // and shouldn't be listed as an AI provider".
-  //
-  // Choosing the runtime already has its place, at the top of this pane:
-  // `AgentRuntimeChoice`. Removing them from this list hides nothing; it puts each
-  // thing under the question it answers.
+  // Runtime selection belongs in the advanced execution section.
   const entries: ProviderSnapshotEntry[] = useMemo(
     () => (snapshot?.providers ?? []).filter(
       (p) => !(AGENT_RUNTIMES as readonly string[]).includes(p.name),
@@ -73,12 +42,11 @@ export function AIProvidersSection() {
     [snapshot],
   );
 
-  // Le impostazioni globali si leggono UNA volta qui e si passano alle righe:
-  // sono la seconda metà di ogni card (modello, effort, approvazione), e una
-  // fetch per card significherebbe una lettura per ogni apertura di riga.
+  // Fetch shared settings once, rather than once per expanded card.
   const { settings, saving, error: settingsError, save, apply } = useBehaviorSettings();
 
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, TestResult>>({});
   const [defaultError, setDefaultError] = useState<string | null>(null);
@@ -107,27 +75,29 @@ export function AIProvidersSection() {
     if (!previousAt || entry.fetchedAt === previousAt) return;
     // A fresh row landed — derive result from it.
     const ok = entry.status === 'ready';
+    // Lo stato a parole viene dal dizionario, come il pallino accanto al nome:
+    // era l'unico punto della scheda che rispondeva in italiano fisso (e in
+    // inglese fisso, via `STATUS_LABELS`) qualunque lingua avesse scelto chi legge.
     const message = ok
-      ? `Connesso${entry.models.length ? ` · ${entry.models.length} modelli` : ''}${entry.version ? ` · v${entry.version}` : ''}`
-      : entry.lastError ?? STATUS_LABELS[entry.status];
+      ? [
+        tr('ai.status.ready'),
+        entry.models.length ? tr('ai.test.models', { count: entry.models.length }) : '',
+        entry.version ? `v${entry.version}` : '',
+      ].filter(Boolean).join(' · ')
+      : entry.lastError ?? tr(`ai.status.${entry.status}`);
     if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- converging external-store sync: derives the test result from a freshly-arrived WS snapshot and clears `testing`, which guards against re-runs (no cascade)
     setResults((prev) => ({ ...prev, [testing]: { ok, message, at: Date.now() } }));
     testTriggeredAt.current.delete(testing);
     setTesting(null);
-  }, [entries, testing]);
+  }, [entries, testing, tr]);
 
   const setDefault = async (name: string) => {
     setDefaultError(null);
     try {
-      // Passa da `/api/providers/default` e non da `/api/app-settings` perché
-      // quella rotta VALIDA contro il registro prima di scrivere: un nome che
-      // non è registrato non deve poter finire in DB come default.
+      // This endpoint validates the choice against the live registry.
       await providersApi.setDefault(name);
-      // La stessa rotta scrive `app_settings.ai_provider` (updateAppSettings),
-      // quindi la copia locale va riallineata: senza, il badge continuerebbe a
-      // dire «automatico» su una scelta appena fatta a mano — che è esattamente
-      // la lettura divergente da cui veniamo.
+      // The endpoint also updates app settings; mirror the explicit choice.
       apply({ aiProvider: name });
       await refresh();
     } catch (e) {
@@ -138,9 +108,7 @@ export function AIProvidersSection() {
   const clearDefault = async () => {
     setDefaultError(null);
     try {
-      // `null` = nessuna scelta salvata: il server ricalcola (recomputeDefault)
-      // e il badge passa a «Default · automatico» sulla riga che vince il
-      // ripiego, che può benissimo essere un'altra.
+      // Clearing the override lets the server recompute its fallback.
       await save({ aiProvider: null });
       await refresh();
     } catch (e) {
@@ -165,17 +133,14 @@ export function AIProvidersSection() {
       await refresh(name);
     } catch (err) {
       if (testWatchdog.current) { clearTimeout(testWatchdog.current); testWatchdog.current = null; }
-      const message = err instanceof Error ? err.message : 'Prova non riuscita';
+      const message = err instanceof Error ? err.message : tr('ai.test.failed');
       setResults((prev) => ({ ...prev, [name]: { ok: false, message, at: Date.now() } }));
       testTriggeredAt.current.delete(name);
       setTesting(null);
     }
   };
 
-  // Quante righe condividono lo stesso campo «modello di default». Serve a UNA
-  // cosa: dire sulla card di Claude Code e su quella di Claude (API) che la loro
-  // tendina scrive nello stesso posto, invece di lasciar scoprire la cosa
-  // cambiando l'una e vedendo muoversi l'altra.
+  // Warn when multiple provider cards write the same model setting.
   const modelFieldSiblings = useMemo(() => {
     const byField = new Map<string, string[]>();
     for (const e of entries) {
@@ -186,11 +151,7 @@ export function AIProvidersSection() {
     return byField;
   }, [entries]);
 
-  // I due stati di attesa NON escono dalla funzione con un `return` anticipato,
-  // ed è la ragione per cui questo blocco è un ramo e non una guardia: sotto la
-  // lista dei provider c'è quella dei consensi permanenti, e uno snapshot che
-  // non arriva non deve poter rendere irraggiungibile la revoca di un
-  // «Consenti sempre». Sono due letture diverse da due rotte diverse.
+  // Keep setup reachable when a previously registered provider fails.
   const providersBody = error && entries.length === 0 ? (
     <div className="flex items-center gap-2 text-[12px] text-red-500">
       <AlertCircle size={12} className="flex-shrink-0" />
@@ -207,140 +168,111 @@ export function AIProvidersSection() {
     <div className="text-[12px] text-app-text-muted">Loading…</div>
   ) : null;
 
+  const renderProvider = (entry: ProviderSnapshotEntry) => (
+    <ProviderCard
+      key={entry.name}
+      entry={entry}
+      expanded={expanded === entry.name}
+      testing={testing === entry.name}
+      result={results[entry.name]}
+      settings={settings}
+      saving={saving}
+      modelSharedWith={(modelFieldSiblings.get(PROVIDER_MODEL_FIELD[entry.name] ?? '') ?? [])
+        .filter((label) => label !== (entry.label ?? entry.name))}
+      onSave={save}
+      onToggle={() => setExpanded(expanded === entry.name ? null : entry.name)}
+      onSetDefault={() => { void setDefault(entry.name); }}
+      onClearDefault={() => { void clearDefault(); }}
+      onTest={() => { void test(entry.name); }}
+      onAfterConfigure={() => refresh(entry.name)}
+    />
+  );
+
   return (
-    <div className="space-y-6">
-      <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+    <div className="space-y-6" data-testid="ai-providers-settings">
+      <div className="space-y-3">
+        <h3 className="flex items-center gap-2 text-[13px] font-medium text-app-text">
           <Cpu size={14} />
-          AI Providers
-        </label>
-        <p className="text-[11px] text-app-text-muted mb-3">
-          Una riga per provider: qui dentro c'è il suo modello di default e il
-          resto di come lavora. Il predefinito è quello col badge; una chat può
-          sempre scegliere altro dal picker del composer.
-        </p>
-
+          {tr('ai.api.title')}
+        </h3>
+        <p className="text-[12px] text-app-text-secondary">{tr('ai.api.intro')}</p>
+        <p className="text-[11px] text-app-text-muted" data-testid="api-billing-note">{tr('ai.api.billing')}</p>
         {providersBody}
-
-        {providersBody === null && <>
-        {settings && (
-          <AgentRuntimeChoice
-            settings={settings}
-            saving={saving}
-            // Which provider to look for depends on the CHOSEN runtime: always
-            // asking about jcode said "it isn't there" to whoever is on the native
-            // runtime, and vice versa. The default (row absent) is `topics`.
-            //
-            // This reads the FULL list, not `entries`: that one has just had the
-            // runtimes removed (see the note above), so looking for them there
-            // would always say "not registered" — and this very line exists to say
-            // the opposite when they are. The same filter, asked a question that
-            // is not its own, becomes a lie.
-            registered={(snapshot?.providers ?? []).some((e) => e.name === (settings.agentRuntime ?? DEFAULT_AGENT_RUNTIME))}
-            onSave={save}
-          />
-        )}
-
-        {/* Under the execution mechanics: the safety net wrapped around EVERY
-            turn that mechanic runs. The question that brings a person here is
-            "what if the agent breaks something", and the answer now sits one
-            row below the control that decides how the agent is launched. */}
-        {settings && (
-          <TurnCheckpointsChoice settings={settings} saving={saving} onSave={save} />
-        )}
-
-        {/* Under the runtime choice, and nowhere else: MCP tools are what that
-            runtime mounts. The question that brings a person here is "why does
-            the agent not have tool X", and the answer now sits one row away
-            from the control that decides HOW the agent is run. */}
-        <McpFleetPanel />
         {(settingsError || defaultError) && (
-          <div className="mb-2 text-[11px] text-red-500">{defaultError ?? settingsError}</div>
+          <div role="alert" className="text-[11px] text-red-500">{defaultError ?? settingsError}</div>
         )}
-
-        {/* Una scelta salvata che non corrisponde a nessuna riga: il provider
-            non è registrato adesso. Non è uno stato che la scheda possa più
-            creare (la rotta valida contro il registro), ma esiste già in giro —
-            lo produceva la vecchia tendina «Default provider», che elencava
-            cinque nomi cablati anche non registrati. Va detto e va potuto
-            togliere: finché resta, torna a valere nel momento in cui quel
-            provider ricompare. */}
-        {settings?.aiProvider && !entries.some((e) => e.name === settings.aiProvider) && (
-          <div className="mb-2 flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
+        {/* A runtime can be the saved default even though it is deliberately
+            absent from the provider cards. Validate against the full registry. */}
+        {snapshot && settings?.aiProvider && !snapshot.providers.some((entry) => entry.name === settings.aiProvider) && (
+          <div data-testid="provider-default-missing" className="flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
             <AlertCircle size={12} className="flex-shrink-0" />
             <span className="flex-1 break-words">
               {tr('ai.saved.prefix')} <span className="font-mono">{settings.aiProvider}</span>{tr('ai.saved.suffix')}
             </span>
-            <button
-              onClick={() => { void clearDefault(); }}
-              disabled={saving}
-              className="flex-shrink-0 px-2 py-1 rounded-md bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
-            >
-              Togli
+            <button onClick={() => { void clearDefault(); }} disabled={saving} className="flex-shrink-0 px-2 py-1 coarse:min-h-11 rounded-md bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50">
+              {tr('ai.saved.remove')}
             </button>
           </div>
         )}
+        {/* An absent API gets an onboarding card, never invented ready state. */}
+        {snapshot && <div className="space-y-2">
+          {(Object.keys(API_PROVIDERS) as Array<keyof typeof API_PROVIDERS>).map((provider) => {
+            const entry = entries.find((candidate) => candidate.name === provider);
+            return entry ? renderProvider(entry) : (
+              <ApiProviderSetup key={provider} provider={provider}
+                expanded={expanded === provider}
+                onToggle={() => setExpanded(expanded === provider ? null : provider)}
+                onSaved={() => refresh(provider)} />
+            );
+          })}
+        </div>}
+      </div>
 
-        <div className="space-y-1.5">
-          {entries.map((entry) => (
-            <ProviderCard
-              key={entry.name}
-              entry={entry}
-              expanded={expanded === entry.name}
-              testing={testing === entry.name}
-              result={results[entry.name]}
+      {entries.some((entry) => !isApiProvider(entry.name)) && <div className="border-t border-app-border pt-3 space-y-2">
+        <h3 className="text-[13px] font-medium text-app-text">{tr('ai.agents.title')}</h3>
+        <p className="text-[11px] text-app-text-secondary">{tr('ai.agents.hint')}</p>
+        {entries.filter((entry) => !isApiProvider(entry.name)).map(renderProvider)}
+      </div>}
+
+      <div className="border-t border-app-border pt-3">
+        <button
+          type="button"
+          data-testid="ai-providers-advanced-toggle"
+          aria-expanded={advanced}
+          aria-controls="ai-providers-advanced"
+          onClick={() => setAdvanced((value) => !value)}
+          className="w-full flex items-center gap-2 py-2 coarse:min-h-11 text-left text-[12px] font-medium text-app-text"
+        >
+          {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {tr('ai.advanced.title')}
+        </button>
+        <p className="text-[11px] text-app-text-muted">{tr('ai.advanced.hint')}</p>
+        {advanced && <div id="ai-providers-advanced" data-testid="ai-providers-advanced" className="mt-3 space-y-4">
+          {settings && <div className="space-y-3 rounded-lg border border-app-border px-3 py-3">
+            <h3 className="text-[13px] font-medium text-app-text">{tr('ai.execution.title')}</h3>
+            <AgentRuntimeChoice
               settings={settings}
               saving={saving}
-              modelSharedWith={(modelFieldSiblings.get(PROVIDER_MODEL_FIELD[entry.name] ?? '') ?? [])
-                .filter((l) => l !== (entry.label ?? entry.name))}
+              registered={(snapshot?.providers ?? []).some((entry) => entry.name === (settings.agentRuntime ?? DEFAULT_AGENT_RUNTIME))}
               onSave={save}
-              onToggle={() => setExpanded(expanded === entry.name ? null : entry.name)}
-              onSetDefault={() => setDefault(entry.name)}
-              onClearDefault={() => clearDefault()}
-              onTest={() => test(entry.name)}
-              onAfterConfigure={() => { void refresh(entry.name); }}
             />
-          ))}
-          {entries.length === 0 && (
-            <div className="text-[12px] text-app-text-muted">No providers registered.</div>
-          )}
-          {/* Claude Code non registrato: l'unico interruttore che può farlo
-              tornare vive sulla sua card, e senza card non ci sarebbe più. */}
-          {settings && !entries.some((e) => e.name === 'claude-code') && (
-            <UnregisteredClaudeCode settings={settings} saving={saving} onSave={save} />
-          )}
-        </div>
-        </>}
+            <TurnCheckpointsChoice settings={settings} saving={saving} onSave={save} />
+          </div>}
+          <div className="space-y-1.5">
+            {snapshot && settings && !entries.some((entry) => entry.name === 'claude-code') && (
+              <UnregisteredClaudeCode settings={settings} saving={saving} onSave={save} />
+            )}
+          </div>
+          <CliAgentsPanel />
+        </div>}
       </div>
 
-      {/* BELOW the list, not inside it: this does not configure a registered
-          provider, it answers the question that comes from reading the list and
-          not finding there the CLI you know you installed. Whoever has
-          everything detected reads it as a confirmation and moves on. */}
-      <div className="pt-5 border-t border-app-border">
-        <CliAgentsPanel />
-      </div>
-
-      {/* I consensi permanenti stanno QUI, non in una voce di menu propria: un
-          pannello che nella stragrande maggioranza dei casi è vuoto non merita
-          un posto fisso in navigazione, ma la lista deve restare raggiungibile —
-          è l'unico posto dove un «Consenti sempre» premuto di corsa dentro una
-          chat si può rileggere e ritirare. */}
-      <div className="pt-5 border-t border-app-border">
-        <PermissionsSection />
-      </div>
     </div>
   );
 }
 
-/**
- * Le impostazioni globali (`/api/app-settings`) come stato unico della scheda.
- *
- * `save` è ottimistica e riconcilia con l'eco del server; `apply` aggiorna la
- * sola copia locale ed esiste per una ragione precisa: `PUT /api/providers/default`
- * scrive la stessa riga passando da un'altra rotta, e senza riallineamento la
- * scheda tornerebbe a mostrare due letture diverse dello stesso campo.
- */
+/** One settings copy shared by all cards. Saves reconcile with the server;
+ * `apply` mirrors changes made through the separate provider-default endpoint. */
 function useBehaviorSettings() {
   const [settings, setSettings] = useState<AppBehaviorSettings | null>(null);
   const [saving, setSaving] = useState(false);
@@ -385,14 +317,14 @@ interface ProviderCardProps {
   result?: TestResult;
   settings: AppBehaviorSettings | null;
   saving: boolean;
-  /** Altri provider registrati che scrivono nello stesso campo «modello». */
+  /** Other registered providers sharing the model setting. */
   modelSharedWith: string[];
   onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
   onToggle: () => void;
   onSetDefault: () => void;
   onClearDefault: () => void;
   onTest: () => void;
-  onAfterConfigure: () => void;
+  onAfterConfigure: () => Promise<void>;
 }
 
 function ProviderCard({
@@ -400,38 +332,35 @@ function ProviderCard({
   onSave, onToggle, onSetDefault, onClearDefault, onTest, onAfterConfigure,
 }: ProviderCardProps) {
   const tr = useT();
-  // Il badge distingue una SCELTA da un ripiego: `isDefault` dice solo chi è il
-  // default adesso, non se qualcuno l'ha deciso. Finché le impostazioni non
-  // sono arrivate non lo sappiamo, e il badge resta muto sul come — dire
-  // «automatico» in attesa della risposta sarebbe un'affermazione sbagliata
-  // mostrata a ogni apertura del pannello.
+  // Distinguish an explicit choice from a fallback only after settings load.
   const defaultKnown = settings !== null;
   const explicitDefault = settings?.aiProvider === entry.name;
-  // `label` arriva SEMPRE dallo snapshot (server/providers/snapshot-manager.ts):
-  // una tabella di nomi qui sarebbe la terza copia, e le due precedenti erano
-  // già divergenti fra loro.
-  const label = entry.label ?? entry.name;
-  const modelsCount = entry.models.length;
+  // API labels clarify the connection type; other labels come from discovery.
+  const apiProvider = isApiProvider(entry.name) ? entry.name : null;
+  const label = apiProvider ? API_PROVIDERS[apiProvider].label : entry.label ?? entry.name;
+  const modelField = PROVIDER_MODEL_FIELD[entry.name];
+  const selectedModel = (modelField ? settings?.[modelField] : null) ?? entry.defaultModel;
+  const hasKey = !!apiProvider && entry.requirements.some((req) => req.key === API_PROVIDERS[apiProvider].requirement && req.present);
   // Test connection only makes sense once requirements are met. When the
   // provider is "not set up" (unavailable), there's nothing to test — the user
   // first needs to satisfy the requirements below.
   const canTest = entry.status !== 'unavailable';
 
   return (
-    <div className={`rounded-lg border ${entry.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
+    <div data-testid={`provider-card-${entry.name}`} className={`rounded-lg border ${entry.isDefault ? 'border-primary/40 bg-primary/5' : 'border-app-border bg-app-hover/40'}`}>
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left coarse:min-h-11"
+        aria-expanded={expanded}
+        className="w-full flex min-h-11 items-center gap-2 px-3 py-2 text-left"
       >
         {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
-        <span className="text-[12px] font-semibold text-app-text">{label}</span>
-        <span className="text-[11px] text-app-text-muted">{STATUS_LABELS[entry.status]}</span>
-        {entry.version && <span className="text-[11px] text-app-text-muted">· v{entry.version}</span>}
-        {modelsCount > 0 && (
-          <span className="text-[11px] text-app-text-muted">· {modelsCount} models</span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12px] font-semibold text-app-text">{label}</span>
+          {selectedModel && <span className="block truncate text-[11px] text-app-text-secondary" title={selectedModel}>{selectedModel}</span>}
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span className="text-[11px] text-app-text-secondary">{tr(`ai.status.${entry.status}`)}</span>
           {entry.isDefault && (
             <span
               className="text-[11px] bg-primary/20 text-primary px-1.5 py-0.5 rounded"
@@ -444,18 +373,19 @@ function ProviderCard({
               {defaultKnown && !explicitDefault ? 'Default · automatico' : 'Default'}
             </span>
           )}
-        </div>
+        </span>
       </button>
 
       {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-app-border space-y-2">
+          {isApiProvider(entry.name) && <p className="text-[11px] text-app-text-secondary">{tr('ai.api.chat')}</p>}
           {/* Action row */}
           <div className="flex items-center gap-2 flex-wrap">
             {canTest && (
               <button
                 onClick={(e) => { e.stopPropagation(); onTest(); }}
                 disabled={testing}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
+                className="flex items-center gap-1 px-2 py-1 coarse:min-h-11 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
               >
                 <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
                 {tr('ai.testConnection')}
@@ -464,19 +394,17 @@ function ProviderCard({
             {!entry.isDefault && entry.status === 'ready' && (
               <button
                 onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
-                className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
+                className="px-2 py-1 coarse:min-h-11 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
               >
                 {tr('ai.setDefault')}
               </button>
             )}
             {entry.isDefault && explicitDefault && (
-              // Il caso che prima sapeva dire solo la tendina «Auto»: nessuna
-              // scelta salvata, decide il server. Senza questo, una volta
-              // scelto un default non si poteva più tornare indietro dalla UI.
+              // Return to automatic selection without choosing another provider.
               <button
                 onClick={(e) => { e.stopPropagation(); onClearDefault(); }}
                 disabled={saving}
-                className="px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
+                className="px-2 py-1 coarse:min-h-11 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
               >
                 {tr('ai.clearDefault')}
               </button>
@@ -489,7 +417,7 @@ function ProviderCard({
             )}
           </div>
 
-          {/* Le impostazioni di QUESTO provider */}
+          {/* Settings owned by this provider. */}
           {settings && (
             <ProviderSettings
               entry={entry}
@@ -524,13 +452,12 @@ function ProviderCard({
             </div>
           )}
 
-          {/* Inline configure forms */}
-          {entry.name === 'claude' && entry.requirements.some((r) => r.key === 'ANTHROPIC_API_KEY' && !r.present) && (
-            <ApiKeyForm provider="claude" placeholder="sk-ant-..." onSaved={onAfterConfigure} />
-          )}
-          {entry.name === 'openai' && entry.requirements.some((r) => r.key === 'OPENAI_API_KEY' && !r.present) && (
-            <ApiKeyForm provider="openai" placeholder="sk-..." onSaved={onAfterConfigure} />
-          )}
+          {apiProvider && (hasKey && entry.status === 'ready' ? (
+            <details className="border-t border-app-border pt-2" data-testid={`provider-key-details-${entry.name}`}>
+              <summary className="cursor-pointer py-1 text-[12px] text-app-text-secondary coarse:min-h-11">{tr('ai.api.replaceKey')}</summary>
+              <div className="pt-2"><ApiKeyForm provider={apiProvider} replacing onSaved={onAfterConfigure} /></div>
+            </details>
+          ) : <ApiKeyForm provider={apiProvider} replacing={hasKey} onSaved={onAfterConfigure} />)}
 
           {/* Freshness footer */}
           {entry.fetchedAt && (
@@ -544,22 +471,7 @@ function ProviderCard({
   );
 }
 
-/**
- * Il blocco «come lavora questo provider»: il modello di default più le manopole
- * che gli appartengono.
- *
- * Ogni controllo scrive un campo di `app_settings` che ESISTEVA GIÀ ed era già
- * letto dal server — mancava solo la superficie che lo scrivesse. Il modello in
- * particolare era il caso peggiore: l'unica UI che lo cambiava (il picker dentro
- * la card espansa) non lo persisteva affatto, teneva la scelta in
- * `localStorage` — quindi il «default» era per-DISPOSITIVO — e la ri-applicava
- * al boot passando da `registerProvider`, che ferma il provider e con lui i
- * processi CLI vivi. Cambiare un default uccideva le chat in corso.
- *
- * Quando un valore vale è scritto sul singolo controllo, perché NON è lo stesso
- * per tutti: gli effort il server li rilegge dal DB a ogni spawn, il modello e
- * la modalità di approvazione entrano nella config del provider all'avvio.
- */
+/** Persist provider-specific defaults without re-registering running providers. */
 function ProviderSettings({
   entry, settings, saving, modelSharedWith, onSave,
 }: {
@@ -569,14 +481,12 @@ function ProviderSettings({
   modelSharedWith: string[];
   onSave: (patch: Partial<AppBehaviorSettings>) => Promise<void>;
 }) {
-  const save = (patch: Partial<AppBehaviorSettings>) => { void onSave(patch).catch(() => { /* l'errore lo mostra la scheda */ }); };
+  const tr = useT();
+  const save = (patch: Partial<AppBehaviorSettings>) => { void onSave(patch).catch(() => { /* The section renders save errors. */ }); };
 
   const modelField = PROVIDER_MODEL_FIELD[entry.name];
   const modelValue = modelField ? settings[modelField] : null;
-  // La lista dei modelli arriva dal provider; se il valore salvato non c'è
-  // (modello ritirato, cache fredda) va comunque mostrato — altrimenti la
-  // tendina mostrerebbe il primo della lista e chi guarda crederebbe che sia
-  // quello in uso, senza un modo per cancellare il valore vecchio.
+  // Preserve a saved model absent from the catalog so it can still be cleared.
   const modelOptions = useMemo(() => {
     const all = [...entry.models];
     if (modelValue && !all.includes(modelValue)) all.unshift(modelValue);
@@ -593,11 +503,9 @@ function ProviderSettings({
       <SettingSelect
         key="model"
         label="Modello di default"
-        // Il valore in uso ORA lo dichiara il provider (`defaultModel()` nello
-        // snapshot). Finché la config viva non rilegge l'impostazione, i due
-        // possono differire fino al riavvio: meglio dirlo che far credere che
-        // la scelta sia già in vigore.
-        hint={`${entry.defaultModel ? `In uso ora: ${entry.defaultModel}. ` : ''}Vale dal prossimo avvio del server.${shared}`}
+        // API providers resolve settings on each request; local runtimes may
+        // still retain their startup config until the server restarts.
+        hint={`${entry.defaultModel ? `In uso ora: ${entry.defaultModel}. ` : ''}${isApiProvider(entry.name) ? tr('ai.api.nextTurn') : 'Vale dal prossimo avvio del server.'}${shared}`}
         value={modelValue}
         disabled={saving}
         onChange={(v) => save({ [modelField]: v } as Partial<AppBehaviorSettings>)}
@@ -621,11 +529,7 @@ function ProviderSettings({
       <SettingSelect
         key="enabled"
         label="Attivazione"
-        // Detto com'è, non com'è comodo: il server registra claude-code se la
-        // CLI c'è OPPURE se il flag è acceso (providers/index.ts, initProviders).
-        // Quindi «Disattivo» spegne solo il ramo forzato — con la CLI nel PATH
-        // il provider resta. Un'etichetta simmetrica prometterebbe un
-        // interruttore che non esiste.
+        // Disabling forced registration does not hide a discovered CLI binary.
         hint="Auto rileva la CLI. «Attivo» lo registra anche senza CLI; «Disattivo» non lo toglie se la CLI c'è."
         value={enabledToSelect(settings.claudeCodeEnabled)}
         disabled={saving}
@@ -669,15 +573,7 @@ function ProviderSettings({
   return <div className="rounded-md border border-app-border bg-surface/40 px-2.5 py-1.5">{rows}</div>;
 }
 
-/**
- * Claude Code non è registrato: nessuna card, quindi nessun posto dove dire
- * «provaci lo stesso».
- *
- * Il server registra il provider se la CLI c'è OPPURE se `claudeCodeEnabled` è
- * forzato (server/providers/index.ts, initProviders). Quel «oppure» era
- * raggiungibile solo dalla tendina globale appena rimossa: senza questa riga,
- * chi non ha la CLI nel PATH non avrebbe più nessun modo di forzarlo dalla UI.
- */
+/** Keep forced CLI registration reachable when discovery found no binary. */
 function UnregisteredClaudeCode({
   settings, saving, onSave,
 }: {
@@ -697,7 +593,7 @@ function UnregisteredClaudeCode({
         hint="Forzarla lo registra al prossimo avvio del server, anche senza CLI rilevata."
         value={enabledToSelect(settings.claudeCodeEnabled)}
         disabled={saving}
-        onChange={(v) => { void onSave({ claudeCodeEnabled: selectToEnabled(v) }).catch(() => { /* l'errore lo mostra la scheda */ }); }}
+        onChange={(v) => { void onSave({ claudeCodeEnabled: selectToEnabled(v) }).catch(() => { /* The section renders save errors. */ }); }}
         options={[
           { value: 'on', label: 'Attivo' },
           { value: 'off', label: 'Disattivo' },
@@ -742,53 +638,6 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-      )}
-    </div>
-  );
-}
-
-function ApiKeyForm({ provider, placeholder, onSaved }: { provider: 'claude' | 'openai'; placeholder: string; onSaved: () => void }) {
-  const [apiKey, setApiKey] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    if (!apiKey.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      if (provider === 'claude') await providersApi.configureClaude(apiKey.trim());
-      else await providersApi.configureOpenAI(apiKey.trim());
-      setApiKey('');
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save key');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="pt-1">
-      <div className="flex gap-1.5">
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border text-app-text placeholder:text-app-text-muted focus:outline-none focus:border-primary/50"
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-        />
-        <button
-          onClick={submit}
-          disabled={saving || !apiKey.trim()}
-          className="px-2 py-1 rounded-md text-[11px] font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          {saving ? '…' : 'Save'}
-        </button>
-      </div>
-      {error && (
-        <div className="mt-1 text-[11px] text-red-500">{error}</div>
       )}
     </div>
   );

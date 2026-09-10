@@ -20,6 +20,7 @@ import {
   parseQuestionBlock,
   parseStatusEvent,
   pendingQuestion,
+  pendingQuestionComment,
   projectIdForPath,
   questionAsksHuman,
   showsLandingDebt,
@@ -850,6 +851,73 @@ describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
       { content: question, kind: "comment" },
       { content: "ok, fatto", kind: "comment" },
     ])).toBeNull();
+  });
+});
+
+describe('pendingQuestionComment: a delivery from the same message preserves its question', () => {
+  const question = {
+    author: 'agent:topic-one', messageId: 'assistant-message-one', kind: 'comment',
+    content: '```question\nWhich source should supply the chart?\n- Orders\n- Contracts\n```',
+  };
+  const delivery = { ...question, kind: 'delivery', content: 'The diagram and source analysis are ready.' };
+
+  test('returns the original question through same-message delivery summaries and bookkeeping', () => {
+    const rows = [
+      question,
+      { kind: 'service', content: 'Review ready.' },
+      delivery,
+      { ...delivery, content: 'The attachment is available.' },
+      { kind: 'status', content: 'in_progress→review' },
+    ];
+    expect(pendingQuestionComment(rows)).toBe(question);
+    expect(pendingQuestion(rows)).toEqual({ text: 'Which source should supply the chart?', options: ['Orders', 'Contracts'] });
+    expect(rows[0]).toBe(question);
+    expect(rows[2]).toBe(delivery);
+  });
+
+  test('a delivery containing a newer question wins', () => {
+    const next = { ...delivery, messageId: 'next-turn', content: '```question\nWhich environment?\n- Staging\n- Local\n```' };
+    expect(pendingQuestionComment([question, delivery, next])).toBe(next);
+    expect(pendingQuestion([question, delivery, next])?.text).toBe('Which environment?');
+  });
+
+  test.each([
+    { messageId: null }, { messageId: undefined }, { messageId: '' }, { messageId: ' ' },
+    { messageId: 'another-message' }, { author: 'agent:another-topic' }, { author: null }, { author: '' },
+    { author: 'user' }, { author: 'system' }, { author: 'dispatcher' }, { author: 'verifier' },
+  ])('does not cross an unproven delivery anchor %j', (patch) => {
+    expect(pendingQuestionComment([question, { ...delivery, ...patch }])).toBeNull();
+  });
+
+  test.each(['user', 'system', 'dispatcher', 'verifier'])('a %s delivery never bridges an earlier question', (author) => {
+    expect(pendingQuestionComment([{ ...question, author }, { ...delivery, author }])).toBeNull();
+  });
+
+  test('a question without the same anchor cannot be recovered', () => {
+    expect(pendingQuestionComment([{ ...question, messageId: null }, delivery])).toBeNull();
+    expect(pendingQuestionComment([{ ...question, messageId: 'earlier-turn' }, delivery])).toBeNull();
+  });
+
+  test('normal prose or a human answer stops recovery even inside the same message', () => {
+    const prose = { ...question, content: 'I have already selected the source.' };
+    const human = { ...question, author: 'user', content: 'Orders' };
+    for (const interruption of [prose, human, { ...human, content: '' }]) {
+      expect(pendingQuestionComment([question, interruption, delivery])).toBeNull();
+      expect(pendingQuestionComment([question, delivery, interruption])).toBeNull();
+    }
+  });
+
+  test('an unreadable newer question does not revive the older one', () => {
+    expect(pendingQuestionComment([question, { ...delivery, content: '```question\n- Only an option\n```' }])).toBeNull();
+  });
+
+  test('legacy last-word questions still work, without guessing past legacy deliveries', () => {
+    const legacy = { content: question.content };
+    expect(pendingQuestionComment([legacy])).toBe(legacy);
+    expect(pendingQuestionComment([legacy, { content: delivery.content, kind: 'delivery' }])).toBeNull();
+    expect(pendingQuestionComment([])).toBeNull();
+    expect(pendingQuestionComment(null)).toBeNull();
+    expect(pendingQuestionComment(undefined)).toBeNull();
   });
 });
 

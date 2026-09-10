@@ -71,6 +71,10 @@ async function harness(sessionKey: string): Promise<Harness> {
 
   const chatRouter = createChatRouter(ctx, {
     resolveProvider: () => provider,
+    resolveProviderByName: (name) => {
+      if (name !== "claude-code") throw new Error(`provider inatteso: ${name}`);
+      return provider;
+    },
     detectLocalhostAutoNav: () => {},
     bindTopicToProject: () => {},
     resolveProjectRef: () => null,
@@ -258,6 +262,10 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
 
     const chatRouter = createChatRouter(ctx, {
       resolveProvider: () => provider,
+      resolveProviderByName: (name) => {
+        if (name !== "senza-adozione") throw new Error(`provider inatteso: ${name}`);
+        return provider;
+      },
       detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {},
       resolveProjectRef: () => null, getProjectIdForTopic: () => null,
       getWorkspaceProjects: () => [], autoBindProject: () => {},

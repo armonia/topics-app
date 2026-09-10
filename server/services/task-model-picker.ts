@@ -358,6 +358,8 @@ export function tierToAvailableModel(tier: ModelTier, available: readonly string
  */
 export interface TaskPlan {
   model: string;
+  /** Concrete runtime selected by general Auto; independent of model/account identity. */
+  provider?: string;
   effort: EffortTier | null;
   weight: TaskWeight | null;
 }

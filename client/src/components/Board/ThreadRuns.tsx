@@ -48,7 +48,7 @@ export function ServiceFold({ count, children }: { count: number; children: Reac
     <details className="group rounded-md border border-app-border-subtle bg-white/[0.02]" data-testid="task-service-fold">
       <summary
         title={tr('board.task.serviceNotesTitle')}
-        className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text-heading"
+        className="flex cursor-pointer list-none items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text-heading"
       >
         <ChevronRight size={10} className="shrink-0 transition-transform group-open:rotate-90" />
         <span data-testid="task-service-fold-count">{count} {tr('board.task.serviceNotes')}</span>

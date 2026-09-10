@@ -64,10 +64,19 @@ function providerPreferenceOrder(): string[] {
  */
 function bootDefaultChain(): { pairs: [string, string][]; fallback: string } {
   const src = read("server.ts");
-  const decl = src.match(/const providerType =([\s\S]*?);\n/);
-  expect(decl, "the providerType boot default no longer parses out of server.ts").toBeTruthy();
-  const pairs = [...decl![1].matchAll(/process\.env\.([A-Z0-9_]+)\s*\?\s*['"]([a-z0-9-]+)['"]/g)].map(
-    (m) => [m[1], m[2]] as [string, string],
+  const decl = src.match(/const requestedProviderType\s*=([\s\S]*?);\n\n/);
+  expect(decl, "the requestedProviderType boot default no longer parses out of server.ts").toBeTruthy();
+  const credentialSource = read("server/services/api-provider-credentials.ts");
+  const envByProvider = new Map(
+    [...credentialSource.matchAll(/(openai|claude):\s*"([A-Z0-9_]+)"/g)].map((m) => [m[1], m[2]]),
+  );
+  const pairs = [...decl![1].matchAll(/(saved(Claude|Openai)ApiKey|process\.env\.([A-Z0-9_]+))\s*\?\s*['"]([a-z0-9-]+)['"]/g)].map(
+    (m) => {
+      const provider = m[4]!;
+      const envName = m[3] ?? envByProvider.get(provider);
+      expect(envName, `the ${provider} boot condition no longer resolves to an environment key`).toBeTruthy();
+      return [envName!, provider] as [string, string];
+    },
   );
   const tail = decl![1].match(/['"]([a-z0-9-]+)['"]\s*\)?\s*$/);
   expect(tail, "the keyless fallback no longer parses out of server.ts").toBeTruthy();

@@ -13,11 +13,11 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, ChevronDown, ChevronRight, MessageSquare, Settings, Target, UploadCloud, X } from 'lucide-react';
-import type { WSMessage } from '../../types';
+import { AlertTriangle, Archive, ChevronDown, ChevronRight, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
+import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
-import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
+import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
@@ -50,6 +50,7 @@ import type { DraftPreview } from './draftPreview';
 import { taskActionErrorMessage } from './taskActionError';
 import { taskActionWord } from './taskActionWords';
 import { TaskDetail } from './TaskDetail';
+import { OrchestratorDrawer } from './OrchestratorDrawer';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { GlobalOnlySettingsPanel } from './BoardSettingsSections';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
@@ -75,10 +76,25 @@ interface Props {
   /** Deep-link a task's bound agent tab into focus (wired to handleTopicClick). */
   onOpenTopic?: (topicId: string) => void;
   /**
-   * Opens the one server-owned orchestration conversation. This is supplied
-   * only by the global board host; project boards never render the entry point.
+   * THE COORDINATOR IS A WINDOW OF THIS BOARD, not another tab.
+   *
+   * The old entry point (`onOpenGlobalOrchestrator`) promoted the conversation
+   * to a permanent pane: you left the Kanban to talk about the Kanban, and
+   * getting back to the columns meant switching tabs. It now opens as a drawer
+   * beside the columns — the same slot the task preview uses, same geometry,
+   * same gesture to dismiss it.
+   *
+   * ONE prop with two halves rather than two separate props: without the
+   * second one the button would open an empty drawer, and an invariant you can
+   * break by forgetting a line is not an invariant. Only the global board host
+   * supplies it; project boards never render the entry point.
    */
-  onOpenGlobalOrchestrator?: () => Promise<void>;
+  orchestrator?: {
+    /** Ensures the server-owned singleton and returns its Topic. */
+    ensure: () => Promise<{ topicId: string; topic: Topic }>;
+    /** Renders the coordinator chat INSIDE the board's drawer. */
+    render: (args: { topic: Topic }) => React.ReactNode;
+  };
   /**
    * Consegna una MISSIONE alla sessione laterale del progetto: apre la chat
    * accanto alla board e le mette il testo davanti. Restituisce il motivo per
@@ -608,7 +624,7 @@ const MOUSE_SENSOR_OPTS = { activationConstraint: { distance: 4 } } as const;
 const TOUCH_SENSOR_OPTS = { activationConstraint: { delay: 200, tolerance: 8 } } as const;
 const KEYBOARD_SENSOR_OPTS = { coordinateGetter: sortableKeyboardCoordinates } as const;
 
-export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, onOpenGlobalOrchestrator, onStartMission }: Props) {
+export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHistory, onOpenTopic, orchestrator, onStartMission }: Props) {
   const tr = useT();
   // A dead `/task/<id>` has to SAY SO, with the same words a dead `/tab/…`
   // permalink uses: two roads to one destination cannot answer differently. The
@@ -635,19 +651,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [error, setError] = useState<string | null>(null);
-  const [openingOrchestrator, setOpeningOrchestrator] = useState(false);
-  const openGlobalOrchestrator = useCallback(async () => {
-    if (!global || !onOpenGlobalOrchestrator || openingOrchestrator) return;
-    setOpeningOrchestrator(true);
-    try {
-      await onOpenGlobalOrchestrator();
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : tr('board.orchestrator.openError'));
-    } finally {
-      setOpeningOrchestrator(false);
-    }
-  }, [global, onOpenGlobalOrchestrator, openingOrchestrator, tr]);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
   // in cima al pannello, mentre la card che ha rifiutato il click può essere
   // dieci righe più giù in una colonna scrollata. Ne teniamo uno solo, l'ultimo:
@@ -673,10 +676,44 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
   // Si azzera a ogni altra apertura: vale per QUEL click, non è uno stato.
   const [pendingPaneId, setPendingPaneId] = useState<string | null>(null);
+  // THE COORDINATOR, while it is open: its Topic. It sits next to `selectedId`
+  // because it answers the same question — what is in the drawer — and the two
+  // are mutually exclusive: both are in-flow siblings of the columns, and
+  // holding them open together would leave the board a slit, not a board.
+  const [orchestratorTopic, setOrchestratorTopic] = useState<Topic | null>(null);
+  const [openingOrchestrator, setOpeningOrchestrator] = useState(false);
   const openTask = useCallback<OpenTask>((id, focusPaneId) => {
     setSelectedId(id);
     setPendingPaneId(focusPaneId ?? null);
+    setOrchestratorTopic(null);
   }, []);
+  const closeOrchestrator = useCallback(() => { setOrchestratorTopic(null); }, []);
+  const openOrchestrator = useCallback(async () => {
+    if (!global || !orchestrator || openingOrchestrator) return;
+    setOpeningOrchestrator(true);
+    try {
+      const { topic } = await orchestrator.ensure();
+      setOrchestratorTopic(topic);
+      setSelectedId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tr('board.orchestrator.openError'));
+    } finally {
+      setOpeningOrchestrator(false);
+    }
+  }, [global, orchestrator, openingOrchestrator, tr]);
+  // The escape hatch: the same conversation, promoted to a permanent tab. The
+  // drawer is its home, not a cage — reading it full-width, or beside a
+  // project, goes through here. The drawer closes on the way out, or the same
+  // chat would be mounted twice in one window.
+  const popOutOrchestrator = useCallback(() => {
+    const topic = orchestratorTopic;
+    if (!topic) return;
+    setOrchestratorTopic(null);
+    window.dispatchEvent(new CustomEvent('topics:open-topic', {
+      detail: { topicId: topic.id, topic, mode: 'permanent' },
+    }));
+  }, [orchestratorTopic]);
   // What the floating composer is about to create: previewed as a ghost card
   // at the top of its birth column (card 058ea722). Only in the column it
   // will land in; the others see nothing.
@@ -688,14 +725,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // to fade out once the strip reaches its end.
   const toolbarScrollRef = useRef<HTMLDivElement>(null);
   const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
-  // Provider model list for the board-default picker (settings panel). Seeded
-  // from the snapshot and kept live — same source the composer's picker uses.
-  const [claudeModels, setClaudeModels] = useState<string[]>(
-    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
-  );
-  useEffect(() => subscribeProvidersSnapshot((state) => {
-    setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
-  }), []);
+  // Provider model list for the board-default picker (settings panel). Same
+  // hook the composer and the task drawer read, so the three cannot disagree.
+  const models = useTaskModelCatalog();
   // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
   // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
   // boot pending) so it survives a remount and an inactive→active board tab —
@@ -1810,17 +1842,28 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           {canRunMissions && (
             <MissionsMenu onStart={(m) => setError(onStartMission!(m))} />
           )}
-          {global && onOpenGlobalOrchestrator && (
+          {global && orchestrator && (
             <button
               type="button"
               data-testid="board-open-orchestrator"
-              onClick={() => { void openGlobalOrchestrator(); }}
+              aria-pressed={!!orchestratorTopic}
+              onClick={() => { if (orchestratorTopic) closeOrchestrator(); else void openOrchestrator(); }}
               disabled={openingOrchestrator}
               title={tr('board.orchestrator.openTitle')}
               aria-label={tr('board.orchestrator.open')}
-              className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:cursor-wait disabled:opacity-60"
+              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] disabled:cursor-wait disabled:opacity-60 ${
+                orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
+              }`}
             >
-              <MessageSquare className="h-3 w-3 shrink-0" />
+              {/* THE NOTES, not the speech bubble. The bubble said "you can
+                  type here", which in this app is true of every surface; the
+                  notes say this is the one that CONDUCTS the others.
+                  This button and the drawer header are the two places the glyph
+                  is actually drawn: measured 2026-09-10, `Topic.icon` reaches no
+                  other chrome in this app — the sidebar row and the tab strip
+                  draw no per-topic glyph for a chat — so the coordinator's own
+                  identity lives here, not in that field. */}
+              <Music4 className="h-3 w-3 shrink-0" />
               <span>{openingOrchestrator ? tr('board.orchestrator.opening') : tr('board.orchestrator.open')}</span>
             </button>
           )}
@@ -1902,7 +1945,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             projectId={projectId}
             settings={settings}
             dispatchOn={dispatchOn}
-            models={claudeModels}
+            models={models}
             onToggleDispatch={toggleDispatch}
             onChanged={setSettings}
             onClose={() => setShowSettings(false)}
@@ -2041,6 +2084,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onDraft={setDraft}
           />
         </div>
+        {orchestratorTopic && orchestrator && (
+          <OrchestratorDrawer
+            topic={orchestratorTopic}
+            onClose={closeOrchestrator}
+            onPopOut={popOutOrchestrator}
+          >
+            {orchestrator.render({ topic: orchestratorTopic })}
+          </OrchestratorDrawer>
+        )}
         {selected && (
           <TaskDetail
             key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */

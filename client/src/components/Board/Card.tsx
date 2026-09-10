@@ -465,9 +465,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // un insieme vuoto. La card ha solo due numeri, quindi usa il predicato piu'
   // stretto — puo' lasciarne viva una risolta, mai spegnerne una viva. Vedi
   // `shared/parked-question.ts`.
-  const pending = lastComment && !isSettledParkedQuestion(lastComment, task)
-    ? parseQuestionBlock(lastComment.content)
+  const questionComment = rowThread ? rowThread.questionComment : thread?.questionComment ?? null;
+  const pending = questionComment && !isSettledParkedQuestion(questionComment, task)
+    ? parseQuestionBlock(questionComment.content)
     : null;
+  const questionIsLatest = !!pending && questionComment === lastComment;
   // A quick reply whose text IS one of the card's real choices is a trap: the
   // reply rejects the card and restarts the agent with those words, while the
   // button one row below performs the action. Same label, opposite effect.
@@ -1380,7 +1382,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               La domanda ```question del sistema NON passa di qui: ha il suo ramo
               (`pending`, appena sotto), quindi non prende il tag e resta
               protagonista come deve. */}
-          {!showsQuestion ? null : pending ? (
+          {!showsQuestion ? null : questionIsLatest && pending ? (
             <p className="break-words text-xs leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
@@ -1461,7 +1463,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               soglia guarda il testo, non l'altezza resa, perche' un'altezza
               misurata dopo il render farebbe saltare la card di un fotogramma.
               620 caratteri sono circa dieci righe nella colonna della board. */}
-          {showsQuestion && !pending && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
+          {showsQuestion && !questionIsLatest && lastComment && lastComment.content.length > COMMENTO_PIEGA_CHARS && (
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
@@ -1579,7 +1581,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 model: fmtModel(task.model),
               })
               : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
-            className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
+            className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-secondary"
           >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
         ) : null}
@@ -1682,6 +1684,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           come after everything you read in order to decide. */}
       {task.status === 'review' && (
         <div className="mt-2 space-y-1.5">
+          {pending && !questionIsLatest && (
+            <p data-testid="card-pending-question" className="mt-2 break-words text-xs leading-snug text-app-text">{stripMarkdown(pending.question)}</p>
+          )}
           {replyOptions.length > 0 && (
             <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
               {replyOptions.map((opt, i) => (

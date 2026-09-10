@@ -193,6 +193,10 @@ test.describe("Board · il land in conflitto dice perché la card torna indietro
     await beat(page);
 
     // Il gesto vero: «Landa su main» = accetta + merge. Il merge fallisce.
+    // The lifecycle choices live in the DELIVERY band, behind its own tab: the
+    // drawer opens on the conversation, and the button is not there yet.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     await drawer.getByRole("button", { name: "Landa su main" }).click();
 
     // La riga di storico che prima non c'era: il PERCHÉ accanto al dove.

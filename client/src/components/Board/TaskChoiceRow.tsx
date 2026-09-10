@@ -42,9 +42,9 @@ import { TASK_ACTION_ICON, TASK_ACTION_ICON_TONE } from './taskActionIcons';
  */
 
 const TONE_CLS: Record<TaskChoice['tone'], string> = {
-  primary: 'bg-emerald-500/80 text-white hover:bg-emerald-500',
+  primary: 'bg-emerald-700 text-white hover:bg-emerald-800',
   neutral: 'bg-white/10 text-app-text hover:bg-white/20',
-  danger: 'bg-white/10 text-rose-300 hover:bg-rose-500/20',
+  danger: 'bg-white/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20',
 };
 
 /**

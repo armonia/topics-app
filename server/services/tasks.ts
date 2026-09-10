@@ -57,7 +57,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
 import { CLOSER_LABELS, KIND_LABELS, deriveCloser, deriveKind, isCloserLabel, isKindLabel, isTaskLabel, normalizeLabels, type LabelSource, type TaskFile, type TaskLabel, type TaskLabelRow } from "../../shared/task-labels";
 import { findNeighbours, type Neighbour } from "../../shared/task-similarity";
-import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch } from "../../shared/board";
+import type { TaskStatus, TaskComment, CardComment, BoardSettings, BoardSettingsPatch, BlockerRef, QueueReason, SubtaskWork, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
 import { budgetShare } from "../../shared/board";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
@@ -333,7 +333,7 @@ export interface TaskService {
    * macchina (il land in conflitto che la ritira da `done`): senza, la riga
    * dice solo chi e quando, e chi rivede legge un ritiro senza causa.
    */
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null }): Task;
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -366,7 +366,7 @@ export interface TaskService {
    * problem (the identical text repeated); here the text changes on every run,
    * which is exactly why they piled up.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[]; messageId?: string | null }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[]; messageId?: string | null; origin?: TaskActionOrigin }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -440,7 +440,7 @@ export interface TaskService {
    */
   noteStranded(args: { taskId: string; note: string }): TaskComment | null;
   /** Human-only review decision on a task sitting in `review`. */
-  reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
+  reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string; origin?: TaskActionOrigin }): Task;
   /**
    * System hand-off to review after the dispatch retry budget is exhausted: the
    * agent WORKED (left a comment trail) but never moved the task to `review`
@@ -713,7 +713,7 @@ export interface TaskService {
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
    *  the card stops showing "auto" once the agent has run. */
-  setModel(args: { taskId: string; model: string | null }): Task;
+  setModel(args: { taskId: string; model: string | null; effort?: string | null }): Task;
   /**
    * Ricorda il peso letto dal classificatore (migration 090). È il promemoria
    * che permette al CLAIM di decidere: il giudice parla al lancio, il gate serve
@@ -1964,6 +1964,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           author: full.author,
           content: cardCommentContent(full.content, r === scelta ? CARD_COMMENT_CHARS : CARD_CONTEXT_CHARS),
           kind: full.kind,
+          ...(full.messageId ? { messageId: full.messageId } : {}),
+          ...(full.origin ? { origin: full.origin } : {}),
         };
         const list = out.get(taskId);
         if (list) list.push(c); else out.set(taskId, [c]);
@@ -2328,6 +2330,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // `tasks.model` può essere nullo («auto») anche dopo il dispatch, ma il
       // TOPIC dell'agente è stato creato col modello risolto.
       model: r.model ?? topic?.model ?? null,
+      ...(r.model_effort ? { modelEffort: r.model_effort } : {}),
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
@@ -2756,7 +2759,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           : r.kind === "service" ? "service"
             : r.kind === "delivery" ? "delivery"
               : "comment";
-    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind, messageId: r.message_id ?? null };
+    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind, messageId: r.message_id ?? null, origin: r.origin ?? null };
+  }
+
+  let commentOriginColumn: boolean | null = null;
+  function supportsCommentOrigin(): boolean {
+    if (commentOriginColumn === null) {
+      const columns = db.prepare("PRAGMA table_info(task_comments)").all() as Array<{ name?: string }>;
+      commentOriginColumn = columns.some((column) => column.name === "origin");
+    }
+    return commentOriginColumn;
   }
 
   /**
@@ -2770,11 +2782,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * da un umano che l'ha ritirata a mano — stessa riga, stesso autore. Il
    * formato lo scrive `formatStatusEvent`, e nessuno lo compone a mano.
    */
-  function logStatus(taskId: string, from: string, to: string, by: string, reason?: string | null): void {
+  function logStatus(taskId: string, from: string, to: string, by: string, reason?: string | null, origin?: TaskActionOrigin): void {
     try {
-      db.prepare(
-        "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, ?, ?, 'status', ?)",
-      ).run(uuid(), taskId, by || "system", formatStatusEvent(from, to, reason), now());
+      const recordedOrigin = origin ?? ((by === "system" || by === "dispatcher" || by === "verifier") ? "system" : null);
+      if (supportsCommentOrigin()) {
+        db.prepare(
+          "INSERT INTO task_comments (id, task_id, author, content, kind, created_at, origin) VALUES (?, ?, ?, ?, 'status', ?, ?)",
+        ).run(uuid(), taskId, by || "system", formatStatusEvent(from, to, reason), now(), recordedOrigin);
+      } else {
+        db.prepare(
+          "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, ?, ?, 'status', ?)",
+        ).run(uuid(), taskId, by || "system", formatStatusEvent(from, to, reason), now());
+      }
     } catch { /* history is best-effort — never fail the transition itself */ }
   }
 
@@ -3271,7 +3290,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return withSubtaskCounts(rowsToTasks(rows));
     },
 
-    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId }): Task {
+    update({ taskId, actor, by, patch, projectId, agentTopicId, statusReason, messageId, origin }): Task {
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -3280,6 +3299,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
       const current: TaskStatus = row.status;
+
+      // A task model choice configures its next new session. Updating this
+      // field cannot migrate an already-bound conversation to another agent.
+      if (patch.model !== undefined && row.assigned_topic_id
+        && ((patch.model ?? "").trim() || null) !== (row.model || null)) {
+        throw new TaskServiceError("invalid_input", "Il modello è fissato alla sessione già assegnata a questo task. Non è possibile cambiarlo dal task dopo l'avvio.");
+      }
 
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
@@ -3447,6 +3473,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();
         put("model", m || null);
+        put("model_effort", null);
       }
       // WHERE it runs. Empty string and null both mean «this machine»: the
       // picker clears the choice by sending the empty value, and a card with
@@ -3698,7 +3725,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
-      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by, statusReason);
+      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by, statusReason, origin);
       // Hand-off into review without an explicit preview: promote the
       // delivery comment's evidence (comment-first delivery order).
       if (patch.status === "review") promoteReviewPreview(taskId);
@@ -3727,7 +3754,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces, messageId }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces, messageId, origin }): TaskComment {
       // The kind is whitelisted, never passed through: an unknown value reads
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
@@ -3803,9 +3830,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       const id = uuid();
       const ts = now();
-      db.prepare(
-        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts, messageId ?? null);
+      const recordedOrigin = origin ?? ((author === "system" || author === "dispatcher" || author === "verifier") ? "system" : null);
+      const values = [id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts, messageId ?? null];
+      if (supportsCommentOrigin()) {
+        db.prepare(
+          "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at, message_id, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(...values, recordedOrigin);
+      } else {
+        db.prepare(
+          "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).run(...values);
+      }
       // The thread is part of the task: touch updated_at so live clients (open
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
@@ -3899,7 +3934,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return written;
     },
 
-    reviewDecision({ taskId, by, decision, comment, projectId }): Task {
+    reviewDecision({ taskId, by, decision, comment, projectId, origin }): Task {
       const row = getTaskRow(taskId);
       if (!row || (projectId && row.project_id !== projectId)) {
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
@@ -3919,7 +3954,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       settleReviewApproval(taskId, decision === "approve" ? "approved" : "rejected", by, ts, comment ?? null);
 
       if (comment && comment.trim()) {
-        this.addComment({ taskId, author: by, content: comment });
+        this.addComment({ taskId, author: by, content: comment, origin });
       }
 
       const target: TaskStatus = decision === "approve" ? "done" : "in_progress";
@@ -3955,7 +3990,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, updated_at = ? WHERE id = ?",
         ).run(target, ts, ts, taskId);
       }
-      logStatus(taskId, "review", target, by);
+      logStatus(taskId, "review", target, by, null, origin);
       // As in `update()`: this door writes the status in raw SQL and does not
       // go through there. Approving and rejecting are both "I looked at it".
       markTargetSeenAndAnnounce("task", taskId);
@@ -5168,11 +5203,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    setModel({ taskId, model }): Task {
+    setModel({ taskId, model, effort }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-      db.prepare("UPDATE tasks SET model = ?, updated_at = ? WHERE id = ?")
-        .run(model || null, now(), taskId);
+      const normalizedModel = model || null;
+      const sets = ["model = ?", "updated_at = ?"];
+      const params: Array<string | null> = [normalizedModel, now()];
+      if (effort !== undefined) {
+        if (effort !== null && (!VALID_EFFORT.has(effort) || effort === "auto")) {
+          throw new TaskServiceError("invalid_input", `invalid task model effort: ${effort}`);
+        }
+        sets.splice(1, 0, "model_effort = ?");
+        params.splice(1, 0, effort);
+      } else if (normalizedModel !== (row.model ?? null)) {
+        // An effort belongs to its resolved model. Callers that change a model
+        // without a fresh automatic judgment must not inherit the old model's.
+        sets.splice(1, 0, "model_effort = NULL");
+      }
+      params.push(taskId);
+      db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
       return rowToTask(getTaskRow(taskId));
     },
 

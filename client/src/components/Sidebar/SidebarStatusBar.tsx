@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IdentityBlock } from './IdentityBlock';
 import type { SidebarCommands } from './ProfileMenu';
-import { SEGNALE_ATTESA, SEGNALE_GUASTO, SEGNALE_OK, PALLINO_ATTESA, PALLINO_GUASTO, PALLINO_OK } from './chromeSignals';
+import { SEGNALE_ATTESA, SEGNALE_GUASTO, PALLINO_ATTESA, PALLINO_GUASTO } from './chromeSignals';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
@@ -9,7 +9,8 @@ import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
 import { useProviderHold } from '@/state/providerHold';
 import { usePlanUsage } from '@/state/planUsage';
-import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
+import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
+import { ProviderLimitNotice } from './ProviderLimitNotice';
 
 /**
  * IL FONDO DELLA COLONNA: chi sei, e cosa non va.
@@ -53,12 +54,13 @@ import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from '../../../../shared/pr
  * with a RESPONSIVE contract on the column widths, and on the phone the same
  * question is already answered by the fourth door of the bottom row.
  */
-export function TransportAlarms({ wsStatus, dataNotice, inset }: {
+export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
   /** The side inset of the rows. In the column it is the sidebar row inset; in
    *  the phone band it is dictated by the safe area. */
   inset?: { left: string; right: string };
+  hidden?: boolean;
 }) {
   const tr = useT();
   const { isMobile } = useMobile();
@@ -72,8 +74,7 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
   const planUsage = usePlanUsage();
   // The row appears only when the number would change what someone does. Below
   // the warning line it is true and useless (nobody stops at 12%), and once the
-  // hold is in force the sentence above already says it, harder: two amber rows
-  // about the same window read as two problems.
+  // hold is in force its notice replaces the approaching-limit reading.
   const fiveHour = planUsage?.fiveHour ?? null;
   const planNotice = !providerHold && fiveHour && fiveHour.utilization >= PLAN_USAGE_WARN_AT ? fiveHour : null;
 
@@ -104,6 +105,7 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
   }, [degraded, connected]);
   const degradedLines = degradedNotice(degraded, wsStatus);
 
+  if (hidden) return null;
   return (
     <>
       {/* GLI ALLARMI STANNO SOPRA LA FASCIA, non sotto: compaiono e spariscono,
@@ -168,40 +170,13 @@ export function TransportAlarms({ wsStatus, dataNotice, inset }: {
         </div>
       )}
 
-      {wsStatus === 'connected' && providerHold && (
-        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
-          <span
-            data-testid="provider-hold-notice"
-            className={`flex items-center gap-1.5 text-[11px] ${SEGNALE_ATTESA} min-w-0 overflow-hidden`}
-            title={tr('statusBar.providerHold.title')}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PALLINO_ATTESA}`} />
-            <span className="truncate">
-              {tr(providerHold.window === 'seven_day' ? 'statusBar.providerHold.week' : 'statusBar.providerHold.fiveHours', {
-                time: new Date(providerHold.untilMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
-              })}
-            </span>
-          </span>
-        </div>
-      )}
-
-      {wsStatus === 'connected' && planNotice && (
-        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
-          <span
-            data-testid="plan-usage-notice"
-            className={`flex items-center gap-1.5 text-[11px] ${planNotice.utilization >= PLAN_DISPATCH_HOLD_AT ? SEGNALE_ATTESA : SEGNALE_OK} min-w-0 overflow-hidden`}
-            title={tr('statusBar.planUsage.title')}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${planNotice.utilization >= PLAN_DISPATCH_HOLD_AT ? PALLINO_ATTESA : PALLINO_OK}`} />
-            <span className="truncate">
-              {tr('statusBar.planUsage.fiveHours', {
-                pct: Math.round(planNotice.utilization),
-                time: planNotice.resetsAtMs != null
-                  ? new Date(planNotice.resetsAtMs).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-                  : '--:--',
-              })}
-            </span>
-          </span>
+      {wsStatus === 'connected' && (providerHold || planNotice) && (
+        <div className="py-1" style={{ paddingLeft: padLeft, paddingRight: padRight }}>
+          <ProviderLimitNotice
+            key={providerHold ? `hold-${providerHold.untilMs}-${providerHold.window}` : 'usage'}
+            hold={providerHold}
+            usage={planNotice}
+          />
         </div>
       )}
 
@@ -261,37 +236,43 @@ export function SidebarStatusBar({ wsStatus, dataNotice, onOpenDevices, commands
 }
 
 /**
- * THE PHONE BAND: the same sentence, where the phone can actually see it.
- *
- * It sits ABOVE the bottom row and not inside the column, for the same reason
- * the row itself does (`MobileChromeBar`): on the phone the column is a drawer,
- * and an alarm you only see by opening the drawer is an alarm you do not see.
- * Fixed to the bottom, lifted by `--mobile-chrome-h` — the very variable the
- * row publishes, so the band follows it by itself when the row disappears with
- * the keyboard open, without a second computation of the same height.
- *
- * IT ONLY EXISTS WHEN THERE IS SOMETHING TO SAY: connected and with no notice,
- * there is no element here at all. This is not a permanent status bar, it is an
- * alarm, which is why it reserves no band on the root: reserving one would make
- * the normal case (all well) pay the space of the exceptional one.
+ * Mobile notices stay above the navigation, visible with the drawer closed.
+ * The measured height reserves exactly the space they use; an empty band or
+ * an open keyboard reserves nothing. Status subscriptions stay mounted.
  */
-export function MobileTransportBand({ wsStatus, dataNotice }: {
+export function MobileTransportBand({ wsStatus, dataNotice, keyboardVisible }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
+  keyboardVisible: boolean;
 }) {
-  const somethingToSay = (wsStatus && wsStatus !== 'connected') || (wsStatus === 'connected' && !!dataNotice);
-  if (!somethingToSay) return null;
+  const bandRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const band = bandRef.current;
+    const measure = () => {
+      const value = `${band?.getBoundingClientRect().height ?? 0}px`;
+      if (root.style.getPropertyValue('--mobile-transport-h') !== value) root.style.setProperty('--mobile-transport-h', value);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (band) observer.observe(band);
+    return () => { observer.disconnect(); root.style.removeProperty('--mobile-transport-h'); };
+  }, [keyboardVisible]);
+  // Like the mobile navigation, leave the visual viewport to the editor when
+  // the software keyboard is open. The height reservation is released too.
   return (
     <div
+      ref={bandRef}
       data-testid="mobile-transport-band"
       // Below the row (`zIndex: 60`) on purpose: the row is how you get out of
       // here, and no notice may be allowed to cover it.
-      className="fixed left-0 right-0 py-1 bg-app-chrome border-t border-app-border"
+      className="fixed left-0 right-0 py-1 bg-app-chrome border-t border-app-border empty:hidden"
       style={{ zIndex: 59, bottom: 'var(--mobile-chrome-h, 0px)' }}
     >
       <TransportAlarms
         wsStatus={wsStatus}
         dataNotice={dataNotice}
+        hidden={keyboardVisible}
         inset={{ left: 'max(12px, var(--sal))', right: 'max(12px, var(--sar))' }}
       />
     </div>

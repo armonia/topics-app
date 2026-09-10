@@ -29,7 +29,7 @@
  */
 
 import { t as translate, FALLBACK_LOCALE } from '../../lib/i18n';
-import { isUnfinishedReview, LAND_ACTION_LABEL, type BoardTask } from '../../lib/board';
+import { hasDeliveryToMerge, isUnfinishedReview, LAND_ACTION_LABEL, type BoardTask, type TaskLandingEvidence } from '../../lib/board';
 
 /**
  * Everything a task surface can offer. Same id space as `TaskChoiceId` in
@@ -331,15 +331,14 @@ export interface ReviewDecisionButtons {
  * «Approva», quindi il gemello che RIGETTA è tornato accanto al bottone vero.
  */
 export function reviewDecisionButtons(
-  task: Pick<BoardTask, 'status' | 'assignedTopicId' | 'checksState' | 'deliveredBy' | 'deliveredReason'>,
+  task: Pick<BoardTask, 'status' | 'assignedTopicId' | 'checksState' | 'deliveredBy' | 'deliveredReason'> & TaskLandingEvidence,
   tr: Translate = fallbackTranslate,
 ): ReviewDecisionButtons {
   const unfinished = isUnfinishedReview(task);
-  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   return {
     accept: acceptWord(acceptOverride(task), tr),
     sendBack: sendBackWord(sendBackDest(task), tr),
-    land: isAgentReview ? landWord(landOverride(task), tr) : null,
+    land: task.status === 'review' && hasDeliveryToMerge(task) ? landWord(landOverride(task), tr) : null,
     primary: unfinished ? 'send-back' : 'accept',
   };
 }
@@ -355,7 +354,7 @@ export function reviewDecisionButtons(
  * «Approva comunque» next to the real one.
  */
 export function drawerSurfaceLabels(
-  task: Pick<BoardTask, 'status' | 'assignedTopicId' | 'checksState' | 'deliveredBy' | 'deliveredReason'>,
+  task: Pick<BoardTask, 'status' | 'assignedTopicId' | 'checksState' | 'deliveredBy' | 'deliveredReason'> & TaskLandingEvidence,
   tr: Translate = fallbackTranslate,
 ): string[] {
   const shown = reviewDecisionButtons(task, tr);

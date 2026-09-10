@@ -136,6 +136,7 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     await card.getByText(DIPENDENTE).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("task-details-toggle").click();
     const chip = drawer.getByTestId("task-blocked-by-chip");
     await expect(chip).toContainText(`aspetta: ${STEP}`);
     await beat(page, 2000);
@@ -203,10 +204,15 @@ test.describe("Chip «aspetta: …» · bloccante fuori dalla lista", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     expect(writes, `il click ha scritto sui task: ${writes.join(", ")}`).toEqual([]);
+    await drawer.getByTestId("task-details-toggle").click();
     // Still blocked after the click: the chip is the state, not the drawing.
     await expect(drawer.getByTestId("task-blocked-by-chip")).toContainText(`aspetta: ${SHORT_BLOCKER}`);
     // For extenso the row is still there, in the drawer: nothing was lost, it
-    // moved to the surface you reach on purpose.
+    // moved to the surface you reach on purpose. That surface is now the
+    // delivery band, where the lifecycle choices live; the STATE (the chip
+    // above) stays on the identity header, because a state has to be read
+    // without asking for it and an action does not.
+    await drawer.getByTestId("task-delivery-toggle").click();
     await expect(drawer.getByTestId("task-choice-unblock")).toBeVisible();
     await beat(page, 2000);
     await page.keyboard.press("Escape");

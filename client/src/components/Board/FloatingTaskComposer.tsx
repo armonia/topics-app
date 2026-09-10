@@ -7,7 +7,6 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal, type TaskStatus } from '../../lib/board';
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
-import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 import { autoGrow, friendlyModelLabel } from './format';
@@ -20,6 +19,8 @@ import { getMediaUrl } from '../../lib/api';
 import { dragCarriesFiles, filesFromDrop, imagesFromClipboard, uploadAttachment, MAX_ATTACHMENTS, type StagedAttachment } from '../../lib/attachments';
 import { titoloDaTesto } from '../../../../shared/task-title';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
+import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
+import { TaskModelMenuOptions } from './TaskModelMenuOptions';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -131,7 +132,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   const [projOpen, setProjOpen] = useState(false);
   const [projBusy, setProjBusy] = useState(false);
   const projBtnRef = useRef<HTMLButtonElement>(null);
-  // Model picker — "Intelligenza automatica" (null) or a claude-code model.
+  // Model picker — automatic intelligence or an available coding model.
   const [modelOpen, setModelOpen] = useState(false);
   const [model, setModel] = useState<string | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
@@ -183,17 +184,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
     if (!draftLoaded.current) return; // never clobber the server draft pre-restore
     boardDrafts.putComposer({ text, model, prio, planFirst, status: birthStatus });
   }, [text, model, prio, planFirst, birthStatus]);
-  const [claudeModels, setClaudeModels] = useState<string[]>(
-    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
-  );
-  const modelsSubRef = useRef<(() => void) | null>(null);
-  const loadModels = () => {
-    if (modelsSubRef.current) return;
-    modelsSubRef.current = subscribeProvidersSnapshot((state) => {
-      setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
-    });
-  };
-  useEffect(() => () => { modelsSubRef.current?.(); }, []);
+  // One catalog for the whole board (drawer and settings read the same hook).
+  // The subscription used to be lazy here, opened only when the menu opened.
+  // The shared store already collapses every consumer onto a single fetch, so
+  // the laziness bought nothing and let this chip lag behind the drawer.
+  const models = useTaskModelCatalog();
   // ── Intake: dove va questo testo? ────────────────────────────────────────
   // Il composer chiede alla board se il testo che stai scrivendo somiglia a un
   // lavoro già aperto. Quello che torna è una PROPOSTA e basta: finché non la
@@ -629,32 +624,20 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             )}
             <button
               ref={modelBtnRef}
-              onClick={() => { setModelOpen(true); loadModels(); }}
+              onClick={() => setModelOpen(true)}
               data-testid="composer-model-chip"
               title={model ? tr('board.composer.modelNamedTitle', { label: friendlyModelLabel(model) }) : tr('board.composer.modelAutoTitle')}
               className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : tr('board.composer.modelAutoChip')}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
             <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
               <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.model')}</p>
-              <button
-                role="option" aria-selected={model === null}
-                onClick={() => { setModel(null); setModelOpen(false); }}
-                title={tr('board.composer.modelAutoOptionTitle')}
-                className={POPOVER_ITEM}
-              >
-                <span className="min-w-0 flex-1">{tr('board.composer.modelAuto')}</span>
-                {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-              </button>
-              {claudeModels.map((m) => (
-                <button
-                  key={m} role="option" aria-selected={model === m}
-                  onClick={() => { setModel(m); setModelOpen(false); }}
-                  className={POPOVER_ITEM}
-                >
-                  <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
-                  {model === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                </button>
-              ))}
+              <TaskModelMenuOptions
+                models={models}
+                value={model}
+                onSelect={(m) => { setModel(m); setModelOpen(false); }}
+                autoLabel={tr('board.composer.modelAuto')}
+                autoTitle={tr('board.composer.modelAutoOptionTitle')}
+              />
             </Menu>
             <button
               ref={prioBtnRef}

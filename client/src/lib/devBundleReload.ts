@@ -50,8 +50,44 @@ const BUNDLE_REV_META = 'topics-bundle-rev';
 const SETTLE_MS = 10_000;
 
 /**
+ * WHAT MUST BE TORN DOWN BY HAND BEFORE THE PAGE GOES AWAY.
+ *
+ * A reload does NOT unmount the native child webviews: a browser pane's
+ * WKWebView belongs to the WINDOW, not to the document, so `location.replace`
+ * leaves it alive with no React owner and no later `browser_close` aimed at it.
+ * Measured on 2026-07-29: the app at 14 GB, 65 WebContent processes of which 61
+ * had spent zero CPU in twelve seconds — 11,7 GB nobody was looking at, and the
+ * reload points were named as one of the two causes.
+ *
+ * The cure exists and is measured: `browser_close` reaches
+ * `-[WKWebView _close]`, the WebContent process dies, and a closed pane gives
+ * the memory back (113 MB → 0 MB over five panes, 13/08). It just never ran on
+ * this path. Whoever owns a native view registers its teardown here, and this
+ * is the last moment it can run.
+ *
+ * Registered, not imported: the knowledge of which views are alive lives in
+ * `hooks/useTauriBrowser`, and this file must stay importable by anything.
+ */
+const beforeReload = new Set<() => void>();
+
+/** Register a teardown to run right before a bundle reload navigates away. */
+export function onBeforeBundleReload(fn: () => void): () => void {
+  beforeReload.add(fn);
+  return () => { beforeReload.delete(fn); };
+}
+
+function runBeforeReload(): void {
+  for (const fn of beforeReload) {
+    // Best effort, always: a teardown that throws must not be the reason the
+    // window stays on a stale bundle forever.
+    try { fn(); } catch { /* the reload wins */ }
+  }
+}
+
+/**
  * Cache-busted reload to the latest bundle. Called by the DevBundleToast's
- * "Ricarica" button (and the chunk-error ErrorBoundary) — never automatically.
+ * "Ricarica" button, by the chunk-error ErrorBoundary, and — when the window is
+ * hidden — by the freshness check itself.
  * Exported so every "the bundle moved" surface converges on one implementation.
  */
 export function reloadForNewBundle(): void {
@@ -61,6 +97,9 @@ export function reloadForNewBundle(): void {
     console.warn(`[bundle] rev ancora stantìa dopo ${n - 1} reload — mi fermo (cache WKWebView da svuotare: ~/Library/Caches/io.armonia.topics.tauri + riavvio app)`);
     return;
   }
+  // AFTER the budget check, never before: a reload that is not going to happen
+  // must not close the panes it was going to bring back.
+  runBeforeReload();
   const url = new URL(window.location.href);
   url.searchParams.set(BUST_PARAM, String(Date.now()));
   window.location.replace(url.toString());
@@ -123,11 +162,26 @@ export function initDevBundleReload(): () => void {
         sessionStorage.removeItem(ATTEMPTS_KEY);
         return;
       }
-      // A newer build exists. Prompt, never auto-reload — the toast owns the
-      // decision. Same event the chunk-error guard fires, so both paths land
-      // on one UI surface. The settle timer is cancelled: this window is NOT
-      // quiet, so it must not refill its reload budget behind our back.
+      // A newer build exists. The settle timer is cancelled first: this window
+      // is NOT quiet, so it must not refill its reload budget behind our back.
       clearTimeout(settleTimer);
+      // NOBODY SHOULD HAVE TO PRESS A BUTTON TO BE UP TO DATE — but the window
+      // must not be yanked out from under someone either.
+      //
+      // Until 2026-07-20 this reloaded the instant any concurrent session
+      // rebuilt the bundle, and on an actively edited repo that tore live panes
+      // and mid-interaction state away every few minutes; it was made a prompt.
+      // The prompt is right for a window somebody is looking at. It is pure
+      // friction for one that is hidden — and hidden is where most of these
+      // land, because the rebuilds come from the board landing work while the
+      // person is somewhere else. So: hidden reloads itself, visible asks.
+      //
+      // Nothing of a turn is lost either way: with the native runtime the turn
+      // runs inside the SERVER, and a reattaching client picks it back up.
+      // The attempt cap above guards this path too, which matters more here:
+      // an automatic reload against an unshakeable cache is the one that could
+      // spin unseen.
+      if (document.hidden) { reloadForNewBundle(); return; }
       window.dispatchEvent(new CustomEvent(BUNDLE_STALE_EVENT));
     },
     { types: ['ui:bundle-updated', 'ui:bundle-rev'] },

@@ -182,10 +182,29 @@ export interface AgentTurnOptions {
   calibration?: Calibration;
 }
 
+/**
+ * WHY THE API STOPPED, IN ITS OWN WORDS.
+ *
+ * `message_delta` can carry a `stop_details` next to the `stop_reason`, and on
+ * a `refusal` it is the only place the reason exists: the body has zero
+ * content blocks and zero output tokens. Measured on 2026-09-08, topic:06519a5d
+ * — «This request was blocked as it seems to violate Anthropic's Terms of
+ * Service restrictions on reverse engineering or duplicating model outputs.»
+ * That sentence arrived on the wire, was parsed, and was thrown away, and what
+ * the person saw instead was «Nessuna risposta» six turns in a row. allow-italian: quotes the notice the route writes
+ */
+interface StopDetails {
+  type?: string;
+  category?: string;
+  explanation?: string;
+}
+
 /** Un giro solo: una richiesta, i suoi delta, i suoi blocchi. */
 interface RoundResult {
   blocks: Block[];
   stopReason: string | null;
+  /** The API's explanation for `stopReason`, when it sends one. */
+  stopDetails: StopDetails | null;
   /**
    * `cacheWrite1h` e' la QUOTA di `cacheWrite` scritta con TTL a un'ora, che
    * costa 2x un token fresco invece di 1.25x. Sta nell'usage
@@ -306,6 +325,7 @@ async function streamOnce(
   const blocks: Block[] = [];
   const partialJson = new Map<number, string>();
   let stopReason: string | null = null;
+  let stopDetails: StopDetails | null = null;
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
   // Has anything reached the handler yet? Decides whether a failure from here
   // on can be retried (nothing shown: yes) or must be reported (a replay would
@@ -424,6 +444,9 @@ async function streamOnce(
 
           case "message_delta":
             stopReason = ev.delta?.stop_reason ?? stopReason;
+            // The explanation travels HERE and nowhere else: dropping it is
+            // what made the refusal indistinguishable from an empty turn.
+            if (ev.delta?.stop_details) stopDetails = ev.delta.stop_details as StopDetails;
             usage.output += ev.usage?.output_tokens ?? 0;
             break;
 
@@ -448,7 +471,7 @@ async function streamOnce(
     );
   }
 
-  return { blocks: blocks.filter(Boolean), stopReason, usage };
+  return { blocks: blocks.filter(Boolean), stopReason, stopDetails, usage };
 }
 
 function currentText(blocks: Block[]): string {
@@ -565,8 +588,33 @@ export function forApi(blocks: Block[]): Block[] {
  * failed; it does not compact or resume it, so the cap itself has to be high
  * enough for the work (see `DEFAULT_MAX_TOKENS`).
  */
-function roundEnd(stopReason: string | null, toolUseCount: number): TurnEndInfo {
+function roundEnd(
+  stopReason: string | null,
+  toolUseCount: number,
+  blockCount: number,
+  stopDetails: StopDetails | null,
+): TurnEndInfo {
   if (stopReason === "max_tokens") return { end: "max_tokens" };
+  // A REFUSAL IS AN ANSWER, and it used to leave through the door marked
+  // "finished naturally".
+  //
+  // The API answers 200, sets `stop_reason: "refusal"`, sends zero content
+  // blocks and zero output tokens, and puts the reason in `stop_details`. Every
+  // value other than `max_tokens` fell through to `end_turn` here, so the turn
+  // was declared a natural end with nothing in it, and the route stamped the
+  // generic «no answer» notice on the row. Measured on topic:06519a5d: six
+  // turns in a row over two days, each one billed 98k-113k prompt tokens for
+  // zero output, and not one line in the log saying the word refusal. The
+  // conversation could not heal by itself either — the same history goes back
+  // up every time — so the person kept pressing Retry against a verdict nobody
+  // had told them about. allow-italian: quotes the notice the route writes
+  //
+  // `refusal` is already a `TurnEnd` the rest of the system understands:
+  // `consumesAttempt` returns false for it (retrying an identical request buys
+  // the identical refusal) and `describeTurnEnd` has its sentence.
+  if (stopReason === "refusal") {
+    return { end: "refusal", detail: refusalDetail(stopDetails) };
+  }
   if (toolUseCount > 0) {
     const detail =
       `il giro portava ${toolUseCount} chiamata/e a strumenti ma si e' chiuso con `
@@ -574,7 +622,36 @@ function roundEnd(stopReason: string | null, toolUseCount: number): TurnEndInfo 
       + `scriveva la chiamata, il turno non e' finito da solo`;
     return { end: "error", cause: "provider-error", detail };
   }
+  // NOT ONE BLOCK CAME BACK. A round that produced nothing at all is only a
+  // natural end if the model said so: `null` is what the stream leaves behind
+  // when the body ends before `message_delta`, and calling that `end_turn`
+  // hides a dead stream behind a full stop. `end_turn` with no blocks keeps its
+  // old road — there the notice with its Retry button is the right answer.
+  if (blockCount === 0 && stopReason !== "end_turn") {
+    return {
+      end: "error",
+      cause: "provider-error",
+      detail: `il giro si e' chiuso con stop_reason=${stopReason ?? "null"} senza produrre nemmeno un blocco`,
+    };
+  }
   return { end: "end_turn" };
+}
+
+/**
+ * The refusal in one line: the API's own explanation when it sent one, its
+ * category when that is all there is.
+ *
+ * Nothing is invented. A refusal with no reason attached is still worth saying
+ * out loud, because the alternative — the one this replaces — was saying
+ * nothing at all.
+ */
+function refusalDetail(details: StopDetails | null): string {
+  const explanation = details?.explanation?.trim();
+  if (explanation) return explanation;
+  const category = details?.category?.trim();
+  return category
+    ? `rifiuto dell'API (${category}), senza spiegazione`
+    : "rifiuto dell'API, senza spiegazione";
 }
 
 /**
@@ -703,7 +780,13 @@ export async function runAgentTurn(
     const toolUses = round.blocks.filter((b) => b.type === "tool_use");
     if (round.stopReason !== "tool_use" || toolUses.length === 0) {
       finalText = currentText(round.blocks);
-      const end = roundEnd(round.stopReason, toolUses.length);
+      const end = roundEnd(round.stopReason, toolUses.length, round.blocks.length, round.stopDetails);
+      // IN THE LOG TOO. This death used to leave exactly one line behind —
+      // «Empty response» from the route — which named the symptom and not the
+      // cause, and sent the search towards quota, context and the network.
+      if (end.end === "refusal") {
+        console.warn(`[agent-loop] rifiuto dell'API: ${end.detail ?? "senza spiegazione"}`);
+      }
       if (end.end === "error") {
         // A CUT ROUND IS NOT A FINISHED TURN, so it does not leave through
         // `onDone`: the route finalizes an `onError` with a notice, and the

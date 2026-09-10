@@ -94,6 +94,62 @@ describe("global orchestrator task routes", () => {
     expect(await global.json()).toMatchObject({ code: "global_orchestrator_required" });
   });
 
+  /**
+   * THE SAME CUT THE HUMAN BOARD MAKES.
+   *
+   * This list used to be `{ scope: "all", status }` and nothing else, so the
+   * coordinator's orientation snapshot carried every subtask of every card.
+   * Measured on the live board 2026-09-10: 3.673 rows and 6,3 MB here against
+   * 48 rows and 113 KB out of the feed the board itself reads. The model pays
+   * for that payload out of a plan it can exhaust.
+   */
+  test("the global list is rootsOnly: a subtask is a parent's checklist, not a card", async () => {
+    registerGlobalOrchestrator(db);
+    const boardTwo = projectIdForPath(PROJECT_TWO);
+
+    const parent = await (await call(
+      router,
+      "POST",
+      `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_SESSION_KEY)}/tasks`,
+      { board_id: boardTwo, text: "La card vera" },
+    ))!.json();
+    const created = await (await call(
+      router,
+      "POST",
+      `/api/boards/${boardTwo}/tasks`,
+      { text: "un passo della checklist" },
+    ))!.json();
+    const child = await (await call(
+      router,
+      "PATCH",
+      `/api/boards/${boardTwo}/tasks/${created.id}`,
+      { parentTaskId: parent.id },
+    ))!.json();
+    expect(child.parentTaskId).toBe(parent.id);
+
+    const listed = await (await call(
+      router,
+      "GET",
+      `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_SESSION_KEY)}/tasks`,
+    ))!.json();
+    const ids = (listed.tasks as Array<{ id: string }>).map((t) => t.id);
+    expect(ids).toContain(parent.id);
+    expect(ids, "a subtask must not travel in the orientation snapshot").not.toContain(child.id);
+
+    // AND NOTHING IS LOST: the detail read still resolves it, which is what the
+    // server prompt tells the coordinator to do before acting on anything.
+    const detail = (await call(
+      router,
+      "GET",
+      `/api/orchestrator-sessions/${encodeURIComponent(GLOBAL_SESSION_KEY)}/tasks/${child.id}`,
+    ))!;
+    expect(detail.status).toBe(200);
+    const body = await detail.json();
+    const resolved = (body?.task ?? body) as { id?: string; parentTaskId?: string | null };
+    expect(resolved.id).toBe(child.id);
+    expect(resolved.parentTaskId).toBe(parent.id);
+  });
+
   test("creates only on an explicit known board; never auto, unassigned, or catch-all", async () => {
     registerGlobalOrchestrator(db);
     const boardTwo = projectIdForPath(PROJECT_TWO);

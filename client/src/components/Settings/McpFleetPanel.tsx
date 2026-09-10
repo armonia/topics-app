@@ -28,7 +28,7 @@ const AUTH_POLL_WINDOW_MS = 5 * 60 * 1000;
  * So the REASON is the point of the card, not a detail at the bottom of it.
  *
  * IT READS ONCE, WHEN IT IS ON SCREEN. The panel is mounted only while the
- * "AI Providers" section is the selected one (see `GlobalSettings.tsx`), so
+ * "Tools" section is the selected one (see `GlobalSettings.tsx`), so
  * mounting IS being visible and one fetch on mount is the whole subscription.
  * There is no interval: the fleet changes when a person edits their global
  * config, which is not something to poll for, and `GET /api/mcp/fleet` mounts

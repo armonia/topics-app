@@ -152,6 +152,15 @@ interface DiffRaccolto {
   file: string[];
   /** Le righe aggiunte, per file. */
   aggiunte: Map<string, string[]>;
+  /**
+   * How many files the commits touched BEFORE the noise filter.
+   *
+   * It separates two zeroes that are not the same zero: "it touched only lock
+   * and bundle" (zero after the filter, but something WAS touched) and "it
+   * touched nothing" — the `--allow-empty` used to retrigger the checks. Only
+   * the first supports the conclusion "nothing to lose".
+   */
+  rawTouched: number;
 }
 
 /**
@@ -183,9 +192,10 @@ async function collectDiff(
       if (corrente && riga.startsWith("+")) aggiunte.get(corrente)!.push(riga.slice(1));
     }
   }
+  const rawTouched = aggiunte.size;
   const file = filterUniqueSourceFiles([...aggiunte.keys()]);
   for (const k of [...aggiunte.keys()]) if (!file.includes(k)) aggiunte.delete(k);
-  return { file, aggiunte };
+  return { file, aggiunte, rawTouched };
 }
 
 /** Quali dei file del ramo esistono su `mainRef`. Una `ls-tree` per tutti. */
@@ -472,9 +482,41 @@ export async function classifyBranchLanding(
     return { ...nudo, esito: "dentro", motivo: "nessun commit proprio oltre main" };
   }
 
-  const { file, aggiunte } = await collectDiff(repoPath, own, git);
-  if (file.length === 0) {
+  let { file, aggiunte, rawTouched } = await collectDiff(repoPath, own, git);
+  if (file.length === 0 && rawTouched > 0) {
     return { ...nudo, esito: "dentro", motivo: "tocca solo file generati (lock, bundle, versione): niente da perdere" };
+  }
+  if (file.length === 0) {
+    // THE OWN COMMITS TOUCHED NOTHING, and from nothing one cannot conclude
+    // "nothing to lose".
+    //
+    // How you get here, measured on 53fc5aed on 2026-09-10: the branch carries
+    // 5 commits beyond main, but four of them also live on two other branches,
+    // so `listOwnCommits` — which exists so a card is never blamed for another
+    // session's work — leaves ONE, and that one is the `--allow-empty` used to
+    // retrigger the checks. An empty commit has an empty diff, and the line
+    // above answered with the `dentro` verdict — allow-italian: verdict value —
+    // so the card said "landed" over 958 lines main did not have.
+    //
+    // When the own commits say nothing, look at the WHOLE branch. This is not a
+    // change of heart about attribution: the question here is not whose the
+    // work is, it is whether that content is on main. If the whole branch also
+    // touches nothing, the `dentro` verdict was right. allow-italian: verdict value
+    const tutti = await git(repoPath, ["rev-list", `${mainRef}..${branch}`]);
+    const shas = tutti.code === 0 ? tutti.stdout.split("\n").map((r) => r.trim()).filter(Boolean) : [];
+    const wholeBranch = shas.length > 0 ? await collectDiff(repoPath, shas, git) : null;
+    if (!wholeBranch || wholeBranch.file.length === 0) {
+      return {
+        ...nudo,
+        esito: "dentro",
+        motivo: wholeBranch && wholeBranch.rawTouched > 0
+          ? "tocca solo file generati (lock, bundle, versione): niente da perdere"
+          : "nessun contenuto oltre main",
+      };
+    }
+    file = wholeBranch.file;
+    aggiunte = wholeBranch.aggiunte;
+    rawTouched = wholeBranch.rawTouched;
   }
 
   const indice = opts.indiceMain ?? (await indiceRigheMain(repoPath, mainRef, git));

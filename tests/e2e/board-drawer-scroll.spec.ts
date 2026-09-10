@@ -1,6 +1,6 @@
 /**
  * The conversation owns the task drawer. Its expanded metadata shares one
- * scroll area; title, composer and decision stay reachable. Preview and work
+ * scroll area; title, floating composer and delivery controls stay reachable. Preview and work
  * surfaces open explicitly, replacing the thread in narrow mode and sitting
  * alongside it in wide mode. Closing them restores the same conversation.
  *
@@ -192,6 +192,18 @@ async function expandEverySection(page: Page) {
   }
 }
 
+/** Delivery decisions and files share the conversation's existing scroll. */
+async function openDelivery(page: Page) {
+  const drawer = page.getByTestId("task-detail-drawer");
+  const toggle = drawer.getByTestId("task-delivery-toggle");
+  await expect(toggle).toBeInViewport();
+  await toggle.click();
+  const delivery = drawer.getByTestId("task-delivery-panel");
+  await expect(delivery).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  return delivery;
+}
+
 /**
  * Quanti antenati SCROLLABILI ci sono fra un nodo e la root del drawer.
  * È la misura dell'invariante: uno, non zero (niente scorrerebbe) e non due
@@ -259,7 +271,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     await seedProjectPane(page.request, PROJECT_PATH);
   });
 
-  test("DRAWER-01: dettagli e conversazione hanno uno scroll; titolo e decisione restano visibili", async ({ page }) => {
+  test("DRAWER-01: dettagli e conversazione hanno uno scroll; composer fisso e Consegna raggiungibile", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-35" });
     await page.setViewportSize({ width: 1280, height: 720 });
     const task = await seedWorstCaseTask(page.request, previewPath);
@@ -279,19 +291,35 @@ test.describe("Drawer del task — un solo scroll", () => {
     expect(await scrollableAncestors(page, "task-detail-subtasks")).toBe(1);
     const metrics = await scroller.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }));
     expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+    const composer = drawer.getByTestId("task-composer");
+    await expect(composer).toBeInViewport();
+    const composerBefore = (await composer.boundingBox())!;
     await scroller.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-    await expect(session.getByText("Commento 30: una nota di lavoro lunga quanto basta a riempire il thread.", { exact: true })).toBeInViewport();
+    const lastComment = session.getByText("Commento 30: una nota di lavoro lunga quanto basta a riempire il thread.", { exact: true });
+    await expect(lastComment).toBeInViewport();
+    const composerAfter = (await composer.boundingBox())!;
+    expect(Math.abs(composerAfter.y - composerBefore.y), "scrolling the transcript does not move the composer").toBeLessThan(1);
+    const commentBox = (await lastComment.boundingBox())!;
+    expect(commentBox.y + commentBox.height, "the final comment clears the floating composer").toBeLessThanOrEqual(composerAfter.y);
 
     const drawerBox = (await drawer.boundingBox())!;
     const header = drawer.getByTestId("task-brief-header");
     await expect(header.getByText(task.text, { exact: true })).toBeInViewport();
-    const approve = drawer.getByRole("button", { name: /^Approva/ });
+    await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
+    await expect(drawer.getByTestId("task-reply-input")).toBeInViewport();
+    // Details own metadata, description and subtasks; no delivery controls or image.
+    await expect(brief.locator("img")).toHaveCount(0);
+    await expect(brief.getByTestId("task-preview-open")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-approve")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
+    const delivery = await openDelivery(page);
+    await expect(brief).toHaveCount(0);
+    expect(await scrollableAncestors(page, "task-review-actions")).toBe(1);
+    const approve = delivery.getByTestId("task-approve");
     await expect(approve).toBeInViewport();
     const approveBox = (await approve.boundingBox())!;
     expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(drawerBox.y + drawerBox.height + 1);
-    await expect(drawer.locator("textarea").last()).toBeInViewport();
-    // Expanding metadata must not mount a second copy of the image or workspace.
-    await expect(brief.locator("img")).toHaveCount(0);
+    await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
     await expect(drawer.getByTestId("task-drawer-body")).toHaveCount(0);
   });
 
@@ -304,27 +332,39 @@ test.describe("Drawer del task — un solo scroll", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expandEverySection(page);
     await expect(drawer.getByTestId("task-brief-scroll").locator("img")).toHaveCount(0);
-    await drawer.getByTestId("task-preview-open").click();
+    const delivery = await openDelivery(page);
+    await delivery.getByTestId("task-preview-open").click();
 
     const body = drawer.getByTestId("task-drawer-body");
     const session = drawer.getByTestId("task-session-column");
     await expect(body).toBeVisible();
     await expect(body.locator("img")).toBeVisible();
     await expect(session).toBeHidden();
-    expect((await body.boundingBox())!.height).toBeGreaterThan(160);
+    await expect(drawer.getByTestId("task-composer-submit")).toBeHidden();
+    const bodyBox = (await body.boundingBox())!;
+    expect(bodyBox.height).toBeGreaterThan(160);
+    expect(bodyBox.height).toBeGreaterThanOrEqual((await body.locator("..").boundingBox())!.height - 1);
     await expect(drawer.getByTestId("task-brief-header").getByText(task.text, { exact: true })).toBeInViewport();
-    await expect(drawer.getByRole("button", { name: /^Approva/ })).toBeInViewport();
+    // Even after opening its preview, one click returns to the delivery decisions.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(delivery).toBeVisible();
+    await expect(delivery.getByTestId("task-approve")).toBeInViewport();
+    await expect(body).toHaveCount(0);
 
     await drawer.getByTestId("task-conversation-toggle").click();
     await expect(body).toHaveCount(0);
     await expect(session).toBeVisible();
+    await expect(delivery).toHaveCount(0);
+    await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
     await expect(session.getByText("Commento 30: una nota di lavoro lunga quanto basta a riempire il thread.", { exact: true })).toHaveCount(1);
     // A returned conversation can open the same attachment again; closing the
     // view must not park or remove the task's pane from its saved layout.
     await drawer.getByTestId("task-workspace-toggle").click();
     await expect(body.locator("img")).toBeVisible();
+    await expect(drawer.getByTestId("task-composer-submit")).toBeHidden();
     await drawer.getByTestId("task-conversation-toggle").click();
     await expect(session).toBeVisible();
+    await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
   });
 
   test("DRAWER-03: allargare espande la conversazione; il workspace si affianca solo su richiesta", async ({ page }) => {
@@ -357,8 +397,10 @@ test.describe("Drawer del task — un solo scroll", () => {
     expect(rightBox.width).toBeGreaterThanOrEqual(320);
     expect(rightBox.x).toBeGreaterThanOrEqual(sessionBox.x + sessionBox.width - 2);
     expect((await right.getByTestId("task-drawer-body").boundingBox())!.height).toBeGreaterThan(160);
-    await expect(drawer.getByRole("button", { name: /^Approva/ })).toBeInViewport();
-    await expect(drawer.locator("textarea").last()).toBeInViewport();
+    await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
+    await expect(drawer.getByTestId("task-reply-input")).toBeInViewport();
+    const delivery = await openDelivery(page);
+    await expect(delivery.getByTestId("task-approve")).toBeInViewport();
 
     await drawer.getByTestId("task-conversation-toggle").click();
     await expect(right).toHaveCount(0);
@@ -377,16 +419,25 @@ test.describe("Drawer del task — un solo scroll", () => {
     const body = drawer.getByTestId("task-drawer-body");
     await expect(session).toBeVisible();
     await expect(body).toHaveCount(0);
+    const composer = drawer.getByTestId("task-reply-input");
+    await composer.fill("Bozza conservata mentre guardo la consegna");
     const comment = session.getByText("Commento 30: una nota di lavoro lunga quanto basta a riempire il thread.", { exact: true });
     await expect(comment).toBeVisible();
     await drawer.getByTestId("task-workspace-toggle").click();
     await expect(body).toBeVisible();
     await expect(session).toBeHidden();
+    await expect(composer).toBeHidden();
+    await expect(drawer.getByTestId("task-composer-submit")).toBeHidden();
+    await expect(drawer.getByTestId("task-delivery-toggle")).toBeInViewport();
     expect((await body.boundingBox())!.height).toBeGreaterThan(160);
+    expect((await body.boundingBox())!.height).toBeGreaterThanOrEqual((await body.locator("..").boundingBox())!.height - 1);
     await expect(body.getByTestId("task-session-column")).toHaveCount(0);
     await drawer.getByTestId("task-conversation-toggle").click();
     await expect(body).toHaveCount(0);
     await expect(comment).toBeVisible();
+    await expect(composer).toBeInViewport();
+    await expect(composer).toHaveValue("Bozza conservata mentre guardo la consegna");
+    await expect(drawer.getByTestId("task-composer-submit")).toBeInViewport();
     expect((await session.boundingBox())!.height).toBeGreaterThan(160);
   });
 
@@ -438,12 +489,13 @@ test.describe("Drawer del task — un solo scroll", () => {
    *
    * So there are three things to measure, and the negative one is the point:
    *  · the window really sends a `subscribe` frame carrying this topic;
-   *  · the streamed text is in the session BEFORE `stream:end` arrives;
+   *  · live progress and tools stay folded but update when their details open;
+   *  · the final reply is visible after `stream:end` without opening details;
    *  · zero history reads while the turn runs. The counter is armed AFTER the
    *    mount on purpose: mount, wake-up and `stream:end` are the three reads
    *    that survive, and none of them falls inside the window measured here.
    */
-  test("DRAWER-05: il turno vivo, lo steer in coda e la parola dell'agente disegnata una volta sola", async ({ page }, testInfo) => {
+  test("DRAWER-05: avanzamento live nei dettagli, risposta visibile e steer consegnato una volta sola", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     const topic = await createTopic(page.request, `E2E-Drawer-Live-${Date.now()}`);
     liveTopicId = topic.id;
@@ -502,9 +554,8 @@ test.describe("Drawer del task — un solo scroll", () => {
     await page.route("**/api/history/**", async (route) => { historyReads++; await route.fallback(); });
 
     const MSG = `live-drawer-${Date.now()}`;
-    // Twelve pieces, not three: each one is waited for on screen, so the turn
-    // takes as long as a real one takes to type and the clip shows a session
-    // growing instead of a single jump.
+    // Each piece must arrive in the opened session details while the turn is
+    // still live. The initial closed state is checked before opening them.
     const PIECES = [
       "Sto leggendo il file. ",
       "La riga incriminata ",
@@ -520,14 +571,32 @@ test.describe("Drawer del task — un solo scroll", () => {
       "in fondo al file.",
     ];
     send({ type: "stream:start", messageId: MSG });
+    const liveRow = pane.getByTestId("task-session-item").last();
+    const liveSummary = liveRow.getByTestId("task-work-summary").first();
     let written = "";
     for (const piece of PIECES) {
       send({ type: "stream:content_chunk", messageId: MSG, content: piece });
       written += piece;
-      // The wait IS the assertion: the text is in the session while the turn is
-      // still open, so the pacing comes from the page and not from a clock.
-      await expect(pane).toContainText(written.trim(), { timeout: 10_000 });
+      if (written === piece) {
+        await expect(liveSummary).toHaveAttribute("aria-expanded", "false");
+        await expect(liveRow.getByTestId("task-work-body")).toHaveCount(0);
+        await expect(pane.getByText(written.trim(), { exact: true })).toHaveCount(0);
+        await liveSummary.click();
+      }
+      await expect(liveRow.getByTestId("task-work-body")).toContainText(written.trim(), { timeout: 10_000 });
     }
+    const LIVE_TOOL_ID = `read-drawer-${Date.now()}`;
+    send({ type: "stream:tool_call", messageId: MSG,
+      toolCall: { id: LIVE_TOOL_ID, name: "Read", args: { file_path: "source.ts" }, status: "running" },
+    });
+    await expect(liveRow.getByTestId(`tool-call-row-${LIVE_TOOL_ID}`)).toBeVisible();
+    await liveSummary.click();
+    await expect(liveSummary).toHaveAttribute("aria-expanded", "false");
+    await expect(liveRow.getByTestId("task-work-body")).toHaveCount(0);
+    await expect(pane.getByTestId(`tool-call-row-${LIVE_TOOL_ID}`)).toHaveCount(0);
+    send({ type: "stream:tool_result", toolCallId: LIVE_TOOL_ID, status: "success", result: "Comparison ready." });
+    const finalReply = `Il confronto finale e' pronto ${Date.now()}.`;
+    send({ type: "stream:content_chunk", messageId: MSG, content: finalReply });
     expect(historyReads, "no history read while following a live turn").toBe(0);
 
     // The turn ends, and the drawer asks for the history again: that read is
@@ -538,16 +607,22 @@ test.describe("Drawer del task — un solo scroll", () => {
     // with a `stream:end` (its own session only, never a neighbour's) is held
     // by the unit gate on the source, `Board/TaskDetail.test.ts`.
     send({ type: "stream:end", messageId: MSG, completed: true, latencyMs: 900 });
-    await expect(pane).toContainText(written.trim());
+    await expect(pane.getByText(finalReply, { exact: true })).toBeVisible();
+    await expect(pane.getByText(written.trim(), { exact: true })).toHaveCount(0);
+    await expect(pane.getByTestId(`tool-call-row-${LIVE_TOOL_ID}`)).toHaveCount(0);
     expect(historyReads, "the turn ended, and still no poll behind it").toBe(0);
 
     // ── WHERE WHAT YOU WROTE GOT TO ───────────────────────────────────────
     // The steer goes in through the composer, like a person's does. The card
-    // is `in_progress` and no envelope has gone out since, so the bubble says
+    // is `todo` and no envelope has gone out since, so the bubble says
     // "queued" - a state DERIVED from the envelopes at every read, which is
-    // why nothing had to write it into the thread.
+    // why nothing had to write it into the thread. The POST's own receipt says
+    // `note` here (the route resumes an agent only from `review`/
+    // `in_progress`), and it must NOT overrule that: it would print the quiet
+    // button's wording, "no agent response requested", under words the person
+    // just sent to the agent. The precedence is `chipKey.commentChip`.
     const steer = `Guarda anche il caso vuoto ${Date.now()}`;
-    const composer = drawer.locator("textarea").last();
+    const composer = drawer.getByTestId("task-reply-input");
     await composer.fill(steer);
     await composer.press("Enter");
     await expect(pane.getByText(steer)).toBeVisible({ timeout: 15_000 });
@@ -707,7 +782,7 @@ test.describe("Drawer del task — un solo scroll", () => {
     const notesBefore = await pane.getByTestId("task-app-note").count();
 
     const steer = `Guarda anche il caso vuoto ${Date.now()}`;
-    const composer = drawer.locator("textarea").last();
+    const composer = drawer.getByTestId("task-reply-input");
     await composer.fill(steer);
     await composer.press("Enter");
 

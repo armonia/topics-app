@@ -45,12 +45,35 @@ export function buildCodexArgs(opts: CodexExecArgsOptions): string[] {
   // `codex exec --json` è l'ingresso non interattivo canonico. Il prompt entra
   // da stdin, non da argv, per non incontrare il limite di lunghezza.
   const args = ["exec", "--json", "--skip-git-repo-check"];
+  return args.concat(codexSharedFlags(opts, false));
+}
+
+/**
+ * Same message-turn flags as `buildCodexArgs`, minus the `exec --json
+ * --skip-git-repo-check` prefix that differs between a fresh turn and a
+ * resumed one. Both entry points must forward model/sandbox/bridge/effort
+ * identically, since none of those live inside the persisted thread: they are
+ * re-applied on every process spawn, resume included.
+ *
+ * `viaConfigSandbox` exists because `codex exec resume` (checked against
+ * `codex exec resume --help` on codex-cli 0.153.4) has NO `--sandbox`/`-s`
+ * flag at all, unlike plain `codex exec`. The sandbox is still settable on a
+ * resumed turn, just through the generic `-c sandbox_mode=<value>` config
+ * override instead (verified against the live CLI: `-c
+ * sandbox_mode=workspace-write --strict-config` parses cleanly, and an
+ * invalid value is rejected with the exact same enum `codex exec --sandbox`
+ * takes: read-only, workspace-write, danger-full-access).
+ */
+function codexSharedFlags(opts: CodexExecArgsOptions, viaConfigSandbox: boolean): string[] {
+  const args: string[] = [];
   if (opts.isolated) args.push("--ignore-user-config", "--ignore-rules");
   if (opts.model) args.push("--model", opts.model);
   // `--approval` non è una flag valida di `codex exec` nelle versioni correnti:
   // la sandbox si sceglie così.
   if (opts.approvalMode === "full-access") {
     args.push("--dangerously-bypass-approvals-and-sandbox");
+  } else if (viaConfigSandbox) {
+    args.push("-c", `sandbox_mode=${JSON.stringify(opts.sandbox ?? "workspace-write")}`);
   } else {
     args.push("--sandbox", opts.sandbox ?? "workspace-write");
   }
@@ -65,11 +88,27 @@ export function buildCodexArgs(opts: CodexExecArgsOptions): string[] {
 }
 
 /**
+ * The argv for a resumed turn: `codex exec resume <thread_id>` instead of a
+ * fresh `codex exec`. Codex keeps the full conversation server-side once
+ * resumed, so the caller sends only the new message on stdin, not a
+ * client-truncated transcript.
+ */
+export function buildCodexResumeArgs(opts: CodexExecArgsOptions & { threadId: string }): string[] {
+  const args = ["exec", "resume", opts.threadId, "--json", "--skip-git-repo-check"];
+  return args.concat(codexSharedFlags(opts, true));
+}
+
+/**
  * L'argv di un completamento usa-e-getta (auto-titolo, digest, fallback SSE).
  * Niente `--json`: qui si legge il testo, non gli eventi.
  */
-export function buildCodexOneshotArgs(opts: { model?: string | null }): string[] {
+export function buildCodexOneshotArgs(opts: { model?: string | null; reasoningEffort?: string; isolated?: boolean }): string[] {
   const args = ["exec"];
   if (opts.model) args.push("--model", opts.model);
+  if (opts.reasoningEffort) args.push("-c", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);
+  if (opts.isolated) args.push(
+    "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only",
+    "-c", 'features.shell_tool=false', "-c", 'web_search="disabled"',
+  );
   return args;
 }

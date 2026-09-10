@@ -231,7 +231,14 @@ test.describe("Drawer del task — quello che mostra è quello che c'è", () => 
     expect(seeded.task?.previewImage, "previewImage scartata dall'allowlist").toBe(previewPath);
 
     await expect(drawer.getByText(/Anteprima RITIRATA/)).toHaveCount(0);
-    await drawer.getByTestId("task-details-toggle").click();
+    // The attachment lives in the DELIVERY band, not under Details: the
+    // delivered files moved there with the lifecycle choices (the same move
+    // that put the "aspetta: …" chip on the identity header). This spec was
+    // left behind, and its only door was a DEAD twin: the button under Details
+    // was gated on `!mediaPaths.includes(previewImage)`, and since the preview
+    // always goes FIRST into `mediaPaths` that condition is always false.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     await expect(drawer.getByTestId("task-preview-open")).toBeVisible({ timeout: 10000 });
     await drawer.getByTestId("task-preview-open").click();
     await expect(drawer.getByTestId("task-drawer-body").locator("img")).toBeVisible();

@@ -204,6 +204,10 @@ test.describe("Board · revisione del diff riga per riga", () => {
     // tendina PORTALATA (`task-changes-panel`), quindi da qui in giù si cerca
     // nel pannello e non nel drawer — un diff da trenta file dentro il flusso
     // spingeva sotto l'orizzonte i bottoni della decisione.
+    // The changes chip lives in the DELIVERY band, behind its own tab, next to
+    // the lifecycle choices: the drawer opens on the conversation.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     const modifiche = drawer.getByRole("button", { name: /^Modifiche/ });
     await expect(modifiche).toBeVisible({ timeout: 15000 });
     await modifiche.click();
@@ -255,6 +259,10 @@ test.describe("Board · revisione del diff riga per riga", () => {
 
     await page.getByTestId("kanban-column-todo").getByText("Revisione diff E2E").click();
     const drawer = page.getByTestId("task-detail-drawer");
+    // The changes chip lives in the DELIVERY band, behind its own tab, next to
+    // the lifecycle choices: the drawer opens on the conversation.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     const modifiche = drawer.getByRole("button", { name: /^Modifiche/ });
     await expect(modifiche).toBeVisible({ timeout: 15000 });
     await modifiche.click();

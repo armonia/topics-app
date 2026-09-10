@@ -36,7 +36,6 @@ import { getActiveGoal, replaceSteps } from "../services/goals";
 import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
-import { getSnapshotManager } from "../providers/snapshot-manager";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { resumeAttemptOf } from "../lib/ripresa-boot";
@@ -135,6 +134,9 @@ const chatIdempotency = createIdempotencyCache({ ttlMs: 30 * 60_000 });
  */
 export interface ChatDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
+  /** Resolver for an explicitly named provider, injectable for the same path
+   * used by headless reattach and woken turns. */
+  resolveProviderByName?: (name: string) => AIProvider;
   detectLocalhostAutoNav: (content: string, topic: Topic | null) => string;
   bindTopicToProject: (topicId: string, targetDir: string, opts?: { focus?: boolean }) => boolean;
   resolveProjectRef: (ref: string, opts?: { trustRawPaths?: boolean }) => string | null;
@@ -191,7 +193,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
   const {
-    resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
+    resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
   } = deps;
@@ -393,11 +395,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       let forcedGlobalProvider: AIProvider | null = null;
       if (globalOrchestrator) {
         try {
-          forcedGlobalProvider = getProvider("codex");
+          forcedGlobalProvider = resolveProviderByName("codex");
         } catch {
           return json({
             error: "Codex is unavailable for the global coordinator",
             code: "codex_unavailable",
+          }, 503);
+        }
+      }
+      const requestedProviderId = overrideProvider ?? matchedTopic?.provider;
+      let explicitProvider: AIProvider | null = null;
+      if (!forcedGlobalProvider && requestedProviderId) {
+        try {
+          explicitProvider = overrideProvider
+            ? resolveProviderByName(overrideProvider)
+            : resolveProvider(matchedTopic);
+          if (!explicitProvider.connected) throw new Error("unavailable");
+        } catch {
+          return json({
+            error: `Provider "${requestedProviderId}" is unavailable. Connect it in Settings or choose another provider.`,
+            code: "provider_unavailable", provider: requestedProviderId,
           }, 503);
         }
       }
@@ -724,13 +741,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       let topicProvider: AIProvider;
       if (forcedGlobalProvider) {
         topicProvider = forcedGlobalProvider;
-      } else if (overrideProvider) {
-        try {
-          topicProvider = getProvider(overrideProvider);
-        } catch (err: any) {
-          console.warn(`[Chat] Override provider "${overrideProvider}" not available, falling back: ${err.message}`);
-          topicProvider = resolveProvider(matchedTopic);
-        }
+      } else if (explicitProvider) {
+        topicProvider = explicitProvider;
       } else {
         topicProvider = resolveProvider(matchedTopic);
       }
@@ -834,26 +846,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         ? body.model.trim()
         : (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
 
-      // Drop the override if the resolved provider no longer offers that
-      // model — e.g. the user picked `gpt-5-codex` two months ago, then ChatGPT
-      // auth changed plan and the cache no longer lists it. Without this check
-      // the model name is forwarded to the CLI which fails with "exit 1" and
-      // surfaces as a "Codex error" stub. If we can't resolve a model list
-      // (manager not warmed yet, or provider has no listModels), trust the
-      // override — the previous behavior. The validation is a guard, not a
-      // contract.
-      let overrideModel: string | undefined = requestedModel;
-      if (requestedModel) {
-        const snap = getSnapshotManager().getSnapshot();
-        const entry = snap.providers.find(p => p.name === topicProvider.name);
-        if (entry && entry.models.length > 0 && !entry.models.includes(requestedModel)) {
-          console.warn(
-            `[Chat] Dropping stale model override "${requestedModel}" — not offered by provider "${topicProvider.name}". ` +
-            `Available: [${entry.models.slice(0, 5).join(", ")}${entry.models.length > 5 ? ", …" : ""}]`,
-          );
-          overrideModel = undefined;
-        }
-      }
+      // A catalog can be stale or incomplete. Keep the chosen ID: only the
+      // provider can reject it. Silently using its default would run a different
+      // model from the one shown on the task and in the composer.
+      const overrideModel = requestedModel;
 
       // ─── Fast Mode ────────────────────────────────────────────────────
       //
@@ -1988,7 +1984,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // writes its own error block, and its `max_tokens` classification
             // also covers input-side context overflow, where advice about a
             // single turn's length is wrong.
-            const cutNotice = reason === "done" && endInfo.end === "max_tokens"
+            //
+            // A REFUSAL TAKES THE SAME LEG, for the same reason: the API
+            // answers 200 with no content at all, so without this it fell into
+            // the empty-turn notice below and the verdict — which the API does
+            // explain — was never shown. See `native/agent-loop.ts:roundEnd`.
+            const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
               : null;
             if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
@@ -2009,7 +2010,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // AND THE END MUST SAY IT WENT WRONG, or `stream:end` carries no
               // `reason: "error"` and the push gate mutes the cut turn.
               turnError = cutNotice;
-              console.warn(`[StreamWS] ${sessionKey}: turn cut by the output cap`);
+              console.warn(
+                `[StreamWS] ${sessionKey}: ${endInfo.end === "refusal" ? "turn refused by the API" : "turn cut by the output cap"}`,
+              );
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
               }

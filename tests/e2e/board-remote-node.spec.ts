@@ -194,6 +194,10 @@ test.describe.serial("Una card che gira su un nodo", () => {
     await cardEl.getByText(PICKED).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    // The node chip is metadata, and metadata moved behind the DETAILS tab when
+    // the drawer became tabbed (e113ca7bb): the conversation is what opens.
+    await drawer.getByTestId("task-details-toggle").click();
+    await expect(drawer.getByTestId("task-brief-scroll")).toBeVisible({ timeout: 10000 });
 
     const chip = drawer.getByTestId("task-node-chip");
     await expect(chip).toBeVisible();

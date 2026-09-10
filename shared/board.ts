@@ -18,6 +18,8 @@
  * the composite boundary (TS6307): see `shared/ws-outbound.ts`.
  */
 
+import { commentAuthorLabel } from './comment-author';
+
 /** L'elenco degli stati. Il tipo lo segue: una sola verità, non due gemelle. */
 export const TASK_STATUSES = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const;
 
@@ -1412,6 +1414,9 @@ export function deriveQueueReason(
   };
 }
 
+export const TASK_ACTION_ORIGINS = ['interface', 'mcp', 'api', 'system'] as const;
+export type TaskActionOrigin = (typeof TASK_ACTION_ORIGINS)[number];
+
 export interface TaskComment {
   id: string;
   taskId: string;
@@ -1466,10 +1471,18 @@ export interface TaskComment {
    * reader treats it as "no anchor" and draws both rows.
    */
   messageId?: string | null;
+  /**
+   * The surface that actually produced this row. Missing means the historical
+   * writer did not record it, so readers must not guess from the author.
+   * Presentation only: authorization continues to use the verified request
+   * session and the service's Actor argument.
+   */
+  origin?: TaskActionOrigin | null;
 }
 
 /**
- * Un commento COME LO DISEGNA LA CARD: i tre campi che legge, e nient'altro.
+ * A card comment carries its displayed fields and, when present, the assistant
+ * message anchor needed to relate a question to its delivery summary.
  *
  * È la forma con cui gli ultimi commenti viaggiano SULLA LISTA della board
  * (`Task.recentComments`), non nel thread: `id`, `taskId`, `createdAt`,
@@ -1477,11 +1490,11 @@ export interface TaskComment {
  * ogni scheda erano metà del peso di quel pezzo del feed (731 KB misurati il
  * 15/08/2026). Chi apre il thread riceve `TaskComment` interi, da `svc.get`.
  *
- * `Pick` e non una seconda interfaccia: il tipo dei tre campi deve restare
+ * `Pick` e non una seconda interfaccia: il tipo dei campi deve restare
  * quello del thread, o `kind` diventa una `string` da una parte e un'unione
  * dall'altra senza che niente lo dica.
  */
-export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind'>;
+export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId' | 'origin'>;
 
 /**
  * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.
@@ -1987,7 +2000,12 @@ export function questionAsksHuman(q: { options: readonly string[] } | null | und
 }
 
 /** Il minimo che serve per riconoscere una domanda in coda al thread. */
-export type PendingQuestionComment = { content: string; kind?: string | null };
+export type PendingQuestionComment = {
+  content: string;
+  kind?: string | null;
+  author?: string | null;
+  messageId?: string | null;
+};
 
 /**
  * Is this row somebody's WORD, as opposed to the thread's plumbing?
@@ -2009,14 +2027,38 @@ export function isThreadSpeech(comment: { kind?: string | null } | null | undefi
 }
 
 /**
- * La domanda pendente di un task: l'ULTIMA parola dell'agente, se è un blocco
- * ```question.
+ * The question at the end of the conversation, including one followed by its
+ * own delivery summary. Only a shared, nonempty assistant-message anchor and
+ * the same agent author prove that a delivery belongs to that question.
+ * Ordinary prose, a human reply or a different turn stops the scan. Legacy
+ * unanchored rows keep their old last-word behavior.
  *
- * Stessa lettura della card e del drawer (`parseQuestionBlock` sull'ultimo
- * commento, righe `kind: 'status'` escluse perché sono cronologia delle
- * transizioni, non parole di nessuno). Se il banner mostrasse opzioni diverse
- * da quelle della card, quale delle due superfici crede non sarebbe più una
- * domanda con risposta.
+ * Return the original row so callers can apply their parked-question guards
+ * and keep the displayed delivery summary separate from the question to answer.
+ */
+export function pendingQuestionComment<T extends PendingQuestionComment>(
+  comments: readonly T[] | null | undefined,
+): T | null {
+  let delivery: T | null = null;
+  for (let i = (comments?.length ?? 0) - 1; i >= 0; i--) {
+    const comment = comments![i]!;
+    if (!isThreadSpeech(comment)) continue;
+    if (delivery && (comment.author !== delivery.author || comment.messageId !== delivery.messageId)) return null;
+    if (parseQuestionBlock(comment.content)) return comment;
+    if (comment.kind !== 'delivery'
+      || !comment.messageId?.trim()
+      || !comment.author?.trim()
+      || commentAuthorLabel(comment.author).kind !== 'agent'
+      || comment.content.includes('```question')) return null;
+    delivery ??= comment;
+  }
+  return null;
+}
+
+/**
+ * The pending question for review notifications, using the same original-row
+ * resolver as the card and drawer. A delivery from that assistant message can
+ * follow the question without answering it.
  *
  * Due lettori su due lati del filo: il server, che mette la domanda nel fronte
  * `task:review-ready`; e il client, che se la ricava da sé quando il fronte non
@@ -2025,9 +2067,7 @@ export function isThreadSpeech(comment: { kind?: string | null } | null | undefi
 export function pendingQuestion(
   comments: readonly PendingQuestionComment[] | null | undefined,
 ): { text: string; options: string[] } | null {
-  if (!comments || comments.length === 0) return null;
-  const speech = comments.filter(isThreadSpeech);
-  const last = speech[speech.length - 1];
+  const last = pendingQuestionComment(comments);
   if (!last) return null;
   const parsed = parseQuestionBlock(last.content ?? '');
   // Una domanda senza opzioni non ha tasti da offrire, ma resta una domanda: la

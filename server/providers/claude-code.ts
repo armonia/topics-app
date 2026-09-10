@@ -18,6 +18,7 @@ import type {
   AIProvider,
   ChatMessage,
   CompletionResult,
+  CompletionOptions,
   ProviderCapability,
   ProviderDiagnostic,
   ProviderRequirement,
@@ -1634,7 +1635,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Non-streaming Completion ---
 
-  async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<CompletionResult> {
     // (stdout parsing lives in parseCompletionStdout, exported for tests)
     // Build a single prompt from all messages
     const prompt = messages
@@ -1666,12 +1667,14 @@ export class ClaudeCodeProvider implements AIProvider {
     } catch { /* fall back to no scoping */ }
 
     // Le flag (e il perché di ognuna) stanno in `claude/args.ts`, sotto snapshot.
-    const args = buildClaudeOneshotArgs({ permissionMode, model, emptyMcpConfigPath });
+    const args = buildClaudeOneshotArgs({ permissionMode, model, emptyMcpConfigPath, effort: options?.reasoningEffort });
 
     const env = buildSafeEnv();
 
     return new Promise((resolve, reject) => {
+      const ownedGroup = process.platform !== "win32";
       const proc = spawn(resolveCliPath(), args, {
+        detached: ownedGroup,
         cwd: workspace,
         stdio: ["pipe", "pipe", "pipe"],
         env,
@@ -1683,14 +1686,19 @@ export class ClaudeCodeProvider implements AIProvider {
       proc.stdout!.on("data", (d: Buffer) => { stdout += d.toString(); });
       proc.stderr!.on("data", (d: Buffer) => { stderr += d.toString(); });
 
+      let timedOut = false;
       const timer = setTimeout(() => {
-        proc.kill("SIGKILL");
-        reject(new Error("Completion timed out"));
-      }, MESSAGE_TIMEOUT_MS);
+        timedOut = true;
+        try {
+          if (ownedGroup && proc.pid) process.kill(-proc.pid, "SIGKILL");
+          else proc.kill("SIGKILL");
+        } catch { /* Already closed. */ }
+      }, Math.min(MESSAGE_TIMEOUT_MS, Math.max(1, options?.timeoutMs ?? MESSAGE_TIMEOUT_MS)));
 
       proc.on("close", (code) => {
         clearTimeout(timer);
         cleanupMcpConfigForSession(oneshotKey);
+        if (timedOut) { reject(new Error("Completion timed out")); return; }
         if (code !== 0) {
           console.warn(`[claude-code] complete() exited with code ${code}: ${stderr.slice(0, 200)}`);
           resolve({ content: `Error: CLI exited with code ${code}` });

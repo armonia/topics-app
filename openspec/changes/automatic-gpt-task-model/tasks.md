@@ -1,0 +1,8 @@
+- [x] Read account model metadata and build the eligible coding catalog.
+- [x] Implement one-shot semantic selection with validated model, provider, effort and separate machine weight.
+- [x] Bound classifier calls with CLI process-group termination or native HTTP abort.
+- [x] Resolve general Auto in normal/fanout dispatch, preserving manual and existing bindings.
+- [x] Preserve provider through topic creation and persist concrete model after binding, before execution.
+- [x] Respect fixed effort and survive provider discovery retries without losing automatic effort.
+- [x] Run focused regressions and independent review.
+- [x] Finish static checks; commit exact files. Main integration gate is owned by the parent task.

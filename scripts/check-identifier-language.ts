@@ -86,6 +86,9 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // Another dictionary hole: the 1934 list only carries "catalogue", not the
+  // American spelling this codebase already uses elsewhere (2026-09-10).
+  "catalog",
   // The macOS credential store, and the plural the dictionary lacks (2026-09-03).
   "keychain", "retries", "emitted", "mkdir", "textarea",
   "img", "lightbox", "zoomable", "dist", "subroutes", "timeline", "supplied", "fmt",

@@ -29,6 +29,8 @@ function task(over: Partial<ChoiceInput> = {}): ChoiceInput {
     status: 'todo' as BoardTask['status'],
     assignedTopicId: null,
     deliveryBranch: null,
+    // Branch-bearing fixtures represent a measured code delivery by default.
+    deliveryFilesChanged: 1,
     dispatchState: null,
     blockedByTaskId: null,
     blockedBy: null,
@@ -48,6 +50,8 @@ function drawerTask(over: Partial<Parameters<typeof reviewDecisionButtons>[0]> =
   return {
     status: 'review' as BoardTask['status'],
     assignedTopicId: 'top-1',
+    deliveryBranch: 'task/review',
+    deliveryFilesChanged: 1,
     checksState: null,
     deliveredBy: 'agent',
     deliveredReason: null,
@@ -57,6 +61,36 @@ function drawerTask(over: Partial<Parameters<typeof reviewDecisionButtons>[0]> =
 const ids = (t: ChoiceInput, opts?: { exclude?: TaskChoiceId[] }) => taskChoices(t, opts).map((c) => c.id);
 
 describe('taskChoiceState', () => {
+  it('card and drawer omit land for empty analyses, missing evidence and integrated deliveries', () => {
+    const base = task({ status: 'review', assignedTopicId: 'agent', deliveryBranch: 'task/analysis' });
+    for (const evidence of [
+      { deliveryFilesChanged: 0, deliveryCommit: null },
+      { deliveryFilesChanged: 0, deliveryCommit: 'base-commit', deliveryUncommittedFiles: 0 },
+      { deliveryFilesChanged: null, deliveryCommit: null },
+      { deliveryFilesChanged: 0, deliveryUncommittedFiles: 2 },
+      { deliveryFilesChanged: 3, deliveryUncommittedFiles: 2 },
+      { deliveryBranch: null }, { landingState: 'landed' as const }, { landingState: 'superseded' as const },
+    ]) {
+      const candidate = { ...base, ...evidence };
+      expect(ids(candidate)).not.toContain('land');
+      expect(ids(candidate)).toContain('accept');
+      if (candidate.deliveryBranch) {
+        expect(ids(candidate)).toContain('send-back');
+        expect(ids(candidate)).toContain('take-over');
+        expect(taskChoices(candidate).find((choice) => choice.id === 'accept')?.tone).toBe('primary');
+      }
+      expect(reviewDecisionButtons(candidate).land).toBeNull();
+      expect(drawerSurfaceLabels(candidate)).not.toContain(taskActionWord('land').label);
+    }
+    for (const evidence of [
+      { deliveryFilesChanged: 1 },
+      { deliveryFilesChanged: null, deliveryCommit: 'delivered-commit' },
+    ]) {
+      const candidate = { ...base, ...evidence };
+      expect(ids(candidate)).toContain('land');
+      expect(reviewDecisionButtons(candidate).land).not.toBeNull();
+    }
+  });
   // The card the dispatcher set aside: the reason lived in a tooltip and the
   // only gesture was guessing the drag to Todo.
   it('una card parcheggiata (failed/blocked/stopped/waited_out) offre «Rimetti in coda» e «Archivia»', () => {
@@ -523,6 +557,7 @@ describe('usableQuestionOptions', () => {
   // A delivered card with a branch: its real choices are
   // "Landa su main" / "Rimanda indietro" / "Serve a me".
   const consegnata = {
+    deliveryFilesChanged: 1,
     status: 'review' as const,
     assignedTopicId: 'topic-1',
     deliveryBranch: 'topics/x',
@@ -613,10 +648,11 @@ describe('usableQuestionOptions', () => {
     // E il gemello deve sparire lo stesso: stessa porta, stesso merge.
     expect(usableQuestionOptions(reaper, [LAND_ACTION_LABEL])).toEqual([]);
     expect(usableQuestionOptions(reaper, ['🚀 Landa su main'])).toEqual([]);
-    // Ma solo quando il land è davvero fra le scelte: senza ramo non c'è
-    // nessun bottone sotto, e togliere l'opzione lascerebbe la card muta.
+    // A historical option cannot reintroduce an unavailable merge.
     const senzaRamo = { ...reaper, deliveryBranch: null };
-    expect(usableQuestionOptions(senzaRamo, [LAND_ACTION_LABEL])).toEqual([LAND_ACTION_LABEL]);
+    expect(usableQuestionOptions(senzaRamo, [LAND_ACTION_LABEL, 'Continua'])).toEqual(['Continua']);
+    const analysis = { ...consegnata, deliveryFilesChanged: 0, deliveryCommit: null };
+    expect(usableQuestionOptions(analysis, ['🚀 Landa su main', 'Landa comunque', 'Continua'])).toEqual(['Continua']);
   });
 });
 
@@ -632,6 +668,7 @@ describe('usableQuestionOptions', () => {
 describe('usableQuestionOptions, locale en', () => {
   const en = (k: string, vars?: Record<string, string | number>) => translate(k, 'en', vars);
   const consegnata = {
+    deliveryFilesChanged: 1,
     status: 'review' as const,
     assignedTopicId: 'topic-1',
     deliveryBranch: 'topics/x',
@@ -644,6 +681,11 @@ describe('usableQuestionOptions, locale en', () => {
     // Checks not run: the words stay plain (red turns them into «comunque»).
     checksState: null,
   };
+
+  it('an empty analysis cannot regain merge through a translated agent option', () => {
+    const analysis = { ...consegnata, deliveryFilesChanged: 0, deliveryCommit: null };
+    expect(usableQuestionOptions(analysis, [en('board.action.land'), LAND_ACTION_LABEL, 'Continue'], { t: en })).toEqual(['Continue']);
+  });
 
   it('the fallback word for land IS the string the server executes', () => {
     // The anchor for all of this: the server matches the picked option against

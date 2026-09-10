@@ -148,7 +148,7 @@ Quando il 429 coincide con una finestra di utilizzo del piano ESAURITA (5 ore
 o settimanale, letta dall'endpoint di utilizzo), il runtime NON SHALL spendere
 i ritentativi: SHALL chiudere il turno subito, con l'ora del reset nel
 cartello, e SHALL registrare un «hold» per tutto il server fino a quell'ora.
-Finché l'hold è in forza, il dispatcher NON SHALL avviare turni nuovi, lo
+Finché l'hold è in forza, il dispatcher NON SHALL avviare turni Claude nuovi (MP-DISPATCH-01), lo
 sweep di ripresa NON SHALL rimandare niente, e ogni client SHALL vederlo (anche
 chi si connette dopo). Una richiesta accettata dal provider SHALL sciogliere
 l'hold prima dell'ora.

@@ -1,3 +1,4 @@
+import { configureApiCredentialRoot, readApiProviderKey } from "./server/services/api-provider-credentials";
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
@@ -82,7 +83,7 @@ import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResource
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
+import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
@@ -142,8 +143,10 @@ import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickTaskPlan } from "./server/services/task-model-picker";
-import { FALLBACK_MODELS, newestOfFamily } from "./server/providers/claude-models";
+import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from "./server/services/task-auto-model";
+import { PLAN_DISPATCH_HOLD_AT } from "./shared/provider-hold";
+import { readCodexModels } from "./server/providers/codex/models";
+import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -157,8 +160,6 @@ import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
 import {
   resolveAiProvider,
-  resolveClaudeModel,
-  resolveOpenaiModel,
   getAppSettings,
   resolveOutputLanguage,
   resolveDiscordPresenceEnabled,
@@ -469,12 +470,22 @@ try {
 //      conversation memory there lives on the gateway and was lost on restart)
 //   5. graceful fallback to "claude" so the picker UI still has a target;
 //      initProviders() below auto-registers anything else available.
-const providerType =
-  (resolveAiProvider() as any) ||
-  (process.env.ANTHROPIC_API_KEY ? 'claude' :
-   process.env.OPENAI_API_KEY ? 'openai' :
+configureApiCredentialRoot(ctx.STATE_DIR);
+const savedClaudeApiKey = readApiProviderKey("claude", ctx.STATE_DIR);
+const savedOpenaiApiKey = readApiProviderKey("openai", ctx.STATE_DIR);
+const requestedProviderType =
+  resolveAiProvider() ||
+  (savedClaudeApiKey ? 'claude' :
+   savedOpenaiApiKey ? 'openai' :
    process.env.GATEWAY_URL ? 'openclaw' :
    'claude');
+
+// Registry IDs are not constructor types. ACP agents are discovered by
+// initProviders below; their saved default wins once registered. Boot must
+// remain possible even when an optional runtime is no longer installed.
+const providerType = requestedProviderType === 'topics' ? 'native'
+  : ['openai', 'claude', 'claude-code', 'codex', 'openclaw', 'native'].includes(requestedProviderType)
+    ? requestedProviderType : 'claude';
 
 const aiProvider = initProvider({
   type: providerType,
@@ -483,11 +494,9 @@ const aiProvider = initProvider({
     token: ctx.GATEWAY_TOKEN,
     refreshToken: () => ctx.refreshGatewayToken(),
   } : providerType === 'openai' ? {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    model: resolveOpenaiModel(),
+    apiKey: savedOpenaiApiKey || '',
   } : {
-    apiKey: process.env.ANTHROPIC_API_KEY || '',
-    model: resolveClaudeModel(),
+    apiKey: savedClaudeApiKey || '',
   }),
 } as any);
 
@@ -1413,6 +1422,20 @@ const taskDispatcher = createTaskDispatcher({
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
   topicExists: (id) => !!ctx.getTopicById(id),
+  resolveTaskProvider: (model) => {
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    return taskProviderForModel(model, getSnapshotManager().getSnapshot());
+  },
+  automaticModelOutsideClaude: () => {
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    const snapshot = getSnapshotManager().getSnapshot();
+    return automaticTaskModels(snapshot, readCodexModels(), true).length > 0
+      || snapshot.providers.some(provider => provider.name === "codex" && provider.status === "loading");
+  },
+  topicModelSelection: (id) => {
+    const topic = ctx.getTopicById(id);
+    return topic ? { model: topic.model, provider: topic.provider ?? getDefaultProviderName() } : null;
+  },
   // Il cancello contro il lavoro rifatto: se il commit della consegna è già
   // dentro main, la card si chiude invece di far ripartire un agente sopra
   // codice che c'è già. Stessa risposta che legge l'audit degli atterraggi.
@@ -1429,44 +1452,20 @@ const taskDispatcher = createTaskDispatcher({
     mkdirSync(dir, { recursive: true });
     return dir;
   },
-  // "modello auto" → a fast haiku one-shot classifies the task and picks the
-  // tier before the agent spawns. Standard is OPUS-first: unsure/unavailable/
-  // empty-snapshot all resolve to opus (the human's default), never a silent
-  // downgrade — the picker itself never throws (see task-model-picker.ts).
-  pickAutoModel: async (task) => {
-    // L'Opus di ripiego non si scrive a mano: un id fisso qui è come si finisce
-    // a dispatchare agenti su una generazione vecchia per settimane senza che
-    // niente lo segnali. `FALLBACK_MODELS` è la lista che il resto del codice
-    // già mantiene, e serve solo quando lo snapshot non c'è. `preferLong`: la
-    // finestra da un milione dove l'host la serve, non i 200k di un id nudo.
-    const staticOpus = newestOfFamily("opus", FALLBACK_MODELS, { preferLong: true }) ?? FALLBACK_MODELS[0]!;
-    try {
-      const provider = getProvider("claude-code");
-      const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
-      const snap = getSnapshotManager().getSnapshot();
-      const cc = snap?.providers?.find((p) => p.name === "claude-code");
-      const availableModels = cc?.models ?? [];
-      // No snapshot yet → can't classify, but opus-first means we still hand the
-      // agent opus (the human's default + this host's primary), never a downgrade.
-      // Entrambi i null dicono «non lo so», e nessuno dei due viene inventato
-      // qui: l'effort ricade sulla board, il peso vale leggero — cioè lo
-      // scheduler si comporta come prima che il peso esistesse. Un giudice che
-      // non può parlare non deve poter fermare la coda della board.
-      if (availableModels.length === 0) return { model: staticOpus, effort: null, weight: null };
-      const plan = await pickTaskPlan(task, {
-        // Force the cheapest tier for the classification itself.
-        complete: (prompt) =>
-          provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
-        availableModels,
-        fallback: newestOfFamily("opus", availableModels, { preferLong: true }) ?? staticOpus,
-        log: (m) => console.log(`[dispatcher] ${m}`),
-      });
-      return plan;
-    } catch {
-      // any failure → opus-first, never a silent downgrade; effort e peso null
-      // per la stessa ragione: la board decide l'uno, l'altro vale leggero.
-      return { model: staticOpus, effort: null, weight: null };
-    }
+  // General Auto compares eligible coding runtimes. Explicit provider aliases
+  // restrict that catalog, and held Claude runtimes cannot classify or execute.
+  pickAutoModel: async (task, selection, options) => {
+    const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
+    return pickAutomaticTaskModel(task, selection, {
+      snapshot: getSnapshotManager().getSnapshot(),
+      getProvider: tryGetProvider,
+      claudeHeld: !!providerHold() || (() => {
+        const window = planUsage()?.fiveHour;
+        return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+      })(),
+      requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
+      log: (message) => console.log(`[dispatcher] ${message}`),
+    });
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
   //
@@ -1542,13 +1541,13 @@ const taskDispatcher = createTaskDispatcher({
     return { path: c.path, projectStoreId: storeId };
   },
   createTopic: (o) => {
-    // A card whose model is "codex" (or "codex:<model>", or a gpt-* id) runs
-    // on the OpenAI CLI provider: the board can spread mechanical work over a
-    // second quota. Plain "codex" passes no --model (ChatGPT-account auth
-    // rejects a forced model, see server/providers/codex.ts).
-    const codexModel = o.model === "codex" ? "" : o.model?.startsWith("codex:") ? o.model.slice("codex:".length) : o.model?.startsWith("gpt-") ? o.model : null;
-    const provider = codexModel !== null ? "codex" : undefined;
-    const model = codexModel !== null ? (codexModel || undefined) : o.model;
+    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
+    const { model } = taskModelSelection(o.model);
+    const snapshot = getSnapshotManager().getSnapshot();
+    const provider = o.provider ? automaticTaskProvider(o.provider, model, snapshot) : taskProviderForModel(o.model, snapshot);
+    if (provider && !tryGetProvider(provider)?.connected) {
+      throw new Error(`Provider "${provider}" non disponibile: collegalo nelle Impostazioni prima di avviare il task.`);
+    }
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
@@ -2479,19 +2478,21 @@ const worktreesRouter = createWorktreesRouter(ctx, {
   // I rami locali non su main, col task a cui appartengono. Due letture: git
   // per QUALI rami e quanti commit, il DB per DI CHI sono.
   branchInventory: async (projectPath) => {
-    const proc = Bun.spawn(
-      ["git", "for-each-ref", "--format=%(refname:short)", "--no-merged=main", "refs/heads"],
-      { cwd: projectPath, stdout: "pipe", stderr: "pipe" },
-    );
-    const outText = await new Response(proc.stdout).text();
-    if ((await proc.exited) !== 0) throw new Error(`git: ${projectPath} non e' un repo, o main non esiste`);
-    const names = outText.split("\n").map((l) => l.trim()).filter(Boolean);
-    const branches = await Promise.all(names.map(async (name) => {
-      const c = Bun.spawn(["git", "rev-list", "--count", `main..${name}`], { cwd: projectPath, stdout: "pipe", stderr: "pipe" });
-      const n = Number((await new Response(c.stdout).text()).trim());
-      await c.exited;
-      return { name, ahead: Number.isFinite(n) ? n : 0 };
-    }));
+    // The git half lives in `scanBranchesOutsideBase`, which also answers the
+    // question this closure used to get wrong: a repo without `main` is not a
+    // broken repo. See the comment on `BranchScan`.
+    const scan = await scanBranchesOutsideBase(projectPath);
+    // The only failure left is a path that is NOT THERE: a project pointing at
+    // a folder that has vanished hides branches, and "none" would be a lie.
+    if (scan.kind === "no-path") throw new Error(`git: ${projectPath} non esiste`);
+    // A folder without git, or a checkout without a base branch: the question
+    // has an empty answer, and it says which of the two it was instead of a 500
+    // in the middle of somebody's test output.
+    if (scan.kind !== "ok") {
+      const empty = buildBranchInventory([], []);
+      return { entries: empty, summary: summarizeInventory(empty), base: null, reason: scan.kind };
+    }
+    const branches = scan.branches;
     // I task del board di QUESTO percorso: e' l'unico insieme che puo'
     // reclamare quei rami.
     const boardId = projectIdForPath(projectPath);

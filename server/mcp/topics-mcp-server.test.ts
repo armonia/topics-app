@@ -722,7 +722,7 @@ describe("handleMessage", () => {
     }
   });
 
-  test("tools/list under --profile=dispatch drops the orchestration/nav tools", async () => {
+  test("tools/list under --profile=dispatch keeps Claude task-agent fan-out", async () => {
     const resp = await handleMessage(
       { jsonrpc: "2.0", id: 3, method: "tools/list" },
       { ...ARGS, profile: "dispatch" },
@@ -750,6 +750,24 @@ describe("handleMessage", () => {
     for (const kept of ["list_tasks", "create_task", "update_task", "comment_task", "get_task", "run_script", "browser_observe", "browser_read_screen", "open_browser_pane", "resolve_tab"]) {
       expect(names).toContain(kept);
     }
+  });
+
+  test("Codex dispatch hides and rejects the Claude-only spawn_agent tool", async () => {
+    const listed = await handleMessage(
+      { jsonrpc: "2.0", id: 31, method: "tools/list" },
+      { ...ARGS, profile: "codex-dispatch" },
+    );
+    const names = ((listed!.result as any).tools as Array<{ name: string }>).map((tool) => tool.name);
+    expect(names).not.toContain("spawn_agent");
+    expect(names).toContain("read_agent");
+    expect(names).toContain("stop_agent");
+
+    const called = await handleMessage(
+      { jsonrpc: "2.0", id: 32, method: "tools/call", params: { name: "spawn_agent", arguments: {} } },
+      { ...ARGS, profile: "codex-dispatch" },
+    );
+    expect((called!.error as any)?.code).toBe(-32601);
+    expect((called!.error as any)?.message).toMatch(/not available in this session profile/);
   });
 
   test("tools/call refuses a profile-excluded tool (defense in depth)", async () => {
@@ -1699,6 +1717,7 @@ describe("callCommentTask", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/tasks/t1/comments");
     expect(seen.init?.method).toBe("POST");
     expect(seen.init?.body).toBe(JSON.stringify({ content: "progress note" }));
+    expect(new Headers(seen.init?.headers).get("X-Topics-Action-Origin")).toBe("mcp");
     expect(text).toContain("commented on t1");
   });
 

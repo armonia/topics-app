@@ -54,6 +54,7 @@ import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { activeFrozenCount } from "../services/budget-governor";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { newProjectParentDir } from "../services/project-path-resolver";
@@ -63,7 +64,7 @@ import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
@@ -1106,6 +1107,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
+        const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
         try {
           // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
           // la parola del commento: uno SCADUTO non ha misurato niente, e
@@ -1114,13 +1116,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
           // qualcuno non e' arrivato in fondo.
           svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
-          // VERDE ⇒ servizio, ROSSO ⇒ parola. Il verde è già un chip sulla card
-          // (`card-checks-green`) e il paragrafo lo ripete comando per comando,
-          // bruciando uno slot su OGNI consegna — misurate 92 copie in 7 giorni.
-          // Il rosso invece cambia cosa fa l'umano: elenca quali comandi sono
-          // caduti, e su una card in review è metà della decisione. Un chip col
-          // tooltip non basta a portare quel dettaglio in una colonna.
-          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: comment });
+          // Green is service bookkeeping; red is a visible outcome. The thread
+          // keeps only the compact verdict and first failure. Commands and logs
+          // remain in checks_json, rendered by the expandable ChecksSection.
+          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
           const t = svc.get(taskId, { projectId })?.task;
           if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
         } catch { /* l'esito conta più della sua registrazione */ }
@@ -2193,6 +2192,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     session: { actor: string; sessionKey: string; topicId: string },
     body: Record<string, unknown> | null,
     pathname: string,
+    origin: "mcp" | "api",
   ): Promise<Response> {
     const noDelivery = rejectDeliveryPatch(body);
     if (noDelivery) return noDelivery;
@@ -2223,6 +2223,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         taskId,
         actor: "agent",
         by: session.actor,
+        origin,
         projectId,
         // Deliberately no `agentTopicId`: that ordinary dispatched-agent
         // ownership carve-out would make a registry-authorized cross-board
@@ -2249,6 +2250,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    const sessionActionOrigin = req.headers.get("X-Topics-Action-Origin") === "mcp" ? "mcp" : "api";
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
     // router owns because it reads the same dispatch config).
@@ -2785,6 +2787,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // and approve/reject a pending review.
     if (isBoard) {
       const HUMAN = "user";
+      // Presentation metadata only. A caller cannot claim MCP/system through
+      // this header, and it never participates in the human permission gates.
+      const actionOrigin = req.headers.get("X-Topics-Action-Origin") === "interface" ? "interface" : "api";
 
       /**
        * Stacca l'agente vivo da un task e taglia il suo turno.
@@ -3032,7 +3037,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               try {
                 svc.addComment({
                   taskId: task.id, author: HUMAN, content: "Allegati al task.",
-                  media: bornMedia, projectId: effectiveProjectId,
+                  media: bornMedia, projectId: effectiveProjectId, origin: actionOrigin,
                 });
               } catch (err) { console.warn(`[Tasks] birth attachments failed for ${task.id}:`, err); }
             }
@@ -3079,7 +3084,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               if (dispatcher && task.parentTaskId) {
                 const root = svc.boundRootOf(task.id);
                 if (root && root.status === "review" && root.assignedTopicId) {
-                  const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId });
+                  const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId, origin: actionOrigin });
                   broadcastToAll({ type: "task:updated", projectId, task: rejected });
                   dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`)
                     .catch((err) => console.warn(`[Tasks] resume after add-step failed for ${root.id}:`, err));
@@ -3289,13 +3294,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             try {
               rejectCommentId = svc.addComment({
                 taskId: bReview.taskId, author: HUMAN, content: comment,
-                projectId: bReview.projectId,
+                projectId: bReview.projectId, origin: actionOrigin,
               }).id;
             } catch { rejectCommentId = null; }
           }
           const task = svc.reviewDecision({
             taskId: bReview.taskId, by: HUMAN, decision, comment,
-            projectId: bReview.projectId,
+            projectId: bReview.projectId, origin: actionOrigin,
           });
           broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
           // Reject re-kicks the SAME agent tab with the human's feedback (a
@@ -3316,12 +3321,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             try {
               const backInQueue = svc.update({
                 taskId: bReview.taskId, actor: "human", by: HUMAN, projectId: bReview.projectId,
-                patch: { status: "todo" },
+                patch: { status: "todo" }, origin: actionOrigin,
               });
               try {
                 svc.addComment({
                   taskId: bReview.taskId, author: "system", kind: "service",
-                  content: "Rifiutata senza una sessione da riprendere (il binding all'agente era sciolto): torna in coda e riparte con il thread, invece di restare in lavorazione senza nessuno.",
+                  content: FRESH_SESSION_NOTE,
                 });
               } catch { /* the requeue is what matters */ }
               broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: backInQueue });
@@ -3515,11 +3520,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (bComments && method === "POST") {
         const body = (await readJSON(req)) as any;
         try {
+          let delivery: import('../../shared/task-comment-ack').TaskCommentAcknowledgement['delivery'] = 'note';
           const comment = svc.addComment({
             taskId: bComments.taskId, author: HUMAN, content: body?.content,
             mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
             media: filterMedia(body?.media),
-            projectId: bComments.projectId,
+            projectId: bComments.projectId, origin: actionOrigin,
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
           broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });
@@ -3539,7 +3545,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // stato del root — il gesto quieto è quieto anche quando il task è in
           // corso o quando c'è una domanda in sospeso, perché una nota non è la
           // risposta a una domanda che nessuno ha detto di voler chiudere.
-          if (body?.quiet === true) return json(comment, 201);
+          if (body?.quiet === true) return json({ ...comment, delivery }, 201);
           // C'È UNA DOMANDA APERTA SU QUESTO TASK? Allora questo commento è la
           // RISPOSTA, e va a chi sta fermo ad aspettarla — che può essere il
           // coordinatore o una delle sue sessioni di lavoro. La consegna sblocca
@@ -3555,7 +3561,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
             const target = root?.id ?? bComments.taskId;
             if (pendingRoutedAsk(target) && answerRoutedAsk(askRouting, target, String(body?.content ?? ""))) {
-              return json(comment);
+              return json({ ...comment, delivery: 'answered' });
             }
           }
           // A SYSTEM LABEL CLICKED FROM THE DRAWER IS AN UPDATE, NEVER A TURN.
@@ -3600,7 +3606,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 && (root.status === "review" || root.status === "in_progress")) {
               if (root.status === "review") {
                 const rejected = svc.reviewDecision({
-                  taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId,
+                  taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
                 });
                 broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
               }
@@ -3616,9 +3622,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // lets a reader draw them once instead of twice.
               dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
                 .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
+              delivery = 'queued';
             }
           } catch { /* the root may have moved meanwhile */ }
-          return json(comment, 201);
+          return json({ ...comment, delivery }, 201);
         } catch (e) { return fail(e); }
       }
 
@@ -3672,7 +3679,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               if (old) invalidateProbeCache(old);
             }
             let task = svc.update({
-              taskId, actor: "human", by: HUMAN, projectId,
+              taskId, actor: "human", by: HUMAN, projectId, origin: actionOrigin,
               patch: parsed.patch,
             });
             task = await captureDelivery(task, prevStatus);
@@ -3752,7 +3759,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           // This is a real cross-board read, not a client-side union of
           // project-scoped calls. Detail actions below re-read their task.
-          const tasks = svc.list({ scope: "all", status: asTaskStatus(status) });
+          //
+          // THE SAME CUT THE HUMAN BOARD MAKES, and it was not: this list was
+          // `{ scope: "all", status }` with nothing else, so the coordinator's
+          // orientation snapshot carried every subtask of every card and every
+          // done task ever closed. Measured on the live board 2026-09-10:
+          // 3.673 rows and 6,3 MB out of this route, against 48 rows and 113 KB
+          // out of the feed the board itself reads. That payload is what the
+          // model pays for, on a plan it can exhaust.
+          //
+          // Narrowing loses no capability. A subtask is a parent's checklist,
+          // never its own card, and the coordinator coordinates CARDS; the done
+          // column is capped for the same reason it is capped for a person. And
+          // the detail read below resolves an id at ANY depth, which is exactly
+          // what the server prompt already tells the coordinator to do before
+          // acting ("re-read a task before a detailed action").
+          const tasks = svc.list({
+            scope: "all",
+            status: asTaskStatus(status),
+            rootsOnly: true,
+            includeOrphanSubtasks: true,
+            doneLimit: DONE_FEED_LIMIT,
+          });
           return json({ tasks });
         } catch (e) { return fail(e); }
       }
@@ -3854,6 +3882,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
+          origin: sessionActionOrigin,
           content: typeof body?.content === "string" ? body.content : "",
           projectId: target.projectId,
           questionOptions: Array.isArray(body?.options)
@@ -3894,6 +3923,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           { ...globalSession, sessionKey: sk },
           body,
           pathname,
+          sessionActionOrigin,
         );
       }
       return null;
@@ -4033,6 +4063,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // The same identity the status row carries. What a person reads on
           // the card is derived from it (`shared/comment-author.ts`).
           author: sess.actor,
+          origin: sessionActionOrigin,
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
           // The agent can attach files too (screenshots/artifacts it produced).
@@ -4191,6 +4222,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // L'ATTORE, non il nome da mostrare: questo finisce nello storico
             // di stato, dove serve sapere CHI ha mosso il task.
             by: sess.actor,
+            origin: sessionActionOrigin,
             projectId: sess.projectId,
             agentTopicId: sess.topicId,
             patch: parsed.patch,
