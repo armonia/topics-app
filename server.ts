@@ -83,7 +83,7 @@ import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResource
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
+import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
@@ -2478,19 +2478,21 @@ const worktreesRouter = createWorktreesRouter(ctx, {
   // I rami locali non su main, col task a cui appartengono. Due letture: git
   // per QUALI rami e quanti commit, il DB per DI CHI sono.
   branchInventory: async (projectPath) => {
-    const proc = Bun.spawn(
-      ["git", "for-each-ref", "--format=%(refname:short)", "--no-merged=main", "refs/heads"],
-      { cwd: projectPath, stdout: "pipe", stderr: "pipe" },
-    );
-    const outText = await new Response(proc.stdout).text();
-    if ((await proc.exited) !== 0) throw new Error(`git: ${projectPath} non e' un repo, o main non esiste`);
-    const names = outText.split("\n").map((l) => l.trim()).filter(Boolean);
-    const branches = await Promise.all(names.map(async (name) => {
-      const c = Bun.spawn(["git", "rev-list", "--count", `main..${name}`], { cwd: projectPath, stdout: "pipe", stderr: "pipe" });
-      const n = Number((await new Response(c.stdout).text()).trim());
-      await c.exited;
-      return { name, ahead: Number.isFinite(n) ? n : 0 };
-    }));
+    // The git half lives in `scanBranchesOutsideBase`, which also answers the
+    // question this closure used to get wrong: a repo without `main` is not a
+    // broken repo. See the comment on `BranchScan`.
+    const scan = await scanBranchesOutsideBase(projectPath);
+    // The only failure left is a path that is NOT THERE: a project pointing at
+    // a folder that has vanished hides branches, and "none" would be a lie.
+    if (scan.kind === "no-path") throw new Error(`git: ${projectPath} non esiste`);
+    // A folder without git, or a checkout without a base branch: the question
+    // has an empty answer, and it says which of the two it was instead of a 500
+    // in the middle of somebody's test output.
+    if (scan.kind !== "ok") {
+      const empty = buildBranchInventory([], []);
+      return { entries: empty, summary: summarizeInventory(empty), base: null, reason: scan.kind };
+    }
+    const branches = scan.branches;
     // I task del board di QUESTO percorso: e' l'unico insieme che puo'
     // reclamare quei rami.
     const boardId = projectIdForPath(projectPath);
