@@ -70,14 +70,14 @@ test.describe.serial("Provider/Model picker", () => {
     await pickerBtn.waitFor({ state: "visible", timeout: 5_000 });
     await pickerBtn.click();
 
-    // Pick the first ENABLED model row INSIDE the popover. The picker's button
-    // also shows the resolved model name now (matches the regex), so we scope
-    // the search to the open popover via its data-testid.
+    // Pick the first ENABLED model row INSIDE the popover. Rows carry the raw
+    // model id in `data-model` (the label shown is the friendly one, which
+    // varies per provider) — matching on the attribute keeps this selector
+    // independent of how the row is displayed.
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
     const enabledModel = popover
-      .locator("button:not([disabled])")
-      .filter({ hasText: /^(claude-|gpt-|o\d|openclaw)/ })
+      .locator("button:not([disabled])[data-model]")
       .first();
 
     if (await enabledModel.count() === 0) {
