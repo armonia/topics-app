@@ -840,6 +840,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     setDeliveryOpen(false);
     setWorkspaceOpen(!!focusPaneId);
   }, [taskId, focusPaneId]);
+  /**
+   * A REVIEW DRAFT DOES NOT STAY HIDDEN BEHIND A TAB.
+   *
+   * `TaskChangesSection` opens itself when there are unsent notes — "otherwise
+   * the only trace of that work sits behind a closed bar". But since the diff
+   * moved into the DELIVERY band that component is not even mounted while the
+   * band is collapsed, so after a reload the written-and-unsent work vanished
+   * from view and its own effect could never run. Same question, one level up:
+   * the band opens, then the section opens itself as before.
+   *
+   * Runs after the reset above (declaration order), so it is not undone by it.
+   */
+  useEffect(() => {
+    let alive = true;
+    boardDrafts.getReviewNotes(taskId)
+      .then((n) => { if (alive && n.length) setDeliveryOpen(true); })
+      .catch(() => { /* no draft, or no store: the band stays as it was */ });
+    return () => { alive = false; };
+  }, [taskId]);
   // Only an explicitly opened workspace may share the wide drawer.
   const viewportWide = useMediaQuery('(min-width: 1280px)');
   const twoCol = wide && viewportWide && workspaceOpen;

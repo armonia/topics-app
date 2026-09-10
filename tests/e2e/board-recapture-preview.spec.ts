@@ -43,6 +43,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { isDeliverySheetPath } from "../../shared/media-kind";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
@@ -356,7 +357,18 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
 
     const body = await readTask(request, MUTED_PROJECT_ID, taskId);
     const task = taskOf(body);
-    expect(task.previewImage ?? null, "nessuna evidenza falsa").toBeNull();
+    // "No fake evidence" is not "no preview at all". A card in review without
+    // evidence still gets the DELIVERY SHEET, which the server draws from the
+    // facts already in its columns and which is recognisable by its path: it
+    // never looks like a screenshot and says so on its face. What this test
+    // refuses is an invented PHOTOGRAPH of a worktree that cannot start — and
+    // asserting `null` also made the case flaky, because the sheet is written
+    // on a transition this test races with.
+    const evidenza = task.previewImage ?? null;
+    expect(
+      evidenza === null || isDeliverySheetPath(evidenza),
+      `nessuna foto finta: previewImage inattesa ${evidenza}`,
+    ).toBe(true);
     expect(task.status).toBe("review");
     expect(task.dispatchAttempts ?? 0).toBe(0);
     const comments = body.comments ?? [];
