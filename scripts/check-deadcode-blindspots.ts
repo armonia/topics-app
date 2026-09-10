@@ -180,7 +180,6 @@ export const KNOWN_BLIND: Array<{ file: string; reason: string }> = [
   { file: "client/src/components/Project/ProcessLogPane.tsx", reason: "lazy+then" },
   { file: "client/src/components/Settings/GlobalSettings.tsx", reason: "lazy+then" },
   { file: "client/src/components/Shared/KeyboardShortcuts.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Sidebar/CronJobsPanel.tsx", reason: "lazy+then" },
   { file: "client/src/components/Terminal/SingleTerminalPane.tsx", reason: "lazy+then" },
   // Tre test leggono il SORGENTE di questo file (`readFileSync(new URL(
   // '../../hooks/useTauriBrowser.ts', import.meta.url))`) per asserire su cosa
