@@ -9,7 +9,7 @@
  * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
 
 describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)", () => {
   test("a chat holds: open, whatever the cards - refusing card turns buys the restart nothing", () => {
@@ -562,5 +562,68 @@ describe("reloadHeldNotice - the threshold says WHO is holding", () => {
     expect(reloadHeldNotice({
       ...base, busy: "2 turno/i di card della board", noticeAfterMs: CAP, waitedMs: CAP,
     })).not.toBeNull();
+  });
+});
+
+describe("sharedWait — chiedere due volte non aspetta due volte", () => {
+  test("il secondo chiamante riceve la MEDESIMA attesa, e il corpo gira una volta sola", async () => {
+    let starts = 0;
+    let finish!: () => void;
+    const wait = sharedWait<string>();
+    const body = () => {
+      starts++;
+      return new Promise<string>((r) => { finish = () => r("done"); });
+    };
+
+    const a = wait.join(body);
+    const b = wait.join(body);
+    const c = wait.join(body);
+    // Identity is the point: it is how a caller who joins does not bring a
+    // second `waitId` along, and therefore a second notice.
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+    expect(starts).toBe(1);
+
+    finish();
+    expect(await Promise.all([a, b, c])).toEqual(["done", "done", "done"]);
+  });
+
+  test("`inProgress` dice da quando aspetta il PRIMO che ha chiesto", async () => {
+    let clock = 1_000;
+    const wait = sharedWait<void>(() => clock);
+    expect(wait.inProgress()).toBeNull();
+
+    let finish!: () => void;
+    const p = wait.join(() => new Promise<void>((r) => { finish = r; }));
+    expect(wait.inProgress()).toEqual({ startedAt: 1_000 });
+
+    // Whoever joins a minute later does not push the start forward: this is
+    // exactly the number the route answers "already waiting for" with.
+    clock = 61_000;
+    wait.join(() => Promise.resolve());
+    expect(wait.inProgress()).toEqual({ startedAt: 1_000 });
+
+    finish();
+    await p;
+    expect(wait.inProgress()).toBeNull();
+  });
+
+  test("finita l'attesa, la successiva riparte davvero", async () => {
+    let starts = 0;
+    const wait = sharedWait<number>();
+    const first = await wait.join(() => { starts++; return Promise.resolve(1); });
+    const second = await wait.join(() => { starts++; return Promise.resolve(2); });
+    expect([first, second]).toEqual([1, 2]);
+    expect(starts).toBe(2);
+  });
+
+  test("un corpo che esplode non lascia il posto occupato per sempre", async () => {
+    const wait = sharedWait<void>();
+    // Thrown synchronously on purpose: this is the case a misplaced `try` turns
+    // into a server that never restarts again until somebody kills it by hand.
+    const p = wait.join(() => { throw new Error("boom"); });
+    await expect(p).rejects.toThrow("boom");
+    expect(wait.inProgress()).toBeNull();
+    await expect(wait.join(() => Promise.resolve())).resolves.toBeUndefined();
   });
 });
