@@ -29,7 +29,7 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 export function AgentLines() {
   const tr = useT();
-  const { working, awaitingInput } = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const { working, awaitingInput, finished } = useActiveAgentRows(useTerminalSessions(), useTopics());
   return (
     <div className="max-h-[240px] overflow-y-auto py-1">
       {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
@@ -41,7 +41,21 @@ export function AgentLines() {
           {awaitingInput.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="awaiting-agent-row" />)}
         </>
       )}
-      {working.length === 0 && awaitingInput.length === 0 && (
+      {/* THE FINISHED TURNS, BY NAME. They used to be a bare number, in a row
+          of the account panel reading «3 to look at (turn ended or paused)»:
+          the one thing in the whole menu that was counted without being
+          openable, and it sat in a block about your account rather than about
+          the work. Here they stand beside the other two lists under the same
+          rule: the number on the card is the length of these rows. */}
+      {finished.length > 0 && (
+        <>
+          <div className={`px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide ${CHIP_INK_DIM}`}>
+            {tr('statusBar.agents.finishedHeading')}
+          </div>
+          {finished.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="finished-agent-row" tone={CHIP_INK_DIM} />)}
+        </>
+      )}
+      {working.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
         <div className="px-3 py-2 text-[11px] text-app-text-secondary">{tr('statusBar.agents.none')}</div>
       )}
     </div>
@@ -49,12 +63,17 @@ export function AgentLines() {
 }
 
 /** One agent, one line: the glyph says what kind of thing it is, the label
- *  says which. The working glyph pulses, like its digit in the tail. */
-function AgentLine({ row, testId, alive = false }: { row: ActiveAgentRow; testId: string; alive?: boolean }) {
+ *  says which. The working glyph pulses, like its digit in the tail.
+ *
+ *  `tone` overrides the glyph's colour for the third list: a turn that ENDED
+ *  is not waiting on you the way an approval prompt is, and painting the two
+ *  the same amber is how a colour that means "answer me now" stops meaning
+ *  anything. */
+function AgentLine({ row, testId, alive = false, tone = SEGNALE_ATTESA }: { row: ActiveAgentRow; testId: string; alive?: boolean; tone?: string }) {
   const Icon = row.kind === 'terminal' ? Bot : MessagesSquare;
   return (
     <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-[11px] text-app-text" title={row.label}>
-      <Icon size={12} className={`flex-shrink-0 ${alive ? `animate-pulse ${SEGNALE_OK}` : SEGNALE_ATTESA}`} />
+      <Icon size={12} className={`flex-shrink-0 ${alive ? `animate-pulse ${SEGNALE_OK}` : tone}`} />
       <span className="min-w-0 flex-1 truncate">{row.label}</span>
     </div>
   );

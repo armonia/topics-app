@@ -299,12 +299,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
             onClose={() => setOpen(false)}
             who={who}
             DeviceIcon={DeviceIcon}
-            facts={{
-              device: who.dettaglio,
-              now: summary ?? null,
-              devices,
-              waiting,
-            }}
+            facts={{ device: who.dettaglio, devices }}
             orgs={presence.orgs}
             friends={friends}
             signals={signals}

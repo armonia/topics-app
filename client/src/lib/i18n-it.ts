@@ -2231,7 +2231,6 @@ const IT: Dict = {
   // into swap. This row says how much of it is REALLY taken, right on the
   // number people read first instead of two clicks further along.
   'statusBar.residenteInline': 'di cui in RAM adesso: {mb} MB (il resto e\' gia\' compresso o in swap)',
-  'statusBar.agents.heading': 'Agenti Claude Code',
   'statusBar.agents.awaitingInput': '· {n} in attesa di una tua risposta',
   'statusBar.agents.toLookAt': '· {n} da guardare (turno finito o in pausa)',
   'statusBar.presenceTitle': 'Lo stesso riepilogo che Topics pubblica sulla presence Discord. Sessioni aperte, quante lavorano adesso, task della board in corso.',
@@ -2281,7 +2280,6 @@ const IT: Dict = {
   // the click takes you.
   'statusBar.me.openProfile': 'Apri il tuo profilo',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
-  'statusBar.devicesTitle': 'Apri l’elenco dei dispositivi autorizzati',
   // THE CHIP SIGNALS: on the row they are a glyph and a digit, here is the
   // word that glyph draws. The number stays inside the sentence because the
   // tooltip is read on its own, detached from the row that produced it.
@@ -2292,6 +2290,7 @@ const IT: Dict = {
   'statusBar.system.machine': 'Questo computer',
   'statusBar.version.title': 'Versione',
   'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
+  'statusBar.agents.finishedHeading': 'Turno finito, da guardare',
   'statusBar.agents.none': 'Nessun agente al lavoro adesso',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
@@ -2300,7 +2299,6 @@ const IT: Dict = {
   'statusBar.me.machine': 'Da questo dispositivo',
   'statusBar.me.devicesRow': 'Dispositivi autorizzati',
   'statusBar.me.devicesCount': '{n} connessi di {tot}',
-  'statusBar.me.workRow': 'Adesso',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
   // THE SUBJECT AT ZERO. The chip stays even with no group at all, and this is
