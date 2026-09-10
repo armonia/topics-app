@@ -700,6 +700,28 @@ comando a parte, che legge ciò che questa produce.
 - **GIVEN** un trascinamento completo
 - **THEN** SHALL essere prodotta la misura del tempo di fotogramma
 
+### Requirement: BOARDIDLE-01 — Le opzioni dei sensori della board stanno FUORI dal render
+
+dnd-kit memoizza ogni sensore su `[sensor, options]`. Un oggetto di opzioni
+scritto in linea rende `sensors` un array nuovo a ogni render della pane, che
+ricostruisce l'InternalContext di dnd-kit, che ri-renderizza OGNI card che passa
+da `useSortable` — a props identiche, quindi `memo(Card)` non trattiene niente.
+Misurato il 2026-09-07: 32 card su 32 ri-renderizzate 25-29 volte in 30 secondi
+di quiete, ~550 ms di JS ogni 30 s con quattro agenti al lavoro. Il difetto era
+lì dal giorno in cui `memo(Card)` è stato scritto, e nessun cancello lo vedeva.
+
+Le opzioni di ogni sensore della Kanban SHALL essere costanti di modulo, e ogni
+chiamata a `useSensor` SHALL riceverle per nome. Un letterale in quella
+posizione NON SHALL passare.
+
+#### Scenario: le opzioni tornano in linea
+- **GIVEN** una chiamata `useSensor` con un oggetto scritto in linea
+- **THEN** il cancello SHALL essere rosso, nominando la chiamata
+
+#### Scenario: la card resta memoizzata
+- **GIVEN** la colonna della board
+- **THEN** la card SHALL essere esportata avvolta in `memo`
+
 ### Requirement: IDLE-01 — A riposo NON si chiedono fotogrammi a vuoto
 
 Con l'app ferma e niente che succede NON SHALL esserci una pompa di richieste di
