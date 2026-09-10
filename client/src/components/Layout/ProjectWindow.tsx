@@ -4,9 +4,9 @@ import type { TerminalAgentType } from '../../../../shared/terminal-session-type
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadDashboard, loadFileExplorer, loadFilePane, loadGitChanges, loadProcessLog, loadProjectSidebar, loadTerminal } from '../../state/pane/panePreload';
 import { useTopics } from '../../contexts/TopicsContext';
-import { ProjectSidebar } from '../Project/ProjectSidebar';
+import { readProjectSidebarWidth } from '../Project/projectSidebarHeights';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
 import {
@@ -40,6 +40,14 @@ const DashboardPane = lazyWarm(loadDashboard, (m) => m.DashboardPane);
 const KanbanBoardPane = lazyWarm(loadBoard, (m) => m.KanbanBoardPane);
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ProcessLogPane = lazyWarm(loadProcessLog, (m) => m.ProcessLogPane);
+// THE COLUMN IS A CHUNK TOO, and it was not some rare corner: it was a STATIC
+// import, so it and `FileExplorer` sat in the eager entry - 52 kB parsed on
+// every boot with no project window open at all - and `loadFileExplorer` was a
+// split that could never split anything, because the module it asked for was
+// already there. `lazyWarm` and not `lazy` because this is CHROME: on a reload
+// its chunk is warmed with the rest of the window (`panePreload`, type
+// `project`), so the column appears in the same pass as the content.
+const ProjectSidebar = lazyWarm(loadProjectSidebar, (m) => m.ProjectSidebar);
 
 
 // --- ProjectWindowPane: self-contained project content (no header/chrome) ---
@@ -544,16 +552,31 @@ export function ProjectWindowPane({
           si può solo contare. È il gancio che rende verificabile lo scoping
           per progetto (tests/e2e/diff-project-scope.spec.ts). */}
       <div data-testid="project-window" data-project-path={projectPath} className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
-        <ProjectSidebar
-          projectPath={projectPath}
-          displayName={taskDisplayName}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
-          onOpenFile={handleOpenFile}
-          onWSMessage={onWSMessage}
-          onOpenProcessLog={handleOpenProcessLog}
-          inlineSlot={railSlot}
-        />
+        {/* THE PLACEHOLDER HOLDS THE COLUMN, it is not a `null`. Collapsed,
+            the bar takes no width at all (its controls live in a portal inside
+            the tab row), so there the right placeholder really is nothing;
+            open, it is a column of the saved width, and an empty fallback
+            would make it appear by pushing everything sideways - the very
+            shift this work exists to remove. The width comes from
+            `readProjectSidebarWidth`, the same reader the column uses. */}
+        <Suspense fallback={sidebarCollapsed ? null : (
+          <div
+            aria-hidden
+            className="chrome-glass flex-shrink-0 bg-app-chrome border-r border-app-border"
+            style={{ width: readProjectSidebarWidth(projectPath) }}
+          />
+        )}>
+          <ProjectSidebar
+            projectPath={projectPath}
+            displayName={taskDisplayName}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+            onOpenFile={handleOpenFile}
+            onWSMessage={onWSMessage}
+            onOpenProcessLog={handleOpenProcessLog}
+            inlineSlot={railSlot}
+          />
+        </Suspense>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
           <GroupLayout
             panes={panes}

@@ -7,7 +7,7 @@ import App from './App'
 // persistence transports, and the 500 ms GET fallback) lives inside
 // client/src/state/pane/. main.tsx is intentionally a thin shell.
 import { bootstrapPaneStore, paneChunksWarm } from './state/pane/bootstrap';
-import { awaitWithCap, FIRST_FRAME_WARM_CAP_MS } from './lib/firstFrameGate';
+import { awaitWithCap, recordFirstFrameGate, FIRST_FRAME_WARM_CAP_MS } from './lib/firstFrameGate';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
 import { isInternalDrag } from './lib/dndTypes';
@@ -86,7 +86,12 @@ const root = createRoot(container);
 // frame later. A complete frame a few dozen milliseconds later is the gesture
 // a reload owes the reader; past the cap the app renders anyway and the
 // suspense boundaries report what is missing. See `lib/firstFrameGate`.
-void awaitWithCap(paneChunksWarm(), FIRST_FRAME_WARM_CAP_MS).then(() => {
+const gateStartedAt = performance.now();
+void awaitWithCap(paneChunksWarm(), FIRST_FRAME_WARM_CAP_MS).then((outcome) => {
+  // The gate's own cost, written down where a probe can read it back — it used
+  // to be thrown away, and from the outside a change to the warm set was
+  // indistinguishable from noise in the rest of the boot. See `firstFrameGate`.
+  recordFirstFrameGate(outcome, performance.now() - gateStartedAt);
   root.render(
     <StrictMode>
       {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app

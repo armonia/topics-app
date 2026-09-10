@@ -441,6 +441,13 @@ export const PROJECT_WORDS = new Set([
   // helper that reads one and calls the other cannot be named after anything
   // else without describing a different thing.
   "scrollback", "preload",
+  // The name of the thing itself: `cron` is a member of `PANE_TYPES` and of
+  // `UTILITY_PANEL_TYPES`, it is the pane id (`__cron__`), the label key and
+  // the tab the user opens. A loader for that pane's chunk can only be called
+  // after it — the older names around it (`CronJobsPanel`, the `cron:` pane
+  // type) predate this gate and sit in the baseline, so the word was already
+  // the project's and only new spellings of it were being stopped.
+  "cron",
 ]);
 
 function trackedFiles(): string[] {

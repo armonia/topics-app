@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, Folder, RefreshCw, FilePlus, FolderPlus, Pencil, Trash2, ChevronsDownUp, Copy, FileText, ExternalLink } from 'lucide-react';
 import type { FileNode, WSMessage } from '../../types';
@@ -20,8 +20,14 @@ import { useToast } from '../Shared/Toast';
 import { useT } from '../../hooks/useT';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadEditorTabs } from '../../state/pane/panePreload';
 
-const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
+// `lazyWarm`: the tree mounts these tabs unconditionally, so with a bare
+// `lazy()` every project window that opens on its file tree drew the spinner
+// once - the chunk is warmed with the tree's own (`panePreload`), and a warm
+// module renders in the same pass instead of committing a fallback first.
+const EditorTabs = lazyWarm(loadEditorTabs, (m) => m.EditorTabs);
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

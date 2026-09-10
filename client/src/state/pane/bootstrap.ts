@@ -30,7 +30,7 @@ import {
   markServerHydrated,
 } from './middleware/serverHydrated';
 import { usePaneStore } from './store';
-import { paneTypesToWarm, preloadPaneChunks } from './panePreload';
+import { paneTypesToWarm, panesOnFirstFrame, preloadPaneChunks } from './panePreload';
 import { subscribeFrames } from '../../lib/wsFrameBus';
 import { initTombstoneSync } from './adapters/tombstoneSync';
 
@@ -143,7 +143,8 @@ export function bootstrapPaneStore(): void {
   // other client's layout (live incident 2026-07-20: automation windows in
   // detached mode stranded nine floating browser panes in group:default).
   const params = new URLSearchParams(window.location.search);
-  const isDetached = Boolean(params.get('topics') ?? params.get('topic'));
+  const detachedList = params.get('topics') ?? params.get('topic');
+  const isDetached = Boolean(detachedList);
 
   // Seed the reducer from legacy localStorage (one-shot; also clears legacy keys).
   if (!isDetached) hydrateFromLegacyStorage();
@@ -162,9 +163,23 @@ export function bootstrapPaneStore(): void {
   // same figure for the board, the editor and the terminal, because it was
   // never their data - it was their code. See `panePreload.ts`. The tiles a
   // project window persisted in its own local record count as open panes too.
-  chunksWarm = preloadPaneChunks(paneTypesToWarm(Object.values(usePaneStore.getState().panes), (key) => {
-    try { return localStorage.getItem(key); } catch { return null; }
-  }));
+  //
+  // ON SCREEN, not "in the account". This used to read every pane in the store,
+  // which is the union of every Spazio and of every window's layout; the first
+  // frame draws one of them. `panesOnFirstFrame` narrows it to what this window
+  // will actually render — its hosted topics if it is a pop-out, otherwise
+  // `group:default` filtered to the Spazio the hydrate above has just restored
+  // (query first in a group window, see `persistLocal`). Everything else keeps
+  // loading lazily on its first mount, exactly as a never-opened pane always did.
+  const hostedPaneIds = detachedList
+    ? detachedList.split(',').map((id) => id.trim()).filter(Boolean)
+    : null;
+  chunksWarm = preloadPaneChunks(paneTypesToWarm(
+    panesOnFirstFrame(usePaneStore.getState(), hostedPaneIds),
+    (key) => {
+      try { return localStorage.getItem(key); } catch { return null; }
+    },
+  ));
 
   // Wire the persistence subscribers (write paths gated on detached above).
   if (!isDetached) {
