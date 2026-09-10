@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage } from "./codex";
+import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage, resolveCodexInvocation } from "./codex";
 import type { ProviderUsage, StreamHandler, ToolArgs } from "./types";
 
 interface RecordedHandler extends StreamHandler {
@@ -390,6 +390,56 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(h.text).toHaveLength(0);
     expect(h.tools).toHaveLength(0);
     expect(h.errors).toHaveLength(0);
+  });
+
+  test("thread.started surfaces nothing to the handler and never throws even without an initialized DB", () => {
+    // This test file never calls initDatabase(), so the persistence attempt
+    // inside the thread.started branch hits the same "DB not ready" path a
+    // fresh unit test process or early bootstrap would: it must degrade to a
+    // no-op, not crash the turn (mirrors saveCodexThreadId's own try/catch).
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    const out = pushEvent(provider, "s1", { type: "thread.started", thread_id: "thread-abc-123" }, h);
+    expect(out).toBeNull();
+    expect(h.text).toHaveLength(0);
+    expect(h.tools).toHaveLength(0);
+    expect(h.errors).toHaveLength(0);
+  });
+
+  test("thread.started with a missing/non-string thread_id is ignored, not crashed on", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    expect(pushEvent(provider, "s1", { type: "thread.started" }, h)).toBeNull();
+    expect(pushEvent(provider, "s1", { type: "thread.started", thread_id: 42 }, h)).toBeNull();
+    expect(h.errors).toHaveLength(0);
+  });
+});
+
+/**
+ * `resolveCodexInvocation` decides resume-vs-fresh without touching the DB or
+ * the filesystem: the caller resolves `storedThreadId` (from `codex_sessions`)
+ * and `rolloutExists` (from `codexRolloutExists`) up front, so the branch that
+ * matters most — a stale thread id must fall back cleanly instead of retrying
+ * a doomed `codex exec resume` forever — is testable in isolation.
+ */
+describe("resolveCodexInvocation", () => {
+  test("resumes when a thread id is stored and its rollout still exists", () => {
+    expect(resolveCodexInvocation({ storedThreadId: "thread-1", rolloutExists: true }))
+      .toEqual({ mode: "resume", threadId: "thread-1" });
+  });
+
+  test("starts fresh when nothing is stored yet", () => {
+    expect(resolveCodexInvocation({ storedThreadId: null, rolloutExists: false }))
+      .toEqual({ mode: "fresh" });
+    // A rollout somehow existing without a stored id is not a valid resume
+    // target either — there's nothing to resume BY.
+    expect(resolveCodexInvocation({ storedThreadId: null, rolloutExists: true }))
+      .toEqual({ mode: "fresh" });
+  });
+
+  test("starts fresh when the stored thread's rollout is gone (pruned CODEX_HOME, deleted session file, ...)", () => {
+    expect(resolveCodexInvocation({ storedThreadId: "thread-stale", rolloutExists: false }))
+      .toEqual({ mode: "fresh" });
   });
 });
 

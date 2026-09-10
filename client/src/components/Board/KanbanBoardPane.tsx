@@ -1863,9 +1863,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             >
               {/* THE NOTES, not the speech bubble. The bubble said "you can
                   type here", which in this app is true of every surface; the
-                  notes say this is the one that CONDUCTS the others — and it is
-                  the same glyph its sidebar row now carries (`Music4`), so the
-                  button and the conversation read as one thing. */}
+                  notes say this is the one that CONDUCTS the others.
+                  This button and the drawer header are the two places the glyph
+                  is actually drawn: measured 2026-09-10, `Topic.icon` reaches no
+                  other chrome in this app — the sidebar row and the tab strip
+                  draw no per-topic glyph for a chat — so the coordinator's own
+                  identity lives here, not in that field. */}
               <Music4 className="h-3 w-3 shrink-0" />
               <span>{openingOrchestrator ? tr('board.orchestrator.opening') : tr('board.orchestrator.open')}</span>
             </button>

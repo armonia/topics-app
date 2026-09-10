@@ -194,6 +194,45 @@ describe("classifyBranchLanding", () => {
     expect(v.motivo).toContain("si riapplica al contrario");
   }, TEMPO_GIT);
 
+  /**
+   * THE ACQUITTAL AN EMPTY COMMIT USED TO BUY.
+   *
+   * `listOwnCommits` exists so a card is not blamed for another session's
+   * commits — and that is right. But when the only commit it leaves is a
+   * `--allow-empty` (the no-op used to retrigger the checks), the diff of the
+   * own set is empty, and "touches only generated files: nothing to lose"
+   * acquitted work that main did not have. Measured on the live
+   * board 2026-09-10 (53fc5aed): 5 commits beyond main, 4 of them also on two
+   * other branches, one empty own commit, 958 lines outside — and the card
+   * read "landed".
+   */
+  test("FUORI quando i commit propri non toccano niente ma il ramo ha lavoro fuori da main", async () => {
+    const repo = newRepo("vuoto");
+    scrivi(repo, "src/a.ts", "vecchio\n");
+    commit(repo, "prima", "2026-07-02T10:00:00+02:00");
+    // The work is born on ANOTHER branch and the delivery branch inherits it:
+    // its commits stop being "own" because they live elsewhere too.
+    git(repo, ["checkout", "-q", "-b", "topics/altra-sessione"]);
+    scrivi(repo, "src/a.ts", impronte("vuoto", 6));
+    commit(repo, "il lavoro vero", "2026-07-03T10:00:00+02:00");
+    git(repo, ["checkout", "-q", "-b", "topics/consegna"]);
+    // …and on top of it goes the no-op used to retrigger the checks.
+    git(repo, ["commit", "-q", "--allow-empty", "-m", "chore: retrigger pre-review checks"]);
+
+    const v = await classifyBranchLanding(repo, "topics/consegna");
+    expect(v.esito, "an empty commit cannot acquit a branch that is outside").toBe("fuori");
+    expect(v.file.length, "the whole branch's files, not the no-op's").toBeGreaterThan(0);
+  }, TEMPO_GIT);
+
+  test("DENTRO quando i commit propri non toccano niente e nemmeno il ramo ha altro", async () => {
+    const repo = newRepo("vuoto-davvero");
+    git(repo, ["checkout", "-q", "-b", "topics/solo-noop"]);
+    git(repo, ["commit", "-q", "--allow-empty", "-m", "chore: niente"]);
+
+    const v = await classifyBranchLanding(repo, "topics/solo-noop");
+    expect(v.esito, "here \"dentro\" is true: there is no content at all").toBe("dentro");
+  }, TEMPO_GIT);
+
   test("DENTRO per contenuto quando le righe del ramo sono su main dentro un file EVOLUTO", async () => {
     const repo = newRepo("righe");
     scrivi(repo, "src/a.ts", "vecchio\n");

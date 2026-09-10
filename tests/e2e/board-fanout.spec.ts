@@ -150,6 +150,10 @@ test.describe("Fan-out: scelta del tentativo", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
+    // The attempts live in the DELIVERY band, behind its own tab: the drawer
+    // opens on the conversation, and nothing of this is there yet.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     // Il confronto: quanti sono, cosa ha prodotto ognuno, cosa dice di sé.
     await expect(drawer.getByText("2 in parallelo")).toBeVisible({ timeout: 10000 });
     const first = drawer.getByTestId("task-attempt-1");
@@ -185,6 +189,9 @@ test.describe("Fan-out: scelta del tentativo", () => {
     await openProjectBoard(page);
     await page.getByTestId("kanban-column-in_progress").getByText(text).click();
     const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     await expect(drawer.getByText("2 in parallelo")).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByText("1 in corso")).toBeVisible();
     // Scegliere adesso vorrebbe dire potare un worktree mentre ci lavora un agente.

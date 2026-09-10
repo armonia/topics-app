@@ -35,8 +35,9 @@ import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
-import { buildCodexArgs, buildCodexOneshotArgs } from "./codex/args";
+import { buildCodexArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
 import { readCodexModels } from "./codex/models";
+import { codexRolloutExists } from "../lib/codex-session";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
@@ -224,6 +225,62 @@ function hasActiveSession(): boolean {
          existsSync(join(codexHome, "credentials.json")) ||
          Boolean(process.env.CODEX_API_KEY) ||
          Boolean(process.env.OPENAI_API_KEY);
+}
+
+// ============ Persisted thread id (codex exec resume) ============
+
+/**
+ * Decide whether a turn should resume a prior `codex exec` thread or start a
+ * fresh one. Kept as a pure function (no DB, no filesystem) so the branch
+ * that matters most, "a stale thread must fall back cleanly", is unit
+ * testable without a real rollout file or a real CLI.
+ */
+export function resolveCodexInvocation(args: {
+  storedThreadId: string | null;
+  rolloutExists: boolean;
+}): { mode: "resume"; threadId: string } | { mode: "fresh" } {
+  if (args.storedThreadId && args.rolloutExists) {
+    return { mode: "resume", threadId: args.storedThreadId };
+  }
+  return { mode: "fresh" };
+}
+
+/** Read-only lookup of a session's stored codex thread id. Never inserts. */
+function getCodexThreadId(db: ReturnType<typeof getDatabase>, sessionKey: string): string | null {
+  try {
+    const row = db
+      .prepare(`SELECT codex_thread_id FROM codex_sessions WHERE session_key = ?`)
+      .get(sessionKey) as { codex_thread_id?: string } | undefined;
+    return row?.codex_thread_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upsert the thread id for `sessionKey`. Called as soon as `thread.started`
+ * arrives, not just at turn close, so an aborted or crashed turn still leaves
+ * a resumable thread behind.
+ */
+function saveCodexThreadId(db: ReturnType<typeof getDatabase>, sessionKey: string, threadId: string): void {
+  try {
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO codex_sessions (session_key, codex_thread_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(session_key) DO UPDATE SET codex_thread_id = excluded.codex_thread_id, updated_at = excluded.updated_at`
+    ).run(sessionKey, threadId, now, now);
+  } catch {
+    // Best-effort: a DB hiccup degrades to "next turn starts fresh", never a
+    // crashed turn.
+  }
+}
+
+/** Drop a stale thread id (its rollout file is gone) so the next lookup falls back to fresh. */
+function forgetCodexThreadId(db: ReturnType<typeof getDatabase>, sessionKey: string): void {
+  try {
+    db.prepare(`DELETE FROM codex_sessions WHERE session_key = ?`).run(sessionKey);
+  } catch { /* nothing to forget if the delete itself fails */ }
 }
 
 // ============ Helpers ============
@@ -459,24 +516,45 @@ export class CodexProvider implements AIProvider {
     } catch { /* Unbound sessions retain the global default. */ }
     const reasoningEffort = resolveCodexReasoningEffort({ topicOverride: topicEffort });
 
+    // Decide resume-vs-fresh before building argv: a resumed thread lets
+    // Codex carry native, unbounded context server-side, so this turn's
+    // prompt (built further down) skips the client-side markdown transcript
+    // entirely. A stored id whose rollout file is gone is treated as absent
+    // rather than attempted and left to fail mid-turn.
+    let db: ReturnType<typeof getDatabase> | null = null;
+    try { db = getDatabase(); } catch { /* unit tests / early bootstrap: fresh every time */ }
+    const storedThreadId = db ? getCodexThreadId(db, sessionKey) : null;
+    const invocation = resolveCodexInvocation({
+      storedThreadId,
+      rolloutExists: storedThreadId ? codexRolloutExists(storedThreadId) : false,
+    });
+    if (db && storedThreadId && invocation.mode === "fresh") {
+      // Rollout gone (pruned, deleted CODEX_HOME, ...): the stale pointer
+      // would otherwise be retried forever.
+      forgetCodexThreadId(db, sessionKey);
+    }
+
     // L'elenco delle flag vive in `codex/args.ts`, funzione pura sotto snapshot:
     // è la superficie che si rompe a ogni release della CLI. Qui restano le
     // decisioni (quale modello, quale sandbox, quale tier) — incluso il fatto
     // che `--model` si passa SOLO se qualcuno l'ha scelto: senza, la CLI pesca
     // da `~/.codex/config.toml`, ed è l'unico modo perché funzionino gli account
     // ChatGPT (che rifiutano `gpt-5-codex` passato a mano).
-    const args = buildCodexArgs({
+    const argsOpts = {
       model: explicitModel,
       // Never inherit a global full-access setting into the coordinator.
       approvalMode: globalOrchestrator ? null : this.config.approvalMode,
-      sandbox: globalOrchestrator ? "read-only" : undefined,
+      sandbox: globalOrchestrator ? "read-only" as const : undefined,
       // `-c` alone layers onto user config. The global profile must not inherit
       // arbitrary user MCP servers or executable rules; Codex auth remains
       // available with this CLI isolation flag.
       isolated: globalOrchestrator,
       bridge,
       reasoningEffort,
-    });
+    };
+    const args = invocation.mode === "resume"
+      ? buildCodexResumeArgs({ ...argsOpts, threadId: invocation.threadId })
+      : buildCodexArgs(argsOpts);
 
     // La stessa quota di core di claude-code, per la stessa ragione: il
     // provider si sceglie per INSTALLAZIONE (`AI_PROVIDER`), non per topic, e su
@@ -495,6 +573,64 @@ export class CodexProvider implements AIProvider {
         console.log(`[codex] job quota for dispatched ${sessionKey}: -j${quota} (rilettura viva attiva)`);
       }
     } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
+
+    // A resumed thread carries its own context inside Codex; only a fresh
+    // turn needs the client-side markdown transcript prepended (a `codex exec`
+    // child otherwise has no memory of prior turns). Without this, a fresh
+    // turn's reply read like the very first one.
+    const history = options?.history ?? [];
+    const prompt = invocation.mode === "fresh" && history.length > 0
+      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
+      : message;
+
+    this.runCodexTurn({
+      sessionKey,
+      bin,
+      args,
+      workspace,
+      env,
+      handler,
+      explicitModel,
+      invocationMode: invocation.mode,
+      prompt,
+      message,
+      history,
+      argsOptsForFallback: argsOpts,
+      // A stale thread id that survives `resolveCodexInvocation` (rollout
+      // still on disk) can still die mid-turn: the CLI itself rejects it,
+      // the rollout is corrupt, or the account/session state moved on.
+      // Without a fallback the id stays in `codex_sessions` forever and every
+      // future turn repeats the same dead resume — the only fix left is a
+      // manual DELETE. One fresh retry with the full history turns a
+      // permanent break into a slow turn.
+      allowResumeFallback: invocation.mode === "resume",
+    });
+
+    return { runId };
+  }
+
+  /**
+   * Spawns one `codex exec` (or `codex exec resume`) child and wires its
+   * stdout/stderr/close handlers. Split out of `sendChat` so a resume that
+   * dies mid-turn can retry itself once, fresh, without duplicating the
+   * spawn/wiring logic — see `allowResumeFallback` below.
+   */
+  private runCodexTurn(params: {
+    sessionKey: string;
+    bin: string;
+    args: string[];
+    workspace: string;
+    env: NodeJS.ProcessEnv;
+    handler: StreamHandler;
+    explicitModel?: string;
+    invocationMode: "resume" | "fresh";
+    prompt: string;
+    message: string;
+    history: ChatMessage[];
+    argsOptsForFallback: Parameters<typeof buildCodexArgs>[0];
+    allowResumeFallback: boolean;
+  }): void {
+    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, prompt, message, history, argsOptsForFallback, allowResumeFallback } = params;
 
     const child = spawn(bin, args, {
       cwd: workspace,
@@ -564,6 +700,27 @@ export class CodexProvider implements AIProvider {
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
+
+      // A resumed thread that dies mid-turn (not a user abort) leaves its
+      // stored thread id pointing at a resume that will fail the exact same
+      // way forever, since `resolveCodexInvocation` only drops an id whose
+      // ROLLOUT FILE is missing, not one whose resume just failed. Forget it
+      // and retry once, fresh, with the full history: the turn is slower but
+      // no longer permanently broken.
+      if (code !== 0 && !state?.aborted && invocationMode === "resume" && allowResumeFallback) {
+        try { forgetCodexThreadId(getDatabase(), sessionKey); } catch { /* next turn just tries resume again */ }
+        const freshArgs = buildCodexArgs(argsOptsForFallback);
+        const freshPrompt = history.length > 0
+          ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
+          : message;
+        this.runCodexTurn({
+          sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
+          invocationMode: "fresh", prompt: freshPrompt, message, history, argsOptsForFallback,
+          allowResumeFallback: false,
+        });
+        return;
+      }
+
       const done: ProviderDoneMessage = {};
       if (state?.usage) done.usage = state.usage;
       if (state) done.durationMs = Date.now() - state.startedAt;
@@ -599,19 +756,8 @@ export class CodexProvider implements AIProvider {
       handler.onError(err.message);
     });
 
-    // Codex `exec` is stateless — every turn spawns a fresh child with no
-    // memory of prior turns. To restore continuity we prepend the conversation
-    // transcript (when the chat route supplies one) ahead of the new user
-    // message. Without this, every reply read like the first one.
-    const history = options?.history ?? [];
-    const prompt = history.length > 0
-      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-      : message;
-
     child.stdin!.write(prompt);
     child.stdin!.end();
-
-    return { runId };
   }
 
   // --- Routing for JSONL events from `codex exec --json` ---
@@ -633,6 +779,18 @@ export class CodexProvider implements AIProvider {
     // in `item.completed` with the actual payload under `event.item`.
     const t = (typeof event.type === "string" ? event.type : null)
       ?? (typeof event.kind === "string" ? event.kind : null);
+
+    // First line of every `codex exec` (fresh or resumed) invocation: the
+    // thread id that `codex exec resume <id>` will need on the NEXT turn.
+    // Saved immediately, not at turn close, so an aborted or crashed turn
+    // still leaves a resumable thread behind.
+    if (t === "thread.started") {
+      const threadId = typeof event.thread_id === "string" ? event.thread_id : null;
+      if (threadId) {
+        try { saveCodexThreadId(getDatabase(), sessionKey, threadId); } catch { /* next turn just starts fresh */ }
+      }
+      return null;
+    }
 
     // Wrapped item events: item.completed / item.started / item.updated carry
     // an inner item. command_execution items stream stdout via item.updated

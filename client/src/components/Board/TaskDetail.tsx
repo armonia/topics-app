@@ -1,7 +1,6 @@
 import { pickPlanComment } from './planPanel';
 import { reconcileAcknowledgedComments } from './acknowledgedComments';
 import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
-import { isAutoCapturedPreview } from '../../../../shared/media-kind';
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -70,6 +69,7 @@ import { holdTopic } from '../../state/topicSubscriptions';
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
+import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
@@ -840,6 +840,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     setDeliveryOpen(false);
     setWorkspaceOpen(!!focusPaneId);
   }, [taskId, focusPaneId]);
+  /**
+   * A REVIEW DRAFT DOES NOT STAY HIDDEN BEHIND A TAB.
+   *
+   * `TaskChangesSection` opens itself when there are unsent notes — "otherwise
+   * the only trace of that work sits behind a closed bar". But since the diff
+   * moved into the DELIVERY band that component is not even mounted while the
+   * band is collapsed, so after a reload the written-and-unsent work vanished
+   * from view and its own effect could never run. Same question, one level up:
+   * the band opens, then the section opens itself as before.
+   *
+   * Runs after the reset above (declaration order), so it is not undone by it.
+   */
+  useEffect(() => {
+    let alive = true;
+    boardDrafts.getReviewNotes(taskId)
+      .then((n) => { if (alive && n.length) setDeliveryOpen(true); })
+      .catch(() => { /* no draft, or no store: the band stays as it was */ });
+    return () => { alive = false; };
+  }, [taskId]);
   // Only an explicitly opened workspace may share the wide drawer.
   const viewportWide = useMediaQuery('(min-width: 1280px)');
   const twoCol = wide && viewportWide && workspaceOpen;
@@ -1725,7 +1744,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} onMessage={onMessage} />;
       if (item.source === 'comment') {
         const receipt = commentReceipt?.id === item.id ? commentReceipt.delivery : undefined;
-        const chip = item.delivery === 'delivered' ? 'delivered' : receipt ?? item.delivery;
+        // Which of the two sources wins is a rule, and it lives in `chipKey.ts`
+        // where a test can run it: the derivation is the authority, the receipt
+        // speaks only where the derivation is silent or where the route moved
+        // the words this instant.
+        const chip = commentChip(item.delivery, receipt);
         const previous = timeline[index - 1];
         const continuation = !!item.comment.messageId && previous?.source === 'comment'
           && previous.comment.messageId === item.comment.messageId
@@ -1767,7 +1790,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 under the person's own bubble, on their side. */}
             {chip && (
               <p
-                data-testid={chip === 'delivered' ? 'task-comment-delivered' : receipt ? 'task-comment-receipt' : 'task-comment-queued'}
+                data-testid={commentChipTestId(chip)}
                 role={receipt ? 'status' : undefined}
                 className="pr-1 text-right text-[10px] text-app-text-faint"
               >{tr(chip === 'note' ? 'board.task.noteSaved' : chip === 'saved' ? 'board.task.commentSaved'
@@ -2499,16 +2522,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
         )}</div>
-          {task && ((task.previewImage && !mediaPaths.includes(task.previewImage)) || task.previewRetiredAt || isAgentReview) && (
+          {/* THE TWIN OPENER THAT COULD NEVER RENDER IS GONE.
+              It was gated on `!mediaPaths.includes(task.previewImage)`, and
+              `collectTaskMediaPaths` puts the preview FIRST in that list since
+              2026-08-03 (050d9b766): the condition has been false ever since,
+              for every task that has a preview. The live opener is the row in
+              "File consegnati" just above, which carries the same testid and
+              the same action — and `board-drawer-truth` spent that time looking
+              for the dead one. What is left here is the band that speaks when
+              there is NO preview (retired, or missing on an agent review), so
+              its condition is now exactly that. */}
+          {task && (task.previewRetiredAt || isAgentReview) && (
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
               <div className="flex flex-wrap items-center gap-2">
-                {task.previewImage && !mediaPaths.includes(task.previewImage) && <button type="button" data-testid="task-preview-open"
-                  onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-app-text-secondary hover:text-app-text">
-                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{isAutoCapturedPreview(task.previewImage) ? tr('board.task.deliveryAutoShot') : tr('board.task.deliveryLabel')}</span>
-                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-                </button>}
                 {isAgentReview && <button disabled={recapturing} onClick={recapturePreview}
                   title={tr('board.task.recapturePreviewTitle')} data-testid="task-recapture-preview"
                   className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-app-text-secondary hover:bg-white/10 disabled:opacity-40">
