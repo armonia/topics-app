@@ -374,6 +374,8 @@ const EN = {
   'ai.advanced.hint': 'Choose how agents run and manage installed programs. Changes do not affect sessions already running.',
   'ai.saved.remove': 'Remove',
   'ai.test.timedOut': 'The test timed out',
+  'ai.test.failed': 'The test failed',
+  'ai.test.models': '{count} models',
   'ai.saved.prefix': 'Saved choice:',
   'ai.saved.suffix': '. It is not among the registered providers, so the fallback decides the default now.',
   'ai.default.unknown': 'The provider used by chats that do not choose.',

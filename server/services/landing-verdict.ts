@@ -160,7 +160,7 @@ interface DiffRaccolto {
    * touched nothing" — the `--allow-empty` used to retrigger the checks. Only
    * the first supports the conclusion "nothing to lose".
    */
-  toccatiGrezzi: number;
+  rawTouched: number;
 }
 
 /**
@@ -192,10 +192,10 @@ async function collectDiff(
       if (corrente && riga.startsWith("+")) aggiunte.get(corrente)!.push(riga.slice(1));
     }
   }
-  const toccatiGrezzi = aggiunte.size;
+  const rawTouched = aggiunte.size;
   const file = filterUniqueSourceFiles([...aggiunte.keys()]);
   for (const k of [...aggiunte.keys()]) if (!file.includes(k)) aggiunte.delete(k);
-  return { file, aggiunte, toccatiGrezzi };
+  return { file, aggiunte, rawTouched };
 }
 
 /** Quali dei file del ramo esistono su `mainRef`. Una `ls-tree` per tutti. */
@@ -482,8 +482,8 @@ export async function classifyBranchLanding(
     return { ...nudo, esito: "dentro", motivo: "nessun commit proprio oltre main" };
   }
 
-  let { file, aggiunte, toccatiGrezzi } = await collectDiff(repoPath, own, git);
-  if (file.length === 0 && toccatiGrezzi > 0) {
+  let { file, aggiunte, rawTouched } = await collectDiff(repoPath, own, git);
+  if (file.length === 0 && rawTouched > 0) {
     return { ...nudo, esito: "dentro", motivo: "tocca solo file generati (lock, bundle, versione): niente da perdere" };
   }
   if (file.length === 0) {
@@ -504,19 +504,19 @@ export async function classifyBranchLanding(
     // touches nothing, the `dentro` verdict was right. allow-italian: verdict value
     const tutti = await git(repoPath, ["rev-list", `${mainRef}..${branch}`]);
     const shas = tutti.code === 0 ? tutti.stdout.split("\n").map((r) => r.trim()).filter(Boolean) : [];
-    const pieno = shas.length > 0 ? await collectDiff(repoPath, shas, git) : null;
-    if (!pieno || pieno.file.length === 0) {
+    const wholeBranch = shas.length > 0 ? await collectDiff(repoPath, shas, git) : null;
+    if (!wholeBranch || wholeBranch.file.length === 0) {
       return {
         ...nudo,
         esito: "dentro",
-        motivo: pieno && pieno.toccatiGrezzi > 0
+        motivo: wholeBranch && wholeBranch.rawTouched > 0
           ? "tocca solo file generati (lock, bundle, versione): niente da perdere"
           : "nessun contenuto oltre main",
       };
     }
-    file = pieno.file;
-    aggiunte = pieno.aggiunte;
-    toccatiGrezzi = pieno.toccatiGrezzi;
+    file = wholeBranch.file;
+    aggiunte = wholeBranch.aggiunte;
+    rawTouched = wholeBranch.rawTouched;
   }
 
   const indice = opts.indiceMain ?? (await indiceRigheMain(repoPath, mainRef, git));
