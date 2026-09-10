@@ -35,7 +35,7 @@ import type { WSMessage } from '../types';
 import { boardApi, type BoardTask, type TaskStatus } from '../lib/board';
 import { groupByStatus } from '../lib/boardOrder';
 import {
-  applyBoardTaskFrame, markBoardTasksSettled, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
+  applyBoardTaskFrame, markBoardTasksFailed, setBoardTasks, setBoardTasksRefresher, useBoardTasks,
 } from '../lib/boardTasksStore';
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
 import { BOOT_READ_TTL_MS } from '../lib/coalesceFetch';
@@ -62,6 +62,15 @@ const COALESCE_WINDOW_MS = 400;
  * frames are arriving, is what keeps that honest.
  */
 const FULL_READ_INTERVAL_MS = 60_000;
+
+/**
+ * The outcome of one read of the feed, carried whole into `apply`: a failed
+ * read is an ANSWER to "must I keep waiting?", and it carries the reason with
+ * it. Same shape as `useBoardFeed`'s `Outcome`.
+ */
+type GlobalReadOutcome =
+  | { ok: true; rows: readonly BoardTask[] }
+  | { ok: false; message: string };
 
 export interface GlobalBoard {
   /** Tasks not yet `done`, across every project. */
@@ -108,13 +117,9 @@ export function useGlobalBoard(
       // The reader carries the order guard with it: two overlapping reads can
       // come back in the wrong order and the last writer wins, which would
       // leave the store behind with no later event to correct it.
-      coalescer.current = createCoalescedReader<readonly BoardTask[] | null>({
+      coalescer.current = createCoalescedReader<GlobalReadOutcome>({
         windowMs: COALESCE_WINDOW_MS,
         load: async () => {
-          // `null` = la lettura è tornata a mani vuote. Non è la stessa cosa di
-          // una lista vuota: chi disegna una board deve poter smettere di
-          // aspettare senza inventarsi che di task non ce ne sono.
-          //
           // The notice is consumed HERE and not where it is raised: a trigger
           // that lands inside the coalescer's window becomes the tail read,
           // and it is that read — the last one, later than the last event —
@@ -123,10 +128,19 @@ export function useGlobalBoard(
           changeNoticed.current = false;
           lastFullRead.current = Date.now();
           try {
-            return await boardApi.listAll(undefined, noticed ? undefined : { ttlMs: BOOT_READ_TTL_MS });
-          } catch { return null; }
+            const rows = await boardApi.listAll(undefined, noticed ? undefined : { ttlMs: BOOT_READ_TTL_MS });
+            return { ok: true, rows };
+          } catch (e) {
+            // THE MESSAGE IS TAKEN HERE, where it is still an error. This
+            // branch was `catch { return null }`: the failure was thrown away
+            // at the exact point where it existed, and downstream nobody could
+            // tell "the server is not answering" from "there is nothing to
+            // show". The project twin (`useBoardFeed`) has carried this same
+            // outcome shape into its `apply` since the day it was written.
+            return { ok: false, message: e instanceof Error ? e.message : 'failed to load the board' };
+          }
         },
-        apply: (rows) => { if (rows === null) markBoardTasksSettled(); else setBoardTasks(rows); },
+        apply: (out) => { if (out.ok) setBoardTasks(out.rows); else markBoardTasksFailed(out.message); },
       });
     }
     return coalescer.current;

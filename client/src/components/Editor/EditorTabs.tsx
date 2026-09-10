@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useRef, Suspense } from 'react';
 import { copyText } from '../../lib/clipboard';
 import { X, File, WrapText, Eye, Code, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -12,8 +12,13 @@ import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
 import { useT } from '../../hooks/useT';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadCodeEditor } from '../../state/pane/panePreload';
 
-const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
+// `lazyWarm`, same reason as in `FilePane`: this module is itself warmed from
+// the boot snapshot, and a bare `lazy()` here would put the spinner one hop
+// further down instead of removing it.
+const CodeEditor = lazyWarm(loadCodeEditor, (m) => m.CodeEditor);
 
 export interface TabInfo {
   path: string;

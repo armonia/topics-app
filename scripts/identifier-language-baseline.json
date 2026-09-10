@@ -459,7 +459,6 @@
       "deltaFrac"
     ],
     "client/src/components/Layout/StandaloneChatGroup.tsx": [
-      "CronJobsPanel",
       "utilType"
     ],
     "client/src/components/Layout/flattenLayout.ts": [
@@ -816,11 +815,6 @@
       "conIcona",
       "nascosti",
       "senzaIcona"
-    ],
-    "client/src/components/Sidebar/CronJobsPanel.tsx": [
-      "CronJob",
-      "CronJobsPanel",
-      "CronJobsPanelProps"
     ],
     "client/src/components/Sidebar/MobileChromeBar.tsx": [
       "ALTEZZA",
@@ -1528,7 +1522,6 @@
     ],
     "client/src/lib/featureUsage.ts": [
       "IngressiMisurati",
-      "maggiore",
       "vociMisurate"
     ],
     "client/src/lib/featureWeight.test.ts": [
@@ -4156,13 +4149,6 @@
     "server/routes/crashedTurnNotice.test.ts": [
       "giu"
     ],
-    "server/routes/cron.ts": [
-      "broadcastCronList",
-      "createCronRouter",
-      "cronJobMatch",
-      "cronRouter",
-      "cronRunMatch"
-    ],
     "server/routes/dashboard.ts": [
       "stmts",
       "wipCount"
@@ -4292,9 +4278,6 @@
       "testo"
     ],
     "server/routes/status.ts": [
-      "CronJobsStatus",
-      "fetchCronStatus",
-      "lastCronStatus",
       "topicCountStmt",
       "uptimeMs"
     ],
@@ -5799,7 +5782,6 @@
       "formatZodIssues"
     ],
     "shared/ws-outbound.ts": [
-      "cronUpdatedSchema",
       "typingBroadcastSchema"
     ],
     "tests/e2e/add-menu.spec.ts": [
@@ -6372,9 +6354,6 @@
     ],
     "tests/e2e/fixtures/hermetic.ts": [
       "righe"
-    ],
-    "tests/e2e/fixtures/infra.fixture.ts": [
-      "MOCK_CRON_JOBS"
     ],
     "tests/e2e/focus-bounce-board.spec.ts": [
       "apriBoard",

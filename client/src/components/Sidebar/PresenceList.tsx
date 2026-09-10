@@ -101,15 +101,24 @@ export function PresencePerson({ p }: { p: PresenceRow }) {
 
 /** The action row at the bottom of a section: the link to the page that governs
  *  what the section shows. The chevron says you are leaving here. */
-export function MenuAction({ onClick, children, testId }: {
+export function MenuAction({ onClick, children, testId, tail }: {
   onClick: () => void;
   children: React.ReactNode;
   testId?: string;
+  /** What the row says without being opened: a count, a state.
+   *
+   *  It exists for one precise reason: the authorised devices were TWO
+   *  adjacent rows in the same panel - a read-only one saying "0 of 2
+   *  connected", and right under it a door that opened the list. The number is
+   *  the door's tail, not a row of its own. Same shape the rows with a
+   *  sublevel (`SubmenuItem`) already use to carry their count. */
+  tail?: React.ReactNode;
 }) {
   return (
     <button type="button" data-testid={testId} onClick={onClick} className={POPOVER_ITEM}>
       <span className="truncate">{children}</span>
-      <ChevronRight size={12} className="ml-auto flex-shrink-0 text-app-text-muted" />
+      {tail && <span className="ml-auto flex-shrink-0 tabular-nums text-app-text-muted">{tail}</span>}
+      <ChevronRight size={12} className={`${tail ? 'ml-1.5' : 'ml-auto'} flex-shrink-0 text-app-text-muted`} />
     </button>
   );
 }

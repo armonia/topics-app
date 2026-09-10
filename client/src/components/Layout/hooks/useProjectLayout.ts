@@ -90,6 +90,7 @@ import { useProjectTerminalSync } from './useProjectTerminalSync';
 import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
 import { createTerminalSession } from '../../../lib/terminalActions';
+import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 import { useToast } from '../../Shared/Toast';
 import { useT } from '../../../hooks/useT';
 
@@ -635,7 +636,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             // can no longer resurrect this terminal as a phantom pane.
             addTerminalTombstone(sessionId);
             scheduleTerminalCleanup(record.id, 60_000, () => {
-              fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+              deleteTerminalSession(sessionId);
               clearTerminalTombstone(sessionId);
             });
           }

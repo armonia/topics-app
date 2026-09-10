@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Topic, CreateTopicRequest, UpdateTopicRequest } from '../types';
-import { topicsApi } from '../lib/api';
+import { ApiError, topicsApi } from '../lib/api';
 import { createThrottledLocalWriter } from '../lib/throttledLocalWrite';
 import { useRefMirror } from './useRefMirror';
 import {
@@ -19,6 +19,7 @@ import {
   type TopicBuckets,
 } from './topicBuckets';
 import { hydrateTopicPreviews } from '../state/topicPreviews';
+import { shouldRetryTopicsLoad, topicsRetryDelayMs } from './topicsRetry';
 
 /**
  * The caches of this hook go through a throttled writer, and it is not a
@@ -147,12 +148,42 @@ export function useTopics() {
         void hydrateTopicPreviews({ archived: true });
       } catch (err) {
         console.error('Failed to load archived topics:', err);
+        // ONCE ONLY, AND THAT ONCE WENT BADLY.
+        //
+        // `knownRef.archived` stays false, so whoever ASKS for the archive
+        // (the sidebar's archived section, the search palette) retries by
+        // itself. But the boot load is nobody's question: it comes from
+        // `loadTopics` behind `archiveScheduledRef`, which was raised for good
+        // on the first attempt. Lowering it here is what makes the round
+        // repeatable, and what repeats it is `loadTopics` - the mount, and
+        // every return of the socket (`useReconnectCatchUp`).
+        //
+        // ON THE SOCKET'S RETURN, NEVER ON A TIMER: this list weighs a
+        // measured 872 KB (1,535 archived rows out of 1,554), and it is the
+        // load the first frame was deliberately moved away from. A poll would
+        // put it back on the boot through the service entrance.
+        archiveScheduledRef.current = false;
       } finally {
         archivedLoadRef.current = null;
       }
     })();
     archivedLoadRef.current = load;
     return load;
+  }, []);
+
+  /**
+   * The retry waiting to fire, and how many have failed in a row before it.
+   *
+   * The timer lives in a ref because it has to be CLEARED before another one
+   * is armed: on the socket's return `useReconnectCatchUp` calls `loadTopics`
+   * while a retry is still pending, and without this the two branches would
+   * have multiplied instead of replacing each other - two independent retry
+   * chains against the same dead server, then four.
+   */
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryAttemptRef = useRef(0);
+  useEffect(() => () => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
   }, []);
 
   const loadTopics = useCallback(async () => {
@@ -169,6 +200,9 @@ export function useTopics() {
         clearTimeout(timer);
       }
       knownRef.current.live = true;
+      // The server answered: the retry ladder starts over, so the next failure
+      // waits three seconds and not a minute.
+      retryAttemptRef.current = 0;
       // A live topic that is in neither half of the fresh list was archived on
       // another device while this one was disconnected, or deleted. Asked for
       // one by one - usually none - only once the archive is loaded: before
@@ -191,25 +225,46 @@ export function useTopics() {
       // Narrow the opaque caught value to the Error-ish fields we read.
       const errLike = (err ?? {}) as { name?: unknown; message?: unknown };
       const isTimeout = errLike.name === 'AbortError';
+      const httpStatus = err instanceof ApiError ? err.status : null;
       const hasCachedData = Object.keys(bucketsRef.current.live).length > 0;
       if (hasCachedData) {
-        setError(isTimeout ? 'Server slow, showing cached data' : 'Using cached data, server unreachable');
+        // "Server unreachable" was the sentence for EVERY failure, and it is
+        // false in exactly the case that just stopped being ignored: a 400 or
+        // a 500 is a perfectly reachable server that is refusing. Whoever
+        // reads the line at the foot of the sidebar does different things on
+        // "it is not answering" than on "it answered no", starting with
+        // opening the server log.
+        setError(
+          isTimeout ? 'Server slow, showing cached data'
+            : httpStatus !== null ? `Using cached data, the server refused (${httpStatus})`
+              : 'Using cached data, server unreachable',
+        );
       } else {
         setError(isTimeout ? 'Server not responding, retrying…' : (err instanceof Error ? err.message : 'Failed to load topics'));
       }
-      // Auto-retry once after timeout or network error. Engine spread:
-      // Chromium says "Failed to fetch", Firefox "NetworkError", WebKit
-      // (the Tauri WKWebView shell!) says "Load failed" — missing that last
-      // one meant a desktop client that hiccuped during a server restart
-      // NEVER retried: the "Using cached data" notice stuck forever while
-      // the WS was already reconnected (reported live 2026-07-11).
-      const message = typeof errLike.message === 'string' ? errLike.message : '';
-      const isNetworkError =
-        message.includes('Failed to fetch') ||
-        message.includes('NetworkError') ||
-        message.includes('Load failed');
-      if (isTimeout || isNetworkError) {
-        setTimeout(() => loadTopics(), 3000);
+      // RETRY, WITH A BRAKE. What decides lives in `topicsRetry.ts`, together
+      // with the reason for every branch: an HTTP refusal is a failure like a
+      // timeout or a network error (it used to fall outside both, and the
+      // amber notice stayed lit for the rest of the session), a 401/403 of
+      // identity is not, because that one already has `markUnpaired` and a
+      // screen that says how to get out of it.
+      //
+      // And the call was RECURSIVE under a comment promising "auto-retry
+      // once": against a dead server, one request every three seconds for
+      // ever. Now it doubles up to a minute and stops there - what stops is
+      // the LADDER, not the retrying.
+      if (shouldRetryTopicsLoad({
+        name: errLike.name,
+        message: errLike.message,
+        status: httpStatus,
+      })) {
+        const attempt = retryAttemptRef.current;
+        retryAttemptRef.current = attempt + 1;
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          void loadTopics();
+        }, topicsRetryDelayMs(attempt));
       }
     } finally {
       setLoading(false);

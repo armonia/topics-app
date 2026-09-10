@@ -57,7 +57,7 @@ describe('the total and its two halves', () => {
 
     const t = composeUsageTooltip({ ...base, perf: perfFull, status: statusWithFleet });
     expect(t).toContain('Topics in tutto');
-    expect(t).toContain('1.5GB'); // 1494 MB -> gigabytes with one decimal
+    expect(t).toContain('1.5 GB'); // 1494 MB -> gigabytes with one decimal, one format everywhere (formatMemory.ts)
     expect(t).toContain('su 11 processi');
     expect(t).not.toContain('~'); // no partial sign when it is not partial
   });

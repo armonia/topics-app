@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TopicGoal, WSMessage } from '../types';
-import { goalApi } from '../lib/api';
+import { ApiError, goalApi } from '../lib/api';
 
 /**
  * The goal this device last saw for a topic. The bar it feeds sits INSIDE the
@@ -65,10 +65,29 @@ export function useGoal(
       const data = await goalApi.get(id);
       rememberGoal(id, data.goal);
       setEntry({ topicId: id, goal: data.goal });
-    } catch {
-      // Una topic senza goal non è un errore da mostrare: la barra sparisce.
-      rememberGoal(id, null);
-      setEntry({ topicId: id, goal: null });
+    } catch (err) {
+      // "THERE IS NO GOAL" IS NOT "I COULD NOT ASK FOR IT".
+      //
+      // There was one branch, and it wiped the cache on any failure at all: a
+      // hiccup of the network made the bar disappear from the composer and,
+      // worse, took the SEED with it - the seed that exists precisely so the
+      // composer's height does not jump on the NEXT boot, when the GET lands
+      // 300 ms after the first paint (measured 2026-09-03). A transient error
+      // destroyed the defence against transients.
+      //
+      // The precedent is in this house: `lib/auth/session.ts`, "network down
+      // is not unpaired". Same shape here. A server RESPONSE, whatever its
+      // status, is authoritative on the fact that this chat has no goal to
+      // show: the 404 of a topic that is gone, and the 403 of
+      // `orchestrator_topic_invariant` on the global coordinator, which by
+      // invariant has no goals. That branch is byte for byte what it was.
+      // The silence of the transport is not: there nothing is known, so
+      // nothing is touched and the bar keeps what it had, until a later GET
+      // actually says something.
+      if (err instanceof ApiError) {
+        rememberGoal(id, null);
+        setEntry({ topicId: id, goal: null });
+      }
     }
   }, [topicId]);
 
