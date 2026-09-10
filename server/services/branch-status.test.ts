@@ -128,7 +128,7 @@ describe("commitStatusFromRepo", () => {
   let ereditato = "";   // consegna su un ramo che porta anche lavoro altrui, contenuto SU main
   let ricopiato = "";   // consegna atterrata con un cherry-pick: altro sha, stesso autore/oggetto
   let assente = "";     // consegna che su main non c'è, in nessuna forma
-  let vuoto = "";       // EMPTY delivery on top of a branch that is not on main
+  let empty = "";       // EMPTY delivery on top of a branch that is not on main
   let radice = "";
 
   beforeAll(() => {
@@ -184,7 +184,7 @@ describe("commitStatusFromRepo", () => {
     writeFileSync(join(repo, "vuota.txt"), "lavoro mai landato, sotto un no-op\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "il lavoro vero");
     git(repo, "commit", "-q", "--allow-empty", "-m", "chore: retrigger pre-review checks");
-    vuoto = git(repo, "rev-parse", "HEAD");
+    empty = git(repo, "rev-parse", "HEAD");
     git(repo, "checkout", "-q", "main");
   }, 30_000);
 
@@ -214,7 +214,7 @@ describe("commitStatusFromRepo", () => {
     // function answered `merged`. The card read "landed" over a whole branch
     // left outside. The answer now says there is no answer, and whoever asked
     // (the audit, `report:landed`) goes and asks the BRANCH.
-    expect(await commitStatusFromRepo(repo, vuoto)).toBe("empty");
+    expect(await commitStatusFromRepo(repo, empty)).toBe("empty");
     // And the branch, asked, tells the truth the commit could not.
     expect(await commitStatusFromRepo(repo, git(repo, "rev-parse", "topics/vuota^"))).toBe("unmerged");
   });
