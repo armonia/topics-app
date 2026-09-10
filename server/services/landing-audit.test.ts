@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import { auditLandings, classifyLanding, classifyLandingEsito, type AuditTask, type LandingAuditDeps, type LandingState } from "./landing-audit";
-import type { BranchStatus } from "./branch-status";
+import type { CommitStatus } from "./branch-status";
 
 const task = (id: string, over: Partial<AuditTask> = {}): AuditTask => ({
   id, projectId: "p1", deliveryBranch: `topics/${id}`, deliveryCommit: `${id}0000000000000000000000000000000000`.slice(0, 40), ...over,
@@ -17,7 +17,7 @@ const task = (id: string, over: Partial<AuditTask> = {}): AuditTask => ({
 
 function harness(opts: {
   tasks: AuditTask[];
-  status?: (commit: string) => BranchStatus | Promise<BranchStatus>;
+  status?: (commit: string) => CommitStatus | Promise<CommitStatus>;
   repo?: (projectId: string) => string | null;
   previous?: Record<string, LandingState>;
   debt?: (task: AuditTask) => LandingState | Promise<LandingState>;
@@ -79,6 +79,37 @@ describe("auditLandings", () => {
     // dentro non si chiede, e non lo si paga.
     expect(chiesti).toEqual(["fuori"]);
     expect(s).toEqual({ checked: 2, landed: 1, unlanded: 0, unverifiable: 1, superseded: 0 });
+  });
+
+  /**
+   * THE ACQUITTAL NOBODY EARNED.
+   *
+   * An EMPTY delivery commit — the `--allow-empty` used to retrigger the
+   * checks — touches no file, so "every file it touches is already on main" is
+   * vacuously true. Until 2026-09-09 that answer was `merged`, and the card
+   * said "landed" over 958 lines still outside (53fc5aed). The commit now says
+   * `empty`, which is not a verdict: the question moves to the BRANCH.
+   */
+  it("an EMPTY delivery does not close the case: the second question is asked anyway", async () => {
+    let chiesto = 0;
+    const h = harness({
+      tasks: [task("a")],
+      status: () => "empty",
+      debt: () => { chiesto += 1; return "unlanded"; },
+    });
+    await auditLandings(h.deps);
+    expect(chiesto, "an empty commit must send the question to the branch").toBe(1);
+    expect(h.recorded[0]!.state).toBe("unlanded");
+    // And the accusation reaches the card: exactly what the false "landed"
+    // used to make disappear.
+    expect(h.alerts.map((t) => t.id)).toEqual(["a"]);
+  });
+
+  it("an EMPTY delivery whose branch really is on main → landed, no accusation", async () => {
+    const h = harness({ tasks: [task("a")], status: () => "empty", debt: () => "landed" });
+    await auditLandings(h.deps);
+    expect(h.recorded[0]!.state).toBe("landed");
+    expect(h.alerts).toHaveLength(0);
   });
 
   it("un `unmerged` che la seconda domanda assolve non fa scattare l'allarme", async () => {
