@@ -90,6 +90,34 @@ export function readNativeUsage(sessionKey: string): SessionUsage | null {
   return totals.get(sessionKey) ?? null;
 }
 
+/** One session's totals, with the key that addresses it. */
+export interface NativeSessionUsage extends SessionUsage {
+  sessionKey: string;
+}
+
+/**
+ * EVERY session the registry currently holds, in one call.
+ *
+ * `readNativeUsage` answers for one key, which is what the dispatcher needs and
+ * the wrong shape for a panel that wants N sessions at a time: N calls over a
+ * route is N round trips for a map that is already in memory.
+ *
+ * WHAT ABSENCE MEANS, and it is the whole contract. The registry is capped at
+ * `MAX_ENTRIES` with eviction of the oldest, and it lives only as long as the
+ * process. A session that was evicted, or that ran before this server started,
+ * or that never used the native runtime at all, is simply NOT IN THIS LIST -
+ * exactly as `readNativeUsage` returns `null` rather than a zeroed total for
+ * it. Emitting a zero row here would say "measured: it cost nothing", which is
+ * a different and false statement.
+ *
+ * Insertion order, so the first entries are the ones closest to eviction.
+ */
+export function listNativeUsage(): NativeSessionUsage[] {
+  const out: NativeSessionUsage[] = [];
+  for (const [sessionKey, u] of totals) out.push({ sessionKey, ...u });
+  return out;
+}
+
 /** Solo per i test: il registro vive quanto il processo. */
 export function resetNativeUsage(): void {
   totals.clear();

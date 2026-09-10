@@ -30,6 +30,8 @@ import { createIdempotencyCache } from "../lib/idempotency-cache";
 import { agentAuthOk } from "../lib/agent-auth";
 import { clientProjectPathRefused } from "../lib/client-project-path";
 import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
+import type { FleetSessionRef } from "../lib/fleet-usage";
+import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
@@ -302,13 +304,13 @@ export function getTerminalSessionById(id: string): TerminalSession | undefined 
  * perché il rilevatore di porte cerca i server che Claude avvia: qui serve TUTTO
  * ciò che consuma, e una shell aperta consuma quanto il resto.
  */
-export function getFleetSessionRefs(): { sessionId: string; name: string; pid: number }[] {
-  const out: { sessionId: string; name: string; pid: number }[] = [];
+export function getFleetSessionRefs(): FleetSessionRef[] {
+  const out: FleetSessionRef[] = [];
   const seen = new Set<string>();
   for (const s of sessions.values()) {
     if (!s.ptyPid || s.ptyPid <= 0) continue;
     seen.add(s.id);
-    out.push({ sessionId: s.id, name: s.name, pid: s.ptyPid });
+    out.push({ sessionId: s.id, name: s.name, pid: s.ptyPid, ...(s.topicId ? { topicId: s.topicId } : {}), ...(s.cwd ? { cwd: s.cwd } : {}) });
   }
   // Le CHAT, non solo i terminali. Una chat con un agente al lavoro ha un
   // albero di processi suo quanto un terminale — semplicemente lo spawna
@@ -325,6 +327,31 @@ export function getFleetSessionRefs(): { sessionId: string; name: string; pid: n
     seen.add(sessionKey);
     out.push({ sessionId: sessionKey, name: sessions.get(sessionKey)?.name ?? sessionKey, pid });
   }
+
+  // WHICH PROJECT each of those belongs to, in ONE query for the whole batch.
+  //
+  // A terminal knows its topic by uuid and a chat is addressed by its session
+  // key; `resolveSessionProjects` answers both shapes from the same statement,
+  // so this stays one round trip however many sessions are alive. A terminal
+  // opened outside any topic falls back to its own `cwd`, which is the only
+  // project it can honestly claim.
+  //
+  // The whole block is best-effort: without it every row keeps its memory and
+  // CPU exactly as before and simply carries no project.
+  try {
+    const keys: string[] = [];
+    for (const r of out) keys.push(r.topicId ?? r.sessionId);
+    const projects = resolveSessionProjects(getDatabase(), keys);
+    for (const r of out) {
+      const hit = projects.get(r.topicId ?? r.sessionId);
+      if (hit) {
+        if (!r.topicId) r.topicId = hit.topicId;
+        if (hit.projectPath) { r.projectPath = hit.projectPath; r.projectSource = "topic"; }
+      }
+      if (!r.projectPath && r.cwd) { r.projectPath = r.cwd; r.projectSource = "cwd"; }
+    }
+  } catch { /* attribution is a decoration, the measurement is the point */ }
+
   return out;
 }
 
