@@ -19,15 +19,6 @@ export const STATUS_COLORS: Record<ProviderStatus, string> = {
   unavailable: 'bg-gray-400',
 };
 
-/** Lo stato a parole. `unavailable` è «not set up», non «errore»: mancano i
- *  requisiti, non è rotto. */
-export const STATUS_LABELS: Record<ProviderStatus, string> = {
-  ready: 'ready',
-  loading: 'loading…',
-  error: 'error',
-  unavailable: 'not set up',
-};
-
 /** Il valore sentinella delle tendine della scheda: «Auto» non è una scelta, è
  *  l'assenza di override — cancella il valore salvato e lascia vincere la env
  *  var (o il default interno). */

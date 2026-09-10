@@ -377,6 +377,8 @@ const IT: Dict = {
   'ai.advanced.hint': 'Scegli come eseguire gli agenti e gestisci i programmi installati. Le modifiche non cambiano le sessioni già in corso.',
   'ai.saved.remove': 'Togli',
   'ai.test.timedOut': 'La prova è scaduta',
+  'ai.test.failed': 'Prova non riuscita',
+  'ai.test.models': '{count} modelli',
   'ai.saved.prefix': 'Scelta salvata:',
   'ai.saved.suffix': '. Non è fra i provider registrati, quindi ora il default lo decide il ripiego.',
   'ai.default.unknown': 'Il provider usato dalle chat che non scelgono.',
