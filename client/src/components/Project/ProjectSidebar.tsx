@@ -305,35 +305,42 @@ interface GitSummary {
 }
 
 /**
- * THE GIT ROW WITH NO GIT PANEL BEHIND IT.
+ * THE GIT ROW BEFORE THE GIT PANEL EXISTS.
  *
  * The section is born CLOSED (`{ files: true, git: false, processes: false }`)
  * and the whole panel was mounted anyway: `<GitChanges expanded={false}>` drew
  * this header and nothing else, which meant every project window on a reload
  * asked for the `GitChanges` chunk (48,4 kB, and it pulls `DiffViewer` and
- * `react-virtuoso` in with it) to render one row of text. Measured on the real
- * desktop state (2026-09-10): `GitChanges` + `DiffViewer` were requested at
- * 181 ms and only landed at 309 ms, in the middle of the window where the
- * first frame is decided, for five project windows with the section closed in
- * all of them.
+ * CodeMirror in with it) to render one row of text. Measured on the real
+ * desktop state (2026-09-10): `GitChanges` + `DiffViewer` + `editor` were
+ * requested at 181 ms and only landed at 309-315 ms, in the middle of the
+ * window where the first frame is decided, for five project windows with the
+ * section closed in all of them.
  *
- * So the row is drawn HERE, from the status the sidebar already subscribes to
- * (`useGitStatus`, whose subscription is what keeps the server-side `git:status`
- * watcher awake for every consumer of the project — that is why it lives up
- * there and not in the panel), and `GitChanges` mounts only when the section
- * is actually open.
+ * So this row is drawn first, from the status the sidebar already subscribes
+ * to (`useGitStatus`, whose subscription is what keeps the server-side
+ * `git:status` watcher awake for every consumer of the project — that is why
+ * it lives up there and not in the panel), and the real panel takes its place
+ * when the browser next goes idle (`gitPanelMounted`).
+ *
+ * WHAT THIS ROW DOES NOT CARRY, and it is a real trade, not an oversight: the
+ * collapsed row used to be `GitChanges` itself, so its branch name was the
+ * branch SWITCHER and next to it sat pull, push, history and refresh. An E2E
+ * is what said so out loud (`file-explorer-git` EXPLORER-18 asserted a
+ * `button` with the branch name on a CLOSED section). They now live one click
+ * away, inside the section. The INFORMATION they reported — branch, changed
+ * files, ahead/behind — is all still here, so a closed section still says
+ * everything it said before; what it no longer offers is acting on it without
+ * opening.
+ *
+ * The obvious repair — draw this row first and swap the real panel in when the
+ * browser goes idle — was tried and is worse: see `gitPanelMounted`.
  *
  * THE SAME ROW IS ALSO THE SUSPENSE FALLBACK, and that is the point of having
  * one component: the two layouts used to carry a hand-copied fallback each,
  * both of them labelled with `project.sidebar.gitChanges` while the loaded
  * panel says `Git` - so opening the section swapped the label under the
  * pointer. One row, one label, no swap.
- *
- * WHAT IS NOT HERE, deliberately: the branch switcher, pull, push, history and
- * refresh. They belong to `GitChanges`, they need its state, and every one of
- * them is one click away once the section is open. This row keeps the
- * INFORMATION they were reporting - branch, changed files, ahead/behind - so
- * the collapsed section still says everything it said before.
  */
 function GitSectionRow({
   git,
@@ -507,6 +514,22 @@ export function ProjectSidebar({
   // first commit not pushed, at the first commit behind the upstream: the
   // condition is live, not a one-off read at mount.
   const gitVisible = hasGitStateToShow(git);
+
+  /**
+   * THE PANEL IS ON SCREEN ONLY WHEN THE SECTION IS OPEN — and it is exactly
+   * that, no cleverness. There WAS a cleverer version: draw the stand-in row
+   * first and swap the real panel in when the browser next went idle, so the
+   * boot paid nothing and every control came back a moment later. It is a trap,
+   * and the E2E showed it in one run: the swap replaces the header node, so a
+   * pointer press that starts on the stand-in and ends on the panel produces no
+   * `click` at all — the two events have different targets and the browser
+   * fires `click` on their common ancestor, which is the section wrapper. Five
+   * specs failed on a header that simply refused to open, and a user clicking
+   * the Git row in that same instant would have got the same dead click.
+   * A row that is sometimes not clickable is worse than a row with fewer
+   * buttons.
+   */
+  const gitPanelMounted = expandedSections.git;
 
   const toggleSection = (section: SectionId) => {
     setExpandedSections(prev => {
@@ -997,14 +1020,14 @@ export function ProjectSidebar({
                   : { height: bottomHeights.git })
               : undefined}
             >
-              {/* Closed, the section IS its row: `GitChanges` never mounts,
-                  so its chunk is never even asked for. See `GitSectionRow`. */}
-              {expandedSections.git ? (
-                <Suspense fallback={<GitSectionRow git={git} expanded loading onToggle={() => toggleSection('git')} />}>
-                  <GitChanges projectPath={projectPath} compact expanded onToggle={() => toggleSection('git')} />
+              {/* Until the panel is due (see `gitPanelMounted`), the section
+                  IS its row and the chunk is not asked for at all. */}
+              {gitPanelMounted ? (
+                <Suspense fallback={<GitSectionRow git={git} expanded={expandedSections.git} loading onToggle={() => toggleSection('git')} />}>
+                  <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
                 </Suspense>
               ) : (
-                <GitSectionRow git={git} expanded={false} onToggle={() => toggleSection('git')} />
+                <GitSectionRow git={git} expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
               )}
             </div>}
             <div
@@ -1232,19 +1255,19 @@ export function ProjectSidebar({
                   : { height: bottomHeights.git })
               : undefined}
         >
-          {/* Closed, the section IS its row: `GitChanges` never mounts, so
-              its chunk is never even asked for. See `GitSectionRow`. */}
-          {expandedSections.git ? (
-            <Suspense fallback={<GitSectionRow git={git} expanded loading onToggle={() => toggleSection('git')} />}>
+          {/* Until the panel is due (see `gitPanelMounted`), the section IS
+              its row and the chunk is not asked for at all. */}
+          {gitPanelMounted ? (
+            <Suspense fallback={<GitSectionRow git={git} expanded={expandedSections.git} loading onToggle={() => toggleSection('git')} />}>
               <GitChanges
                 projectPath={projectPath}
                 compact
-                expanded
+                expanded={expandedSections.git}
                 onToggle={() => toggleSection('git')}
               />
             </Suspense>
           ) : (
-            <GitSectionRow git={git} expanded={false} onToggle={() => toggleSection('git')} />
+            <GitSectionRow git={git} expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
           )}
         </div>}
 
