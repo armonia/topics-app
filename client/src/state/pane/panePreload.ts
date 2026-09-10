@@ -33,8 +33,9 @@
  * second download. A failure is swallowed on purpose - the lazy boundary is
  * still there and will report it properly if the chunk is genuinely broken.
  */
-import type { Pane, PaneType } from './types';
+import type { Pane, PaneState, PaneType } from './types';
 import { projectPanesKey } from '../../../../shared/project-keys';
+import { resolvePaneSpace } from './reducers/spaces';
 import { warm } from '../../lib/lazyWarm';
 
 type Loader = () => Promise<unknown>;
@@ -79,6 +80,62 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
 /** The shape of a project's local tab record, as far as warming is concerned. */
 interface ProjectTabRecord {
   nonChatPanes?: Array<{ type?: unknown }>;
+}
+
+/** The slice of the store {@link panesOnFirstFrame} needs. */
+type FirstFrameState = Pick<PaneState, 'panes' | 'groups' | 'spaces' | 'activeSpaceId'>;
+
+/**
+ * THE PANES THIS WINDOW WILL ACTUALLY DRAW, AND ONLY THOSE.
+ *
+ * The warm set used to be `Object.values(state.panes)` - every pane the
+ * account has open ANYWHERE. That is not what the first frame draws, and the
+ * difference is not academic: the render surface is `group:default` filtered
+ * to the active Spazio (`selectors.filterVisiblePaneIds`, the derivation
+ * `usePanelLifecycle.visiblePanels` renders from), so a board left open in a
+ * Spazio nobody is looking at put its chunk inside the 300 ms cap of the
+ * first-frame gate. Measured on the real desktop state (2026-09-10): the warm
+ * set was 840 KB of board + terminal + browser + file pane, and every byte of
+ * it is waited for before the first pixel.
+ *
+ * Three window roles, three answers, because each one draws something else:
+ *
+ *  - a DETACHED pop-out (`?topics=a,b` / `?topic=`) hosts exactly the topics
+ *    in its URL and nothing else — `usePanelLifecycle` bypasses the store
+ *    filter entirely there (`visiblePanels = openPanels`). Warming the main
+ *    window's layout for it is pure waste: pass its hosted ids as
+ *    `hostedPaneIds` and only those are considered.
+ *  - a GROUP window (`?space=<id>`) is the whole app pinned to one Spazio.
+ *    Nothing special is needed HERE because the pinning already happened:
+ *    `hydrateFromLocalSnapshot` dispatches `SET_ACTIVE_SPACE` with the id from
+ *    the QUERY (never the shared `pane-store-active-space` key, which belongs
+ *    to the origin and would start the detached window on the main window's
+ *    group) before this runs, so `state.activeSpaceId` is already the right
+ *    answer. If the registry does not know that id yet — the Spazio was born
+ *    in another window and arrives with the first hydrate — the reducer
+ *    resolves it to the default space, and the first frame draws the default
+ *    space too: warming what is drawn stays correct either way.
+ *  - a normal window: `group:default`, filtered to the active Spazio.
+ *
+ * A pane id in the order with no record in `panes` (a transient id mid
+ * registration) is skipped rather than counted as default-space, because
+ * unlike the render filter this list only decides what to DOWNLOAD.
+ */
+export function panesOnFirstFrame(
+  state: FirstFrameState,
+  hostedPaneIds: readonly string[] | null,
+): Pane[] {
+  const ids = hostedPaneIds ?? state.groups['group:default']?.paneIds ?? [];
+  const out: Pane[] = [];
+  for (const id of ids) {
+    const pane = state.panes[id];
+    if (!pane) continue;
+    // A detached window draws its hosted ids whatever Spazio they are stamped
+    // with, so the space filter must not apply to it.
+    if (hostedPaneIds === null && resolvePaneSpace(pane, state.spaces) !== state.activeSpaceId) continue;
+    out.push(pane);
+  }
+  return out;
 }
 
 /**
