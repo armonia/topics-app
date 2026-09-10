@@ -614,9 +614,13 @@ test.describe("Drawer del task — un solo scroll", () => {
 
     // ── WHERE WHAT YOU WROTE GOT TO ───────────────────────────────────────
     // The steer goes in through the composer, like a person's does. The card
-    // is `in_progress` and no envelope has gone out since, so the bubble says
+    // is `todo` and no envelope has gone out since, so the bubble says
     // "queued" - a state DERIVED from the envelopes at every read, which is
-    // why nothing had to write it into the thread.
+    // why nothing had to write it into the thread. The POST's own receipt says
+    // `note` here (the route resumes an agent only from `review`/
+    // `in_progress`), and it must NOT overrule that: it would print the quiet
+    // button's wording, "no agent response requested", under words the person
+    // just sent to the agent. The precedence is `chipKey.commentChip`.
     const steer = `Guarda anche il caso vuoto ${Date.now()}`;
     const composer = drawer.getByTestId("task-reply-input");
     await composer.fill(steer);

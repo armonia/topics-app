@@ -212,7 +212,11 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
         await expect(errorBox).toBeVisible({ timeout: 10000 });
         await expect(errorBox.getByTestId("task-load-retry")).toBeVisible();
         await expect(drawer.locator(".animate-spin")).toHaveCount(0);
-        await expect(drawer.getByTestId("task-brief-scroll")).toHaveCount(0);
+        // NO ASSERTION ON THE BRIEF HERE. It lives behind `task-details-toggle`
+        // and, on a failed read, that tab row is not rendered at all — so
+        // "count 0" was true of every drawer ever opened and measured nothing,
+        // and opening the tab first is not possible either. What this state has
+        // to say is said by the error box and the absent spinner, above.
         // The header no longer promises "Loading": the status chip has no
         // ring. We read the sign, not the word.
         await expect(drawer.getByTestId("task-status-chip").locator(".animate-spin")).toHaveCount(0);
@@ -225,7 +229,10 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
         await beat(page, 1000);
         await errorBox.getByTestId("task-load-retry").click();
 
-        // SECOND STATE: the row loaded, the error gone.
+        // SECOND STATE: the row loaded, the error gone. The brief is behind the
+        // Details tab, which exists again now that there is a task.
+        await expect(drawer.getByTestId("task-load-error")).toHaveCount(0);
+        await drawer.getByTestId("task-details-toggle").click();
         await expect(drawer.getByTestId("task-brief-scroll")).toBeVisible({ timeout: 10000 });
         await expect(drawer).toContainText(TASK);
         await expect(drawer.getByTestId("task-load-error")).toHaveCount(0);
@@ -249,6 +256,8 @@ test.describe("Board · una lettura fallita del task si dice, non si gira a vuot
     await card.click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    // The brief and its chips live behind the Details tab.
+    await drawer.getByTestId("task-details-toggle").click();
     await expect(drawer.getByTestId("task-brief-scroll")).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByTestId("task-stale-warning")).toHaveCount(0);
 

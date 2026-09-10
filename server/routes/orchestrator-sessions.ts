@@ -13,12 +13,19 @@ import {
 /**
  * THE COORDINATOR'S GLYPH: the beamed pair of notes, not the speech bubble.
  *
- * The bubble is EVERY topic's default (`DEFAULT_TOPIC_ICON`), so marking the
- * coordinator with it left it indistinguishable in the sidebar from the chats
- * it conducts. The notes are the same glyph its entry point wears in the board
- * toolbar, so button and conversation read as one thing. The name must exist
- * in the client palette (`client/src/lib/topicIcons.tsx`): a name that map
- * does not know falls back to the bubble, silently.
+ * The bubble is EVERY topic's default (`DEFAULT_TOPIC_ICON`), so the field said
+ * nothing about what this conversation is. The notes are the same glyph its
+ * entry point wears in the board toolbar, so the two read as one thing. The
+ * name must exist in the client palette (`client/src/lib/topicIcons.tsx`): a
+ * name that map does not know falls back to the bubble, silently.
+ *
+ * WHAT THIS FIELD DOES NOT DO, measured 2026-09-10 on the running app: nothing
+ * in the chrome draws it. `TopicIcon` is referenced only by the icon picker, so
+ * neither the sidebar row nor the tab strip shows a per-topic glyph for a chat.
+ * Setting it here is the topic's DECLARED identity — right when something
+ * finally draws it, and honest about being invisible until then. What the user
+ * actually sees is the board button and the drawer header, which carry `Music4`
+ * on their own.
  */
 const ORCHESTRATOR_ICON = "Music4";
 
