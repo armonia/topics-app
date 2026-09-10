@@ -41,7 +41,7 @@ import { boardApi, type BoardTask } from '../lib/board';
 import { createCoalescedReader, type Coalescer } from '../lib/burstCoalescer';
 import {
   hasLoadedBoardTasks, patchBoardTask, requestBoardTasksRefresh,
-  useBoardTasks, useBoardTasksLoaded,
+  useBoardTasks, useBoardTasksError, useBoardTasksLoaded,
 } from '../lib/boardTasksStore';
 import { readBoardRowsCache, writeBoardRowsCache } from '../lib/boardRowsCache';
 import { subscribeLifecycle } from '../lib/wsFrameBus';
@@ -92,6 +92,12 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
   const isAll = mode === 'all';
   const globalTasks = useBoardTasks();
   const globalLoaded = useBoardTasksLoaded();
+  // In 'all' mode the read happens in `useGlobalBoard`, so a failure of it can
+  // only reach this pane through the store. Until it did, the general board was
+  // the one board where a dead server looked like a quiet morning: the rows of
+  // the previous read stayed on screen, the waiting ring stopped, and nothing
+  // said why. The project mode below has said it since the day it was written.
+  const globalError = useBoardTasksError();
   // The rows AND the query they answer, in one state. Keeping them together is
   // what makes "still loading" a derived value instead of a flag set from an
   // effect: switching board or opening the archive changes the key, and the
@@ -118,6 +124,15 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
   useEffect(() => { queryRef.current = { projectId, showArchived }; }, [projectId, showArchived]);
   const onErrorRef = useRef(onError);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
+
+  // The store's verdict, published on the pane's own error line. An effect and
+  // not a render-time call because `onError` is the pane's `setState`: writing
+  // to another component while rendering is the one thing React forbids
+  // outright. `null` travels too — a read that comes back clears the line.
+  useEffect(() => {
+    if (!isAll) return;
+    onErrorRef.current(globalError);
+  }, [isAll, globalError]);
 
   // One reader per mount, recreated on demand: unmount nulls it out and under
   // StrictMode mount and unmount alternate (same shape as useGlobalBoard).

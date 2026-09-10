@@ -13,6 +13,7 @@ import { installNetShim } from './lib/shell/net';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
 import { SessionRoot } from './components/Share/SessionRoot';
+import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
 // server. Deve girare prima di ogni fetch di bootstrap. Su web non si installa —
@@ -89,12 +90,25 @@ const root = createRoot(container);
 void awaitWithCap(paneChunksWarm(), FIRST_FRAME_WARM_CAP_MS).then(() => {
   root.render(
     <StrictMode>
-      {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
-          sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
-          cose che il gate nega, e il risultato è una pagina di errori. */}
-      <SessionRoot>
-        <App />
-      </SessionRoot>
+      {/* THE NET UNDERNEATH, which was not there.
+          The sidebar, the status band, the panels, Settings and every pane have
+          had one for a long time, each of them added after a real failure. The
+          ROOT did not: a throw in the render of `App` - 2,635 lines of hooks,
+          all mounted together before the first frame - left an empty page with
+          nothing but the theme's background on it. That is not a hypothetical,
+          it is written in `App.tsx` next to Settings' own net: "a white screen,
+          with not even a way to close it", from a device with no `id`.
+          Inside `StrictMode` and OUTSIDE `SessionRoot`, because `SessionRoot`
+          is the first thing that talks to the server and a throw of its own is
+          exactly what nobody would get to see. */}
+      <ErrorBoundary fallbackMessageKey="crash.app">
+        {/* Chi entra decide COSA si monta. Un ospite non deve far partire l'app
+            sotto una schermata che lo copre: ogni suo pezzo chiederebbe al server
+            cose che il gate nega, e il risultato è una pagina di errori. */}
+        <SessionRoot>
+          <App />
+        </SessionRoot>
+      </ErrorBoundary>
     </StrictMode>,
   );
 });

@@ -1509,6 +1509,8 @@ const IT: Dict = {
   'chat.turnStopped': 'Turno interrotto',
   'chat.turnStopped.detail': "L'hai fermato tu. Il messaggio è ancora qui.",
   'chat.noAnswer': 'Nessuna risposta',
+  'chat.cachedHistory.notice': 'Da copia locale: il server non ha risposto',
+  'chat.cachedHistory.retry': 'Riprova',
   'chat.noAnswer.detail': 'La connessione può essersi interrotta',
   'chat.turnInterrupted': 'Risposta interrotta',
   'chat.turnInterrupted.retry': 'Riprova',
@@ -2487,6 +2489,7 @@ const IT: Dict = {
   'crash.transportBand': 'Lo stato della connessione si è rotto',
   'crash.panel': 'Questo pannello si è rotto',
   'crash.settings': 'Le impostazioni si sono rotte',
+  'crash.app': 'Topics si è fermata',
   'crash.pane': 'Questa pane si è rotta',
   'crash.toolInput': 'Il modulo di risposta si è rotto',
 
