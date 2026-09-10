@@ -244,6 +244,11 @@ test.describe("Il lavoro dell'agente in una chat di task", () => {
  *
  * @covers CHAT-TOOL-06
  */
+// THIS IS THE CHAT PANE'S DECIDER, NOT THE CARD'S. The fold here is decided by
+// `Chat/taskWorkFold.ts` (`isMachineWork`), which has never singled out a failed
+// tool. The drawer goes through `Board/taskSessionPresentation.ts` instead, and
+// that one did — its guard is in `board-conversation-details.spec.ts`. Same
+// testids on both surfaces: green here says nothing about the card.
 test.describe("Un'azione fallita non esce piu' dai Dettagli sessione", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
   test.describe.configure({ timeout: 60_000 });

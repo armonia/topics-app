@@ -276,6 +276,51 @@ test('the final answer stays visible while earlier progress folds; a waiting que
   await expect(row.getByTestId('tool-call-row-completed-read')).toBeVisible();
 });
 
+/**
+ * A SETTLED FAILURE IS WORK, NOT A DECISION.
+ *
+ * A tool that ended in error used to stay unfolded in the card: two identical
+ * failed commands printed themselves in full, above the sentence that said what
+ * the agent would do about them. The verdict a reader needs is the count, and
+ * that already sits on the closed row; the raw command stays one click away.
+ * A turn-level error block is a different thing and still never folds.
+ *
+ * This is the drawer's own decider (`taskSessionSegments`), which the chat pane
+ * does not go through: the same testids on the other surface prove nothing here.
+ */
+test('a settled failed action folds with the rest of the work, and the count stays on the closed row', async ({ page, request }) => {
+  const { taskId, topicId } = await seed(request, 'A failed action must not shout');
+  const failed = {
+    name: 'Bash', args: { command: 'bun run deploy --prod' },
+    status: 'error', error: 'Command failed: connection refused',
+  };
+  const { message } = await post(request, `/api/test/topics/${topicId}/session-row`, {
+    role: 'assistant', content: '',
+    blocks: [
+      { kind: 'tool', toolCall: { id: 'deploy-1', ...failed } },
+      { kind: 'tool', toolCall: { id: 'deploy-2', ...failed } },
+    ],
+  });
+  await post(request, `/api/test/tasks/${taskId}/anchored-comment`, {
+    content: 'The deploy is refused; I am retrying shortly.', author: 'agent', messageId: message.id,
+  });
+  await page.goto(`/task/${taskId}`);
+  const drawer = page.getByTestId('task-detail-drawer');
+  await expect(drawer).toBeVisible();
+  const row = drawer.locator(`[data-testid="task-session-item"][data-message-id="${message.id}"]`);
+  const fold = row.getByTestId('task-work-accordion');
+  await expect(fold).toHaveCount(1);
+  await expect(fold).toHaveAttribute('data-open', 'false');
+  await expect(fold.getByTestId('task-work-errors')).toContainText('2');
+  await expect(row.getByTestId('tool-call-row-deploy-1')).toHaveCount(0);
+  await expect(row.getByTestId('tool-call-row-deploy-2')).toHaveCount(0);
+  // The decision the reader came for is still in plain sight.
+  await expect(drawer.getByText('The deploy is refused; I am retrying shortly.')).toBeVisible();
+  await row.getByTestId('task-work-summary').click();
+  await expect(row.getByTestId('tool-call-row-deploy-1')).toBeVisible();
+  await expect(row.getByTestId('tool-call-row-deploy-2')).toBeVisible();
+});
+
 test('live progress shares one expandable session detail; a drafted reply sends without stopping the agent', async ({ page, request }, testInfo) => {
   const { taskId, topicId } = await seed(request, 'Follow the work without a tool transcript');
   const answer = 'The source is connected. I am checking the final result.';
