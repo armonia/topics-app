@@ -17,7 +17,7 @@
  * would cost trust just as fast.
  */
 
-import type { BranchStatus } from "./branch-status";
+import type { CommitStatus } from "./branch-status";
 import type { LandingEsito } from "./landing-verdict";
 
 /**
@@ -56,11 +56,15 @@ export interface AuditTask {
 }
 
 /** Map a repo verdict onto the audit's vocabulary. Pure. */
-export function classifyLanding(status: BranchStatus): LandingState {
+export function classifyLanding(status: CommitStatus): LandingState {
   if (status === "merged") return "landed";
   if (status === "unmerged") return "unlanded";
-  // The commit is no longer in the repo (pruned, or the project moved): we
-  // cannot answer. Saying "unlanded" here would cry wolf on every old task.
+  // `gone`  — the commit is no longer in the repo (pruned, or the project
+  //           moved). Saying "unlanded" would cry wolf on every old task.
+  // `empty` — the delivery commit carries no source change, so it cannot speak
+  //           for the branch under it. NOT "landed": that answer is what let a
+  //           card claim main while its work sat outside (53fc5aed). The caller
+  //           asks the branch instead; until it does, "I don't know".
   return "unverifiable";
 }
 
@@ -93,7 +97,7 @@ export interface LandingAuditDeps {
   /** Absolute path of the project's main checkout, or null when unknown. */
   repoPath: (projectId: string) => string | null;
   /** Content-aware status of a commit relative to main (commitStatusFromRepo). */
-  commitStatus: (repoPath: string, commit: string) => Promise<BranchStatus>;
+  commitStatus: (repoPath: string, commit: string) => Promise<CommitStatus>;
   /**
    * LA SECONDA DOMANDA, e si paga solo su chi ha già risposto «fuori».
    *
@@ -168,14 +172,25 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
     if (!task.deliveryCommit && before !== "unlanded") continue;
     try {
       const repo = deps.repoPath(task.projectId);
-      let state: LandingState = repo && task.deliveryCommit
-        ? classifyLanding(await deps.commitStatus(repo, task.deliveryCommit))
-        : "unverifiable";
-      // Un `unlanded` è un'ACCUSA, e prima di scriverla si chiede la seconda
-      // volta: il contenuto potrebbe essere di là comunque (la patch inversa),
-      // oppure quel lavoro potrebbe averlo rifatto qualcun altro, e allora non
-      // c'è niente da landare.
-      if (state === "unlanded" && repo && deps.debtVerdict) {
+      const status = repo && task.deliveryCommit
+        ? await deps.commitStatus(repo, task.deliveryCommit)
+        : null;
+      let state: LandingState = status ? classifyLanding(status) : "unverifiable";
+      // TWO REASONS TO ASK A SECOND TIME, and they are opposites.
+      //
+      // `unlanded` is an ACCUSATION, and it gets one more question before it is
+      // written: the content may be over there anyway (the inverse patch), or
+      // somebody else may have redone that work — in which case there is
+      // nothing left to land.
+      //
+      // `empty` is the reverse: an ACQUITTAL nobody earned. The delivery commit
+      // touches nothing (the `--allow-empty` used to retrigger the checks is
+      // the common way to get there), so "every file it touches is identical on
+      // main" is vacuously true, and the card read `landed` over a whole branch
+      // that was still outside — 958 lines on 53fc5aed, 2026-09-09. In both
+      // cases the real answer belongs to the BRANCH, which is exactly what
+      // `debtVerdict` goes and asks.
+      if ((state === "unlanded" || status === "empty") && repo && deps.debtVerdict) {
         state = await deps.debtVerdict(task, repo);
       }
       // Restato un «non lo so» (commit potato, o mai registrato), c'è ancora il

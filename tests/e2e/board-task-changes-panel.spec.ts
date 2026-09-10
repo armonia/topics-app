@@ -92,10 +92,16 @@ async function openProjectBoard(page: Page) {
 }
 
 /** Apre il drawer di un task dalla colonna Todo. */
+// The changes bar lives in the DELIVERY band since the drawer became tabbed
+// (e113ca7bb): the drawer opens on the conversation, and the band that carries
+// the diff is not even mounted until it is asked for. Opening it here keeps
+// every case below reading as "open the card, look at the panel".
 async function openTask(page: Page, title: string) {
   await page.getByTestId("kanban-column-todo").getByText(title).click();
   const drawer = page.getByTestId("task-detail-drawer");
   await expect(drawer).toBeVisible({ timeout: 10000 });
+  await drawer.getByTestId("task-delivery-toggle").click();
+  await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible({ timeout: 10000 });
   return drawer;
 }
 

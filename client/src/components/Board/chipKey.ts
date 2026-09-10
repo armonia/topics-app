@@ -55,3 +55,57 @@ export function uncommittedChipCount(
 export function taskHasWork(t: { deliveryBranch?: string | null; deliveryCommit?: string | null; deliveryFilesChanged?: number | null }): boolean {
   return Boolean(t.deliveryBranch || t.deliveryCommit || (t.deliveryFilesChanged ?? 0) > 0);
 }
+
+/**
+ * WHERE THE WORDS YOU JUST TYPED GOT TO, when two sources answer at once.
+ *
+ * Two things talk about the same bubble, and they answer different questions:
+ *
+ *  · the DERIVED state (`taskTimeline.deliveryOf`, KANBAN-74) reads the
+ *    envelopes at every read and knows whether the card still owes a turn —
+ *    `delivered` when an envelope named this row, `pending` while a card in
+ *    `todo`/`in_progress` has not carried it yet;
+ *  · the RECEIPT is what the POST answered when you pressed send, and it is
+ *    about that instant only: `queued`/`answered` when the route handed the
+ *    words to a live agent, `note`/`saved` when it did not.
+ *
+ * The receipt used to win, and on a card in `todo` that is a lie with a
+ * measured shape: the comment route only resumes an agent for a card in
+ * `review` or `in_progress`, so a steer typed on a queued card came back as
+ * `note` and the bubble said "Note saved. No agent response requested." — the
+ * wording of the QUIET button, under words the person had just sent to the
+ * agent. Nothing ever took it back either: the drawer clears a receipt after
+ * revalidation only when it says `queued`.
+ *
+ * So the derivation is the authority, and the receipt speaks in the two places
+ * where the derivation cannot: where it is silent, and where the route did
+ * something this instant that no envelope shows yet (`answered` unblocks a
+ * routed question mid-turn, `queued` fires the resume). "Not handed over now"
+ * never overrules "this card still owes a turn".
+ */
+export type CommentChip = 'delivered' | 'answered' | 'queued' | 'pending' | 'note' | 'saved';
+
+export function commentChip(
+  derived: 'delivered' | 'pending' | undefined,
+  receipt: CommentChip | undefined,
+): CommentChip | undefined {
+  // An envelope named this row: evidence in the transcript, and it outlives
+  // every receipt.
+  if (derived === 'delivered') return 'delivered';
+  // The route just moved the words, and the transcript cannot show it yet.
+  if (receipt === 'answered' || receipt === 'queued') return receipt;
+  return derived ?? receipt;
+}
+
+/**
+ * The testid says WHAT THE CHIP SAYS, never which source won.
+ *
+ * `task-comment-receipt` used to mean "a receipt exists", so the same id
+ * covered "delivered" and "note" and a test could not tell the two apart.
+ * Three words, three ids.
+ */
+export function commentChipTestId(chip: CommentChip): string {
+  if (chip === 'delivered' || chip === 'answered') return 'task-comment-delivered';
+  if (chip === 'note' || chip === 'saved') return 'task-comment-receipt';
+  return 'task-comment-queued';
+}

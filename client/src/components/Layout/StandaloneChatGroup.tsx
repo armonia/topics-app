@@ -532,15 +532,50 @@ export function StandaloneChatGroup({
   // The global board does not own a second chat surface. It asks the server for
   // the durable ordinary Topic, then enters it through the same app-level panel
   // lifecycle as every other standalone chat.
-  const openGlobalOrchestrator = useCallback(async () => {
-    const { topicId, topic } = await orchestratorSessionsApi.ensureGlobal();
-    window.dispatchEvent(new CustomEvent('topics:open-topic', {
-      // Passing the returned normal Topic closes the WebSocket race: a newly
-      // created coordinator can open immediately even while this window is
-      // reconnecting and has not yet received topic:created.
-      detail: { topicId, topic, mode: 'permanent' },
-    }));
-  }, []);
+  // THE COORDINATOR IS NO LONGER A TAB. `ensure` guarantees the server-owned
+  // singleton and returns the ordinary Topic; the board mounts it in a drawer
+  // beside its columns (`OrchestratorDrawer`). The Topic travels inside the
+  // response, which closes the WebSocket race: a freshly created coordinator
+  // opens immediately even while this window is reconnecting and has not yet
+  // seen `topic:created`.
+  const ensureGlobalOrchestrator = useCallback(() => orchestratorSessionsApi.ensureGlobal(), []);
+  // The BODY of the coordinator chat. It lives here and not in the board
+  // because the message-store handles (history, streaming, send, stop) live at
+  // this level: the board receives one function instead of twenty props.
+  const renderOrchestratorChat = useCallback((topic: Topic, paneId: string, focused: boolean) => (
+    <ChatPanel
+      bodyOnly
+      /* The LIVE projection when there is one: renaming the coordinator, or
+         recolouring it, must reach the drawer without reopening it. */
+      topic={topics[topic.id] ?? topic}
+      isFocused={focused}
+      onFocus={() => onFocusPanel(paneId)}
+      /* The board closes the drawer (the X lives in its frame), and the
+         conversation is not dragged from here: `bodyOnly` renders neither
+         header nor handle, so these two have no target to fire from. */
+      onClose={() => { /* closing belongs to the frame, not the body */ }}
+      onDragStart={() => { /* no drag handle in `bodyOnly` */ }}
+      isDragOver={false}
+      showCloseButton={false}
+      getSessionMessages={getSessionMessages}
+      getCompactionMarkers={getCompactionMarkers}
+      isSessionLoading={isSessionLoading}
+      isSessionStreaming={isSessionStreaming}
+      wasSessionStopped={wasSessionStopped}
+      stopSession={stopSession}
+      sendMessage={sendMessage}
+      editMessage={editMessage}
+      regenerateMessage={regenerateMessage}
+      deleteMessage={deleteMessage}
+      switchBranch={switchBranch}
+      loadHistory={loadHistory}
+      chatError={chatError}
+      sendWS={sendWS}
+      onWSMessage={onWSMessage}
+      onUpdateTopic={onUpdateTopic}
+      onFocusPanel={onFocusPanel}
+    />
+  ), [topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
 
   if (validatedOrderedIds.length === 0) return null;
   // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is
@@ -777,7 +812,10 @@ export function StandaloneChatGroup({
               onMessage={onWSMessage}
               loadHistory={loadHistory}
               onOpenTopic={openTopicFromBoard}
-              onOpenGlobalOrchestrator={openGlobalOrchestrator}
+              orchestrator={{
+                ensure: ensureGlobalOrchestrator,
+                render: ({ topic }) => renderOrchestratorChat(topic, paneId, isPaneActive && focusedPanelId === paneId),
+              }}
             />
           )}
           {utilityType === 'profile' && <ProfilePane />}
