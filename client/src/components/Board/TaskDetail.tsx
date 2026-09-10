@@ -33,8 +33,8 @@ import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
 import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
 import { paneIdToContextId } from '../../state/taskBrowserLayout';
-import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
-import { availableTaskModels } from '../../../../shared/task-coding-models';
+import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
+import { TaskModelMenuOptions } from './TaskModelMenuOptions';
 import { machineLabel, nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
@@ -55,7 +55,7 @@ import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
-import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
+import { fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import { MessageContent } from '../MessageContent';
@@ -1275,12 +1275,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [models, setModels] = useState<string[]>(
-    () => availableTaskModels(getProvidersSnapshotState().snapshot),
-  );
-  useEffect(() => subscribeProvidersSnapshot((state) => {
-    setModels(availableTaskModels(state.snapshot));
-  }), []);
+  const models = useTaskModelCatalog();
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
   // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).
@@ -2138,25 +2133,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </button>
             <Menu open={modelMenuOpen && !task.assignedTopicId} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
               <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
-              <button
-                role="option" aria-selected={!task?.model} disabled={busy}
-                onClick={() => changeModel(null)}
-                className={`${POPOVER_ITEM} disabled:opacity-40`}
-              >
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')}</span>
-                {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-              </button>
-              {models.map((m) => (
-                <button
-                  key={m} role="option" aria-selected={m === task?.model} disabled={busy}
-                  onClick={() => changeModel(m)}
-                  className={`${POPOVER_ITEM} disabled:opacity-40`}
-                >
-                  <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
-                  {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                </button>
-              ))}
+              <TaskModelMenuOptions
+                models={models}
+                value={task.model || null}
+                onSelect={changeModel}
+                disabled={busy}
+                autoLabel={tr('board.task.modelAutoOption')}
+                autoIcon
+              />
             </Menu>
             {/* WHERE it runs, next to WHAT it runs with: same register as the
                 model chip, same `Menu` primitive. A node is not a preference of

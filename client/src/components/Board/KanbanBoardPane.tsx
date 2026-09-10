@@ -17,8 +17,7 @@ import { AlertTriangle, Archive, ChevronDown, ChevronRight, MessageSquare, Setti
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
-import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
-import { availableTaskModels } from '../../../../shared/task-coding-models';
+import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
@@ -689,14 +688,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // to fade out once the strip reaches its end.
   const toolbarScrollRef = useRef<HTMLDivElement>(null);
   const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
-  // Provider model list for the board-default picker (settings panel). Seeded
-  // from the snapshot and kept live — same source the composer's picker uses.
-  const [models, setModels] = useState<string[]>(
-    () => availableTaskModels(getProvidersSnapshotState().snapshot),
-  );
-  useEffect(() => subscribeProvidersSnapshot((state) => {
-    setModels(availableTaskModels(state.snapshot));
-  }), []);
+  // Provider model list for the board-default picker (settings panel). Same
+  // hook the composer and the task drawer read, so the three cannot disagree.
+  const models = useTaskModelCatalog();
   // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
   // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
   // boot pending) so it survives a remount and an inactive→active board tab —
