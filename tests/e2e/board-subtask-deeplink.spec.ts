@@ -138,6 +138,7 @@ test.describe("Sottotask · dall'id al drawer, a qualunque profondità", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
     await expect(drawer.getByText(EPICA, { exact: true })).toBeVisible();
+    await drawer.getByTestId("task-details-toggle").click();
     await didascalia(page, "1 · click sullo step nell'albero del drawer");
     await beat(page, 1800);
 
