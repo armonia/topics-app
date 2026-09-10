@@ -72,6 +72,49 @@ describe("historyFromPersistedThread — ricostruire la storia dopo un riavvio",
   });
 
   /**
+   * ...BUT NOT WHEN ONE OF THE TWO IS THE OTHER, and that distinction is what
+   * kept a conversation unusable for two days.
+   *
+   * When a turn's row is closed from OUTSIDE while the turn is still alive in
+   * memory (the stale-stream sweeper, an external finalization) the row stops
+   * being `partial`: nobody can reuse it any more, so the turn's next write
+   * opens a NEW row and replays itself into it from the beginning. What is left
+   * in the database is a short row followed by a longer one starting with the
+   * same characters — 65 such pairs across 54 conversations on the live DB.
+   *
+   * Joining them sends the API a message that repeats its own opening, and the
+   * API reads it for what it looks like: `stop_reason: "refusal"`, category
+   * `reasoning_extraction`, zero output tokens. Isolated by bisection against
+   * the real API on 2026-09-08, topic:06519a5d — either row alone answers, the
+   * two of them fused do not.
+   */
+  test("la seconda ripete la prima dall'inizio: è lo stesso turno riscritto, vince il più lungo", () => {
+    const partial = "Scelgo di non fare l'overwrite CSV: azzererebbe la formattazione.";
+    const whole = `${partial} Procedo dalla colonna C e ti lascio il foglio pronto.`;
+    const out = historyFromPersistedThread([u("fai tu"), a(partial), a(whole), u("e i costi?")]);
+    expect(out).toEqual([
+      { role: "user", content: "fai tu" },
+      { role: "assistant", content: whole },
+    ]);
+  });
+
+  test("tre righe della stessa scrittura collassano in una: il replay può ripartire più volte", () => {
+    const out = historyFromPersistedThread([u("d"), a("Procedo."), a("Procedo. Serve un passaggio."), a("Procedo. Serve un passaggio. Fatto."), u("n")]);
+    expect(out).toEqual([
+      { role: "user", content: "d" },
+      { role: "assistant", content: "Procedo. Serve un passaggio. Fatto." },
+    ]);
+  });
+
+  test("due frasi diverse che iniziano uguali NON sono un replay: si fondono come prima", () => {
+    const out = historyFromPersistedThread([u("d"), a("Ho letto il file A"), a("Ho letto il file B"), u("n")]);
+    expect(out).toEqual([
+      { role: "user", content: "d" },
+      { role: "assistant", content: "Ho letto il file A\n\nHo letto il file B" },
+    ]);
+  });
+
+  /**
    * L'ORDINE FRA «togli l'ultima» E «fondi» È IL PUNTO, e al primo giro l'avevo
    * sbagliato: fondendo prima, `seconda` e `terza` diventano una riga sola e
    * toglierla butta via anche `seconda` — cioè proprio la domanda rimasta senza

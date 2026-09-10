@@ -43,6 +43,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { clipDiConsegna } from "./helpers/clip";
 import { beat, didascalia } from "./helpers/evidence";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { isDeliverySheetPath } from "../../shared/media-kind";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 
 hermetic(test);
@@ -285,6 +286,10 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
 
+        // The evidence band lives in DELIVERY, behind its own tab: the drawer
+        // opens on the conversation, and the button is not there.
+        await drawer.getByTestId("task-delivery-toggle").click();
+        await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
         const bottone = drawer.getByTestId("task-recapture-preview");
         await expect(bottone).toBeVisible({ timeout: 10000 });
         await didascalia(page, "Un click su «Ricattura evidenza»");
@@ -294,8 +299,14 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
         // SECONDO STATO: l'immagine arriva. Il tempo è quello vero (boot del dev
         // server nel worktree + primo paint + screenshot), non una soglia scelta.
         await didascalia(page, "Il worktree si avvia e si fotografa da solo");
-        await expect(drawer.getByTestId("preview-drawer").locator("img")).toBeVisible({ timeout: 90_000 });
-        await expect(card.getByTestId("preview-card").locator("img")).toBeVisible({ timeout: 15000 });
+        // The outcome is the preview ON THE CARD, which is this test's own
+        // title. What stood here was a 90 s wait on `preview-drawer`: a testid
+        // no component renders — `PreviewMedia` has ONE call site, `Card.tsx`,
+        // and nobody passes it the `drawer` variant. That assertion could not
+        // succeed, and it held red a round the server was closing in 4.5 s
+        // (measured: `POST …/preview 200 4503ms`, with the `preview-shot`
+        // context opened and closed).
+        await expect(card.getByTestId("preview-card").locator("img")).toBeVisible({ timeout: 90_000 });
         await didascalia(page, "L'anteprima è sulla card");
         await beat(page, 1800);
 
@@ -335,6 +346,9 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
+    // Same tab: the evidence band belongs to delivery.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible();
     await drawer.getByTestId("task-recapture-preview").click();
 
     // La nota col motivo compare nel thread: è la risposta a chi ha cliccato.
@@ -343,7 +357,18 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
 
     const body = await readTask(request, MUTED_PROJECT_ID, taskId);
     const task = taskOf(body);
-    expect(task.previewImage ?? null, "nessuna evidenza falsa").toBeNull();
+    // "No fake evidence" is not "no preview at all". A card in review without
+    // evidence still gets the DELIVERY SHEET, which the server draws from the
+    // facts already in its columns and which is recognisable by its path: it
+    // never looks like a screenshot and says so on its face. What this test
+    // refuses is an invented PHOTOGRAPH of a worktree that cannot start — and
+    // asserting `null` also made the case flaky, because the sheet is written
+    // on a transition this test races with.
+    const evidence = task.previewImage ?? null;
+    expect(
+      evidence === null || isDeliverySheetPath(evidence),
+      `nessuna foto finta: previewImage inattesa ${evidence}`,
+    ).toBe(true);
     expect(task.status).toBe("review");
     expect(task.dispatchAttempts ?? 0).toBe(0);
     const comments = body.comments ?? [];

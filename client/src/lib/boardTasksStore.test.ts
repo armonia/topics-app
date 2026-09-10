@@ -8,8 +8,8 @@ import { beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import type { BoardTask } from './board';
 import {
   __resetBoardTasks, applyBoardTaskFrame, canAbsorbBoardTaskFrame, getBoardTasks,
-  hasLoadedBoardTasks, markBoardTasksSettled, patchBoardTask, requestBoardTasksRefresh,
-  setBoardTasks, setBoardTasksRefresher, subscribeBoardTasks,
+  getBoardTasksError, hasLoadedBoardTasks, markBoardTasksFailed, patchBoardTask,
+  requestBoardTasksRefresh, setBoardTasks, setBoardTasksRefresher, subscribeBoardTasks,
 } from './boardTasksStore';
 
 const task = (id: string, over: Partial<BoardTask> = {}): BoardTask =>
@@ -24,16 +24,50 @@ describe('«non ho ancora letto» non è «non c\'è niente»', () => {
   });
 
   test('a read that comes back empty-handed still stops the wait', () => {
-    // Senza questo la board generale filerebbe per sempre sul giro d'attesa:
-    // lo store non riceve mai una scrittura, quindi «caricato» non arriva mai.
+    // Without this the cross-project board would spin on its waiting ring for
+    // ever: the store never receives a write, so "loaded" never arrives.
     let woken = 0;
     subscribeBoardTasks(() => { woken++; });
-    markBoardTasksSettled();
+    markBoardTasksFailed('server unreachable');
     expect(hasLoadedBoardTasks()).toBe(true);
     expect(getBoardTasks()).toEqual([]);
     expect(woken).toBe(1);
-    markBoardTasksSettled();
-    expect(woken).toBe(1); // già assestato: nessun risveglio a vuoto
+    markBoardTasksFailed('server unreachable');
+    expect(woken).toBe(1); // already settled on the same failure: no empty wake-up
+  });
+});
+
+/**
+ * STOPPING THE WAITING RING IS NOT SAYING WHAT HAPPENED.
+ *
+ * The "settled" state on its own draws an empty board, or worse yesterday's
+ * board (the seed from the local copy is born `loaded`), indistinguishable
+ * from one just read. The two reads - the one that came back and the one that
+ * never did - have to stay tellable apart by whoever draws, which is the only
+ * way one of them can say so and the other stay quiet.
+ */
+describe('"read it, there is nothing" is not "I could not read"', () => {
+  test('the failed read keeps the rows it had and says why', () => {
+    setBoardTasks([task('a'), task('b')]);
+    markBoardTasksFailed('Load failed');
+    expect(getBoardTasks().map((t) => t.id)).toEqual(['a', 'b']);
+    expect(getBoardTasksError()).toBe('Load failed');
+  });
+
+  test('a read that comes back clears the message, empty list included', () => {
+    markBoardTasksFailed('Load failed');
+    setBoardTasks([]);
+    expect(hasLoadedBoardTasks()).toBe(true);
+    expect(getBoardTasksError()).toBeNull();
+  });
+
+  test('a different failure replaces the message, and wakes the readers', () => {
+    markBoardTasksFailed('Load failed');
+    let woken = 0;
+    subscribeBoardTasks(() => { woken++; });
+    markBoardTasksFailed('500 internal error');
+    expect(getBoardTasksError()).toBe('500 internal error');
+    expect(woken).toBe(1);
   });
 });
 

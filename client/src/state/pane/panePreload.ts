@@ -33,8 +33,9 @@
  * second download. A failure is swallowed on purpose - the lazy boundary is
  * still there and will report it properly if the chunk is genuinely broken.
  */
-import type { Pane, PaneType } from './types';
+import type { Pane, PaneState, PaneType } from './types';
 import { projectPanesKey } from '../../../../shared/project-keys';
+import { resolvePaneSpace } from './reducers/spaces';
 import { warm } from '../../lib/lazyWarm';
 
 type Loader = () => Promise<unknown>;
@@ -50,8 +51,39 @@ export const loadBrowser = () => import('../../components/Browser/RemoteBrowserP
 export const loadFilePane = () => import('../../components/Editor/FilePane');
 export const loadFileExplorer = () => import('../../components/Project/FileExplorer');
 export const loadGitChanges = () => import('../../components/Project/GitChanges');
+// A WARM CHUNK CAN STILL HIDE A COLD ONE. `FilePane` and `FileExplorer` are
+// only the shells: the body of a file pane is `CodeEditor`, and the file tree
+// always mounts `EditorTabs` next to itself - both behind a `lazy()` of their
+// own, so the pane arrived warm and then sat on a spinner while a SECOND
+// request went out. Measured on the real state (2026-09-10): the second-hop
+// chunks left at 181 ms and landed at 309-315 ms, which is the whole window in
+// which the first frame is decided.
+export const loadCodeEditor = () => import('../../components/Editor/CodeEditor');
+export const loadEditorTabs = () => import('../../components/Editor/EditorTabs');
+/**
+ * The project window's own column. It used to be a STATIC import inside
+ * `ProjectWindow`, which put it - and `FileExplorer`, which it imports the same
+ * way - in the eager entry chunk: 52 kB parsed on every boot of every window,
+ * project open or not, and `loadFileExplorer` above was a split that could
+ * never split anything because the module was already in the entry. Measured
+ * with `check:bundle`: entry_eager 1.418.177 -> 1.365.938 raw.
+ */
+export const loadProjectSidebar = () => import('../../components/Project/ProjectSidebar');
 export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
 export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
+// The destructured `await` and not `import().then(m => ...)`: with the `.then`
+// shape knip cannot see through the module, every export inside it counts as
+// used, and a dead export in there stops being reported (`check:deadcode-
+// blindspots`). The shape was already chosen for ProfilePane at its old `lazy`
+// site — moving the loader here must not lose it.
+export const loadCronJobs = async () => {
+  const { CronJobsPanel } = await import('../../components/Sidebar/CronJobsPanel');
+  return { CronJobsPanel };
+};
+export const loadProfile = async () => {
+  const { ProfilePane } = await import('../../components/Profile/ProfilePane');
+  return { ProfilePane };
+};
 
 /**
  * The chunks each pane type lives in. Only the types with a heavy lazy body:
@@ -63,22 +95,103 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   terminal: [loadTerminal],
   browser: [loadBrowser],
   // "files" is the tree in a project window and the file pane elsewhere: both
-  // are cheap to warm, and guessing wrong costs a spinner.
-  files: [loadFileExplorer, loadFilePane],
-  file: [loadFilePane],
-  editor: [loadFilePane],
+  // are cheap to warm, and guessing wrong costs a spinner. `EditorTabs` rides
+  // with the tree because `FileExplorer` mounts it UNCONDITIONALLY next to the
+  // tree (8,7 kB) - it is not a maybe.
+  files: [loadFileExplorer, loadFilePane, loadEditorTabs],
+  // A file pane's body IS the editor, so `CodeEditor` belongs to these two and
+  // not to `files`/`project`: there it is a maybe (only when a tab is open),
+  // and it drags CodeMirror behind it - 314 kB that would go inside the
+  // first-frame gate's cap for every project window whether or not anybody has
+  // a file open. Measured on the real state: with git no longer mounting the
+  // panel from a closed section, that chunk stopped being fetched at boot at
+  // all, and putting it back for a maybe would undo exactly that.
+  file: [loadFilePane, loadCodeEditor],
+  editor: [loadFilePane, loadCodeEditor],
   git: [loadGitChanges],
   dashboard: [loadDashboard],
   'process-log': [loadProcessLog],
+  // The other two utility panes. They are TINY (5,9 kB and 6,8 kB built), and
+  // that is exactly why they were forgotten - but the spinner they draw has
+  // nothing to do with their weight: a bare `React.lazy` commits its fallback
+  // on the first mount even with the module already in cache (see
+  // `lib/lazyWarm`), so a reload with the Cron tab in front drew the fallback
+  // every time for the length of the boot's own render work. Warming them
+  // costs a request that lands in the same burst as the others.
+  cron: [loadCronJobs],
+  profile: [loadProfile],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are
-  // added by `paneTypesToWarm`.
-  project: [loadFilePane, loadFileExplorer],
+  // added by `paneTypesToWarm`. `GitChanges` is NOT here on purpose: since the
+  // sidebar stopped mounting the panel from a closed section (`GitSectionRow`)
+  // it is no longer part of a project window's first frame, and warming it
+  // would put its 48 kB - plus `DiffViewer` and CodeMirror behind it - back
+  // inside the cap for a section that is closed by default.
+  // `loadProjectSidebar` first: it is the window's CHROME, the one piece whose
+  // absence for a frame moves everything else sideways, so it is the one the
+  // gate must not render without.
+  project: [loadProjectSidebar, loadFilePane, loadFileExplorer, loadEditorTabs],
 };
 
 /** The shape of a project's local tab record, as far as warming is concerned. */
 interface ProjectTabRecord {
   nonChatPanes?: Array<{ type?: unknown }>;
+}
+
+/** The slice of the store {@link panesOnFirstFrame} needs. */
+type FirstFrameState = Pick<PaneState, 'panes' | 'groups' | 'spaces' | 'activeSpaceId'>;
+
+/**
+ * THE PANES THIS WINDOW WILL ACTUALLY DRAW, AND ONLY THOSE.
+ *
+ * The warm set used to be `Object.values(state.panes)` - every pane the
+ * account has open ANYWHERE. That is not what the first frame draws, and the
+ * difference is not academic: the render surface is `group:default` filtered
+ * to the active Spazio (`selectors.filterVisiblePaneIds`, the derivation
+ * `usePanelLifecycle.visiblePanels` renders from), so a board left open in a
+ * Spazio nobody is looking at put its chunk inside the 300 ms cap of the
+ * first-frame gate. Measured on the real desktop state (2026-09-10): the warm
+ * set was 840 KB of board + terminal + browser + file pane, and every byte of
+ * it is waited for before the first pixel.
+ *
+ * Three window roles, three answers, because each one draws something else:
+ *
+ *  - a DETACHED pop-out (`?topics=a,b` / `?topic=`) hosts exactly the topics
+ *    in its URL and nothing else — `usePanelLifecycle` bypasses the store
+ *    filter entirely there (`visiblePanels = openPanels`). Warming the main
+ *    window's layout for it is pure waste: pass its hosted ids as
+ *    `hostedPaneIds` and only those are considered.
+ *  - a GROUP window (`?space=<id>`) is the whole app pinned to one Spazio.
+ *    Nothing special is needed HERE because the pinning already happened:
+ *    `hydrateFromLocalSnapshot` dispatches `SET_ACTIVE_SPACE` with the id from
+ *    the QUERY (never the shared `pane-store-active-space` key, which belongs
+ *    to the origin and would start the detached window on the main window's
+ *    group) before this runs, so `state.activeSpaceId` is already the right
+ *    answer. If the registry does not know that id yet — the Spazio was born
+ *    in another window and arrives with the first hydrate — the reducer
+ *    resolves it to the default space, and the first frame draws the default
+ *    space too: warming what is drawn stays correct either way.
+ *  - a normal window: `group:default`, filtered to the active Spazio.
+ *
+ * A pane id in the order with no record in `panes` (a transient id mid
+ * registration) is skipped rather than counted as default-space, because
+ * unlike the render filter this list only decides what to DOWNLOAD.
+ */
+export function panesOnFirstFrame(
+  state: FirstFrameState,
+  hostedPaneIds: readonly string[] | null,
+): Pane[] {
+  const ids = hostedPaneIds ?? state.groups['group:default']?.paneIds ?? [];
+  const out: Pane[] = [];
+  for (const id of ids) {
+    const pane = state.panes[id];
+    if (!pane) continue;
+    // A detached window draws its hosted ids whatever Spazio they are stamped
+    // with, so the space filter must not apply to it.
+    if (hostedPaneIds === null && resolvePaneSpace(pane, state.spaces) !== state.activeSpaceId) continue;
+    out.push(pane);
+  }
+  return out;
 }
 
 /**

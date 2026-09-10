@@ -90,17 +90,3 @@ export function isCalendarPageUrl(url: string | undefined | null): boolean {
   );
 }
 
-/**
- * The event you are IN right now, at instant `now`.
- *
- * All-day events are excluded on purpose: a holiday lasting until midnight
- * would keep the "now" mark lit for a whole day, and the mark exists to answer
- * "what is the meeting I am late for".
- */
-export function isEventNow(event: CalendarEvent, now: number): boolean {
-  if (event.allDay) return false;
-  const start = Date.parse(event.start);
-  const end = Date.parse(event.end);
-  if (Number.isNaN(start) || Number.isNaN(end)) return false;
-  return start <= now && now < end;
-}

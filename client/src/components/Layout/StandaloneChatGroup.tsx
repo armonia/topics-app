@@ -7,7 +7,7 @@ import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadDashboard, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
@@ -56,15 +56,13 @@ const SingleTerminalPane = lazyWarm(loadTerminal, (m) => m.SingleTerminalPane);
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const DashboardPane = lazyWarm(loadDashboard, (m) => m.DashboardPane);
 const KanbanBoardPane = lazyWarm(loadBoard, (m) => m.KanbanBoardPane);
-const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
-// The destructured `await` form, and not `import().then(m => ...)`: with the
-// `.then` shape knip cannot see through the module, every export inside it
-// counts as used, and a dead export in there stops being reported. Same lazy
-// chunk, same behaviour, one less blind spot (`check:deadcode-blindspots`).
-const ProfilePane = lazy(async () => {
-  const { ProfilePane } = await import('../Profile/ProfilePane');
-  return { default: ProfilePane };
-});
+// `lazyWarm` like the four above, and for the same reason: these two were the
+// only pane bodies left on a bare `lazy()`, so the fallback was committed on
+// every first mount even with the chunk in cache. Their loaders keep the
+// destructured `await` form (`panePreload`), which is what stops knip from
+// going blind on the module (`check:deadcode-blindspots`).
+const CronJobsPanel = lazyWarm(loadCronJobs, (m) => m.CronJobsPanel);
+const ProfilePane = lazyWarm(loadProfile, (m) => m.ProfilePane);
 
 
 interface StandaloneChatGroupProps {
@@ -532,15 +530,50 @@ export function StandaloneChatGroup({
   // The global board does not own a second chat surface. It asks the server for
   // the durable ordinary Topic, then enters it through the same app-level panel
   // lifecycle as every other standalone chat.
-  const openGlobalOrchestrator = useCallback(async () => {
-    const { topicId, topic } = await orchestratorSessionsApi.ensureGlobal();
-    window.dispatchEvent(new CustomEvent('topics:open-topic', {
-      // Passing the returned normal Topic closes the WebSocket race: a newly
-      // created coordinator can open immediately even while this window is
-      // reconnecting and has not yet received topic:created.
-      detail: { topicId, topic, mode: 'permanent' },
-    }));
-  }, []);
+  // THE COORDINATOR IS NO LONGER A TAB. `ensure` guarantees the server-owned
+  // singleton and returns the ordinary Topic; the board mounts it in a drawer
+  // beside its columns (`OrchestratorDrawer`). The Topic travels inside the
+  // response, which closes the WebSocket race: a freshly created coordinator
+  // opens immediately even while this window is reconnecting and has not yet
+  // seen `topic:created`.
+  const ensureGlobalOrchestrator = useCallback(() => orchestratorSessionsApi.ensureGlobal(), []);
+  // The BODY of the coordinator chat. It lives here and not in the board
+  // because the message-store handles (history, streaming, send, stop) live at
+  // this level: the board receives one function instead of twenty props.
+  const renderOrchestratorChat = useCallback((topic: Topic, paneId: string, focused: boolean) => (
+    <ChatPanel
+      bodyOnly
+      /* The LIVE projection when there is one: renaming the coordinator, or
+         recolouring it, must reach the drawer without reopening it. */
+      topic={topics[topic.id] ?? topic}
+      isFocused={focused}
+      onFocus={() => onFocusPanel(paneId)}
+      /* The board closes the drawer (the X lives in its frame), and the
+         conversation is not dragged from here: `bodyOnly` renders neither
+         header nor handle, so these two have no target to fire from. */
+      onClose={() => { /* closing belongs to the frame, not the body */ }}
+      onDragStart={() => { /* no drag handle in `bodyOnly` */ }}
+      isDragOver={false}
+      showCloseButton={false}
+      getSessionMessages={getSessionMessages}
+      getCompactionMarkers={getCompactionMarkers}
+      isSessionLoading={isSessionLoading}
+      isSessionStreaming={isSessionStreaming}
+      wasSessionStopped={wasSessionStopped}
+      stopSession={stopSession}
+      sendMessage={sendMessage}
+      editMessage={editMessage}
+      regenerateMessage={regenerateMessage}
+      deleteMessage={deleteMessage}
+      switchBranch={switchBranch}
+      loadHistory={loadHistory}
+      chatError={chatError}
+      sendWS={sendWS}
+      onWSMessage={onWSMessage}
+      onUpdateTopic={onUpdateTopic}
+      onFocusPanel={onFocusPanel}
+    />
+  ), [topics, onFocusPanel, getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, wasSessionStopped, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic]);
 
   if (validatedOrderedIds.length === 0) return null;
   // NOTE: we deliberately do NOT bail the whole group when the ACTIVE pane is
@@ -777,7 +810,10 @@ export function StandaloneChatGroup({
               onMessage={onWSMessage}
               loadHistory={loadHistory}
               onOpenTopic={openTopicFromBoard}
-              onOpenGlobalOrchestrator={openGlobalOrchestrator}
+              orchestrator={{
+                ensure: ensureGlobalOrchestrator,
+                render: ({ topic }) => renderOrchestratorChat(topic, paneId, isPaneActive && focusedPanelId === paneId),
+              }}
             />
           )}
           {utilityType === 'profile' && <ProfilePane />}

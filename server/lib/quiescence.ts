@@ -375,3 +375,61 @@ export function describeInFlight(sources: QuiescenceSources): string | null {
   }
   return null;
 }
+
+/** A wait that many callers share. See `sharedWait`. */
+export interface SharedWait<T> {
+  /**
+   * Start `body`, or join the run already going. `body` is NOT called when a
+   * run is in flight - which is the point: it must be safe to ask again.
+   */
+  join(body: () => Promise<T>): Promise<T>;
+  /** `null` when nothing is running; otherwise when the FIRST caller asked. */
+  inProgress(): { startedAt: number } | null;
+}
+
+/**
+ * ONE RUN AT A TIME, however many times somebody asks for it.
+ *
+ * ── WHAT THIS COSTS WHEN IT IS MISSING ──────────────────────────────────────
+ * `waitForDispatcherQuiescent` had no such guard, and every
+ * `POST /__daemon/restart-when-idle` started a loop of its own. Measured on the
+ * live server on 2026-09-10, while one native chat turn held the gate for 53
+ * minutes: FIVE waits running at once. Each logged its own "riavvio RINVIATO" line every  allow-italian: quoting the log line the reader will grep for
+ * minute, and each sent its own held-reload notice - two of them 27 ms
+ * apart, because `reloadHeldNotice` builds its dedupe key from the `waitId`, so
+ * N waits mean N keys and the deduplication has nothing left to deduplicate.
+ * The gate's rule is that an endless wait may not be MUTE; five copies of the
+ * notice break it from the other end, since the one line naming the holder
+ * arrives buried under its own repeats.
+ *
+ * The sharper damage is the shared door: every one of those loops calls
+ * `drain(label)` with the same label, so they hold ONE token between them, and
+ * the first loop to see a chat holding calls `undrain(label)` and reopens the
+ * dispatcher for loops that had just decided to keep it shut.
+ *
+ * ── AND ASKING AGAIN IS NOT A MISTAKE ───────────────────────────────────────
+ * "Restart as soon as you can", asked twice, means one restart. So a second
+ * caller joins rather than being refused: it gets the same promise, and
+ * `inProgress()` lets whoever answers it say that the wait was already running
+ * and for how long. A retry that silently does nothing is how somebody comes to
+ * believe the automation is broken while it is patiently doing its job.
+ */
+export function sharedWait<T>(now: () => number = () => Date.now()): SharedWait<T> {
+  let current: { promise: Promise<T>; startedAt: number } | null = null;
+  return {
+    join(body) {
+      if (current) return current.promise;
+      const startedAt = now();
+      // Built before the assignment, so a `body` that rejects synchronously
+      // cannot leave a run registered that nobody will ever clear.
+      const promise = (async () => body())().finally(() => {
+        if (current?.promise === promise) current = null;
+      });
+      current = { promise, startedAt };
+      return promise;
+    },
+    inProgress() {
+      return current ? { startedAt: current.startedAt } : null;
+    },
+  };
+}

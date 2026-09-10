@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { startNativeExecutorSocket } from './nativeExecutorSocket';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
+import { onBeforeBundleReload } from '../lib/devBundleReload';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
@@ -163,6 +164,28 @@ function releaseBrowserView(id: string): number {
   else browserViewRefs.set(id, next);
   return Math.max(0, next);
 }
+
+/**
+ * A RELOAD IS THE ONE UNMOUNT REACT NEVER RUNS, and these views survive it.
+ *
+ * The effect cleanup below is what normally fires `browser_close`; a
+ * `location.replace` does not run it, and a native WKWebView belongs to the
+ * WINDOW rather than to the document, so it stays alive with nobody left to
+ * close it. That is one of the two causes behind the app measured at 14 GB with
+ * 61 idle WebContent processes on 2026-07-29.
+ *
+ * `browserViewRefs` is already the register of every view alive right now, so
+ * the teardown is just its keys. No grace timer here: the page is going away
+ * this instant, and a deferred close would be run by a document that no longer
+ * exists. Closing is idempotent, and the panes come back with the new bundle —
+ * the reload recreates them exactly as a remount would.
+ */
+onBeforeBundleReload(() => {
+  for (const id of browserViewRefs.keys()) {
+    markBrowserViewDead(id);
+    void tauriInvoke('browser_close', { id }).catch(() => {});
+  }
+});
 
 export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;

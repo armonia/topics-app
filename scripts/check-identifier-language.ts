@@ -86,6 +86,9 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // Another dictionary hole: the 1934 list only carries "catalogue", not the
+  // American spelling this codebase already uses elsewhere (2026-09-10).
+  "catalog",
   // The macOS credential store, and the plural the dictionary lacks (2026-09-03).
   "keychain", "retries", "emitted", "mkdir", "textarea",
   "img", "lightbox", "zoomable", "dist", "subroutes", "timeline", "supplied", "fmt",
@@ -438,6 +441,13 @@ export const PROJECT_WORDS = new Set([
   // helper that reads one and calls the other cannot be named after anything
   // else without describing a different thing.
   "scrollback", "preload",
+  // The name of the thing itself: `cron` is a member of `PANE_TYPES` and of
+  // `UTILITY_PANEL_TYPES`, it is the pane id (`__cron__`), the label key and
+  // the tab the user opens. A loader for that pane's chunk can only be called
+  // after it — the older names around it (`CronJobsPanel`, the `cron:` pane
+  // type) predate this gate and sit in the baseline, so the word was already
+  // the project's and only new spellings of it were being stopped.
+  "cron",
 ]);
 
 function trackedFiles(): string[] {

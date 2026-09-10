@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Activity, Cpu, HardDrive } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
+import { Activity, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -9,6 +9,40 @@ import { useFeatureWeights } from '@/hooks/useFeatureWeights';
 import { vociPerNatura, quantitaBreve, rigaVoce } from '@/lib/featureWeightText';
 import { webviewSnapshot, ensurePaneUsageFresh } from '@/lib/paneUsage';
 import { useT } from '@/hooks/useT';
+import { useTopics } from '@/contexts/TopicsContext';
+import { formatMemoryMB } from '@/lib/formatMemory';
+
+/**
+ * HOW EACH MEASURED ROW STANDS AGAINST THE TOTAL WRITTEN ABOVE IT.
+ *
+ * These rows are megabytes and they read like a column you can add up. They do
+ * not add up, and nothing said so: the sessions are measured INSIDE the
+ * terminal bridge (their pids are its descendants and the bridge's walk counts
+ * them, `fleet-usage.ts`), the browser panes are webviews of the shell and so
+ * are inside «L'app», and the agents' scripts are a third axis that
+ * `computeTopicsFootprint` never adds to `totalMB` at all. Three rows of MB
+ * that a reader sums by eye, arriving at a number that is not the one written
+ * on the line above.
+ *
+ * It is written on the ROW and not in the label because the labels
+ * (`featureUsage.ts`) are the names of the things; this is their relation to a
+ * number that lives in another component, and it is translated, which the
+ * labels are not yet.
+ */
+const SCOPE_NOTE: Record<string, string> = {
+  'fleet.root.pty-bridge': 'perf.inventory.includesSessions',
+  'fleet.sessions': 'perf.inventory.insideBridge',
+  'shell.browserPanes': 'perf.inventory.insideApp',
+  'fleet.scripts': 'perf.inventory.outsideTotal',
+};
+
+/** The per-project rows are built at read time (one id per path), so they are
+ *  matched by prefix. They are sessions, so they sit inside the bridge exactly
+ *  like the row they were split out of. */
+function scopeNote(id: string): string | undefined {
+  if (id.startsWith('fleet.project.')) return 'perf.inventory.insideBridge';
+  return SCOPE_NOTE[id];
+}
 
 const SPARK_W = 288;
 const SPARK_H = 40;
@@ -20,14 +54,14 @@ function fpsColor(fps: number): string {
   return 'text-emerald-500';
 }
 
-function FpsSparkline({ data }: { data: FpsSample[] }) {
+function FpsSparkline({ data, sampling }: { data: FpsSample[]; sampling: string }) {
   if (data.length < 2) {
     return (
       <div
         className="rounded bg-elevated flex items-center justify-center text-[10px] text-app-text-muted"
         style={{ height: SPARK_H }}
       >
-        campionamento…
+        {sampling}
       </div>
     );
   }
@@ -87,6 +121,21 @@ function PerfStat({ label, value, sub, color, title, className }: { label: strin
  */
 export function PerfSection() {
   const tr = useT();
+  // WHICH FOLDERS ARE PROJECTS, from the topics that name one. The server can
+  // attribute a session to a working directory, and a working directory is not
+  // a project just because something runs in it: measured on the live machine,
+  // four shells in $HOME hold 1.3 GB and would invent a project out of the home
+  // folder. Only a path this installation already treats as a project is
+  // allowed to stand in - see `progettiNoti` in `featureUsage.ts`.
+  const topics = useTopics();
+  const knownProjects = useMemo(() => {
+    const paths = new Set<string>();
+    for (const id in topics) {
+      const p = topics[id]?.projectPath;
+      if (p) paths.add(p);
+    }
+    return paths;
+  }, [topics]);
   const fps = useFps();
   const history = useFpsHistory();
   const perf = usePerfMetrics(true);
@@ -99,7 +148,6 @@ export function PerfSection() {
     : 0;
 
   const accelerated = perf?.gpu.accelerated;
-
 
   // `perf.partial` is true only where the shell can't attribute its child
   // processes (Windows/Linux); on macOS these figures now cover the whole app.
@@ -129,10 +177,12 @@ export function PerfSection() {
   const totalMemMB = footprint.totalMB;
   const serverSideMemMB = footprint.serverMB;
   const serverSideProcs = footprint.serverProcessCount;
-  // «~» = il totale copre una metà sola (telefono, o lettura della sola shell):
-  // si dichiara invece di far passare una metà per il tutto.
-  const signMem = footprint.memPartial ? '~' : '';
-  const signCpu = footprint.cpuPartial ? '~' : '';
+  // THE TILDE LEFT THE NUMBER. It meant "this total covers one half of the app"
+  // (a phone, or a device reading that only sees the shell) and it was the one
+  // abbreviation on the panel that the panel never explained: the legend lives
+  // in another surface's tooltip. A `~` glued to a digit reads as a typo. The
+  // fact is still declared, in words, next to the process count above - see
+  // `perf.partialReading`.
 
   const serverSideTitle = fleet
     ? tr('perf.serverTitleFleet', { n: fleet.processCount })
@@ -185,6 +235,7 @@ export function PerfSection() {
     radici: fleet?.roots ?? [],
     scriptsMB: fleet?.scriptsMB ?? 0,
     scriptsProcessCount: fleet?.scriptsProcessCount ?? 0,
+    knownProjects,
   }, status?.timestamp);
   const measuredVisibleEntries = vociPerNatura(vociPeso, 'misurato');
   const vociTrattenuteVisibili = vociPerNatura(vociPeso, 'trattenuto');
@@ -212,7 +263,7 @@ export function PerfSection() {
             <span className="text-[10px] text-app-text-muted">{tr('perf.fpsAvg', { n: avg || '-' })}</span>
           </span>
         </div>
-        <FpsSparkline data={history} />
+        <FpsSparkline data={history} sampling={tr('perf.sampling')} />
       </div>
 
       {/* 2 · QUANTO COSTA? UN numero, non cinque tessere.
@@ -238,8 +289,17 @@ export function PerfSection() {
         >
           <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
             <HardDrive size={12} /> {tr('perf.q2')}
-            <span className="text-[9px] opacity-60">
+            {/* TEN PIXELS AND A TOKEN, not nine and an opacity. `opacity-60`
+                on `--text-muted` measures 2.30:1 in light and 2.52:1 in dark,
+                against the 4.5:1 that token was tuned for - and tuned at
+                11-12px. This line and the inventory heading below were the two
+                least readable texts on a panel whose whole job is to be read.
+                `--text-faint` is the token that exists for a second rank. */}
+            <span className="text-[10px] text-app-text-faint">
               {tr('perf.procCount', { n: footprint.totalProcessCount })}
+              {footprint.memPartial || footprint.cpuPartial
+                ? ` \u00b7 ${tr('perf.partialReading')}`
+                : ''}
             </span>
           </span>
           {/* I CONTEGGI TOTALI COMPLESSIVI: memoria E percentuale dell'insieme,
@@ -247,11 +307,11 @@ export function PerfSection() {
               li' sembra una misura ed e' invece l'assenza di misura. */}
           <span className="flex items-baseline gap-2">
             <span className="tabular-nums text-[13px] font-semibold text-app-text">
-              {totalMemMB !== null ? `${signMem}${totalMemMB} MB` : '-'}
+              {totalMemMB !== null ? formatMemoryMB(totalMemMB) : '-'}
             </span>
             {footprint.totalCpu !== null && (
               <span className="tabular-nums text-[11px] font-medium text-app-text-muted">
-                {tr('perf.cpuTotal', { pct: `${signCpu}${formatCpuPercent(footprint.totalCpu)}` })}
+                {tr('perf.cpuTotal', { pct: formatCpuPercent(footprint.totalCpu) })}
               </span>
             )}
           </span>
@@ -264,19 +324,42 @@ export function PerfSection() {
         <div className="grid grid-cols-2 gap-1.5">
           <PerfStat
             label={tr('perf.tileApp')}
-            value={mem ? `${mem.totalMB}MB` : tr('perf.na')}
+            value={mem ? formatMemoryMB(mem.totalMB) : tr('perf.na')}
             sub={footprint.deviceCpu !== null ? tr('perf.cpuTotal', { pct: formatCpuPercent(footprint.deviceCpu) }) : null}
             color={(footprint.deviceCpu ?? 0) > 50 ? 'text-amber-500' : undefined}
             title={isPartial ? tr('perf.shellRssTitle') : tr('perf.tileAppTitle')}
           />
           <PerfStat
             label={tr('perf.tileAgents', { n: serverSideProcs })}
-            value={serverSideMemMB !== null ? `${serverSideMemMB}MB` : tr('perf.na')}
+            value={serverSideMemMB !== null ? formatMemoryMB(serverSideMemMB) : tr('perf.na')}
             sub={footprint.serverCpu !== null ? tr('perf.cpuTotal', { pct: formatCpuPercent(footprint.serverCpu) }) : null}
             color={(footprint.serverCpu ?? 0) > 50 ? 'text-amber-500' : undefined}
             title={serverSideTitle}
           />
         </div>
+
+        {/* 3 - IS ANYTHING WRONG? It speaks ONLY when there is a problem. The
+            good case is already said by the fps above: a line reading "all
+            fine" is a line you learn to skip, and on the day it says something
+            else nobody reads it any more.
+
+            IT SITS HERE, ABOVE THE INVENTORY, and not at the foot of the panel.
+            It is the one line that speaks when something is broken, and down
+            there it could land under as many as fifteen inventory rows, inside
+            a container that scrolls and that shares 560px with the agent list:
+            in the case where it is needed, it was off the screen. An alarm you
+            reach by scrolling is not an alarm.
+
+            THE «Rendering software / no GPU» ROW IS GONE: it was unreachable
+            (acceleration arrives hardwired to `true`, and outside Tauri the
+            metrics are null), and had it ever lit up it would have said the
+            same thing as the verdict under it. It spent a row of the panel's
+            tightest block in order never to appear. */}
+        {verdict && (
+          <div data-testid="perf-verdict" className={`px-1.5 py-0.5 text-[10px] font-medium ${verdict.color}`}>
+            {verdict.text}
+          </div>
+        )}
 
         {/* COSA TIENE QUEL NUMERO — l'inventario per funzionalita'.
             Prende il posto della vecchia riga «le tre sessioni piu' pesanti»,
@@ -295,9 +378,14 @@ export function PerfSection() {
           <div data-testid="perf-inventory" className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
             {measuredVisibleEntries.map(v => (
               <div key={v.id} data-testid="perf-inventory-row" className="flex items-center justify-between gap-2" title={rigaVoce(v)}>
-                <span className="truncate">{v.label}</span>
+                <span className="min-w-0 truncate">
+                  {v.labelKey ? tr(v.labelKey) : v.label}
+                  {scopeNote(v.id) && (
+                    <span className="text-app-text-faint"> {tr(scopeNote(v.id)!)}</span>
+                  )}
+                </span>
                 <span className="tabular-nums whitespace-nowrap text-app-text">
-                  {v.errore ? tr('perf.inventory.unmeasured') : `${v.peso.memoryMB} MB`}
+                  {v.errore ? tr('perf.inventory.unmeasured') : formatMemoryMB(v.peso.memoryMB ?? 0)}
                 </span>
               </div>
             ))}
@@ -306,7 +394,7 @@ export function PerfSection() {
                 {/* L'intestazione compare SOLO se sotto c'e' qualcosa, e dice
                     perche' quei numeri non sono in MB: senza, due colonne
                     diverse una sopra l'altra si leggono come la stessa cosa. */}
-                <div className="pt-1 text-[9px] uppercase tracking-wide opacity-60">
+                <div className="pt-1 text-[10px] uppercase tracking-wide text-app-text-faint">
                   {tr('perf.inventory.heldHeading')}
                 </div>
                 {vociTrattenuteVisibili.map(v => (
@@ -323,28 +411,6 @@ export function PerfSection() {
         )}
       </div>
 
-      {/* 3 · C'E' QUALCOSA CHE NON VA? Parla SOLO quando c'e' un problema.
-          Il caso buono e' gia' detto dagli fps qui sopra: una riga «tutto bene»
-          e' una riga che si impara a saltare, e il giorno che dice altro non la
-          legge piu' nessuno.
-          I TOP PROCESSI DEL COMPUTER SONO STATI TOLTI: rispondevano a «cosa sta
-          usando il Mac», che e' la domanda di Monitoraggio Attivita' e non di
-          questo pannello. Elencavano processi di altre app su cui Topics non
-          puo' fare niente, e occupavano cinque righe su nove. */}
-      {(verdict || accelerated === false) && (
-        <div data-testid="perf-verdict" className="space-y-0.5 pt-0.5">
-          {accelerated === false && (
-            <div className="flex items-center gap-1.5 px-1.5 py-1 rounded text-[10px]">
-              <Cpu size={11} className="text-red-500" />
-              <span className="text-app-text-muted">{tr('perf.softwareRendering')}</span>
-              <span className="text-red-500 font-medium ml-auto">{tr('perf.noGpu')}</span>
-            </div>
-          )}
-          {verdict && (
-            <div className={`px-1.5 py-0.5 text-[10px] font-medium ${verdict.color}`}>{verdict.text}</div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

@@ -4,10 +4,18 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 
 /**
- * devBundleReload no longer auto-reloads (2026-07-20). A rev-mismatch frame
- * must only DISPATCH `topics:bundle-stale` — never call location.replace out
- * from under the user. The manual reloadForNewBundle() is the only path that
- * navigates, and it cache-busts.
+ * Who decides a reload, and when nobody has to.
+ *
+ * A VISIBLE window is never yanked: a rev-mismatch frame only DISPATCHES
+ * `topics:bundle-stale` and the prompt owns the decision (2026-07-20 — the old
+ * unconditional auto-reload tore live panes away every few minutes on an
+ * actively edited repo). A HIDDEN one reloads itself: there is nobody to
+ * interrupt, and asking a person to press a button to be up to date is the
+ * friction this exists to remove.
+ *
+ * Either way the navigation cache-busts, is capped, and first runs the
+ * teardowns registered with `onBeforeBundleReload` — the native webviews a
+ * reload would otherwise leave behind with no owner.
  */
 
 type AnyFn = (...a: unknown[]) => unknown;
@@ -18,6 +26,8 @@ interface FakeState {
   sessionStore: Record<string, string>;
   /** content of the <meta name="topics-bundle-rev"> stamp; null = unstamped. */
   metaRev: string | null;
+  /** Is the window hidden? Decides self-reload vs prompt. */
+  hidden: boolean;
 }
 
 let fake: FakeState;
@@ -36,8 +46,13 @@ function installFakeWindow(state: FakeState) {
   const fakeWindow = {
     location,
     sessionStorage,
+    hidden: false,
     history: { replaceState: (_s: unknown, _t: string, _u: string) => {}, state: null },
     document: {
+      // `document.hidden` is the whole difference between "reload yourself" and
+      // "ask": modelled here so both roads are exercised, not just the one this
+      // machine happens to be on.
+      hidden: state.hidden,
       // The client reads ONE stamped value now. Modelling the meta (instead of
       // a bag of <script src>) is the point: the old DOM scrape is what drifted.
       querySelector: (sel: string) =>
@@ -63,7 +78,7 @@ function installFakeWindow(state: FakeState) {
 }
 
 beforeEach(() => {
-  fake = { replaceCalls: [], dispatched: [], sessionStore: {}, metaRev: "/assets/index-ABC123.js" };
+  fake = { replaceCalls: [], dispatched: [], sessionStore: {}, metaRev: "/assets/index-ABC123.js", hidden: false };
   installFakeWindow(fake);
 });
 
@@ -73,7 +88,7 @@ afterEach(() => {
 });
 
 describe("devBundleReload — prompt, never auto-reload", () => {
-  test("a rev-mismatch frame dispatches bundle-stale and does NOT reload", async () => {
+  test("a rev-mismatch frame on a VISIBLE window dispatches bundle-stale and does NOT reload", async () => {
     const { initDevBundleReload, BUNDLE_STALE_EVENT } = await import("./devBundleReload");
     const { dispatchFrame } = await import("./wsFrameBus");
     const stop = initDevBundleReload();
@@ -99,6 +114,82 @@ describe("devBundleReload — prompt, never auto-reload", () => {
     } finally {
       stop();
     }
+  });
+
+  /**
+   * NOBODY SHOULD PRESS A BUTTON TO BE UP TO DATE.
+   *
+   * The prompt is the right answer for a window somebody is looking at. It is
+   * pure friction for a hidden one — and hidden is where most of these land,
+   * because the rebuilds arrive while the person is working somewhere else. On
+   * 2026-09-10 that was 19 landings in a day: nineteen banners for a window
+   * that could have caught up on its own.
+   */
+  test("una finestra NASCOSTA si ricarica da sola, e non lascia un cartello da premere", async () => {
+    fake.hidden = true;
+    installFakeWindow(fake);
+    const { initDevBundleReload, BUNDLE_STALE_EVENT } = await import("./devBundleReload");
+    const { dispatchFrame } = await import("./wsFrameBus");
+    const stop = initDevBundleReload();
+    try {
+      dispatchFrame({ type: "ui:bundle-updated", rev: "/assets/index-DIFFERENT" });
+      expect(fake.replaceCalls.length).toBe(1);
+      expect(fake.replaceCalls[0]).toContain("bundle-bust=");
+      expect(fake.dispatched).not.toContain(BUNDLE_STALE_EVENT);
+    } finally {
+      stop();
+    }
+  });
+
+  /**
+   * A reload does not unmount the native child webviews: a browser pane's
+   * WKWebView belongs to the window, not to the document, so `location.replace`
+   * leaves it alive with no React owner and no later `browser_close` aimed at
+   * it. Measured 2026-07-29: 14 GB, 61 WebContent processes with zero CPU in
+   * twelve seconds. Whoever owns one registers its teardown here, and this is
+   * the last moment it can run — which is why it must run BEFORE navigating,
+   * and must NOT run when the cap says the navigation is not happening.
+   */
+  describe("i teardown registrati girano prima di navigare", () => {
+    test("una ricarica vera li esegue, una volta, prima della navigazione", async () => {
+      const { reloadForNewBundle, onBeforeBundleReload } = await import("./devBundleReload");
+      const order: string[] = [];
+      const off = onBeforeBundleReload(() => order.push("teardown"));
+      try {
+        reloadForNewBundle();
+        expect(order).toEqual(["teardown"]);
+        expect(fake.replaceCalls.length).toBe(1);
+      } finally {
+        off();
+      }
+    });
+
+    test("oltre il tetto non si chiude niente: la navigazione non ci sara'", async () => {
+      const { reloadForNewBundle, onBeforeBundleReload } = await import("./devBundleReload");
+      let teardowns = 0;
+      const off = onBeforeBundleReload(() => { teardowns++; });
+      try {
+        reloadForNewBundle();
+        reloadForNewBundle();
+        reloadForNewBundle();
+        reloadForNewBundle();
+        expect(fake.replaceCalls.length).toBe(3);
+        expect(teardowns).toBe(3);
+      } finally {
+        off();
+      }
+    });
+
+    test("un teardown che esplode non impedisce la ricarica", async () => {
+      const { reloadForNewBundle, onBeforeBundleReload } = await import("./devBundleReload");
+      const off = onBeforeBundleReload(() => { throw new Error("webview gia' morta"); });
+      try {
+        reloadForNewBundle();
+        expect(fake.replaceCalls.length).toBe(1);
+      } finally {
+        off();
+      }
+    });
   });
 
   test("reloadForNewBundle cache-busts and caps attempts", async () => {

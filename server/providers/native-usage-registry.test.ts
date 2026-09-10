@@ -15,7 +15,7 @@
  * @covers USAGE-03, USAGE-04
  */
 import { describe, expect, test, beforeEach } from "bun:test";
-import { recordTurnUsage, readNativeUsage, resetNativeUsage } from "./native-usage-registry";
+import { recordTurnUsage, readNativeUsage, resetNativeUsage, listNativeUsage } from "./native-usage-registry";
 
 const turno = (o: Partial<Parameters<typeof recordTurnUsage>[1]> = {}) => ({
   input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, ...o,
@@ -102,5 +102,35 @@ describe("il registro dell'uso del runtime nativo", () => {
     recordTurnUsage("vecchia-ma-viva", turno({ input: 1 })); // torna in coda
     for (let i = 100; i < 204; i++) recordTurnUsage(`x${i}`, turno({ input: 1 }));
     expect(readNativeUsage("vecchia-ma-viva")).not.toBeNull();
+  });
+  test("listNativeUsage answers for N sessions with one call, keeping the same numbers", () => {
+    // The route this feeds is a LIST endpoint: asking per session would be one
+    // round trip each for a map that is already in memory. The per-key reader
+    // stays the authority, so the two must never disagree.
+    recordTurnUsage("a", turno({ input: 10, output: 3, cacheRead: 7, cacheWrite: 5 }));
+    recordTurnUsage("b", turno({ input: 1 }));
+    const list = listNativeUsage();
+    expect(list.map((e) => e.sessionKey).sort()).toEqual(["a", "b"]);
+    const a = list.find((e) => e.sessionKey === "a")!;
+    expect(a.inputTokens).toBe(10);
+    expect(a.outputTokens).toBe(3);
+    expect(a.cacheReadTokens).toBe(7);
+    expect(a.billableTokens).toBe(readNativeUsage("a")!.billableTokens);
+  });
+
+  test("an EVICTED session is absent from the list, never present with zeros", () => {
+    // The whole contract of the endpoint. A zero row would read "measured: it
+    // cost nothing", which about a session that was pushed off the end of a
+    // 200-entry cap is the opposite of true — and it is exactly the statement
+    // `readNativeUsage` refuses to make by returning null.
+    for (let i = 0; i < 205; i++) recordTurnUsage(`s${i}`, turno({ input: 1 }));
+    const keys = new Set(listNativeUsage().map((e) => e.sessionKey));
+    expect(keys.has("s0")).toBe(false);
+    expect(keys.has("s204")).toBe(true);
+    expect(keys.size).toBe(200);
+  });
+
+  test("an empty registry is an empty list, not a list of zeros", () => {
+    expect(listNativeUsage()).toEqual([]);
   });
 });

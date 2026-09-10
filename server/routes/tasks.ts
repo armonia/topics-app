@@ -3886,7 +3886,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         try {
           // This is a real cross-board read, not a client-side union of
           // project-scoped calls. Detail actions below re-read their task.
-          const tasks = svc.list({ scope: "all", status: asTaskStatus(status) });
+          //
+          // THE SAME CUT THE HUMAN BOARD MAKES, and it was not: this list was
+          // `{ scope: "all", status }` with nothing else, so the coordinator's
+          // orientation snapshot carried every subtask of every card and every
+          // done task ever closed. Measured on the live board 2026-09-10:
+          // 3.673 rows and 6,3 MB out of this route, against 48 rows and 113 KB
+          // out of the feed the board itself reads. That payload is what the
+          // model pays for, on a plan it can exhaust.
+          //
+          // Narrowing loses no capability. A subtask is a parent's checklist,
+          // never its own card, and the coordinator coordinates CARDS; the done
+          // column is capped for the same reason it is capped for a person. And
+          // the detail read below resolves an id at ANY depth, which is exactly
+          // what the server prompt already tells the coordinator to do before
+          // acting ("re-read a task before a detailed action").
+          const tasks = svc.list({
+            scope: "all",
+            status: asTaskStatus(status),
+            rootsOnly: true,
+            includeOrphanSubtasks: true,
+            doneLimit: DONE_FEED_LIMIT,
+          });
           return json({ tasks });
         } catch (e) { return fail(e); }
       }

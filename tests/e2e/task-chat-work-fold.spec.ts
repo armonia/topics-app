@@ -235,3 +235,90 @@ test.describe("Il lavoro dell'agente in una chat di task", () => {
     await expect(page.getByTestId("virtuoso-item-list").getByText("PROSA-DELL-AGENTE", { exact: false })).toBeVisible();
   });
 });
+
+/**
+ * A settled failed action used to be treated like a question the human had to
+ * answer: it never folded, so a repeated failing shell command sat in plain
+ * sight, complete, every time it ran. It is done work, not an open question,
+ * so it now folds with the rest of the turn like any other settled tool.
+ *
+ * @covers CHAT-TOOL-06
+ */
+// THIS IS THE CHAT PANE'S DECIDER, NOT THE CARD'S. The fold here is decided by
+// `Chat/taskWorkFold.ts` (`isMachineWork`), which has never singled out a failed
+// tool. The drawer goes through `Board/taskSessionPresentation.ts` instead, and
+// that one did — its guard is in `board-conversation-details.spec.ts`. Same
+// testids on both surfaces: green here says nothing about the card.
+test.describe("Un'azione fallita non esce piu' dai Dettagli sessione", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  test.describe.configure({ timeout: 60_000 });
+
+  const failStamp = Date.now();
+  const failTopicName = `work-fold-failed-${failStamp}`;
+  const failProjectPath = `${canonicalTmpRoot()}/e2e-workfold-failed-${failStamp}`;
+  const failProjectId = projectIdForPath(failProjectPath);
+  let failTopicId = "";
+  let failTaskId = "";
+
+  test.beforeAll(async ({ request }) => {
+    mkdirSync(failProjectPath, { recursive: true });
+    writeFileSync(`${failProjectPath}/package.json`, JSON.stringify({ name: "e2e-workfold-failed" }));
+    const topic = await createTopic(request, failTopicName);
+    failTopicId = topic.id;
+    const sessionKey = `topic:${failTopicId.slice(0, 8)}`;
+    await seedMessage(request, { sessionKey, role: "user", content: "prova il deploy" });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        { id: "fail-0", name: "Bash", args: { command: "bun run deploy --prod" },
+          status: "error", error: "Command failed: connection refused",
+          startedAt: 1_700_000_000_000, endedAt: 1_700_000_000_900 },
+        { id: "fail-1", name: "Bash", args: { command: "bun run deploy --prod" },
+          status: "error", error: "Command failed: connection refused",
+          startedAt: 1_700_000_002_000, endedAt: 1_700_000_002_900 },
+      ],
+    });
+    await seedMessage(request, { sessionKey, role: "assistant", content: "PROSA-DELL-AGENTE: il deploy non riesce, ripeto tra poco." });
+
+    const res = await request.post(`${E2E_BASE}/api/boards/${failProjectId}/tasks`, {
+      data: { text: `Deploy fallito ${failStamp}` },
+    });
+    expect(res.ok()).toBe(true);
+    failTaskId = ((await res.json()) as { id: string }).id;
+    await bindTopic(request, failTaskId, failTopicId);
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (failTaskId) await deleteTask(request, failProjectId, failTaskId);
+    if (failTopicId) await deleteTopic(request, failTopicId);
+  });
+
+  test("il comando ripetuto fallito fold dietro un badge, il testo resta in chiaro", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-06" });
+    await resetPaneStore(request, [failTopicId]);
+    await openChat(page, failTopicName);
+    await expect(page.getByTestId("chat-task-card-strip")).toBeVisible({ timeout: 20_000 });
+
+    const fold = page.getByTestId("task-work-accordion");
+    await expect(fold).toHaveCount(1, { timeout: 15_000 });
+    await expect(fold).toHaveAttribute("data-open", "false");
+    // The closed row is the actionable summary: it says how many failed
+    // without showing the command that failed twice.
+    await expect(fold.getByTestId("task-work-errors")).toContainText("2");
+    await expect(page.getByTestId("tool-call-row-fail-0")).toHaveCount(0);
+    await expect(page.getByTestId("tool-call-row-fail-1")).toHaveCount(0);
+    const transcript = page.getByTestId("virtuoso-item-list");
+    await expect(transcript.getByText("PROSA-DELL-AGENTE", { exact: false })).toBeVisible();
+    await didascalia(page, "Fallito due volte: un badge, non due comandi ripetuti");
+    await beat(page);
+
+    await fold.getByTestId("task-work-summary").click();
+    await expect(fold).toHaveAttribute("data-open", "true");
+    await expect(page.getByTestId("tool-call-row-fail-0")).toBeVisible();
+    await expect(page.getByTestId("tool-call-row-fail-1")).toBeVisible();
+    await didascalia(page, "Il log originale resta a un clic");
+    await beat(page, 1600);
+  });
+});

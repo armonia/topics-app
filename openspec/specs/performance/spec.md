@@ -700,6 +700,28 @@ comando a parte, che legge ciò che questa produce.
 - **GIVEN** un trascinamento completo
 - **THEN** SHALL essere prodotta la misura del tempo di fotogramma
 
+### Requirement: BOARDIDLE-01 — Le opzioni dei sensori della board stanno FUORI dal render
+
+dnd-kit memoizza ogni sensore su `[sensor, options]`. Un oggetto di opzioni
+scritto in linea rende `sensors` un array nuovo a ogni render della pane, che
+ricostruisce l'InternalContext di dnd-kit, che ri-renderizza OGNI card che passa
+da `useSortable` — a props identiche, quindi `memo(Card)` non trattiene niente.
+Misurato il 2026-09-07: 32 card su 32 ri-renderizzate 25-29 volte in 30 secondi
+di quiete, ~550 ms di JS ogni 30 s con quattro agenti al lavoro. Il difetto era
+lì dal giorno in cui `memo(Card)` è stato scritto, e nessun cancello lo vedeva.
+
+Le opzioni di ogni sensore della Kanban SHALL essere costanti di modulo, e ogni
+chiamata a `useSensor` SHALL riceverle per nome. Un letterale in quella
+posizione NON SHALL passare.
+
+#### Scenario: le opzioni tornano in linea
+- **GIVEN** una chiamata `useSensor` con un oggetto scritto in linea
+- **THEN** il cancello SHALL essere rosso, nominando la chiamata
+
+#### Scenario: la card resta memoizzata
+- **GIVEN** la colonna della board
+- **THEN** la card SHALL essere esportata avvolta in `memo`
+
 ### Requirement: IDLE-01 — A riposo NON si chiedono fotogrammi a vuoto
 
 Con l'app ferma e niente che succede NON SHALL esserci una pompa di richieste di
@@ -834,6 +856,46 @@ ogni ricarico ri-sondava tutti i progetti senza icona, per sempre.
 #### Scenario: la prima connessione del socket
 - **GIVEN** la pagina appena caricata che ha già scritto il proprio layout
 - **THEN** l'apertura del socket NON SHALL far riscrivere lo stesso layout
+
+### Requirement: DEVPROBE-01 — Una sonda di sviluppo NON SHALL pagare una richiesta per sapere che e' spenta
+
+Le sonde di sviluppo (layout, heap, storage) leggono se sono armate da un flag
+di `ui-state`. Aprivano una `GET /api/ui-state/<flag>` ciascuna al montaggio
+della App: tre round trip incondizionati per finestra e per avvio, che
+rispondono «no» quasi sempre, spesi nell'istante esatto in cui la storia della
+chat vuole una delle sei connessioni che il browser da' per host (BOOT-NET-01).
+
+La risposta viaggia gia' sul frame `ui-state:init`, che il server spinge a ogni
+apertura di socket. La lettura dell'armamento SHALL quindi venire da quel
+frame, e NON SHALL toccare la rete.
+
+Una sola sottoscrizione SHALL servire tutte le sonde: se ognuna si iscrivesse
+per conto proprio, un frame arrivato fra un montaggio e l'altro lo vedrebbe
+solo la prima, e le altre resterebbero spente per sempre su una macchina dove
+erano armate.
+
+L'assenza di un flag, un `armed: false` e un frame senza dati SHALL valere
+tutti «spenta»: una sonda che esplode su un frame vuoto e' un difetto di
+sviluppo che costa un boot, non una diagnosi.
+
+#### Scenario: la sonda chiede se e' armata
+- **GIVEN** una sonda che legge il proprio flag
+- **WHEN** arriva il frame `ui-state:init` che lo porta
+- **THEN** la sonda SHALL sapere di essere armata
+- **AND** NON SHALL essere partita nessuna richiesta di rete
+
+#### Scenario: il frame arriva prima che l'ultima sonda chieda
+- **GIVEN** un frame `ui-state:init` gia' arrivato
+- **WHEN** una sonda che monta dopo chiede il proprio flag
+- **THEN** SHALL leggere il valore che quel frame portava
+
+#### Scenario: il flag c'e' e dice di no
+- **GIVEN** un frame che porta `armed: false` per una sonda
+- **THEN** quella sonda SHALL risultare spenta
+
+#### Scenario: un frame senza dati
+- **GIVEN** un frame `ui-state:init` privo di payload
+- **THEN** ogni sonda SHALL risultare spenta, e nessuna SHALL sollevare un errore
 
 ### Requirement: ATTN-COST-01 — Il rollup di attenzione di un progetto costa i suoi FIGLI, non l'archivio
 

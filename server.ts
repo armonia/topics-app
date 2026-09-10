@@ -47,7 +47,7 @@ import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-s
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, dispatchDoor, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -62,6 +62,7 @@ import { createFilesRouter } from "./server/routes/files";
 import { createBrowserRouter } from "./server/routes/browser";
 import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
+import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
 import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
@@ -83,7 +84,7 @@ import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResource
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { buildBranchInventory, summarizeInventory } from "./server/services/branch-inventory";
+import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
@@ -751,6 +752,7 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 // from the canonical envelope inspector (change `topic-context-canonical`).
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
+const usageRouter = createUsageRouter(ctx);
 const authRouter = createAuthRouter(ctx);
 
 // ── LA LICENZA: cosa è concesso su QUESTA installazione.
@@ -2478,19 +2480,21 @@ const worktreesRouter = createWorktreesRouter(ctx, {
   // I rami locali non su main, col task a cui appartengono. Due letture: git
   // per QUALI rami e quanti commit, il DB per DI CHI sono.
   branchInventory: async (projectPath) => {
-    const proc = Bun.spawn(
-      ["git", "for-each-ref", "--format=%(refname:short)", "--no-merged=main", "refs/heads"],
-      { cwd: projectPath, stdout: "pipe", stderr: "pipe" },
-    );
-    const outText = await new Response(proc.stdout).text();
-    if ((await proc.exited) !== 0) throw new Error(`git: ${projectPath} non e' un repo, o main non esiste`);
-    const names = outText.split("\n").map((l) => l.trim()).filter(Boolean);
-    const branches = await Promise.all(names.map(async (name) => {
-      const c = Bun.spawn(["git", "rev-list", "--count", `main..${name}`], { cwd: projectPath, stdout: "pipe", stderr: "pipe" });
-      const n = Number((await new Response(c.stdout).text()).trim());
-      await c.exited;
-      return { name, ahead: Number.isFinite(n) ? n : 0 };
-    }));
+    // The git half lives in `scanBranchesOutsideBase`, which also answers the
+    // question this closure used to get wrong: a repo without `main` is not a
+    // broken repo. See the comment on `BranchScan`.
+    const scan = await scanBranchesOutsideBase(projectPath);
+    // The only failure left is a path that is NOT THERE: a project pointing at
+    // a folder that has vanished hides branches, and "none" would be a lie.
+    if (scan.kind === "no-path") throw new Error(`git: ${projectPath} non esiste`);
+    // A folder without git, or a checkout without a base branch: the question
+    // has an empty answer, and it says which of the two it was instead of a 500
+    // in the middle of somebody's test output.
+    if (scan.kind !== "ok") {
+      const empty = buildBranchInventory([], []);
+      return { entries: empty, summary: summarizeInventory(empty), base: null, reason: scan.kind };
+    }
+    const branches = scan.branches;
     // I task del board di QUESTO percorso: e' l'unico insieme che puo'
     // reclamare quei rami.
     const boardId = projectIdForPath(projectPath);
@@ -2982,10 +2986,33 @@ const opzioniServer = {
         // Reply 202 now; wait for quiescence, then SIGTERM ourselves so
         // gracefulShutdown runs and launchd/start-prod.sh relaunches.
         const busy = taskDispatcher.busyCount();
+        // ASKING AGAIN JOINS THE WAIT, and the answer says so.
+        //
+        // A 202 identical to the first one is why a retry feels like a fix: on
+        // 2026-09-10 this route was asked five times while one native chat turn
+        // held the gate, and every answer read "accepted, 0 in flight" - true,
+        // and useless, because what the second caller needs to know is that a
+        // wait is ALREADY running and WHO is holding it.
+        //
+        // The SIGTERM is attached unconditionally, by every caller, and that is
+        // deliberate: `gracefulShutdown` has a re-entrancy guard, so the second
+        // signal is a logged no-op, whereas attaching it only when this caller
+        // STARTED the wait would make the restart depend on which call site
+        // opened it - and a future one that forgets to attach would leave a
+        // wait that ends in nothing.
+        const pending = attesaQuiescenza.inProgress();
         void waitForDispatcherQuiescent("restart-when-idle").then(() => {
           process.kill(process.pid, "SIGTERM");
         });
-        return new Response(JSON.stringify({ ok: true, inFlight: busy }), {
+        const { busy: holding } = await whatIsStillWorking();
+        return new Response(JSON.stringify({
+          ok: true,
+          inFlight: busy,
+          alreadyWaiting: pending !== null,
+          waitingForMs: pending ? Date.now() - pending.startedAt : 0,
+          // `null` = nothing is holding, so the restart is a tick away.
+          holding,
+        }), {
           status: 202, headers: { "content-type": "application/json" },
         });
       }
@@ -3465,6 +3492,7 @@ const opzioniServer = {
         || await licenseRouter(req, url, pathname, method)
         || await billingRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
+        || await usageRouter(req, url, pathname, method)
         || await profileRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await tasksRouter(req, url, pathname, method)
@@ -5764,7 +5792,22 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   };
 }
 
-async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+/**
+ * ONE WAIT PER PROCESS, however many times somebody asks for a restart.
+ *
+ * The rule and the measurement that produced it live in `sharedWait`, pure and
+ * covered by tests; here it is only applied. Before it, every
+ * `POST /__daemon/restart-when-idle` started a loop of its own - with its own
+ * start instant, its own `avvisato` flag and its own `waitId` - so N asks meant
+ * N held-reload notices and N loops fighting over one `drain` token.
+ */
+const attesaQuiescenza = sharedWait<void>();
+
+function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+  return attesaQuiescenza.join(() => runDispatcherQuiescentWait(label, capMs));
+}
+
+async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
   // FIRST CLOSE THE DOOR. Every caller of this wait is a restart, and a wait
   // that lets the dispatcher keep starting turns behind a full cap never ends:
   // on 2026-09-04 `restart-when-idle` was still deferred after 18,482 s, three

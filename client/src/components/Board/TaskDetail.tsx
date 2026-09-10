@@ -1,7 +1,6 @@
 import { pickPlanComment } from './planPanel';
 import { reconcileAcknowledgedComments } from './acknowledgedComments';
 import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
-import { isAutoCapturedPreview } from '../../../../shared/media-kind';
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -33,8 +32,8 @@ import { useTaskSessionResolver } from '../../hooks/useTaskSession';
 import { enqueueProjectBrowserNavigate, isProjectWindowMounted } from '../../state/pane/adapters';
 import { useTaskBrowserTabs, liveTabs, workspaceTwinContextId } from '../../state/taskBrowserTabs';
 import { paneIdToContextId } from '../../state/taskBrowserLayout';
-import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
-import { availableTaskModels } from '../../../../shared/task-coding-models';
+import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
+import { TaskModelMenuOptions } from './TaskModelMenuOptions';
 import { machineLabel, nodesOf, useMachines } from '../../state/machinesStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
@@ -55,7 +54,7 @@ import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
-import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
+import { fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
 import { MessageContent } from '../MessageContent';
@@ -70,6 +69,7 @@ import { holdTopic } from '../../state/topicSubscriptions';
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
+import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
@@ -840,6 +840,25 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     setDeliveryOpen(false);
     setWorkspaceOpen(!!focusPaneId);
   }, [taskId, focusPaneId]);
+  /**
+   * A REVIEW DRAFT DOES NOT STAY HIDDEN BEHIND A TAB.
+   *
+   * `TaskChangesSection` opens itself when there are unsent notes — "otherwise
+   * the only trace of that work sits behind a closed bar". But since the diff
+   * moved into the DELIVERY band that component is not even mounted while the
+   * band is collapsed, so after a reload the written-and-unsent work vanished
+   * from view and its own effect could never run. Same question, one level up:
+   * the band opens, then the section opens itself as before.
+   *
+   * Runs after the reset above (declaration order), so it is not undone by it.
+   */
+  useEffect(() => {
+    let alive = true;
+    boardDrafts.getReviewNotes(taskId)
+      .then((n) => { if (alive && n.length) setDeliveryOpen(true); })
+      .catch(() => { /* no draft, or no store: the band stays as it was */ });
+    return () => { alive = false; };
+  }, [taskId]);
   // Only an explicitly opened workspace may share the wide drawer.
   const viewportWide = useMediaQuery('(min-width: 1280px)');
   const twoCol = wide && viewportWide && workspaceOpen;
@@ -1275,12 +1294,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [models, setModels] = useState<string[]>(
-    () => availableTaskModels(getProvidersSnapshotState().snapshot),
-  );
-  useEffect(() => subscribeProvidersSnapshot((state) => {
-    setModels(availableTaskModels(state.snapshot));
-  }), []);
+  const models = useTaskModelCatalog();
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
   // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).
@@ -1725,7 +1739,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} onMessage={onMessage} />;
       if (item.source === 'comment') {
         const receipt = commentReceipt?.id === item.id ? commentReceipt.delivery : undefined;
-        const chip = item.delivery === 'delivered' ? 'delivered' : receipt ?? item.delivery;
+        // Which of the two sources wins is a rule, and it lives in `chipKey.ts`
+        // where a test can run it: the derivation is the authority, the receipt
+        // speaks only where the derivation is silent or where the route moved
+        // the words this instant.
+        const chip = commentChip(item.delivery, receipt);
         const previous = timeline[index - 1];
         const continuation = !!item.comment.messageId && previous?.source === 'comment'
           && previous.comment.messageId === item.comment.messageId
@@ -1767,7 +1785,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 under the person's own bubble, on their side. */}
             {chip && (
               <p
-                data-testid={chip === 'delivered' ? 'task-comment-delivered' : receipt ? 'task-comment-receipt' : 'task-comment-queued'}
+                data-testid={commentChipTestId(chip)}
                 role={receipt ? 'status' : undefined}
                 className="pr-1 text-right text-[10px] text-app-text-faint"
               >{tr(chip === 'note' ? 'board.task.noteSaved' : chip === 'saved' ? 'board.task.commentSaved'
@@ -2028,6 +2046,59 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
           >{task ? <MorphText text={task.text} /> : null}</p>
         )}
+        {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
+            which now lives behind the collapsed "details" toggle: a blocked
+            task opened in the drawer said nothing about waiting, and the
+            blocker picker had no way in. A state you have to expand a section
+            to discover is a state nobody reads, so the chip comes back next to
+            the title, always mounted. Clicking it opens the same picker as the
+            entry in the header menu, which anchors to whichever opened it. */}
+        {task && (
+          <>
+            {blockedChip && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <button
+                  ref={blockerChipRef}
+                  onClick={() => openBlockerMenu(blockerChipRef.current)}
+                  data-testid="task-blocked-by-chip"
+                  title={tr('task.blocked.hint', { what: blockedChip.title })}
+                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
+                >
+                  <Lock className="h-3 w-3 shrink-0" />
+                  <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
+                </button>
+              </div>
+            )}
+            <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
+              <button
+                role="option" aria-selected={!task.blockedByTaskId}
+                onClick={() => pickBlocker(null)}
+                className={POPOVER_ITEM}
+              >
+                <span className="min-w-0 flex-1">{tr('common.none')}</span>
+                {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              <div className="max-h-52 overflow-y-auto">
+                {boardTasks === null ? (
+                  <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
+                ) : blockerCandidates.length === 0 ? (
+                  <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
+                ) : blockerCandidates.map((t) => (
+                  <button
+                    key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
+                    onClick={() => pickBlocker(t.id)}
+                    className={POPOVER_ITEM}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{t.text}</span>
+                    {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                  </button>
+                ))}
+              </div>
+            </Menu>
+          </>
+        )}
       </div>
   );
   const metadataCard = (
@@ -2138,25 +2209,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </button>
             <Menu open={modelMenuOpen && !task.assignedTopicId} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
               <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
-              <button
-                role="option" aria-selected={!task?.model} disabled={busy}
-                onClick={() => changeModel(null)}
-                className={`${POPOVER_ITEM} disabled:opacity-40`}
-              >
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
-                <span className="min-w-0 flex-1">{tr('board.task.modelAutoOption')}</span>
-                {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-              </button>
-              {models.map((m) => (
-                <button
-                  key={m} role="option" aria-selected={m === task?.model} disabled={busy}
-                  onClick={() => changeModel(m)}
-                  className={`${POPOVER_ITEM} disabled:opacity-40`}
-                >
-                  <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
-                  {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                </button>
-              ))}
+              <TaskModelMenuOptions
+                models={models}
+                value={task.model || null}
+                onSelect={changeModel}
+                disabled={busy}
+                autoLabel={tr('board.task.modelAutoOption')}
+                autoIcon
+              />
             </Menu>
             {/* WHERE it runs, next to WHAT it runs with: same register as the
                 model chip, same `Menu` primitive. A node is not a preference of
@@ -2205,28 +2265,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-app-text-muted">{tr('board.task.node.empty')}</p>
               )}
             </Menu>
-            {/* «In attesa di…» sta IN RIGA, non dentro il ⋯: è uno stato che
-                cambia la lettura del task (non parte finché l'altro non
-                chiude), e uno stato dentro un menu è uno stato che nessuno
-                vede. Cliccarlo apre lo stesso picker della voce nel ⋯. */}
-            {blockedChip && (
-              <button
-                ref={blockerChipRef}
-                onClick={() => openBlockerMenu(blockerChipRef.current)}
-                data-testid="task-blocked-by-chip"
-                title={tr('task.blocked.hint', { what: blockedChip.title })}
-                className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
-              >
-                <Lock className="h-3 w-3 shrink-0" />
-                <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
-              </button>
-            )}
-            {/* «Chi la lavora» sta in riga accanto al bloccante, e per lo
-                stesso motivo: su una card in corso senza topic né chip è lo
-                stato che decide se c'è da intervenire. Quando la tiene un
-                antenato il chip ci porta — la domanda successiva è sempre
-                «e chi sarebbe?». */}
+            {/* Who is working it stays in the row for the same reason the wait
+                does: on a card in progress with no topic and no chip, this is
+                the state that decides whether somebody has to step in. When an
+                ancestor holds the turn the chip takes you there, because the
+                next question is always "and who would that be?". */}
             {workChip && (workAncestorId && onOpenTask ? (
               <button
                 onClick={() => onOpenTask(workAncestorId)}
@@ -2253,36 +2296,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <span className="max-w-[14rem] truncate">{workChip.label}</span>
               </span>
             ))}
-            {/* Plan-first / reuse-context vivono nel ⋯ header menu. Il PICKER
-                del bloccante resta qui — portaled, ancorato a chi l'ha
-                aperto (il chip qui sopra, o il ⋯ quando il chip non c'è). */}
-            <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
-              <button
-                role="option" aria-selected={!task.blockedByTaskId}
-                onClick={() => pickBlocker(null)}
-                className={POPOVER_ITEM}
-              >
-                <span className="min-w-0 flex-1">{tr('common.none')}</span>
-                {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-              </button>
-              <div className="max-h-52 overflow-y-auto">
-                {boardTasks === null ? (
-                  <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
-                ) : blockerCandidates.length === 0 ? (
-                  <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
-                ) : blockerCandidates.map((t) => (
-                  <button
-                    key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
-                    onClick={() => pickBlocker(t.id)}
-                    className={POPOVER_ITEM}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{t.text}</span>
-                    {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                  </button>
-                ))}
-              </div>
-            </Menu>
           </div>
         )}
     </div>
@@ -2493,16 +2506,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
         )}</div>
-          {task && ((task.previewImage && !mediaPaths.includes(task.previewImage)) || task.previewRetiredAt || isAgentReview) && (
+          {/* THE TWIN OPENER THAT COULD NEVER RENDER IS GONE.
+              It was gated on `!mediaPaths.includes(task.previewImage)`, and
+              `collectTaskMediaPaths` puts the preview FIRST in that list since
+              2026-08-03 (050d9b766): the condition has been false ever since,
+              for every task that has a preview. The live opener is the row in
+              "File consegnati" just above, which carries the same testid and
+              the same action — and `board-drawer-truth` spent that time looking
+              for the dead one. What is left here is the band that speaks when
+              there is NO preview (retired, or missing on an agent review), so
+              its condition is now exactly that. */}
+          {task && (task.previewRetiredAt || isAgentReview) && (
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
               <div className="flex flex-wrap items-center gap-2">
-                {task.previewImage && !mediaPaths.includes(task.previewImage) && <button type="button" data-testid="task-preview-open"
-                  onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-app-text-secondary hover:text-app-text">
-                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{isAutoCapturedPreview(task.previewImage) ? tr('board.task.deliveryAutoShot') : tr('board.task.deliveryLabel')}</span>
-                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-                </button>}
                 {isAgentReview && <button disabled={recapturing} onClick={recapturePreview}
                   title={tr('board.task.recapturePreviewTitle')} data-testid="task-recapture-preview"
                   className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-app-text-secondary hover:bg-white/10 disabled:opacity-40">
@@ -2681,7 +2697,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               )}
               <div className={POPOVER_DIVIDER} />
               <button
-                role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
+                role="menuitem" onClick={() => {
+                  setOptionsMenuOpen(false);
+                  setSubtasksOpen(true);
+                  setSubtaskComposerOpen(true);
+                  setDetailsOpen(true);
+                  setDeliveryOpen(false);
+                  setWorkspaceOpen(false);
+                }}
                 className={POPOVER_ITEM}
               ><Plus className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" /> {tr('board.task.addSubtask')}</button>
               <div className={POPOVER_DIVIDER} />

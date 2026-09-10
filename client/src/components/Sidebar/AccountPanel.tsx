@@ -17,11 +17,14 @@
  *   2. THE WAY IN, when there is no account and this installation has a service
  *      to ask: the address, then the code that arrives by email. Both steps
  *      happen HERE, without the panel closing and without a trip to Settings.
- *   3. THE FACTS, each with its own label: the device you are on, what is
- *      running right now, how many devices are authorised. A row with nothing
- *      to say is not drawn, and neither is the block when they are all empty:
- *      a label next to a blank is the filler this redesign was asked to remove.
- *   4. THE DOORS: your profile, the devices, and signing out when signed in.
+ *   3. THE FACT, with its label: the device you are on. It was a list of four,
+ *      and three of them were about something else — see `LocalFacts` for what
+ *      left and where it went. A row with nothing to say is not drawn, and
+ *      neither is the block when it is empty: a label next to a blank is the
+ *      filler this redesign was asked to remove.
+ *   4. THE DOORS: your profile, the devices (which carry their own count in
+ *      the tail, so the door and the number are one row), and signing out when
+ *      signed in.
  *
  * ── ONE VERB, NOT TWO ───────────────────────────────────────────────────────
  * There is no "register" button next to a "log in" button. The service sends a
@@ -37,13 +40,12 @@
  * than restated.
  */
 import { useCallback } from 'react';
-import { Hourglass, KeyRound, LogIn, Mail, ShieldCheck } from 'lucide-react';
+import { KeyRound, LogIn, Mail, ShieldCheck } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useToast } from '@/components/Shared/Toast';
 import { useAccountLink } from '@/hooks/useAccountLink';
 import { mostraSezione as accountIsAThingHere } from '@/components/Settings/accountState';
-import { SEGNALE_ATTESA as WAITING_INK } from './chromeSignals';
 import type { LabelIdentity } from './identityLabel';
 
 /** A glyph component, taken as a prop: which device you are on is decided by
@@ -51,18 +53,26 @@ import type { LabelIdentity } from './identityLabel';
 type Glyph = React.ComponentType<{ size?: number; className?: string }>;
 
 /** The one-line facts the sidebar row already holds: they are computed up
- *  there for the chip, and passing them down beats asking for them twice. */
+ *  there for the chip, and passing them down beats asking for them twice.
+ *
+ *  ── WHAT NO LONGER LIVES HERE, AND WHY ─────────────────────────────────────
+ *  Two more rows used to sit in this block: "Right now", which spelled out the
+ *  work in progress, and "Claude Code agents", which counted its finished
+ *  turns. Both true, both in the wrong panel: this block answers "who am I and
+ *  how do I sign in", and those answered "what is running", which is the
+ *  question of the «Agents and performance» row five lines below - the one
+ *  that lists them BY NAME and can be opened. So they were the third copy of
+ *  two numbers already written in that row's tail and in the card's tooltip,
+ *  and the only one of the three that led nowhere. The finished turns are rows
+ *  in `AgentLines` now, and the count is their length. */
 export interface LocalFacts {
   /** The device you are on. Empty until the session says which one. */
   device: string;
-  /** What is running right now, `null` when nothing is. */
-  now: string | null;
-  /** Authorised devices, `null` while unknown. */
+  /** Authorised devices, `null` while unknown. Not a `Fact`: it travels this
+   *  far because the DOOR to the devices carries it in its tail, instead of
+   *  sitting in a read-only row right above the door that opens the same
+   *  thing. */
   devices: { connected: number; total: number } | null;
-  /** The fleet, spelled out: on the chip it is a glyph and a digit, and this
-   *  is where "what is this hourglass" gets its sentence. Empty when nothing
-   *  is waiting. */
-  waiting: string[];
 }
 
 const FIELD = 'w-full min-w-0 rounded border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-app-text outline-none focus:border-app-accent';
@@ -97,10 +107,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
 
   const speaksOfAccounts = accountIsAThingHere(state);
   const linked = !!state?.linked;
-  const anyFact = (speaksOfAccounts && !!facts.device)
-    || !!facts.now
-    || facts.waiting.length > 0
-    || (facts.devices?.total ?? 0) > 0;
+  const anyFact = speaksOfAccounts && !!facts.device;
 
   return (
     <>
@@ -215,33 +222,17 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
         </p>
       )}
 
-      {/* 3. THE FACTS. */}
+      {/* 3. THE FACTS. One is left: which device you are looking from. It is
+             the only one that talks about the ACCOUNT - the other three rows
+             that used to be here talked about the work and about the devices,
+             and they found a place where those things can also be opened (see
+             `LocalFacts`). */}
       {anyFact && (
         <div className="border-t border-app-border px-3 py-2 text-[11px]">
-          {speaksOfAccounts && facts.device && (
-            <Fact label={t('statusBar.me.machine')}>
-              <DeviceIcon size={11} className="flex-shrink-0 text-app-text-muted" />
-              <span className="truncate">{facts.device}</span>
-            </Fact>
-          )}
-          {facts.now && (
-            <Fact label={t('statusBar.me.workRow')}>
-              <span className="truncate">{facts.now}</span>
-            </Fact>
-          )}
-          {facts.waiting.length > 0 && (
-            <Fact label={t('statusBar.agents.heading')}>
-              <Hourglass size={11} className={`flex-shrink-0 ${WAITING_INK}`} />
-              <span className="truncate">{facts.waiting.join(', ')}</span>
-            </Fact>
-          )}
-          {facts.devices && facts.devices.total > 0 && (
-            <Fact label={t('statusBar.me.devicesRow')}>
-              <span className="tabular-nums">
-                {t('statusBar.me.devicesCount', { n: facts.devices.connected, tot: facts.devices.total })}
-              </span>
-            </Fact>
-          )}
+          <Fact label={t('statusBar.me.machine')}>
+            <DeviceIcon size={11} className="flex-shrink-0 text-app-text-muted" />
+            <span className="truncate">{facts.device}</span>
+          </Fact>
         </div>
       )}
 

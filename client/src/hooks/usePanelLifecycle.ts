@@ -80,6 +80,7 @@ import {
   type TerminalAgentType,
 } from '../lib/terminalAgents';
 import { createTerminalSession } from '../lib/terminalActions';
+import { deleteTerminalSession } from '../lib/terminalRosterRetry';
 import { useToast } from '../components/Shared/Toast';
 import { useT } from './useT';
 
@@ -2246,7 +2247,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [isMobile, terminalOps, setSidebarCollapsed, toast, tr]);
 
   const handleCloseTerminal = useCallback(async (sessionId: string) => {
-    fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+    deleteTerminalSession(sessionId);
     terminalOps.removeSession(sessionId);
     const paneId = createPaneId('terminal', sessionId);
     // Same PURGE as handleCloseProject above: terminal tabs have no undo

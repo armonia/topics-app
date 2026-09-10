@@ -9,8 +9,15 @@ import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia'
 import { createPaneId } from '../../state/pane/adapters';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { readFileContentCache, writeFileContentCache } from '../../lib/fileContentCache';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadCodeEditor } from '../../state/pane/panePreload';
 
-const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
+// `lazyWarm` and not `lazy`: this pane arrives warm at boot (`panePreload`
+// asks for its chunk before React renders) and then stopped HERE, on a second
+// `import()` that only left once the suspense boundary was reached. The pane
+// was warm; its body was not. Same chunk, same boundary if the chunk is cold -
+// but when it is warm the editor renders in the same pass as the pane.
+const CodeEditor = lazyWarm(loadCodeEditor, (m) => m.CodeEditor);
 const DiffViewer = lazy(() => import('./DiffViewer').then(m => ({ default: m.DiffViewer })));
 // The Markdown preview drags parse5 in through `rehype-raw` — see the header
 // of MarkdownPreview.tsx. Lazy so a plain file open doesn't pay for it.

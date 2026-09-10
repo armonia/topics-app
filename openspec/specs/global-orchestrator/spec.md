@@ -183,22 +183,35 @@ ordinary session task routes for the registered session.
 - **WHEN** `/api/sessions/:key/tasks` is called
 - **THEN** the response is 403
 
-### Requirement: GLOBAL-ORCHESTRATOR-CLIENT-01 — Entry from the global Kanban only
+### Requirement: GLOBAL-ORCHESTRATOR-CLIENT-01 — Entry from the global Kanban only, opening in place
 
 The client SHALL offer the coordinator only from the global Kanban board
 (`board-open-orchestrator`), SHALL open it by calling the ensure route and then
-dispatching the ordinary `topics:open-topic` flow with the returned Topic, and
-SHALL NOT render a second chat surface for it.
+mounting the returned Topic in a drawer inside that board — the same slot and
+geometry the task preview uses — and SHALL keep that drawer and the task drawer
+mutually exclusive. The entry SHALL be a toggle, SHALL carry the coordinator's
+own glyph rather than the default chat glyph, and SHALL offer a pop-out that
+promotes the same conversation through the ordinary `topics:open-topic` flow.
 
 #### Scenario: The button exists only on the global board
 - **GIVEN** a project-scoped board
 - **WHEN** the toolbar renders
 - **THEN** no open-orchestrator control is shown
 
-#### Scenario: Opening reuses the ordinary Topic panel
+#### Scenario: Opening mounts the coordinator inside the board
 - **GIVEN** the global board
 - **WHEN** the user clicks open-orchestrator
-- **THEN** the ensure route is called once and the returned Topic opens as a permanent chat pane
+- **THEN** the ensure route is called once and the returned Topic renders in the board's drawer, with no new pane opened
+
+#### Scenario: Opening a task closes the coordinator drawer
+- **GIVEN** the coordinator drawer open on the global board
+- **WHEN** a card is opened
+- **THEN** the task drawer takes the slot and the coordinator drawer is closed
+
+#### Scenario: Pop-out promotes the same conversation
+- **GIVEN** the coordinator drawer open
+- **WHEN** the user asks for it in a tab
+- **THEN** the drawer closes and the ordinary permanent topic-open flow runs with the same Topic
 
 ### Requirement: GLOBAL-ORCHESTRATOR-LIFECYCLE-01 — The coordinator never archives
 

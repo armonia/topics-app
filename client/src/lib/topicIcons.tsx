@@ -2,7 +2,7 @@ import { createElement, memo } from 'react';
 import {
   MessageSquare, Lightbulb, Rocket, Flame, Star, Target,
   Gem, Palette, Wrench, BookOpen, Sparkles, PenLine,
-  Music, Home, Heart, Lock, BarChart3, Globe,
+  Music, Music4, Home, Heart, Lock, BarChart3, Globe,
   Flower2, Code, Terminal, Briefcase, Camera,
   Shield, Coffee, Bug, Cpu, Brain, Megaphone,
   Search,
@@ -25,6 +25,10 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Sparkles,
   PenLine,
   Music,
+  // THE BEAMED PAIR is the Kanban coordinator's glyph: the conversation that
+  // conducts the others. `Music` (a single note) stays the palette's "music"
+  // entry — two different meanings, two different glyphs.
+  Music4,
   Home,
   Heart,
   Lock,

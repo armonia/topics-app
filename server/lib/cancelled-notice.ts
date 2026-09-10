@@ -144,6 +144,28 @@ export function avvisoPerTurno(
       ? `${perche} Quello che era già arrivato resta qui sotto: chiedi il resto un pezzo alla volta.`
       : `${perche} Richiedila divisa in più pezzi, o falla scrivere su file a blocchi invece che tutta in una volta.`;
   }
+  // THE MODEL SAID NO, AND THE REASON IS THE ONLY USEFUL PART.
+  //
+  // A refusal comes back as HTTP 200 with zero content blocks, so before this
+  // it was indistinguishable from an empty turn and got the generic «no
+  // answer — Retry resends your message» notice. That advice is wrong twice
+  // over: an identical request buys the identical refusal, and the verdict is
+  // on the CONVERSATION, not on the last message. Measured on topic:06519a5d,
+  // where the trigger was a passage the history repeated verbatim: the person
+  // pressed Retry six times over two days against a wall nobody had named.
+  // allow-italian: quotes the notice this branch replaces
+  //
+  // `info.detail` is the API's own sentence (`stop_details.explanation`), kept
+  // by `native/agent-loop.ts`. When it is missing the notice still says what
+  // happened: a refusal without a reason beats a silence.
+  if (info.end === "refusal") {
+    const perche = info.detail?.trim()
+      ? `⚠️ Richiesta rifiutata dal modello: ${info.detail.trim()}`
+      : "⚠️ Richiesta rifiutata dal modello, senza spiegazione.";
+    return opts.haProdotto
+      ? `${perche} Quello che era già arrivato resta qui sotto.`
+      : `${perche} Rimandare lo stesso messaggio ottiene lo stesso rifiuto: riformulalo, oppure continua in una chat nuova se è la conversazione intera a essere rifiutata.`;
+  }
   const perche = cancelledNotice(info);
   if (!perche) return null;
   if (opts.riprendeDaSolo) return `${perche} Riprendo da solo: non serve che tu faccia niente.`;
