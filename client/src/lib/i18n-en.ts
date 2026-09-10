@@ -1362,6 +1362,8 @@ const EN = {
   'chat.turnStopped': 'Turn stopped',
   'chat.turnStopped.detail': 'You stopped it. The message is still here.',
   'chat.noAnswer': 'No answer',
+  'chat.cachedHistory.notice': 'From the local copy: the server did not answer',
+  'chat.cachedHistory.retry': 'Try again',
   'chat.noAnswer.detail': 'The connection may have dropped',
   'chat.turnInterrupted': 'Response interrupted',
   'chat.turnInterrupted.retry': 'Retry',
@@ -2226,6 +2228,7 @@ const EN = {
   'crash.transportBand': 'The connection status broke',
   'crash.panel': 'This panel broke',
   'crash.settings': 'Settings broke',
+  'crash.app': 'Topics stopped',
   'crash.pane': 'This pane broke',
   'crash.toolInput': 'This answer form broke',
 

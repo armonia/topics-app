@@ -32,6 +32,20 @@ export const ALL_BOARDS_SCOPE = 'all';
 const seeded = typeof localStorage === 'undefined' ? null : readBoardRowsCache(ALL_BOARDS_SCOPE);
 let tasks: readonly BoardTask[] = seeded ?? [];
 let loaded = seeded !== null;
+/**
+ * The last read of the feed did NOT arrive, and the rows above are the ones
+ * from before it.
+ *
+ * It sits next to `loaded` because they answer two different questions and a
+ * board asks both: `loaded` says whether the waiting ring can stop, this one
+ * says whether what is on screen is the answer of NOW. Confusing them is the
+ * defect this line closes: the seed read from the local copy is born
+ * `loaded = true`, so on a failed read the cross-project board drew yesterday's
+ * columns exactly the way it draws the ones from a second ago. The project
+ * twin (`useBoardFeed`) already did the right thing - it keeps the rows AND
+ * raises the message - and this is the half that was missing here.
+ */
+let error: string | null = null;
 const listeners = new Set<() => void>();
 // The cache paints the next boot; current readers observe the store immediately.
 // Defer both serialization and storage through the existing fixed-window writer,
@@ -77,23 +91,47 @@ export function setBoardTasks(next: readonly BoardTask[]): void {
   if (unchanged && loaded) return;
   if (!unchanged) tasks = reconciled;
   loaded = true;
+  // The read answered: whatever the board was saying about the previous
+  // failure stops being true here. An EMPTY `next` included - that is the
+  // legitimate "read it, there is nothing" case, which has nothing to report.
+  error = null;
+  // The write stays THROTTLED (main's writer, kept over the direct call this
+  // branch was written against): the rows change on every streamed frame, and
+  // WebKit's journal grows with the number of rewrites, not with the bytes.
   const snapshot = tasks;
   cacheWriter.write(() => serializeBoardRowsCache(snapshot));
   listeners.forEach((cb) => cb());
 }
 
 /**
- * Una lettura è TORNATA, ma a mani vuote (rete giù, server che riparte).
+ * A read did NOT come back (network down, a server restarting): the rows stay
+ * the ones from before, and the board says so.
  *
- * Serve perché «non ho ancora letto» e «ho letto e non c'è niente» disegnano
- * due cose diverse: senza questo, una board che aspetta la prima lettura
- * filerebbe per sempre sul giro d'attesa invece di mostrare le colonne. Il
- * prossimo evento (o la riconnessione) la riempie.
+ * TWO THINGS, AND THEY MUST STAY APART. The first is that the waiting can
+ * stop: without it, a board waiting for its first read would spin on the
+ * waiting ring forever instead of showing its columns, which is the one state
+ * that says nothing at all. The second is the message, and that is the half
+ * that was missing: stopping the ring without saying why turns a failure into
+ * a board that merely looks quiet.
+ *
+ * This is NOT the "read it, there is nothing" case: that one goes through
+ * `setBoardTasks([])`, which settles the same way but clears the error,
+ * because a genuinely empty board has nothing to report. This function
+ * replaced `markBoardTasksSettled`, which did only the first half and was
+ * called from exactly one place - the failure - so its name promised
+ * "settled" to whoever read `useGlobalBoard` while hiding that what it was
+ * settling on was a failure.
  */
-export function markBoardTasksSettled(): void {
-  if (loaded) return;
+export function markBoardTasksFailed(message: string): void {
+  if (loaded && error === message) return;
   loaded = true;
+  error = message;
   listeners.forEach((cb) => cb());
+}
+
+/** Did the last read of the cross-project feed fail? Then this is why. */
+export function getBoardTasksError(): string | null {
+  return error;
 }
 
 /**
@@ -179,6 +217,7 @@ export function requestBoardTasksRefresh(): void {
 export function __resetBoardTasks(): void {
   tasks = [];
   loaded = false;
+  error = null;
   refresher = null;
   listeners.clear();
 }
@@ -204,4 +243,9 @@ export function useBoardTasksLoaded(enabled = true): boolean {
     enabled ? hasLoadedBoardTasks : notLoaded,
     enabled ? hasLoadedBoardTasks : notLoaded,
   );
+}
+
+/** "Did the last read fail?", reactive (see `getBoardTasksError`). */
+export function useBoardTasksError(): string | null {
+  return useSyncExternalStore(subscribeBoardTasks, getBoardTasksError, getBoardTasksError);
 }
