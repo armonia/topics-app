@@ -16,6 +16,7 @@ import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
+import { beat, didascalia } from "./helpers/evidence";
 import { mkdirSync, writeFileSync } from "fs";
 
 hermetic(test);
@@ -68,6 +69,8 @@ test.describe("il coordinatore della Kanban è una finestra della Kanban", () =>
     // How many surfaces are open BEFORE: if the coordinator still opened a
     // pane this number would rise. It is the measurement behind "not a tab".
     const tabsBefore = await page.getByRole("tab").count();
+    await didascalia(page, "In barra: due note, non una nuvoletta");
+    await beat(page, 1800);
 
     await entry.click();
 
@@ -87,13 +90,19 @@ test.describe("il coordinatore della Kanban è una finestra della Kanban", () =>
     expect(drawerBox.y + drawerBox.height).toBeLessThanOrEqual(boardBox.y + boardBox.height + 1);
     // And the columns stay: the drawer SHRINKS them, it does not cover them.
     await expect(page.getByTestId("kanban-column-todo")).toBeVisible();
+    await didascalia(page, "Si apre DENTRO la board: le colonne si stringono, non spariscono");
+    await beat(page, 2400);
 
     expect(await page.getByRole("tab").count()).toBe(tabsBefore);
+    await didascalia(page, `Nessuna tab in piu\u2019: ${tabsBefore} prima, ${tabsBefore} adesso`);
+    await beat(page, 2000);
 
     // The entry is a toggle: pressed again, it closes.
     await entry.click();
     await expect(drawer).toBeHidden();
     await expect(entry).toHaveAttribute("aria-pressed", "false");
+    await didascalia(page, "Lo stesso bottone lo richiude");
+    await beat(page, 1800);
   });
 
   test("ORCH-DRAWER-02: un solo cassetto per volta — aprire una card chiude il coordinatore", async ({ page }) => {
