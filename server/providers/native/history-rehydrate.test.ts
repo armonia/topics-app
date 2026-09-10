@@ -11,7 +11,8 @@
   * @covers RT-04
  */
 import { test, expect, describe } from "bun:test";
-import { historyFromPersistedThread, type PersistedTurn } from "./history-rehydrate";
+import { historyFromPersistedThread, REHYDRATE_WINDOW_TOKENS, type PersistedTurn } from "./history-rehydrate";
+import { estimateTokens } from "./compaction";
 import type { ToolCall } from "../../../shared/types";
 import type { Block } from "./agent-loop";
 
@@ -292,5 +293,35 @@ describe("historyFromPersistedThread — le coppie tool_use/tool_result", () => 
     const r = blocks(out[2]!)[0]!;
     expect(String(r.content).length).toBeLessThan(60_000);
     expect(String(r.content)).toContain("chars omitted");
+  });
+});
+
+/**
+ * A session with hundreds of tool calls must not rebuild a history that
+ * blows the model's window before the resumed turn even starts. Measured on
+ * the four heaviest native sessions in the live database: full expansion with
+ * no cap reached 414k-1,631k tokens, past the 1M hard limit on two of them.
+ */
+describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () => {
+  test("centinaia di chiamate con risultati pesanti restano sotto REHYDRATE_WINDOW_TOKENS", () => {
+    const rounds = 300;
+    const thread: PersistedTurn[] = [{ role: "user", content: "lavora sul repo" }];
+    for (let i = 0; i < rounds; i++) {
+      thread.push({
+        role: "assistant",
+        content: `Giro ${i}: leggo un file.`,
+        toolCalls: [{
+          id: `t${i}`, name: "read_file", args: { path: `file${i}.ts` }, status: "success",
+          result: "x".repeat(4_000), contentOffset: 0,
+        }],
+      });
+    }
+    thread.push({ role: "user", content: "nuova domanda" });
+
+    const out = historyFromPersistedThread(thread);
+    expect(estimateTokens(out)).toBeLessThanOrEqual(REHYDRATE_WINDOW_TOKENS);
+    // The opening request survives: an agent that no longer knows why it is
+    // working is worse than one with a shorter memory of how it got there.
+    expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
   });
 });
