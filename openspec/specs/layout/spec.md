@@ -515,6 +515,39 @@ RITMO, non solo come attributo: un esito verde non la dimostra a nessuno.
 - **GIVEN** più sessioni
 - **THEN** SHALL essere raggruppate per chi aspetta e chi lavora
 
+### Requirement: CHROME-13 — La gerarchia di fuoco della barra si MISURA, in tre gradini
+
+La scheda che stai guardando, la scheda attiva di un gruppo che NON ha il fuoco e
+una scheda a riposo SHALL essere tre superfici DIVERSE, e la differenza SHALL
+essere un numero: fra due gradini adiacenti il rapporto di contrasto fra i due
+fondi compositati SHALL valere almeno 1,1:1 — la soglia di percettibilità che
+questo progetto usa già ovunque — e fra la scheda selezionata e una a riposo
+almeno 1,25:1.
+
+L'ordine dei tre gradini SHALL essere quello del fuoco: selezionata più staccata
+dal fondo della pagina di quanto lo sia l'attiva-non-a-fuoco, che a sua volta
+SHALL staccarsi più di una a riposo. Una scala che si inverte è peggio di una
+piatta: dice il contrario.
+
+La regola SHALL valere in tema CHIARO e in tema SCURO, e la misura SHALL essere
+fatta sui fondi COMPOSITATI: quattro alpha dello stesso colore del fondo sono
+quattro superfici diverse sulla carta e una sola sullo schermo.
+
+Una scheda di PROGETTO SHALL rispondere alla stessa scala: è la superficie con
+cui si legge se il progetto è quello selezionato.
+
+#### Scenario: la scheda selezionata contro una a riposo
+- **GIVEN** due schede nella stessa barra, una selezionata
+- **THEN** i due fondi compositati SHALL distare almeno 1,25:1, nei due temi
+
+#### Scenario: l'attiva di un gruppo senza fuoco
+- **GIVEN** uno split con due celle, il fuoco in una sola
+- **THEN** l'attiva dell'altra cella SHALL stare FRA la selezionata e una a riposo, a più di 1,1:1 da entrambe
+
+#### Scenario: la scheda di un progetto
+- **GIVEN** una scheda di progetto selezionata accanto a una chat a riposo
+- **THEN** i due fondi SHALL distare almeno 1,25:1
+
 ### Requirement: CHROME-12 — Prima si ferma, poi si chiude, e il segnale di lavoro sta in coda
 
 Il binario dei comandi in coda a una superficie di riga — una scheda della barra,
