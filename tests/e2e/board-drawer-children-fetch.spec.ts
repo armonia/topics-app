@@ -225,6 +225,7 @@ test.describe("Task drawer — what a tree node downloads when it opens", () => 
     await card.getByText(ROOT_TEXT).click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    await drawer.getByTestId("task-details-toggle").click();
     const tree = drawer.getByTestId("task-detail-subtasks");
     await expect(tree).toBeVisible({ timeout: 10000 });
     // The three steps arrive with the root: their rows are there before any
