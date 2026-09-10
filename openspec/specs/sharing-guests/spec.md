@@ -502,10 +502,110 @@ share can be set to.
 - **AND** an attempt to set a share to `run` or `manage` SHALL be refused with 400 `unknown_level`
 
 #### Scenario: the sharing panel shows and lets you change the effective level
-- **GIVEN** the owner's sharing panel for a resource with existing guests
+- **GIVEN** the owner's sharing panel for a TASK with existing guests
 - **THEN** each row SHALL show that guest's current level, editable in place
 - **AND** the choices offered SHALL be exactly `read`, `comment` and `edit`
 - **AND** picking a different level SHALL take effect immediately, for both new API calls and any live socket already open
+
+#### Scenario: no chooser where the level has nothing behind it
+- **GIVEN** the sharing panel for a chat or for a project
+- **THEN** each row SHALL STATE the level that is in force
+- **AND** it SHALL NOT offer a choice of level
+
+#### Scenario: several rows resolve to the highest, in either order
+- **GIVEN** a resource granted to a guest's device at one level and to one of its organisations at another
+- **WHEN** the effective level is read, whichever row was written first
+- **THEN** it SHALL be the HIGHEST of the two
+- **AND** a `deny` on any of the rows SHALL beat both
+
+### Requirement: GUEST-11 — A container conveys reading, never writing
+
+Sharing a CONTAINER (today: a project) SHALL open its resources for reading
+and SHALL NOT convey any level above `read` to them, whatever level the
+container's own row carries. Writing SHALL require a grant row on the resource
+ITSELF.
+
+Three reasons, each sufficient. A container is a grant over a set whose
+membership moves without anybody touching the grant, so one gesture would keep
+conferring write on resources created into it later, including ones in flight.
+The resource's own sharing panel is built from the rows written ON it, so an
+inherited write would be a capability with no surface to see it on and none to
+revoke it from. And the specific capability at stake is `edit`, which rewrites
+the text that becomes the prompt of an agent running in a worktree of the
+OWNER's repository at the next dispatch — the reason the scale stops at `edit`
+in the first place.
+
+A `deny` SHALL keep travelling unchanged: the cap only ever grants less.
+
+The inventory a guest reads and the gate that opens a resource SHALL agree on
+what a container opens: a resource reachable through a granted container SHALL
+be listed, not merely openable by id. Two pieces of code answering the same
+question differently is the defect `GUEST-06` already names, and it was
+present a second time here.
+
+The resource's sharing panel SHALL nevertheless NAME an access that arrives
+through a container, together with where it was written, since that is the only
+place it can be taken back. A subject that also holds a row on the resource
+SHALL appear once, with the resource's own level.
+
+#### Scenario: a project shared at the top of the scale
+- **GIVEN** a guest holding `edit` on a project, and a card inside it with no grant row of its own
+- **WHEN** the guest reads that card
+- **THEN** the server SHALL answer 200
+- **WHEN** the guest comments on it or edits its text
+- **THEN** the server SHALL answer 403 `guest_level_denied` for each
+
+#### Scenario: a card created after the grant
+- **GIVEN** the same project grant, and a card created into that project afterwards
+- **WHEN** the guest edits its text
+- **THEN** the server SHALL answer 403 `guest_level_denied`
+
+#### Scenario: a row on the card itself still carries its own level
+- **GIVEN** a project granted at `read` and the same subject granted `edit` on one card of it
+- **WHEN** the effective level of that card is read
+- **THEN** it SHALL be `edit`
+
+#### Scenario: the inventory lists what the container opens
+- **GIVEN** a guest holding a grant on a project, and cards inside it with no grant rows of their own
+- **WHEN** the guest reads `/api/auth/shared` and the cards feed
+- **THEN** those cards SHALL appear in both
+- **AND** a card carrying a `deny` of its own SHALL appear in neither
+
+#### Scenario: the card's panel names who arrives from the project
+- **GIVEN** a card with no grant row of its own, inside a project shared with a guest
+- **WHEN** the owner opens that card's sharing panel
+- **THEN** the guest SHALL be listed, with the container it arrives from
+- **AND** the level shown SHALL be the one in force, `read`
+
+### Requirement: GUEST-12 — The guest's application shows the level it was granted
+
+The inventory a guest reads (`/api/auth/shared`) SHALL carry, for every
+resource it lists, the level in force on it — the same answer the gate gives,
+so the screen cannot promise a capability the gate refuses nor hide one it
+allows.
+
+The guest's own view SHALL offer exactly the writes that level conveys, and no
+others: at `comment` a way to comment on the card, at `edit` also a way to
+correct its text. These are the two routes the gate opens
+(`POST /api/tasks/:id/comments`, `PATCH /api/tasks/:id`); nothing else is
+offered at any level.
+
+The view SHALL NOT state that the access is read-only when it is not. Before
+this requirement the server enforced three levels while the guest screen
+printed "read only" at everybody and rendered no composer and no editable
+text, so the capability the owner's panel promised was unreachable from the
+product: the two sides of one permission said opposite things.
+
+#### Scenario: at `read` nothing is offered
+- **GIVEN** a guest holding `read` on a card, with its view open
+- **THEN** no comment composer and no way to edit the text SHALL be present
+
+#### Scenario: at `edit` both are offered, and both work
+- **GIVEN** the same guest raised to `edit`, on the same card
+- **THEN** a comment composer and a way to edit the text SHALL be present
+- **WHEN** the guest comments and rewrites the text
+- **THEN** the comment SHALL appear in the card's thread
+- **AND** the card read back from the owner's port SHALL carry the new text
 
 ### Requirement: GUEST-10 — The sharing route is not part of a guest's surface
 

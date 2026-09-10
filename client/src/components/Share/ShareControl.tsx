@@ -61,6 +61,24 @@ const KEY_LEVEL: Record<GrantLevel, string> = {
   edit: 'share.level.edit',
 };
 
+/**
+ * The resource types on which the scale is actually ENFORCED, end to end.
+ *
+ * Only a task: `comment` and `edit` are the two writes the guest gate opens
+ * (`GUEST_WRITE_ROUTES` in `server/lib/grants.ts`, both under `/api/tasks/`),
+ * and a level on anything else has nothing behind it. A chat granted "can
+ * comment" wrote a row no check ever reads, and a project cannot convey more
+ * than `read` by design (`capFromContainer` in `server/lib/grants-query.ts`):
+ * in both cases the panel was promising a capability the server does not
+ * concede.
+ *
+ * It errs safe either way, which is exactly why it needs saying out loud
+ * rather than being left to whoever reads the panel: a control that offers a
+ * choice with no effect is not a harmless control, it is a wrong answer to
+ * "what can this person do".
+ */
+const RESOURCES_WITH_LEVELS: readonly ResourceType[] = ['task'];
+
 interface Share {
   subjectType: 'device' | 'person' | 'org';
   subjectId: string;
@@ -69,6 +87,12 @@ interface Share {
   name: string;
   sharedAt: number;
   level: GrantLevel;
+  /** WHERE this access was written, when it was not written here. Today only
+   *  `project`: a card reached through the project that holds it. Absent is
+   *  the normal case. Such a row is shown and NOT edited from this panel:
+   *  both the level and the revocation belong to the container. */
+  viaType?: ResourceType;
+  viaId?: string;
 }
 
 const ETICHETTA: Record<Subject['subjectType'], string> = {
@@ -259,6 +283,7 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
   // La chiave è la COPPIA tipo+id: due soggetti di tipo diverso possono avere
   // lo stesso id senza essere la stessa cosa.
   const chiave = (t: string, i: string) => `${t}:${i}`;
+  const canChooseLevel = RESOURCES_WITH_LEVELS.includes(resourceType);
   const alreadyShared = new Set(shares.map((s) => chiave(s.subjectType, s.subjectId)));
   const disponibili = soggetti.filter((o) => !alreadyShared.has(chiave(o.subjectType, o.subjectId)));
 
@@ -336,26 +361,63 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                   {/* The effective level, chosen right here — this is the
                       "effective access summary" the requirement asks for:
                       not an implicit permission inferred elsewhere, the
-                      `select` row SAYS what whoever reads it can do. */}
-                  <select
-                    aria-label={t('share.levelFor', { name: s.name })}
-                    value={s.level}
-                    disabled={inCorso}
-                    onChange={(e) => void changeLevel(s, e.target.value as GrantLevel)}
-                    className="flex-shrink-0 rounded border border-app-border bg-app-bg px-1 py-0.5 text-[10px] text-app-text disabled:opacity-50"
-                  >
-                    {LEVELS.map((l) => (
-                      <option key={l} value={l}>{t(KEY_LEVEL[l])}</option>
-                    ))}
-                  </select>
-                  <button
-                    aria-label={t('share.removeAccess', { name: s.name })}
-                    disabled={inCorso}
-                    onClick={() => void togli(s)}
-                    className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
-                  >
-                    <X size={12} />
-                  </button>
+                      `select` row SAYS what whoever reads it can do.
+
+                      A CHOICE only where the choice has an effect. Where the
+                      scale is not enforced (a chat, a project) the level is
+                      stated and not offered: a `select` there would write a
+                      value no gate ever reads.
+
+                      On a row that arrives from a CONTAINER the choice does
+                      have an effect, and it is the one gesture that raises
+                      one card out of the project's blanket `read`: the POST
+                      writes the row on THIS resource, which then beats the
+                      container. Without it, whoever holds the project would
+                      simply vanish from the "add" list below, and there would
+                      be no way to give them `edit` on a single card. */}
+                  {canChooseLevel ? (
+                    <select
+                      aria-label={t('share.levelFor', { name: s.name })}
+                      value={s.level}
+                      disabled={inCorso}
+                      onChange={(e) => void changeLevel(s, e.target.value as GrantLevel)}
+                      className="flex-shrink-0 rounded border border-app-border bg-app-bg px-1 py-0.5 text-[10px] text-app-text disabled:opacity-50"
+                    >
+                      {LEVELS.map((l) => (
+                        <option key={l} value={l}>{t(KEY_LEVEL[l])}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span
+                      data-testid="share-level-fixed"
+                      title={t(s.viaType ? 'share.levelFromContainer' : 'share.levelNotChosenHere')}
+                      className="flex-shrink-0 rounded border border-transparent px-1 py-0.5 text-[10px] text-app-text-muted"
+                    >
+                      {t(KEY_LEVEL[s.level])}
+                    </span>
+                  )}
+                  {/* An X that would delete NOTHING is worse than no X: an
+                      inherited access lives on the container, and the row
+                      says WHERE instead of offering a gesture that leaves it
+                      standing. */}
+                  {s.viaType ? (
+                    <span
+                      data-testid="share-via"
+                      title={t('share.levelFromContainer')}
+                      className="flex-shrink-0 text-[10px] text-app-text-muted"
+                    >
+                      {t('share.viaProject')}
+                    </span>
+                  ) : (
+                    <button
+                      aria-label={t('share.removeAccess', { name: s.name })}
+                      disabled={inCorso}
+                      onClick={() => void togli(s)}
+                      className="rounded p-0.5 text-app-text-tertiary hover:bg-app-hover hover:text-red-500 disabled:opacity-50"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

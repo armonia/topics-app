@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
-import { grantedResourceIds, levelFor, meetsLevel } from "../lib/grants-query";
+import { readableTaskIds, levelFor, meetsLevel } from "../lib/grants-query";
 import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
@@ -2351,7 +2351,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // elenco una scheda condivisa con la PERSONA — che è il soggetto che
       // l'interfaccia offre — pur restando apribile per id dal cancello.
       const guestPrincipals = resolvePrincipals(ctx.db, deviceId).list;
-      const condivisi = new Set(grantedResourceIds(ctx.db, guestPrincipals, "task"));
+      // `readableTaskIds` and not the direct rows alone: a card inside a
+      // shared PROJECT carries no grant row of its own, and the gate has
+      // followed the container since 20260816230500 - so this feed answered
+      // with an empty board about cards the same guest could open by id.
+      const condivisi = new Set(readableTaskIds(ctx.db, guestPrincipals));
 
       // L'elenco: solo i suoi, e il PREDICATO ARRIVA FINO A SQL. Prima si
       // idratava ogni task del database — ogni etichetta, ogni bloccante, ogni

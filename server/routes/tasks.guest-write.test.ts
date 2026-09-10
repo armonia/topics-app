@@ -4,7 +4,7 @@
  * `matchGuestTaskAction`), and no level reaches a run, a stop, or any other
  * owner-only route (retitle, land, publish, ...).
  *
- * @covers GUEST-09
+ * @covers GUEST-09, GUEST-11
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -110,6 +110,32 @@ describe("a guest with a level on a shared task", () => {
     const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"));
     const denied = (await call(guest, "POST", `/api/tasks/${taskId}/land`))!;
     expect(denied.status).toBe(403);
+  });
+
+  test("un `edit` sul PROGETTO non diventa un `edit` sulle sue schede", async () => {
+    // The chain this crosses is the one that matters: the router asks
+    // `levelFor`, which falls back to the container when the card carries no
+    // row of its own. Uncapped, ONE click on the project handed a guest the
+    // text of every card it holds - and that text becomes the prompt of an
+    // agent running in the owner's repository at the next dispatch.
+    const projectId = (db.query("SELECT project_id FROM tasks WHERE id = ?").get(taskId) as { project_id: string }).project_id;
+    putGrant(db, { kind: "device", id: "g1" }, "project", projectId, { level: "edit", grantedAt: Date.now() });
+    const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"));
+
+    // Reading still works: the container opens the door, and taking that away
+    // would break sharing a project at all.
+    expect((await call(guest, "GET", `/api/tasks/${taskId}`))!.status).toBe(200);
+
+    for (const [method, path, body] of [
+      ["POST", `/api/tasks/${taskId}/comments`, { content: "hi" }],
+      ["PATCH", `/api/tasks/${taskId}`, { text: "riscritta dall'ospite" }],
+    ] as const) {
+      const denied = (await call(guest, method, path, body))!;
+      expect(denied.status, `${method} ${path}`).toBe(403);
+      expect((await denied.json()).code).toBe("guest_level_denied");
+    }
+    // And the text on disk is the one the owner wrote.
+    expect(db.query("SELECT text FROM tasks WHERE id = ?").get(taskId)).toMatchObject({ text: "shared card" });
   });
 
   test("a `deny` beats any level, including the ones granted to the guest's own device", async () => {

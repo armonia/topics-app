@@ -2,8 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
 import { MODAL_LAYER } from '../../lib/modalStyles';
-import { STATUS_LABEL, isProjectlessId } from '../../lib/board';
-import type { TaskStatus } from '../../../../shared/board';
+import { GuestCard, guestMeets, type GuestLevel, type SharedTask } from './GuestCard';
 
 /**
  * Cosa vede un OSPITE quando apre Topics.
@@ -18,18 +17,16 @@ import type { TaskStatus } from '../../../../shared/board';
  * da filtrare. (La forma sbagliata l'abbiamo già provata: mettere `/api/topics`
  * in allowlist rispondeva 200 con tutte le chat.)
  */
-interface SharedTask {
-  id: string;
-  text: string;
-  status: string;
-  project_id: string | null;
-  preview_image: string | null;
-}
-
 interface SharedChat {
   id: string;
   name: string;
   updated_at: string | null;
+  /** A chat conveys reading and nothing else: the only route the guest gate
+   *  opens under a topic is `GET /messages`. The field travels anyway because
+   *  the inventory answers with the level in force for every row, and a shape
+   *  that carried it for one kind and not the other would invite the reader
+   *  to assume it means "read" where it is missing. */
+  level?: GuestLevel;
 }
 
 export function GuestView({ deviceName }: { deviceName: string }) {
@@ -72,6 +69,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
   }, [carica]);
 
   const vuoto = stato === 'pronto' && tasks.length === 0 && chats.length === 0;
+  const readOnlyThroughout = !tasks.some((t) => guestMeets(t.level ?? 'read', 'comment'));
 
   return (
     // Come il cancello di pairing: superficie a schermo intero, piano
@@ -120,27 +118,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
             </h2>
             <ul className="space-y-1.5" data-testid="guest-tasks">
               {tasks.map((t) => (
-                <li key={t.id} className="rounded-lg border border-app-border px-3 py-2.5">
-                  <div className="text-[13px] leading-snug text-app-text">{t.text}</div>
-                  <div className="mt-1 flex items-center gap-2 text-[11px] text-app-text-muted">
-                    {/* The guest is the one person here who is NOT a Topics
-                        user: `in_progress` and a project slug are our
-                        internals, and this is the only screen where they were
-                        printed raw. Same two helpers the board card uses. */}
-                    <span>{STATUS_LABEL[t.status as TaskStatus] ?? t.status}</span>
-                    {t.project_id && !isProjectlessId(t.project_id) && <span>· {t.project_id}</span>}
-                  </div>
-                  {t.preview_image && (
-                    // L'anteprima passa dal gate solo se è quella di un task
-                    // concesso: il percorso è aperto, il contenuto no.
-                    <img
-                      src={`/media${t.preview_image.replace(/^.*\/\.topics\/media/, '')}`}
-                      alt=""
-                      className="mt-2 max-h-64 w-full rounded-md object-contain"
-                      loading="lazy"
-                    />
-                  )}
-                </li>
+                <GuestCard key={t.id} task={t} onChanged={() => { void carica(); }} />
               ))}
             </ul>
           </section>
@@ -161,7 +139,13 @@ export function GuestView({ deviceName }: { deviceName: string }) {
           </section>
         )}
 
-        {stato === 'pronto' && !vuoto && (
+        {/* THE SENTENCE HAS TO MATCH THE PERMISSION. "Read only. You can
+            look, not change." was printed at everybody, including a guest the
+            owner had just granted `edit` from the sharing panel: two screens,
+            one permission, opposite claims. It is now said only when it is
+            true of everything on the page - each card states its own level on
+            itself, which is the only place a per-card answer can live. */}
+        {stato === 'pronto' && !vuoto && readOnlyThroughout && (
           <p className="mt-6 text-center text-[11px] text-app-text-muted">
             {tr('guest.readOnly')}
           </p>

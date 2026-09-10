@@ -489,6 +489,20 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
         data: { subjectType: "device", subjectId: deviceId, resourceType: "task", resourceId: taskId, level },
       });
 
+    // `read` FIRST, and the comment refused there. Without this step the
+    // middle rung of the scale is not observed at all: replacing the router's
+    // guard with `guestAction === "edit" && !meetsLevel(...)` - which lets any
+    // `read` guest comment on anything shared with it - left this whole file
+    // green. A test that starts at `comment` can only ever see the granted
+    // half.
+    expect((await shareAt("read")).ok()).toBeTruthy();
+    const tooEarly = await request.post(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}/comments`, {
+      headers: daOspite(cookie),
+      data: { content: "non dovrei riuscire a scrivere" },
+    });
+    expect(tooEarly.status(), "at `read` a comment is refused").toBe(403);
+    expect((await tooEarly.json()).code, "denied by the level, not by the route").toBe("guest_level_denied");
+
     // `comment`: the GRANTED half, not only the refused one.
     expect((await shareAt("comment")).ok()).toBeTruthy();
     const posted = await request.post(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}/comments`, {
@@ -534,6 +548,161 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
     const { task: card } = (await after.json()) as { task: { status: string; assignedTopicId: string | null } };
     expect(card.status, "the card stays where it was").toBe("backlog");
     expect(card.assignedTopicId, "and no agent was bound to it").toBeFalsy();
+  });
+
+  /**
+   * A LEVEL ON A PROJECT DOES NOT BECOME A LEVEL ON ITS CARDS.
+   *
+   * Sharing a project is one click on a set whose membership moves on its own,
+   * and the cards inside it carry no grant row of their own - so an inherited
+   * `edit` would be a write capability nobody can see on the card's own panel
+   * and nobody can take back from it, on every card the project holds now and
+   * on every card created into it later.
+   *
+   * Crossed here and not only in the unit test because the whole point is the
+   * chain: the gate lets `PATCH /api/tasks/:id` through as a path, and only
+   * the level refuses it.
+   */
+  test("GUEST-11: un progetto condiviso a `edit` apre la lettura, non la scrittura", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-11" });
+    const stamp = Date.now();
+    const board = projectIdForPath(`/tmp/e2e-guest-project-level-${stamp}`);
+    const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
+      data: { text: `E2E-Guest-Progetto-${stamp}` },
+    });
+    expect(made.ok()).toBeTruthy();
+    const { id: taskId } = (await made.json()) as { id: string };
+
+    const { cookie, deviceId } = await ospite(request, `guest-09-prj-${stamp}`);
+    const shared = await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "project", resourceId: board, level: "edit" },
+    });
+    expect(shared.ok(), "the owner shares the PROJECT, at the top of the scale").toBeTruthy();
+
+    // A card created AFTER the grant: the inherited access has to be read at
+    // the moment of the question, so this one is inside it too.
+    const later = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
+      data: { text: `E2E-Guest-Progetto-dopo-${stamp}` },
+    });
+    const { id: laterId } = (await later.json()) as { id: string };
+
+    // THE LIST AND THE DOOR SAY THE SAME THING. The gate has followed the
+    // container since 20260816230500 and the two inventories did not: a card
+    // inside a shared project was openable by id and absent from every list a
+    // guest has - "I shared it with you" against "I see nothing".
+    const inventory = JSON.stringify(await (
+      await request.get(`${E2E_TUNNEL_BASE}/api/auth/shared`, { headers: daOspite(cookie) })
+    ).json());
+    expect(inventory, "la scheda del progetto compare nell'inventario").toContain(taskId);
+    expect(inventory, "anche quella creata dopo la concessione").toContain(laterId);
+
+    const feed = await request.get(`${E2E_TUNNEL_BASE}/api/all-boards/tasks`, { headers: daOspite(cookie) });
+    expect(feed.status()).toBe(200);
+    expect(JSON.stringify(await feed.json())).toContain(taskId);
+
+    for (const id of [taskId, laterId]) {
+      const read = await request.get(`${E2E_TUNNEL_BASE}/api/tasks/${id}`, { headers: daOspite(cookie) });
+      expect(read.status(), "the project opens its cards for reading").toBe(200);
+
+      const write = await request.patch(`${E2E_TUNNEL_BASE}/api/tasks/${id}`, {
+        headers: daOspite(cookie),
+        data: { text: "riscritta attraverso il progetto" },
+      });
+      expect(write.status(), "and stops there").toBe(403);
+      expect((await write.json()).code).toBe("guest_level_denied");
+
+      const commented = await request.post(`${E2E_TUNNEL_BASE}/api/tasks/${id}/comments`, {
+        headers: daOspite(cookie),
+        data: { content: "nemmeno un commento" },
+      });
+      expect(commented.status()).toBe(403);
+    }
+
+    // The owner's text is the one on the card, from the owner's own door.
+    const still = await request.get(`${E2E_BASE}/api/boards/${board}/tasks/${taskId}`);
+    const { task: card } = (await still.json()) as { task: { text: string } };
+    expect(card.text).toBe(`E2E-Guest-Progetto-${stamp}`);
+  });
+
+  /**
+   * THE SCALE, AS THE GUEST'S OWN APPLICATION SHOWS IT.
+   *
+   * Everything above proves the SERVER honours three levels. It says nothing
+   * about the product, and that is where the two halves had come apart: the
+   * guest screen printed "Sola lettura. Puoi vedere, non modificare." at everybody (allow-italian: the exact `guest.readOnly` string on screen)
+   * - including a device the owner had just granted `edit` from the sharing
+   * panel - and offered no composer and no editable text, so the
+   * capability the panel promised was unreachable from the application. Two
+   * sentences on the two sides of one permission, saying opposite things.
+   *
+   * The test opens the real page, on the tunnel listener, with a real guest
+   * cookie, and asserts BOTH sides of the same card: absent at `read`,
+   * present and EFFECTIVE at `edit` - the rewritten text read back from the
+   * owner's own door, which is the only place it counts.
+   */
+  test("GUEST-12: la vista dell'ospite mostra il livello che gli e' stato dato", async ({ request, browser }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-12" });
+    const stamp = Date.now();
+    const board = projectIdForPath(`/tmp/e2e-guest-view-${stamp}`);
+    const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
+      data: { text: `E2E-Guest-Vista-Livello-${stamp}` },
+    });
+    const { id: taskId } = (await made.json()) as { id: string };
+    const { cookie, deviceId } = await ospite(request, `guest-09-view-${stamp}`);
+    const shareAt = (level: string) =>
+      request.post(`${E2E_BASE}/api/auth/shares`, {
+        data: { subjectType: "device", subjectId: deviceId, resourceType: "task", resourceId: taskId, level },
+      });
+
+    expect((await shareAt("read")).ok()).toBeTruthy();
+
+    const eq = cookie.indexOf("=");
+    const ctx = await browser.newContext({ baseURL: E2E_TUNNEL_BASE });
+    await ctx.addCookies([{ name: cookie.slice(0, eq), value: cookie.slice(eq + 1), url: E2E_TUNNEL_BASE }]);
+    const page = await ctx.newPage();
+    try {
+      await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
+      const card = page.getByTestId("guest-card");
+      await expect(card, "l'ospite vede la scheda che gli e' stata condivisa").toHaveCount(1);
+
+      // AT `read`: neither of the two writes is offered, and the page says so.
+      await expect(page.getByTestId("guest-comment-input")).toHaveCount(0);
+      await expect(page.getByTestId("guest-edit-open")).toHaveCount(0);
+      await expect(card.getByTestId("guest-level")).toHaveText(/vedere|view/i);
+
+      // The owner raises the level from its own door, and the page is loaded
+      // again. NOT because a live update would be wrong to want, but because
+      // a guest page mounts no socket at all: `SessionRoot` renders the guest
+      // view INSTEAD of `<App/>`, and `useWebSocket` lives inside `App`. A
+      // test that waited for the composer to appear on its own would be
+      // waiting for a frame nothing can deliver, and would fail describing
+      // the level instead of the missing socket.
+      expect((await shareAt("edit")).ok()).toBeTruthy();
+      await page.reload({ waitUntil: "domcontentloaded" });
+      const box = page.getByTestId("guest-comment-input");
+      await expect(box, "alzato il livello, l'ospite ha da scrivere").toHaveCount(1, { timeout: 15_000 });
+      await expect(page.getByTestId("guest-edit-open")).toHaveCount(1);
+
+      // AND IT WORKS, which is the half a presence check cannot see.
+      await box.fill("commento scritto dalla vista ospite");
+      await page.getByTestId("guest-comment-send").click();
+      await expect(card.getByTestId("guest-thread")).toContainText("commento scritto dalla vista ospite", { timeout: 15_000 });
+
+      const newText = `riscritta dalla vista ospite ${stamp}`;
+      await page.getByTestId("guest-edit-open").click();
+      await page.getByTestId("guest-edit-text").fill(newText);
+      await page.getByTestId("guest-edit-save").click();
+      await expect(card).toContainText(newText, { timeout: 15_000 });
+
+      // Read back from the OWNER's door: the card really changed, and the
+      // comment is really in its thread.
+      await expect.poll(async () => {
+        const r = await request.get(`${E2E_BASE}/api/boards/${board}/tasks/${taskId}`);
+        return ((await r.json()) as { task: { text: string } }).task.text;
+      }, { timeout: 15_000 }).toBe(newText);
+    } finally {
+      await ctx.close();
+    }
   });
 
   /**
