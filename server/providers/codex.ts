@@ -574,6 +574,64 @@ export class CodexProvider implements AIProvider {
       }
     } catch { /* nessun recinto: la sessione parte comunque, com'è sempre stato */ }
 
+    // A resumed thread carries its own context inside Codex; only a fresh
+    // turn needs the client-side markdown transcript prepended (a `codex exec`
+    // child otherwise has no memory of prior turns). Without this, a fresh
+    // turn's reply read like the very first one.
+    const history = options?.history ?? [];
+    const prompt = invocation.mode === "fresh" && history.length > 0
+      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
+      : message;
+
+    this.runCodexTurn({
+      sessionKey,
+      bin,
+      args,
+      workspace,
+      env,
+      handler,
+      explicitModel,
+      invocationMode: invocation.mode,
+      prompt,
+      message,
+      history,
+      argsOptsForFallback: argsOpts,
+      // A stale thread id that survives `resolveCodexInvocation` (rollout
+      // still on disk) can still die mid-turn: the CLI itself rejects it,
+      // the rollout is corrupt, or the account/session state moved on.
+      // Without a fallback the id stays in `codex_sessions` forever and every
+      // future turn repeats the same dead resume — the only fix left is a
+      // manual DELETE. One fresh retry with the full history turns a
+      // permanent break into a slow turn.
+      allowResumeFallback: invocation.mode === "resume",
+    });
+
+    return { runId };
+  }
+
+  /**
+   * Spawns one `codex exec` (or `codex exec resume`) child and wires its
+   * stdout/stderr/close handlers. Split out of `sendChat` so a resume that
+   * dies mid-turn can retry itself once, fresh, without duplicating the
+   * spawn/wiring logic — see `allowResumeFallback` below.
+   */
+  private runCodexTurn(params: {
+    sessionKey: string;
+    bin: string;
+    args: string[];
+    workspace: string;
+    env: NodeJS.ProcessEnv;
+    handler: StreamHandler;
+    explicitModel?: string;
+    invocationMode: "resume" | "fresh";
+    prompt: string;
+    message: string;
+    history: ChatMessage[];
+    argsOptsForFallback: Parameters<typeof buildCodexArgs>[0];
+    allowResumeFallback: boolean;
+  }): void {
+    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, prompt, message, history, argsOptsForFallback, allowResumeFallback } = params;
+
     const child = spawn(bin, args, {
       cwd: workspace,
       stdio: ["pipe", "pipe", "pipe"],
@@ -642,6 +700,27 @@ export class CodexProvider implements AIProvider {
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
+
+      // A resumed thread that dies mid-turn (not a user abort) leaves its
+      // stored thread id pointing at a resume that will fail the exact same
+      // way forever, since `resolveCodexInvocation` only drops an id whose
+      // ROLLOUT FILE is missing, not one whose resume just failed. Forget it
+      // and retry once, fresh, with the full history: the turn is slower but
+      // no longer permanently broken.
+      if (code !== 0 && !state?.aborted && invocationMode === "resume" && allowResumeFallback) {
+        try { forgetCodexThreadId(getDatabase(), sessionKey); } catch { /* next turn just tries resume again */ }
+        const freshArgs = buildCodexArgs(argsOptsForFallback);
+        const freshPrompt = history.length > 0
+          ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
+          : message;
+        this.runCodexTurn({
+          sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
+          invocationMode: "fresh", prompt: freshPrompt, message, history, argsOptsForFallback,
+          allowResumeFallback: false,
+        });
+        return;
+      }
+
       const done: ProviderDoneMessage = {};
       if (state?.usage) done.usage = state.usage;
       if (state) done.durationMs = Date.now() - state.startedAt;
@@ -677,19 +756,8 @@ export class CodexProvider implements AIProvider {
       handler.onError(err.message);
     });
 
-    // A resumed thread carries its own context inside Codex; only a fresh
-    // turn needs the client-side markdown transcript prepended (a `codex exec`
-    // child otherwise has no memory of prior turns). Without this, a fresh
-    // turn's reply read like the very first one.
-    const history = options?.history ?? [];
-    const prompt = invocation.mode === "fresh" && history.length > 0
-      ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
-      : message;
-
     child.stdin!.write(prompt);
     child.stdin!.end();
-
-    return { runId };
   }
 
   // --- Routing for JSONL events from `codex exec --json` ---
