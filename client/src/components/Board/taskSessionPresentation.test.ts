@@ -67,7 +67,7 @@ describe('task session presentation', () => {
     expect(taskSessionSegments(live)).toEqual([{ message: { ...live, id: `${live.id}:0` }, folded: true, sessionDetail: true }]);
   });
 
-  test.each(['waiting_for_input', 'awaiting_permission', 'error'] as const)('a salient tool between ordinary tools does not expose the adjacent work: %s', (status) => {
+  test.each(['waiting_for_input', 'awaiting_permission'] as const)('a salient tool between ordinary tools does not expose the adjacent work: %s', (status) => {
     const salient: ToolCall = { ...call, id: 'needs-attention', status };
     const live: ChatMessage = { ...message, partial: true, blocks: [blocks[0], blocks[2],
       { kind: 'tool', toolCall: salient }, blocks[2], blocks[3],
@@ -79,6 +79,17 @@ describe('task session presentation', () => {
     expect(parts[1].message.content).toBe('');
     expect(parts.filter((part) => part.folded).every((part) => part.sessionDetail)).toBe(true);
     expect(parts.flatMap((part) => part.message.blocks ?? [])).toEqual(live.blocks!);
+  });
+
+  test('a settled failed tool folds with the rest of the work instead of interrupting it', () => {
+    const failed: ToolCall = { ...call, id: 'broke', status: 'error' };
+    const live: ChatMessage = { ...message, partial: true, blocks: [blocks[0], blocks[2],
+      { kind: 'tool', toolCall: failed }, blocks[2], blocks[3],
+    ] };
+    const parts = taskSessionSegments(live, true, true);
+    expect(parts.map((part) => part.folded)).toEqual([true]);
+    expect(parts[0].sessionDetail).toBe(true);
+    expect(parts[0].message.blocks).toEqual(live.blocks!);
   });
 
   test('a structured text question stays visible during active work without showing adjacent tools', () => {
@@ -246,8 +257,14 @@ describe('task session presentation', () => {
   });
 });
 
-test.each(['waiting_for_input', 'awaiting_permission', 'error'] as const)('a salient tool preserves its preceding answer in the same completed message: %s', (status) => {
+test.each(['waiting_for_input', 'awaiting_permission'] as const)('a salient tool preserves its preceding answer in the same completed message: %s', (status) => {
   const msg: ChatMessage = { ...message, blocks: [blocks[2], blocks[3], { kind: 'tool', toolCall: { ...call, id: 'attention', status } }] };
   const parts = taskSessionSegments(msg);
   expect(parts.filter((part) => !part.folded).flatMap((part) => part.message.blocks ?? [])).toEqual([blocks[3], msg.blocks![2]]);
+});
+
+test('a settled failed tool at the end folds the whole message, needing no attention', () => {
+  const msg: ChatMessage = { ...message, blocks: [blocks[2], blocks[3], { kind: 'tool', toolCall: { ...call, id: 'broke', status: 'error' } }] };
+  const parts = taskSessionSegments(msg);
+  expect(parts.every((part) => part.folded)).toBe(true);
 });

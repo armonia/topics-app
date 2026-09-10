@@ -27,7 +27,12 @@ function withoutLegacyError(content: string): string {
   return text.split(/\n\s*\n/).slice(1).join('\n\n');
 }
 
-/** Keep replies, decisions, failures and attachments in view, including live turns. */
+/**
+ * Keep replies, decisions and attachments in view, including live turns. A
+ * settled failed action folds with the rest of the work: the count already
+ * surfaces on the closed "session details" row, and the raw command stays one
+ * click away instead of repeating itself in the conversation.
+ */
 export function taskSessionSegments(message: ChatMessage, hasThreadReply = false, activeRun = false): SessionSegment[] {
   const visible = () => [{ message, folded: false }];
   if (message.role !== 'assistant') return visible();
@@ -82,7 +87,7 @@ export function taskSessionSegments(message: ChatMessage, hasThreadReply = false
   let lastTool = -1;
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];
-    if (block.kind === 'tool' && !isAwaitingHuman(block.toolCall.status) && block.toolCall.status !== 'error') { lastTool = i; break; }
+    if (block.kind === 'tool' && !isAwaitingHuman(block.toolCall.status)) { lastTool = i; break; }
   }
   const groups: Array<{ folded: boolean; blocks: ContentBlock[]; start: string }> = [];
   const push = (block: ContentBlock, folded: boolean, start: string) => {
@@ -92,7 +97,7 @@ export function taskSessionSegments(message: ChatMessage, hasThreadReply = false
   };
   for (const [index, block] of blocks.entries()) {
     const folded = block.kind === 'error' ? false
-      : block.kind === 'tool' ? !isAwaitingHuman(block.toolCall.status) && block.toolCall.status !== 'error'
+      : block.kind === 'tool' ? !isAwaitingHuman(block.toolCall.status)
       : block.kind === 'thinking' ? true
       : block.kind === 'text' ? !parseQuestionBlock(block.text) && (hasThreadReply || inFlight || index < lastTool)
       : hasThreadReply || inFlight;
