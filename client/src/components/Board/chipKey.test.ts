@@ -5,7 +5,7 @@
  * @covers KANBAN-07
  */
 import { describe, expect, test } from 'bun:test';
-import { chipKey, taskHasWork, uncommittedChipCount } from './chipKey';
+import { chipKey, commentChip, commentChipTestId, taskHasWork, uncommittedChipCount } from './chipKey';
 import { DISPATCH_CHIP } from './constants';
 
 describe('chip di una consegna', () => {
@@ -73,5 +73,49 @@ describe('una card senza niente dietro', () => {
 
   test('anche questa chiave esiste davvero, o la card resta MUTA', () => {
     expect(DISPATCH_CHIP.delivered_empty).toBeDefined();
+  });
+});
+
+/**
+ * WHAT THE BUBBLE SAYS ABOUT WORDS YOU JUST SENT, with two sources answering.
+ *
+ * The bug this closes was visible and durable: a steer typed on a card in
+ * `todo` came back from the route as `note` — the route only resumes an agent
+ * for `review`/`in_progress` — and the chip printed "Note saved. No agent
+ * response requested." over words the person had just sent to the agent, while
+ * the derivation for that same row said the card still owed a turn.
+ */
+describe('chip di un commento nel filo', () => {
+  test('la derivazione batte una ricevuta che dice solo «non consegnato ora»', () => {
+    expect(commentChip('pending', 'note')).toBe('pending');
+    expect(commentChip('pending', 'saved')).toBe('pending');
+    expect(commentChip('pending', undefined)).toBe('pending');
+  });
+
+  test('la busta e\' la prova, e sopravvive a ogni ricevuta', () => {
+    expect(commentChip('delivered', 'note')).toBe('delivered');
+    expect(commentChip('delivered', 'queued')).toBe('delivered');
+  });
+
+  test('la ricevuta parla dove la derivazione tace', () => {
+    expect(commentChip(undefined, 'note')).toBe('note');
+    expect(commentChip(undefined, 'saved')).toBe('saved');
+    expect(commentChip(undefined, undefined)).toBeUndefined();
+  });
+
+  test('quello che la rotta ha appena fatto, e che nessuna busta mostra ancora', () => {
+    // A routed question unblocked mid-turn: the card is still `in_progress`, so
+    // the derivation says `pending`, but those words HAVE reached the agent.
+    expect(commentChip('pending', 'answered')).toBe('answered');
+    expect(commentChip('pending', 'queued')).toBe('queued');
+  });
+
+  test('il testid dice COSA c\'e\' scritto, non chi ha vinto', () => {
+    expect(commentChipTestId('delivered')).toBe('task-comment-delivered');
+    expect(commentChipTestId('answered')).toBe('task-comment-delivered');
+    expect(commentChipTestId('pending')).toBe('task-comment-queued');
+    expect(commentChipTestId('queued')).toBe('task-comment-queued');
+    expect(commentChipTestId('note')).toBe('task-comment-receipt');
+    expect(commentChipTestId('saved')).toBe('task-comment-receipt');
   });
 });

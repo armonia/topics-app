@@ -69,6 +69,7 @@ import { holdTopic } from '../../state/topicSubscriptions';
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 import { SessionLiveRow } from './SessionLiveRow';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
+import { commentChip, commentChipTestId } from './chipKey';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { DispatchEnvelopeRow } from '../Chat/DispatchEnvelopeRow';
@@ -1724,7 +1725,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} onMessage={onMessage} />;
       if (item.source === 'comment') {
         const receipt = commentReceipt?.id === item.id ? commentReceipt.delivery : undefined;
-        const chip = item.delivery === 'delivered' ? 'delivered' : receipt ?? item.delivery;
+        // Which of the two sources wins is a rule, and it lives in `chipKey.ts`
+        // where a test can run it: the derivation is the authority, the receipt
+        // speaks only where the derivation is silent or where the route moved
+        // the words this instant.
+        const chip = commentChip(item.delivery, receipt);
         const previous = timeline[index - 1];
         const continuation = !!item.comment.messageId && previous?.source === 'comment'
           && previous.comment.messageId === item.comment.messageId
@@ -1766,7 +1771,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 under the person's own bubble, on their side. */}
             {chip && (
               <p
-                data-testid={chip === 'delivered' ? 'task-comment-delivered' : receipt ? 'task-comment-receipt' : 'task-comment-queued'}
+                data-testid={commentChipTestId(chip)}
                 role={receipt ? 'status' : undefined}
                 className="pr-1 text-right text-[10px] text-app-text-faint"
               >{tr(chip === 'note' ? 'board.task.noteSaved' : chip === 'saved' ? 'board.task.commentSaved'
