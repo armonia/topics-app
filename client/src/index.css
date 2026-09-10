@@ -3185,11 +3185,52 @@ html.native-frost:not(.dark) .chrome-glass {
  * Derived with `color-mix` instead of three hand-written colours: the day the
  * popover surface is retuned the tabs follow, which is the whole point of
  * taking the token instead of copying its value. */
+/* THE FOUR STATES WERE ONE COLOUR AT FOUR ALPHAS, AND THAT IS NOT A HIERARCHY.
+ *
+ * Measured on the running app before touching anything, with the arithmetic of
+ * `tests/e2e/helpers/contrast.ts` (composite each surface down to the first
+ * opaque ancestor, then WCAG): selected tab against resting tab
+ * 1.0014:1 in light and 1.0077:1 in dark. This file calls 1.1:1 the threshold
+ * of perceptibility, in four separate places, and defends it with numbers. The
+ * selected tab was seventy times below it.
+ *
+ * The cause is structural, not a badly chosen number. All four fills were the
+ * SAME ink at 93 / 97 / 82 / 99 percent alpha, and that ink is the surface the
+ * bar floats over, so every alpha composites back to almost exactly the ground.
+ * Turning the alpha up cannot fix it: at 100 percent the tab is still the
+ * colour of the thing behind it, and the blur that makes the card glass goes
+ * inert (see the note below on why these stop short of opaque).
+ *
+ * So the alpha keeps the one job it is good at - masking the transcript that
+ * scrolls under the bar - and the STATE is carried by a neutral luminance step
+ * on top of the ink: a shade down in light, a shade up in dark. Neutral because
+ * `lib/selectionStyles.ts` bans the blue wash by name, and because a step in
+ * lightness is the same grammar the sidebar rows already use.
+ *
+ * The four steps, measured in the browser after the change (selected against
+ * resting, and each step against the one below it):
+ *
+ *   light   rest 243,243,244 - hover +1.11 - soft +1.17 - selected 1.31 vs rest
+ *   dark    rest  40, 41, 43 - hover +1.11 - soft +1.17 - selected 1.34 vs rest
+ *
+ * Every gap clears 1.1. The percentages differ between the themes on purpose:
+ * a point of white on a near-black ink moves the eye further than a point of
+ * black on a near-white one, so equal numbers would give unequal steps.
+ *
+ * `--tab-bg-soft` USED TO BE THE MOST TRANSPARENT OF THE FOUR (82 percent), one
+ * step further from the ground than resting. It is the active tab of a split
+ * group that does not hold focus, which is a rank ABOVE resting, so the scale
+ * ran backwards there: a project tab you were working inside read fainter than
+ * the tabs you were not. It is now the middle rung, in the right direction. */
 :root {
+  --tab-lift: #000;
+  --tab-step-hover: 5%;
+  --tab-step-soft: 7%;
+  --tab-step-sel: 12%;
   --tab-bg-rest: color-mix(in srgb, var(--tab-ink) 93%, transparent);
-  --tab-bg-rest-hover: color-mix(in srgb, var(--tab-ink) 97%, transparent);
-  --tab-bg-soft: color-mix(in srgb, var(--tab-ink) 82%, transparent);
-  --tab-bg-sel: color-mix(in srgb, var(--tab-ink) 99%, transparent);
+  --tab-bg-rest-hover: color-mix(in srgb, color-mix(in srgb, var(--tab-lift) var(--tab-step-hover), var(--tab-ink)) 96%, transparent);
+  --tab-bg-soft: color-mix(in srgb, color-mix(in srgb, var(--tab-lift) var(--tab-step-soft), var(--tab-ink)) 97%, transparent);
+  --tab-bg-sel: color-mix(in srgb, color-mix(in srgb, var(--tab-lift) var(--tab-step-sel), var(--tab-ink)) 99%, transparent);
   /* THE TINT, and WHICH token it really is.
    *
    * `--popover-bg` is declared ONLY inside `@media (max-width: 767px)`, so on a
@@ -3205,6 +3246,16 @@ html.native-frost:not(.dark) .chrome-glass {
    * and the card's `backdrop-filter` are ONE material, and an opaque fill makes
    * that filter inert. */
   --tab-ink: var(--popover-bg, var(--bg-surface));
+}
+
+/* The dark twin of the step above: the ink is near black, so the state is a
+ * shade UP and the percentages are smaller for the same perceived rung. Only
+ * the four knobs move; the `color-mix` formulas stay written once. */
+.dark {
+  --tab-lift: #fff;
+  --tab-step-hover: 3.5%;
+  --tab-step-soft: 5%;
+  --tab-step-sel: 9%;
 }
 
 /* THE GLASS IS THE TAB, NOT THE BAR.

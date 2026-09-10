@@ -166,15 +166,15 @@ describe("devBundleReload — prompt, never auto-reload", () => {
 
     test("oltre il tetto non si chiude niente: la navigazione non ci sara'", async () => {
       const { reloadForNewBundle, onBeforeBundleReload } = await import("./devBundleReload");
-      let closures = 0;
-      const off = onBeforeBundleReload(() => { closures++; });
+      let teardowns = 0;
+      const off = onBeforeBundleReload(() => { teardowns++; });
       try {
         reloadForNewBundle();
         reloadForNewBundle();
         reloadForNewBundle();
         reloadForNewBundle();
         expect(fake.replaceCalls.length).toBe(3);
-        expect(closures).toBe(3);
+        expect(teardowns).toBe(3);
       } finally {
         off();
       }
