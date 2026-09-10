@@ -1,7 +1,6 @@
 import { pickPlanComment } from './planPanel';
 import { reconcileAcknowledgedComments } from './acknowledgedComments';
 import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
-import { isAutoCapturedPreview } from '../../../../shared/media-kind';
 import { memo, useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, useSyncExternalStore, type TouchEvent as ReactTouchEvent } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
@@ -2499,16 +2498,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
         )}</div>
-          {task && ((task.previewImage && !mediaPaths.includes(task.previewImage)) || task.previewRetiredAt || isAgentReview) && (
+          {/* THE TWIN OPENER THAT COULD NEVER RENDER IS GONE.
+              It was gated on `!mediaPaths.includes(task.previewImage)`, and
+              `collectTaskMediaPaths` puts the preview FIRST in that list since
+              2026-08-03 (050d9b766): the condition has been false ever since,
+              for every task that has a preview. The live opener is the row in
+              "File consegnati" just above, which carries the same testid and
+              the same action — and `board-drawer-truth` spent that time looking
+              for the dead one. What is left here is the band that speaks when
+              there is NO preview (retired, or missing on an agent review), so
+              its condition is now exactly that. */}
+          {task && (task.previewRetiredAt || isAgentReview) && (
             <div className="border-b border-app-border px-3 py-2" data-testid="task-detail-preview">
               <div className="flex flex-wrap items-center gap-2">
-                {task.previewImage && !mediaPaths.includes(task.previewImage) && <button type="button" data-testid="task-preview-open"
-                  onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs text-app-text-secondary hover:text-app-text">
-                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{isAutoCapturedPreview(task.previewImage) ? tr('board.task.deliveryAutoShot') : tr('board.task.deliveryLabel')}</span>
-                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-                </button>}
                 {isAgentReview && <button disabled={recapturing} onClick={recapturePreview}
                   title={tr('board.task.recapturePreviewTitle')} data-testid="task-recapture-preview"
                   className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-app-text-secondary hover:bg-white/10 disabled:opacity-40">
