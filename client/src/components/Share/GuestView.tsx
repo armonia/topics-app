@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
 import { MODAL_LAYER } from '../../lib/modalStyles';
-import { GuestCard, guestMeets, type GuestLevel, type SharedTask } from './GuestCard';
+import { GuestCard, type SharedTask } from './GuestCard';
+import { guestMeets, type GuestLevel } from './guestLevel';
 
 /**
  * Cosa vede un OSPITE quando apre Topics.

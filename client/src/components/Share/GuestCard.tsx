@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { guestMeets, type GuestLevel } from './guestLevel';
 import { MessageSquarePlus, Pencil } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { STATUS_LABEL, isProjectlessId } from '../../lib/board';
@@ -22,15 +23,6 @@ import type { TaskStatus } from '../../../../shared/board';
  * `PATCH /api/tasks/:id`. Nothing else is offered, at any level - starting a
  * run, approving, publishing are not steps on this scale.
  */
-export type GuestLevel = 'read' | 'comment' | 'edit';
-
-const RANK: Record<GuestLevel, number> = { read: 0, comment: 1, edit: 2 };
-
-/** The same question `meetsLevel` asks on the server, asked the same way:
- *  "at least X", never an `if` per level written by hand at each call site. */
-export function guestMeets(level: GuestLevel, min: GuestLevel): boolean {
-  return RANK[level] >= RANK[min];
-}
 
 export interface SharedTask {
   id: string;
@@ -179,8 +171,8 @@ export function GuestCard({ task, onChanged }: {
       </div>
 
       {task.preview_image && (
-        // L'anteprima passa dal gate solo se è quella di un task concesso: il
-        // percorso è aperto, il contenuto no.
+        // The preview clears the gate only when it belongs to a granted task:
+        // the path is open, the content is not.
         <img
           src={`/media${task.preview_image.replace(/^.*\/\.topics\/media/, '')}`}
           alt=""

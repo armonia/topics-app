@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
-import { E2E_BASE, E2E_TUNNEL_BASE } from "./helpers/test-server";
+import { E2E_BASE, E2E_TUNNEL_BASE, canonicalTmpRoot } from "./helpers/test-server";
 import { createTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { goToApp, ensureTopicVisible } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
@@ -476,7 +476,7 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
   test("GUEST-09: comment e edit passano la catena vera, run non passa a nessun livello", async ({ request }) => {
     test.info().annotations.push({ type: "spec", description: "GUEST-09" });
     const stamp = Date.now();
-    const board = projectIdForPath(`/tmp/e2e-guest-level-${stamp}`);
+    const board = projectIdForPath(`${canonicalTmpRoot()}/e2e-guest-level-${stamp}`);
     const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
       data: { text: `E2E-Guest-Livello-${stamp}` },
     });
@@ -566,7 +566,7 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
   test("GUEST-11: un progetto condiviso a `edit` apre la lettura, non la scrittura", async ({ request }) => {
     test.info().annotations.push({ type: "spec", description: "GUEST-11" });
     const stamp = Date.now();
-    const board = projectIdForPath(`/tmp/e2e-guest-project-level-${stamp}`);
+    const board = projectIdForPath(`${canonicalTmpRoot()}/e2e-guest-project-level-${stamp}`);
     const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
       data: { text: `E2E-Guest-Progetto-${stamp}` },
     });
@@ -643,7 +643,7 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
   test("GUEST-12: la vista dell'ospite mostra il livello che gli e' stato dato", async ({ request, browser }) => {
     test.info().annotations.push({ type: "spec", description: "GUEST-12" });
     const stamp = Date.now();
-    const board = projectIdForPath(`/tmp/e2e-guest-view-${stamp}`);
+    const board = projectIdForPath(`${canonicalTmpRoot()}/e2e-guest-view-${stamp}`);
     const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
       data: { text: `E2E-Guest-Vista-Livello-${stamp}` },
     });
@@ -718,7 +718,7 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
   test("GUEST-10: un ospite non legge, ne' scrive, chi altro tiene una risorsa", async ({ request }) => {
     test.info().annotations.push({ type: "spec", description: "GUEST-10" });
     const stamp = Date.now();
-    const board = projectIdForPath(`/tmp/e2e-guest-shares-${stamp}`);
+    const board = projectIdForPath(`${canonicalTmpRoot()}/e2e-guest-shares-${stamp}`);
     const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
       data: { text: `E2E-Guest-Shares-${stamp}` },
     });
