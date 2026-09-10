@@ -55,6 +55,7 @@ import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-sq
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { startLoopLagSampler } from "./server/lib/loop-lag-sampler";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
+import { nativeHistorySource } from "./server/providers/native/history-source";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createMediaRouter, activeContentGuardHeaders, PREVIEW_SANDBOX_FLAGS } from "./server/routes/media";
 import { createBranchesRouter } from "./server/routes/branches";
@@ -683,19 +684,11 @@ configureSessionParkingForTracker(claudeSessionTracker);
 // salvataggio in `server/`. Da qui in poi, quando una sua sessione nasce, se la
 // va a riprendere dal DB: `loadActiveThread` è la stessa lettura che alimenta la
 // chat, quindi il modello riparte esattamente da ciò che l'utente ha davanti.
-// The tool calls travel too: without them the rebuilt history was prose only,
-// and an agent resumed after a restart no longer knew which files it had read
-// or edited, so it explored or redid the work. The `blocks` column is skipped
-// on purpose: it is the fat one (7 MB on the heaviest topic) and nothing here
-// reads it, while `tool_calls` is exactly what is needed.
-configureNativeHistorySource((sessionKey) =>
-  ctx.loadActiveThread(sessionKey, { withBlocks: false }).map((m) => ({
-    role: m.role,
-    content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
-    partial: (m as { partial?: number | boolean | null }).partial ?? null,
-    toolCalls: m.toolCalls ?? null,
-  })),
-);
+// The tool calls travel too, and `withBlocks: true` is why: see
+// `history-source.ts` for the column that used to make this promise false.
+// `historyFromPersistedThread` caps the token cost of that history on its own
+// (`REHYDRATE_WINDOW_TOKENS`), so this file only has to supply it whole.
+configureNativeHistorySource((sessionKey) => nativeHistorySource(ctx, sessionKey));
 
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
