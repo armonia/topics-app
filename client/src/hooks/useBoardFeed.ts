@@ -97,7 +97,7 @@ export function useBoardFeed({ mode, projectId, showArchived, onError }: BoardFe
   // the one board where a dead server looked like a quiet morning: the rows of
   // the previous read stayed on screen, the waiting ring stopped, and nothing
   // said why. The project mode below has said it since the day it was written.
-  const globalError = useBoardTasksError();
+  const globalError = useBoardTasksError(isAll);
   // The rows AND the query they answer, in one state. Keeping them together is
   // what makes "still loading" a derived value instead of a flag set from an
   // effect: switching board or opening the archive changes the key, and the

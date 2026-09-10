@@ -47,7 +47,7 @@ const MAX_RETRIES = 8;
  * The short ladder, for a caller that is holding a UI overlay open while it
  * waits: 300+600+1200+2400 ≈ 4,5s across 5 requests.
  *
- * `restartTerminalSession` has a 15s timeout that takes its "Riavvio…" overlay
+ * `restartTerminalSession` has a 15s timeout that takes its "Riavvio…" overlay  allow-italian: quoted UI copy, the overlay says this word on screen
  * off the pane, and it means "no answer is coming". Handing that caller the
  * full 23s ladder would make its own net fire FIRST on every long window — the
  * overlay would come off while the retry was still in flight, and the restart

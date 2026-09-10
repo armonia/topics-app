@@ -88,7 +88,12 @@ function sameTaskValue(a: unknown, b: unknown): boolean {
 export function setBoardTasks(next: readonly BoardTask[]): void {
   const reconciled = next.map((row, i) => sameTaskValue(tasks[i], row) ? tasks[i] : row);
   const unchanged = reconciled.length === tasks.length && reconciled.every((row, i) => row === tasks[i]);
-  if (unchanged && loaded) return;
+  // IDENTICAL ROWS ARE STILL AN ANSWER. The bail-out exists so a repeated feed
+  // does not redraw and does not rewrite the cache; what it must not also
+  // swallow is the fact that the read CAME BACK. A board that failed and is
+  // then fed the same rows again HAS changed state - the message has to go -
+  // so a pending failure disarms the bail-out.
+  if (unchanged && loaded && error === null) return;
   if (!unchanged) tasks = reconciled;
   loaded = true;
   // The read answered: whatever the board was saying about the previous
@@ -245,7 +250,17 @@ export function useBoardTasksLoaded(enabled = true): boolean {
   );
 }
 
-/** "Did the last read fail?", reactive (see `getBoardTasksError`). */
-export function useBoardTasksError(): string | null {
-  return useSyncExternalStore(subscribeBoardTasks, getBoardTasksError, getBoardTasksError);
+const noError = () => null;
+
+/** "Did the last read fail?", reactive (see `getBoardTasksError`).
+ *
+ *  `enabled` like its two siblings, and for the same measured reason: a pane
+ *  in project mode does not read this store, and subscribing it anyway puts a
+ *  callback on every frame of a board it is not showing. */
+export function useBoardTasksError(enabled = true): string | null {
+  return useSyncExternalStore(
+    enabled ? subscribeBoardTasks : noSubscription,
+    enabled ? getBoardTasksError : noError,
+    enabled ? getBoardTasksError : noError,
+  );
 }
