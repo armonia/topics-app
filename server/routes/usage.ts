@@ -15,6 +15,12 @@ import type { AppContext, RouteHandler } from "../types";
 import { listNativeUsage } from "../providers/native-usage-registry";
 import { unknownPricedModels } from "../usage/pricing";
 import { projectUsage, type ProjectUsageResult } from "../usage/project-usage";
+// THE ANSWER IS TYPED AT THE DOOR, not just described in a comment. The shape
+// says the thing this route must never be read as - `absentMeansUnmeasured`,
+// and a `cacheWrite1hTokens` that is a SUBSET and not another addend - so the
+// annotation is what makes a field renamed in `shared/` a compile error here
+// instead of a number that quietly stops arriving.
+import type { SessionUsageResponse } from "../../shared/usage-shapes";
 
 /**
  * The per-project aggregate is a GROUP BY over the whole `messages` table, and
@@ -58,16 +64,20 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
      * measures.
      */
     if (method === "GET" && pathname === "/api/usage/sessions") {
-      const sessions = listNativeUsage().map((u) => ({
-        sessionKey: u.sessionKey,
-        inputTokens: u.inputTokens,
-        outputTokens: u.outputTokens,
-        cacheWriteTokens: u.cacheWriteTokens,
-        cacheWrite1hTokens: u.cacheWrite1hTokens,
-        cacheReadTokens: u.cacheReadTokens,
-        billableTokens: u.billableTokens,
-      }));
-      return json({ sessions, source: "native-runtime", absentMeansUnmeasured: true });
+      const body: SessionUsageResponse = {
+        sessions: listNativeUsage().map((u) => ({
+          sessionKey: u.sessionKey,
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          cacheWriteTokens: u.cacheWriteTokens,
+          cacheWrite1hTokens: u.cacheWrite1hTokens,
+          cacheReadTokens: u.cacheReadTokens,
+          billableTokens: u.billableTokens,
+        })),
+        source: "native-runtime",
+        absentMeansUnmeasured: true,
+      };
+      return json(body);
     }
 
     // GET /api/usage/projects?range=7d|30d|all
