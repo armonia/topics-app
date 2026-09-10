@@ -233,6 +233,11 @@ test.describe("Board · i pannelli condizionali del task parlano inglese", () =>
     await page.getByTestId("kanban-column-review").getByText("Pannelli i18n E2E").click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
+    // All three panels under test — Attempts, Changes, Checks — live in the
+    // DELIVERY band, which the tabbed drawer (e113ca7bb) leaves unmounted until
+    // it is opened. Their language cannot be read before they exist.
+    await drawer.getByTestId("task-delivery-toggle").click();
+    await expect(drawer.getByTestId("task-delivery-panel")).toBeVisible({ timeout: 10000 });
 
     // ── Tentativi → Attempts ────────────────────────────────────────────────
     await expect(drawer.getByText("2 in parallel")).toBeVisible({ timeout: 15000 });
