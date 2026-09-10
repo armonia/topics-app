@@ -28,10 +28,10 @@ import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
 
 const HOME_VERA = process.env.HOME;
-// Come per `runtime-default-safety.test.ts`: senza azzerarlo, un
-// `TOPICS_CREDENTIALS_KEYCHAIN=1` ereditato dall'ambiente di chi lancia `bun
-// test` fa leggere a `readCredentials()` il vero token del Keychain invece del
-// file finto sotto `homeDir`, e il 401 sul token ruotato non riproduce piu'.
+// Same as `runtime-default-safety.test.ts`: without clearing it, a
+// `TOPICS_CREDENTIALS_KEYCHAIN=1` inherited from whoever launches `bun test`
+// makes `readCredentials()` read the real Keychain token instead of the fake
+// file under `homeDir`, and the 401-on-rotated-token case stops reproducing.
 const KEYCHAIN_VERA = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
 let homeDir: string;
 let ws: string;

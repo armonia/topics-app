@@ -15,11 +15,11 @@ import { join } from "path";
 import { recoverAfter401 } from "./auth";
 
 const HOME_VERA = process.env.HOME;
-// Come in `runtime-default-safety.test.ts`: senza azzerarlo, un
-// `TOPICS_CREDENTIALS_KEYCHAIN=1` ereditato dall'ambiente di chi lancia `bun
-// test` fa leggere a `readCredentials()` il vero token del Keychain invece del
-// file finto sotto `homeDir`, e ognuno dei quattro test qui sotto vede tornare
-// il token vero al posto del `null`/token atteso.
+// Same as `runtime-default-safety.test.ts`: without clearing it, a
+// `TOPICS_CREDENTIALS_KEYCHAIN=1` inherited from whoever launches `bun test`
+// makes `readCredentials()` read the real Keychain token instead of the fake
+// file under `homeDir`, and each of the four tests below gets the real token
+// back instead of the expected `null`/fake one.
 const KEYCHAIN_VERA = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
 const realFetch = globalThis.fetch;
 let homeDir: string;
