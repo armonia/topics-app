@@ -51,8 +51,30 @@ export const loadBrowser = () => import('../../components/Browser/RemoteBrowserP
 export const loadFilePane = () => import('../../components/Editor/FilePane');
 export const loadFileExplorer = () => import('../../components/Project/FileExplorer');
 export const loadGitChanges = () => import('../../components/Project/GitChanges');
+// A WARM CHUNK CAN STILL HIDE A COLD ONE. `FilePane` and `FileExplorer` are
+// only the shells: the body of a file pane is `CodeEditor`, and the file tree
+// always mounts `EditorTabs` next to itself - both behind a `lazy()` of their
+// own, so the pane arrived warm and then sat on a spinner while a SECOND
+// request went out. Measured on the real state (2026-09-10): the second-hop
+// chunks left at 181 ms and landed at 309-315 ms, which is the whole window in
+// which the first frame is decided.
+export const loadCodeEditor = () => import('../../components/Editor/CodeEditor');
+export const loadEditorTabs = () => import('../../components/Editor/EditorTabs');
 export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
 export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
+// The destructured `await` and not `import().then(m => ...)`: with the `.then`
+// shape knip cannot see through the module, every export inside it counts as
+// used, and a dead export in there stops being reported (`check:deadcode-
+// blindspots`). The shape was already chosen for ProfilePane at its old `lazy`
+// site — moving the loader here must not lose it.
+export const loadCronJobs = async () => {
+  const { CronJobsPanel } = await import('../../components/Sidebar/CronJobsPanel');
+  return { CronJobsPanel };
+};
+export const loadProfile = async () => {
+  const { ProfilePane } = await import('../../components/Profile/ProfilePane');
+  return { ProfilePane };
+};
 
 /**
  * The chunks each pane type lives in. Only the types with a heavy lazy body:
@@ -64,17 +86,39 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   terminal: [loadTerminal],
   browser: [loadBrowser],
   // "files" is the tree in a project window and the file pane elsewhere: both
-  // are cheap to warm, and guessing wrong costs a spinner.
-  files: [loadFileExplorer, loadFilePane],
-  file: [loadFilePane],
-  editor: [loadFilePane],
+  // are cheap to warm, and guessing wrong costs a spinner. `EditorTabs` rides
+  // with the tree because `FileExplorer` mounts it UNCONDITIONALLY next to the
+  // tree (8,7 kB) - it is not a maybe.
+  files: [loadFileExplorer, loadFilePane, loadEditorTabs],
+  // A file pane's body IS the editor, so `CodeEditor` belongs to these two and
+  // not to `files`/`project`: there it is a maybe (only when a tab is open),
+  // and it drags CodeMirror behind it - 314 kB that would go inside the
+  // first-frame gate's cap for every project window whether or not anybody has
+  // a file open. Measured on the real state: with git no longer mounting the
+  // panel from a closed section, that chunk stopped being fetched at boot at
+  // all, and putting it back for a maybe would undo exactly that.
+  file: [loadFilePane, loadCodeEditor],
+  editor: [loadFilePane, loadCodeEditor],
   git: [loadGitChanges],
   dashboard: [loadDashboard],
   'process-log': [loadProcessLog],
+  // The other two utility panes. They are TINY (5,9 kB and 6,8 kB built), and
+  // that is exactly why they were forgotten - but the spinner they draw has
+  // nothing to do with their weight: a bare `React.lazy` commits its fallback
+  // on the first mount even with the module already in cache (see
+  // `lib/lazyWarm`), so a reload with the Cron tab in front drew the fallback
+  // every time for the length of the boot's own render work. Warming them
+  // costs a request that lands in the same burst as the others.
+  cron: [loadCronJobs],
+  profile: [loadProfile],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are
-  // added by `paneTypesToWarm`.
-  project: [loadFilePane, loadFileExplorer],
+  // added by `paneTypesToWarm`. `GitChanges` is NOT here on purpose: since the
+  // sidebar stopped mounting the panel from a closed section (`GitSectionRow`)
+  // it is no longer part of a project window's first frame, and warming it
+  // would put its 48 kB - plus `DiffViewer` and CodeMirror behind it - back
+  // inside the cap for a section that is closed by default.
+  project: [loadFilePane, loadFileExplorer, loadEditorTabs],
 };
 
 /** The shape of a project's local tab record, as far as warming is concerned. */

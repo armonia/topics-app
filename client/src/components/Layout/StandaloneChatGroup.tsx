@@ -7,7 +7,7 @@ import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
-import { loadBoard, loadBrowser, loadDashboard, loadTerminal } from '../../state/pane/panePreload';
+import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
@@ -56,15 +56,13 @@ const SingleTerminalPane = lazyWarm(loadTerminal, (m) => m.SingleTerminalPane);
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const DashboardPane = lazyWarm(loadDashboard, (m) => m.DashboardPane);
 const KanbanBoardPane = lazyWarm(loadBoard, (m) => m.KanbanBoardPane);
-const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
-// The destructured `await` form, and not `import().then(m => ...)`: with the
-// `.then` shape knip cannot see through the module, every export inside it
-// counts as used, and a dead export in there stops being reported. Same lazy
-// chunk, same behaviour, one less blind spot (`check:deadcode-blindspots`).
-const ProfilePane = lazy(async () => {
-  const { ProfilePane } = await import('../Profile/ProfilePane');
-  return { default: ProfilePane };
-});
+// `lazyWarm` like the four above, and for the same reason: these two were the
+// only pane bodies left on a bare `lazy()`, so the fallback was committed on
+// every first mount even with the chunk in cache. Their loaders keep the
+// destructured `await` form (`panePreload`), which is what stops knip from
+// going blind on the module (`check:deadcode-blindspots`).
+const CronJobsPanel = lazyWarm(loadCronJobs, (m) => m.CronJobsPanel);
+const ProfilePane = lazyWarm(loadProfile, (m) => m.ProfilePane);
 
 
 interface StandaloneChatGroupProps {

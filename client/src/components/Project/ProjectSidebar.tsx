@@ -15,9 +15,16 @@ import { hasGitStateToShow } from '../../lib/gitVisibility';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
+import { lazyWarm } from '../../lib/lazyWarm';
+import { loadGitChanges } from '../../state/pane/panePreload';
 
-// Git is heavy (diff rendering) — keep lazy
-const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.GitChanges })));
+// Git is heavy (diff rendering) — keep lazy, and `lazyWarm` so that a window
+// that DOES open on the git section (or one that already warmed the chunk for
+// a standalone git pane) renders the panel in the same pass instead of
+// committing the fallback first. Same loader object as `ProjectWindow`'s git
+// pane and as `panePreload`: `warm` remembers a module by the identity of the
+// function that loaded it.
+const GitChanges = lazyWarm(loadGitChanges, (m) => m.GitChanges);
 // Same treatment for the process runner: it only mounts inside
 // `expandedSections.processes`, and it carries `useDetectedScripts` and the
 // relay crypto helpers with it. One const for BOTH mount sites below, so the
@@ -290,6 +297,106 @@ function RailButton({
         <span className={`absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ${toneClass}`} />
       )}
     </button>
+  );
+}
+
+/** What the sidebar knows about git without `GitChanges` being on screen. */
+interface GitSummary {
+  branch: string;
+  fileCount: number;
+  ahead: number;
+  behind: number;
+  folderUntracked: boolean;
+}
+
+/**
+ * THE GIT ROW WITH NO GIT PANEL BEHIND IT.
+ *
+ * The section is born CLOSED (`{ files: true, git: false, processes: false }`)
+ * and the whole panel was mounted anyway: `<GitChanges expanded={false}>` drew
+ * this header and nothing else, which meant every project window on a reload
+ * asked for the `GitChanges` chunk (48,4 kB, and it pulls `DiffViewer` and
+ * `react-virtuoso` in with it) to render one row of text. Measured on the real
+ * desktop state (2026-09-10): `GitChanges` + `DiffViewer` were requested at
+ * 181 ms and only landed at 309 ms, in the middle of the window where the
+ * first frame is decided, for five project windows with the section closed in
+ * all of them.
+ *
+ * So the row is drawn HERE, from the status the sidebar already subscribes to
+ * (`useGitStatus`, whose subscription is what keeps the server-side `git:status`
+ * watcher awake for every consumer of the project — that is why it lives up
+ * there and not in the panel), and `GitChanges` mounts only when the section
+ * is actually open.
+ *
+ * THE SAME ROW IS ALSO THE SUSPENSE FALLBACK, and that is the point of having
+ * one component: the two layouts used to carry a hand-copied fallback each,
+ * both of them labelled with `project.sidebar.gitChanges` while the loaded
+ * panel says `Git` - so opening the section swapped the label under the
+ * pointer. One row, one label, no swap.
+ *
+ * WHAT IS NOT HERE, deliberately: the branch switcher, pull, push, history and
+ * refresh. They belong to `GitChanges`, they need its state, and every one of
+ * them is one click away once the section is open. This row keeps the
+ * INFORMATION they were reporting - branch, changed files, ahead/behind - so
+ * the collapsed section still says everything it said before.
+ */
+function GitSectionRow({
+  git,
+  expanded,
+  onToggle,
+  loading = false,
+}: {
+  git: GitSummary | null;
+  expanded: boolean;
+  onToggle: () => void;
+  /** The Suspense variant: the panel is on its way, so the refresh glyph spins. */
+  loading?: boolean;
+}) {
+  return (
+    // The anchors `GitChanges` puts on the same two boxes, because from the
+    // outside this IS the git section: a test opens it by clicking the `Git`
+    // label inside `git-changes`, and it must find it whether or not the panel
+    // has been mounted yet.
+    <div data-testid="git-changes" className="flex flex-col">
+      <div
+        onClick={onToggle}
+        data-testid="project-sidebar-git"
+        role="button"
+        aria-expanded={expanded}
+        className={SECTION_CARD}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
+          <span className={`truncate ${git ? '' : 'text-app-text-muted'}`}>Git</span>
+          <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expanded ? 'rotate-90' : ''}`} />
+        </div>
+        <div className="flex items-center gap-1 min-w-0 ml-auto">
+          {git && (
+            <span className="truncate max-w-[110px] text-app-text-muted" title={git.branch}>{git.branch}</span>
+          )}
+          {git && git.fileCount > 0 && (
+            <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
+              {git.fileCount}
+            </span>
+          )}
+          {git && git.behind > 0 && (
+            <span className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
+              ↓{git.behind}
+            </span>
+          )}
+          {git && git.ahead > 0 && (
+            <span className="text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
+              ↑{git.ahead}
+            </span>
+          )}
+          <span className="w-4 h-4 inline-flex items-center justify-center text-app-text-tertiary">
+            <span className={`inline-flex items-center justify-center w-[10px] h-[10px] ${loading ? 'animate-spin' : ''}`}>
+              <RefreshCw size={10} />
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -898,17 +1005,15 @@ export function ProjectSidebar({
                   : { height: bottomHeights.git })
               : undefined}
             >
-              <Suspense fallback={
-                <div onClick={() => toggleSection('git')} className={SECTION_CARD}>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
-                    <span>{tr('project.sidebar.gitChanges')}</span>
-                    <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
-                  </div>
-                </div>
-              }>
-                <GitChanges projectPath={projectPath} compact expanded={expandedSections.git} onToggle={() => toggleSection('git')} />
-              </Suspense>
+              {/* Closed, the section IS its row: `GitChanges` never mounts,
+                  so its chunk is never even asked for. See `GitSectionRow`. */}
+              {expandedSections.git ? (
+                <Suspense fallback={<GitSectionRow git={git} expanded loading onToggle={() => toggleSection('git')} />}>
+                  <GitChanges projectPath={projectPath} compact expanded onToggle={() => toggleSection('git')} />
+                </Suspense>
+              ) : (
+                <GitSectionRow git={git} expanded={false} onToggle={() => toggleSection('git')} />
+              )}
             </div>}
             <div
               ref={el => { sectionsRef.current.processes = el; }}
@@ -1135,50 +1240,20 @@ export function ProjectSidebar({
                   : { height: bottomHeights.git })
               : undefined}
         >
-          <Suspense fallback={
-            <div
-              onClick={() => toggleSection('git')}
-              className={SECTION_CARD}
-            >
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
-                <span>{tr('project.sidebar.gitChanges')}</span>
-                <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 text-app-text-tertiary ${expandedSections.git ? 'rotate-90' : ''}`} />
-                {git && (
-                  <span className="text-app-text-muted truncate">{git.branch}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
-                {git && git.fileCount > 0 && (
-                  <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
-                    {git.fileCount}
-                  </span>
-                )}
-                {git && git.behind > 0 && (
-                  <span className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
-                    ↓{git.behind}
-                  </span>
-                )}
-                {git && git.ahead > 0 && (
-                  <span className="text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
-                    ↑{git.ahead}
-                  </span>
-                )}
-                <span className="w-4 h-4 inline-flex items-center justify-center text-app-text-tertiary">
-                  <span className="inline-flex items-center justify-center w-[10px] h-[10px] animate-spin">
-                    <RefreshCw size={10} />
-                  </span>
-                </span>
-              </div>
-            </div>
-          }>
-            <GitChanges
-              projectPath={projectPath}
-              compact
-              expanded={expandedSections.git}
-              onToggle={() => toggleSection('git')}
-            />
-          </Suspense>
+          {/* Closed, the section IS its row: `GitChanges` never mounts, so
+              its chunk is never even asked for. See `GitSectionRow`. */}
+          {expandedSections.git ? (
+            <Suspense fallback={<GitSectionRow git={git} expanded loading onToggle={() => toggleSection('git')} />}>
+              <GitChanges
+                projectPath={projectPath}
+                compact
+                expanded
+                onToggle={() => toggleSection('git')}
+              />
+            </Suspense>
+          ) : (
+            <GitSectionRow git={git} expanded={false} onToggle={() => toggleSection('git')} />
+          )}
         </div>}
 
         {/* Resize handle: Git ↔ Processes */}
