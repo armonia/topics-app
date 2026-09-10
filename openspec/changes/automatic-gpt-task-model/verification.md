@@ -61,3 +61,15 @@ One review run on `f75c6d29e` still failed in `relay/gate-coverage.test.ts`. The
 A separate live readback disproved the verification agent's effort claim: its concrete Luna model had survived release, but its automatic effort had not. The process used the global `xhigh` despite the prose saying `low`. The additive `tasks.model_effort` field now preserves the concrete automatic choice alongside the model through fresh requeue and fanout. Manual model changes clear that pair. Concrete models bypass classification; legacy unpaired choices use explicit `medium`, while an existing bound topic keeps its own effort.
 
 Evidence for that correction: 392 focused tests and a clean server typecheck before test consolidation; 201 dispatcher tests after consolidating two redundant cases; and `/tmp/topics-final-effort-integration-tests.log` with 41 provider-hold/fanout tests and 180 assertions. The integrated quick gate passed every check except the test-file size threshold; `/tmp/topics-final-bloat.log` covers the documented test-only baseline update after consolidation. No security baseline was relaxed. `/tmp/topics-security-final-after-patch.log` confirms the landing dependency patches leave zero reported advisories.
+
+## Final acceptance on current main (11111a097)
+
+Read directly from the live database (`data/topics.db`, read-only), not simulated:
+
+- Task `f6aa282b` ("Providers AI") is bound to topic `7eb2522e`: provider `claude-code`, model `claude-sonnet-5`, effort `medium`. `tasks.model_effort` is empty at the task row, so the concrete effort is read from the topic's own binding — the documented fallback path for a bound topic, not a missing value.
+- Task `25775e23` ("Calendario fissato") is bound to topic `f9cf1400`: provider `topics` (native runtime), model `claude-sonnet-5`, `tasks.model_effort` explicitly `medium`.
+- Both real, currently-running tasks show a concrete Claude model and an economical effort, on two different compatible runtimes (claude-code CLI and the native runtime), confirming cross-provider selection with no Astra pin and no silent reclassification of the bound choice.
+
+The two pre-review failures reported on the prior attempt (`server/db/migrations-embedded.test.ts`, `relay/gate-coverage.test.ts`) are green on this checkout: `bun test server/db/migrations-embedded.test.ts relay/gate-coverage.test.ts` → 13 pass, 0 fail, 641 assertions. They were fixed upstream by `5cf07a6bf` before this worktree branched; no further change was needed here.
+
+No code change, no additional generation, no new agent was required for this pass: the acceptance is a read of the live state.

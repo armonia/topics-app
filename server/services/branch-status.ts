@@ -101,6 +101,26 @@ export async function commitIsAncestor(
 
 export type BranchStatus = "gone" | "merged" | "unmerged";
 
+/**
+ * What a single COMMIT can answer — the branch verdicts plus one only a commit
+ * can give.
+ *
+ * `empty` is NOT a fourth flavour of "merged": it says the commit carries no
+ * source change at all, so it can neither confirm nor deny that the work
+ * reached main. It used to be answered "merged" — "nothing to lose" — and for a
+ * worktree sweep that is harmless. For the board it is not: the pattern "push
+ * an empty commit to retrigger the checks" puts a no-op on the tip of the
+ * delivery branch, and the card then read `landed` over 958 lines that were
+ * still outside main (task 53fc5aed, 2026-09-09). Whoever asks must decide what
+ * an empty answer means for them; the audit re-asks the BRANCH.
+ *
+ * It lives apart from `BranchStatus` because a BRANCH is never empty in this
+ * sense, and because that union is cross-assigned to the worktree sweep's own
+ * three-value type: widening it there would have made every caller of a
+ * different question absorb an answer it cannot get.
+ */
+export type CommitStatus = BranchStatus | "empty";
+
 export async function branchStatusFromRepo(
   repoPath: string,
   branch: string | null,
@@ -144,7 +164,7 @@ export async function commitStatusFromRepo(
   mainRef = "main",
   /** Iniettato dai test di chi chiama; assente = `git` vero, come prima. */
   runGit?: GitRunner,
-): Promise<BranchStatus> {
+): Promise<CommitStatus> {
   if (!commit) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], runGit)) !== 0) return "gone";
 
@@ -173,7 +193,9 @@ export async function commitStatusFromRepo(
   const changed = filterUniqueSourceFiles(
     (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit], runGit)).split("\n"),
   );
-  if (changed.length === 0) return "merged"; // solo rumore generato: niente da perdere
+  // Generated noise only, or nothing at all: "every file it touches is also
+  // on main" is vacuously true, so this commit answers nothing. See `empty`.
+  if (changed.length === 0) return "empty";
   // `git diff --quiet` esce 0 quando NON c'è differenza sui path dati.
   return (await gitExit(repoPath, ["diff", "--quiet", commit, mainRef, "--", ...changed], runGit)) === 0 ? "merged" : "unmerged";
 }
