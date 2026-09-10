@@ -169,12 +169,13 @@ describe('one row per project', () => {
   it('a working directory is NOT a project just because something runs in it', () => {
     // Measured on the live machine: four shells sitting in $HOME hold 1.3 GB
     // between them, and grouping by working directory alone invents a project
-    // called «zorahrel» that outweighs every real one. A `cwd` attribution is
-    // only accepted for a folder the installation already knows as a project.
+    // named after the home folder that outweighs every real one. A `cwd`
+    // attribution is only accepted for a folder the installation already knows
+    // as a project.
     const v = vociMisurate({
       ...vuoto,
       sessioni: [
-        session('shell', 900, { projectPath: '/Users/zorahrel', projectSource: 'cwd' }),
+        session('shell', 900, { projectPath: '/Users/someone', projectSource: 'cwd' }),
         session('work', 120, { projectPath: '/p/alpha', projectSource: 'cwd' }),
       ],
       knownProjects: new Set(['/p/alpha']),

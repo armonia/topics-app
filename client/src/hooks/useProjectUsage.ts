@@ -23,36 +23,11 @@ import { useCallback, useEffect, useState } from 'react';
 /** The windows the route accepts. `all` is the default on the server too. */
 export type UsageRange = '1d' | '7d' | '30d' | 'all';
 
-export interface ProjectUsageRow {
-  /** `projectIdForPath(projectPath)`, the key board rows carry. */
-  projectId: string;
-  /** Absolute path, when a topic named one. `null` = only board rows exist for
-   *  this id, and the path is not recoverable from them. */
-  projectPath: string | null;
-  chatTokens: number;
-  taskTokens: number;
-  totalTokens: number;
-  /** Dollars from PRICED message rows only. See `cost.excluded`. */
-  costUsd: number;
-  messageCount: number;
-  taskCount: number;
-  /** Message rows whose recorded cost was left out. `> 0` = this row's money is
-   *  understated on its own, not just globally. */
-  unpricedMessages: number;
-}
-
-export interface ProjectUsage {
-  range: string;
-  /** ISO instant of the server-side read this answer came from. */
-  cachedAt: string;
-  projects: ProjectUsageRow[];
-  totals: { chatTokens: number; taskTokens: number; totalTokens: number; costUsd: number };
-  cost: {
-    currency: 'usd';
-    partial: boolean;
-    excluded: { taskTokens: number; messages: number; models: string[] };
-  };
-}
+// THE SHAPE COMES FROM `shared/`, not from a copy: the query that fills it is
+// on the server, and two declarations of one contract drift into a field the
+// panel renders and the server stopped sending (`tests/unit/no-type-mirrors`).
+export type { ProjectUsageRow, ProjectUsage };
+import type { ProjectUsageResponse as ProjectUsage, ProjectUsageRow } from '../../../shared/usage-shapes';
 
 export function useProjectUsage(enabled: boolean, range: UsageRange): {
   usage: ProjectUsage | null;

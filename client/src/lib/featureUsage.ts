@@ -56,11 +56,11 @@ export interface IngressiMisurati {
    * working directory may stand in for one.
    *
    * It exists because of a measurement: on the live machine four shells sitting
-   * in `/Users/zorahrel` hold 1.3 GB between them, and grouping by working
-   * directory alone invents a project called «zorahrel» that holds more memory
-   * than any real one. A folder is not a project because something is running
-   * in it. Absent or empty, only the sessions whose TOPIC names a project are
-   * grouped, and the rest stay together in one row.
+   * in the home folder hold 1.3 GB between them, and grouping by working
+   * directory alone invents a project named after the home folder that holds
+   * more memory than any real one. A folder is not a project because something
+   * is running in it. Absent or empty, only the sessions whose TOPIC names a
+   * project are grouped, and the rest stay together in one row.
    */
   knownProjects?: ReadonlySet<string>;
 }

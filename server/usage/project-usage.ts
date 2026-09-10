@@ -41,64 +41,11 @@ import { projectIdForPath } from "../../shared/board";
 import { costFromMessage, costFromTask } from "./token-sql";
 
 /** One project's consumption, both sources already merged. */
-export interface ProjectUsageRow {
-  /** `projectIdForPath(projectPath)` — the join key `tasks` rows carry. */
-  projectId: string;
-  /**
-   * Absolute path, when a `topics` row named it. `null` = only board rows exist
-   * for this id: the path is not recoverable from `tasks`, which stores the id.
-   */
-  projectPath: string | null;
-  /** Cost-equivalent tokens from chats (`messages`). */
-  chatTokens: number;
-  /** Cost-equivalent tokens from dispatched board work (`tasks`). */
-  taskTokens: number;
-  /** `chatTokens + taskTokens`. */
-  totalTokens: number;
-  /** Dollars, from PRICED message rows only. See `cost.excluded`. */
-  costUsd: number;
-  /** Message rows in the window for this project. */
-  messageCount: number;
-  /** Task rows in the window for this project. */
-  taskCount: number;
-  /**
-   * Message rows carrying a cost that was NOT added to `costUsd` because it was
-   * written before the cache split. `> 0` means this row's money is understated.
-   */
-  unpricedMessages: number;
-}
-
-export interface ProjectUsageResult {
-  /** Sorted by `totalTokens`, descending. */
-  projects: ProjectUsageRow[];
-  totals: {
-    chatTokens: number;
-    taskTokens: number;
-    totalTokens: number;
-    costUsd: number;
-  };
-  cost: {
-    currency: "usd";
-    /**
-     * TRUE whenever some consumption in this payload carries no price. It is
-     * true in practice on any window containing board work, because task tokens
-     * are structurally unpriceable — read `excluded` for the reason, and do not
-     * present `costUsd` as "the bill" while this is set.
-     */
-    partial: boolean;
-    excluded: {
-      /** Cost-equivalent tokens from `tasks`: real consumption, no price. */
-      taskTokens: number;
-      /** Message rows whose recorded cost is inflated and was left out. */
-      messages: number;
-      /**
-       * Models seen running that are absent from the price table; their turns
-       * were billed at zero. Same list as `status.server.unpricedModels`.
-       */
-      models: string[];
-    };
-  };
-}
+// THE TWO RECORDS LIVE IN `shared/usage-shapes.ts`: the panel that draws them
+// is in the client, and a second copy there is what `no-type-mirrors` refuses.
+// Re-exported so this module stays the one import site for its own callers.
+export type { ProjectUsageRow, ProjectUsageResult } from "../../shared/usage-shapes";
+import type { ProjectUsageRow, ProjectUsageResult } from "../../shared/usage-shapes";
 
 export interface ProjectUsageOptions {
   /**
