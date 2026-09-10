@@ -153,11 +153,11 @@ describe("devBundleReload — prompt, never auto-reload", () => {
   describe("i teardown registrati girano prima di navigare", () => {
     test("una ricarica vera li esegue, una volta, prima della navigazione", async () => {
       const { reloadForNewBundle, onBeforeBundleReload } = await import("./devBundleReload");
-      const ordine: string[] = [];
-      const off = onBeforeBundleReload(() => ordine.push("teardown"));
+      const order: string[] = [];
+      const off = onBeforeBundleReload(() => order.push("teardown"));
       try {
         reloadForNewBundle();
-        expect(ordine).toEqual(["teardown"]);
+        expect(order).toEqual(["teardown"]);
         expect(fake.replaceCalls.length).toBe(1);
       } finally {
         off();
@@ -166,15 +166,15 @@ describe("devBundleReload — prompt, never auto-reload", () => {
 
     test("oltre il tetto non si chiude niente: la navigazione non ci sara'", async () => {
       const { reloadForNewBundle, onBeforeBundleReload } = await import("./devBundleReload");
-      let chiusure = 0;
-      const off = onBeforeBundleReload(() => { chiusure++; });
+      let teardowns = 0;
+      const off = onBeforeBundleReload(() => { teardowns++; });
       try {
         reloadForNewBundle();
         reloadForNewBundle();
         reloadForNewBundle();
         reloadForNewBundle();
         expect(fake.replaceCalls.length).toBe(3);
-        expect(chiusure).toBe(3);
+        expect(teardowns).toBe(3);
       } finally {
         off();
       }
