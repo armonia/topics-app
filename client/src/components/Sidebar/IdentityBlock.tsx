@@ -61,6 +61,7 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
+import { formatMemoryMB } from '@/lib/formatMemory';
 
 export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
   onOpenDevices?: () => void;
@@ -270,7 +271,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
           data-testid="metrics-total"
           className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-secondary tabular-nums"
         >
-          {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+          {load?.totalMB != null && <span>{formatMemoryMB(load.totalMB, { partial: load.partial })}</span>}
           {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
         </span>
         {/* AGENTS AT WORK, as a pill. After the load numbers and before the
@@ -312,8 +313,3 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   );
 }
 
-/** Gigabytes past a thousand: the card has one line, and four digits of memory
- *  next to a name read as a phone number. */
-function formatMB(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`;
-}

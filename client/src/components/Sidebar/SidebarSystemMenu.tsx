@@ -13,6 +13,7 @@ import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 
 import { useLoad } from '@/state/systemLoad';
 import { useT } from '@/hooks/useT';
+import { formatMemoryMB } from '@/lib/formatMemory';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
@@ -306,7 +307,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
               {load?.misurato && (
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
               )}
-              {load?.totalMB != null && <span>{load.partial ? '~' : ''}{formatMB(load.totalMB)}</span>}
+              {load?.totalMB != null && <span>{formatMemoryMB(load.totalMB, { partial: load.partial })}</span>}
               {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}
             </span>
           </>
@@ -400,11 +401,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
   );
 }
 
-/** Gigabytes past a thousand: the row has one line and four digits of memory
- *  would be read as a phone number. */
-function formatMB(mb: number): string {
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`;
-}
 
 function formatBuildDate(iso: string): string {
   try {

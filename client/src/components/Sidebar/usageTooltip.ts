@@ -5,6 +5,7 @@ import { formatCpuPercent } from '../../hooks/usePerfMetrics';
 import type { PerfMetrics } from '../../hooks/usePerfMetrics';
 import type { SystemStatus } from '../../hooks/useSystemStatus';
 import { computeTopicsFootprint } from '../../lib/topicsFootprint';
+import { formatMemoryMB } from '../../lib/formatMemory';
 import { mostraResidenteInBarra } from './verdict';
 
 /**
@@ -41,7 +42,6 @@ export interface UsageTooltipInput {
   inventory: string | null;
 }
 
-const formatMB = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}GB` : `${mb}MB`);
 const partialSign = (partial: boolean) => (partial ? '~' : '');
 
 /** The footprint the tooltip describes. Exported because the caller needs the
@@ -124,7 +124,7 @@ export function composeUsageTooltip(input: UsageTooltipInput): string {
   return [
     'Topics in tutto',
     usage.totalMB !== null
-      ? `memoria: ${partialSign(usage.memPartial)}${formatMB(usage.totalMB)} su ${usage.totalProcessCount} processi`
+      ? `memoria: ${formatMemoryMB(usage.totalMB, { partial: usage.memPartial })} su ${usage.totalProcessCount} processi`
       : 'memoria: non misurata',
     residentLine,
     usage.totalCpu !== null
