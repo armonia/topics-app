@@ -5,6 +5,7 @@ import { goToApp, ensureTopicVisible } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { ospite, daOspite } from "./helpers/ospite";
 import { SESSION_COOKIE } from "../../server/lib/device-auth";
+import { projectIdForPath } from "../../shared/board";
 
 hermetic(test);
 
@@ -456,5 +457,147 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
       data: { name: "rinominata dall'ospite" },
     });
     expect(scrittura.status(), "condivisa dal pannello resta comunque in sola lettura").toBe(403);
+  });
+
+  /**
+   * THE LEVEL, ACROSS THE REAL CHAIN.
+   *
+   * The two unit tests that came with the levels stub `requestIdentity`, so
+   * the real chain - path allowlist, then method allowlist, then the entity
+   * check, then the level - is never crossed for the new routes. This one
+   * crosses all of it: a real pairing, a real cookie, the tunnel listener, on
+   * a real card.
+   *
+   * It asserts BOTH sides. A test that only saw a 403 could not tell "refused
+   * because of the level" from "the route does not exist": here the same guest
+   * and the same card answer 200 at `comment` and 403 at `edit`, then 200 at
+   * `edit` once the owner raises the level.
+   */
+  test("GUEST-09: comment e edit passano la catena vera, run non passa a nessun livello", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-09" });
+    const stamp = Date.now();
+    const board = projectIdForPath(`/tmp/e2e-guest-level-${stamp}`);
+    const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
+      data: { text: `E2E-Guest-Livello-${stamp}` },
+    });
+    expect(made.ok(), "the owner creates the card from its own door").toBeTruthy();
+    const { id: taskId } = (await made.json()) as { id: string };
+
+    const { cookie, deviceId } = await ospite(request, `guest-09-${stamp}`);
+    const shareAt = (level: string) =>
+      request.post(`${E2E_BASE}/api/auth/shares`, {
+        data: { subjectType: "device", subjectId: deviceId, resourceType: "task", resourceId: taskId, level },
+      });
+
+    // `comment`: the GRANTED half, not only the refused one.
+    expect((await shareAt("comment")).ok()).toBeTruthy();
+    const posted = await request.post(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}/comments`, {
+      headers: daOspite(cookie),
+      data: { content: "visto, manca un passaggio" },
+    });
+    expect(posted.status(), "at `comment` the comment goes through").toBe(200);
+
+    // The same guest, the same card, one step up: REFUSED - and refused by the
+    // LEVEL, which the code says out loud. That is what separates this 403
+    // from "the route is not there".
+    const write = await request.patch(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}`, {
+      headers: daOspite(cookie),
+      data: { text: "riscritta dall'ospite" },
+    });
+    expect(write.status()).toBe(403);
+    expect((await write.json()).code, "denied by the level, not by the route").toBe("guest_level_denied");
+
+    // Level raised, the very same request passes: that is what proves the 403
+    // above was about the level and about nothing else.
+    expect((await shareAt("edit")).ok()).toBeTruthy();
+    const edited = await request.patch(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}`, {
+      headers: daOspite(cookie),
+      data: { text: `riscritta dall'ospite ${stamp}` },
+    });
+    expect(edited.status(), "at `edit` correcting the text goes through").toBe(200);
+    expect((await edited.json()).text).toBe(`riscritta dall'ospite ${stamp}`);
+
+    // And starting a run stays out at the TOP of the scale: it is the
+    // dangerous half of the pair "rewrite the text, then have it executed".
+    // Refused by the GATE (`guest_read_only`), not by a check inside the
+    // router, so there is no branch left to forget.
+    for (const action of ["run", "stop"]) {
+      const r = await request.post(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}/${action}`, {
+        headers: daOspite(cookie),
+      });
+      expect(r.status(), `${action} is granted at no level`).toBe(403);
+      expect((await r.json()).code).toBe("guest_read_only");
+    }
+
+    // Nothing was dispatched: the refusal did not leave a half-started run.
+    const after = await request.get(`${E2E_BASE}/api/boards/${board}/tasks/${taskId}`);
+    const { task: card } = (await after.json()) as { task: { status: string; assignedTopicId: string | null } };
+    expect(card.status, "the card stays where it was").toBe("backlog");
+    expect(card.assignedTopicId, "and no agent was bound to it").toBeFalsy();
+  });
+
+  /**
+   * `/api/auth/shares` IS NOT A GUEST'S SURFACE, and the refusal comes from
+   * the gate.
+   *
+   * The GET branch of that route has no level check of its own, and the gate
+   * matches resource ids found in the PATH while this route names its resource
+   * in the QUERY: listed as an allowed path, one shared card was enough to
+   * enumerate subjects, names and levels of any resource whose id could be
+   * named. Closed as a path, the query is never reached.
+   */
+  test("GUEST-10: un ospite non legge, ne' scrive, chi altro tiene una risorsa", async ({ request }) => {
+    test.info().annotations.push({ type: "spec", description: "GUEST-10" });
+    const stamp = Date.now();
+    const board = projectIdForPath(`/tmp/e2e-guest-shares-${stamp}`);
+    const made = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, {
+      data: { text: `E2E-Guest-Shares-${stamp}` },
+    });
+    const { id: taskId } = (await made.json()) as { id: string };
+    const { cookie, deviceId } = await ospite(request, `guest-10-${stamp}`);
+    await request.post(`${E2E_BASE}/api/auth/shares`, {
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "task", resourceId: taskId, level: "read" },
+    });
+
+    // The route EXISTS and ANSWERS: from the owner's door it lists the
+    // subjects. This is the half that tells "refused" apart from "there is
+    // nothing here".
+    const asOwner = await request.get(
+      `${E2E_BASE}/api/auth/shares?resourceType=task&resourceId=${taskId}`,
+    );
+    expect(asOwner.status()).toBe(200);
+    expect(JSON.stringify(await asOwner.json())).toContain(deviceId);
+
+    // The same address, with a REAL guest, on a resource genuinely shared with
+    // it: refused, and refused at the gate.
+    for (const resource of [taskId, "una-risorsa-qualunque"]) {
+      const r = await request.get(
+        `${E2E_TUNNEL_BASE}/api/auth/shares?resourceType=task&resourceId=${resource}`,
+        { headers: daOspite(cookie) },
+      );
+      expect(r.status(), "not even on its own card").toBe(403);
+      const body = await r.json();
+      expect(body.code, "refused at the gate, not inside the route").toBe("guest_forbidden");
+      expect(JSON.stringify(body), "and no subject leaks out").not.toContain(deviceId);
+    }
+
+    // Nor for writing: granting and revoking stay the owner's gestures.
+    const post = await request.post(`${E2E_TUNNEL_BASE}/api/auth/shares`, {
+      headers: daOspite(cookie),
+      data: { subjectType: "device", subjectId: deviceId, resourceType: "task", resourceId: taskId, level: "edit" },
+    });
+    expect(post.status()).toBe(403);
+    expect((await post.json()).code).toBe("guest_forbidden");
+
+    const del = await request.fetch(
+      `${E2E_TUNNEL_BASE}/api/auth/shares?resourceType=task&resourceId=${taskId}&subjectType=device&subjectId=${deviceId}`,
+      { method: "DELETE", headers: daOspite(cookie) },
+    );
+    expect(del.status()).toBe(403);
+    expect((await del.json()).code).toBe("guest_forbidden");
+
+    // The grant is still standing: the refusal revoked nothing.
+    const still = await request.get(`${E2E_TUNNEL_BASE}/api/auth/shared`, { headers: daOspite(cookie) });
+    expect(JSON.stringify(await still.json())).toContain(taskId);
   });
 });
