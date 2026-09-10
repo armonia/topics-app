@@ -10,9 +10,9 @@ import { resolveSessionProjects } from "./session-project-map";
 function makeDb(): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, session_key TEXT, project_path TEXT)`);
-  const ins = db.prepare(`INSERT INTO topics (id, session_key, project_path) VALUES (?, ?, ?)`);
-  ins.run("06519a5d-6c7c-4fb1-b310-98b4c0b05e6e", "topic:06519a5d", "/Users/x/Projects/alpha");
-  ins.run("c8a6bf29-b6a1-43bc-bd1b-2e796f246d63", "topic:c8a6bf29", null);
+  const insert = db.prepare(`INSERT INTO topics (id, session_key, project_path) VALUES (?, ?, ?)`);
+  insert.run("06519a5d-6c7c-4fb1-b310-98b4c0b05e6e", "topic:06519a5d", "/Users/x/Projects/alpha");
+  insert.run("c8a6bf29-b6a1-43bc-bd1b-2e796f246d63", "topic:c8a6bf29", null);
   return db;
 }
 

@@ -110,7 +110,7 @@ export interface ProjectUsageOptions {
   unpricedModels?: string[];
 }
 
-interface MessageAgg {
+interface MessageGroup {
   project_path: string;
   cost_tokens: number;
   cost_usd: number;
@@ -118,7 +118,7 @@ interface MessageAgg {
   unpriced: number;
 }
 
-interface TaskAgg {
+interface TaskGroup {
   project_id: string;
   cost_tokens: number;
   tasks: number;
@@ -155,7 +155,7 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
         WHERE tp.project_path IS NOT NULL AND tp.project_path <> ''${msgWindow}
         GROUP BY tp.project_path`,
     )
-    .all(...arg) as MessageAgg[];
+    .all(...arg) as MessageGroup[];
 
   const taskRows = db
     .prepare(
@@ -166,7 +166,7 @@ export function projectUsage(db: Database, opts: ProjectUsageOptions = {}): Proj
         WHERE t.project_id IS NOT NULL AND t.project_id <> ''${taskWindow}
         GROUP BY t.project_id`,
     )
-    .all(...arg) as TaskAgg[];
+    .all(...arg) as TaskGroup[];
 
   const byId = new Map<string, ProjectUsageRow>();
   const blank = (projectId: string, projectPath: string | null): ProjectUsageRow => ({
