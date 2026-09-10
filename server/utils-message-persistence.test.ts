@@ -419,16 +419,21 @@ describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn
     expect((after.toolCalls?.[0] as { userInputSchema?: unknown })?.userInputSchema).toBeTruthy();
   });
 
-  test("creates a FRESH row when nothing survived (last message already finalized)", () => {
+  test("creates a FRESH row when nothing survived (last message really finished, latency_ms set)", () => {
+    // `finalizeLastMessage` alone is not enough to represent a turn that
+    // REALLY finished: only the legitimate completion in routes/chat.ts
+    // writes latency_ms, and that is the discriminant that tells a real
+    // answer apart from a row closed from outside while the turn was alive.
     const sk = "topic:reatt02";
     const done = ctx.createPartialMessage(sk, "assistant");
     ctx.appendToLastMessage(sk, "completo");
     ctx.finalizeLastMessage(sk);
+    ctx.updateLastMessage(sk, { latencyMs: 4200 });
 
     const fresh = ctx.reuseOrCreatePartialForReattach(sk);
     expect(fresh.id).not.toBe(done.id); // new bubble
     expect(ctx.getMessageById(fresh.id)!.partial).toBeTruthy();
-    expect(ctx.getMessageById(done.id)!.content).toBe("completo"); // the finalized turn is untouched
+    expect(ctx.getMessageById(done.id)!.content).toBe("completo"); // the finished turn is untouched
   });
 
   test("creates a FRESH row on an empty session (no last message)", () => {
@@ -436,6 +441,47 @@ describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn
     const fresh = ctx.reuseOrCreatePartialForReattach(sk);
     expect(ctx.getMessageById(fresh.id)!.partial).toBeTruthy();
     expect(ctx.getMessageById(fresh.id)!.content).toBe("");
+  });
+
+  test("a row closed FROM OUTSIDE while the turn was still alive (latency_ms NULL) is reused: no new row, no duplicate", () => {
+    // The bug's sequence (card ef369fc6, measured on the live DB 2026-09-10:
+    // 65 pairs across 54 conversations): a live turn writes some text, then
+    // the StaleStream sweeper / `/api/chat/abort` / a timeout closes the row
+    // (`partial=0`, `streamed_at=NULL`) WITHOUT going through
+    // `routes/chat.ts` — so `latency_ms` is never written. The process keeps
+    // running, and on the next restart the broker confirms the turn is still
+    // alive BEFORE this function is ever called: it must reuse the same row,
+    // not open a new one that the replay would fill from scratch, producing
+    // the duplicate.
+    const sk = "topic:reatt06-external-close";
+    const original = ctx.createPartialMessage(sk, "assistant");
+    ctx.appendToLastMessage(sk, "working on the problem");
+
+    // External finalization: exactly the columns stale-stream-sweep.ts and
+    // /api/chat/abort touch — never latency_ms.
+    ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [original.id]);
+    const closedFromOutside = ctx.getMessageById(original.id)!;
+    expect(closedFromOutside.partial).toBeFalsy();
+    expect(closedFromOutside.latencyMs).toBeUndefined();
+
+    const reused = ctx.reuseOrCreatePartialForReattach(sk);
+    expect(reused.id).toBe(original.id); // same bubble, not a new one
+    expect(reused.reusedBody).toBe(true);
+
+    const adopted = ctx.getMessageById(original.id)!;
+    expect(adopted.partial).toBeTruthy(); // alive again
+    expect(adopted.content).toBe("working on the problem"); // body untouched
+
+    // The replay rebuilds ON TOP of the same row: zero duplicates. The
+    // regression the bug produced would be a SECOND row whose content starts
+    // exactly with the first one's — here there is no second row.
+    ctx.updateLastMessage(sk, { content: "working on the problem and done" });
+    const rows = ctx.db.prepare(
+      "SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order",
+    ).all(sk) as { id: string; content: string }[];
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.id).toBe(original.id);
+    expect(rows[0]!.content).toBe("working on the problem and done");
   });
 });
 

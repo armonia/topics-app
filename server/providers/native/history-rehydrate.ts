@@ -27,7 +27,7 @@
 import type { ToolCall } from "../../../shared/types";
 import { toolCallResultText } from "../../../shared/lean-tool-call";
 import type { AgentMessage, Block } from "./agent-loop";
-import { clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
+import { clipToolResult, compact, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
 
 /** Una riga di conversazione come sta nel DB. */
 export interface PersistedTurn {
@@ -53,6 +53,25 @@ export type RehydratedTurn = AgentMessage;
  */
 const NO_RESULT_RECORDED =
   "[no result recorded: the turn was interrupted before this call finished; run it again if its outcome matters]";
+
+/**
+ * The ceiling applied to the history this file rebuilds, in tokens.
+ *
+ * Rehydration runs before a model is chosen for the resumed turn (`sessionFor`
+ * calls it with only a session key), so it cannot size itself to that model's
+ * real window the way live compaction does. It takes the floor every model in
+ * this app declares instead of assuming the generous case — `windowFor`'s own
+ * fallback for an unrecognised model is this same number.
+ *
+ * IT DOES REAL WORK, measured on the four heaviest native sessions in the live
+ * database: expanding every tool call in full, with no cap, reached 414k,
+ * 569k, 1,586k and 1,631k tokens — 2 to 8 times this ceiling, and past the 1M
+ * hard limit on two of them. `compact` is the same function the live loop
+ * already uses under load: it keeps the opening request and the recent tail
+ * whole, empties old tool results and long tool inputs first, and only cuts
+ * the oldest turns away if that is still not enough.
+ */
+export const REHYDRATE_WINDOW_TOKENS = 200_000;
 
 export type PersistedThreadLoader = (sessionKey: string) => PersistedTurn[];
 
@@ -153,7 +172,12 @@ export function historyFromPersistedThread(thread: readonly PersistedTurn[]): Re
     if (prev && prev.role === m.role) prev.content = joinContent(prev.content, m.content);
     else merged.push({ ...m });
   }
-  return merged;
+  // Rule 6: the rebuilt history stays under REHYDRATE_WINDOW_TOKENS. Every
+  // rule above can only grow the payload — rule 5 turns a compact tool_calls
+  // array back into full tool_use/tool_result pairs — and nothing upstream of
+  // this point ever looked at the total. See REHYDRATE_WINDOW_TOKENS for the
+  // measurement that makes this cap necessary.
+  return compact(merged, { windowTokens: REHYDRATE_WINDOW_TOKENS }).messages;
 }
 
 /**
