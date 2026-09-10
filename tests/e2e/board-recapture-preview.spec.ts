@@ -298,8 +298,14 @@ test.describe("Board · «Ricattura evidenza» su una card in review", () => {
         // SECONDO STATO: l'immagine arriva. Il tempo è quello vero (boot del dev
         // server nel worktree + primo paint + screenshot), non una soglia scelta.
         await didascalia(page, "Il worktree si avvia e si fotografa da solo");
-        await expect(drawer.getByTestId("preview-drawer").locator("img")).toBeVisible({ timeout: 90_000 });
-        await expect(card.getByTestId("preview-card").locator("img")).toBeVisible({ timeout: 15000 });
+        // The outcome is the preview ON THE CARD, which is this test's own
+        // title. What stood here was a 90 s wait on `preview-drawer`: a testid
+        // no component renders — `PreviewMedia` has ONE call site, `Card.tsx`,
+        // and nobody passes it the `drawer` variant. That assertion could not
+        // succeed, and it held red a round the server was closing in 4.5 s
+        // (measured: `POST …/preview 200 4503ms`, with the `preview-shot`
+        // context opened and closed).
+        await expect(card.getByTestId("preview-card").locator("img")).toBeVisible({ timeout: 90_000 });
         await didascalia(page, "L'anteprima è sulla card");
         await beat(page, 1800);
 
