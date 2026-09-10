@@ -40,11 +40,15 @@ import type { Database } from "bun:sqlite";
 import { projectIdForPath } from "../../shared/board";
 import { costFromMessage, costFromTask } from "./token-sql";
 
-/** One project's consumption, both sources already merged. */
 // THE TWO RECORDS LIVE IN `shared/usage-shapes.ts`: the panel that draws them
 // is in the client, and a second copy there is what `no-type-mirrors` refuses.
-// Re-exported so this module stays the one import site for its own callers.
-export type { ProjectUsageRow, ProjectUsageResult } from "../../shared/usage-shapes";
+//
+// Only `ProjectUsageResult` is re-exported, because only that one has a reader
+// here (the route annotates its cache with it). Re-exporting the row as well
+// was a door nobody walked through - the client imports it straight from
+// `shared/` - and `check:deadcode` counts an export with no importer as debt,
+// which is the whole point of the gate.
+export type { ProjectUsageResult } from "../../shared/usage-shapes";
 import type { ProjectUsageRow, ProjectUsageResult } from "../../shared/usage-shapes";
 
 export interface ProjectUsageOptions {
