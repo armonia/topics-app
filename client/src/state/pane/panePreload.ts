@@ -67,8 +67,17 @@ export const loadEditorTabs = () => import('../../components/Editor/EditorTabs')
  * project open or not, and `loadFileExplorer` above was a split that could
  * never split anything because the module was already in the entry. Measured
  * with `check:bundle`: entry_eager 1.418.177 -> 1.365.938 raw.
+ *
+ * DESTRUCTURED, like `loadCronJobs` below and for the same reason: a bare
+ * `import('…')` handed straight back makes the module OPAQUE to knip, so every
+ * export inside it counts as used and a dead one stops being reported. This
+ * loader was written in the bare shape and `check:deadcode-blindspots` called
+ * it a REGRESSION on the next CI run - the file had never been blind before.
  */
-export const loadProjectSidebar = () => import('../../components/Project/ProjectSidebar');
+export const loadProjectSidebar = async () => {
+  const { ProjectSidebar } = await import('../../components/Project/ProjectSidebar');
+  return { ProjectSidebar };
+};
 export const loadDashboard = () => import('../../components/Dashboard/DashboardPane');
 export const loadProcessLog = () => import('../../components/Project/ProcessLogPane');
 // The destructured `await` and not `import().then(m => ...)`: with the `.then`
