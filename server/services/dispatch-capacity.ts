@@ -343,6 +343,30 @@ export const GB_PER_AGENT_NATIVE = 0.25;
  * sum kept counting it, this one does not. It discriminates where that matters
  * and stays quiet where it does not, which is the only useful shape for a gate.
  *
+ * ── WHERE THIS SUM SITS IN THE THREE STAGES OF PRESSURE ─────────────────────
+ * macOS gives memory back in three moves, in order: (1) evict the file-backed
+ * cache, which is free; (2) COMPRESS the dirty anonymous pages, which costs
+ * CPU while the RAM still holds; (3) SWAP to disk, which is the I/O storm.
+ *
+ * This sum is 92% file-backed cache - measured, 11,70 GB of 12,78 on a healthy
+ * sample - so it collapses at stage ONE, before the compressor starts filling
+ * at stage two. That is what makes it an early warning rather than a post
+ * mortem, and it is also why a second gate on the compressor's share would sit
+ * DOWNSTREAM of this one rather than ahead of it: by the time the compressor is
+ * a third of the machine, the cache this number is made of is long gone and the
+ * floor has already bitten. A swapout rate is later still - stage three is
+ * damage in progress, not a precursor.
+ *
+ * THE THIN PART, said out loud because it is where this will break: the floor
+ * (12 GB) sits about 0,8 GB under the healthy reading. On the night of
+ * 2026-09-10 purgeable and file-backed were not recorded, and under the most
+ * generous assumption possible - the cache still intact - this sum would have
+ * read 12,19 GB and the floor would NOT have bitten. That assumption is
+ * physically incoherent with 10 GB already compressed (stage one precedes stage
+ * two), but the margin it exposes is real: what protects this machine is a gap
+ * of a few hundred megabytes. Whoever measures the loaded case - the board at
+ * work, not an idle Mac - should check that gap first.
+ *
  * Fuori da macOS la sonda non c'è e la risposta è `null`: su Linux le stesse
  * pagine si leggono da `/proc/meminfo` con nomi diversi, e inventare una
  * conversione non verificata sarebbe peggio che dire «non lo so» — con `null`
