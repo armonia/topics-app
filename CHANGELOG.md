@@ -2,10 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.302 — 2026-09-11
+
+### Correzioni
+- **bundle** · una funzione da dieci righe non deve trascinarsi dietro il drag-and-drop
+
 ## 2.2.301 — 2026-09-11
 
 ### Correzioni
 - **site** · `auth` incollato a un identificatore non è la rivendicazione
+
+### Sotto il cofano
+- fix comment-language baseline: fleet-usage.ts count was still 169 after the split, real value 75
+- **board** · cover the dispatch-model option builder that keeps the stored value visible
+- Add e2e spec: org project list follows the selected group
+- Rename Italian identifiers in the new e2e spec to English
+- **landing** · don't scan the auto-generated changelog for the auth claim
+- **landing** · drop the changelog exemption, keep main's narrower regex fix
 
 ## 2.2.300 — 2026-09-11
 
@@ -20,14 +33,19 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · trenta bande grigie pesano come una tinta piatta, e il cancello aveva ragione
 - **e2e** · un trigger nel DOM non è un trigger cliccabile, e questa copia era rimasta indietro
 - **checks** · la terza volta che la coda del referto è tutta rumore, e stavolta senza una stringa da nominare
+- **board** · keep the stored dispatch model visible when its provider is down
 
 ### Sotto il cofano
 - Remove the Settings Privacy page, an exact duplicate of the Profile pane dropdown
+- fix identifier-language baseline: fleet-summary.ts was untracked at the previous update-baseline run
+- comment-language: record fleet-summary.ts and lock in only-decreasing debt elsewhere
 - propose collaborator-activity (task ef40fa34)
 - **rails** · `rss` è vocabolario di questo progetto, non un nome da rinominare
+- Scope the org project list to the selected group, wire sharing on it
 - collaborator-activity: resolve guest comment authors to person+device, add person/computer board filters
 - **projectLayoutSync** · widen fixed-delay margins, unrelated flake blocking delivery
 - settings-mobile e2e: drop Privacy from the walked nav list
+- Rename the org-project row type off Project (mirrors server already)
 
 ## 2.2.299 — 2026-09-11
 
@@ -39,6 +57,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Stopping a card now kills the agent's whole process tree, not just the turn
 - Extend provider-hold to Codex usage limits (AGPT-01)
+- split fleet-usage.ts: pure summarization moves to fleet-summary.ts
 
 ## 2.2.298 — 2026-09-11
 

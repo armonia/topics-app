@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.302",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "una funzione da dieci righe non deve trascinarsi dietro il drag-and-drop",
+          "en": "",
+          "scope": "bundle",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.301",
     "date": "2026-09-11",
     "sections": {
@@ -13,7 +30,41 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "fix comment-language baseline: fleet-usage.ts count was still 169 after the split, real value 75",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cover the dispatch-model option builder that keeps the stored value visible",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "Add e2e spec: org project list follows the selected group",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename Italian identifiers in the new e2e spec to English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "don't scan the auto-generated changelog for the auth claim",
+          "en": "",
+          "scope": "landing",
+          "breaking": false
+        },
+        {
+          "it": "drop the changelog exemption, keep main's narrower regex fix",
+          "en": "",
+          "scope": "landing",
+          "breaking": false
+        }
+      ]
     }
   },
   {
@@ -81,6 +132,12 @@
           "en": "",
           "scope": "checks",
           "breaking": false
+        },
+        {
+          "it": "keep the stored dispatch model visible when its provider is down",
+          "en": "",
+          "scope": "board",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -89,6 +146,17 @@
           "it": "Remove the Settings Privacy page, an exact duplicate of the Profile pane dropdown",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "fix identifier-language baseline: fleet-summary.ts was untracked at the previous update-baseline run",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "comment-language: record fleet-summary.ts and lock in only-decreasing debt elsewhere",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "propose collaborator-activity (task ef40fa34)",
@@ -103,6 +171,11 @@
           "breaking": false
         },
         {
+          "it": "Scope the org project list to the selected group, wire sharing on it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "collaborator-activity: resolve guest comment authors to person+device, add person/computer board filters",
           "en": "",
           "scope": null
@@ -115,6 +188,11 @@
         },
         {
           "it": "settings-mobile e2e: drop Privacy from the walked nav list",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename the org-project row type off Project (mirrors server already)",
           "en": "",
           "scope": null
         }
@@ -155,6 +233,11 @@
         },
         {
           "it": "Extend provider-hold to Codex usage limits (AGPT-01)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "split fleet-usage.ts: pure summarization moves to fleet-summary.ts",
           "en": "",
           "scope": null
         }
