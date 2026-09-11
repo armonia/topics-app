@@ -66,8 +66,14 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// `SPEC_COVERAGE_ROOT` exists ONLY for `check-spec-coverage.test.ts`: it points the whole gate
+// at a throwaway fixture tree instead of this repo, so the in-flight-id behaviour below can be
+// proven without 20+ real requirements and 50+ real test files lying around. Unset in every
+// real run, `bun run check:spec-coverage` included.
+const TEST_MODE = !!process.env.SPEC_COVERAGE_ROOT;
+const ROOT = process.env.SPEC_COVERAGE_ROOT ?? new URL("..", import.meta.url).pathname;
 const SPECS = join(ROOT, "openspec", "specs");
+const CHANGES = join(ROOT, "openspec", "changes");
 const BASELINE = join(ROOT, "openspec", "coverage-baseline.json");
 
 /** Roots where a test can live. Outside these, a `@covers` is never seen. */
@@ -142,13 +148,16 @@ const NOT_BUILT_MARKER = /^\s*(?:>\s*)?\*\*Status:\s*NOT BUILT\*\*/m;
  * widening on the title regex below adds thirteen titles, none of them a
  * duplicate and none naming a requirement, so R3 and R4 stay where they were.
  */
+/** Shared with {@link readOpenChangeRequirementIds}: both sides must read the same heading. */
+const REQUIREMENT_HEADING = /^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm;
+
 function readRequirements(): Requirement[] {
   const out: Requirement[] = [];
   for (const f of walk(SPECS)) {
     if (!f.endsWith(".md")) continue;
     const capability = f.slice(SPECS.length + 1).split("/")[0]!;
     const text = readFileSync(f, "utf8");
-    const heads = [...text.matchAll(/^###\s+Requirement:\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d+[a-z]?)\s*[—–-]*\s*(.*)$/gm)];
+    const heads = [...text.matchAll(REQUIREMENT_HEADING)];
     for (let i = 0; i < heads.length; i++) {
       const m = heads[i]!;
       // The requirement's own body, up to the next `###`. Read only to spot
@@ -164,6 +173,45 @@ function readRequirements(): Requirement[] {
     }
   }
   return out;
+}
+
+/**
+ * Requirement ids declared by an OPEN change's delta spec —
+ * `openspec/changes/<name>/specs/<capability>/spec.md` — as opposed to the archived ones under
+ * `openspec/changes/archive/`, which already landed in `openspec/specs/` and read from there.
+ *
+ * WHY THIS EXISTS. openspec's own flow writes a new requirement's `### Requirement:` heading
+ * into the change's delta FIRST; it only moves into `openspec/specs/` at archive time, to avoid
+ * colliding with `## ADDED Requirements` against a base spec that already has the id. A test
+ * landed alongside that delta — normal, tests and specs are meant to arrive in the same commit —
+ * claims an id `readRequirements()` cannot see yet. Measured 2026-09-11 on `pane-zoom`, wave 1:
+ * 12 ids (`LAYOUT-34` through `LAYOUT-41`, `NATIVEPARK-01`) went R1 DANGLING for a requirement
+ * that was written, just not archived. Promoting the id early is the wrong cure: it is what
+ * collides at archive time.
+ *
+ * So R1 needs a THIRD bucket next to "resolves" and "resolves to nothing": an id that resolves to
+ * an open change is in flight, not an error. An id inside `archive/` does NOT count here — an
+ * archived change's requirements already live in `openspec/specs/`, so if a test still can't
+ * resolve one of those the base spec is the thing that is wrong, and staying silent about it
+ * would hide that.
+ */
+function readOpenChangeRequirementIds(changesDir: string): Set<string> {
+  const ids = new Set<string>();
+  let entries: string[];
+  try {
+    entries = readdirSync(changesDir);
+  } catch {
+    return ids;
+  }
+  for (const name of entries) {
+    if (name === "archive") continue;
+    for (const f of walk(join(changesDir, name, "specs"))) {
+      if (!f.endsWith(".md")) continue;
+      const text = readFileSync(f, "utf8");
+      for (const m of text.matchAll(REQUIREMENT_HEADING)) ids.add(m[1]!);
+    }
+  }
+  return ids;
 }
 
 /** One test file: what it claims to cover, and the ids it names its scenarios with. */
@@ -247,11 +295,11 @@ const fileTest = readTests();
 // matches the spec format - every set would be empty and the gate would go
 // green for the worst possible reason: because it looked at nothing. These two
 // numbers are the proof that it looked.
-if (requirements.length < 20) {
+if (!TEST_MODE && requirements.length < 20) {
   console.error(`check:spec-coverage: only ${requirements.length} requirements read from ${SPECS} - the gate is measuring nothing.`);
   process.exit(2);
 }
-if (fileTest.length < 50) {
+if (!TEST_MODE && fileTest.length < 50) {
   console.error(`check:spec-coverage: only ${fileTest.length} test files with an id or @covers - the file walk is broken.`);
   process.exit(2);
 }
@@ -284,9 +332,11 @@ const requirementById = new Map(requirements.map((r) => [r.id, r]));
 const claimed = new Map<string, string[]>();
 for (const t of fileTest) for (const c of t.covers) claimed.set(c, [...(claimed.get(c) ?? []), t.path]);
 
-// R1 - a claim that resolves to no requirement.
+// R1 - a claim that resolves to no requirement, and is not in flight in an open change either.
+const openChangeIds = readOpenChangeRequirementIds(CHANGES);
 const dangling: { id: string; file: string }[] = [];
-for (const t of fileTest) for (const c of t.covers) if (!requirementById.has(c)) dangling.push({ id: c, file: t.path });
+for (const t of fileTest)
+  for (const c of t.covers) if (!requirementById.has(c) && !openChangeIds.has(c)) dangling.push({ id: c, file: t.path });
 
 // R2 - a requirement nobody claims. Requirements the spec itself marks NOT
 // BUILT are not debt: there is nothing to test. They are counted apart.
