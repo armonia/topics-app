@@ -5,7 +5,7 @@ import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
-import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
@@ -146,7 +146,7 @@ import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from "./server/services/task-auto-model";
-import { PLAN_DISPATCH_HOLD_AT } from "./shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
 import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
@@ -1421,11 +1421,14 @@ const taskDispatcher = createTaskDispatcher({
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     return taskProviderForModel(model, getSnapshotManager().getSnapshot());
   },
-  automaticModelOutsideClaude: () => {
+  // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
+  // runtime that is not held right now, whichever one that is (the memo does
+  // not name Claude specifically any more, see server/lib/provider-hold.ts).
+  automaticModelAvailable: () => {
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     const snapshot = getSnapshotManager().getSnapshot();
-    return automaticTaskModels(snapshot, readCodexModels(), true).length > 0
-      || snapshot.providers.some(provider => provider.name === "codex" && provider.status === "loading");
+    return automaticTaskModels(snapshot, readCodexModels(), (provider) => isProviderHeld(provider)).length > 0
+      || snapshot.providers.some(provider => provider.status === "loading" && !isProviderHeld(provider.name));
   },
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
@@ -1451,13 +1454,17 @@ const taskDispatcher = createTaskDispatcher({
   // restrict that catalog, and held Claude runtimes cannot classify or execute.
   pickAutoModel: async (task, selection, options) => {
     const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
+    const claudeApproachingLimit = (() => {
+      const window = planUsage()?.fiveHour;
+      return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+    })();
     return pickAutomaticTaskModel(task, selection, {
       snapshot: getSnapshotManager().getSnapshot(),
       getProvider: tryGetProvider,
-      claudeHeld: !!providerHold() || (() => {
-        const window = planUsage()?.fiveHour;
-        return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
-      })(),
+      // AGPT-01 extended: any provider under its own hold is excluded, not
+      // only Claude. Claude keeps one extra reason (the approaching-limit
+      // window has no equivalent for Codex, which has no usage endpoint).
+      isHeld: (provider) => isProviderHeld(provider) || (providerHoldKey(provider) === "claude" && claudeApproachingLimit),
       requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
       log: (message) => console.log(`[dispatcher] ${message}`),
     });
