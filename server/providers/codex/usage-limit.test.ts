@@ -15,7 +15,7 @@ const MESSAGE = "You've hit your usage limit. Visit https://chatgpt.com/codex/se
 describe("parseCodexUsageLimit", () => {
   test("reads the published reset instant out of the CLI's own sentence", () => {
     const hold = parseCodexUsageLimit(MESSAGE, NOW);
-    expect(hold?.untilMs).toBe(Date.parse("2026-09-15T23:30:00"));
+    expect(hold?.untilMs).toBe(Date.UTC(2026, 8, 15, 23, 30));
     expect(hold?.reason).toBe("Codex plan usage limit reached");
   });
 
@@ -36,6 +36,13 @@ describe("parseCodexUsageLimit", () => {
 
   test("the date without a time still parses", () => {
     const noTime = "You've hit your usage limit. try again at Sep 15th, 2026.";
-    expect(parseCodexUsageLimit(noTime, NOW)?.untilMs).toBe(Date.parse("2026-09-15"));
+    expect(parseCodexUsageLimit(noTime, NOW)?.untilMs).toBe(Date.UTC(2026, 8, 15));
+  });
+
+  test("noon and midnight read the 12-hour clock correctly", () => {
+    const noon = "You've hit your usage limit. try again at Sep 15th, 2026 12:00 PM.";
+    const midnight = "You've hit your usage limit. try again at Sep 15th, 2026 12:00 AM.";
+    expect(parseCodexUsageLimit(noon, NOW)?.untilMs).toBe(Date.UTC(2026, 8, 15, 12, 0));
+    expect(parseCodexUsageLimit(midnight, NOW)?.untilMs).toBe(Date.UTC(2026, 8, 15, 0, 0));
   });
 });
