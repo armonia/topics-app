@@ -62,16 +62,19 @@ const PID = "hold-board";
 const CLAUDE = "claude-opus-5";
 const codingModel = "gpt-5.4";
 const cleanups: Array<() => void> = [];
-beforeEach(() => { resetProviderHoldStore(); clearProviderHold(); clearPlanUsage(); });
+beforeEach(() => { resetProviderHoldStore(); clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
-  clearProviderHold(); clearPlanUsage();
+  clearProviderHold(); clearProviderHold("codex"); clearPlanUsage();
 });
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 function limit(kind: "hold" | "threshold") {
   const untilMs = Date.now() + 3_600_000;
   if (kind === "hold") setProviderHold({ untilMs, window: "five_hour", reason: "Claude quota exhausted" });
   else recordPlanUsage({ fiveHour: { utilization: 95, resetsAtMs: untilMs }, sevenDay: null });
+}
+function codexLimit() {
+  setProviderHold({ untilMs: Date.now() + 3_600_000, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" });
 }
 function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> = {}) {
   const db = freshDb();
@@ -127,7 +130,7 @@ for (const kind of ["hold", "threshold"] as const) describe(kind, () => {
   test("general Auto reaches the picker during a Claude hold and can choose Codex", async () => {
     let picks = 0;
     const h = harness("topics", {
-      automaticModelOutsideClaude: () => true,
+      automaticModelAvailable: () => true,
       pickAutoModel: async () => { picks++; return { model: codingModel, effort: "low", weight: "light" }; },
     });
     h.task("automatic"); h.task("explicit-claude", CLAUDE);
@@ -177,6 +180,38 @@ for (const kind of ["hold", "threshold"] as const) describe(kind, () => {
     await h.dispatcher.tick(PID); await flush();
     expect(picks).toBe(1);
     expect(h.svc.get("auto-claude")!.task.dispatchAttempts).toBe(0);
+  });
+});
+
+describe("Codex hold (AGPT-01 extended)", () => {
+  test("general Auto reaches the picker during a Codex hold and can choose Claude", async () => {
+    let picks = 0;
+    const h = harness("codex", {
+      automaticModelAvailable: () => true,
+      pickAutoModel: async () => { picks++; return { model: CLAUDE, provider: "topics" }; },
+    });
+    h.task("automatic"); h.task("explicit-codex", codingModel);
+    codexLimit();
+    await h.dispatcher.tick(PID); await flush();
+    expect(picks).toBe(1);
+    expect(h.starts).toEqual([{ model: CLAUDE, provider: "topics" }]);
+    expect(h.svc.get("explicit-codex")?.task.dispatchAttempts).toBe(0);
+    expect(h.svc.get("explicit-codex")?.task.status).toBe("todo");
+  });
+
+  test("a held Codex wall does not block Claude and consumes no attempt", async () => {
+    const h = harness();
+    h.task("a-gpt", codingModel); h.task("b-claude", CLAUDE);
+    h.db.run("UPDATE tasks SET priority = 4 WHERE id = 'a-gpt'");
+    codexLimit();
+    await h.dispatcher.tick(PID); await flush();
+    expect(h.starts).toEqual([{ model: CLAUDE, provider: "topics" }]);
+    expect(h.turns).toHaveLength(1);
+    expect(h.svc.get("a-gpt")!.task).toMatchObject({ status: "todo", assignedTopicId: null, dispatchAttempts: 0, dispatchState: "queued" });
+    expect(h.svc.get("a-gpt")!.task.dispatchError).toContain("Codex");
+    clearProviderHold("codex");
+    await h.dispatcher.tick(PID); await flush();
+    expect(h.starts.map(s => s.provider)).toEqual(["topics", "codex"]);
   });
 });
 

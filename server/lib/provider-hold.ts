@@ -22,9 +22,21 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
+import { providerHoldKey } from "../../shared/provider-hold";
 export type { PlanUsage, ProviderHold, UsageWindowKind };
 
-let current: ProviderHold | null = null;
+/**
+ * One hold per provider key ("claude", "codex", …): each hits its own wall on
+ * its own plan, so a spent Codex month must not wait for, or be waited on by,
+ * a spent Claude window. "claude" is what every caller that does not name a
+ * key means — the native runtime and the resume sweep only ever talk about
+ * the Claude account, so their calls stay unchanged by this being a map.
+ */
+const DEFAULT_KEY = "claude";
+const holds = new Map<string, ProviderHold>();
+/** Fires on the Claude hold only: it is the one the status-bar banner and the
+ *  resume sweep were built to show. A held Codex is read by the dispatcher
+ *  and the automatic classifier, not announced to open chats. */
 const listeners = new Set<(hold: ProviderHold | null) => void>();
 /** Where the memo is mirrored; null until the server names the file. */
 let storePath: string | null = null;
@@ -32,9 +44,9 @@ let storePath: string | null = null;
 function persist(): void {
   if (!storePath) return;
   try {
-    if (current) {
+    if (holds.size > 0) {
       mkdirSync(dirname(storePath), { recursive: true });
-      writeFileSync(storePath, JSON.stringify(current));
+      writeFileSync(storePath, JSON.stringify(Object.fromEntries(holds)));
     } else if (existsSync(storePath)) {
       unlinkSync(storePath);
     }
@@ -44,26 +56,50 @@ function persist(): void {
   }
 }
 
+function isValidHold(raw: unknown): raw is ProviderHold {
+  if (!raw || typeof raw !== "object") return false;
+  const r = raw as Partial<ProviderHold>;
+  return typeof r.untilMs === "number" && typeof r.reason === "string"
+    && (r.window === "five_hour" || r.window === "seven_day" || r.window === "usage_limit");
+}
+
 /**
  * Name the file the hold is mirrored in, and adopt whatever a previous
- * process left there if it has not ended yet. Returns the hold restored, or
- * null. An expired file is removed, not adopted.
+ * process left there if it has not ended yet. Returns the Claude hold
+ * restored if there is one, else any other provider's, else null. An expired
+ * entry is dropped, not adopted; the legacy single-hold file (no provider
+ * keys, just the hold itself) is read as Claude's.
  */
 export function configureProviderHoldStore(path: string, nowMs: number = Date.now()): ProviderHold | null {
   storePath = path;
   try {
     if (!existsSync(path)) return null;
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<ProviderHold>;
-    if (typeof raw.untilMs !== "number" || typeof raw.reason !== "string" || (raw.window !== "five_hour" && raw.window !== "seven_day")) {
-      unlinkSync(path);
-      return null;
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const entries: Array<[string, unknown]> = typeof (raw as { untilMs?: unknown }).untilMs === "number"
+      ? [[DEFAULT_KEY, raw]]
+      : Object.entries(raw);
+    let reported: ProviderHold | null = null;
+    let anyKept = false;
+    for (const [key, value] of entries) {
+      if (!isValidHold(value) || value.untilMs <= nowMs) continue;
+      anyKept = true;
+      const existing = holds.get(key);
+      if (existing && existing.untilMs >= value.untilMs) continue;
+      const hold: ProviderHold = {
+        untilMs: value.untilMs, window: value.window, reason: value.reason,
+        sinceMs: typeof value.sinceMs === "number" ? value.sinceMs : nowMs,
+      };
+      holds.set(key, hold);
+      if (key === DEFAULT_KEY) {
+        reported = hold;
+        for (const cb of listeners) { try { cb(hold); } catch { /* a listener's failure is its own */ } }
+      } else if (!reported) {
+        reported = hold;
+      }
     }
-    if (raw.untilMs <= nowMs) { unlinkSync(path); return null; }
-    if (!current || current.untilMs < raw.untilMs) {
-      current = { untilMs: raw.untilMs, window: raw.window, reason: raw.reason, sinceMs: typeof raw.sinceMs === "number" ? raw.sinceMs : nowMs };
-      for (const cb of listeners) { try { cb(current); } catch { /* a listener's failure is its own */ } }
-    }
-    return current;
+    if (!anyKept) { unlinkSync(path); return null; }
+    persist();
+    return reported;
   } catch {
     try { unlinkSync(path); } catch { /* nothing to remove */ }
     return null;
@@ -75,35 +111,55 @@ export function resetProviderHoldStore(): void {
   storePath = null;
 }
 
-/** The hold in force at `nowMs`, or null: an expired hold is forgotten. */
-export function providerHold(nowMs: number = Date.now()): ProviderHold | null {
-  if (current && current.untilMs <= nowMs) current = null;
-  return current;
+/** The hold in force at `nowMs` for this provider key, or null: an expired
+ *  hold is forgotten. Defaults to "claude", the one every caller that
+ *  predates multi-provider holds meant. */
+export function providerHold(nowMs: number = Date.now(), key: string = DEFAULT_KEY): ProviderHold | null {
+  const hold = holds.get(key);
+  if (hold && hold.untilMs <= nowMs) { holds.delete(key); return null; }
+  return hold ?? null;
+}
+
+/** Whether a runtime PROVIDER (not a hold key) is under a wall right now — the
+ *  question the dispatcher and the automatic classifier actually ask, since
+ *  they know provider ids like "claude-code" or "codex", not hold keys. */
+export function isProviderHeld(provider: string, nowMs: number = Date.now()): boolean {
+  const key = providerHoldKey(provider);
+  return key != null && providerHold(nowMs, key) != null;
 }
 
 /**
- * Record a hold. A later end replaces an earlier one; a shorter one does not
- * shorten a hold already in force (two sessions reading the same window in a
- * different second must not flap the fleet).
+ * Record a hold for `hold.provider` (default "claude"). A later end replaces
+ * an earlier one; a shorter one does not shorten a hold already in force (two
+ * sessions reading the same window in a different second must not flap the
+ * fleet) — independently per provider.
  */
-export function setProviderHold(hold: { untilMs: number; window: UsageWindowKind; reason: string }, nowMs: number = Date.now()): ProviderHold {
-  const active = providerHold(nowMs);
+export function setProviderHold(hold: { untilMs: number; window: UsageWindowKind; reason: string; provider?: string }, nowMs: number = Date.now()): ProviderHold {
+  const key = hold.provider ?? DEFAULT_KEY;
+  const active = providerHold(nowMs, key);
   if (active && active.untilMs >= hold.untilMs) return active;
-  current = { untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: nowMs };
+  const next: ProviderHold = { untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: nowMs };
+  holds.set(key, next);
   persist();
-  for (const cb of listeners) { try { cb(current); } catch { /* a listener's failure is its own */ } }
-  return current;
+  if (key === DEFAULT_KEY) {
+    for (const cb of listeners) { try { cb(next); } catch { /* a listener's failure is its own */ } }
+  }
+  return next;
 }
 
-/** The provider accepted a request: whatever the memo said, the wall is gone. */
-export function clearProviderHold(): void {
-  if (!current) return;
-  current = null;
+/** The provider accepted a request: whatever the memo said, the wall for
+ *  `provider` (default "claude") is gone. */
+export function clearProviderHold(provider: string = DEFAULT_KEY): void {
+  if (!holds.has(provider)) return;
+  holds.delete(provider);
   persist();
-  for (const cb of listeners) { try { cb(null); } catch { /* idem */ } }
+  if (provider === DEFAULT_KEY) {
+    for (const cb of listeners) { try { cb(null); } catch { /* idem */ } }
+  }
 }
 
-/** Called on every change, with the new hold or null when it is lifted. */
+/** Called on every change to the Claude hold, with the new hold or null when
+ *  it is lifted (see the `listeners` comment above for why only Claude's). */
 export function onProviderHold(cb: (hold: ProviderHold | null) => void): () => void {
   listeners.add(cb);
   return () => { listeners.delete(cb); };
