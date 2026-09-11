@@ -1140,8 +1140,11 @@ const IT: Dict = {
   //    they are the line that explains what a space is for, which is the only
   //    part of a suggestion anybody actually reads.
   'settings.org.projects.title': "Progetti dell'organizzazione",
-  'settings.org.projects.empty': 'Nessun progetto ancora associato.',
+  'settings.org.projects.empty': 'Nessun progetto appartiene ancora a questa organizzazione.',
   'settings.org.projects.hint': "Crea il progetto dalla sidebar (tasto destro) e assegnalo all'org.",
+  'settings.org.guide.title': 'Due accessi diversi',
+  'settings.org.guide.browser': "Condividi un progetto (bottone sopra) per dare a qualcuno un link o un dispositivo autorizzato: legge, commenta o modifica le sue schede dal browser, su qualunque macchina, senza installare niente.",
+  'settings.org.guide.machine': "Per fargli eseguire agenti su questo lavoro, deve installare Topics sul proprio computer (Impostazioni → Dispositivi ha la richiesta di appaiamento e la sua approvazione) e avere una propria copia del repository. È una seconda macchina, non un link.",
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
   'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
