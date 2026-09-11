@@ -1200,12 +1200,12 @@ test.describe("La cornice e la griglia sotto", () => {
       }
     }
 
-    const normale = await misura("no-preference");
-    expect(normale.reduce, "il contesto deve davvero essere in no-preference").toBe(false);
+    const plain = await misura("no-preference");
+    expect(plain.reduce, "il contesto deve davvero essere in no-preference").toBe(false);
     // 120ms, and on OPACITY: no geometry is animated, here or anywhere.
-    expect(normale.props).toEqual(["opacity"]);
-    expect(normale.durations[0]).toBeCloseTo(0.12, 3);
-    expect(normale.animated).toEqual(["opacity"]);
+    expect(plain.props).toEqual(["opacity"]);
+    expect(plain.durations[0]).toBeCloseTo(0.12, 3);
+    expect(plain.animated).toEqual(["opacity"]);
 
     const ridotto = await misura("reduce");
     expect(ridotto.reduce, "il contesto deve davvero essere in reduce").toBe(true);
@@ -1242,16 +1242,16 @@ test.describe("La cornice e la griglia sotto", () => {
 
     // It falls inside the TOP BAND, i.e. above the stage's top edge, with the
     // measure read from the declared inset instead of guessed.
-    const geom = await page.evaluate(() => {
+    const box = await page.evaluate(() => {
       const s = document.querySelector("[data-split-surface]") as HTMLElement;
       const stage = document.querySelector(".pane-zoom-stage") as HTMLElement;
       const cmd = document.querySelector('[data-testid="pane-zoom-sidebar-toggle"]') as HTMLElement;
       const r = (e: HTMLElement) => { const b = e.getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; };
       return { surface: r(s), stage: r(stage), cmd: r(cmd), bandTop: parseFloat(getComputedStyle(s).paddingTop) };
     });
-    expect(geom.bandTop).toBeGreaterThanOrEqual(20);
-    expect(geom.cmd.top).toBeGreaterThanOrEqual(geom.surface.top - 0.5);
-    expect(geom.cmd.bottom, "il comando sta sopra il bordo alto dello stage").toBeLessThanOrEqual(geom.stage.top + 0.5);
+    expect(box.bandTop).toBeGreaterThanOrEqual(20);
+    expect(box.cmd.top).toBeGreaterThanOrEqual(box.surface.top - 0.5);
+    expect(box.cmd.bottom, "il comando sta sopra il bordo alto dello stage").toBeLessThanOrEqual(box.stage.top + 0.5);
 
     // And the enlarged cell reserves NOTHING for the native lights: it is not
     // flush to the window, the lights sit over the frame (design D6).
