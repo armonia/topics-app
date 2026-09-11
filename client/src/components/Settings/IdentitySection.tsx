@@ -135,7 +135,17 @@ export function TolliQueue({ tolti, onDelete, inCorso, rifiuto, t }: {
   );
 }
 
-export function IdentitySection() {
+export function IdentitySection({ onOrgChange }: {
+  /**
+   * Called whenever the SELECTED group changes — creation, deletion, the
+   * picker above two groups, or the installation's own group settling in on
+   * first load. The org projects panel needs to know WHICH group's page is
+   * open, and this section is the only place that decides `scelto`; without
+   * this callback a sibling had to guess, and guessing was the bug this
+   * change fixes (see `OrgProjectsSection`).
+   */
+  onOrgChange?: (orgId: string | null) => void;
+} = {}) {
   const t = useT();
   const conferma = useConfirm();
   const [io, setIo] = useState<Io | null>(null);
@@ -201,6 +211,8 @@ export function IdentitySection() {
   }, [gruppi, io?.org?.id]);
 
   useEffect(() => { if (scelto) void loadMembers(scelto); else setMembri([]); }, [scelto, loadMembers]);
+
+  useEffect(() => { onOrgChange?.(scelto); }, [scelto, onOrgChange]);
 
   const ricarica = async (orgId?: string | null) => {
     await carica();

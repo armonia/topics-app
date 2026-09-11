@@ -1000,8 +1000,11 @@ const EN = {
   //    too: the line that says what a workspace is for is the only part of a
   //    suggestion anyone actually reads.
   'settings.org.projects.title': 'Organization projects',
-  'settings.org.projects.empty': 'No project linked yet.',
+  'settings.org.projects.empty': 'No project belongs to this organization yet.',
   'settings.org.projects.hint': 'Create the project from the sidebar (right-click) and assign it to the org.',
+  'settings.org.guide.title': 'Two different kinds of access',
+  'settings.org.guide.browser': 'Share a project (button above) to hand someone a link or a device grant: they read, comment or edit its tasks from their browser, on any machine, without installing anything.',
+  'settings.org.guide.machine': 'To have them run agents on this work, they install Topics on their own computer (Settings → Devices has the pairing request and its approval) and get their own checkout of the repository. That is a second machine, not a link.',
   'board.filter.projectUnknown': 'Not among the open projects: still filterable, but where it lives is unknown.',
   'board.card.systemNote': 'System note',
   'board.card.noSummary': 'No summary: what follows is machine bookkeeping',
