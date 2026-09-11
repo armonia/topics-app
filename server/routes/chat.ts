@@ -52,6 +52,8 @@ import { dispatchBrowserToolCall, providerRunsBrowserToolsItself, resolveContext
 import { decodeCol } from "../../shared/message-blob";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
+import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
+import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 
 /** This handler writes the timeline: see `toolColumnWriteMode` in server/utils.ts. */
 const MIRRORED = { mirroredInBlocks: true } as const;
@@ -3013,6 +3015,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
             onError: (error: string) => {
               console.error(`[StreamWS] Error for ${sessionKey}: ${error}`);
+              // The second writer to the shared provider-hold memo (see
+              // server/lib/provider-hold.ts): Codex publishes no usage
+              // endpoint, only this sentence in the error itself, so this is
+              // where the wall becomes something the dispatcher can read
+              // instead of retrying four times into it (card 31be77d3).
+              if (topicProvider.name === "codex") {
+                const limit = parseCodexUsageLimit(error);
+                if (limit) {
+                  setProviderHold({ ...limit, window: "usage_limit", provider: "codex" });
+                  console.warn(`[StreamWS] Codex usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
+                }
+              }
               // Il turno e' fallito: il preambolo marcato come consegnato potrebbe
               // non esserlo mai stato (PROCESS_DEAD rigetta PRIMA di scrivere su
               // stdin). Nel dubbio si rimanda: due token in piu' contro un modello

@@ -112,8 +112,11 @@ const layout = (paneId: string) => ({
   openChatTopicIds: [],
 });
 
-// The sync is debounced 500 ms; wait past it.
-const settle = () => new Promise((r) => setTimeout(r, 650));
+// The sync is debounced 500 ms; wait past it. The margin is wider than the
+// naive "debounce plus a bit" because under a busy fleet (many agents'
+// test:unit shards sharing the machine) the event loop can lag the clock
+// by seconds, not milliseconds, and a too-tight wait flakes.
+const settle = () => new Promise((r) => setTimeout(r, 2500));
 
 beforeEach(() => {
   __resetProjectSyncForTests();
@@ -192,7 +195,10 @@ describe("project channel PUT durability", () => {
   // longer than one `settle()` — so these two tests wait it fully OUT before
   // swapping mocks, or a straggler retry from the FIRST failing write lands on
   // the SECOND mock and pollutes its call count.
-  const settleRetryChain = () => new Promise((r) => setTimeout(r, 3000));
+  // Wide margin for the same reason as `settle()`: under a busy fleet the
+  // event loop can lag seconds behind the clock, and this one has to outlast
+  // the whole backoff chain, not just the debounce.
+  const settleRetryChain = () => new Promise((r) => setTimeout(r, 9000));
 
   test("teardown flush carries a compare-and-swap base=, like syncServer.ts's channel", async () => {
     installFetch(false); // stays un-acked, so flushAllPending has something to beacon
