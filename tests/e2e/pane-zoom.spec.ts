@@ -520,7 +520,7 @@ test.describe("Ingrandire una conversazione", () => {
     // THE POINT, and it is two claims, because either one alone can be true for
     // the wrong reason: the zoom is still open, AND the draft is on screen. A
     // zoom that survived while the draft sat inside a collapsed cell would be
-    // the very failure «una pane NUOVA non SHALL mai nascere invisibile» names.
+    // the very failure «una pane NUOVA non SHALL mai nascere invisibile» names.  allow-italian: quotes LAYOUT-36 verbatim, and the spec is written in Italian
     // `toBeVisible` is the measure of that: a tab in a collapsed cell has a zero
     // box.
     await expect(draftTab).toBeVisible();
@@ -1292,7 +1292,7 @@ test.describe("La cornice e la griglia sotto", () => {
     // (`prevEl.style.flex = ...`, SplitTree.tsx) and nothing re-renders those
     // nodes afterwards to put the weights back. Measured: the surviving cells
     // go 320/320 → 499/140 and STAY there, with the zoom still open. What
-    // LAYOUT-35 asks for is "la geometria NON SHALL cambiare", and today it
+    // LAYOUT-35 asks for is "la geometria NON SHALL cambiare", and today it  allow-italian: quotes LAYOUT-35 verbatim
     // changes and sticks.
     const divider = page.locator('[role="main"] [data-resize-axis="col"]').first();
     await expect(divider).toBeVisible({ timeout: 5_000 });
@@ -1328,7 +1328,7 @@ test.describe("La cornice e la griglia sotto", () => {
     await pinTab(page, t1);
     const cellsBefore = (await cellKeys(page)).length;
 
-    // ── «Dividi a destra»: esce, e si applica alla griglia INTERA ──────────
+    // ── Split Right: it exits, and it applies to the WHOLE grid ───────────
     await tab(page, t1).dblclick();
     await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(true);
     await tab(page, t1).click({ button: "right" });
@@ -1361,7 +1361,7 @@ test.describe("La cornice e la griglia sotto", () => {
     await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(false);
     await expect.poll(() => cellKeys(page), { timeout: 10_000 }).toEqual(["standalone"]);
 
-    // ── l'avvio di un trascinamento di tab ────────────────────────────────
+    // ── the start of a tab drag ───────────────────────────────────────────
     await seedGrid(page, request, { paneIds: [t1, t4, t2], soloCells: [[t2]] });
     await pinTab(page, t1);
     await tab(page, t1).dblclick();
@@ -1483,7 +1483,7 @@ test.describe("Le uscite automatiche", () => {
     await expect.poll(() => cellKeys(page), { timeout: 15_000 }).toEqual(cellsBefore);
     expect(await zoomed(page), "lo stato di riposo e' non ingrandito").toBe(false);
 
-    // ── nessuna cornice su una griglia non ancora idratata ────────────────
+    // ── no frame on a grid that has not hydrated yet ──────────────────────
     // The boot window has to be WIDENED to be observable, and BOTH channels
     // have to be held back: the `ui-state:init` frame and the
     // `GET /api/ui-state/pane-store-v2` fallback. Delaying one lets the other
@@ -1601,7 +1601,7 @@ test.describe("Le uscite automatiche", () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  7.1 (coda) — il cassetto di un task monta lo stesso tiling e NON offre lo zoom
+//  7.1 (tail) - a task drawer mounts the same tiling and does NOT offer zoom
 // ════════════════════════════════════════════════════════════════════════════
 
 const DRAWER_PROJECT_PATH = `${canonicalTmpRoot()}/e2e-pane-zoom-drawer-${STAMP}`;
