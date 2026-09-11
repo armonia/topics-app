@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
+import { imageShape } from "../services/image-shape";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
@@ -1642,6 +1643,72 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: media("x.png") }))!;
     expect(resp.status).toBe(200);
+  });
+
+  // An explicit gesture ("I want THIS ONE") is no longer enough past the
+  // allowlist and the extension check: a byte-uniform image is never
+  // evidence of any work, and this door ignored that entirely. The shape
+  // gate was removed here on purpose, but nobody put one back on CONTENT.
+  // `isBlankLikeImage` is the same measure already in production for the
+  // auto-captured shots.
+  test("a byte-uniform preview is refused even on the manual door (explicit gesture included)", async () => {
+    const ctx = makeCtx(db, broadcasts) as any;
+    ctx.imageShapeOf = () => ({ width: 1280, height: 720, ratio: 720 / 1280 });
+    const r = createTasksRouter(ctx);
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    // `x.png` on disk is 1 byte: well below the measured density floor.
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: media("x.png") }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).error).toContain("blank");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.previewImage).toBeNull();
+  });
+
+  /**
+   * THE SONDA THAT WAS NEVER PLUGGED IN. Every case above injects a fake
+   * `imageShapeOf`, or none at all, so the gate here has never once seen what
+   * the production wiring sees (`server/utils.ts` passes the real
+   * `imageShape`). That is how the density floor - measured on PNGs - shipped
+   * onto a path that also carries SVGs, and rejected a legitimate 240x80
+   * diagram of 174 bytes: three e2e shards red on main, 2026-09-11.
+   *
+   * So this one wires the REAL function over REAL files, both ways.
+   */
+  test("con la sonda VERA un SVG disegnato entra e un PNG piatto no", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "topics-preview-reale-"));
+    // The fixture of `tests/e2e/board-conversation-details.spec.ts`: 174 byte,
+    // 0,00906 byte/px - under the raster floor, and not blank at all.
+    writeFileSync(join(dir, "schema.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80">' +
+      '<rect width="240" height="80" fill="#e0ede9"/>' +
+      '<text x="20" y="44" fill="#164e3d">Source to Chart</text></svg>');
+    // A real PNG header and nothing else: 33 byte over 1280x720.
+    const png = Buffer.alloc(33);
+    png.writeUInt32BE(0x89504e47, 0); png.writeUInt32BE(0x0d0a1a0a, 4);
+    png.writeUInt32BE(13, 8); png.write("IHDR", 12, "latin1");
+    png.writeUInt32BE(1280, 16); png.writeUInt32BE(720, 20);
+    png[24] = 8; png[25] = 6;
+    writeFileSync(join(dir, "vuota.png"), png);
+    try {
+      const ctx = makeCtx(db, broadcasts) as any;
+      ctx.imageShapeOf = imageShape;
+      const r = createTasksRouter(ctx);
+      const svgTask = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "svg" }))!.json();
+      const ok = (await call(r, "PATCH", `/api/sessions/s1/tasks/${svgTask.id}`, {
+        previewImage: join(dir, "schema.svg"),
+      }))!;
+      expect(ok.status).toBe(200);
+      expect((await ok.json()).previewImage).toBe(join(dir, "schema.svg"));
+
+      const pngTask = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "png" }))!.json();
+      const ko = (await call(r, "PATCH", `/api/sessions/s1/tasks/${pngTask.id}`, {
+        previewImage: join(dir, "vuota.png"),
+      }))!;
+      expect(ko.status).toBe(400);
+      expect((await ko.json()).error).toContain("blank");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {

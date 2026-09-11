@@ -25,6 +25,7 @@
  * make the verdict depend on where the chat happened to be scrolled.
  *
  * @covers CHROME-13
+ * @covers CHROME-14
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
@@ -207,4 +208,40 @@ test("si legge se il progetto e' la scheda selezionata", async ({ request, page 
     contrastRatio(projectFill, chatFill),
     `progetto ${projectFill.map(Math.round)} contro chat a riposo ${chatFill.map(Math.round)}`,
   ).toBeGreaterThanOrEqual(SELECTED_VS_RESTING);
+});
+
+test("un progetto senza favicon resta marcato come progetto, selezionato o a riposo", async ({ request, page }) => {
+  // The background-contrast test above answers "is the project the selected
+  // tab" — a question about FOCUS, not about KIND. This one answers "is this
+  // tab a project at all", which the ground-contrast measurement cannot tell
+  // apart from a chat: a chat tab clicked to selected also stands off a
+  // resting one by the same ratio. `PROJECT_PATH` ships no favicon on
+  // purpose (see beforeAll), so `ProjectFavicon` renders nothing here — the
+  // exact case CHROME-14 exists for.
+  await resetPaneStore(request, [topics[0].id, PROJECT_PANE]);
+  await goToApp(page);
+
+  const projectTab = page.locator(tabSelector(PROJECT_PANE));
+  const chatTab = page.locator(tabSelector(topics[0].id));
+  await expect(projectTab).toBeVisible({ timeout: 20000 });
+  await expect(chatTab).toBeVisible({ timeout: 20000 });
+
+  const projectMarker = projectTab.locator('[data-testid="tab-project-marker"]');
+  const chatMarker = chatTab.locator('[data-testid="tab-project-marker"]');
+
+  // At rest (chat selected instead): the project tab still reads as a project.
+  await chatTab.click();
+  await expect(chatTab).toHaveAttribute("data-active", "true", { timeout: 10000 });
+  await expect(projectTab).toHaveAttribute("data-active", "false");
+  await expect(projectMarker).toBeVisible();
+  await expect(chatMarker).toHaveCount(0);
+
+  // Selected: the same marker SHALL still be there. This is the branch the
+  // background-only assertion above cannot see — ProjectElapsed and
+  // ProjectStreamingSpinner are deliberately gated off once selected, and an
+  // icon-less project used to reach zero project cues here, indistinguishable
+  // from a chat.
+  await projectTab.click();
+  await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10000 });
+  await expect(projectMarker).toBeVisible();
 });

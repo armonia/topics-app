@@ -23,6 +23,11 @@ export interface ImageShape {
   height: number;
   /** height / width — il numero che il gate confronta con la soglia. */
   ratio: number;
+  /**
+   * Raster or vector, because the density floor below only means something for
+   * one of the two. Absent on shapes built by hand in tests that never cared.
+   */
+  vector?: boolean;
 }
 
 /** Quanto basta per l'header di tutti i formati qui sotto (SVG incluso). */
@@ -132,11 +137,12 @@ function svg(b: Buffer): [number, number] | null {
 export function imageShape(path: string): ImageShape | null {
   const b = readHead(path);
   if (!b) return null;
-  const dims = png(b) ?? gif(b) ?? webp(b) ?? jpeg(b) ?? svg(b);
+  const raster = png(b) ?? gif(b) ?? webp(b) ?? jpeg(b);
+  const dims = raster ?? svg(b);
   if (!dims) return null;
   const [width, height] = dims;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-  return { width, height, ratio: height / width };
+  return { width, height, ratio: height / width, vector: !raster };
 }
 
 /**
@@ -168,8 +174,17 @@ export function imageShape(path: string): ImageShape | null {
  */
 export const BLANK_DENSITY_FLOOR = 0.01;
 
-export function isBlankLikeImage(i: { bytes: number; width: number; height: number }): boolean {
+export function isBlankLikeImage(i: { bytes: number; width: number; height: number; vector?: boolean }): boolean {
   const pixelCount = i.width * i.height;
   if (pixelCount <= 0 || i.bytes <= 0) return false; // nothing to judge, not a verdict
+  // A VECTOR IMAGE HAS NO DENSITY TO MEASURE. The floor above was measured on
+  // PNGs - see the table in the docstring - and bytes-per-pixel is a raster
+  // signal: an SVG carries instructions, not samples, so a whole diagram costs
+  // a couple of hundred bytes at any declared size while a blank PNG costs
+  // tens of kilobytes. Applying the raster floor to an SVG rejects EVERY SVG,
+  // whatever it draws. Measured 2026-09-11: a 240x80 SVG with a filled rect
+  // and a text label reads 0,0099 byte/px - under the floor, and it is not
+  // blank at all. It broke three e2e shards on main.
+  if (i.vector) return false;
   return i.bytes / pixelCount < BLANK_DENSITY_FLOOR;
 }

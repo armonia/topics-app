@@ -581,3 +581,32 @@ com'erano.
 #### Scenario: la card di un turno in corso
 - **GIVEN** una consegna che non ha ancora un conteggio
 - **THEN** la pastiglia resta, e sparisce solo se il conteggio letto è zero
+
+### Requirement: PROJECT-13 — A project's org can be assigned or cleared, owner-only, through the same PATCH
+
+`PATCH /api/projects/:id` SHALL accept an `orgId` field alongside `name`, `color`, `icon`, and `incognito`. The value SHALL be either `null` (personal, no organisation) or the id of the caller's own installation organisation — no other organisation id is accepted, since one installation names exactly one. Only the project's `ownerPersonId` (or a project with no owner recorded, the pre-ownership legacy case) SHALL be allowed to change it; anyone else's attempt SHALL fail without touching the row.
+
+#### Scenario: The owner brings a legacy project into the org
+- **GIVEN** a project created before organisations existed, `org_id` NULL
+- **WHEN** its owner issues `PATCH /api/projects/:id` with `{ orgId: <the installation's own org id> }`
+- **THEN** the row's `org_id` SHALL be set
+- **AND** `project:updated` SHALL broadcast with the new value
+- **AND** the project SHALL now appear in `GET /api/projects` for every other member of that organisation
+
+#### Scenario: The owner takes a project back to personal
+- **GIVEN** a project shared with the org
+- **WHEN** its owner issues `PATCH /api/projects/:id` with `{ orgId: null }`
+- **THEN** the row's `org_id` SHALL be cleared
+- **AND** it SHALL disappear from every other member's list on the next broadcast, exactly as `incognito` does
+
+#### Scenario: A non-owner's attempt changes nothing
+- **GIVEN** a project owned by another person
+- **WHEN** a different member issues `PATCH /api/projects/:id` with an `orgId`
+- **THEN** the request SHALL fail with HTTP 403
+- **AND** the row's `org_id` SHALL remain unchanged
+
+#### Scenario: An org id that is not this installation's own is rejected
+- **GIVEN** any project
+- **WHEN** a `PATCH` names an `orgId` that is not `null` and not the caller's own installation organisation
+- **THEN** the request SHALL fail with HTTP 400
+- **AND** no row SHALL be persisted

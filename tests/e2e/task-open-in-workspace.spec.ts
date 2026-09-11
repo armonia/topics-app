@@ -73,19 +73,38 @@ async function openGlobalBoardBesideProject(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
-/** Open the project board pane via the project window's "+" menu. */
+/**
+ * Open the project board pane via the project window's "+" menu.
+ *
+ * UN TRIGGER NEL DOM NON E' UN TRIGGER CLICCABILE. Questa copia privata girava
+ * con un `click()` nudo, quindi al primo `+` non cliccabile si fermava per 15 s
+ * — il timeout di default — invece di provare il successivo. Verde su questa
+ * macchina, rossa in CI tre giri di fila l'11/09 (WSOPEN-02 e WSOPEN-03,
+ * «locator resolved to <button …> · attempting click action · scrolling into
+ * view if needed» e poi niente): li' la finestra del progetto monta un numero
+ * diverso di pane, e `.nth(i)` puo' cadere su uno coperto o ancora in
+ * animazione.
+ *
+ * La stessa funzione in `helpers/board-topbar.ts` era gia' stata indurita cosi'
+ * — salta gli invisibili, tollera il click fallito, tira dritto — e questa
+ * copia era rimasta indietro. Non si puo' semplicemente importare quella: apre
+ * la sezione Progetti, prende `PROJECTS[0]` e alla fine attiva «Tutti i
+ * progetti», e questo file vuole il SUO progetto senza quel filtro.
+ */
 async function openProjectBoard(page: Page) {
   await openTestProject(page);
   const triggers = page.getByTestId("pane-add-menu-trigger");
   const count = await triggers.count();
   const item = page.getByTestId("pane-add-menu-kanban");
+  let opened = false;
   for (let i = count - 1; i >= 0; i--) {
-    await triggers.nth(i).click();
-    const found = await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
-    if (found) break;
+    const t = triggers.nth(i);
+    if (!(await t.isVisible().catch(() => false))) continue;
+    if (!(await t.click({ timeout: 3000 }).then(() => true, () => false))) continue;
+    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) { opened = true; break; }
     await page.keyboard.press("Escape");
-    if (i === 0) throw new Error("no + menu with a Board (kanban) entry found");
   }
+  if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
   await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }

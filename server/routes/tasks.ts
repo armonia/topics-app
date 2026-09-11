@@ -17,11 +17,11 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
-import { grantedResourceIds } from "../lib/grants-query";
+import { readableTaskIds, levelFor, meetsLevel } from "../lib/grants-query";
 import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
@@ -30,6 +30,7 @@ import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOT
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
+import { isBlankLikeImage } from "../services/image-shape";
 import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
@@ -618,6 +619,35 @@ function checksLanes(): number {
   let cores = 0;
   try { cores = cpus().length; } catch { cores = 0; }
   return cores >= 12 ? 2 : 1;
+}
+
+/**
+ * The only writes a GUEST may make on a shared task, and the minimum level
+ * each needs - `read` moves nothing, `unsupported` covers every other route
+ * on this router (run, stop, retitle, label, move, merge, land, publish,
+ * deploy, ...): those stay out of reach at ANY level, because "start an
+ * agent", "code changes", "approval" and "publishing" are distinct actions
+ * that a collaboration capability never grants implicitly.
+ *
+ * `/run` and `/stop` are `unsupported` DELIBERATELY: starting a card runs the
+ * card's own text as a prompt for an agent inside the owner's repo, and the
+ * text is exactly what a guest with `edit` can rewrite. See `GrantLevel` in
+ * `grants-query.ts`.
+ *
+ * Pure and testable on its own: `idInPath` is the EXACT segment read from
+ * the path (still url-encoded), so comparing against `pathname` does not
+ * need a second regex here.
+ */
+export function matchGuestTaskAction(
+  pathname: string,
+  idInPath: string,
+  method: string,
+): "read" | "comment" | "edit" | "unsupported" {
+  const base = `/api/tasks/${idInPath}`;
+  if (method === "GET") return pathname === base ? "read" : "unsupported";
+  if (method === "POST" && pathname === `${base}/comments`) return "comment";
+  if (method === "PATCH" && pathname === base) return "edit";
+  return "unsupported";
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
@@ -1774,6 +1804,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!checkExists(raw)) {
       return { ok: false, reason: `file not found on disk: ${raw}` };
     }
+    // A BLANK IMAGE IS NOT EVIDENCE, and this gate holds even on an explicit
+    // gesture. The shape gate below was removed BECAUSE the crop already does
+    // its job — but a flat, uniform image has no job left for the crop to do:
+    // no layout choice makes an empty screenshot show the work. `isBlankLikeImage`
+    // is the same measured floor already used for the auto-captured path
+    // (`preview-manager.ts`); a card that could not be measured (unknown
+    // format, unreadable header) still passes, same as every other gate here.
+    try {
+      const shape = ctx.imageShapeOf?.(raw);
+      if (
+        shape &&
+        isBlankLikeImage({
+          bytes: statSync(raw).size,
+          width: shape.width,
+          height: shape.height,
+          vector: shape.vector,
+        })
+      ) {
+        return { ok: false, reason: "image is blank (flat colour): not evidence of the work" };
+      }
+    } catch { /* unreadable ⇒ same as unmeasurable: promote, do not block */ }
     // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
     //
     // Ci avevo messo un terzo cancello: un'anteprima piu' alta che larga occupa
@@ -2249,6 +2300,47 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     } catch (e) { return fail(e); }
   }
 
+  /**
+   * THE TWO WRITES A GUEST MAY MAKE, each gated by its own level - never
+   * behind `edit` on the HUMAN/agent routes (run, stop, retitle, label, move,
+   * merge, land, publish, deploy, ...): those stay out of reach at any level,
+   * because "start an agent", "code changes", "approval" and "publishing" are
+   * distinct actions that no collaboration level grants implicitly.
+   */
+  async function handleGuestComment(taskId: string, deviceId: string, req: Request): Promise<Response> {
+    const body = (await readJSON(req)) as { content?: unknown } | null;
+    const content = typeof body?.content === "string" ? body.content.trim() : "";
+    if (!content) return json({ error: "empty comment", code: "bad_request" }, 400);
+    const got = svc.get(taskId);
+    if (!got) return json({ error: "task not found", code: "not_found" }, 404);
+    const comment = svc.addComment({
+      taskId,
+      author: `guest:${deviceId}`,
+      content,
+      projectId: got.task.projectId,
+    });
+    const task = svc.get(taskId)?.task ?? got.task;
+    broadcastToAll({ type: "task:updated", projectId: got.task.projectId, task });
+    return json(comment);
+  }
+
+  async function handleGuestEdit(taskId: string, deviceId: string, req: Request): Promise<Response> {
+    const body = (await readJSON(req)) as { text?: unknown } | null;
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (!text) return json({ error: "text is required", code: "bad_request" }, 400);
+    const got = svc.get(taskId);
+    if (!got) return json({ error: "task not found", code: "not_found" }, 404);
+    const task = svc.update({
+      taskId,
+      actor: "human",
+      by: `guest:${deviceId}`,
+      projectId: got.task.projectId,
+      patch: { text },
+    });
+    broadcastToAll({ type: "task:updated", projectId: got.task.projectId, task });
+    return json(task);
+  }
+
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     const sessionActionOrigin = req.headers.get("X-Topics-Action-Origin") === "mcp" ? "mcp" : "api";
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
@@ -2275,18 +2367,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (identita?.role === "guest" && miePath) {
       const deviceId = identita.deviceId;
       if (!deviceId) return json({ error: "guest without an identity", code: "forbidden" }, 403);
-      // Sola lettura, senza eccezioni: un ospite che scrive in un thread o
-      // dispaccia un agente è una superficie diversa, e va progettata quando il
-      // caso esisterà (vedi `task-sharing-guests`, fuori scope).
-      if (method !== "GET") return json({ error: "sola lettura", code: "guest_read_only" }, 403);
 
       // TUTTI i principali, come il cancello in `server.ts` e come
       // `/api/auth/shared`: il solo `deviceP` rendeva invisibile in questo
       // elenco una scheda condivisa con la PERSONA — che è il soggetto che
       // l'interfaccia offre — pur restando apribile per id dal cancello.
-      const condivisi = new Set(
-        grantedResourceIds(ctx.db, resolvePrincipals(ctx.db, deviceId).list, "task"),
-      );
+      const guestPrincipals = resolvePrincipals(ctx.db, deviceId).list;
+      // `readableTaskIds` and not the direct rows alone: a card inside a
+      // shared PROJECT carries no grant row of its own, and the gate has
+      // followed the container since 20260816230500 - so this feed answered
+      // with an empty board about cards the same guest could open by id.
+      const condivisi = new Set(readableTaskIds(ctx.db, guestPrincipals));
 
       // L'elenco: solo i suoi, e il PREDICATO ARRIVA FINO A SQL. Prima si
       // idratava ogni task del database — ogni etichetta, ogni bloccante, ogni
@@ -2294,17 +2385,44 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // l'intera board per vedere le sue due schede. `ids` rende quel filtro una
       // clausola, e un insieme vuoto esce senza interrogare niente.
       if (pathname === "/api/all-boards/tasks") {
+        if (method !== "GET") return json({ error: "read only", code: "guest_read_only" }, 403);
         return json({ tasks: svc.list({ scope: "all", rootsOnly: true, ids: [...condivisi], doneLimit: DONE_FEED_LIMIT }) });
       }
-      // Un task singolo, il suo thread, i suoi allegati: passa solo se l'id è
-      // fra i condivisi. L'id si legge dal path, che è la forma che tutte le
-      // rotte di questo router usano.
+
+      // A single task: reads the level — not just whether it's shared, as it
+      // was when `deny`/`read` were the only scale — via `levelFor`, which
+      // also follows the containing project (a card shared only through its
+      // project used not to show up here, while still visible elsewhere).
       const idInPath = pathname.match(/\/api\/tasks\/([^/]+)/)?.[1];
-      if (idInPath && condivisi.has(decodeURIComponent(idInPath))) {
-        // prosegue allo smistamento normale
-      } else {
+      const idTask = idInPath ? decodeURIComponent(idInPath) : null;
+      if (!idTask) return json({ error: "not shared", code: "not_shared" }, 403);
+      const level = levelFor(ctx.db, guestPrincipals, "task", idTask);
+      if (level === null || level === "deny") {
         return json({ error: "not shared", code: "not_shared" }, 403);
       }
+
+      // The ONLY writes granted to a guest, each with its own minimum level -
+      // everything else on this router (run, stop, retitle, label, move,
+      // merge, land, publish, deploy, ...) stays out of reach: those are
+      // "start an agent / code change / approval / publishing", never implicit
+      // in a collaboration level.
+      const guestAction = matchGuestTaskAction(pathname, idInPath!, method);
+      if (guestAction === "unsupported") return json({ error: "read only", code: "guest_read_only" }, 403);
+      if (guestAction !== "read" && !meetsLevel(level, guestAction)) {
+        return json({ error: "insufficient level", code: "guest_level_denied", need: guestAction, have: level }, 403);
+      }
+      if (guestAction === "comment") {
+        return await handleGuestComment(idTask, deviceId, req);
+      }
+      if (guestAction === "edit") {
+        return await handleGuestEdit(idTask, deviceId, req);
+      }
+      // "read": the task by id, with its thread — no other handler further
+      // down answers `/api/tasks/:id` (that prefix only ever served as an
+      // entry gate so far, never as a real route).
+      const loaded = svc.get(idTask);
+      if (!loaded) return json({ error: "task not found", code: "not_found" }, 404);
+      return json({ ...loaded.task, comments: loaded.comments });
     }
 
     const isSession = pathname.startsWith("/api/sessions/");
