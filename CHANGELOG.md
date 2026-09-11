@@ -2,7 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.299 — 2026-09-11
+
+### Correzioni
+- **test** · «e' morto» non e' «era gia' morto in quell'istante»
+
 ## 2.2.298 — 2026-09-11
+
+### Correzioni
+- **spec-coverage** · R1 sees an id claimed by an OPEN change's delta as in flight, not dangling
 
 ### Sotto il cofano
 - lo stato del memo provider non e' roba da repo
