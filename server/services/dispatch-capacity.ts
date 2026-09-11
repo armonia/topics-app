@@ -305,6 +305,25 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  * region where there are no measurements at all - between 7,7 GB (fine, seen)
  * and 0,08 GB (the freeze, seen) nobody has ever sampled anything.
  *
+ * HOW BIG THE UNMEASURED GAP REALLY IS - narrower than "7,4 down to 0,08".
+ * The gate is a plain `available < 6`: it flips at SIX and nowhere else (there
+ * is no "margin minus seat price" rule anywhere - `byMem` divides TOTAL memory,
+ * not available). So the whole stretch below 6 needs no sampling at all: the
+ * admission verdict there is already REFUSE whatever the reading turns out to
+ * be. What is genuinely unknown AND decision-relevant is only the band where
+ * the gate is open and nobody has ever measured:
+ *
+ *     6,00 .. 7,39 GB   - 1,4 GB wide, gate OPEN, never sampled
+ *
+ * And at the worst healthy peak seen under real load (7,39 GB, ten checks at
+ * once, tree at 5,17 GB) the gate still admits, with 1,39 GB above the floor.
+ * The board at full tilt is not sitting on the threshold.
+ *
+ * The other thing still unknown is different in kind and does NOT change the
+ * verdict: where the machine starts to PAY - the first swapout. Anchors are the
+ * compressor share, 0,210 at the healthy peak and 0,291 at the 10/09 freeze; the
+ * onset is between them, and pinning it down means going near the damage.
+ *
  * WHAT WOULD MOVE IT, so the next person re-measures instead of re-guessing:
  * the check suite is the load, so if the shards or the e2e set change size,
  * this number is stale. Re-run the measurement the same way - the tree of the
