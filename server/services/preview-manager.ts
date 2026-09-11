@@ -140,6 +140,16 @@ export interface PreviewManagerDeps {
   /** True when the captured file is too uniform to be showing anything.
    *  Injected so the tests never touch the filesystem. */
   blankShot?(path: string): boolean;
+  /**
+   * True when the RENDERED page is the app's own empty shell ("Welcome to
+   * Topics", no items in the sidebar) rather than the work the card claims.
+   * `blankShot` reads the PNG bytes and cannot tell: the shell is a real,
+   * dense screen (text, icons, borders), not a flat colour — it just shows
+   * nothing about THIS task. Reading the DOM is the only seam that can tell
+   * the two apart, so this reads the page, not the image. Absent ⇒ this
+   * specific gate is off (the byte-density one above still runs).
+   */
+  emptyAppShell?(url: string): Promise<boolean>;
   /** Render a PNG of `url` at `width` px to `outPath`. Best-effort → boolean. */
   screenshot(url: string, outPath: string, opts: { width: number }): Promise<boolean>;
   /** The task's current output_url (to detect a prod URL we must not keep). */
@@ -630,6 +640,24 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
           kind: "service",
           replaces: PREVIEW_NOTE_SLOT,
           content: `${PREVIEW_NOTE_PREFIX} ritirata. ${url} ha risposto e la foto e' venuta, ma e' una pagina bianca: un'evidenza falsa e' peggio di nessuna evidenza.`,
+        });
+        return;
+      }
+
+      // The shot is dense (passes `blankShot`) but might still be showing
+      // nothing about THIS card: the app's own "no topic selected" welcome
+      // screen. Only worth asking when we already have a shot to throw away.
+      const emptyShell = shot && !blank && deps.emptyAppShell ? await deps.emptyAppShell(url).catch(() => false) : false;
+      if (emptyShell) {
+        log(`[preview] app vuota (nessun topic) per ${taskId}: non la allego`);
+        try {
+          if (deps.retirePreview) deps.retirePreview(taskId, "lo scatto mostra l'app vuota (nessun topic aperto), non il lavoro della card");
+          else deps.setPreviewImage(taskId, "");
+        } catch (err) { log(`[preview] retirePreview (app vuota) failed for ${taskId}`, err); }
+        deps.addReviewNote(taskId, {
+          kind: "service",
+          replaces: PREVIEW_NOTE_SLOT,
+          content: `${PREVIEW_NOTE_PREFIX} ritirata. ${url} ha risposto e la foto e' venuta, ma mostra la schermata vuota dell'app: un'evidenza falsa e' peggio di nessuna evidenza.`,
         });
         return;
       }
