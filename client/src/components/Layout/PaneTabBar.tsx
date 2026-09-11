@@ -1457,6 +1457,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 className={onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}
               />
             )}
+            {/* CHROME-14: "is this a project tab" — always drawn, unlike the icon above (no favicon = zero footprint) or the roll-ups below (gated off once selected). */}
+            {pane.type === 'project' && pane.projectPath && (
+              <span
+                className={`ml-0.5 flex items-center flex-shrink-0 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
+                title={tr('tab.project')} data-testid="tab-project-marker" aria-label={tr('tab.project')}
+              >
+                <FolderTree size={11} />
+              </span>
+            )}
             {/* Quiet cue: this chat/terminal tab opened a browser. A third,
                 independent signal — not attention (NotificationBadge) and not
                 loading (spinner) — so it stays muted. Keyed by topicId (chat)
