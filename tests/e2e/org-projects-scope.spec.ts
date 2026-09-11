@@ -78,27 +78,27 @@ test.describe("Organizzazione - la lista progetti segue il gruppo scelto", () =>
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await page.keyboard.press("Meta+Comma");
-    const pannello = page.locator('[data-testid="settings-panel"]');
-    await expect(pannello).toBeVisible({ timeout: 10000 });
-    await pannello.locator("nav button", { hasText: /^Organizzazione$/ }).click();
-    await expect(pannello.getByTestId("settings-page-organization")).toBeVisible({ timeout: 10000 });
+    const panel = page.locator('[data-testid="settings-panel"]');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.locator("nav button", { hasText: /^Organizzazione$/ }).click();
+    await expect(panel.getByTestId("settings-page-organization")).toBeVisible({ timeout: 10000 });
 
     // ARMONIA IS SELECTED FIRST (the installation's own group): its one
     // project is there.
-    await expect(pannello.getByTestId("org-project-row")).toHaveCount(1, { timeout: 10000 });
-    await expect(pannello.getByTestId("org-project-row")).toContainText("dancerooms");
+    await expect(panel.getByTestId("org-project-row")).toHaveCount(1, { timeout: 10000 });
+    await expect(panel.getByTestId("org-project-row")).toContainText("dancerooms");
 
     await page.screenshot({ path: join(SHOTS, "armonia-un-progetto.png") });
 
     // SWITCH TO DANCEROOM: the same project must NOT follow. This is the bug
     // this change closes - before the fix, the row above showed on both
     // pages regardless of which group was open.
-    const scheda = pannello.locator("button", { hasText: /^Danceroom$/ });
-    await expect(scheda).toBeVisible({ timeout: 10000 });
-    await scheda.click();
-    await expect(pannello.getByTestId("org-project-row")).toHaveCount(0, { timeout: 10000 });
-    await expect(pannello).not.toContainText("dancerooms");
-    await expect(pannello).toContainText("Danceroom");
+    const tab = panel.locator("button", { hasText: /^Danceroom$/ });
+    await expect(tab).toBeVisible({ timeout: 10000 });
+    await tab.click();
+    await expect(panel.getByTestId("org-project-row")).toHaveCount(0, { timeout: 10000 });
+    await expect(panel).not.toContainText("dancerooms");
+    await expect(panel).toContainText("Danceroom");
 
     await page.screenshot({ path: join(SHOTS, "danceroom-nessun-progetto.png") });
   });
