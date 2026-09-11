@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.301",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "`auth` incollato a un identificatore non è la rivendicazione",
+          "en": "",
+          "scope": "site",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.2.300",
     "date": "2026-09-11",
     "sections": {
@@ -664,6 +681,18 @@
           "it": "english identifier names in history-rehydrate.test.ts",
           "en": "",
           "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "i messaggi di stato (offline/reconnecting/cached data) diventano pill come l'avviso di consumo Claude",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        },
+        {
+          "it": "rinomina i nuovi nomi italiani che bloccavano il gate identifier-language",
+          "en": "",
+          "scope": "lang",
           "breaking": false
         },
         {
