@@ -54,10 +54,10 @@ function animatedClasses(): { cls: string; keyframes: string; loops: boolean }[]
 
 describe('one-shot entry animations under .anims-paused', () => {
   it('every one-shot class starting at opacity 0 is switched off, not paused', () => {
-    const opacities = firstFrameOpacity();
+    const opacityByName = firstFrameOpacity();
     const off = switchedOff();
     const uncovered = animatedClasses()
-      .filter((a) => !a.loops && opacities.get(a.keyframes) === '0' && !off.has(a.cls))
+      .filter((a) => !a.loops && opacityByName.get(a.keyframes) === '0' && !off.has(a.cls))
       .map((a) => `.${a.cls} (@keyframes ${a.keyframes})`);
     // The cure is NOT to widen this test: it is to add the class to the
     // `.anims-paused … { animation: none }` list in index.css, where the comment
@@ -73,10 +73,10 @@ describe('one-shot entry animations under .anims-paused', () => {
   });
 
   it('animations that LOOP are deliberately left paused', () => {
-    const opacities = firstFrameOpacity();
+    const opacityByName = firstFrameOpacity();
     const off = switchedOff();
     const loopingAndOff = animatedClasses()
-      .filter((a) => a.loops && opacities.get(a.keyframes) === '0' && off.has(a.cls))
+      .filter((a) => a.loops && opacityByName.get(a.keyframes) === '0' && off.has(a.cls))
       .map((a) => a.cls);
     // Pausing them is the whole point of `.anims-paused`: they resume on focus and
     // leave nothing invisible behind. Switching one off would spend the compositor
