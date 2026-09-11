@@ -1,5 +1,5 @@
 /**
- * @covers OCCLUSION-01
+ * @covers OCCLUSION-01, LAYOUT-38
  */
 import { test, expect, describe } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -55,22 +55,38 @@ test('no overlays → not occluded', () => {
 // native browser pane. The pane composites over the DOM, so a modal is only
 // lifted above it when the occlusion tracker recognises the modal CARD as an
 // overlay (freeze-frame path in useTauriBrowser). That recognition hinges on
-// the modal's class string matching OVERLAY_SELECTOR. These tests lock that
+// the modal's own markup matching OVERLAY_SELECTOR. These tests lock that
 // link so a refactor that drops `native-occlude` from MODAL_PANEL — or the
 // `.glass-surface` marker from popovers — fails HERE instead of silently
 // leaving Settings & co. hidden behind a browser pane on Tauri.
 
-/** Does a space-separated className match a class-token selector list?
- *  OVERLAY_SELECTOR is only class tokens (`.foo`) + attribute selectors — for
- *  a plain class string the class tokens are what matter. */
-function classStringMatchesSelector(className: string, selector: string): boolean {
-  const classTokens = selector
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.startsWith('.'))
-    .map((s) => s.slice(1));
-  const have = new Set(className.split(/\s+/).filter(Boolean));
-  return classTokens.some((t) => have.has(t));
+/** The node, mounted, answering `Element.matches` on a runtime with no DOM.
+ *
+ *  `bun test` has no document: `document`, `Element` and `DOMParser` are all
+ *  undefined (probed on bun 1.3.8), so the element is parsed by `HTMLRewriter`,
+ *  which is a real CSS selector engine and therefore reads ATTRIBUTES and not
+ *  only class tokens. One element is mounted alone, so "the selector matched
+ *  something" and "this element matches" are the same sentence.
+ *
+ *  It replaces a helper that filtered the selector down to its `.class` tokens.
+ *  A negative contract written that way is born blind: turning the zoom
+ *  container into a modal surface is done with `role="dialog"`, and a
+ *  class-token filter never sees an attribute, so the contract would have
+ *  stayed green on the one regression it claims to catch (LAYOUT-38). */
+function mount(html: string): { matches(selector: string): boolean } {
+  return {
+    matches(selector: string): boolean {
+      let hit = false;
+      new HTMLRewriter().on(selector, { element() { hit = true; } }).transform(html);
+      return hit;
+    },
+  };
+}
+
+/** A bare element carrying just a class string: the shape of the shared style
+ *  constants, which are className values and nothing else. */
+function mountWithClass(className: string): { matches(selector: string): boolean } {
+  return mount(`<div class="${className}"></div>`);
 }
 
 test('MODAL_PANEL (Settings & every full-screen dialog) is recognised as an overlay', () => {
@@ -78,13 +94,13 @@ test('MODAL_PANEL (Settings & every full-screen dialog) is recognised as an over
   // otherwise a Settings modal would NOT freeze the native pane and would render
   // BEHIND it on Tauri.
   expect(MODAL_PANEL).toContain('native-occlude');
-  expect(classStringMatchesSelector(MODAL_PANEL, OVERLAY_SELECTOR)).toBe(true);
+  expect(mountWithClass(MODAL_PANEL).matches(OVERLAY_SELECTOR)).toBe(true);
 });
 
 test('POPOVER_SURFACE (context menus / dropdowns) is recognised as an overlay', () => {
   // Menus use `.glass-surface` (in OVERLAY_SELECTOR), so a right-click menu over
   // a browser pane also lifts above it.
-  expect(classStringMatchesSelector(POPOVER_SURFACE, OVERLAY_SELECTOR)).toBe(true);
+  expect(mountWithClass(POPOVER_SURFACE).matches(OVERLAY_SELECTOR)).toBe(true);
 });
 
 test('a modal card overlapping a browser-pane slot is detected as occluding it', () => {
@@ -106,7 +122,7 @@ test('every POPOVER_* surface carries the glass-surface occlusion marker', () =>
   // backs the header/scroll pickers. All three must stay recognisable overlays.
   for (const surface of [POPOVER_SURFACE, POPOVER_PANEL, POPOVER_SHEET]) {
     expect(surface).toContain('glass-surface');
-    expect(classStringMatchesSelector(surface, OVERLAY_SELECTOR)).toBe(true);
+    expect(mountWithClass(surface).matches(OVERLAY_SELECTOR)).toBe(true);
   }
 });
 
@@ -125,6 +141,42 @@ test('OVERLAY_SELECTOR matches the Menu container roles', () => {
   // panel; both must be in the selector so the role alone lifts the menu.
   expect(OVERLAY_SELECTOR).toContain('[role="menu"]');
   expect(OVERLAY_SELECTOR).toContain('[role="listbox"]');
+});
+
+// ── The other direction: what must NOT be recognised (LAYOUT-38) ────────────
+// Pane zoom is LAYOUT, not a modal. It changes the weights of the split tree
+// and paints a frame around the surviving cell; it does not portal anything and
+// it does not open a dialog. If its container or its scrim ever matched
+// OVERLAY_SELECTOR, the tracker would read them as an overlay covering the
+// whole surface: `decideFreeze` is a pure rectangle intersection, so the pane
+// the gesture exists to enlarge would turn into a still image of itself the
+// instant it was enlarged. The one-line way to cause that is `role="dialog"`,
+// which is exactly what the old class-token helper could not see.
+//
+// The nodes are mounted here rather than imported from the component: the
+// contract is on the SHAPE of the markup, not on the wiring, and it has to hold
+// the day somebody writes it (or rewrites it) somewhere else.
+
+/** The frame the zoom paints, as the surface renders it: the split surface
+ *  carrying `data-pane-zoom`, and the stage that holds the tree. */
+const ZOOM_CONTAINER: Array<[string, string]> = [
+  ['the zoomed split surface', '<div data-split-surface data-pane-zoom="1" class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"></div>'],
+  ['the zoom stage', '<div class="pane-zoom-stage"></div>'],
+];
+
+/** The veil over the frame: click-to-exit, out of the tab order, and carrying
+ *  its own no-drag attributes so the top band is not a window drag handle. */
+const ZOOM_SCRIM =
+  '<div class="pane-zoom-scrim app-no-drag" data-testid="pane-zoom-scrim" data-tauri-drag-region="false" aria-hidden="true"></div>';
+
+test('the zoom container is NOT an overlay: it must not freeze the pane it enlarges', () => {
+  for (const [what, html] of ZOOM_CONTAINER) {
+    expect(mount(html).matches(OVERLAY_SELECTOR), what).toBe(false);
+  }
+});
+
+test('the zoom scrim is NOT an overlay either, role attributes included', () => {
+  expect(mount(ZOOM_SCRIM).matches(OVERLAY_SELECTOR)).toBe(false);
 });
 
 // ── «Non so dove sto» non è «non mi copre nessuno» ──────────────────────────

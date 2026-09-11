@@ -171,9 +171,10 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   senza dire dove lascia il conto aperto. Dopo un park, sono no-op sulla geometria
   una chiamata diretta ad `applyBounds` e tutte e CINQUE le vie di ritorno che il
   requisito nomina: `thaw` (:581), `setDevice` (:1611), il riconcilio UA (:1644),
-  `setResponsiveSize` (:1656) e la stretta di mano di `recreate` (:1722). Si asserisce contando i comandi di geometria inviati
-  alla vista, non guardando lo schermo. La quinta e' quella che mancava, e una via
-  non provata e' una via che torna.
+  `setResponsiveSize` (:1656) e la stretta di mano di `recreate` (:1722). Si
+  asserisce contando i comandi di geometria inviati alla vista, non guardando lo
+  schermo. La quinta e' quella che mancava, e una via non provata e' una via che
+  torna.
   Poi: `decideFreeze(null, rects)` con overlay presenti torna `true`
   (browserOcclusion.ts:195) e il freeze in piu' e' innocuo; e il primo rettangolo
   positivo riapre il chiavistello, rimette la vista esattamente li' e fa cadere
@@ -614,7 +615,6 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   essere visibile. Senza questa seconda asserzione il caso sarebbe verde anche col
   comando applicato dentro una cella collassata, che e' il guasto per cui la
   regola esiste.
-
 - [ ] 7.9 I cinque scenari di `LAYOUT-37` che non tocca nessun caso di 7.1 ne'
   di 7.3, nello stesso `tests/e2e/pane-zoom.spec.ts` e con la stessa doppia
   dichiarazione. La lista di 7.1 copre i TRE di Escape e si ferma li': «l'ancora

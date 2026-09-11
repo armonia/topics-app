@@ -12,7 +12,7 @@
 /// Windows) both read this one list.
 pub fn is_forwarded_cmd_chord(shift: bool, chars: &str) -> bool {
     match chars {
-        "?" | "/" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "b" | "k" | "n" | "p" | "t" | "w" => true,
+        "?" | "/" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "b" | "e" | "k" | "n" | "p" | "t" | "w" => true,
         "u" => shift,
         _ => false,
     }

@@ -8456,8 +8456,19 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
 /// The fail-safe default stays "not a chord → pass through". Tab-cycle (keyCode
 /// 48) and bare Escape (keyCode 53) key off `key_code`, not chars, so they stay
 /// hand-written here.
+///
+/// `alt` is CARRIED, never consulted: whether to forward 'e' is the same answer
+/// with and without Option, exactly as it is Shift-agnostic for 'w', so neither
+/// the branches below nor the generated table gain a parameter. What Option DOES
+/// change is the event the renderer receives, and that is the whole point:
+/// `charactersIgnoringModifiers` drops Option by definition, so ⌘E and ⌥⌘E reach
+/// here with the same `chars`. With `altKey` hard-coded false, ⌥⌘E typed over a
+/// native browser pane did not go inert - it ARRIVED AS ⌘E, and the original was
+/// swallowed right after, so asking for one cell got you the whole scope in
+/// silence. The renderer tells the two apart on `e.altKey` alone; it can only do
+/// that if the real bit gets this far (LAYOUT-40).
 #[cfg(target_os = "macos")]
-fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_code: u16) -> Option<String> {
+fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, alt: bool, chars: &str, key_code: u16) -> Option<String> {
     // Tab == keyCode 48. Standard cycle: ⌃Tab, ⌃⇧Tab, ⌘⇧Tab (⌘Tab is macOS).
     let is_tab = key_code == 48;
     // Escape == keyCode 53. Bare key, no modifier — mirrors claude-code's Esc:
@@ -8480,9 +8491,11 @@ fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_co
     };
     // `key` for a letter is lowercase; the renderer checks both cases and reads
     // shiftKey, so lowercase + the shift flag is enough. Only quote-safe chars
-    // reach here ('/', '?', letters, digits, 'Tab').
+    // reach here ('/', '?', letters, digits, 'Tab'). `altKey` used to be a
+    // hard-coded `false` here, which flattened EVERY forwarded chord, Escape and
+    // Tab included, not just the new one.
     Some(format!(
-        "window.dispatchEvent(new KeyboardEvent('keydown',{{key:'{key}',metaKey:{cmd},ctrlKey:{ctrl},shiftKey:{shift},altKey:false,bubbles:true,cancelable:true}}))"
+        "window.dispatchEvent(new KeyboardEvent('keydown',{{key:'{key}',metaKey:{cmd},ctrlKey:{ctrl},shiftKey:{shift},altKey:{alt},bubbles:true,cancelable:true}}))"
     ))
 }
 
@@ -8601,14 +8614,21 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             const CMD: u64 = 1 << 20;
             const CTRL: u64 = 1 << 18;
             const SHIFT: u64 = 1 << 17;
+            // Option. Same number the right-⌘ monitor already spells out in its
+            // OTHER_MODS mask below. Read here because `charactersIgnoringModifiers`
+            // strips Option: without this bit ⌥⌘E and ⌘E are indistinguishable by
+            // the time they reach `app_chord_dispatch_js`, and the renderer, which
+            // splits the two zoom scopes on `e.altKey`, would see them as one.
+            const OPT: u64 = 1 << 19;
             let cmd = flags & CMD != 0;
             let ctrl = flags & CTRL != 0;
             let shift = flags & SHIFT != 0;
+            let alt = flags & OPT != 0;
             let key_code: u16 = msg_send![event, keyCode];
             let chars_id: id = msg_send![event, charactersIgnoringModifiers];
             let chars = ns_string_to_rust(chars_id).to_lowercase();
 
-            if let Some(js) = app_chord_dispatch_js(cmd, ctrl, shift, &chars, key_code) {
+            if let Some(js) = app_chord_dispatch_js(cmd, ctrl, shift, alt, &chars, key_code) {
                 // Forward into the SAME window's UI webview (resolve its label by
                 // matching the event NSWindow), so the chord acts where it was
                 // typed. Le pane browser ora possono vivere anche in un pop-out
@@ -11503,6 +11523,65 @@ mod perf_cpu_tests {
         assert_eq!(mach_ticks_to_ns(0), 0);
         assert!(mach_ticks_to_ns(1_000_000) >= 1_000_000);
         assert!(mach_ticks_to_ns(2_000_000) > mach_ticks_to_ns(1_000_000));
+    }
+}
+
+/// The macOS half of the chord decision, interrogated off the NSEvent monitor.
+///
+/// `app_chord_dispatch_js` is private but PURE: its body is comparisons on
+/// `key_code` and `chars` plus one `format!`, not a single `msg_send!`. Being
+/// `#[cfg(target_os = "macos")]` it is compiled AND run by `cargo test --lib` on
+/// the developer's own Mac, so the sentence "on macOS the decision cannot be
+/// tested" (which `chords.rs` used to carry in its header) was about the welded
+/// half only: the `modifierFlags` read at the monitor, which still has no test
+/// but the manual pass.
+///
+/// What these cases pin is the one failure mode LAYOUT-40 calls FORBIDDEN:
+/// `charactersIgnoringModifiers` drops Option, so ⌘E and ⌥⌘E reach this function
+/// with identical `chars`. While `altKey` was a hard-coded `false`, ⌥⌘E typed
+/// over a native browser pane did not go inert - it arrived as ⌘E, and the
+/// original NSEvent was swallowed straight after. Asking for one cell and
+/// getting the whole scope, silently.
+///
+/// Two chars on purpose, and it is not zeal. 'w' the registry has forwarded all
+/// along, so this case could be written and seen RED before the registry gained
+/// 'e' and without depending on it at all; it is also what proves the real
+/// claim, namely that the constant flattened EVERY forwarded chord, not just the
+/// new one. 'e' is the zoom chord this change adds.
+#[cfg(all(test, target_os = "macos"))]
+mod mac_chord_dispatch_tests {
+    use super::app_chord_dispatch_js;
+
+    /// Any key code that is neither 48 (Tab) nor 53 (Escape), or a different
+    /// branch answers and the char never gets looked at. These are the real ANSI
+    /// codes for the two letters.
+    const KEY_W: u16 = 13;
+    const KEY_E: u16 = 14;
+
+    fn cmd_chord(chars: &str, key_code: u16, alt: bool) -> String {
+        app_chord_dispatch_js(true, false, false, alt, chars, key_code)
+            .unwrap_or_else(|| panic!("⌘{chars} must be a forwarded chord (alt={alt})"))
+    }
+
+    #[test]
+    fn option_reaches_the_renderer_instead_of_being_flattened() {
+        for (chars, key_code) in [("w", KEY_W), ("e", KEY_E)] {
+            let with_opt = cmd_chord(chars, key_code, true);
+            let without = cmd_chord(chars, key_code, false);
+            // Option does not change WHETHER the chord is forwarded: the decision
+            // is Option-agnostic, the way it is Shift-agnostic for 'w'.
+            assert!(with_opt.contains(&format!("key:'{chars}'")), "{with_opt}");
+            assert!(without.contains(&format!("key:'{chars}'")), "{without}");
+            // It changes HOW it arrives, and that is all the renderer has to tell
+            // the two zoom scopes apart. This is the assertion the falsification
+            // bites, so it comes FIRST: put `altKey:false` back as a constant at
+            // the `format!` and the two strings become identical, which IS the
+            // defect - ⌥⌘E delivered as ⌘E.
+            assert_ne!(with_opt, without, "⌥⌘{chars} must not arrive as ⌘{chars}");
+            // And which way round, so a red says more than "they match".
+            assert!(with_opt.contains("altKey:true"), "⌥⌘{chars}: {with_opt}");
+            assert!(without.contains("altKey:false"), "⌘{chars}: {without}");
+        }
     }
 }
 
