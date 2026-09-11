@@ -2,15 +2,44 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.300 — 2026-09-11
+
+### Correzioni
+- **kill-agent-tree** · drop the quoted Italian UI label from an English comment
+- **test** · il budget dell'attesa si DERIVA dalla grazia, non si indovina
+- parse Codex usage-limit dates in UTC, not locale time
+- **preview** · un vettore non ha densità, e il pavimento la misurava lo stesso
+- **test** · due casi argv portavano un budget da timeout, e sotto carico scattava
+- **preview** · anche il secondo chiamante del cancello inoltra il flag
+- **test** · la NASCITA di un processo segue il carico, come tutto il resto del file
+- **e2e** · trenta bande grigie pesano come una tinta piatta, e il cancello aveva ragione
+- **e2e** · un trigger nel DOM non è un trigger cliccabile, e questa copia era rimasta indietro
+- **checks** · la terza volta che la coda del referto è tutta rumore, e stavolta senza una stringa da nominare
+
+### Sotto il cofano
+- Remove the Settings Privacy page, an exact duplicate of the Profile pane dropdown
+- propose collaborator-activity (task ef40fa34)
+- **rails** · `rss` è vocabolario di questo progetto, non un nome da rinominare
+- collaborator-activity: resolve guest comment authors to person+device, add person/computer board filters
+- **projectLayoutSync** · widen fixed-delay margins, unrelated flake blocking delivery
+- settings-mobile e2e: drop Privacy from the walked nav list
+
 ## 2.2.299 — 2026-09-11
 
 ### Correzioni
+- **layout** · a project tab reads as a project even selected and icon-less
+- **preview** · reject blank/empty-shell previews on the manual and live-capture gates
 - **test** · «e' morto» non e' «era gia' morto in quell'istante»
+
+### Sotto il cofano
+- Stopping a card now kills the agent's whole process tree, not just the turn
+- Extend provider-hold to Codex usage limits (AGPT-01)
 
 ## 2.2.298 — 2026-09-11
 
 ### Correzioni
 - **spec-coverage** · R1 sees an id claimed by an OPEN change's delta as in flight, not dangling
+- **terminal-e2e** · teardown flush of project panes now CAS-guarded
 
 ### Sotto il cofano
 - lo stato del memo provider non e' roba da repo
@@ -18,6 +47,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.297 — 2026-09-11
 
 ### Correzioni
+- **share** · la scala dell'ospite esce dal file di componente, e i tre rail che il merge ha scoperto
+- **projects** · un proprietario sconosciuto non e' una regola assente
 - **dispatch** · il freno della memoria smetteva di contare cio' che il Mac non poteva dare
 - **test** · tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN
 - **lint** · translate new test comments to English per check:comment-language
@@ -26,6 +57,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **checks** · il tail di un check rosso non e' piu' fatto solo di avvisi colore
 
 ### Sotto il cofano
+- Un contenitore apre la porta, non consegna la penna
 - **dispatch** · il pavimento passa dai due campioni veri, non da un ragionamento
 - **dispatch** · dove cade il pavimento, e quale freno NON manca
 - **dispatch** · dove si rompe la memoria, e in che ordine
@@ -41,6 +73,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · align task preview with the floating chat composer
 - **providers** · make GPT setup and coding selection reliable
 - **tasks** · choose automatic models across coding providers
+- **grants** · granular guest levels for collaboration and remote runs
+- **projects** · PATCH accepts orgId, owner-only
 - **board** · il coordinatore si apre dentro la Kanban, con il suo glifo
 - **codex** · resume threads instead of resending truncated history
 - **shell** · la finestra nascosta si aggiorna da sola, e ricaricare non perde piu' memoria
@@ -84,6 +118,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tasks** · clarify comment authors and check results
 - **e2e** · rename gotoSidebar to navigateToSidebar for identifier-language gate
 - **settings** · dire lo stato del provider nella lingua di chi legge
+- **auth** · declare guest-share level refusal codes in shared/auth-codes
+- **i18n** · add missing auth.err phrases for manage_level_required/unknown_level
 - **board** · open Details tab when adding a subtask or opening its drawer
 - **board** · un commit di consegna vuoto non vale piu' come «atterrato»
 - **task-chat** · fold settled failed actions into session details
@@ -143,6 +179,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · reach the unblock choice where it now lives
 - **automatic-gpt-task-model** · record live acceptance on the two real tasks
 - Pinned calendar tile: hover/focus preview instead of click-expand ICS band
+- retrigger pre-review checks after clearing stale /tmp e2e sandboxes
 - add CODEX-02 for exec resume thread persistence
 - unblock static-rails baseline drift inherited from main
 - **board** · un cancello sulle opzioni dei sensori, che era il buco vero
@@ -157,6 +194,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il pannello sa dire quanto costa una sessione, non solo quanto pesa la flotta
 - Rinomina i due nomi che il cancello della lingua non conosceva
 - Scrivi accanto alla query quanto costa davvero
+- La scala di un ospite si ferma a edit, e la rotta delle condivisioni si richiude
+- **e2e** · il livello di un ospite, attraversando la catena vera
 
 ## 2.2.295 — 2026-09-08
 
