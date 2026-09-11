@@ -2,7 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.296 — 2026-09-11
+## 2.2.297 — 2026-09-11
+
+### Correzioni
+- **dispatch** · il freno della memoria smetteva di contare cio' che il Mac non poteva dare
+- **test** · tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN
+- **lint** · translate new test comments to English per check:comment-language
+- **dispatch** · il tetto del compressore era tarato sulla riga sbagliata di vm_stat, e esce
+- **dispatch** · il pavimento nativo prezzava la sessione, non i check che lancia
+- **checks** · il tail di un check rosso non e' piu' fatto solo di avvisi colore
+
+### Sotto il cofano
+- **dispatch** · il pavimento passa dai due campioni veri, non da un ragionamento
+- **dispatch** · dove cade il pavimento, e quale freno NON manca
+- **dispatch** · dove si rompe la memoria, e in che ordine
+- **dispatch** · il tetto del compressore ha un numero contro, non solo un argomento
+- **dispatch** · il buco non campionato e' largo 1,4 GB, non sette
+
+## 2.2.296 — 2026-09-10
 
 ### Novità
 - **board** · focus task detail on the conversation
