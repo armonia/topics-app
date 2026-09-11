@@ -185,11 +185,36 @@ export function tailOf(text: string, lines = TAIL_LINES): string {
  * carries the reason.
  */
 const TEST_NOISE = /^\s*\((?:pass|skip)\)/;
+
+/**
+ * The same defect, from the other end: Node's colour warning, in PAIRS.
+ *
+ * `runOne` already sets `NO_COLOR` alone and never `FORCE_COLOR` (see the env
+ * comment below, card 897f256b). That stopped US from setting it; it does not
+ * stop PLAYWRIGHT, which sets `FORCE_COLOR` for its own node workers, and every
+ * Node 22+ worker then prints two lines on stderr - the warning and the generic
+ * "(Use `node --trace-warnings ...`)" pointer under it.
+ *
+ * A run spawns dozens of workers, so that is dozens of pairs at the very end of
+ * the stream, which is exactly where `TAIL_LINES` cuts. Measured on card
+ * 6133a8e8 (2026-09-11): the saved tail was 3.779 characters and 100% of it was
+ * this pair repeated - the two specs that actually failed were nowhere in it,
+ * and the only way to learn their names was to open the CI log by hand.
+ *
+ * Both lines go, and the pointer with it on purpose: it names no file, no
+ * warning and no cause - it tells you to re-run with a flag. The ANSI prefix is
+ * tolerated because Playwright rewrites the line in place (`ESC[1A ESC[2K`)
+ * before printing it.
+ */
+const COLOR_WARNING_NOISE =
+  /^(?:\x1b\[[0-9;]*[A-Za-z])*\s*(?:\(node:\d+\) Warning: The 'NO_COLOR' env is ignored|\(Use `node --trace-warnings)/;
+const isCheckNoise = (row: string): boolean => TEST_NOISE.test(row) || COLOR_WARNING_NOISE.test(row);
 export function failureTail(text: string, lines = TAIL_LINES): string {
-  const kept = text.replace(/\s+$/, "").split("\n").filter((r) => !TEST_NOISE.test(r));
-  const dropped = text.replace(/\s+$/, "").split("\n").length - kept.length;
+  const rows = text.replace(/\s+$/, "").split("\n");
+  const kept = rows.filter((r) => !isCheckNoise(r));
+  const dropped = rows.length - kept.length;
   const body = kept.slice(Math.max(0, kept.length - lines)).join("\n");
-  return dropped > 0 ? `[${dropped} righe (pass)/(skip) omesse]\n${body}` : body;
+  return dropped > 0 ? `[${dropped} righe di rumore omesse: (pass)/(skip) e avvisi colore di Node]\n${body}` : body;
 }
 
 interface RunOpts {
