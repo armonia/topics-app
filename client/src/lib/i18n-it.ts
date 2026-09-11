@@ -213,6 +213,13 @@ const IT: Dict = {
   'guest.empty.blurb': 'Quando qualcuno ti condivide una scheda o una chat, comparirà qui.',
   'guest.cards': 'Schede',
   'guest.readOnly': 'Sola lettura. Puoi vedere, non modificare.',
+  'guest.level.read': 'Puoi vedere',
+  'guest.level.comment': 'Puoi commentare',
+  'guest.level.edit': 'Puoi modificare il testo',
+  'guest.editText': 'Modifica il testo della scheda',
+  'guest.commentPlaceholder': 'Scrivi un commento',
+  'guest.sendComment': 'Invia il commento',
+  'guest.writeFailed': 'Non sono riuscito a salvare. Riprova.',
   'pair.code.aria': 'Codice di verifica {code}',
   'pair.checkThenTap': 'Controlla che sia lo stesso, poi tocca',
   'pair.approve': 'Autorizza',
@@ -228,7 +235,7 @@ const IT: Dict = {
   'pair.whose': 'Di chi è?',
   'pair.personName': 'Nome della persona',
   'pair.someoneElse': "È di un'altra persona",
-  'pair.guestBlurb': "Un'altra persona vede solo ciò che le condividi, in sola lettura.",
+  'pair.guestBlurb': "Un'altra persona vede solo ciò che le condividi, al livello che scegli tu.",
   'ctx.renameTopic': 'Rinomina topic',
   'ctx.pickColour': 'Scegli colore',
   'ctx.archive.q1': 'Vuoi archiviare',
@@ -456,6 +463,7 @@ const IT: Dict = {
 
   'tab.openedBrowser': 'Questa tab ha aperto un browser',
   'tab.cloudSession': 'Sessione cloud (OpenClaw)',
+  'tab.project': 'Progetto',
   'tab.stopTurn': 'Ferma il turno',
   'tab.stopTurnOn': 'Ferma il turno su {name}',
   'tab.menu.stopTurn': 'Ferma il turno',
@@ -749,6 +757,7 @@ const IT: Dict = {
   'board.task.author.app': 'Topics',
   'board.task.author.verifier': 'Verifica',
   'board.task.author.agent': 'Agent',
+  'board.task.author.collaborator': 'Collaboratore',
   'board.task.origin.interface': 'via interfaccia',
   'board.task.origin.mcp': 'via MCP',
   'board.task.origin.api': 'via API',
@@ -1142,8 +1151,11 @@ const IT: Dict = {
   //    they are the line that explains what a space is for, which is the only
   //    part of a suggestion anybody actually reads.
   'settings.org.projects.title': "Progetti dell'organizzazione",
-  'settings.org.projects.empty': 'Nessun progetto ancora associato.',
+  'settings.org.projects.empty': 'Nessun progetto appartiene ancora a questa organizzazione.',
   'settings.org.projects.hint': "Crea il progetto dalla sidebar (tasto destro) e assegnalo all'org.",
+  'settings.org.guide.title': 'Due accessi diversi',
+  'settings.org.guide.browser': "Condividi un progetto (bottone sopra) per dare a qualcuno un link o un dispositivo autorizzato: legge, commenta o modifica le sue schede dal browser, su qualunque macchina, senza installare niente.",
+  'settings.org.guide.machine': "Per fargli eseguire agenti su questo lavoro, deve installare Topics sul proprio computer (Impostazioni → Dispositivi ha la richiesta di appaiamento e la sua approvazione) e avere una propria copia del repository. È una seconda macchina, non un link.",
   // COSA C'E' DA RIVEDERE, quando una misura non puo' esistere. Vedi
   // `lib/reviewEvidence.ts`: il silenzio e' onesto, ma va detto.
   'board.filter.projectUnknown': "Non è tra i progetti aperti: resta filtrabile, ma non si sa dove stia.",
@@ -1276,6 +1288,8 @@ const IT: Dict = {
   'board.dispatch.verdictWait': 'Adesso un agent nuovo aspetterebbe: Topics è al suo budget.',
   'board.dispatch.verdictFirst': 'Sopra il budget, ma senza agent al lavoro il primo parte comunque.',
   'board.filter.assignee': 'Assegnatario',
+  'board.filter.person': 'Persona',
+  'board.filter.computer': 'Computer',
   'board.publish.confirmTitle': 'Pubblicare "{name}"?',
   'board.publish.confirmLabel': 'Push {n} commit',
   'board.publish.confirmBodyStart': 'Push di {n} commit su ',
@@ -1948,6 +1962,7 @@ const IT: Dict = {
   'auth.err.resource_id_required': 'Manca la cosa da condividere.',
   'auth.err.subject_required': 'Manca il destinatario.',
   'auth.err.bad_person_id': 'La persona indicata non ha una forma valida.',
+  'auth.err.unknown_level': 'Quel livello di accesso non esiste.',
   // ── I DISPOSITIVI autorizzati. Superficie migrata al dizionario insieme
   //    all'area account/gruppi: prima era interamente in italiano in chiaro,
   //    accanto a pannelli inglesi, e i due si vedevano nella stessa finestra.
@@ -1966,7 +1981,7 @@ const IT: Dict = {
   'devices.rename': 'Rinomina',
   'devices.newNameFor': 'Nuovo nome per {nome}',
   'devices.guest': 'ospite',
-  'devices.guestTitle': 'Vede solo ciò che gli è stato condiviso, in sola lettura',
+  'devices.guestTitle': 'Vede solo ciò che gli è stato condiviso, al livello scelto per ogni scheda',
   'devices.whose': 'Di chi è?',
   'devices.you': '(tu)',
   'devices.cancel': 'annulla',
@@ -2415,6 +2430,13 @@ const IT: Dict = {
   'share.nobodyYet': 'Ancora nessuno con cui condividere. Approva un dispositivo come ospite da Impostazioni → Account e comparirà qui.',
   'share.alreadyAll': 'Già condivisa con tutti.',
   'share.loadFailed': 'Non riesco a caricare la condivisione.',
+  'share.levelFor': 'Livello di accesso per {name}',
+  'share.level.read': 'Può vedere',
+  'share.level.comment': 'Può commentare',
+  'share.level.edit': 'Può modificare',
+  'share.levelNotChosenHere': 'Qui la condivisione dà la sola lettura: i livelli si scelgono sulle schede.',
+  'share.levelFromContainer': 'Questo accesso arriva dal progetto. Si toglie dal pannello del progetto.',
+  'share.viaProject': 'dal progetto',
 
   // Permissions: the panel where a person decides whether the agent may act.
   'permission.asks': "L'agente chiede un permesso",

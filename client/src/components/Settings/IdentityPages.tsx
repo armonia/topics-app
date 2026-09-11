@@ -17,7 +17,7 @@
  * (`IDENTITY_SECTIONS`). The data model behind it did not move an inch, because
  * it is what carries grants and project visibility.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { ProfileStatsSection } from './ProfileStatsSection';
 import { DiscordSection } from './DiscordSection';
@@ -25,7 +25,6 @@ import { AccountSection } from './AccountSection';
 import { IdentitySection } from './IdentitySection';
 import { OrgProjectsSection } from './OrgProjectsSection';
 import { FollowersSection } from '../Profile/FollowersSection';
-import { PrivacySection } from '../Profile/PrivacySection';
 import { ProfileHeader } from '../Profile/ProfileHeader';
 import { useSelf } from '../Profile/useSelf';
 
@@ -86,21 +85,20 @@ export function FollowersPage() {
   );
 }
 
-/** WHAT YOU PUBLISH, and what the server therefore refuses to send. */
-export function PrivacyPage() {
-  return (
-    <Page
-      testid="settings-page-privacy"
-      titleKey="settings.page.privacy.title"
-      blurbKey="settings.page.privacy.blurb"
-    >
-      <PrivacySection />
-    </Page>
-  );
-}
-
-/** THE GROUP YOU ADMINISTER: members, roles, and the projects it owns. */
+/**
+ * THE GROUP YOU ADMINISTER: members, roles, and the projects it owns.
+ *
+ * `orgId` is state HERE, not inside either child: `IdentitySection` is the
+ * only place that knows which group is selected (the picker, above two
+ * groups), and `OrgProjectsSection` is the only place that needs to know it
+ * to scope its list. Before this, the projects panel had no `orgId` at all
+ * and fetched every non-incognito project on the installation regardless of
+ * which group's page was open — a personal project and Armonia's showed up
+ * on Danceroom's page exactly as they did on Armonia's, because nothing told
+ * the panel a second group existed.
+ */
 export function OrganizationPage() {
+  const [orgId, setOrgId] = useState<string | null>(null);
   return (
     <Page
       testid="settings-page-organization"
@@ -111,8 +109,8 @@ export function OrganizationPage() {
           `/api/auth/orgs`, the picker when there is more than one, members,
           roles, creation and deletion. It was never missing a feature: it was
           missing a door with its destination written on it. */}
-      <IdentitySection />
-      <OrgProjectsSection />
+      <IdentitySection onOrgChange={setOrgId} />
+      <OrgProjectsSection orgId={orgId} />
     </Page>
   );
 }

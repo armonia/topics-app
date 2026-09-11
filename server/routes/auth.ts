@@ -14,7 +14,9 @@ import { isResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
-  grantedByType, subjectsOf, putGrant, dropGrant, type SubjectKind,
+  grantedByType, subjectsOf, subjectsViaContainer, putGrant, dropGrant, levelFor,
+  readableTaskIds,
+  isAssignableGrantLevel, type SubjectKind, type GrantLevel,
 } from "../lib/grants-query";
 import {
   installationOrgId, liveMemberCount, orgRole, canAdministerOrg, liveOwnerCount,
@@ -684,13 +686,35 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // ospite — quindi ogni condivisione fatta dall'interfaccia atterrava su un
       // soggetto che il cancello onorava e l'inventario non vedeva. La chat era
       // leggibile per id e invisibile nell'unico elenco che un ospite ha.
-      const { task: idTask, topic: idTopic } = grantedByType(db as never, resolvePrincipals(db as never, subj).list);
+      const principals = resolvePrincipals(db as never, subj).list;
+      // The TASKS go through `readableTaskIds`, not `grantedByType`: a card
+      // inside a shared project has no grant row of its own, so it was
+      // openable by id and absent from the only list a guest has - the same
+      // "I shared it with you" / "I see nothing" divergence GUEST-06 was
+      // written against, in a second place. Chats have no container.
+      const { topic: idTopic } = grantedByType(db as never, principals);
+      const idTask = readableTaskIds(db as never, principals);
       const segna = (n: number) => Array(n).fill("?").join(",");
+      // THE LEVEL TRAVELS WITH THE ROW, and this is the only door that can
+      // carry it. A guest's whole application is built from this answer: with
+      // no `level` in it, a device granted `comment` or `edit` had no way to
+      // know, so the one screen it has printed "read only" at everybody and
+      // offered no way to write - the server enforced a scale of three that
+      // the product exposed as a scale of one.
+      //
+      // `levelFor` and not the raw column: it is the same function the gate
+      // asks, so the screen cannot promise a capability the gate will refuse
+      // (nor hide one it would allow). A row this scale does not know reads
+      // back as `read`, so the fallback here is unreachable rather than
+      // load-bearing - it is there because a `null` would be a lie of a
+      // different kind.
+      const withLevel = <T extends { id: string }>(rows: T[], kind: "task" | "topic") =>
+        rows.map((r) => ({ ...r, level: levelFor(db as never, principals, kind, r.id) ?? "read" }));
       const tasks = idTask.length
-        ? db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask)
+        ? withLevel(db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask) as Array<{ id: string }>, "task")
         : [];
       const topics = idTopic.length
-        ? db.query(`SELECT id, name, updated_at FROM topics WHERE id IN (${segna(idTopic.length)})`).all(...idTopic)
+        ? withLevel(db.query(`SELECT id, name, updated_at FROM topics WHERE id IN (${segna(idTopic.length)})`).all(...idTopic) as Array<{ id: string }>, "topic")
         : [];
       return json({ tasks, topics });
     }
@@ -1415,7 +1439,24 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         // dispositivo. Ora il nome si risolve DOPO, per tipo di soggetto —
         // così una riga verso una persona o un'organizzazione non sparisce
         // dall'elenco solo perché la JOIN non la trova.
-        const righe = subjectsOf(db as never, tipo, id).filter((r) => r.level !== "deny");
+        // WHAT THIS PANEL ANSWERS is "who reaches this thing", not "which
+        // rows carry its id". A card shared through its project has no row of
+        // its own, so the honest-looking version of this list said "shared
+        // with nobody" about a card somebody was reading. The rows that
+        // arrive through the container are listed too, each naming where it
+        // was written — the only place it can be taken back.
+        //
+        // A subject that ALSO has a row on the resource is listed once, from
+        // the resource: that is the precedence `levelFor` applies (the
+        // container is consulted only when the resource said nothing), and a
+        // panel that showed both would show two levels for one access.
+        const direct = subjectsOf(db as never, tipo, id);
+        const saidDirectly = new Set(direct.map((r) => `${r.subjectType}:${r.subjectId}`));
+        const righe = [
+          ...direct.filter((r) => r.level !== "deny"),
+          ...subjectsViaContainer(db as never, tipo, id)
+            .filter((r) => !saidDirectly.has(`${r.subjectType}:${r.subjectId}`)),
+        ];
         const nameDevice = new Map(
           (db.query("SELECT id, name FROM devices WHERE revoked_at IS NULL").all() as Array<{ id: string; name: string }>)
             .map((d) => [d.id, d.name]),
@@ -1448,13 +1489,28 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
                 ? nameDevice.get(r.subjectId) ?? r.subjectId
                 : nameSubject.get(`${r.subjectType}:${r.subjectId}`) ?? r.subjectId,
               sharedAt: r.grantedAt,
+              level: r.level,
+              // Where this access was WRITTEN, when it is not on this
+              // resource. Absent = the normal case, a row on the thing
+              // itself. The panel needs it to say what the X can and cannot
+              // take back.
+              viaType: r.viaType,
+              viaId: r.viaId,
             })),
         });
       }
+      // NO GUEST REACHES THIS POINT, and it is not this route's job to say so.
+      // `isGuestAllowedPath` does not list `/api/auth/shares`, so a confined
+      // device is refused at the gate in `server.ts` with `guest_forbidden` -
+      // for GET too, which is the branch that had no level check of its own
+      // and turned "shared one card" into "can read who else holds what, on
+      // any resource whose id you know". Deciding who sees a resource stays an
+      // owner action; there is no level on the scale that delegates it.
       if (method === "POST") {
         const body = await readJSON(req) as {
           taskId?: string; resourceType?: string; resourceId?: string;
           deviceId?: string; subjectType?: string; subjectId?: string;
+          level?: string;
         } | null;
         const tipo = body?.resourceType ?? "task";
         const risorsa = body?.resourceId ?? body?.taskId;
@@ -1469,6 +1525,15 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         if (!risorsa || !sogId || !sogTipo) return json({ error: "subject_required" }, 400);
         if (!isSubjectKind(sogTipo)) return json({ error: "unknown_subject_kind" }, 400);
 
+        // The default level stays `read`: an older client that does not send
+        // `level` keeps sharing read-only, identical to the behaviour before
+        // this extension.
+        const requestedLevel = body?.level;
+        if (requestedLevel !== undefined && !isAssignableGrantLevel(requestedLevel)) {
+          return json({ error: "unknown_level" }, 400);
+        }
+        const level: GrantLevel = requestedLevel ?? "read";
+
         // Condividere con chi vede GIÀ tutto non vuol dire niente, e lasciarlo
         // fare darebbe l'idea che quella riga stia limitando qualcosa. La
         // domanda però non è più «che ruolo ha questo dispositivo?» ma «questo
@@ -1481,7 +1546,10 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
         const rifiuto = subjectRejection(db as never, sogTipo, sogId);
         if (rifiuto) return json({ error: rifiuto.codice }, rifiuto.status);
 
-        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { grantedAt: now });
+        // A level that changes is drop-then-put: the UNIQUE index on
+        // (subject, resource) would otherwise IGNORE the second row.
+        dropGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa);
+        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { level, grantedAt: now });
         // Senza questo, condividere qualcosa non si vedeva dall'altra parte
         // finche' l'ospite non premeva Ricarica: i dati c'erano e nessuno
         // glielo diceva. Mirato, non in broadcast — vedi `sendToDevice`.

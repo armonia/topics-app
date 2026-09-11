@@ -1966,6 +1966,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           kind: full.kind,
           ...(full.messageId ? { messageId: full.messageId } : {}),
           ...(full.origin ? { origin: full.origin } : {}),
+          ...(full.actorPersonName ? { actorPersonName: full.actorPersonName } : {}),
+          ...(full.actorDeviceName ? { actorDeviceName: full.actorDeviceName } : {}),
         };
         const list = out.get(taskId);
         if (list) list.push(c); else out.set(taskId, [c]);
@@ -2394,9 +2396,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
   /**
    * Fill board-badge counters onto already-built tasks: direct-children
-   * progress AND the human interaction count (user 'comment' messages).
+   * progress, the human interaction count (user 'comment' messages), and —
+   * since `collaborator-activity` — the most recent collaborator identity
+   * (`lastActorPersonName`/`lastActorDeviceName`).
    *
-   * Entrambe le aggregazioni sono LEGATE AGLI ID IN MANO. Erano due scansioni
+   * Tutte e tre le aggregazioni sono LEGATE AGLI ID IN MANO. Erano due scansioni
    * intere e senza filtro, su ogni lista e su ogni opening di task: quella su
    * `task_comments` (11.994 lines il 15/08, la tabella che cresce più in fretta)
    * non aveva nemmeno un indice utilizzabile — `idx_task_comments_task` è su
@@ -2428,10 +2432,37 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         GROUP BY task_id`,
     ).all(ids) as Array<{ tid: string; n: number }>;
     for (const r of mrows) byTask.set(r.tid, r.n);
+    // The most recent collaborator write per task, one row each via MAX() +
+    // GROUP BY rather than a correlated subquery per task — the same shape as
+    // the two aggregates above, and for the same reason: this runs on every
+    // list/get, so it has to stay a bounded batch, not an N+1.
+    const byActor = new Map<string, { personName: string | null; deviceName: string | null }>();
+    try {
+      const arows = db.query(
+        `SELECT c.task_id AS tid, d.name AS device_name, p.display_name AS person_name
+           FROM task_comments c
+           JOIN devices d ON d.id = substr(c.author, 7)
+           LEFT JOIN people p ON p.id = d.person_id
+          WHERE c.task_id IN (SELECT value FROM json_each(?))
+            AND c.author LIKE 'guest:%'
+            AND c.id IN (
+              SELECT c2.id FROM task_comments c2
+               WHERE c2.task_id = c.task_id AND c2.author LIKE 'guest:%'
+               ORDER BY c2.created_at DESC LIMIT 1
+            )`,
+      ).all(ids) as Array<{ tid: string; device_name?: string; person_name?: string }>;
+      for (const r of arows) byActor.set(r.tid, { personName: r.person_name ?? null, deviceName: r.device_name ?? null });
+    } catch {
+      // Schema older than devices/people (pre-084): no collaborator identity
+      // to resolve — every task keeps `lastActorPersonName/DeviceName` null.
+    }
     for (const t of tasks) {
       const c = byParent.get(t.id);
       if (c) { t.subtaskCount = c.total; t.subtaskDoneCount = c.done; }
       t.userCommentCount = byTask.get(t.id) ?? 0;
+      const actor = byActor.get(t.id);
+      t.lastActorPersonName = actor?.personName ?? null;
+      t.lastActorDeviceName = actor?.deviceName ?? null;
     }
     return tasks;
   }
@@ -2740,6 +2771,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     } catch { /* un avviso non fa mai fallire la chiusura di una card */ }
   }
 
+  /**
+   * `guest:<deviceId>` → the person and device that actually wrote the row, or
+   * null when nothing resolves (revoked device, deleted person, non-guest
+   * author). Never touches `task_comments`: the identity is looked up fresh
+   * every read, the same choice `shared/comment-author.ts` documents for the
+   * `agent:` prefix — the row is not worth a migration, the label is derived.
+   */
+  function resolveGuestActor(author: string | null | undefined): { personName: string | null; deviceName: string | null } | null {
+    if (typeof author !== "string" || !author.startsWith("guest:")) return null;
+    const deviceId = author.slice("guest:".length).trim();
+    if (!deviceId) return null;
+    try {
+      const row = db.prepare(`
+        SELECT d.name AS device_name, p.display_name AS person_name
+          FROM devices d
+          LEFT JOIN people p ON p.id = d.person_id
+         WHERE d.id = ?`).get(deviceId) as { device_name?: string; person_name?: string } | undefined;
+      if (!row) return null;
+      return { personName: row.person_name ?? null, deviceName: row.device_name ?? null };
+    } catch {
+      // Schema older than the devices/people tables: no identity to resolve.
+      return null;
+    }
+  }
+
   function rowToComment(r: any): TaskComment {
     let mentions: string[] = [];
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
@@ -2759,7 +2815,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           : r.kind === "service" ? "service"
             : r.kind === "delivery" ? "delivery"
               : "comment";
-    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind, messageId: r.message_id ?? null, origin: r.origin ?? null };
+    const guestActor = resolveGuestActor(r.author);
+    return {
+      id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind,
+      messageId: r.message_id ?? null, origin: r.origin ?? null,
+      actorPersonName: guestActor?.personName ?? null,
+      actorDeviceName: guestActor?.deviceName ?? null,
+    };
   }
 
   let commentOriginColumn: boolean | null = null;

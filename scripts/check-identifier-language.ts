@@ -96,6 +96,15 @@ export const PROJECT_WORDS = new Set([
   // of those is how a Mac says it has started paying for memory it does not
   // have (2026-09-11, `dispatch-capacity.ts`).
   "swapout",
+  // `rss` is what every tool this project reads memory from calls the number:
+  // `ps -o rss`, `process.memoryUsage().rss`, Activity Monitor. It is already
+  // the vocabulary here - 60 bare uses plus `rssKB`, `rssMb`, `shellRssTitle`,
+  // `memRssTitle` - and the baseline carries those because they predate the
+  // gate. A new file spelling it the same way was being refused for saying the
+  // same word (`sawRss`, `fleet-summary.ts`, card 8871fa6c), and the only
+  // alternative, `sawResidentSetSize`, is longer and matches nothing anybody
+  // greps for (2026-09-11).
+  "rss",
   // Another dictionary hole: the 1934 list only carries "catalogue", not the
   // American spelling this codebase already uses elsewhere (2026-09-10).
   "catalog",

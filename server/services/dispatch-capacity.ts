@@ -305,6 +305,25 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  * region where there are no measurements at all - between 7,7 GB (fine, seen)
  * and 0,08 GB (the freeze, seen) nobody has ever sampled anything.
  *
+ * HOW BIG THE UNMEASURED GAP REALLY IS - narrower than "7,4 down to 0,08".
+ * The gate is a plain `available < 6`: it flips at SIX and nowhere else (there
+ * is no "margin minus seat price" rule anywhere - `byMem` divides TOTAL memory,
+ * not available). So the whole stretch below 6 needs no sampling at all: the
+ * admission verdict there is already REFUSE whatever the reading turns out to
+ * be. What is genuinely unknown AND decision-relevant is only the band where
+ * the gate is open and nobody has ever measured:
+ *
+ *     6,00 .. 7,39 GB   - 1,4 GB wide, gate OPEN, never sampled
+ *
+ * And at the worst healthy peak seen under real load (7,39 GB, ten checks at
+ * once, tree at 5,17 GB) the gate still admits, with 1,39 GB above the floor.
+ * The board at full tilt is not sitting on the threshold.
+ *
+ * The other thing still unknown is different in kind and does NOT change the
+ * verdict: where the machine starts to PAY - the first swapout. Anchors are the
+ * compressor share, 0,210 at the healthy peak and 0,291 at the 10/09 freeze; the
+ * onset is between them, and pinning it down means going near the damage.
+ *
  * WHAT WOULD MOVE IT, so the next person re-measures instead of re-guessing:
  * the check suite is the load, so if the shards or the e2e set change size,
  * this number is stale. Re-run the measurement the same way - the tree of the
@@ -576,18 +595,29 @@ export function dispatchResourceBlock(
   // GB, and with 9,6 GB inactive and 0,08 free that is 37,7 GB on a 34,36 GB
   // machine, which cannot be.
   //
-  // Recalibrating to 0,25 would put it between two observations (0,165 healthy,
-  // 0,291 at the failure) taken on an IDLE machine, with dispatch off - not
-  // "normal use with the board working", which is the state that matters and
-  // which nobody could sample while the queue was stopped.
+  // AND 0,25 IS NOT A SAFER RETUNE - IT IS A GUARANTEED FALSE POSITIVE. With
+  // the queue running again the share was sampled against the number of agents,
+  // and it rises with them, linearly:
   //
-  // And the case it would guard has never been observed: that night the memory
-  // floor was ALREADY refusing (9,69 GB against a floor of 12), so a second
-  // admission brake would have changed nothing. A gate whose triggering case
-  // has never happened, with a threshold picked between two readings, is
-  // folklore that later reads as a measurement. The numbers travel in the
-  // capacity payload instead, where they can earn a threshold if an incident
-  // ever gives them one.
+  //     0 agents (idle) 0,165 · 1 agent 0,186 · 2 agents 0,200
+  //     slope ~0,018 per agent -> ~0,237 at four, ~0,255 at FIVE
+  //
+  // So a ceiling of 0,25 fires at about five agents on a healthy machine: zero
+  // swapouts, `availableMemGB` well over the floor, nothing wrong. It would
+  // stop the board in normal operation before ever approaching a crisis, which
+  // is the opposite of what it was for. (Measured 2026-09-11 across three
+  // series, 0/55 samples ever showed the only reading that would justify it:
+  // available memory above the floor AND the share over 0,25.)
+  //
+  // The claim that used to stand here - "that night the floor was ALREADY
+  // refusing, 9,69 GB against a floor of 12" - is false and is corrected at
+  // DISPATCH_MEM_FLOOR_NATIVE_GB: the floor in force on this machine is the
+  // native one, and against it the gate was wide open. So the compressor is not
+  // a second brake behind a working first one; the first one simply had the
+  // wrong price. That is fixed there, and it is the fix that was needed.
+  //
+  // The numbers travel in the capacity payload instead, where they can earn a
+  // threshold if an incident ever gives them one.
   return null;
 }
 

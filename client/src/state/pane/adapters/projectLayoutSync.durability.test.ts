@@ -112,8 +112,11 @@ const layout = (paneId: string) => ({
   openChatTopicIds: [],
 });
 
-// The sync is debounced 500 ms; wait past it.
-const settle = () => new Promise((r) => setTimeout(r, 650));
+// The sync is debounced 500 ms; wait past it. The margin is wider than the
+// naive "debounce plus a bit" because under a busy fleet (many agents'
+// test:unit shards sharing the machine) the event loop can lag the clock
+// by seconds, not milliseconds, and a too-tight wait flakes.
+const settle = () => new Promise((r) => setTimeout(r, 2500));
 
 beforeEach(() => {
   __resetProjectSyncForTests();
@@ -178,5 +181,59 @@ describe("project channel PUT durability", () => {
     saveProjectLayout(KEY, PROJECT, layout("terminal:a6d64304"));
     await settle();
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
+  });
+
+  /**
+   * Regression for the flaky-terminal-panes card: the teardown beacon used to
+   * be an UNCONDITIONAL overwrite (no compare-and-swap), so a dying tab's
+   * pagehide write could land after a fresher truth was already on the row
+   * (a test harness's reset, a peer device) and resurrect stale panes. It now
+   * carries `?base=` — same guard `syncServer.ts` already has for
+   * pane-store-v2 — so the server can 409 a late write instead of applying it.
+   */
+  // The retry chain backs off up to base*2^2 ≈ 800ms (±20%) on its last hop —
+  // longer than one `settle()` — so these two tests wait it fully OUT before
+  // swapping mocks, or a straggler retry from the FIRST failing write lands on
+  // the SECOND mock and pollutes its call count.
+  // Wide margin for the same reason as `settle()`: under a busy fleet the
+  // event loop can lag seconds behind the clock, and this one has to outlast
+  // the whole backoff chain, not just the debounce.
+  const settleRetryChain = () => new Promise((r) => setTimeout(r, 9000));
+
+  test("teardown flush carries a compare-and-swap base=, like syncServer.ts's channel", async () => {
+    installFetch(false); // stays un-acked, so flushAllPending has something to beacon
+    saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
+    await settleRetryChain();
+    expect(__getUnackedProjectSyncKeys()).toContain(KEY);
+    __flushAllProjectSyncForTests();
+    expect(beaconCalls.some((c) => c.url.includes(encodeURIComponent(KEY)) && c.url.includes("base="))).toBe(
+      true,
+    );
+  });
+
+  test("a 409 (row moved on) on the teardown keepalive fallback is TERMINAL, no retry storm", async () => {
+    // No sendBeacon on this pass — forces the keepalive-fetch fallback path,
+    // which is the one that can observe the 409 status.
+    (globalThis as unknown as { navigator: unknown }).navigator = {};
+    installFetch(false);
+    saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
+    await settleRetryChain();
+    expect(__getUnackedProjectSyncKeys()).toContain(KEY);
+
+    fetchCalls = [];
+    (globalThis as unknown as { fetch: unknown }).fetch = async (
+      url: string,
+      init?: { body?: string; keepalive?: boolean },
+    ): Promise<Response> => {
+      fetchCalls.push({ url: String(url), body: init?.body ?? "", keepalive: !!init?.keepalive });
+      return { ok: false, status: 409, json: async () => ({}) } as unknown as Response;
+    };
+    __flushAllProjectSyncForTests();
+    await settle();
+    // Exactly one attempt: re-sending a write the server already refused as
+    // stale — because the row moved on — can only fail again or, worse, win
+    // by luck and overwrite state fresher than what this dying tab held.
+    expect(fetchCalls.length).toBe(1);
+    expect(fetchCalls[0]?.url).toContain("base=");
   });
 });

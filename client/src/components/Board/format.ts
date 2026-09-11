@@ -1,5 +1,15 @@
 import { pointerWithin, closestCorners, type CollisionDetection } from '@dnd-kit/core';
 import { TASK_STATUSES, attemptHasWork, type TaskAttempt, type TaskStatus } from '../../lib/board';
+// Re-exported, not defined here any more: this module opens with `@dnd-kit/core`
+// (the board's collision detection), and a ten-line string function must not
+// drag a drag-and-drop library behind it. `ProviderModelPicker` imports the
+// label and lives on the EAGER chat path (`ChatInput.tsx` imports it
+// statically), so the one import added on 2026-09-11 put dnd-kit in the entry
+// chunk: +47.209 byte raw, +16 KB gz, over the budget in one jump (card
+// 983469e3). The definition now sits next to `splitModelId`, which that picker
+// already imports.
+import { friendlyModelLabel } from '../../lib/modelLabel';
+export { friendlyModelLabel };
 
 /** La firma di `useT()`, per le funzioni che formattano fuori da un componente. */
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
@@ -32,26 +42,6 @@ export function attemptStat(a: TaskAttempt, tr: Translate): string {
   });
 }
 
-/**
- * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
- * family name, join the remaining numeric segments with dots as the version.
- * Generic on purpose: a new model id needs no update here.
- *
- * The `[1m]` suffix is the CLI's long-context variant and becomes a readable
- * badge ("Opus 5 · 1M"): it is the difference between a 200k and a 1M window,
- * so it has to be legible in the picker, not glued onto the version number.
- */
-export function friendlyModelLabel(modelId: string): string {
-  if (modelId === 'codex') return 'Codex';
-  if (modelId.startsWith('codex:')) return `${modelId.slice(6)} · Codex`;
-  if (modelId.startsWith('gpt-')) return modelId.replace(/^gpt-/, 'GPT-');
-  const long = /\[1m\]$/i.test(modelId);
-  const parts = modelId.replace(/^claude-/, '').replace(/\[1m\]$/i, '').split('-');
-  const name = parts[0] ? parts[0][0].toUpperCase() + parts[0].slice(1) : modelId;
-  const version = parts.slice(1).join('.');
-  const base = version ? `${name} ${version}` : name;
-  return long ? `${base} · 1M` : base;
-}
 
 /**
  * Size a textarea to its content (and keep it sized while typing) so the

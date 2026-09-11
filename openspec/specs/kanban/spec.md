@@ -498,7 +498,12 @@ il loop è id-based (kickoff, tool MCP e resume referenziano gli id, mai i titol
 
 L'umano SHALL poter **fermare** un dispatch in corso (stop): il task è parcheggiato
 (backlog + motivo nel thread) PRIMA del taglio del turno, così il turn-end trova il
-task già spostato e NON ri-accoda un nuovo tentativo. Un task creato con
+task già spostato e NON ri-accoda un nuovo tentativo. Fermare un task SHALL uccidere
+anche l'intero albero di processi che il suo agent ha generato (es. un test suite
+lanciato col tool Bash e mai messo in background) — non solo il turno: un semplice
+SIGINT al CLI lascia vivo esattamente il carico da cui lo stop dovrebbe far scappare.
+L'uccisione è scoped al solo albero discendente del CLI di QUESTA sessione: il
+worktree, il pty-bridge e le altre card SHALL restare intatti. Un task creato con
 **plan_first** SHALL istruire l'agent a consegnare un piano sintetico in review
 (question block "Approva il piano"/"Da rivedere") PRIMA di implementare; l'agent
 implementa solo al resume con l'approvazione.
@@ -3704,3 +3709,36 @@ popover e la stessa lettura nel pannello.
 - **GIVEN** l'indicatore nell'header, con il tetto in automatico su una macchina da 12 core
 - **WHEN** ci si clicca sopra
 - **THEN** si apre un popover che dice «12 core → 4» e porta alle impostazioni
+
+### Requirement: KANBAN-80 — Il modello di dispatch salvato resta visibile anche col suo provider giù
+
+La tendina del modello di dispatch nel pannello impostazioni della board SHALL
+mostrare sempre il valore salvato (`dispatchModel`), anche quando il suo
+provider non compare più nel catalogo dei modelli disponibili (`models`). Il
+componente `Select` che disegna la tendina cade sul proprio placeholder `-`
+quando il valore scelto non è tra le opzioni: se l'opzione mancante viene
+semplicemente omessa, l'utente legge «non impostato» mentre `dispatch_model`
+nel database resta quel valore, e il dispatcher (`task-dispatcher.ts`) ci gira
+sopra comunque. È uno stato silenzioso e ingannevole — l'utente vede una cosa,
+l'agente ne fa un'altra — ed è esattamente la riconciliazione che
+`TaskModelMenuOptions` è stato scritto per non fare, per il cassetto e il
+composer.
+
+**Costruzione delle opzioni.** L'elenco `["auto", ...models, valore salvato se
+mancante]` SHALL essere costruito da una funzione pura
+(`buildDispatchModelOptions`), non inline nel JSX: il caso «provider giù» non è
+raggiungibile da un test che monta il pannello intero, ma è provabile in tre
+righe contro l'helper.
+
+MISURA: `client/src/components/Board/dispatchModelOptions.test.ts` — valore
+presente nel catalogo (nessun doppione), valore presente ma il provider è
+sparito (compare comunque, con l'etichetta amichevole), nessun valore salvato
+(solo «auto»).
+
+#### Scenario: il provider del modello salvato è scollegato
+- **GIVEN** `dispatchModel` è `claude-sonnet-5` e `models` non lo contiene più
+- **THEN** la tendina mostra comunque `claude-sonnet-5` (etichettato «Sonnet 5»), selezionato
+
+#### Scenario: nessun modello salvato
+- **GIVEN** `dispatchModel` è `null`
+- **THEN** la tendina mostra solo «Auto», nessuna voce in più

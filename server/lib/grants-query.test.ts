@@ -12,7 +12,7 @@
  * id when one of the asking device's principals holds a grant on it, or on
  * the project that contains it.
  *
- * @covers GUEST-01, GUEST-06
+ * @covers GUEST-01, GUEST-06, GUEST-09, GUEST-11
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -22,6 +22,7 @@ import { TASKS_DDL } from "../db/test-schema";
 import {
   hasGrant, grantedResourceIds, grantedByType, reasonsFor, subjectsOf,
   holdsGrantOnTaskPreview, escapeLike, putGrant, dropGrant, deviceP,
+  levelFor, meetsLevel, subjectsViaContainer, readableTaskIds,
 } from "./grants-query";
 
 const RADICE = join(import.meta.dir, "..", "..");
@@ -58,29 +59,47 @@ function conSchema084(db: Database): Database {
     resource_id TEXT NOT NULL,
     level TEXT NOT NULL DEFAULT 'read' CHECK (level IN ('read','deny')),
     via_type TEXT, via_id TEXT, granted_at INTEGER NOT NULL,
+    granted_by_person_id TEXT,
     UNIQUE (subject_type, subject_id, resource_type, resource_id))`);
   db.run("CREATE INDEX idx_grants_resource ON grants(resource_type, resource_id)");
   return db;
 }
 
 /**
- * Lo schema dopo 20260816230500: `project` è una risorsa condivisibile.
+ * THE SCHEMA THIS MODULE ACTUALLY LIVES IN, replayed from the real migration
+ * files instead of retyped here.
  *
- * Serve una tabella a parte perché SQLite non altera un CHECK in posto, ed è la
- * stessa ragione per cui `conSchema084` esiste sopra.
+ * It used to be a hand-written CREATE TABLE carrying
+ * `CHECK (level IN ('read','deny'))`, and that is not a cosmetic difference:
+ * a fixture with the OLD check cannot hold a `comment` or an `edit` row at
+ * all (SQLite answers "CHECK constraint failed"), so every test about the
+ * three-level scale was impossible to write in this file and none was. The
+ * scale shipped with its ordering rule - the HIGHEST row wins, not the first
+ * - proven by nothing.
+ *
+ * Reading the two migrations means the CHECK cannot drift from the database
+ * again by retyping: whatever the file says is what the fixture enforces.
+ * `people` is a stub because the level migration declares an FK towards it
+ * and ends with `foreign_keys = ON`, so without the parent table every INSERT
+ * into `grants` would fail.
  */
+const MIGRATIONS_LEVELS = [
+  "20260816230500-grants-project.sql",
+  "20260909180634-grant-levels-write-scope.sql",
+];
+
 function withProjects(db: Database): Database {
-  db.run("DROP TABLE grants");
-  db.run(`CREATE TABLE grants (
-    id TEXT PRIMARY KEY,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('device','person','org')),
-    subject_id TEXT NOT NULL,
-    resource_type TEXT NOT NULL CHECK (resource_type IN ('task','topic','project')),
-    resource_id TEXT NOT NULL,
-    level TEXT NOT NULL DEFAULT 'read' CHECK (level IN ('read','deny')),
-    via_type TEXT, via_id TEXT, granted_at INTEGER NOT NULL,
-    UNIQUE (subject_type, subject_id, resource_type, resource_id))`);
-  db.run("CREATE INDEX idx_grants_resource ON grants(resource_type, resource_id)");
+  conSchema084(db);
+  // The parents the real files point at: `people` for the grant's FK, and the
+  // three `TASKS_DDL` declares. They are needed because the migrations end
+  // with `foreign_keys = ON` - which is what the live database runs with, so
+  // leaving it off here would be a fixture easier to satisfy than production.
+  for (const t of ["people", "machines", "agent_profiles", "topics"]) {
+    db.run(`CREATE TABLE IF NOT EXISTS ${t} (id TEXT PRIMARY KEY)`);
+  }
+  for (const m of MIGRATIONS_LEVELS) {
+    db.run(readFileSync(join(RADICE, "server/db/migrations", m), "utf8"));
+  }
   return db;
 }
 
@@ -153,6 +172,164 @@ describe("condividere un PROGETTO apre i suoi task", () => {
     const ragioni = reasonsFor(db, deviceP("d1"), "task", "t1");
     expect(ragioni).toHaveLength(1);
     expect(ragioni[0].viaType).toBeUndefined();
+  });
+
+  it("il livello del PROGETTO non diventa il livello del task", () => {
+    // The whole point of the cap. A project shared "can edit" would otherwise
+    // hand the guest the text of every card it holds - and that text becomes
+    // the prompt of an agent running in the owner's repository at the next
+    // dispatch. One click, a set whose membership moves on its own, and no
+    // row on the card for the owner to see or take back.
+    taskInProject(db, "t1", "p1");
+    putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { level: "edit", grantedAt: 1 });
+    const level = levelFor(db, deviceP("d1"), "task", "t1")!;
+    expect(level, "il contenitore apre la porta, non consegna la penna").toBe("read");
+    expect(meetsLevel(level, "read")).toBe(true);
+    expect(meetsLevel(level, "comment")).toBe(false);
+    expect(meetsLevel(level, "edit")).toBe(false);
+  });
+
+  it("un task creato DOPO la condivisione del progetto eredita lo stesso tetto", () => {
+    // The membership of a container moves without anybody touching the grant:
+    // if the cap were applied at write time it would miss exactly the rows
+    // nobody ever looked at again.
+    putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { level: "edit", grantedAt: 1 });
+    taskInProject(db, "t-dopo", "p1");
+    expect(levelFor(db, deviceP("d1"), "task", "t-dopo")).toBe("read");
+  });
+
+  it("una riga DIRETTA sul task porta il suo livello per intero", () => {
+    // The cap is about the container, not about the scale: writing needs a row
+    // on the resource itself, and that row is worth exactly what it says.
+    taskInProject(db, "t1", "p1");
+    putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { level: "read", grantedAt: 1 });
+    putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { level: "edit", grantedAt: 2 });
+    expect(levelFor(db, deviceP("d1"), "task", "t1")).toBe("edit");
+  });
+
+  it("il DENY sul task vince anche sul livello del progetto", () => {
+    taskInProject(db, "t1", "p1");
+    putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { level: "edit", grantedAt: 1 });
+    putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { level: "deny", grantedAt: 2 });
+    expect(levelFor(db, deviceP("d1"), "task", "t1")).toBe("deny");
+  });
+
+  it("il pannello della SCHEDA nomina chi arriva dal progetto, col livello in vigore", () => {
+    // `subjectsOf` answers with the rows written ON the resource, so a card
+    // reached through its project reported "shared with nobody" while somebody
+    // was reading it: an access with no surface to see it on has no surface to
+    // revoke it from either.
+    taskInProject(db, "t1", "p1");
+    putGrant(db, { kind: "org", id: "o1" }, "project", "p1", { level: "edit", grantedAt: 1 });
+    expect(subjectsOf(db, "task", "t1"), "sulla scheda non c'e' nessuna riga").toEqual([]);
+    const inherited = subjectsViaContainer(db, "task", "t1");
+    expect(inherited).toHaveLength(1);
+    expect(inherited[0].subjectId).toBe("o1");
+    expect(inherited[0].viaType).toBe("project");
+    expect(inherited[0].viaId).toBe("p1");
+    expect(inherited[0].level, "il livello mostrato e' quello che il cancello applica").toBe("read");
+  });
+
+  it("un DENY sul progetto non compare come accesso ereditato", () => {
+    taskInProject(db, "t1", "p1");
+    putGrant(db, { kind: "org", id: "o1" }, "project", "p1", { level: "deny", grantedAt: 1 });
+    expect(subjectsViaContainer(db, "task", "t1")).toEqual([]);
+  });
+
+  it("l'ELENCO nomina i task del progetto, non solo quelli concessi uno a uno", () => {
+    // The gate has followed the container since 20260816230500 and the two
+    // inventories did not: a card inside a shared project was openable by id
+    // and absent from every list a guest has. That is "I shared it with you"
+    // against "I see nothing" - the divergence GUEST-06 forbids.
+    taskInProject(db, "t1", "p1");
+    taskInProject(db, "t2", "p1");
+    taskInProject(db, "altrove", "p2");
+    putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { grantedAt: 1 });
+    expect(readableTaskIds(db, deviceP("d1")).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("e un DENY sul singolo task lo toglie dall'elenco, non solo dal cancello", () => {
+    // A list that showed a card the gate then refuses is the worst shape of
+    // all: visible and not openable.
+    taskInProject(db, "t1", "p1");
+    taskInProject(db, "t2", "p1");
+    putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { grantedAt: 1 });
+    putGrant(db, { kind: "device", id: "d1" }, "task", "t2", { level: "deny", grantedAt: 2 });
+    expect(readableTaskIds(db, deviceP("d1"))).toEqual(["t1"]);
+    expect(hasGrant(db, deviceP("d1"), "task", "t2"), "l'elenco e il cancello dicono la stessa cosa").toBe(false);
+  });
+
+  it("senza progetti concessi l'elenco resta quello delle righe dirette", () => {
+    taskInProject(db, "t1", "p1");
+    putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
+    expect(readableTaskIds(db, deviceP("d1"))).toEqual(["t1"]);
+    expect(readableTaskIds(db, deviceP("d2"))).toEqual([]);
+  });
+});
+
+/**
+ * THE RULE THAT MAKES A THREE-STEP SCALE DIFFERENT FROM A TWO-STEP ONE: among
+ * several rows the HIGHEST wins, not the first one written.
+ *
+ * The comment above `effectiveLevel` declared it and no test held it:
+ * replacing the max loop with `rows[0].level` left 327 tests green across
+ * eleven files. The case is reachable today - the panel shares the same card
+ * with a person AND with their organisation, each at its own level - and it
+ * fails in both directions depending on the order the rows went in: access
+ * refused to somebody who has it, or granted to somebody who should not.
+ *
+ * Which is why BOTH orders are asserted: with one order only, "take the
+ * first" would pass half the time.
+ */
+describe("il livello EFFICACE fra piu' righe", () => {
+  let db: Database;
+  beforeEach(() => { db = withProjects(dbFresco()); });
+
+  const bothOrders = [
+    { first: "read", second: "edit" },
+    { first: "edit", second: "read" },
+  ] as const;
+
+  for (const { first, second } of bothOrders) {
+    it(`vince il piu' alto: dispositivo ${first}, organizzazione ${second}`, () => {
+      putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { level: first, grantedAt: 1 });
+      putGrant(db, { kind: "org", id: "o1" }, "task", "t1", { level: second, grantedAt: 2 });
+      const principali = [{ kind: "device" as const, id: "d1" }, { kind: "org" as const, id: "o1" }];
+      expect(levelFor(db, principali, "task", "t1")).toBe("edit");
+    });
+
+    it(`e un DENY li batte comunque: ${first} poi ${second} poi deny`, () => {
+      putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { level: first, grantedAt: 1 });
+      putGrant(db, { kind: "org", id: "o1" }, "task", "t1", { level: second, grantedAt: 2 });
+      putGrant(db, { kind: "person", id: "pp" }, "task", "t1", { level: "deny", grantedAt: 3 });
+      const principali = [
+        { kind: "device" as const, id: "d1" },
+        { kind: "org" as const, id: "o1" },
+        { kind: "person" as const, id: "pp" },
+      ];
+      expect(levelFor(db, principali, "task", "t1")).toBe("deny");
+    });
+  }
+
+  it("`comment` non si perde fra due `read`", () => {
+    // THE MIDDLE RUNG: a maximum written as "edit or else read" would pass
+    // this case too, and the scale would go binary again in silence.
+    putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { level: "read", grantedAt: 1 });
+    putGrant(db, { kind: "org", id: "o1" }, "task", "t1", { level: "comment", grantedAt: 2 });
+    putGrant(db, { kind: "person", id: "pp" }, "task", "t1", { level: "read", grantedAt: 3 });
+    const principali = [
+      { kind: "device" as const, id: "d1" },
+      { kind: "org" as const, id: "o1" },
+      { kind: "person" as const, id: "pp" },
+    ];
+    expect(levelFor(db, principali, "task", "t1")).toBe("comment");
+  });
+
+  it("nessuna riga = `null`, che non e' `deny`", () => {
+    // "never shared" and "shared, then denied" are two different answers and
+    // the caller tells them apart: one is a 403 "not shared", the other an
+    // access that was taken away.
+    expect(levelFor(db, deviceP("d1"), "task", "mai-vista")).toBeNull();
   });
 });
 

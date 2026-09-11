@@ -5,16 +5,18 @@
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
-  parseCpuTimeSeconds,
-  parsePsRows,
-  summarizeFleet,
   resolveFleetRoots,
   registerFleetSocket,
   _resetFleetSockets,
   _resetFleetUsageCache,
   getFleetUsage,
-  type PsRow,
 } from "./fleet-usage";
+import {
+  parseCpuTimeSeconds,
+  parsePsRows,
+  summarizeFleet,
+  type PsRow,
+} from "./fleet-summary";
 
 describe("parsePsRows", () => {
   it("keeps the command intact when it contains spaces", () => {
@@ -271,6 +273,42 @@ describe("summarizeFleet", () => {
       { kind: "ai-bridge", pid: 777 },
     ]);
     expect(out.roots.map(r => r.kind)).toEqual(["server"]);
+  });
+
+  // Card 9b36ea1b: the scripts axis only ever saw pids that passed through
+  // `registerBackgroundShell`/`run_script` — a synchronous `Bash` child of an
+  // agent's CLI never registered anywhere and stayed invisible to it.
+  describe("`childrenOnly` scripts: a Bash tool's children, not the CLI itself", () => {
+    it("moves the CLI's children into scripts, but bills the CLI pid to its own root", () => {
+      const withRoot = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }]);
+      const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [], [
+        { pid: 21, childrenOnly: true }, // 21 = "claude", 22 = its Bash child
+      ]);
+      // 21 (the CLI) stays in the pty-bridge root; only 22 moves out.
+      expect(out.roots[0].processCount).toBe(withRoot.roots[0].processCount - 1);
+      expect(out.scriptsProcessCount).toBe(1);
+      expect(out.scriptsMB).toBe(Math.round(500000 / 1024));
+    });
+
+    it("a plain (non-childrenOnly) script still excludes its own root pid, unchanged", () => {
+      const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [], [
+        { pid: 21 },
+      ]);
+      // 21 AND its child 22 both move to scripts, same as before this change.
+      expect(out.scriptsProcessCount).toBe(2);
+    });
+
+    it("a background shell already registered under the CLI's tree is billed once, not twice", () => {
+      // The shell (22) is BOTH an explicit script ref (resolved background
+      // shell) AND reachable as a descendant of the CLI's `childrenOnly` root
+      // (21) — the overlap a naive per-ref walk would double-bill.
+      const out = summarizeFleet(rows, [{ kind: "pty-bridge", pid: 20 }], undefined, 1, [], [
+        { pid: 21, childrenOnly: true },
+        { pid: 22 },
+      ]);
+      expect(out.scriptsProcessCount).toBe(1);
+      expect(out.scriptsMB).toBe(Math.round(500000 / 1024));
+    });
   });
 });
 

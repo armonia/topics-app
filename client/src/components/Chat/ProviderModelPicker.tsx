@@ -7,7 +7,7 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
 import { resolveEffectiveProvider } from '@/lib/effortTiers';
-import { splitModelId } from '@/lib/modelLabel';
+import { splitModelId, friendlyModelLabel } from '@/lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 
 /**
@@ -188,7 +188,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         {/* Shrinks further once the composer's @container (the pane width,
             not the viewport) drops below 380px — keeps the effort badge and
             the rest of the action bar reachable on a narrow tab. */}
-        <span className="max-w-[160px] @max-[380px]:max-w-[70px] truncate">{modelName || 'Model'}</span>
+        <span className="max-w-[160px] @max-[380px]:max-w-[70px] truncate">{modelName ? friendlyModelLabel(modelName) : 'Model'}</span>
         {/* La finestra del modello, sempre. Il numero e' l'unica cosa che
             distingue due modelli che sulla barra si assomigliano, ed e' la
             ragione per cui si sceglie l'uno o l'altro a meta' conversazione.
@@ -368,7 +368,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                             ANCHE quando non c'è (`w-3` sempre reso): altrimenti
                             la colonna dei numeri ballerebbe di tre pixel sulla
                             riga selezionata, che è l'unica che si guarda. */}
-                        <span className="font-mono truncate min-w-0">{m}</span>
+                        <span className="truncate min-w-0">{friendlyModelLabel(m)}</span>
                         <span
                           data-testid={`model-window-${m}`}
                           data-context-tokens={win.tokens}

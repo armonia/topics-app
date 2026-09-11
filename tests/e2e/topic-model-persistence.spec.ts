@@ -77,7 +77,7 @@ test.describe.serial("Topic model persistence + cross-window sync", () => {
 
     const picker = page.getByTestId("provider-model-picker");
     await picker.waitFor({ state: "visible", timeout: 10_000 });
-    await expect(picker).toContainText("gpt-5.4", { timeout: 5_000 });
+    await expect(picker).toHaveAttribute("data-model", "gpt-5.4", { timeout: 5_000 });
 
     // Hard reload — picker should still show the persisted model on next
     // paint (sourced from `topic.model` via the snapshot/topic broadcast).
@@ -86,7 +86,7 @@ test.describe.serial("Topic model persistence + cross-window sync", () => {
     await openTopic(page, new RegExp(topicName));
     const picker2 = page.getByTestId("provider-model-picker");
     await picker2.waitFor({ state: "visible", timeout: 10_000 });
-    await expect(picker2).toContainText("gpt-5.4", { timeout: 5_000 });
+    await expect(picker2).toHaveAttribute("data-model", "gpt-5.4", { timeout: 5_000 });
   });
 
   test("cross-window: PATCH from window A updates window B without refresh", async ({ browser, request }) => {
@@ -111,8 +111,8 @@ test.describe.serial("Topic model persistence + cross-window sync", () => {
     const pickerB = pageB.getByTestId("provider-model-picker");
     await pickerA.waitFor({ state: "visible", timeout: 10_000 });
     await pickerB.waitFor({ state: "visible", timeout: 10_000 });
-    await expect(pickerA).toContainText("gpt-5.4", { timeout: 5_000 });
-    await expect(pickerB).toContainText("gpt-5.4", { timeout: 5_000 });
+    await expect(pickerA).toHaveAttribute("data-model", "gpt-5.4", { timeout: 5_000 });
+    await expect(pickerB).toHaveAttribute("data-model", "gpt-5.4", { timeout: 5_000 });
 
     // Simulate "user clicks a model in window A" via the same PATCH the
     // picker's onChange wrapper performs. Both windows must update via the
@@ -121,8 +121,8 @@ test.describe.serial("Topic model persistence + cross-window sync", () => {
       data: { provider: "codex", model: "gpt-5.4-mini" },
     });
 
-    await expect(pickerA).toContainText("gpt-5.4-mini", { timeout: 5_000 });
-    await expect(pickerB).toContainText("gpt-5.4-mini", { timeout: 5_000 });
+    await expect(pickerA).toHaveAttribute("data-model", "gpt-5.4-mini", { timeout: 5_000 });
+    await expect(pickerB).toHaveAttribute("data-model", "gpt-5.4-mini", { timeout: 5_000 });
 
     await ctxA.close();
     await ctxB.close();

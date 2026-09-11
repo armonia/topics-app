@@ -46,7 +46,7 @@ import {
   type MachineBudgetSample,
 } from "../shared/board";
 import { machineCores } from "../server/lib/machine-cores";
-import { parseCpuTimeSeconds } from "../server/lib/fleet-usage";
+import { parseCpuTimeSeconds } from "../server/lib/fleet-summary";
 
 const CORES = machineCores();
 /** How many spinning processes take the machine. Five is the shape the card

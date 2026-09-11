@@ -1,19 +1,18 @@
 /**
- * Il suffisso `[1m]` non è parte del NOME del modello: è una MODALITÀ.
+ * The `[1m]` suffix is not part of the model NAME: it is a MODE.
  *
- * La CLI espone le varianti a finestra lunga come id a sé — `claude-opus-5[1m]`
- * accanto a `claude-opus-5` — e il picker le stampava così com'erano dentro uno
- * `span` con `truncate`. Su una pane stretta il pezzo che veniva tagliato via
- * era proprio la coda, cioè l'unica differenza fra una finestra da 200k e una da
- * 1M: due bottoni identici, due modelli diversi.
+ * The CLI exposes long-context variants as their own id — `claude-opus-5[1m]`
+ * next to `claude-opus-5` — and the picker used to print them as-is inside a
+ * `truncate` span. On a narrow pane the piece that got clipped was exactly the
+ * tail, i.e. the only difference between a 200k and a 1M window: two identical
+ * buttons, two different models.
  *
- * Perché non `friendlyModelLabel` (components/Board/format.ts). Quella funzione
- * è tarata sugli id Claude: toglie il prefisso `claude-` e riunisce il resto coi
- * punti, quindi `claude-opus-5` → «Opus 5» ma `gpt-5.4-mini` → «Gpt 5.4.mini».
- * Sulla board va bene, perché lì i modelli sono quelli degli agenti; nel picker
- * ci sono anche Codex e OpenAI, e un id storpiato è peggio di un id grezzo. Qui
- * quindi non si abbellisce niente: si SEPARA soltanto la modalità dal nome, così
- * la modalità può stare in un badge che non si accorcia.
+ * This module only PEELS the mode off the id; it does not decide how the rest
+ * is displayed. `friendlyModelLabel` (below, and re-exported from
+ * components/Board/format.ts for the callers that always used it there) owns that,
+ * and it is safe to call on any provider's id: it now special-cases `codex`
+ * and `gpt-` ids too, so `claude-opus-5` -> "Opus 5" and `gpt-5.4-mini` ->
+ * "GPT-5.4-mini" render the same way here as on the board.
  */
 
 export interface ModelIdParts {
@@ -32,4 +31,25 @@ export function splitModelId(modelId: string): ModelIdParts {
   const m = /^(.*?)\[1m\]$/i.exec(modelId);
   if (!m) return { name: modelId, longContext: false };
   return { name: m[1], longContext: true };
+}
+
+/**
+ * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
+ * family name, join the remaining numeric segments with dots as the version.
+ * Generic on purpose: a new model id needs no update here.
+ *
+ * The `[1m]` suffix is the CLI's long-context variant and becomes a readable
+ * badge ("Opus 5 · 1M"): it is the difference between a 200k and a 1M window,
+ * so it has to be legible in the picker, not glued onto the version number.
+ */
+export function friendlyModelLabel(modelId: string): string {
+  if (modelId === 'codex') return 'Codex';
+  if (modelId.startsWith('codex:')) return `${modelId.slice(6)} · Codex`;
+  if (modelId.startsWith('gpt-')) return modelId.replace(/^gpt-/, 'GPT-');
+  const long = /\[1m\]$/i.test(modelId);
+  const parts = modelId.replace(/^claude-/, '').replace(/\[1m\]$/i, '').split('-');
+  const name = parts[0] ? parts[0][0].toUpperCase() + parts[0].slice(1) : modelId;
+  const version = parts.slice(1).join('.');
+  const base = version ? `${name} ${version}` : name;
+  return long ? `${base} · 1M` : base;
 }
