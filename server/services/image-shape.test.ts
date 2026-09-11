@@ -32,7 +32,7 @@ function pngHeader(width: number, height: number): Buffer {
 describe("imageShape", () => {
   test("PNG: larghezza e altezza dall'IHDR", () => {
     const s = imageShape(put("a.png", pngHeader(1440, 900)));
-    expect(s).toEqual({ width: 1440, height: 900, ratio: 900 / 1440 });
+    expect(s).toEqual({ width: 1440, height: 900, ratio: 900 / 1440, vector: false });
   });
 
   test("GIF: little-endian, non big-endian (è l'errore classico)", () => {
@@ -68,6 +68,11 @@ describe("imageShape", () => {
     b[24] = w & 0xff; b[25] = (w >> 8) & 0xff; b[26] = (w >> 16) & 0xff;
     b[27] = h & 0xff; b[28] = (h >> 8) & 0xff; b[29] = (h >> 16) & 0xff;
     expect(imageShape(put("a.webp", b))).toMatchObject({ width: 800, height: 600 });
+  });
+
+  test("raster e vettore si distinguono: e' il flag che salva gli SVG dal pavimento di densita'", () => {
+    expect(imageShape(put("flag.png", pngHeader(240, 80)))?.vector).toBe(false);
+    expect(imageShape(put("flag.svg", '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80"/>'))?.vector).toBe(true);
   });
 
   test("SVG: width/height espliciti", () => {

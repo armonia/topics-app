@@ -568,7 +568,7 @@ export interface AppContext {
    * `null` is not "too tall": whoever cannot measure lets it through, or a probe
    * defect would block good deliveries.
    */
-  imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number } | null;
+  imageShapeOf?: (filepath: string) => { width: number; height: number; ratio: number; vector?: boolean } | null;
   /**
    * Checks whether a file exists on disk. Separate from `existsSync` so the
    * tests can inject a stub without touching the real filesystem. If absent, the
