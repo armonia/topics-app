@@ -45,6 +45,7 @@ export const AUTHOR_NAME_KEYS: Record<CommentAuthorKind, string> = {
   dispatcher: 'board.task.author.app',
   verifier: 'board.task.author.verifier',
   agent: 'board.task.author.agent',
+  guest: 'board.task.author.collaborator',
 };
 
 export const ACTION_ORIGIN_KEYS: Record<TaskActionOrigin, string> = {
@@ -79,15 +80,34 @@ export function shortProfileName(ownerName: string | null | undefined): string |
  * interna al codice, e chi legge la scheda vede una cosa sola — l'app che ha
  * agito da sé. Il ruolo esatto resta in `detail`.
  */
+/** The resolved identity `authorDisplay` needs for a `guest:` row — the same
+ *  pair `TaskComment.actorPersonName` / `actorDeviceName` carry, kept as a
+ *  separate parameter (not the whole comment) so this stays a pure translator
+ *  callable from a test without a `TaskComment` fixture. */
+export interface GuestActor {
+  personName?: string | null;
+  deviceName?: string | null;
+}
+
 export function authorDisplay(
   who: CommentAuthorLabel,
   tr: (key: string, vars?: Record<string, string | number>) => string,
   ownerName?: string | null,
+  guestActor?: GuestActor | null,
 ): AuthorDisplay {
   const kind = who.kind;
   if (kind === 'user') {
     const name = shortProfileName(ownerName) || tr(AUTHOR_NAME_KEYS.user);
     return { name, detail: 'user', kind, self: true };
+  }
+  if (kind === 'guest') {
+    // Never "you", never the generic agent name: a collaborator's write is a
+    // THIRD identity. `personName` is preferred (it survives the device being
+    // renamed or replaced); `deviceName` alone still beats the placeholder,
+    // because it is at least a name a person picked, not a device id.
+    const name = guestActor?.personName?.trim() || guestActor?.deviceName?.trim() || tr(AUTHOR_NAME_KEYS.guest);
+    const detail = guestActor?.deviceName ? `guest:${guestActor.deviceName}` : 'guest';
+    return { name, detail, kind, self: false };
   }
   if (kind === 'agent') {
     // Un nome vero scritto dall'agent (`looksLikeName` l'ha già promosso) resta

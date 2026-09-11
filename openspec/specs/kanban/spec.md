@@ -498,7 +498,12 @@ il loop è id-based (kickoff, tool MCP e resume referenziano gli id, mai i titol
 
 L'umano SHALL poter **fermare** un dispatch in corso (stop): il task è parcheggiato
 (backlog + motivo nel thread) PRIMA del taglio del turno, così il turn-end trova il
-task già spostato e NON ri-accoda un nuovo tentativo. Un task creato con
+task già spostato e NON ri-accoda un nuovo tentativo. Fermare un task SHALL uccidere
+anche l'intero albero di processi che il suo agent ha generato (es. un test suite
+lanciato col tool Bash e mai messo in background) — non solo il turno: un semplice
+SIGINT al CLI lascia vivo esattamente il carico da cui lo stop dovrebbe far scappare.
+L'uccisione è scoped al solo albero discendente del CLI di QUESTA sessione: il
+worktree, il pty-bridge e le altre card SHALL restare intatti. Un task creato con
 **plan_first** SHALL istruire l'agent a consegnare un piano sintetico in review
 (question block "Approva il piano"/"Da rivedere") PRIMA di implementare; l'agent
 implementa solo al resume con l'approvazione.

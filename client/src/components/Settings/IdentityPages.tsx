@@ -25,7 +25,6 @@ import { AccountSection } from './AccountSection';
 import { IdentitySection } from './IdentitySection';
 import { OrgProjectsSection } from './OrgProjectsSection';
 import { FollowersSection } from '../Profile/FollowersSection';
-import { PrivacySection } from '../Profile/PrivacySection';
 import { ProfileHeader } from '../Profile/ProfileHeader';
 import { useSelf } from '../Profile/useSelf';
 
@@ -82,19 +81,6 @@ export function FollowersPage() {
       blurbKey="settings.page.followers.blurb"
     >
       <FollowersSection />
-    </Page>
-  );
-}
-
-/** WHAT YOU PUBLISH, and what the server therefore refuses to send. */
-export function PrivacyPage() {
-  return (
-    <Page
-      testid="settings-page-privacy"
-      titleKey="settings.page.privacy.title"
-      blurbKey="settings.page.privacy.blurb"
-    >
-      <PrivacySection />
     </Page>
   );
 }

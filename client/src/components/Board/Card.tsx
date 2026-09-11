@@ -810,7 +810,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1206,6 +1206,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             >{tr('board.card.plan')}</span>
           )}
           {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-xs md:text-[11px] text-app-text-heading">@{task.assignedTo}</span>}
+          {/* Who actually wrote the last collaborator comment, and from
+              which device — separate from `assignedTo`, which is free text
+              and may name nobody real. Empty by default: most tasks have no
+              collaborator write yet, and an always-on chip would just repeat
+              "@assignee" on every card. */}
+          {task.lastActorPersonName && (
+            <span
+              title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
+              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs md:text-[11px] text-sky-300"
+            >{task.lastActorPersonName}</span>
+          )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
               CHIUDE la card, le altre servono a leggere la board. */}
           {task.labels.map((l) => <LabelChip key={l.label} label={l.label} source={l.source} />)}
