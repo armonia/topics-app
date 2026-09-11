@@ -1,7 +1,41 @@
 [
   {
-    "version": "2.2.296",
+    "version": "2.2.297",
     "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il freno della memoria smetteva di contare cio' che il Mac non poteva dare",
+          "scope": "dispatch"
+        },
+        {
+          "text": "tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN",
+          "scope": "test"
+        },
+        {
+          "text": "translate new test comments to English per check:comment-language",
+          "scope": "lint"
+        },
+        {
+          "text": "il tetto del compressore era tarato sulla riga sbagliata di vm_stat, e esce",
+          "scope": "dispatch"
+        },
+        {
+          "text": "il pavimento nativo prezzava la sessione, non i check che lancia",
+          "scope": "dispatch"
+        },
+        {
+          "text": "il tail di un check rosso non e' piu' fatto solo di avvisi colore",
+          "scope": "checks"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.296",
+    "date": "2026-09-10",
     "sections": {
       "new": [
         {
