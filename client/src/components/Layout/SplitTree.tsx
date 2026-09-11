@@ -99,7 +99,17 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
               <Divider
                 dir={node.dir}
                 gutter={gutter}
-                onResize={(deltaPx, bandPx) => onResize?.(path, i - 1, deltaPx, bandPx)}
+                // NO HOST HANDLER, NO CLOSURE. The wrapper used to be built
+                // unconditionally and forward to `onResize?.()`, which reads as
+                // "nothing happens" and is not: `Divider` takes a handler being
+                // PRESENT as "this gap is a handle", and its drag moves the two
+                // flanking cells imperatively long before it commits anything.
+                // An absent host handler therefore removed the COMMIT alone,
+                // and a divider a caller had disarmed still dragged the
+                // geometry around and left it there, which is the one thing
+                // LAYOUT-35 says must not happen. Passing `undefined` through is
+                // what makes the disarm reach the gesture.
+                onResize={onResize ? (deltaPx, bandPx) => onResize(path, i - 1, deltaPx, bandPx) : undefined}
                 onEqualize={onEqualize ? () => onEqualize(path, i - 1) : undefined}
               />
             ))}
@@ -136,9 +146,17 @@ interface DividerProps {
   gutter: number;
   /** Commit the resize ONCE on release: the TOTAL signed px the divider moved
    *  along the split axis, within the parent band of `bandPx`. The host maps it
-   *  via `pxToWeightDelta` + `resizeWeights`. */
-  onResize: (deltaPx: number, bandPx: number) => void;
-  /** Double-click → even out the band (1/n). */
+   *  via `pxToWeightDelta` + `resizeWeights`.
+   *
+   *  OMITTED = THIS GAP IS A LINE, NOT A HANDLE. The drag is not attached at
+   *  all, so nothing moves — not the committed weights and not the live inline
+   *  `flex` of the flanking cells either. The node stays in the DOM with its
+   *  `data-split-divider` / `data-resize-axis`, because a caller that disarms a
+   *  divider is not removing the seam between two cells; it is saying the seam
+   *  cannot be grabbed. */
+  onResize?: (deltaPx: number, bandPx: number) => void;
+  /** Double-click → even out the band (1/n). Omitted alongside `onResize` while
+   *  a host has disarmed the gap. */
   onEqualize?: () => void;
 }
 
@@ -165,6 +183,18 @@ const MIN_CHILD_FRACTION = 0.1;
  */
 function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
+  // DISARMED = INERT, and the two halves are separate on purpose. `canDrag`
+  // decides whether the drag is wired at all, so a gap without a host handler
+  // never reaches the imperative `style.flex` writes below; `inert` additionally
+  // takes the element out of the pointer's way, which is what turns the
+  // remaining paint from a handle back into a line — no hover bar, no grab band,
+  // no `col-resize` cursor over something that cannot be dragged. It is done
+  // with `pointer-events` and NOT by dropping the cursor class, because that
+  // class is also what the floating-splits rules key on to null the resting
+  // seam over a vibrancy gap (index.css): losing it would paint a border-coloured
+  // line exactly where floating mode wants none.
+  const canDrag = !!onResize;
+  const inert = !canDrag && !onEqualize;
   const [active, setActive] = useState(false);
   // Teardown for the in-flight drag so an unmount-mid-drag finishes it cleanly.
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -242,7 +272,7 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
       }
       // Commit ONCE — and only for a real drag. A bare click leaves latestDelta 0
       // (no phantom resize) so the double-click → equalize handler isn't pre-empted.
-      if (latestDelta !== 0) onResize(latestDelta, bandPx);
+      if (latestDelta !== 0) onResize?.(latestDelta, bandPx);
     }
     cleanupRef.current = finish;
     window.addEventListener('mousemove', onMove);
@@ -283,12 +313,13 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
       // nascosta. Il rosso era vero e il difetto non c'era.
       data-resize-axis={horizontal ? 'col' : 'row'}
       className={`bg-app-border ${horizontal ? 'cursor-col-resize' : 'cursor-row-resize'}${active ? ' is-resizing' : ''}`}
-      onMouseDown={onMouseDown}
+      onMouseDown={canDrag ? onMouseDown : undefined}
       onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}
       style={{
         flex: `0 0 ${gutter}px`,
         position: 'relative',
         touchAction: 'none',
+        ...(inert ? { pointerEvents: 'none' as const } : null),
       }}
     />
   );

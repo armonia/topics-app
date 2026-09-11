@@ -35,13 +35,14 @@ import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';
 import { usePaneResidency } from './hooks/usePaneResidency';
-import { usePaneAlive } from '../../state/paneLiveness';
+import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import type { ZoomScope } from './zoomScope';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
@@ -175,6 +176,30 @@ interface StandaloneChatGroupProps {
   // can be pinned/unpinned like its sidebar row. App-level only.
   onToggleFissato?: (pinKey: string) => void;
   isFissato?: (pinKey: string) => boolean;
+  /**
+   * DOES THIS CELL OCCUPY A RECTANGLE IN THE LAYOUT? Defaults to `true`,
+   * because a surface mounted outside a grid has one by definition.
+   *
+   * It is an axis SEPARATE from residency, and the difference is not cosmetic:
+   * `visibleKeys` goes on reading `surfaceAlive` ON ITS OWN, because that list
+   * is the floor of the residency cap and zeroing it here would unmount the
+   * collapsed cells after a few seconds — leaving the zoom would find cells to
+   * rebuild. The signal therefore goes down to the ONE layer that keeps panes
+   * alive, where it means «suspend whatever measures», never «unmount».
+   */
+  hasBox?: boolean;
+  /**
+   * Zoom the cell that hosts `paneId`, or leave the zoom. `scope` is what the
+   * GESTURE asked for: degradation is resolved by `resolveEntryScope`,
+   * upstream, and nothing is recomputed here. Passed on to `PaneTabBar` as they
+   * are.
+   */
+  onToggleZoom?: (paneId: string, scope: ZoomScope) => void;
+  /** The surface offers the command: more than one live cell, plus the 768px
+   *  gate. Structural and surface-wide — decided by whoever owns the cells. */
+  canZoom?: boolean;
+  /** The zoom is open on this surface. */
+  isZoomed?: boolean;
 }
 
 export function StandaloneChatGroup({
@@ -198,6 +223,8 @@ export function StandaloneChatGroup({
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell, onPersistReorder,
   onToggleFissato, isFissato,
+  hasBox = true,
+  onToggleZoom, canZoom, isZoomed,
 }: StandaloneChatGroupProps) {
   const tr = useT();
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
@@ -664,6 +691,9 @@ export function StandaloneChatGroup({
       // exactly like the drag path's extractToOwnCell).
       onSplitRight={onSplitPane && groupCanSplit ? handleSplitRight : undefined}
       onSplitDown={onSplitPane && groupCanSplit ? handleSplitDown : undefined}
+      onToggleZoom={onToggleZoom}
+      canZoom={canZoom}
+      isZoomed={isZoomed}
       onResetLayout={onResetLayout}
       // Spazi: every top-level (app-level) group offers "Sposta nello
       // Spazio →" — project-inner tab bars never pass this.
@@ -942,7 +972,7 @@ export function StandaloneChatGroup({
               style={{ left: `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))` }}
               {...NO_DRAG_REGION}
             >
-              <SidebarToggleButton onClick={onToggleSidebar} size="action" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
+              <SidebarToggleButton onClick={onToggleSidebar} size="action" testId="sidebar-reopen" className={`edge-lit ${RAISED_CONTROL} rounded-lg`} />
             </div>
           )}
         </div>
@@ -963,22 +993,29 @@ export function StandaloneChatGroup({
           {visitedPanes.length === 0 ? (
             <div className="flex-1" aria-hidden="true" />
           ) : (
-            visitedPanes.map((pane) => {
-              const isPaneActive = pane.id === activePaneId;
-              return (
-                <PaneKeepAlive
-                  // `stableKey` (when set by the pane reducer) survives
-                  // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
-                  // and GroupLayout's keep-alive wrapper.
-                  key={stableKeyOf(pane)}
-                  paneKey={stableKeyOf(pane)}
-                  isVisible={isPaneActive}
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
-                >
-                  {renderPaneBody(pane, isPaneActive)}
-                </PaneKeepAlive>
-              );
-            })
+            // The ONE layer that keeps panes alive, and not a per-cell
+            // Provider: `visibleKeys` stays on `surfaceAlive` alone (see
+            // `hasBox`). `PaneKeepAlive` publishes `parentAlive && isVisible`,
+            // so the multiplication with the parent does the rest for free,
+            // nested shells included.
+            <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
+              {visitedPanes.map((pane) => {
+                const isPaneActive = pane.id === activePaneId;
+                return (
+                  <PaneKeepAlive
+                    // `stableKey` (when set by the pane reducer) survives
+                    // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
+                    // and GroupLayout's keep-alive wrapper.
+                    key={stableKeyOf(pane)}
+                    paneKey={stableKeyOf(pane)}
+                    isVisible={isPaneActive}
+                    className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
+                  >
+                    {renderPaneBody(pane, isPaneActive)}
+                  </PaneKeepAlive>
+                );
+              })}
+            </PaneAliveContext.Provider>
           )}
         </div>
       </div>

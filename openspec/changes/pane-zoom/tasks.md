@@ -1,5 +1,42 @@
 # Tasks — pane-zoom
 
+## Stato, ricostruito dal CODICE l'11/09 (onde 1, 2, 3 atterrate)
+
+Le caselle qui sotto non sono state spuntate «a memoria»: sono state rilette dai
+file, e dove il codice smentiva la consegna ha vinto il codice. Spuntato = il
+lavoro c'e' e, dove la prova era lanciabile da questa macchina, e' stata
+rilanciata l'11/09 (`bun test` sui sette file unitari della change: 96 pass, 0
+fail · `cargo test --lib`: 120 passed, 0 failed · `gen:shortcuts` +
+`git diff --exit-code`: 0 · `check:spec-coverage`, `check:untraced-tests`,
+`check:ui-language`: 0). Non spuntato = manca lavoro, o manca la prova, e sotto
+la casella c'e' una riga che dice quale delle due.
+
+**Cosa resta, in ordine di peso.** E' la fotografia dell'11/09 a meta' mattina:
+i tre rossi sono quelli che il collaudo avversario ha trovato, e le onde
+parallele di questa stessa tornata stanno chiudendo i due che sono del codice.
+Una riga qui sotto che nomina un rosso gia' chiuso va tolta, non aggiornata.
+
+1. **Tre rossi veri, e non sono la stessa cosa.** `pane-zoom.spec.ts:442` e
+   `:1084` sono difetti del CODICE (vedi 7.1 e 7.8); `:476` era un difetto della
+   SPEC, chiuso in questa tornata emendando `LAYOUT-36` (vedi 3.10), e il caso va
+   riscritto.
+2. **Due cancelli rossi.** `bun run typecheck` (arita' di `deleteTask` in
+   `pane-zoom.spec.ts:1450`) e `bun run check:comment-language` (commenti
+   italiani nuovi in `GroupLayout.tsx` e `ProjectWindow.tsx`). Vedi 8.1.
+3. **Un buco di prova:** 4.1 e' scritta ma il caso e2e che DICHIARA `LAYOUT-39`
+   sul mobile non esiste.
+4. **Le sole due verifiche che restano a mano: T0 e 7.7.** Nessuna delle due e'
+   stata eseguita, e nessun guscio Tauri e' stato aperto in questa tornata.
+
+**La passata Playwright c'e', ed e' dell'11/09**: `bun run check:e2e-touched` ha
+lanciato 8 spec (pane-zoom piu' cinque `browser-*`, `permission-panel`,
+`surfaces-i18n`), 55 test, **52 passati e 3 falliti**, e i tre falliti sono
+esattamente i tre rossi noti (`:442`, `:476`, `:1084`). Di `pane-zoom.spec.ts`
+sono quindi verdi 26 casi su 29: le caselle di T7 spuntate qui sotto sono state
+viste verdi, non solo scritte. Restano fuori dalla passata `drag-regions` (7.5) e
+le nove spec di 7.6, che il cancello non lancia perche' la change tocca 25 file e
+lui si ferma a 8.
+
 T0 e' un cancello: se cade, cade il disegno, e va fatto prima di scrivere codice.
 T1 e T2 partono insieme dopo l'approvazione. T3 aspetta T1 e T2. T4 e T5 aspettano
 T3 e sono indipendenti fra loro. T6 e' indipendente da tutto e puo' partire subito.
@@ -73,14 +110,26 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   **Prova**: video. Se qui la vista resta parcheggiata anche senza chiavistello,
   T2 si riduce; se ricompare, T2 e' obbligatorio come scritto.
 
+  **Stato all'11/09: NON eseguita, ne' 0.1 ne' 0.2.** Il codice e' stato scritto
+  lo stesso, assumendo l'esito atteso (la vista RICOMPARE), e T2 e' stato
+  costruito su quell'assunzione. Il chiavistello di 2.1 c'e' e il suo test
+  unitario e' verde, quindi l'assunzione e' coperta da un contratto; ma la
+  fotografia della build PRIMA del chiavistello nessuno l'ha presa, e questa
+  riga resta aperta invece di essere spuntata all'indietro. Con 7.7 sono le sole
+  due verifiche che restano a mano.
 ## T1 — I moduli puri (nessun innesto, nessun rendering)
 
-- [ ] 1.1 `client/src/components/Layout/paneZoom.ts`: `applyZoomWeights(root, cellKeys)`,
+- [x] 1.1 `client/src/components/Layout/paneZoom.ts`: `applyZoomWeights(root, cellKeys)`,
   `cellKeysForPanes(rows, itemMap, paneIds)` **estratta** da `mobileVisibleKey`
   (PanelGrid.tsx:474-487, risalita da pane impilata compresa), `pruneZoom(keys, liveKeys)`.
   Stessa ref quando nulla cambia, convenzione di `soloCells.ts` (`pruneSoloCells`,
   soloCells.ts:135).
-- [ ] 1.2 `client/src/components/Layout/zoomScope.ts`: `resolveZoomAnchor(paneId, deps)`,
+  **Nota:** `pruneZoom` e' esportata e la chiama solo il suo test: in `PanelGrid`
+  (:585-588) e in `GroupLayout` (:920-926) la potatura e' scritta come
+  `cellKeysForPanes(...).size === 0`. Il modulo e' fatto, la funzione non ha
+  chiamanti. Non e' un rosso: `bun run check:deadcode` esce 0 all'11/09. E' una
+  riga da togliere o da far chiamare prima dell'archiviazione.
+- [x] 1.2 `client/src/components/Layout/zoomScope.ts`: `resolveZoomAnchor(paneId, deps)`,
   `computeZoomPaneIds(anchor, deps)`, `resolveZoomCells({ anchorPaneId, scope }, deps)`
   con `scope: 'derived' | 'cell'`, e `resolveEntryScope(paneId, requested, deps)`.
   Tutto iniettato (`openPanes`, `topics`, `terminals`, mappa spawner): niente import
@@ -96,7 +145,7 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   con le celle vive e, se lo copre gia' tutto, torna `'cell'`; torna `null` quando
   esiste una cella viva sola, cioe' quando il gesto non si offre. Il suo esito e'
   cio' che lo store memorizza, ed e' l'unico posto in cui la degradazione esiste.
-- [ ] 1.3 `client/src/state/paneZoom.ts`: store zustand effimero,
+- [x] 1.3 `client/src/state/paneZoom.ts`: store zustand effimero,
   `bySurface: Record<string, { anchorPaneId: string; scope: 'derived' | 'cell'; openedSeq: number }>`,
   `toggle(surfaceId, paneId, scope)` / `exit` / `exitTop`, docstring che dichiara
   «EPHEMERAL, never persisted» e che l'uscita al cambio di Spazio e' VOLUTA.
@@ -115,7 +164,7 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   dopo NON entra nel set, quindi scatta la regola di uscita di 3.10 e nessuna pane
   nasce dentro una cella collassata. E' lo scenario «una tab che nasce mentre si
   guarda la sola cella» di LAYOUT-40, e con un booleano ricalcolato sarebbe falso.
-- [ ] 1.4 `paneZoom.test.ts`, `zoomScope.test.ts` e `client/src/state/paneZoom.test.ts`,
+- [x] 1.4 `paneZoom.test.ts`, `zoomScope.test.ts` e `client/src/state/paneZoom.test.ts`,
   header `@covers LAYOUT-34, LAYOUT-35, LAYOUT-36, LAYOUT-37, LAYOUT-40`.
   In `zoomScope.test.ts` i casi stanno separati perche' separate sono le funzioni.
   Su `resolveZoomCells`: con `scope: 'cell'` la sola cella dell'ancora e set
@@ -133,14 +182,24 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   **Prova**: `bun test client/src/components/Layout/paneZoom.test.ts client/src/components/Layout/zoomScope.test.ts client/src/state/paneZoom.test.ts`
   verde, e ogni test falsificato una volta togliendo la riga che copre (un test che
   non si e' mai visto rosso non e' un cancello).
-- [ ] 1.5 `mobileVisibleKey` riscritta sopra `cellKeysForPanes`: una conversione
+  **Nota:** gli `@covers` di testa non sono i cinque id su tutti e tre i file,
+  come questa riga chiedeva, ma ripartiti dove l'id e' davvero provato:
+  `paneZoom.test.ts` 35/36/37, `zoomScope.test.ts` 34/36/40,
+  `state/paneZoom.test.ts` 37/40. E' la forma piu' onesta, ed e' quella che le
+  voci penzolanti in `openspec/coverage-baseline.json` registrano.
+  **Prova rifatta l'11/09:** `bun test` sui tre file (piu' park, i due contratti
+  negativi e `shared/shortcuts.test.ts`) → 96 pass, 0 fail.
+- [x] 1.5 `mobileVisibleKey` riscritta sopra `cellKeysForPanes`: una conversione
   sola, non tre.
   **Prova**: `npx playwright test tests/e2e/mobile-*.spec.ts` (o il perimetro
   enumerato dai testid toccati) verde senza modifiche.
 
+  **Nota:** la riscrittura c'e' (PanelGrid.tsx:500-507, una conversione sola). La
+  sua prova, `npx playwright test tests/e2e/mobile-*.spec.ts`, non risulta
+  eseguita in questa tornata.
 ## T2 — Il chiavistello nel guscio nativo (dipende da T0)
 
-- [ ] 2.1 `useTauriBrowser.ts`: un `hiddenRef` alzato nel ramo zero di `setBounds`
+- [x] 2.1 `useTauriBrowser.ts`: un `hiddenRef` alzato nel ramo zero di `setBounds`
   (:449-458) e abbassato SOLO dal ramo positivo (:446-448), che e' l'unica porta
   che misura sul segnaposto. Si legge in DUE posti, perche' due sono le meta' di
   `NATIVEPARK-01`: in cima ad `applyBounds` (:399), cosi' la funzione esce sul
@@ -163,7 +222,7 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   E' comportamento della capability remote-browser, non del layout: quello che
   deve fare sta scritto in `NATIVEPARK-01` del delta `specs/remote-browser/spec.md`
   di questa change, ed e' l'id che il test di 2.2 deve dichiarare.
-- [ ] 2.2 `client/src/hooks/useTauriBrowser.park.test.ts`, sulla convenzione del
+- [x] 2.2 `client/src/hooks/useTauriBrowser.park.test.ts`, sulla convenzione del
   gia' esistente `useTauriBrowser.polls.test.ts`: test unitario della transizione,
   header `@covers NATIVEPARK-01`. Il path si scrive QUI perche' e' il quinto dei
   cinque file di test nuovi che il proposal conta nell'Impact, ed e' quel conto che
@@ -183,7 +242,7 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   :1706-1710 dice perche' e' quella la sola prova che qualcosa e' cambiato).
   **Prova**: `bun test client/src/hooks/` verde, col test visto rosso rimuovendo
   il `hiddenRef`.
-- [ ] 2.3 `Browser/RemoteBrowserPanel.tsx:164`: `const isVisible = isVisibleProp && usePaneAlive()`.
+- [x] 2.3 `Browser/RemoteBrowserPanel.tsx:164`: `const isVisible = isVisibleProp && usePaneAlive()`.
   La riga e' GLOBALE e raggiunge il cassetto del task
   (`Board/useTaskBrowserGroupLayout.tsx:258/267`): una browser del cassetto dietro
   una pane kanban nascosta passa da `isVisible=true` a `browser_set_visible(false)`.
@@ -196,9 +255,15 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   cassetto in 7.1, annotato `NATIVEPARK-02` e `LAYOUT-38`; e la verifica a mano che
   la vista sia SPENTA, non solo a bounds zero.
 
+  **Nota:** la riga c'e' (RemoteBrowserPanel.tsx:184-185). La meta' e2e della
+  prova e' stata rifatta l'11/09 dentro `check:e2e-touched`, che ha lanciato
+  cinque `browser-*.spec.ts` (add-empty, agent-control, cross-device-close,
+  dom-cobrowse, engine-switch) e li ha visti tutti verdi: nessuna regressione.
+  L'altra meta', la verifica a mano che la vista sia SPENTA e non solo a bounds
+  zero, e' dentro 7.7 e resta aperta.
 ## T3 — L'innesto sulla griglia standalone (dipende da T1, T2)
 
-- [ ] 3.1 `PanelGrid.tsx`: memo `zoomedTree` a valle di `treeRoot` (:2502);
+- [x] 3.1 `PanelGrid.tsx`: memo `zoomedTree` a valle di `treeRoot` (:2502);
   `data-pane-zoom` sulla superficie (:2667); scrim e stage **incondizionati**;
   `style.display` e prop `hasBox` nel wrapper di cella di `renderTreeLeaf`
   (:2561-2588, dentro il callback che sta a :2539-2590); effetti di potatura, di
@@ -209,13 +274,13 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   ricalcola nessuna degradazione. L'effetto di uscita su apertura di una pane
   fuori set NON sta qui: sta in 3.10, da solo, perche' e' l'unico bivio ancora
   aperto.
-- [ ] 3.2 `StandaloneChatGroup.tsx`: prop `hasBox` (default `true`);
+- [x] 3.2 `StandaloneChatGroup.tsx`: prop `hasBox` (default `true`);
   `<PaneAliveContext.Provider value={surfaceAlive && hasBox}>` attorno al SOLO
   loop dei `PaneKeepAlive` (:966-981); `visibleKeys` INVARIATO (:409-413).
-- [ ] 3.3 D8: split, reset, «Disponi», i bus `topics:reset-split-layout` e
+- [x] 3.3 D8: split, reset, «Disponi», i bus `topics:reset-split-layout` e
   `topics:auto-tile-layout`, l'undo di layout e l'avvio di un drag di tab chiamano
   `exit(surfaceId)` prima di applicarsi.
-- [ ] 3.4 `PaneTabBar.tsx`: il doppio clic prende l'EVENTO (l'handler a :1257 oggi
+- [x] 3.4 `PaneTabBar.tsx`: il doppio clic prende l'EVENTO (l'handler a :1257 oggi
   e' `() => {...}`, senza argomento) e diventa stratificato: `markDraftTouched`,
   `return` sul ramo anteprima, poi
   `onToggleZoom?.(pane.id, e.altKey ? 'cell' : 'derived')`; `canZoom` falso sulle
@@ -231,7 +296,7 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   GIA' attivo, dove resta la sola «Riduci» (LAYOUT-40).
   Props `onToggleZoom(paneId, scope)` / `canZoom` / `isZoomed`; il predicato arriva
   da 3.9.
-- [ ] 3.5 Le due chord nel registro, e il prezzo che si paga su due sponde. Il
+- [x] 3.5 Le due chord nel registro, e il prezzo che si paga su due sponde. Il
   bit di Option e' lavoro di 3.11, non di qui.
   `useKeyboardShortcuts.ts`: ⌘E (ambito automatico) e ⌥⌘E (sola cella); Escape come
   ULTIMO ramo, dopo lo stop del turno (il ramo e' a :468-473). `shared/shortcuts.ts`:
@@ -300,7 +365,14 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   provare che la tabella Windows e' cambiata come si voleva; e il video di 7.7,
   che resta l'unica prova possibile del campo `native`, visto che i due cancelli
   del generatore restano verdi anche quando manca.
-- [ ] 3.6 `index.css`: `--pane-zoom-inset: clamp(20px, 4vmin, 56px)`;
+  **Prova rifatta l'11/09:** `bun test shared/shortcuts.test.ts` verde;
+  `bun run gen:shortcuts && git diff --exit-code -- desktop-tauri/src-tauri/src`
+  esce 0 (il `.rs` committato elenca 'e', shortcuts_generated.rs:15);
+  `cargo test --lib` 120 passed, 0 failed. **Trappola dell'ambiente:** `~/bin/cc`
+  e' uno script che apre Claude in tmux e precede `/usr/bin/cc` nel PATH, quindi
+  `cargo test` fallisce in LINKING con «not a directory: …/symbols.o» e sembra un
+  rosso del codice. Si lancia con `PATH=/usr/bin:/bin:…:$HOME/.cargo/bin`.
+- [x] 3.6 `index.css`: `--pane-zoom-inset: clamp(20px, 4vmin, 56px)`;
   `[data-split-surface][data-pane-zoom]` con padding, `--bg-solid` e la banda
   superiore `max(inset, spazio delle pastiglie)`; `.pane-zoom-scrim` (con
   `cursor: zoom-out`, `aria-hidden`, non focusabile, `app-no-drag` +
@@ -311,15 +383,23 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   e' un flex item. Gli spigoli quadri sono una decisione CHIUSA (design, «Bivi ›
   Chiusi»): qui non c'e' niente da confermare, solo da scrivere la regola alla
   specificita' che vince.
-- [ ] 3.7 D6: nessun `content-chrome-inset` sulla cella zoomata; il comando di
+- [x] 3.7 D6: nessun `content-chrome-inset` sulla cella zoomata; il comando di
   riapertura della colonna reso dentro la cornice.
-- [ ] 3.8 `i18n-it.ts` / `i18n-en.ts`: `tab.menu.zoom`, `tab.menu.unzoom`,
+- [x] 3.8 `i18n-it.ts` / `i18n-en.ts`: `tab.menu.zoom`, `tab.menu.unzoom`,
   `tab.menu.zoomCellOnly` («Ingrandisci solo questa»), e l'etichetta del comando
   della colonna se nuova.
   **Prova di tornata**: `bun run typecheck`, `bun run lint`,
   `bun run check:ui-language`, e a mano: entrare e uscire dallo zoom su un layout
   a 3 celle con un terminale che sta scrivendo.
-- [ ] 3.9 Il predicato di disponibilita'. `canZoom` si valuta su CELLE e non su
+  **Nota:** le tre chiavi ci sono in `i18n-it.ts` e `i18n-en.ts`, e
+  `SidebarToggleButton` ha guadagnato il suo `data-testid` (:52).
+  **Prova di tornata, stato reale all'11/09:** `bun run check:ui-language` esce 0;
+  `bun run typecheck` esce 1, ma sull'e2e e non sul client (vedi T7);
+  `bun run check:comment-language` esce 1 su commenti italiani NUOVI in
+  `GroupLayout.tsx` e `ProjectWindow.tsx`, che e' il cancello da rimettere verde.
+  La passata a mano (entrare e uscire con un terminale che scrive) non risulta
+  fatta.
+- [x] 3.9 Il predicato di disponibilita'. `canZoom` si valuta su CELLE e non su
   pane, ed e' UNO solo per il gesto semplice e per quello col modificatore:
   **esiste piu' di una cella VIVA sulla superficie** (piu' il cancello
   `useSplitLayoutAvailable()` per i 768px e la regola sulle bozze). E' la forma che
@@ -331,16 +411,22 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   `resolveEntryScope` devono concordare per costruzione, non per coincidenza: con
   una cella viva sola la funzione torna `null`, ed e' lo stesso caso in cui
   `canZoom` e' falso.
-- [ ] 3.10 **Bivio ancora APERTO: questa riga e' l'unica cosa da ritirare se in
-  approvazione si decide altrimenti.** Effetto in `PanelGrid.tsx`: aprire una pane
-  NUOVA che non appartiene al set fa USCIRE dallo zoom. Sto implementando la
-  risposta consigliata, che e' anche quella che la spec scrive, per una regola sola
-  («una pane nasce visibile») che copre ⌘T, ⌘N, l'add-menu, ⇧⌘T e il
-  `browser:force-open` del server senza casistica, inclusi gli inneschi che non
-  toccano `focusedPaneId`. L'alternativa e' accoglierla nel set, e fa crescere un
-  insieme che l'utente non ha modo di vedere, visto che non esiste nessuna banda di
-  chip. Invertendo il bivio cadono questa riga e il suo caso in 7.1, e nient'altro.
-- [ ] 3.11 Il bit di Option sulla sponda macOS, e la funzione che diventa
+- [x] 3.10 Effetto in `PanelGrid.tsx`: una pane NUOVA che nasce fuori dalle celle
+  rivelate fa USCIRE dallo zoom. La regola sola e' «una pane nasce visibile», e
+  copre ⌘T, ⌘N, l'add-menu, ⇧⌘T e il `browser:force-open` del server senza
+  casistica, inclusi gli inneschi che non toccano `focusedPaneId`, perche' si
+  misura sulle pane COMPARSE. L'alternativa scartata era accoglierla nel set, che
+  fa crescere un insieme che l'utente non ha modo di vedere, visto che non esiste
+  nessuna banda di chip.
+  **Bivio CHIUSO l'11/09, a favore del CODICE.** L'effetto c'e'
+  (PanelGrid.tsx:601-621) e non esce su «non appartiene al set»: esce quando la
+  cella che ospita la pane nuova e' fuori dal set rivelato. La spec era scritta
+  piu' larga del suo scopo e in questa tornata e' stata emendata: `LAYOUT-36` ora
+  dice «una pane nuova non SHALL mai nascere invisibile» e lega l'uscita a un «se
+  e solo se» sulla cella, con lo scenario nuovo della bozza che nasce DENTRO la
+  cella ingrandita e NON fa uscire. Il caso e2e di 7.1 scritto sulla vecchia
+  formulazione (pane-zoom.spec.ts:476) va riscritto di conseguenza.
+- [x] 3.11 Il bit di Option sulla sponda macOS, e la funzione che diventa
   interrogabile. E' il task che REALIZZA l'ultima riga dello scenario «la chord
   col modificatore non arriva degradata» di `LAYOUT-40` («la decisione SHALL
   essere una funzione pura interrogabile da un test sulle DUE sponde native, non
@@ -468,14 +554,21 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   con una browser in una riga nascosta sotto i 768px.
   Piu': `pane-residency-cap.spec.ts` resta verde.
 
+  **Stato: meta'.** Le due righe di codice ci sono e fanno tutt'e due il lavoro
+  (PanelGrid.tsx:2985 per la riga, :3004-3006 per la cella: `cellHasBox` e'
+  falso per ogni cella che non e' `mobileVisibleKey`). Manca la meta' che questa
+  riga chiama «prova»: il caso e2e sotto i 768px annotato `LAYOUT-39` non
+  esiste. In `tests/e2e/pane-zoom.spec.ts` l'annotazione `LAYOUT-39` compare UNA
+  volta sola, ed e' quella di 7.4, che gira a 1280px e prova un'altra cosa.
+  Senza quel caso `LAYOUT-39` ha uno scenario scritto e zero esiti sul mobile.
 ## T5 — Parita' sulla griglia di progetto (dipende da T3)
 
-- [ ] 5.1 `GroupLayout.tsx`: stesso innesto su `treeRoot` (:778) e `renderTreeLeaf`
+- [x] 5.1 `GroupLayout.tsx`: stesso innesto su `treeRoot` (:778) e `renderTreeLeaf`
   (:1129); prop `enableZoom` **default false**, `true` solo da `ProjectWindow`;
   `hasBox` su `renderGroupBlock` (:932). Predicato, ambiti e degradazione arrivano
   dalle stesse funzioni pure di T1: due superfici, un comportamento, zero regole
   riscritte.
-- [ ] 5.2 Il cassetto del task monta lo stesso `GroupLayout`
+- [x] 5.2 Il cassetto del task monta lo stesso `GroupLayout`
   (`Board/TaskDetail.tsx:2927` e :3098) e resta senza zoom, ma NON resta senza la
   propagazione dell'assenza di box: e' la meta' di `LAYOUT-38` che il layout
   decide, e senza di lei il caso di 2.3 non si verifica.
@@ -483,19 +576,25 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   asserisce l'assenza di ENTRAMBE le voci dentro il cassetto, con l'annotazione
   `LAYOUT-38` sullo scenario.
 
+  **Nota:** il caso c'e' (pane-zoom.spec.ts:1454) e asserisce l'assenza di tutte
+  e tre le voci con il menu aperto per davvero. `npx playwright test
+  tests/e2e/project-tabs.spec.ts` non risulta rilanciato.
 ## T6 — I contratti negativi (indipendente)
 
-- [ ] 6.1 Riscrivere in `browserOcclusion.test.ts` e `modalSurface.test.ts` la
+- [x] 6.1 Riscrivere in `browserOcclusion.test.ts` e `modalSurface.test.ts` la
   forma dell'asserzione: montare il nodo e usare `el.matches(OVERLAY_SELECTOR)` /
   `el.matches(MODAL_SURFACE_SELECTOR)`, non `classStringMatchesSelector`, che
   filtra i soli token di classe e non vedrebbe `role="dialog"`.
-- [ ] 6.2 Aggiungere i due casi negativi: contenitore di zoom e scrim NON
+- [x] 6.2 Aggiungere i due casi negativi: contenitore di zoom e scrim NON
   soddisfano nessuno dei due selettori. `LAYOUT-38` va aggiunto agli `@covers` di
   testa dei due file, accanto a `OCCLUSION-01` e `MODAL-01` che ci sono gia'
   (browserOcclusion.test.ts:2, modalSurface.test.ts:15).
   **Prova**: il test visto ROSSO aggiungendo `role="dialog"` allo scrim, poi verde
   togliendolo. Senza aver visto quel rosso, il contratto non e' un cancello.
 
+  **Prova rifatta l'11/09:** `bun test client/src/lib/modalSurface.test.ts
+  client/src/lib/shell/browserOcclusion.test.ts` verde. La falsificazione (lo
+  scrim con `role="dialog"` visto rosso) non e' stata rifatta in questa tornata.
 ## T7 — Le prove end-to-end (dipende da T3, T4, T5)
 
 - [ ] 7.1 `tests/e2e/pane-zoom.spec.ts`, `hermetic(test)`. Dichiarazione sui DUE
@@ -516,7 +615,22 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   voci esiste, e la sua browser dietro una pane kanban nascosta e' spenta (scenario
   annotato `NATIVEPARK-02` e `LAYOUT-38`, che in questo file entrano anche fra gli
   `@covers` di testa).
-- [ ] 7.2 I tre casi del modificatore e della degradazione (LAYOUT-40), che sono
+  **Stato: tutti i casi scritti, il file non e' verde.** I dodici casi della
+  lista ci sono e ognuno porta la sua annotazione, e nella passata dell'11/09 il
+  file sta a 26 verdi su 29. Due dei tre rossi sono qui, lasciati rossi apposta
+  col perche' scritto accanto:
+  · `:442` «una tab che nasce per la conversazione», difetto VERO del codice:
+    l'auto-split che ospita la browser nuova passa da `handleSplitPane`, che D8
+    (3.3) fa uscire dallo zoom, quindi la regola di 3.3 e quella di `LAYOUT-36`
+    si annullano esattamente nel layout per cui la funzione esiste;
+  · `:476` «una pane NUOVA fuori dal set», non e' un difetto del codice ma
+    della spec, ed e' il bivio chiuso in 3.10: il caso va riscritto sulla
+    `LAYOUT-36` emendata.
+  `NATIVEPARK-02` NON e' fra gli `@covers` di testa, deliberatamente e col
+  motivo scritto nell'intestazione del file: sotto Playwright `isTauri` e'
+  falso, quindi un verde li' proverebbe solo che Chromium non ha webview da
+  spegnere. La meta' di layout, `LAYOUT-38`, il file la porta.
+- [x] 7.2 I tre casi del modificatore e della degradazione (LAYOUT-40), che sono
   sul GESTO e nessun unit puo' darli:
   (a) ⌥ + doppio clic su una chat che ha una browser in una cella accanto: resta
   viva la SOLA cella della chat, la browser sparisce con le altre, e la voce
@@ -533,20 +647,24 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   modificatore o senza) ed Escape senza turno vivo portano allo stesso stato di
   riposo, e in DOM non esiste nessun attributo che distingua due modalita'. E a
   zoom attivo il menu offre la sola «Riduci», qualunque sia lo scope memorizzato.
-- [ ] 7.3 La prova strutturale del non-rimontaggio: `[data-split-leaf]` e
+- [x] 7.3 La prova strutturale del non-rimontaggio: `[data-split-leaf]` e
   `[data-pane-shell]` identici prima e dopo, divisori confrontati prima contro
   dopo con `countColDividers`/`countRowDividers` (`helpers/layout.ts:11,32`), un
   marcatore scritto in un terminale ancora leggibile e una bozza ancora nel campo.
-- [ ] 7.4 Residenza: seed con **almeno 3 gruppi** (3 celle), ogni cella con piu'
+- [x] 7.4 Residenza: seed con **almeno 3 gruppi** (3 celle), ogni cella con piu'
   tab, e piu' di 12 pane non visibili per mordere il budget. Asserzione PUNTUALE:
   `[data-pane-shell="<id della tab attiva di ogni cella collassata>"]` ancora
   attaccato dopo 10 s di zoom, con annotazione `LAYOUT-39` sullo scenario. Il
   conteggio aggregato del seed a gruppo unico di `pane-residency-cap.spec.ts`
   sarebbe verde con o senza zoom: non prova niente.
 - [ ] 7.5 `tests/e2e/drag-regions.spec.ts` verde con lo scrim montato.
+  **Stato: non eseguita.** Lo scrim e' montato con `app-no-drag` e
+  `data-tauri-drag-region="false"` (PanelGrid.tsx:2951-2956), ma
+  `tests/e2e/drag-regions.spec.ts` non risulta lanciato in questa tornata.
 - [ ] 7.6 Le sei spec che leggono il contratto DOM degli split, piu' i tre
   contratti che il doppio clic puo' rompere (`tab-sync.spec.ts:565`,
   `draft-pane-lifecycle.spec.ts:129-142`, e la barra di `grid-split.spec.ts`).
+  **Stato: non eseguita.** Nessuna delle nove spec e' stata rilanciata.
 - [ ] 7.7 Le TRE passate a mano su Tauri, uniche prove che il guscio nativo
   ammetta: chiavistello (caso composto di 0.2); fluttuante acceso (larghezza e
   fondo della banda, spigoli della card); e le due chord col fuoco DENTRO una pane
@@ -555,6 +673,9 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   il monitor legge con ⌥ premuto: la lettura attesa e' `e`, ma e' un'assunzione che
   nessun file di questo repo dimostra.
   **Prova**: tre video, non tre frasi.
+  **Stato: NON eseguita.** Con T0 e' l'altra delle due sole verifiche che
+  restano a mano: nessun guscio Tauri e' stato aperto in questa tornata, e i tre
+  video non esistono.
 - [ ] 7.8 I quattro scenari di `LAYOUT-35` che non tocca nessun caso di 7.1 ne'
   di 7.3, nello stesso `tests/e2e/pane-zoom.spec.ts` e con la stessa doppia
   dichiarazione. Stanno insieme in un task perche' il buco e' di una classe sola:
@@ -615,7 +736,14 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   essere visibile. Senza questa seconda asserzione il caso sarebbe verde anche col
   comando applicato dentro una cella collassata, che e' il guasto per cui la
   regola esiste.
-- [ ] 7.9 I cinque scenari di `LAYOUT-37` che non tocca nessun caso di 7.1 ne'
+  **Stato: quattro casi scritti, uno ROSSO** (misurato l'11/09). (a) `:939`, (b) `:980` (coi due
+  contesti aperti a mano, come chiedeva la riga), (c) `:1038`, (d) `:1084` e
+  `:1135`. Il rosso e' la PRIMA meta' di (d), ed e' un difetto vero: togliere
+  `onResize` uccide il COMMIT, non il trascinamento, e il `Divider` di
+  `SplitTree` muove le celle imperativamente (`prevEl.style.flex = …`) senza che
+  niente le ridisegni dopo. Misurato: 320/320 → 499/140, e ci RESTANO a zoom
+  aperto, mentre `LAYOUT-35` chiede che la geometria non cambi.
+- [x] 7.9 I cinque scenari di `LAYOUT-37` che non tocca nessun caso di 7.1 ne'
   di 7.3, nello stesso `tests/e2e/pane-zoom.spec.ts` e con la stessa doppia
   dichiarazione. La lista di 7.1 copre i TRE di Escape e si ferma li': «l'ancora
   sparisce», «il fuoco va altrove», «cambio di Spazio», «ricaricamento» e «lo
@@ -683,5 +811,20 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
 ## T8 — Cancelli finali
 
 - [ ] 8.1 La barra intera del design.md, in quell'ordine.
+  **Stato: rossa.** `bun run typecheck` esce 1 su
+  `tests/e2e/pane-zoom.spec.ts:1450`: `deleteTask(request, projectId, taskId)`
+  vuole TRE argomenti e il file ne passa due, con board e task incollati in una
+  stringa sola (`${DRAWER_BOARD_ID}:${drawerTaskId}`): oltre al rosso di tipo,
+  quel cleanup chiamerebbe una rotta che non esiste.
+  `bun run check:comment-language` esce 1 su commenti italiani nuovi in
+  `GroupLayout.tsx` e `ProjectWindow.tsx`. Verdi all'11/09:
+  `check:spec-coverage`, `check:untraced-tests`, `check:ui-language`,
+  `cargo test --lib`, e il `bun test` dei sette file unitari della change.
 - [ ] 8.2 `bun run check:e2e-touched` prima di consegnare: l'E2E non e' fra i sei
   check della board, e un land verde rompe la nightly.
+  **Stato: lanciato l'11/09, ROSSO, e per la ragione giusta.** Esce 1 sui tre
+  casi noti (`:442`, `:476`, `:1084`), non per non essere stato eseguito: 55
+  test, 52 passati. Il cancello riconosce 27 spec legate a 25 file toccati, molto
+  sopra le 8 che sa lanciare da solo: `drag-regions` (7.5) e le nove spec di 7.6
+  restano quindi fuori, e la copertura di quella larghezza la da' la nightly. Va
+  rilanciato dopo i due fix del codice.

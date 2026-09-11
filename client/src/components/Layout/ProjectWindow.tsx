@@ -628,6 +628,15 @@ export function ProjectWindowPane({
             onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
             leadingSlot={railSlot}
+            // ENLARGING A CONVERSATION is switched on HERE and nowhere else.
+            // `GroupLayout` is the same component a task's drawer mounts, and
+            // that is already an overlaid surface: two nested "outsides" are not
+            // an interface, so there the prop stays at its false default
+            // (LAYOUT-38). A project's grid, on the other hand, is a real grid,
+            // with its own cells and its own browser panes, and the chat inside
+            // it enlarges exactly the way the standalone grid's does: same pure
+            // functions, same state, same four exits.
+            enableZoom
             // La finestra di progetto vive SOTTO la tab del progetto nella barra
             // dell'app: la sua prima riga di chrome non ripete l'aria che quella
             // sopra ha gia messo. Vedi CHROME_BAR_SUB.

@@ -1,13 +1,13 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2 } from 'lucide-react';
+import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, sessionKeyForPaneId, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, isDraftPaneId, pinKeyForPane, sessionKeyForPaneId, tabTargetForPane, type PaneScope } from '../../state/pane/adapters';
 import { isUtilityPanelId } from '../../state/pane/adapters/utilityPanelId';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
@@ -24,6 +24,8 @@ import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile } from '../../hooks/useMobile';
 import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
+import type { ZoomScope } from './zoomScope';
+import { paneZoomActions } from '../../state/paneZoom';
 import { useLongPress } from '../../hooks/useLongPress';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -150,6 +152,34 @@ interface PaneTabBarProps {
   onSplitRight?: (paneId: string) => void;
   onSplitDown?: (paneId: string) => void;
   /**
+   * Zoom the cell hosting `paneId`, or leave the zoom when it is already the
+   * zoomed one (LAYOUT-34). `scope` is what the GESTURE asked for — 'cell' with
+   * the modifier, 'derived' without — never the scope that ends up stored: the
+   * degradation lives in `resolveEntryScope`, upstream, and nothing here
+   * recomputes it.
+   *
+   * TWO obligations on the host, both from LAYOUT-40, because this bar cannot
+   * enforce either one: while `isZoomed` is true EVERY trigger must REDUCE,
+   * whatever `paneId` and `scope` it receives (re-anchoring on another tab
+   * would be a third state nobody can read off the screen); and `canZoom` must
+   * stay true while zoomed, or the way out dies with it.
+   */
+  onToggleZoom?: (paneId: string, scope: ZoomScope) => void;
+  /**
+   * The surface offers the zoom command. STRUCTURAL and surface-wide: "more
+   * than one live cell", plus the 768px gate — the predicate lives with the
+   * host that owns the cells (LAYOUT-34), not here.
+   *
+   * The one rule this bar adds is the only one that lives on a TAB: a draft is
+   * never zoomable. A draft is opened permanent, so `preview` is false, and
+   * without that rule it would fall into the zoom branch of the double click
+   * while today the gesture only marks it as touched.
+   */
+  canZoom?: boolean;
+  /** The zoom is open on THIS surface. While it is, the menu offers the single
+   *  "Riduci" entry and every trigger reduces (LAYOUT-40). */
+  isZoomed?: boolean;
+  /**
    * "Reimposta pannelli" — flatten the surrounding split layout back to a
    * single row of equal-width columns (cellStacks dissolve into top-level
    * columns; no tab closes, no groups merge — geometry only). Hosts pass
@@ -265,7 +295,7 @@ interface PaneTabBarProps {
   subordinate?: boolean;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onToggleZoom, canZoom, isZoomed, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectPinKey, tabNotifications, hasLeftOverlay, hasLeadingBlock, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds, linkContext, onOpenPaneInProject, subordinate = false }: PaneTabBarProps) {
   // Le voci del menu passano dal dizionario (`lib/i18n.ts`): sono fra le
   // stringhe più viste dell'app, ed erano gia' in italiano — quindi la
   // conversione non cambia una virgola di cio' che vedi in italiano, e in
@@ -383,6 +413,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // pannelli — non facevano niente. Il gate è qui, sul menu, e non sui
   // chiamanti: le callback restano quelle, cambia solo chi le mostra.
   const splitLayoutAvailable = useSplitLayoutAvailable();
+
+  // Is the zoom command reachable from THIS tab?
+  //
+  // The structural half of the predicate — "more than one live cell", plus the
+  // 768px gate — is resolved by the host and arrives in `canZoom` (LAYOUT-34).
+  // Nothing is recomputed here: this adds the one rule that lives on a tab and
+  // nowhere else, that a draft is not zoomable.
+  //
+  // `isZoomed` is in the OR for a case the spec writes down, not as padding.
+  // A 'derived' zoom whose companion cell is closed stays OPEN, pruned to the
+  // single surviving cell (LAYOUT-40): live cells are down to one, so `canZoom`
+  // is false, and without the OR the double click and both menu entries would
+  // go dead on a zoom that is still on screen — while LAYOUT-40 requires the
+  // menu to offer "Riduci" the whole time the zoom is open.
+  const zoomAvailableFor = (paneId: string): boolean =>
+    !!onToggleZoom && (isZoomed || !!canZoom) && !isDraftPaneId(paneId);
 
   // Context menu state. Si tiene il RETTANGOLO della tab, non un punto: la
   // posizione va ricalcolata ogni volta che il pannello cambia altezza da sé
@@ -614,6 +660,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
+    // D8: any intent to REORGANISE leaves the zoom before it applies. A tab
+    // drag has every one of its targets (`FullWidthRowZone`, `RowGapDropZone`,
+    // `InsertDividers`) inside the collapsed area, so starting one with the
+    // zoom open means dragging towards places that are not on screen.
+    // `exitTop()` and not `exit(surfaceId)`: this bar is not told which surface
+    // hosts it, and the store exposes that getter precisely for callers who
+    // cannot name it. The `isZoomed` gate keeps the gesture at home, so a bar
+    // that is not zoomed never closes somebody else's zoom.
+    if (isZoomed) paneZoomActions.exitTop();
     // Record the gesture origin for the sub-slop click recovery (see the ref
     // decl). Reset the drop-consumed flag for this fresh drag.
     dragStartPtRef.current = { paneId, x: e.clientX, y: e.clientY };
@@ -671,7 +726,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       subtitle: sottotitolo,
       badges: tabNotifications?.get(paneId) ? [String(tabNotifications.get(paneId))] : [],
     });
-  }, [onReorderPanes, groupId, panes, dndScope, tabNotifications, etichettaTab]);
+  }, [onReorderPanes, isZoomed, groupId, panes, dndScope, tabNotifications, etichettaTab]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
@@ -1254,7 +1309,26 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // anche per una chat nuova, che da quel momento non si richiude più
             // da sola (`state/draftPane.ts`). Vale ANCHE quando non c'è niente
             // da fissare: il gesto conta di per sé.
-            onDoubleClick={() => { markDraftTouched(pane.id); if (pane.preview && onPinPane) onPinPane(pane.id); }}
+            // LAYERED, and the order is the requirement (LAYOUT-34): the
+            // gesture pins first, and only on an already-pinned tab does it
+            // zoom. The meaning above does not change, it scales.
+            //
+            // The first gate is `pane.preview` and NOT the presence of
+            // `onPinPane`. That prop is optional and arrives undefined from
+            // some hosts, so gating on it would send a preview tab into the
+            // zoom branch depending on WHO mounted the bar. With `?.` the
+            // preview branch absorbs the gesture and returns either way: with
+            // no callback the double click on a preview stays the no-op it is
+            // today.
+            //
+            // Holding the modifier asks for the anchor's cell ALONE
+            // (LAYOUT-40). It names what the gesture asked for; which cells
+            // that buys is `resolveEntryScope`'s answer, upstream.
+            onDoubleClick={(e) => {
+              markDraftTouched(pane.id);
+              if (pane.preview) { onPinPane?.(pane.id); return; }
+              if (zoomAvailableFor(pane.id)) onToggleZoom?.(pane.id, e.altKey ? 'cell' : 'derived');
+            }}
             onContextMenu={handleContextMenu(pane.id)}
             data-testid={`pane-tab-${pane.id}`}
             // Il feedback della pressione vale SOLO per la tab premuta: l'hook è
@@ -1994,10 +2068,52 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <span>{tr('tab.menu.closeOthers')}</span>
             </button>
           )}
-          {splitLayoutAvailable && (onSplitRight || onSplitDown) && (
+          {/* The split section, which the zoom entries open. Its gate carries
+              the zoom on its own OR because the two are not the same offer:
+              `canSplitPane` turns the split entries off on a solo group of one
+              tab, and a surface can very well have several live cells there.
+              Nesting the zoom under the split gate would take the command away
+              on a layout that has plenty to collapse. */}
+          {(zoomAvailableFor(ctxMenu.paneId) || (splitLayoutAvailable && (onSplitRight || onSplitDown))) && (
             <>
               <div className="h-px bg-app-border my-1" />
-              {onSplitRight && (
+              {/* TWO entries to enter, ONE to leave (LAYOUT-40). Both stay on
+                  offer every time the command exists, the degraded case
+                  included, where they do the very same thing: dropping one
+                  exactly there would put the content of the menu back at the
+                  mercy of the derived set, which is the one collection nobody
+                  can see on screen. The only place the menu gets shorter is a
+                  zoom that is already open. */}
+              {zoomAvailableFor(ctxMenu.paneId) && (isZoomed ? (
+                <button
+                  onClick={() => { onToggleZoom?.(ctxMenu.paneId, 'derived'); setCtxMenu(null); }}
+                  data-testid="tab-menu-unzoom"
+                  className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+                >
+                  <Minimize2 size={14} />
+                  <span>{tr('tab.menu.unzoom')}</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => { onToggleZoom?.(ctxMenu.paneId, 'derived'); setCtxMenu(null); }}
+                    data-testid="tab-menu-zoom"
+                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    <Maximize2 size={14} />
+                    <span>{tr('tab.menu.zoom')}</span>
+                  </button>
+                  <button
+                    onClick={() => { onToggleZoom?.(ctxMenu.paneId, 'cell'); setCtxMenu(null); }}
+                    data-testid="tab-menu-zoom-cell"
+                    className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    <Maximize size={14} />
+                    <span>{tr('tab.menu.zoomCellOnly')}</span>
+                  </button>
+                </>
+              ))}
+              {splitLayoutAvailable && onSplitRight && (
                 <button
                   onClick={() => { onSplitRight(ctxMenu.paneId); setCtxMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"
@@ -2006,7 +2122,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <span>{tr('tab.menu.splitRight')}</span>
                 </button>
               )}
-              {onSplitDown && (
+              {splitLayoutAvailable && onSplitDown && (
                 <button
                   onClick={() => { onSplitDown(ctxMenu.paneId); setCtxMenu(null); }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors"

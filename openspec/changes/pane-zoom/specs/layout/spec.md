@@ -230,9 +230,24 @@ essere piu' piccolo, e il caso piu' piccolo e' comunque lo zoom della sola cella
 che e' una risposta sensata. Il prezzo va dichiarato qui perche' l'utente non ha
 modo di vederlo: non esiste nessuna banda che elenchi le pane del set.
 
-Aprire una pane NUOVA che non appartiene al set SHALL far uscire dallo zoom. Una
-pane nasce visibile: e' l'unica regola che copre con una riga sola tutte le vie
-di apertura, comprese quelle che non toccano il fuoco.
+Una pane NUOVA non SHALL mai nascere invisibile. E' la regola, ed e' una sola:
+copre tutte le vie di apertura, il «+», ⌘T, ⌘N, ⇧⌘T e il `browser:force-open` del
+server, comprese quelle che non toccano il fuoco, perche' si misura sulle pane
+COMPARSE e non su chi ha il fuoco. L'uscita ne discende, e ne discende con un «se
+e solo se»: lo zoom SHALL chiudersi quando, e soltanto quando, accogliere la pane
+nuova la lascerebbe dentro una cella collassata.
+
+La prima stesura diceva «aprire una pane NUOVA che non appartiene al set SHALL
+far uscire dallo zoom», ed era piu' larga dello scopo che protegge. Non
+appartenere al set e cadere in una cella collassata non sono la stessa
+condizione, e la regola vive sulla seconda: una bozza aperta con ⌘T non
+appartiene a nessun set e nasce nella cella a fuoco, che a zoom attivo E' quella
+ingrandita, quindi e' gia' visibile. Farla uscire sarebbe un'uscita gratuita, che
+getta via il layout rivelato senza che nessuno ci guadagni. Si guarda quindi la
+CELLA in cui la pane nuova atterra, mai la sua appartenenza al set. Le due
+letture coincidono ovunque la pane nuova cada fuori dalla cella ingrandita
+(⇧⌘T la rimette nella cella da cui era uscita, un `browser:force-open` la porta
+nella propria) e si separano nel solo caso in cui nasce dentro di essa.
 
 Lo zoom RIVELA, non riorganizza. Se due pane del set stanno nella stessa cella si
 vede una cella con due tab, e i vicini di pila di una cella ingrandita vengono
@@ -251,11 +266,17 @@ di genitore React, cioe' un remount, cioe' PTY resettata e pagina ricaricata.
 - **THEN** la sua cella SHALL comparire dentro lo zoom
 - **AND** lo zoom NON SHALL chiudersi
 
-#### Scenario: una tab che NON e' della conversazione
+#### Scenario: una pane nuova che atterrerebbe in una cella collassata
 - **GIVEN** lo zoom attivo
-- **WHEN** si apre una pane nuova che non appartiene al set, per una qualunque via
+- **WHEN** si apre una pane nuova che, per la via da cui arriva, atterra in una cella fuori dal set
 - **THEN** lo zoom SHALL chiudersi
-- **AND** in nessun caso la pane nuova SHALL nascere dentro una cella collassata
+- **AND** in nessun caso la pane nuova SHALL restare dentro una cella collassata
+
+#### Scenario: una pane nuova che nasce DENTRO la cella ingrandita
+- **GIVEN** lo zoom attivo su una conversazione
+- **WHEN** si apre una bozza con ⌘T, che nasce nella cella a fuoco, cioe' quella ingrandita
+- **THEN** lo zoom NON SHALL chiudersi
+- **AND** la bozza SHALL essere visibile, come una tab in piu' della cella ingrandita
 
 #### Scenario: riaprire una tab chiusa
 - **GIVEN** lo zoom attivo e, chiusa poco prima senza avere il fuoco, una tab che non appartiene al set

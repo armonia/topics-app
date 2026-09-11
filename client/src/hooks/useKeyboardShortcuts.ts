@@ -26,6 +26,41 @@ import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused, isRawKeySurfaceFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
+import type { ZoomScope } from '../components/Layout/zoomScope';
+import { paneZoomActions } from '../state/paneZoom';
+
+/**
+ * "Zoom the conversation that has the focus" — asked from the keyboard.
+ *
+ * The hook sits at App level and knows a PANEL id, never a cell: the
+ * availability predicate, the anchor and the scope that ends up stored all need
+ * rows, an item map, the open panes, the topics and the terminal roster, which
+ * only a tiling surface holds. So the chord does what ⌘W already does with
+ * `close-focused-pane`: it announces the intent and the surface that owns the
+ * focus answers.
+ *
+ * THE CONTRACT, for the two surfaces that listen (`PanelGrid`, and `GroupLayout`
+ * once its `enableZoom` is on):
+ *  · `detail.scope` is what the GESTURE asked for — `'cell'` with ⌥, `'derived'`
+ *    without. It is NOT the scope to store: `resolveEntryScope` decides that,
+ *    once, and it is the only place the degradation exists.
+ *  · `detail.panelId` is the App-level focused panel, so the INNERMOST surface
+ *    can claim the chord: a project window takes it when the id is its own, and
+ *    the standalone grid stands down for a panel a project window has claimed.
+ *  · the event is cancelable — a surface that handles it calls `preventDefault()`,
+ *    and one that sees `defaultPrevented` already true does nothing.
+ *  · nobody handling it is a legitimate outcome, not a failure: on a surface with
+ *    a single live cell there is nothing to take away and the chord enlarges
+ *    nothing (LAYOUT-34).
+ */
+export const TOGGLE_PANE_ZOOM_EVENT = 'topics:toggle-pane-zoom';
+
+export interface TogglePaneZoomDetail {
+  /** What the gesture asked for, never the scope that gets stored. */
+  readonly scope: ZoomScope;
+  /** The App-level focused panel, so the innermost surface can claim it. */
+  readonly panelId: string | null;
+}
 
 export interface UseKeyboardShortcutsArgs {
   // Snapshots — mirrored into refs so the handler reads fresh state
@@ -298,6 +333,40 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // ⌘E — ENLARGE THE CONVERSATION, ⌥⌘E the anchor's cell alone (LAYOUT-34,
+      // LAYOUT-40). One command with two scopes, not two commands: the ⌥ is read
+      // here and nowhere else, because `charactersIgnoringModifiers` drops it on
+      // the way through the native monitor and `e.altKey` is all the renderer
+      // gets to tell them apart.
+      //
+      // MATCHED ON `e.key`, NEVER ON `e.code`, and that is load-bearing. With the
+      // focus inside a native browser pane the page owns the keyboard and the
+      // real keydown never reaches us: what arrives is the monitor's synthetic
+      // one, and it carries `key`, `metaKey`, `ctrlKey`, `shiftKey`, `altKey` and
+      // nothing else (lib.rs, `app_chord_dispatch_js`). A `code` test would be
+      // dead in exactly the layout this command exists for — a chat and the
+      // browser the agent opened beside it (LAYOUT-41).
+      //
+      // `!e.shiftKey`: ⇧⌘E is nobody's, and keeping it out means the registry's
+      // two rows are the only two chords that land here.
+      //
+      // THE YIELD IS FOR Ctrl+E, not for ⌘E. `isMod` is `metaKey || ctrlKey`, and
+      // on Windows ctrl is the only way in — which is wanted, Ctrl+E zooms there
+      // exactly as ⌘E does here. But Ctrl+E is also a REAL key in a terminal and
+      // in an editor (end of line), and this capture-phase `preventDefault()`
+      // would eat it before the surface saw it. So the chord steps aside for
+      // those two surfaces on the ctrl path only, the same shape ⌘, already uses
+      // after the same defect was reported on Windows.
+      if (isMod && !e.shiftKey && (e.key === 'e' || e.key === 'E') && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
+        e.preventDefault();
+        const detail: TogglePaneZoomDetail = {
+          scope: e.altKey ? 'cell' : 'derived',
+          panelId: focusedPanelIdRef.current,
+        };
+        window.dispatchEvent(new CustomEvent(TOGGLE_PANE_ZOOM_EVENT, { cancelable: true, detail }));
+        return;
+      }
+
       // ⇧⌘T (primary) / ⌘⇧U (legacy alias) → reopen the most recently closed
       // tab. The target is resolved synchronously from the in-memory
       // recently-closed stack (`closedTabs[0]`), so reopen is instant for chats
@@ -469,6 +538,24 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         if (sessionKey && isSessionStreaming(sessionKey)) {
           e.preventDefault();
           void stopSession(sessionKey);
+          return;
+        }
+
+        // LAST, and the order is the decision (LAYOUT-35, design D9). Escape
+        // closes the zoom only when it had nothing else to do: with a turn
+        // streaming it still stops the turn, because enlarging a chat is what
+        // you do to WATCH the agent work and taking away the key that stops it
+        // would be the opposite of the point. Three other ways out stay, all one
+        // click away. Above all of this sits `useModalDialog`, which listens in
+        // CAPTURE with its own stack: with the palette or the settings open,
+        // Escape closes those and the zoom stays.
+        //
+        // `exitTop()` and not `exit(surfaceId)`: this hook sits at App level and
+        // is handed no surface. The store exposes that getter for exactly this
+        // caller, and it closes the most recently opened one, so a zoom inside a
+        // nested project does not cancel the one on the outer grid.
+        if (paneZoomActions.exitTop()) {
+          e.preventDefault();
           return;
         }
       }
