@@ -145,7 +145,7 @@ describe('general automatic catalog and constraints', () => {
   test('a Claude hold removes Claude execution candidates and its classifier', async () => {
     const accessed: string[] = [];
     const plan = await pickAutomaticTaskModel({ text: 'Task' }, undefined, {
-      snapshot, claudeHeld: true, codexModels: () => models,
+      snapshot, isHeld: provider => provider === 'topics', codexModels: () => models,
       getProvider: name => {
         accessed.push(name);
         return { connected: true, complete: async (messages: Array<{ content: string }>) => {
@@ -156,6 +156,23 @@ describe('general automatic catalog and constraints', () => {
     });
     expect(plan.model).toBe('gpt-5.6-sol');
     expect(accessed).toEqual(['codex']);
+  });
+
+  test('AGPT-01 extended: a Codex hold removes Codex execution candidates and its classifier', async () => {
+    const accessed: string[] = [];
+    const plan = await pickAutomaticTaskModel({ text: 'Task' }, undefined, {
+      snapshot, isHeld: provider => provider === 'codex', codexModels: () => models,
+      getProvider: name => {
+        accessed.push(name);
+        return { connected: true, complete: async (messages: Array<{ content: string }>) => {
+          expect(messages[0]?.content).not.toContain('gpt-5.6-sol');
+          expect(messages[0]?.content).not.toContain('gpt-6-astra');
+          return { content: '{"model":"claude-opus-5","effort":"low","weight":"light"}' };
+        } } as unknown as AIProvider;
+      },
+    });
+    expect(plan.model).toBe('claude-opus-5');
+    expect(accessed).toEqual(['topics']);
   });
 
   test('fixed effort filters execution candidates while retaining a cheap classifier', async () => {

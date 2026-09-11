@@ -19,6 +19,8 @@ const OPTS: FilterOption[] = [
   { group: 'assignee', value: 'claude', label: 'claude' },
   { group: 'assignee', value: 'codex', label: 'codex' },
   { group: 'assignee', value: 'nova', label: 'nova' },
+  { group: 'person', value: 'Guest One', label: 'Guest One' },
+  { group: 'computer', value: 'Guest laptop', label: 'Guest laptop' },
 ];
 
 describe('buildFilterRows', () => {

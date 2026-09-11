@@ -54,7 +54,7 @@ import {
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
 import { providerHold, holdUntilLabel, planUsage } from "../lib/provider-hold";
-import { PLAN_DISPATCH_HOLD_AT } from "../../shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
@@ -252,8 +252,8 @@ export interface DispatcherDeps {
    */
   /** The classifier selects model/provider, reasoning effort and independent machine weight. */
   pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
-  /** An unconstrained Auto task may choose a ready non-Claude coding runtime during a Claude hold. */
-  automaticModelOutsideClaude?: () => boolean;
+  /** An unconstrained Auto task may choose a ready coding runtime that is not itself held right now. */
+  automaticModelAvailable?: () => boolean;
   /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
    *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
    *  back to that row's fixed number. There is no per-board cap: the field that
@@ -1094,13 +1094,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** The reset instant of the plan window already logged by `tick`: once per window. */
   let planWindowAnnounced = 0;
 
-  /** The memo belongs to the Claude plan, never to the whole machine. */
+  /**
+   * The memo belongs to whichever PROVIDER the task would actually run on,
+   * never to the whole machine — AGPT-01 extended: a Codex wall must not wait
+   * behind Claude's memo, or hold Claude's cards, or vice versa (card
+   * 31be77d3). The approaching-limit early warning stays Claude-only: it
+   * comes from the five-hour usage window, which only Claude's plan reports.
+   */
   function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string } | null {
-    const hold = providerHold();
+    const claudeHold = providerHold();
+    const codexHold = providerHold(Date.now(), "codex");
     const window = starting ? planUsage()?.fiveHour : null;
     const nearLimit = window && window.utilization >= PLAN_DISPATCH_HOLD_AT && window.resetsAtMs != null
       && window.resetsAtMs > Date.now();
-    if (!hold && !nearLimit) return null;
+    if (!claudeHold && !codexHold && !nearLimit) return null;
     let topicId = task.assignedTopicId;
     if (!topicId && task.reuseBlockerContext && task.blockedByTaskId) {
       topicId = deps.svc.get(task.blockedByTaskId)?.task.assignedTopicId ?? null;
@@ -1110,26 +1117,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!provider) {
       const selected = model ?? task.model;
       const selection = taskModelSelection(selected);
-      if (!topicId && !selection.model && !selection.provider && deps.automaticModelOutsideClaude?.()) return null;
+      if (!topicId && !selection.model && !selection.provider && deps.automaticModelAvailable?.()) return null;
       try { provider = deps.resolveTaskProvider?.(selected) ?? taskModelSelection(selected).provider ?? "topics"; }
       catch { return null; } // Unavailable routing is reported by createTopic, not disguised as quota.
     }
-    if (!["topics", "claude-code", "claude-code-team", "jcode"].includes(provider)) return null;
+    const holdKey = providerHoldKey(provider);
+    if (!holdKey) return null;
+    const hold = holdKey === "codex" ? codexHold : claudeHold;
+    const applicableNearLimit = holdKey === "claude" ? nearLimit : false;
+    if (!hold && !applicableNearLimit) return null;
+    const label = providerHoldLabel(holdKey);
     if (hold) {
       if (holdAnnounced !== hold.sinceMs) {
         holdAnnounced = hold.sinceMs;
-        log(`Claude dispatch waiting: ${hold.reason}, resumes at ${holdUntilLabel(hold)}`);
+        log(`${label} dispatch waiting: ${hold.reason}, resumes at ${holdUntilLabel(hold)}`);
       }
-      return { untilMs: hold.untilMs, reason: `Claude: ${hold.reason}. Ripresa dopo il reset delle ${holdUntilLabel(hold)}.` }; // allow-italian: task queue reason
+      return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${holdUntilLabel(hold)}.` }; // allow-italian: task queue reason
     }
     const untilMs = window!.resetsAtMs!;
     const pct = Math.round(window!.utilization);
     const at = holdUntilLabel({ untilMs });
     if (planWindowAnnounced !== untilMs) {
       planWindowAnnounced = untilMs;
-      log(`Claude dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
+      log(`${label} dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
     }
-    return { untilMs, reason: `Claude: finestra di 5 ore al ${pct}%. Nuovi task in attesa del reset delle ${at}.` }; // allow-italian: task queue reason
+    return { untilMs, reason: `${label}: finestra di 5 ore al ${pct}%. Nuovi task in attesa del reset delle ${at}.` }; // allow-italian: task queue reason
   }
 
   function markPlanWait(task: Task, reason: string): void {

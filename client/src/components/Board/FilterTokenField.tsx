@@ -22,7 +22,7 @@
  * search box and its own inline chip strip, and three suites pin it.
  */
 import { useMemo, useRef, useState } from 'react';
-import { Check, Search, Tag } from 'lucide-react';
+import { Check, Monitor, Search, Tag, User } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
 import { CLOSER_LABELS, KIND_LABELS, type TaskLabel } from '../../lib/board';
@@ -40,14 +40,17 @@ const GROUP_KEY: Record<FilterGroup, string> = {
   closer: 'board.filter.whoCloses',
   kind: 'board.filter.kind',
   assignee: 'board.filter.assignee',
+  person: 'board.filter.person',
+  computer: 'board.filter.computer',
 };
 const CAPTION_ID: Record<FilterGroup, string> = {
   priority: 'bff-cap-priority', closer: 'bff-cap-closer', kind: 'bff-cap-kind', assignee: 'bff-cap-assignee',
+  person: 'bff-cap-person', computer: 'bff-cap-computer',
 };
 /** An assignee is free text, and an `id` has to be a valid token. */
 const optionId = (o: FilterOption) => `bff-${o.group}-${String(o.value).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
-export function FilterTokenField({ value, onChange, assignees }: {
+export function FilterTokenField({ value, onChange, assignees, persons, computers }: {
   value: BoardFieldFilters;
   /**
    * ONE patch, ONE call - and the pane applies it as `{...filters, ...next}`.
@@ -58,6 +61,11 @@ export function FilterTokenField({ value, onChange, assignees }: {
   onChange: (next: BoardFieldFilters) => void;
   /** Assignees seen on the current task set - the only source of suggestions. */
   assignees: readonly string[];
+  /** People and devices seen behind the current task set's collaborator
+   *  activity (`Task.lastActorPersonName`/`lastActorDeviceName`). Empty on a
+   *  board with no collaborator writes yet — the groups just do not appear. */
+  persons: readonly string[];
+  computers: readonly string[];
 }) {
   const tr = useT();
   const shellRef = useRef<HTMLDivElement>(null);
@@ -89,15 +97,19 @@ export function FilterTokenField({ value, onChange, assignees }: {
       ...CLOSER_LABELS.map((l) => ({ group: 'closer' as const, value: l, label: l, title: closerTitle(l) })),
       ...KIND_LABELS.map((l) => ({ group: 'kind' as const, value: l, label: l })),
       ...assignees.map((a) => ({ group: 'assignee' as const, value: a, label: a })),
+      ...persons.map((p) => ({ group: 'person' as const, value: p, label: p })),
+      ...computers.map((c) => ({ group: 'computer' as const, value: c, label: c })),
     ];
-  }, [assignees, tr]);
+  }, [assignees, persons, computers, tr]);
 
   const rows = useMemo(() => buildFilterRows(options, value.text, undefined, expanded), [options, value.text, expanded]);
 
   const picked = (o: FilterOption) =>
     o.group === 'priority' ? value.priority.includes(o.value)
       : o.group === 'assignee' ? value.assignedTo.includes(o.value)
-        : value.labels.includes(o.value as TaskLabel);
+        : o.group === 'person' ? value.person.includes(o.value)
+          : o.group === 'computer' ? value.computer.includes(o.value)
+            : value.labels.includes(o.value as TaskLabel);
 
   // Rows TOGGLE. A picked row does not vanish (that was the old two-genre
   // rule): it stays with the check, so the panel is the COMPLETE picture of the
@@ -111,6 +123,10 @@ export function FilterTokenField({ value, onChange, assignees }: {
       onChange({ ...value, text: '', priority: on ? value.priority.filter((x) => x !== o.value) : [...value.priority, o.value].sort((a, b) => b - a) });
     } else if (o.group === 'assignee') {
       onChange({ ...value, text: '', assignedTo: on ? value.assignedTo.filter((x) => x !== o.value) : [...value.assignedTo, o.value] });
+    } else if (o.group === 'person') {
+      onChange({ ...value, text: '', person: on ? value.person.filter((x) => x !== o.value) : [...value.person, o.value] });
+    } else if (o.group === 'computer') {
+      onChange({ ...value, text: '', computer: on ? value.computer.filter((x) => x !== o.value) : [...value.computer, o.value] });
     } else {
       const l = o.value as TaskLabel;
       onChange({ ...value, text: '', labels: on ? value.labels.filter((x) => x !== l) : [...value.labels, l] });
@@ -124,6 +140,8 @@ export function FilterTokenField({ value, onChange, assignees }: {
     ...value.priority.map((p) => ({ key: `priority-${p}`, icon: <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />, label: PRIORITY_LABEL[p]!, remove: () => onChange({ ...value, priority: value.priority.filter((x) => x !== p) }) })),
     ...value.labels.map((l) => ({ key: `label-${l}`, icon: <Tag className="h-2.5 w-2.5 shrink-0" />, label: l as string, remove: () => onChange({ ...value, labels: value.labels.filter((x) => x !== l) }) })),
     ...value.assignedTo.map((a) => ({ key: `assignee-${a}`, icon: undefined, label: `@${a}`, remove: () => onChange({ ...value, assignedTo: value.assignedTo.filter((x) => x !== a) }) })),
+    ...value.person.map((p) => ({ key: `person-${p}`, icon: <User className="h-2.5 w-2.5 shrink-0" />, label: p, remove: () => onChange({ ...value, person: value.person.filter((x) => x !== p) }) })),
+    ...value.computer.map((c) => ({ key: `computer-${c}`, icon: <Monitor className="h-2.5 w-2.5 shrink-0" />, label: c, remove: () => onChange({ ...value, computer: value.computer.filter((x) => x !== c) }) })),
   ];
   // Backspace eats the pill the caret is sitting next to - the RIGHTMOST one
   // DRAWN, whatever kind it is. The old rule was "assignees first, then

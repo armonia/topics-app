@@ -221,6 +221,17 @@ export interface TasksRouterOpts {
   /** Abort a running headless turn (human "stop" on a dispatched task). */
   abortTurn?: (sessionKey: string) => Promise<void>;
   /**
+   * Kill the WHOLE process tree an agent's Bash tool spawned for this session
+   * — not just the CLI turn. `abortTurn` cuts the turn (SIGINT to the CLI,
+   * recorded as cancelled); it never touches a child that Bash left running
+   * (a test suite, a dev server). Without this, "Ferma" stops the agent and
+   * lets the heavy work it launched keep running — exactly the load a stop is
+   * meant to escape. Called BEFORE `abortTurn` so the process table is read
+   * while the tree is still intact (a CLI that exits first reparents its
+   * children to init, and a snapshot taken after that no longer sees them).
+   */
+  killAgentTree?: (sessionKey: string) => Promise<void>;
+  /**
    * Auto-merge a task's worktree branch into main on approve (opt-in per board via
    * `dispatchAutoMerge`). Absent ⇒ approve never touches git.
    */
@@ -1189,6 +1200,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     for (const a of running) {
       try { attempts.finish(a.id, { state: "failed", error: reason }); }
       catch { /* best-effort: il taglio del turno conta più della riga */ }
+    }
+    // Tree first, turn second: see `killAgentTree`'s doc for why the order is
+    // load-bearing, not cosmetic.
+    if (opts?.killAgentTree) {
+      for (const key of keys) void opts.killAgentTree(key).catch(() => { /* best-effort */ });
     }
     if (opts?.abortTurn) {
       for (const key of keys) void opts.abortTurn(key).catch(() => { /* best-effort */ });

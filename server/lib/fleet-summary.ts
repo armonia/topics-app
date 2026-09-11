@@ -69,6 +69,19 @@ export interface FleetScriptRef {
    *  confondere un pid riusato con quello originale. Opzionale: se assente,
    *  si usa solo il pid. */
   lstart?: string;
+  /**
+   * This pid is an agent's CLI, not launched work by itself: only its
+   * DESCENDANTS (the tool calls it spawned — `Bash`, foreground or left
+   * running in background) belong on the scripts axis. The pid stays billed
+   * to its own root exactly as it was before this ref existed.
+   *
+   * Without this, the only way to feed a foreground `Bash` child into the
+   * scripts axis was to add the CLI pid itself, which would also pull the
+   * agent's OWN baseline memory out of the server total it belongs to — a
+   * bigger lie than the one being fixed (the "script" axis excluding
+   * everything a Bash call ever launches, see card 9b36ea1b).
+   */
+  childrenOnly?: boolean;
 }
 
 export interface FleetRootUsage {
@@ -254,7 +267,22 @@ export function summarizeFleet(
   let sawRss = false;
 
   // Script pids: processi lanciati dagli agenti che vanno contati separatamente.
-  const scriptPidSet = new Set<number>(scripts.map(s => s.pid).filter(p => byPid.has(p)));
+  // A `childrenOnly` root (an agent's CLI) only puts its DESCENDANTS in here:
+  // the CLI pid itself stays billed to its own root, as before.
+  const scriptPidSet = new Set<number>();
+  for (const s of scripts) {
+    if (!byPid.has(s.pid)) continue;
+    if (!s.childrenOnly) { scriptPidSet.add(s.pid); continue; }
+    const stack = [...(children.get(s.pid) ?? [])];
+    const seen = new Set<number>();
+    while (stack.length) {
+      const pid = stack.pop()!;
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      scriptPidSet.add(pid);
+      for (const c of children.get(pid) ?? []) stack.push(c);
+    }
+  }
 
   for (const root of roots) {
     if (!byPid.has(root.pid)) continue;
@@ -351,17 +379,23 @@ export function summarizeFleet(
   const scriptPidsSeen = new Set<number>();
   for (const s of scripts) {
     // Usa ppid walk per i figli dello script (es. i nipoti di npm install).
-    const stack = [s.pid];
-    const seen = new Set<number>();
-    while (stack.length) {
-      const pid = stack.pop()!;
-      if (seen.has(pid)) continue;
-      seen.add(pid);
-      for (const c of children.get(pid) ?? []) stack.push(c);
+    // `childrenOnly`: start from the CHILDREN, the CLI pid never enters the axis.
+    const stack = s.childrenOnly ? [...(children.get(s.pid) ?? [])] : [s.pid];
+    // `scriptPidsSeen` is shared across ALL scripts, not one per iteration:
+    // once an agent's CLI enters as a `childrenOnly` root, its tree can
+    // contain the pid of a script registered elsewhere too (an already
+    // resolved background shell) — without a shared gate that subtree got
+    // billed twice, once per root that reaches it.
+    const stack2: number[] = [];
+    for (const pid of stack) if (!scriptPidsSeen.has(pid)) stack2.push(pid);
+    while (stack2.length) {
+      const pid = stack2.pop()!;
+      if (scriptPidsSeen.has(pid)) continue;
+      scriptPidsSeen.add(pid);
+      for (const c of children.get(pid) ?? []) stack2.push(c);
       const row = byPid.get(pid);
       if (!row) continue;
       scriptsProcs++;
-      scriptPidsSeen.add(pid);
       scriptsTotalKB += row.footprintKB ?? row.rssKB;
       scriptsCpu += (instantCpu ? instantCpu(row) : row.cpu) ?? 0;
       if (row.footprintKB !== undefined) sawFootprint = true; else sawRss = true;

@@ -13,7 +13,7 @@ import { resolveStateDir } from "../lib/data-dir";
 import { killProcessTree } from "../lib/process-tree";
 import { getDescendantPids, getPidStartTimes } from "../lib/process-tree";
 import { getTerminalSessionById } from "./terminal";
-import { getSessionCliPid } from "../providers/session-pids";
+import { getSessionCliPid, listSessionCliPids } from "../providers/session-pids";
 import { backgroundShellBanner, shellProcessKey } from "../../shared/background-shell-registry";
 import {
   awaitProcess, clampWaitTimeout, compileUntil, openWatch, watchesForProcess,
@@ -118,13 +118,26 @@ const MAX_RECENT = 10;
 const runningScripts = new Map<string, ScriptProcess>();
 const recentScripts: ScriptProcess[] = [];
 
-// Terzo asse del calcolatore di memoria: processi lanciati dagli agenti.
-// Vengono esclusi dal totale server (fleet-usage.ts) e mostrati separatamente.
-registerFleetScriptSource(() =>
-  Array.from(runningScripts.values())
+// Third axis of the memory calculator: processes an agent launched.
+// Excluded from the server total (fleet-usage.ts) and shown separately.
+//
+// TWO SOURCES, not one. `runningScripts` alone only covers what passes
+// through THIS registry: scripts launched from the UI (`run_script`) and the
+// shells an agent leaves running in the background with
+// `Bash(run_in_background)` — once their pid has been resolved
+// (`registerBackgroundShell`). A SYNCHRONOUS `Bash` command (card 9b36ea1b:
+// `bun run test:unit:shards` launched and never backgrounded) never passes
+// through here: it is a child of the agent's CLI for its whole duration and
+// no event ever registers it. So every live agent CLI is added as a
+// `childrenOnly` root: its CHILDREN — whatever the Bash tool started,
+// foreground or not — enter the axis; the CLI itself stays billed to its own
+// root, as before.
+registerFleetScriptSource(() => [
+  ...Array.from(runningScripts.values())
     .filter(sp => sp.status === "running" && sp.pid !== null)
     .map(sp => ({ pid: sp.pid as number, lstart: sp.pidLstart })),
-);
+  ...listSessionCliPids().map(({ pid }) => ({ pid, childrenOnly: true })),
+]);
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 

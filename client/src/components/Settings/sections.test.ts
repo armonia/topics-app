@@ -17,12 +17,20 @@ import { SETTINGS_SECTIONS, IDENTITY_SECTIONS } from './sections';
 import { t, missingKeys } from '../../lib/i18n';
 
 describe('le voci delle impostazioni', () => {
-  test('profile, followers, privacy and organization are top level entries', () => {
+  test('profile, followers and organization are top level entries', () => {
     const ids = SETTINGS_SECTIONS.map((s) => s.id);
     expect(ids).toContain('profile');
     expect(ids).toContain('followers');
-    expect(ids).toContain('privacy');
     expect(ids).toContain('organization');
+  });
+
+  // Privacy is gone from this list on purpose: `PrivacySection` had nothing
+  // exclusive to Settings, it was the same switches the Profile pane already
+  // opens as a dropdown. A page with no exclusive content is a second door to
+  // the same room, and this test used to require that door to exist.
+  test('privacy has no top level entry of its own: the pane\'s dropdown is the only door', () => {
+    const ids = SETTINGS_SECTIONS.map((s) => s.id);
+    expect(ids).not.toContain('privacy');
   });
 
   // THE PROFILE IS NOT THE ORGANISATION. Putting the org page back among the

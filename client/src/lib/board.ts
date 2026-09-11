@@ -484,6 +484,14 @@ export interface BoardTask {
   priorityAuto: boolean;
   kanbanOrder: number;
   assignedTo: string | null;
+  /**
+   * The person + device behind the most recent collaborator write on this
+   * task — separate from `assignedTo` (free text) and from a dispatched
+   * agent's `machineId` (a fleet node). See `server/services/task-shapes.ts`.
+   * `null`/absent = no collaborator has written on this task yet.
+   */
+  lastActorPersonName?: string | null;
+  lastActorDeviceName?: string | null;
   /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
   dueDate?: string;
   createdAt: string;
