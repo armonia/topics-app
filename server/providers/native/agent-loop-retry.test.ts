@@ -28,6 +28,11 @@ import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
 
 const HOME_VERA = process.env.HOME;
+// Same as `runtime-default-safety.test.ts`: without clearing it, a
+// `TOPICS_CREDENTIALS_KEYCHAIN=1` inherited from whoever launches `bun test`
+// makes `readCredentials()` read the real Keychain token instead of the fake
+// file under `homeDir`, and the 401-on-rotated-token case stops reproducing.
+const KEYCHAIN_VERA = process.env.TOPICS_CREDENTIALS_KEYCHAIN;
 let homeDir: string;
 let ws: string;
 let credentialsPath: string;
@@ -133,6 +138,7 @@ describe("the native loop tries again when the API's failure is transient", () =
     mkdirSync(join(homeDir, ".claude"), { recursive: true });
     credentialsPath = join(homeDir, ".claude", ".credentials.json");
     process.env.HOME = homeDir;
+    delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
   });
 
   beforeEach(() => { writeCredentialsFile("token-A"); });
@@ -140,6 +146,8 @@ describe("the native loop tries again when the API's failure is transient", () =
   afterAll(() => {
     globalThis.fetch = realFetch;
     if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
+    if (KEYCHAIN_VERA === undefined) delete process.env.TOPICS_CREDENTIALS_KEYCHAIN;
+    else process.env.TOPICS_CREDENTIALS_KEYCHAIN = KEYCHAIN_VERA;
     for (const d of [homeDir, ws]) { try { rmSync(d, { recursive: true, force: true }); } catch { /* scratch */ } }
   });
 
