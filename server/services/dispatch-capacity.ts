@@ -323,8 +323,16 @@ export const GB_PER_AGENT_NATIVE = 0.25;
  * of 32 GB), inactive 586.288, compressor 1.712.833 pages (26 GB), 258.707
  * swapouts, the disk at 6.000-18.000 IOPS and the CPU at 40% IDLE - the
  * processes were not computing, they were waiting on the disk. This function
- * reported **9,7 GB available** and the gate admitted. The Mac became unusable
- * and the agents had to be stopped by hand.
+ * reported **9,7 GB available** - which is BELOW `DISPATCH_MEM_FLOOR_GB` (12),
+ * so the admission gate was already refusing. The seven cards had been admitted
+ * EARLIER, while memory was still good, and the RAM ran out while they worked.
+ * The Mac became unusable and the agents had to be stopped by hand.
+ *
+ * So this is a fix to the MEASUREMENT, not to that blockage: what is missing is
+ * a lever on memory already committed during a turn, and that has a card of its
+ * own (5edd2e5f). Said here because the first version of this comment claimed
+ * the gate had admitted, which is false, and a false diagnosis carved into a
+ * file outlives the board note that corrects it.
  *
  * ── THE SUM AS IT IS NOW, and why it is not merely "stricter" ───────────────
  * `free + speculative + purgeable + file-backed`: everything obtainable without
@@ -334,6 +342,30 @@ export const GB_PER_AGENT_NATIVE = 0.25;
  * has been evicted and what is left inactive is dirty anonymous memory: the old
  * sum kept counting it, this one does not. It discriminates where that matters
  * and stays quiet where it does not, which is the only useful shape for a gate.
+ *
+ * ── WHERE THIS SUM SITS IN THE THREE STAGES OF PRESSURE ─────────────────────
+ * macOS gives memory back in three moves, in order: (1) evict the file-backed
+ * cache, which is free; (2) COMPRESS the dirty anonymous pages, which costs
+ * CPU while the RAM still holds; (3) SWAP to disk, which is the I/O storm.
+ *
+ * This sum is 92% file-backed cache - measured, 11,70 GB of 12,78 on a healthy
+ * sample - so it collapses at stage ONE, before the compressor starts filling
+ * at stage two. That is what makes it an early warning rather than a post
+ * mortem, and it is also why a second gate on the compressor's share would sit
+ * DOWNSTREAM of this one rather than ahead of it: by the time the compressor is
+ * a third of the machine, the cache this number is made of is long gone and the
+ * floor has already bitten. A swapout rate is later still - stage three is
+ * damage in progress, not a precursor.
+ *
+ * THE THIN PART, said out loud because it is where this will break: the floor
+ * (12 GB) sits about 0,8 GB under the healthy reading. On the night of
+ * 2026-09-10 purgeable and file-backed were not recorded, and under the most
+ * generous assumption possible - the cache still intact - this sum would have
+ * read 12,19 GB and the floor would NOT have bitten. That assumption is
+ * physically incoherent with 10 GB already compressed (stage one precedes stage
+ * two), but the margin it exposes is real: what protects this machine is a gap
+ * of a few hundred megabytes. Whoever measures the loaded case - the board at
+ * work, not an idle Mac - should check that gap first.
  *
  * Fuori da macOS la sonda non c'è e la risposta è `null`: su Linux le stesse
  * pagine si leggono da `/proc/meminfo` con nomi diversi, e inventare una
@@ -400,14 +432,30 @@ export function compressorGB(
 }
 
 /**
- * The share of RAM held by the compressor past which dispatch is refused
- * regardless of how many GB are reported "available".
+ * HOW MANY PAGES THE MACHINE HAS SWAPPED OUT SINCE BOOT, cumulative, or `null`.
  *
- * A third of the machine. On 2026-09-10 the share was 0,81 (26 GB of 32) and
- * the gate admitted anyway; on the recovered machine it is 0,20. There is room
- * between the two for a threshold that does not fire on ordinary use.
+ * A counter, not a rate: the difference between two readings over the elapsed
+ * time is the rate, the same shape `fleet-usage.ts` already uses for CPU. And
+ * the same trap applies - a reading with no previous base is NOT zero, it is
+ * "I do not know".
+ *
+ * Reported and not gated, deliberately: see the note on the compressor below.
  */
-export const COMPRESSOR_SHARE_CEILING = 1 / 3;
+export function swapoutPages(
+  run: () => string | null = () => {
+    try {
+      if (process.platform !== "darwin") return null;
+      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+    } catch {
+      return null;
+    }
+  },
+): number | null {
+  const out = run();
+  if (!out) return null;
+  const n = Number(out.match(/Swapouts:\s+(\d+)/)?.[1] ?? NaN);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * Il pavimento come predicato puro: prende i GB disponibili e risponde sì/no.
@@ -450,15 +498,6 @@ export function dispatchResourceBlock(
    * file misura la macchina, non decide le politiche.
    */
   agentsAreProcesses = true,
-  /** The second memory signal, injectable for the same reason: the case that
-   *  matters is "the compressor is holding half the machine", and reproducing
-   *  it for real would mean repeating the night of 2026-09-10.
-   *
-   *  LAST and not next to the other probe: these parameters are POSITIONAL and
-   *  callers already pass `agentsAreProcesses`. Slotted in the middle, that
-   *  boolean landed in the probe's place - seven type errors, and without the
-   *  typecheck it would have been a flag called as a function. */
-  readCompressorGB: () => number | null = compressorGB,
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -476,18 +515,32 @@ export function dispatchResourceBlock(
       `${costo}, e sotto questa riga la macchina va in swap. ` +
       `Riprendo appena si libera memoria: niente è andato perso.`;
   }
-  // THE SECOND SIGNAL, read AFTER the first because it is the rarer one: when
-  // it bites, the "available" GB are lying (see `availableMemGB`). One sentence
-  // per card, same as above.
-  const compressed = (() => { try { return readCompressorGB(); } catch { return null; } })();
-  const totalGB = os.totalmem() / 1e9;
-  if (compressed != null && Number.isFinite(compressed) && totalGB > 0
-      && compressed / totalGB >= COMPRESSOR_SHARE_CEILING) {
-    return `Memoria sotto pressione: il compressore si tiene ${compressed.toFixed(1)} GB su ${totalGB.toFixed(0)}, ` +
-      `oltre ${Math.round(COMPRESSOR_SHARE_CEILING * 100)}%. Quelle pagine si riprendono solo decomprimendo, ` +
-      `cioè facendo lavorare il disco proprio mentre parte un agente. ` +
-      `Riprendo appena la pressione cala: niente è andato perso.`;
-  }
+  // THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back
+  // out is the honest move rather than the tidy one.
+  //
+  // It was added here with a ceiling of one third, calibrated on "26 GB of 32
+  // on 2026-09-10". That number came from `Pages stored in compressor`
+  // (1.712.833 pages), which is LOGICAL compressed pages; what `compressorGB`
+  // reads - correctly - is `Pages occupied by compressor`, the physical RAM,
+  // which that night was 610.054 pages, 10,0 GB, a share of 0,291. The ceiling
+  // was therefore set from a number this code never computes, and 0,291 is
+  // BELOW one third: the guard would not have fired on the night it was written
+  // for. The arithmetic settles which line is which - 1.712.833 pages is 28,1
+  // GB, and with 9,6 GB inactive and 0,08 free that is 37,7 GB on a 34,36 GB
+  // machine, which cannot be.
+  //
+  // Recalibrating to 0,25 would put it between two observations (0,165 healthy,
+  // 0,291 at the failure) taken on an IDLE machine, with dispatch off - not
+  // "normal use with the board working", which is the state that matters and
+  // which nobody could sample while the queue was stopped.
+  //
+  // And the case it would guard has never been observed: that night the memory
+  // floor was ALREADY refusing (9,69 GB against a floor of 12), so a second
+  // admission brake would have changed nothing. A gate whose triggering case
+  // has never happened, with a threshold picked between two readings, is
+  // folklore that later reads as a measurement. The numbers travel in the
+  // capacity payload instead, where they can earn a threshold if an incident
+  // ever gives them one.
   return null;
 }
 

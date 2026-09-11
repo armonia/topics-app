@@ -581,9 +581,10 @@ esiste un elenco per il Mac e uno per Windows. Ne segue su Windows un effetto ch
 e' VOLUTO e va scritto invece che scoperto: da quel momento la stessa chord,
 digitata con una pagina a fuoco, viene inoltrata alla UI e INGOIATA invece di
 raggiungere la pagina, cioe' li' ingrandisce esattamente come sul Mac. E' il
-genere di cambio che la prova di «queste chord restano della pagina» deve
-AFFERMARE e non mancare per omissione: quella prova SHALL nominare la chord dello
-zoom fra le inoltrate, o resterebbe verde solo perche' non la cita.
+genere di cambio che le prove della tabella dei chord devono AFFERMARE invece di
+mancare per omissione: quella che elenca i char che il registro fa inoltrare e
+ingoiare SHALL nominare la chord dello zoom, o resterebbe verde solo perche' non
+la cita.
 
 Il cancello che confronta registro e allowlist generata prova la COERENZA fra i
 due, mai la COPERTURA: una riga priva della dichiarazione di inoltro non emette
@@ -596,7 +597,7 @@ dentro una pane browser nativa, e SHALL essere dichiarata per quello che e'.
 - **THEN** SHALL inoltrarla alla webview della UI e ingoiare l'originale
 - **AND** la chord SHALL risultare nell'elenco delle inoltrate generato dal registro
 
-#### Scenario: la prova delle chord che restano alla pagina nomina quella dello zoom
-- **GIVEN** la prova che elenca le chord che, con una pagina a fuoco, restano alla pagina
+#### Scenario: le prove della tabella dei chord nominano quella dello zoom
+- **GIVEN** le prove della tabella dei chord: quella che elenca i char che il registro fa inoltrare e ingoiare, e quella che afferma che con Alt nessuna chord e' della app
 - **THEN** la chord dello zoom SHALL comparire fra le INOLTRATE, non fra quelle che restano
-- **AND** la prova SHALL diventare rossa il giorno in cui quella chord torna a raggiungere la pagina
+- **AND** quella che le elenca SHALL diventare rossa il giorno in cui quella chord torna a raggiungere la pagina

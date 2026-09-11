@@ -86,6 +86,10 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // `vm_stat` calls a page written out to swap a "swapout", one word: the rate
+  // of those is how a Mac says it has started paying for memory it does not
+  // have (2026-09-11, `dispatch-capacity.ts`).
+  "swapout",
   // Another dictionary hole: the 1934 list only carries "catalogue", not the
   // American spelling this codebase already uses elsewhere (2026-09-10).
   "catalog",
