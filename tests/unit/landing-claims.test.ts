@@ -93,22 +93,13 @@ function deniesAuth(text: string): string[] {
   );
 }
 
-/**
- * Files this scan does not read as authored copy: `changelog.json` is
- * regenerated verbatim from git commit subjects (`scripts/gen-changelog.mjs`),
- * so a fix entry can legitimately name a technical namespace such as
- * `auth.err` — that is not a claim about Topics's own authentication, it is a
- * bug-fix scope nobody wrote as landing prose.
- */
-const NOT_AUTHORED_COPY = new Set(["changelog.json"]);
-
 /** Every text file the site ships, sources and public assets alike. */
 function landingText(): string[] {
   const out: string[] = [];
   const skip = new Set(["node_modules", "dist", "app", ".astro"]);
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
-      if (skip.has(entry) || NOT_AUTHORED_COPY.has(entry)) continue;
+      if (skip.has(entry)) continue;
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) {
         walk(full);
