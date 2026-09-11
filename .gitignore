@@ -403,3 +403,11 @@ tools/out/win/probe/
 # Marcatori Spotlight: cartelle che ricambiano a ogni build non vanno indicizzate
 # (senza questa riga i marcatori nelle cartelle TRACCIATE sporcano ogni git status)
 .metadata_never_index
+
+# Stato di runtime del memo «provider esaurito» (server/lib/provider-hold.ts).
+# Ci finisce nella RADICE del repo perche' `resolveStateDir(process.cwd())`
+# ripiega sulla cwd quando TOPICS_DATA_DIR non e' impostata, che e' il caso
+# normale in sviluppo. Non e' un segreto (millisecondi e una frase), ma un
+# `git add -A` di un agente lo commiterebbe, e un hold di ieri riversato nel
+# repo e' esattamente il ricordo sbagliato da far viaggiare.
+provider-hold.json
