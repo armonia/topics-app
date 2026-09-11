@@ -74,7 +74,22 @@ const realTauri = {
   currentWindowLabel: tauriShell.currentWindowLabel,
   releaseNativeFocus: tauriShell.releaseNativeFocus,
 };
-const realOcclusion = { ...occlusionModule };
+// Enumerato invece che sparso (`{ ...occlusionModule }`): uno spread rende il
+// modulo OPACO a knip, che da' per usati tutti i suoi export e smette di vedere
+// quelli morti — e' il punto cieco che `check:deadcode-blindspots` rifiuta. La
+// forma e' la stessa di `realTauri` qui sopra, e il costo e' che un export nuovo
+// va aggiunto qui: se non lo e', il mock lo lascia fuori e il test che lo usa
+// cade rumorosamente, che e' il modo giusto di scoprirlo.
+const realOcclusion = {
+  OVERLAY_SELECTOR: occlusionModule.OVERLAY_SELECTOR,
+  overlayPaints: occlusionModule.overlayPaints,
+  slotIntersectsRects: occlusionModule.slotIntersectsRects,
+  decideFreeze: occlusionModule.decideFreeze,
+  liveSlotRect: occlusionModule.liveSlotRect,
+  currentOverlays: occlusionModule.currentOverlays,
+  onOcclusionChange: occlusionModule.onOcclusionChange,
+  stopObserver: occlusionModule.stopObserver,
+};
 
 /** The overlay feed, driven by the test instead of by a MutationObserver. */
 let overlays: readonly OverlayRect[] = [];
