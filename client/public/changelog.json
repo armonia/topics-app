@@ -1,7 +1,102 @@
 [
   {
-    "version": "2.2.296",
+    "version": "2.2.298",
     "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lo stato del memo provider non e' roba da repo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.297",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il freno della memoria smetteva di contare cio' che il Mac non poteva dare",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "translate new test comments to English per check:comment-language",
+          "en": "",
+          "scope": "lint",
+          "breaking": false
+        },
+        {
+          "it": "il tetto del compressore era tarato sulla riga sbagliata di vm_stat, e esce",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il pavimento nativo prezzava la sessione, non i check che lancia",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il tail di un check rosso non e' piu' fatto solo di avvisi colore",
+          "en": "",
+          "scope": "checks",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il pavimento passa dai due campioni veri, non da un ragionamento",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "dove cade il pavimento, e quale freno NON manca",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "dove si rompe la memoria, e in che ordine",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il tetto del compressore ha un numero contro, non solo un argomento",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il buco non campionato e' largo 1,4 GB, non sette",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.296",
+    "date": "2026-09-10",
     "sections": {
       "new": [
         {
