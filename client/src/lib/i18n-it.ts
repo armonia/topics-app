@@ -456,6 +456,7 @@ const IT: Dict = {
 
   'tab.openedBrowser': 'Questa tab ha aperto un browser',
   'tab.cloudSession': 'Sessione cloud (OpenClaw)',
+  'tab.project': 'Progetto',
   'tab.stopTurn': 'Ferma il turno',
   'tab.stopTurnOn': 'Ferma il turno su {name}',
   'tab.menu.stopTurn': 'Ferma il turno',
