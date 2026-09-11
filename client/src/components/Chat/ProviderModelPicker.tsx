@@ -7,8 +7,7 @@ import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
 import { resolveEffectiveProvider } from '@/lib/effortTiers';
-import { splitModelId } from '@/lib/modelLabel';
-import { friendlyModelLabel } from '../Board/format';
+import { splitModelId, friendlyModelLabel } from '@/lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 
 /**
