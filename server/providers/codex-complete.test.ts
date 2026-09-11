@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { _resetCodexBinCache } from '../lib/codex-bin';
-import { CodexProvider } from './codex';
+import { CodexProvider, KILL_GRACE_MS } from './codex';
 import { ClaudeCodeProvider } from './claude-code';
 
 const previousBin = process.env.CODEX_BIN;
@@ -54,8 +54,22 @@ afterAll(() => {
  * This is NOT a widened tolerance: if the process never dies, this still goes
  * red when the budget runs out. What changes is the claim - "it died", not "it
  * had already died at that instant".
+ *
+ * THE BUDGET IS DERIVED, and the first version of this helper got it wrong by
+ * guessing. The provider does not kill on the timeout: it sends SIGTERM and
+ * waits `KILL_GRACE_MS` (3 s) before SIGKILL, so after `timeoutMs: 2000` the
+ * child is LEGITIMATELY alive for three more seconds. A hardcoded 3000 ms
+ * budget therefore expired at the exact instant the kill was sent - marginal by
+ * construction, green or red by luck. Reading the constant keeps the two in
+ * step if the grace period ever moves.
+ *
+ * The mechanism underneath, named precisely: SIGKILL is delivered immediately,
+ * but the OS may take a few milliseconds to reap the zombie before
+ * `process.kill(pid, 0)` stops throwing ESRCH. That is what the +2 s covers.
+ * (Diagnosis of the grace period: card 36dc7819, which reproduced it 4/4 in
+ * isolation and showed it is deterministic, not a load flake as I had assumed.)
  */
-async function expectGone(pid: number, budgetMs = 3000): Promise<void> {
+async function expectGone(pid: number, budgetMs = KILL_GRACE_MS + 2_000): Promise<void> {
   const deadline = Date.now() + budgetMs;
   for (;;) {
     try {
