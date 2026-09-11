@@ -1242,6 +1242,41 @@ chi non ha un sistema operativo non ha una preferenza.
 - **GIVEN** un cambio di preferenza a osservatore già costruito
 - **THEN** la lettura SHALL riportare il valore nuovo
 
+### Requirement: MOTION-03 — Una comparsa messa in pausa non SHALL lasciare niente di invisibile
+
+Con la finestra non a fuoco ogni animazione è messa in pausa (`.anims-paused` su
+`<html>`), e per le animazioni che CICLANO è esattamente ciò che si vuole: nessuno
+sta guardando e il compositore smette di lavorare.
+
+Per una comparsa ONE-SHOT è invece una trappola, e non teorica. Una comparsa parte
+dal primo fotogramma a `opacity: 0` e ci arriva per `animation-fill-mode`; metterla
+in pausa a tempo zero significa inchiodarla lì, perché non esiste più un orologio
+che la muova. L'elemento resta montato, misurato, pieno di contenuto — e
+INVISIBILE finché la finestra non torna a fuoco. Chi non è mai a fuoco non lo vede
+mai: la PWA sul telefono in secondo piano, una seconda finestra, un agente che
+guida una pane browser.
+
+Ogni classe di comparsa ONE-SHOT il cui primo fotogramma sta a `opacity: 0` SHALL
+essere SPENTA sotto `.anims-paused` — `animation: none`, non «in pausa» — così
+l'elemento salta al suo stato naturale invece di restare al fotogramma zero.
+
+La regola SHALL essere verificata leggendo il foglio di stile, non ricordandosela:
+una classe nuova che nasce senza essere spenta SHALL far fallire la verifica. Le
+animazioni che CICLANO NON SHALL essere toccate: una pausa lì non lascia niente di
+invisibile, perché al ritorno del fuoco riprendono da sole.
+
+#### Scenario: una comparsa nasce mentre la finestra non è a fuoco
+- **GIVEN** `.anims-paused` attivo e un elemento con una comparsa one-shot da `opacity: 0`
+- **THEN** l'elemento SHALL essere visibile
+
+#### Scenario: una classe di comparsa nuova che nessuno ha spento
+- **GIVEN** una classe one-shot col primo fotogramma a `opacity: 0`, assente dall'elenco
+- **THEN** la verifica SHALL fallire
+
+#### Scenario: un'animazione che cicla
+- **GIVEN** una classe con `infinite` e primo fotogramma a `opacity: 0`
+- **THEN** NON SHALL essere richiesta nell'elenco
+
 ### Requirement: EXTERNAL-01 — Aprire fuori una volta sola
 
 L'apertura di un indirizzo fuori dall'app SHALL avvenire UNA volta per gesto. Una

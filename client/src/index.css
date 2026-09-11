@@ -2842,7 +2842,22 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 .anims-paused .bottom-sheet,
 .anims-paused .animate-slide-up,
 .anims-paused .animate-bounce-once,
-.anims-paused .chat-msg-jump-highlight {
+.anims-paused .chat-msg-jump-highlight,
+/* The three below were missing, and the rule above says why that is a defect and
+ * not an omission. Measured 2026-09-12 in a browser pane driven by an agent —
+ * `document.hasFocus()` false, so `<html class="dark anims-paused">`: the KANBAN
+ * BOARD rendered as a black rectangle. It was mounted, measured and full of
+ * cards; `[data-testid="kanban-board"]` carries `.reveal-in`, its `revealIn`
+ * animation sat `paused` at `currentTime` 0, and `animation-fill-mode: both`
+ * pinned frame 0 — `opacity: 0`, with no clock to move it. Whoever is not
+ * focused sees nothing: the phone PWA in the background, a second window, an
+ * agent in a browser pane. `.morph-char` and `.morph-block` are the same shape
+ * (one-shot, first frame at opacity 0) and were already switched off for reduced
+ * motion, so they join here rather than waiting for their own black rectangle.
+ * `motion-entry-animations.test.ts` now fails when a fourth one appears. */
+.anims-paused .reveal-in,
+.anims-paused .morph-char,
+.anims-paused .morph-block {
   animation: none !important;
 }
 
