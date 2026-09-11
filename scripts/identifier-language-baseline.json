@@ -893,7 +893,6 @@
     ],
     "client/src/components/Sidebar/chromeSignals.ts": [
       "PALLINO_ATTESA",
-      "PALLINO_GUASTO",
       "PALLINO_OK",
       "SEGNALE_ATTESA",
       "SEGNALE_GUASTO",
