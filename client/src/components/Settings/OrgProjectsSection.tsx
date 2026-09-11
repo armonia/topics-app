@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Folder } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { ShareControl } from '../Share/ShareControl';
-import { type Project, scopeProjectsToOrg } from './orgProjects';
+import { type OrgProjectRow, scopeProjectsToOrg } from './orgProjects';
 
 /**
  * THE PROJECTS OF THE ORGANISATION: what is there, and nothing else.
@@ -44,14 +44,14 @@ import { type Project, scopeProjectsToOrg } from './orgProjects';
 
 export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
   const t = useT();
-  const [progetti, setProgetti] = useState<Project[]>([]);
+  const [progetti, setProgetti] = useState<OrgProjectRow[]>([]);
   const [caricamento, setCaricamento] = useState(true);
 
   useEffect(() => {
     let vivo = true;
     fetch('/api/projects', { credentials: 'same-origin' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((b: { projects?: Project[] } | null) => {
+      .then((b: { projects?: OrgProjectRow[] } | null) => {
         if (vivo && b?.projects) setProgetti(b.projects);
       })
       .catch(() => {})

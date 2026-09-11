@@ -9,7 +9,7 @@
  * single thing.
  */
 
-export interface Project {
+export interface OrgProjectRow {
   id: string;
   name: string;
   path: string;
@@ -23,7 +23,7 @@ export interface Project {
  * scoped OUT everywhere: a personal project is not this group's project on
  * ANY group's page, its own included.
  */
-export function scopeProjectsToOrg(projects: readonly Project[], orgId: string | null): Project[] {
+export function scopeProjectsToOrg(projects: readonly OrgProjectRow[], orgId: string | null): OrgProjectRow[] {
   if (!orgId) return [];
   return projects.filter((p) => !p.incognito && p.orgId === orgId);
 }
