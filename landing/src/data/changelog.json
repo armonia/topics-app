@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.302",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una funzione da dieci righe non deve trascinarsi dietro il drag-and-drop",
+          "scope": "bundle"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.301",
     "date": "2026-09-11",
     "sections": {
@@ -58,6 +72,10 @@
         {
           "text": "la terza volta che la coda del referto è tutta rumore, e stavolta senza una stringa da nominare",
           "scope": "checks"
+        },
+        {
+          "text": "keep the stored dispatch model visible when its provider is down",
+          "scope": "board"
         }
       ],
       "perf": []
