@@ -1479,6 +1479,16 @@ export interface TaskComment {
    * session and the service's Actor argument.
    */
   origin?: TaskActionOrigin | null;
+  /**
+   * Resolved at READ time from `author` (`guest:<deviceId>`), never stored:
+   * the person's display name and the device's own name (`devices.name`, e.g.
+   * "iPhone di Attilio"), so `commentAuthorLabel`'s generic 'guest' placeholder
+   * becomes a name a reader recognises. Null for every row that is not a
+   * collaborator's own write, or whose device/person no longer resolves
+   * (revoked, deleted) — the caller falls back to the placeholder then.
+   */
+  actorPersonName?: string | null;
+  actorDeviceName?: string | null;
 }
 
 /**
@@ -1495,7 +1505,7 @@ export interface TaskComment {
  * quello del thread, o `kind` diventa una `string` da una parte e un'unione
  * dall'altra senza che niente lo dica.
  */
-export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId' | 'origin'>;
+export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId' | 'origin' | 'actorPersonName' | 'actorDeviceName'>;
 
 /**
  * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.

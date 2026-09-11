@@ -15,13 +15,17 @@
 import { fuzzyScore } from '../../lib/fuzzyScore';
 import type { TaskLabel } from '../../lib/board';
 
-export type FilterGroup = 'priority' | 'closer' | 'kind' | 'assignee';
+export type FilterGroup = 'priority' | 'closer' | 'kind' | 'assignee' | 'person' | 'computer';
 
 export type FilterOption =
   | { group: 'priority'; value: number; label: string; title?: string }
   | { group: 'closer'; value: TaskLabel; label: string; title?: string }
   | { group: 'kind'; value: TaskLabel; label: string; title?: string }
-  | { group: 'assignee'; value: string; label: string; title?: string };
+  | { group: 'assignee'; value: string; label: string; title?: string }
+  /** Who actually wrote the collaborator activity — a person, not a role. */
+  | { group: 'person'; value: string; label: string; title?: string }
+  /** Which device that person used — separate from the person on purpose. */
+  | { group: 'computer'; value: string; label: string; title?: string };
 
 export interface FilterRow {
   opt: FilterOption;
@@ -31,7 +35,7 @@ export interface FilterRow {
   more: number;
 }
 
-export const FILTER_GROUP_ORDER: readonly FilterGroup[] = ['priority', 'closer', 'kind', 'assignee'];
+export const FILTER_GROUP_ORDER: readonly FilterGroup[] = ['priority', 'closer', 'kind', 'assignee', 'person', 'computer'];
 
 /**
  * AT REST each group shows its first two, and the caption carries `+N`.
