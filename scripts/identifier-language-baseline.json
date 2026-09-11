@@ -2056,7 +2056,6 @@
       "parseSmapsRollup"
     ],
     "scripts/bench/session-memory.ts": [
-      "rssMb",
       "tls"
     ],
     "scripts/bench/streaming-shape.ts": [
@@ -3073,11 +3072,6 @@
       "entrypoint",
       "obj",
       "sidechain"
-    ],
-    "server/lib/fleet-summary.ts": [
-      "arr",
-      "sawRss",
-      "suoi"
     ],
     "server/lib/fleet-usage.test.ts": [
       "ferma",

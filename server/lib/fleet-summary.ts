@@ -239,8 +239,8 @@ export function summarizeFleet(
   const children = new Map<number, number[]>();
   for (const r of rows) {
     byPid.set(r.pid, r);
-    const arr = children.get(r.ppid);
-    if (arr) arr.push(r.pid); else children.set(r.ppid, [r.pid]);
+    const kids = children.get(r.ppid);
+    if (kids) kids.push(r.pid); else children.set(r.ppid, [r.pid]);
   }
 
   // Una macchina senza core dichiarati non deve produrre Infinity/NaN.
@@ -284,22 +284,22 @@ export function summarizeFleet(
      * garantisce che nessun pid venga fatturato due volte, quindi unire non
      * puo' gonfiare i totali — puo' solo smettere di perdere pezzi. */
     if (responsibleOf) {
-      const suoi = new Set<number>([root.pid]);
+      const owned = new Set<number>([root.pid]);
       for (const row of rows) {
-        if (responsibleOf(row.pid) === root.pid) suoi.add(row.pid);
+        if (responsibleOf(row.pid) === root.pid) owned.add(row.pid);
       }
       // …piu' la discendenza per ppid di tutto cio' che gia' gli appartiene.
       // Il giro si ripete perche' un figlio appena aggiunto puo' averne altri.
-      const stack = [...suoi];
+      const stack = [...owned];
       while (stack.length) {
         const pid = stack.pop()!;
         for (const c of children.get(pid) ?? []) {
-          if (suoi.has(c)) continue;
-          suoi.add(c);
+          if (owned.has(c)) continue;
+          owned.add(c);
           stack.push(c);
         }
       }
-      for (const pid of suoi) {
+      for (const pid of owned) {
         const row = byPid.get(pid);
         if (!row) continue;
         if (scriptPidSet.has(pid)) continue; // terzo asse: escludi gli script
