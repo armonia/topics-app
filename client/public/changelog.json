@@ -1,10 +1,127 @@
 [
   {
+    "version": "2.2.300",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "drop the quoted Italian UI label from an English comment",
+          "en": "",
+          "scope": "kill-agent-tree",
+          "breaking": false
+        },
+        {
+          "it": "il budget dell'attesa si DERIVA dalla grazia, non si indovina",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "parse Codex usage-limit dates in UTC, not locale time",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un vettore non ha densità, e il pavimento la misurava lo stesso",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        },
+        {
+          "it": "due casi argv portavano un budget da timeout, e sotto carico scattava",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "anche il secondo chiamante del cancello inoltra il flag",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        },
+        {
+          "it": "la NASCITA di un processo segue il carico, come tutto il resto del file",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "trenta bande grigie pesano come una tinta piatta, e il cancello aveva ragione",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "un trigger nel DOM non è un trigger cliccabile, e questa copia era rimasta indietro",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la terza volta che la coda del referto è tutta rumore, e stavolta senza una stringa da nominare",
+          "en": "",
+          "scope": "checks",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remove the Settings Privacy page, an exact duplicate of the Profile pane dropdown",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "propose collaborator-activity (task ef40fa34)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "`rss` è vocabolario di questo progetto, non un nome da rinominare",
+          "en": "",
+          "scope": "rails",
+          "breaking": false
+        },
+        {
+          "it": "collaborator-activity: resolve guest comment authors to person+device, add person/computer board filters",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "widen fixed-delay margins, unrelated flake blocking delivery",
+          "en": "",
+          "scope": "projectLayoutSync",
+          "breaking": false
+        },
+        {
+          "it": "settings-mobile e2e: drop Privacy from the walked nav list",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.299",
     "date": "2026-09-11",
     "sections": {
       "new": [],
       "fixes": [
+        {
+          "it": "a project tab reads as a project even selected and icon-less",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "reject blank/empty-shell previews on the manual and live-capture gates",
+          "en": "",
+          "scope": "preview",
+          "breaking": false
+        },
         {
           "it": "«e' morto» non e' «era gia' morto in quell'istante»",
           "en": "",
@@ -13,7 +130,18 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Stopping a card now kills the agent's whole process tree, not just the turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Extend provider-hold to Codex usage limits (AGPT-01)",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {
@@ -26,6 +154,12 @@
           "it": "R1 sees an id claimed by an OPEN change's delta as in flight, not dangling",
           "en": "",
           "scope": "spec-coverage",
+          "breaking": false
+        },
+        {
+          "it": "teardown flush of project panes now CAS-guarded",
+          "en": "",
+          "scope": "terminal-e2e",
           "breaking": false
         }
       ],
@@ -46,6 +180,18 @@
     "sections": {
       "new": [],
       "fixes": [
+        {
+          "it": "la scala dell'ospite esce dal file di componente, e i tre rail che il merge ha scoperto",
+          "en": "",
+          "scope": "share",
+          "breaking": false
+        },
+        {
+          "it": "un proprietario sconosciuto non e' una regola assente",
+          "en": "",
+          "scope": "projects",
+          "breaking": false
+        },
         {
           "it": "il freno della memoria smetteva di contare cio' che il Mac non poteva dare",
           "en": "",
@@ -85,6 +231,11 @@
       ],
       "perf": [],
       "internal": [
+        {
+          "it": "Un contenitore apre la porta, non consegna la penna",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "il pavimento passa dai due campioni veri, non da un ragionamento",
           "en": "",
@@ -157,6 +308,18 @@
           "it": "choose automatic models across coding providers",
           "en": "",
           "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "granular guest levels for collaboration and remote runs",
+          "en": "",
+          "scope": "grants",
+          "breaking": false
+        },
+        {
+          "it": "PATCH accepts orgId, owner-only",
+          "en": "",
+          "scope": "projects",
           "breaking": false
         },
         {
@@ -405,6 +568,18 @@
           "it": "dire lo stato del provider nella lingua di chi legge",
           "en": "",
           "scope": "settings",
+          "breaking": false
+        },
+        {
+          "it": "declare guest-share level refusal codes in shared/auth-codes",
+          "en": "",
+          "scope": "auth",
+          "breaking": false
+        },
+        {
+          "it": "add missing auth.err phrases for manage_level_required/unknown_level",
+          "en": "",
+          "scope": "i18n",
           "breaking": false
         },
         {
@@ -741,6 +916,12 @@
           "scope": null
         },
         {
+          "it": "retrigger pre-review checks after clearing stale /tmp e2e sandboxes",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "add CODEX-02 for exec resume thread persistence",
           "en": "",
           "scope": null,
@@ -820,6 +1001,17 @@
           "it": "Scrivi accanto alla query quanto costa davvero",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "La scala di un ospite si ferma a edit, e la rotta delle condivisioni si richiude",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il livello di un ospite, attraversando la catena vera",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
         }
       ]
     }
