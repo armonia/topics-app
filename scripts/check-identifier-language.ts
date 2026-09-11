@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // The opposite of zooming a cell, and this app's own name for it: the menu
+  // entry is `tab.menu.unzoom` and the control is `tab-menu-unzoom`, so the
+  // word is already in the product before it is in a variable (2026-09-11,
+  // `pane-zoom`). "Zoom out" would be a different thing — it is the browser's
+  // page scale, which this app also has.
+  "unzoom",
   // `vm_stat` calls a page written out to swap a "swapout", one word: the rate
   // of those is how a Mac says it has started paying for memory it does not
   // have (2026-09-11, `dispatch-capacity.ts`).

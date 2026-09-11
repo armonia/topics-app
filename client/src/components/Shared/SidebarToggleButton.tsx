@@ -18,6 +18,14 @@ interface SidebarToggleButtonProps {
   className?: string;
   /** Override the default PanelLeft icon */
   icon?: LucideIcon;
+  /** Stable hook for tests, and the only one this button has: everything else
+   *  it carries is `title`/`aria-label`, whose value is COPY — translated, so a
+   *  locator built on it dies the day the catalogue moves. Defaults to
+   *  `sidebar-toggle`; the button that REOPENS the column passes its own, so
+   *  the two are told apart when both are on screen. That case is not
+   *  hypothetical: LAYOUT-35 asserts the reopen command stays reachable while a
+   *  cell is zoomed, and it lives inside the frame (D6). */
+  testId?: string;
 }
 
 /**
@@ -30,6 +38,7 @@ export function SidebarToggleButton({
   title = 'Toggle sidebar',
   className = '',
   icon: Icon = PanelLeft,
+  testId = 'sidebar-toggle',
 }: SidebarToggleButtonProps) {
   const dim = size === 'action' ? ROW_ACTION_BOX : size === 'sm' ? 'w-7 h-7' : 'w-8 h-8';
   const iconSize = size === 'md' ? 16 : 14;
@@ -40,6 +49,7 @@ export function SidebarToggleButton({
       className={`${dim} flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0 ${className}`} {...NO_DRAG_REGION}
       title={title}
       aria-label={title}
+      data-testid={testId}
     >
       <Icon size={iconSize} />
     </button>

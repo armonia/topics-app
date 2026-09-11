@@ -3887,6 +3887,123 @@ html.windows-acrylic .floating-splits [data-split-card] [data-split-card] {
   background-color: var(--border);
 }
 
+/* ─── ZOOM: the frame a zoomed conversation sits in ─────────────────────────
+ * LAYOUT-35. Zooming changes WEIGHTS, not the shape of the tree: the cells
+ * outside the set go to weight zero and `display:none`, the surviving one fills
+ * the surface, and this block paints the frame that is left around it. No
+ * portal, no `position:fixed`, no `role="dialog"` - the container and the veil
+ * must NOT satisfy MODAL_SURFACE_SELECTOR or OVERLAY_SELECTOR, and
+ * `lib/modalSurface.test.ts` / `lib/shell/browserOcclusion.test.ts` fail the day
+ * one of them does. A real modal would freeze the native browser view it is
+ * there to enlarge, and would take Escape away from the streaming turn.
+ *
+ * A NUMBER, not "some margin". An e2e that clicks "outside" needs a coordinate
+ * it can derive; with a hand-picked point the first adjustment turns it red. It
+ * never drops below 20px, the smallest declared click target. */
+:root {
+  --pane-zoom-inset: clamp(20px, 4vmin, 56px);
+}
+
+/* The surface keeps its own layout and gains the frame as PADDING, so the stage
+ * below fills the content box and the band is reachable only through the veil.
+ *
+ * THE BAND HAS A GROUND, AND IT HAS TO BE PAINTED. Under `.floating-splits` the
+ * surface is `background-color: transparent` and only `[data-split-card]` paints
+ * `--bg`: between the cards there is no coloured layer at all, `useFloatingVibrancy`
+ * emits no region there, and on Windows `window_set_floating` removes the DWM
+ * backdrop. Left alone the frame would be a hole onto the native material in
+ * floating mode and a darkened `--bg` in the normal one: two different bands.
+ * `--bg-solid` is the flat colour `html.native-frost` cannot rewrite, so the
+ * band is ONE declared band in both modes.
+ *
+ * THE TOP BAND IS THE EXCEPTION, and `--content-chrome-inset` is the reason. It
+ * is the room the content already reserves for the macOS traffic lights, and it
+ * is non-zero exactly when the lights sit over the content (Mac, sidebar
+ * collapsed, not mobile - App.tsx computes it). While zoomed the cell reserves
+ * nothing of its own (design D6: it is not flush to the window, the lights are
+ * over the FRAME), so the room has to exist here or the lights land on the card.
+ *
+ * THE WIDTH ARITHMETIC HOLDS BECAUSE THE CARD IS A FLEX ITEM. In floating mode
+ * the surface is pulled out by one gap (`margin: calc(-1 * var(--float-gap))`)
+ * and each card pushes back in by the same gap: the -2px and the +2px cancel,
+ * and the band measures `--pane-zoom-inset` on every side. That cancellation is
+ * flex resolving the item against the padded content box (SplitTree's flex
+ * children + the cell wrapper): whoever removes `display:flex` from the cell
+ * wrapper moves the right and bottom edges by 4px without turning a single test
+ * red. */
+[data-split-surface][data-pane-zoom] {
+  padding: var(--pane-zoom-inset);
+  padding-top: max(var(--pane-zoom-inset), var(--content-chrome-inset, 0px));
+  background-color: var(--bg-solid);
+}
+
+/* THE VEIL. Always mounted, inert at rest - `pointer-events` and not the
+ * transition, so `transition-property` stays exactly `opacity`: an absolutely
+ * positioned `inset:0` child that is always there would otherwise swallow every
+ * click on the surface while nothing is zoomed.
+ *
+ * It sits BEHIND the stage (z-index 0 against 1), so it shows only in the band:
+ * one element covering the frame, which is what makes "click outside" arrive
+ * without `stopPropagation` scattered around and without touching the surface's
+ * capture-phase drag handlers.
+ *
+ * `cursor: zoom-out` says what the click does before it is spent. The rest of
+ * what the veil owes is MARKUP and lives with whoever renders it: `aria-hidden`,
+ * no tab stop, `app-no-drag` and the no-drag region attribute - the first band
+ * of frame occupies what is a draggable title bar at rest, and without them the
+ * click outside would be a window drag (`tests/e2e/drag-regions.spec.ts`).
+ *
+ * NO GEOMETRY IS EVER ANIMATED: the switch snaps. There is no native path to
+ * animate a browser view's bounds, per-frame chasing is already on record as
+ * "visibly stutter", and every transition frame would make each mounted xterm
+ * re-fit. The veil's opacity is the one thing allowed to move, and not for
+ * somebody who asked for less of it. The GROUND does not fade with it - fading
+ * the band in would show the bare native material (the desktop, on Windows)
+ * through the frame for 120ms, which is the hole this block exists to close. */
+.pane-zoom-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  cursor: zoom-out;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms var(--ease-standard);
+}
+[data-split-surface][data-pane-zoom] .pane-zoom-scrim {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The stage holds the tree and fills the content box, i.e. the surface minus the
+ * frame. Same shape SplitTree gives its own nodes (`width/height: 100%`,
+ * `min-width/min-height: 0`): without the two minimums a flex item in a column
+ * refuses to shrink under its content and the tree would spill over the band it
+ * is supposed to leave empty. */
+.pane-zoom-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* SQUARE CORNERS, AND THE RULE HAS TO WIN. `apply_browser_corner_mask` rounds
+ * only the corners that are FLUSH with the window (tolerance
+ * `window_corner_radius() + 2`); with a frame of 20-56px none of them is, so the
+ * webview inside the card has live corners and a rounded card would show a
+ * square page inside a round corner. `.floating-splits [data-split-card]` is
+ * (0,2,0) and a `.pane-zoom-card` class would be (0,1,0) - it would LOSE in
+ * floating mode, silently. Written as (0,3,0) it wins in both modes. */
+[data-split-surface][data-pane-zoom] [data-split-card] {
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Asked for less movement: the frame is there, nothing travels to get there. */
+  .pane-zoom-scrim { transition: none; }
+}
+
 /* chat-rendering-parity CHAT-RND-01 — hljs token palette, scoped to chat code
  * blocks. The block surface is dark in BOTH themes (bg-app-code-bg +
  * text-gray-100), so a single One-Dark-ish palette serves light and dark. */

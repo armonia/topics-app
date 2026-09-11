@@ -12,7 +12,7 @@ import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHRO
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { usePaneResidency } from './hooks/usePaneResidency';
-import { usePaneAlive } from '../../state/paneLiveness';
+import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane, canDropSplit } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pushUndo } from '../../contexts/UndoContext';
@@ -27,6 +27,20 @@ import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 import { MIN_PANE_FRACTION, TAB_BAR_H } from './constants';
+import { applyZoomWeights, cellKeysForPanes, liveCellKeys, type ZoomGridItem, type ZoomItemMap, type ZoomRow } from './paneZoom';
+import { resolveEntryScope, resolveZoomCells, type ZoomScope } from './zoomScope';
+import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
+import { useSpawnedBrowserMap } from '../../state/browserSpawner';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { notifyPaneReflow } from './paneReflow';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { getProjectPathFromPaneId } from '../../state/pane/adapters';
+import { usePaneZoomChord } from './usePaneZoomChord';
+
+/** No cell revealed: the resting state, and a stable ref so the memo downstream
+ *  does not invalidate on every render while there is no zoom. */
+const NO_ZOOM_CELLS: ReadonlySet<string> = new Set();
+
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -152,6 +166,28 @@ interface GroupLayoutProps {
    * pagata nessuno, e una barra più bassa lì sarebbe inchiostro appeso.
    */
   subordinate?: boolean;
+  /**
+   * DOES THIS SURFACE OFFER "ENLARGE"? Default **false**, and the default IS the
+   * decision: this same `GroupLayout` is also what a task's drawer mounts
+   * (`Board/TaskDetail.tsx`), which is already an overlaid surface — two nested
+   * "outsides" are not an interface (LAYOUT-38). Only the project window turns
+   * it on.
+   *
+   * Off does NOT mean "without `hasBox`": the absence of a box still goes all
+   * the way down to the panes, and that is the half of LAYOUT-38 the layout
+   * decides — the one that makes a drawer's browser behind a hidden ANCESTOR
+   * shell stop calling itself visible instead of stopping at its own group's
+   * active tab.
+   *
+   * It is fixed per HOST, not a state: `ProjectWindow` always passes it true and
+   * the drawer never passes it at all. That is why the veil can sit behind it
+   * without remounting anything, while `isZoomed` — which does change — is
+   * switched off with an attribute.
+   *
+   * It is not sufficient on its own: the surface also needs a `dndScope` to key
+   * its zoom on. See `zoomSurfaceId`.
+   */
+  enableZoom?: boolean;
 }
 
 /**
@@ -189,7 +225,7 @@ function LeadingSlot({ node }: { node: HTMLElement }) {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, enableZoom = false,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -785,6 +821,204 @@ export function GroupLayout({
     [rows, rowHeights, groupMap],
   );
 
+  // ── ENLARGING A CONVERSATION, on the project grid ─────────────────────────
+  //
+  // "Two surfaces, one behaviour, zero rules rewritten": the predicate, the
+  // scopes and the degradation all come from the SAME pure functions the
+  // standalone grid uses (`paneZoom.ts`, `zoomScope.ts`, `state/paneZoom.ts`).
+  // All that happens here is a translation of this surface's vocabulary — its
+  // columns are called `groupIds`, its stacks `cellStacks[key].groupIds` — into
+  // what those functions read, and then their answer applied as three signals:
+  // zero weight in the tree, `display:none` on the cell wrapper, no box on the
+  // panes that cell hosts. None of the three covers the others.
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const spawnedBrowserByTopic = useSpawnedBrowserMap();
+
+  // ONE SURFACE PER PROJECT, not a global slot: `dndScope` is the `projectPath`
+  // (`ProjectWindow` always passes it), so two projects side by side have two
+  // independent zooms and a nested project's does not wipe the outer grid's.
+  //
+  // NO SCOPE, NO ZOOM — `null`, and not a key built out of the empty string.
+  // `project-grid:` would be ONE key shared by every scopeless surface, i.e. two
+  // of them would fight over a single record the moment a second host turned
+  // `enableZoom` on without a scope. Today only `ProjectWindow` turns it on and
+  // it always passes a scope, so nothing collides yet; a default has to err
+  // toward doing nothing, not toward a collision that shows up as a zoom
+  // opening in the wrong window.
+  const zoomSurfaceId = dndScope ? `project-grid:${dndScope}` : null;
+  // The command exists on this surface: the host asked for it AND there is a key
+  // to hold it under. Every read and write below goes through this, so a
+  // scopeless surface never touches the store at all.
+  const zoomEnabled = enableZoom && !!zoomSurfaceId;
+
+  // THE CONVERSION LIVES HERE, AT THE CALL SITE, and not inside the pure module:
+  // `ZoomRow` wants `itemKeys` and `cellStacks[key].items`, and this surface
+  // names those same two things `groupIds` and `cellStacks[key].groupIds`. A
+  // second shape inside the module would be a second rule to keep aligned by
+  // hand.
+  const zoomRows = useMemo<ZoomRow[]>(
+    () => rows.map((r) => ({
+      itemKeys: r.groupIds,
+      cellStacks: r.cellStacks
+        ? Object.fromEntries(Object.entries(r.cellStacks).map(([key, s]) => [key, { items: s.groupIds }]))
+        : undefined,
+    })),
+    [rows],
+  );
+
+  // A cell of this surface is a column's GROUP, and its panes are `paneIds`. The
+  // map is built from `groupMap` and not from `groups` because that is exactly
+  // the set `buildShallowGridTree` decides live keys with
+  // (`(gid) => groupMap.has(gid)`): one count, not two that resemble each other.
+  const zoomItemMap = useMemo<ZoomItemMap>(() => {
+    const m = new Map<string, ZoomGridItem>();
+    for (const [gid, g] of groupMap) m.set(gid, { key: gid, panelIds: g.paneIds });
+    return m;
+  }, [groupMap]);
+
+  const zoomDeps = useMemo(
+    () => ({
+      openPanes: panes,
+      topics,
+      terminals: terminalSessions,
+      spawnedBrowserByTopic,
+      rows: zoomRows,
+      itemMap: zoomItemMap,
+    }),
+    [panes, topics, terminalSessions, spawnedBrowserByTopic, zoomRows, zoomItemMap],
+  );
+
+  const zoomTarget = usePaneZoomStore((s) => (zoomSurfaceId ? s.bySurface[zoomSurfaceId] : undefined));
+
+  // Below 768px this surface FLATTENS every group into a single strip
+  // (`renderMobile`): there are no cells, so there is nothing to collapse. It is
+  // the same gate `useSplitLayoutAvailable()` publishes to the menus
+  // (`!useLayoutMobile()`), read here off the variable that picks the branch, so
+  // the two cannot say different things.
+  const isZoomed = zoomEnabled && !!zoomTarget && !isMobile;
+  const zoomCellKeys = useMemo(
+    () => (isZoomed && zoomTarget ? resolveZoomCells(zoomTarget, zoomDeps) : NO_ZOOM_CELLS),
+    [isZoomed, zoomTarget, zoomDeps],
+  );
+
+  // The availability predicate: MORE THAN ONE LIVE CELL EXISTS. It is measured
+  // on cells and not on panes, and it is ONE predicate for the plain gesture and
+  // for the modified one alike. It agrees with `resolveEntryScope` by
+  // construction and not by coincidence: the two measure the same set with the
+  // same function, and with a single live cell that one returns `null` while
+  // this one is false.
+  const liveCells = useMemo(() => liveCellKeys(zoomRows, zoomItemMap), [zoomRows, zoomItemMap]);
+  const canZoom = zoomEnabled && !isMobile && liveCells.size > 1;
+
+  const exitZoom = useCallback(() => {
+    if (zoomSurfaceId) paneZoomActions.exit(zoomSurfaceId);
+  }, [zoomSurfaceId]);
+
+  // Returns whether it DID anything, and that is not decoration: the chord
+  // listener needs to know whether to claim the event, because a surface that
+  // declines has to leave it to the one it is nested in.
+  const handleToggleZoom = useCallback((paneId: string, requested: ZoomScope): boolean => {
+    if (!zoomSurfaceId) return false;
+    // While the zoom is active EVERY trigger SHRINKS, whatever tab and whatever
+    // scope it carries: re-scoping without leaving would be a third state nobody
+    // can read off the screen.
+    if (usePaneZoomStore.getState().bySurface[zoomSurfaceId]) { exitZoom(); return true; }
+    // The SCOPE is fixed HERE, once, and what the store remembers is its
+    // outcome, not the key that was pressed. `null` = the gesture is not on
+    // offer, i.e. a single live cell exists: the same layout on which `canZoom`
+    // is false.
+    const scope = resolveEntryScope(paneId, requested, zoomDeps);
+    if (!scope) return false;
+    paneZoomActions.toggle(zoomSurfaceId, paneId, scope);
+    return true;
+  }, [zoomSurfaceId, zoomDeps, exitZoom]);
+
+  // THIS surface's focus is the active tab of the focused group. With no focused
+  // group nothing is decided — the first one is not stood in for, the way the
+  // active-tab relief does it, because there the choice is how to PAINT and here
+  // it is whether to CLOSE.
+  const focusedPaneId = (focusedGroupId ? groupMap.get(focusedGroupId)?.activePaneId : undefined) ?? null;
+
+  // Cmd-E / Alt-Cmd-E. The chord carries the App-level focused PANEL, which for
+  // anything inside a project window is that window's own `project:<path>` pane:
+  // this surface claims it when that path is its `dndScope`, and anchors on its
+  // OWN focused tab, which is the conversation the user is looking at. Not the
+  // outer one — a project window is the innermost zoomable surface there is, so
+  // it answers during dispatch and the standalone grid stands down for it.
+  const resolveChordAnchor = useCallback(
+    (panelId: string | null): string | null =>
+      panelId && dndScope && getProjectPathFromPaneId(panelId) === dndScope ? focusedPaneId : null,
+    [dndScope, focusedPaneId],
+  );
+  usePaneZoomChord(zoomEnabled && !isMobile, false, resolveChordAnchor, handleToggleZoom);
+
+  // Pruning. The cell set is already live by construction — `cellKeysForPanes`
+  // walks the rows and returns only keys the map knows — so what is left here is
+  // the half the set cannot state on its own: once the ANCHOR is gone, we leave.
+  // Plus the 768px gate and the `zoomEnabled` one, where the command does not
+  // exist and a record left over from a wider window has to be closed.
+  useEffect(() => {
+    if (!zoomTarget) return;
+    if (!zoomEnabled || isMobile) { exitZoom(); return; }
+    if (cellKeysForPanes(zoomRows, zoomItemMap, [zoomTarget.anchorPaneId]).size === 0) exitZoom();
+  }, [zoomTarget, zoomEnabled, isMobile, zoomRows, zoomItemMap, exitZoom]);
+
+  // Focus goes elsewhere: CELL against CELL, with the same walk-up as
+  // `cellKeysForPanes`, so switching tab INSIDE a cell of the set closes
+  // nothing. A focus that has no cell at all on this surface is not "outside the
+  // set": it is a focus that does not live here, and it decides nothing.
+  useEffect(() => {
+    if (!isZoomed || !focusedPaneId) return;
+    const hosts = cellKeysForPanes(zoomRows, zoomItemMap, [focusedPaneId]);
+    if (hosts.size === 0) return;
+    for (const key of hosts) if (zoomCellKeys.has(key)) return;
+    exitZoom();
+  }, [isZoomed, focusedPaneId, zoomRows, zoomItemMap, zoomCellKeys, exitZoom]);
+
+  // A PANE IS BORN VISIBLE. It is the one rule that covers every way of opening
+  // — the bar's "+", the group's new chat, reopening a closed tab, the server's
+  // force-open — including the ones that never touch focus, and that is why it
+  // is measured on the panes that APPEARED rather than on focus. A pane born
+  // inside a cell of the set is already visible: there we do not leave.
+  const prevPaneIdsRef = useRef<readonly string[]>(panes.map((p) => p.id));
+  useEffect(() => {
+    const ids = panes.map((p) => p.id);
+    const before = new Set(prevPaneIdsRef.current);
+    prevPaneIdsRef.current = ids;
+    if (!isZoomed) return;
+    for (const id of ids) {
+      if (before.has(id)) continue;
+      const hosts = cellKeysForPanes(zoomRows, zoomItemMap, [id]);
+      let visible = false;
+      for (const key of hosts) if (zoomCellKeys.has(key)) { visible = true; break; }
+      if (!visible) { exitZoom(); return; }
+    }
+  }, [panes, isZoomed, zoomRows, zoomItemMap, zoomCellKeys, exitZoom]);
+
+  // Surface unmount: project closed, project pane closed, Spazio switch. Leaving
+  // there is INTENDED — the store's own docstring says so.
+  useEffect(() => () => {
+    if (zoomSurfaceId) paneZoomActions.exit(zoomSurfaceId);
+  }, [zoomSurfaceId]);
+
+  // Native views do not follow the DOM reflow on their own: entering and leaving
+  // are the same brackets a split already opens and closes.
+  const wasZoomedRef = useRef(false);
+  useEffect(() => {
+    if (wasZoomedRef.current === isZoomed) return;
+    wasZoomedRef.current = isZoomed;
+    notifyPaneReflow();
+  }, [isZoomed]);
+
+  // The same tree with the out-of-zoom cells at weight 0 (LAYOUT-35). It is
+  // WEIGHTS, not shape: node ids are untouched, `keyFor` keys leaves on
+  // `leaf:<id>` and splits on their INDEX among siblings, and neither depends on
+  // the weight — so entering and leaving remounts nothing. With no zoom it
+  // returns the identical tree, by ref, so this memo does not invalidate on a
+  // no-op.
+  const zoomedTree = useMemo(() => applyZoomWeights(treeRoot, zoomCellKeys), [treeRoot, zoomCellKeys]);
+
   // Divider drag → shift weight on the matching band (path [] = row heights,
   // path [rowIdx] = that row's column widths). Floor = the live MIN_PANE_FRACTION,
   // matching SplitTree's internal floor so live drag and committed weight agree.
@@ -823,6 +1057,11 @@ export function GroupLayout({
   const handleResetLayout = useCallback(() => {
     const flat = flattenGroupRows(rows, [...groupMap.keys()]);
     if (!flat) return;
+    // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
+    // so the grid you see is always the one the command acts on. That holds for
+    // the `topics:reset-split-layout` bus too, which is this handler's other
+    // caller, and for both directions of the undo.
+    exitZoom();
     // Flatten is undoable — it used to irreversibly discard manual widths/
     // heights/stacks, and ⌘Z silently undid the previous CLOSE instead. The
     // pre-flatten rows/rowHeights are pure data, snapshotted verbatim.
@@ -831,17 +1070,19 @@ export function GroupLayout({
     pushUndo({
       description: 'Reimposta pannelli',
       undo: () => {
+        exitZoom();
         onUpdateRows(prevRows);
         onUpdateRowHeights(prevHeights);
       },
       redo: () => {
+        exitZoom();
         onUpdateRows(flat.rows);
         onUpdateRowHeights(flat.rowHeights);
       },
     });
     onUpdateRows(flat.rows);
     onUpdateRowHeights(flat.rowHeights);
-  }, [rows, rowHeights, groupMap, onUpdateRows, onUpdateRowHeights]);
+  }, [rows, rowHeights, groupMap, onUpdateRows, onUpdateRowHeights, exitZoom]);
 
   // Global "Reimposta pannelli" ('topics:reset-split-layout') is fired ONLY by the
   // header Topics menu and the ⌘K palette — a broad "tidy my layout" action with no
@@ -929,7 +1170,11 @@ export function GroupLayout({
   // progetto uno solo.
   const leadingGid = rows[0]?.groupIds[0];
 
-  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>): React.ReactNode => {
+  // `hasBox` = the cell hosting this block occupies a rectangle in the layout.
+  // It is an axis SEPARATE from residency: whoever receives it false SUSPENDS
+  // (observers, polls, measurements against a zero viewport), it does not
+  // unmount.
+  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>, hasBox: boolean): React.ReactNode => {
     const group = groupMap.get(gid);
     if (!group) return null;
     const groupPanes = group.paneIds
@@ -1013,16 +1258,27 @@ export function GroupLayout({
               ? (sourcePaneId, sourceGroupId, edge) => onSplitGroup(sourceGroupId, sourcePaneId, gid, edge)
               : undefined
             }
+            // D8: the split asked for from the menu REORGANISES, so it leaves
+            // the zoom before it applies. The other ways into the same
+            // `onSplitGroup` all go through a tab drag, and that one already
+            // leaves by itself (`PaneTabBar`, `handleTabDragStart`).
             onSplitRight={onSplitGroup && groupCanSplit
-              ? (paneId) => onSplitGroup(gid, paneId, gid, 'right')
+              ? (paneId) => { exitZoom(); onSplitGroup(gid, paneId, gid, 'right'); }
               : undefined
             }
             // "Split Down" mirrors the cell bottom-edge drop: a SINGLE-COLUMN
             // vertical stack (under just this column), not a full-width row.
             onSplitDown={onSplitGroup && groupCanSplit
-              ? (paneId) => onSplitGroup(gid, paneId, gid, 'bottom')
+              ? (paneId) => { exitZoom(); onSplitGroup(gid, paneId, gid, 'bottom'); }
               : undefined
             }
+            // `onToggleZoom` is not passed at all when the surface does not
+            // offer the command: inside a task's drawer the bar must not even be
+            // able to draw it (LAYOUT-38), and a false `canZoom` alone would say
+            // so more weakly.
+            onToggleZoom={zoomEnabled ? handleToggleZoom : undefined}
+            canZoom={canZoom}
+            isZoomed={isZoomed}
             onResetLayout={canFlatten ? handleResetLayout : undefined}
             onContextRingClick={onContextRingClick}
             onStopStreaming={onStopStreaming}
@@ -1085,23 +1341,45 @@ export function GroupLayout({
                 </div>
               );
             }
-            return visiblePanes.map((pane) => {
-              const isPaneActive = pane.id === group.activePaneId;
-              return (
-                <PaneKeepAlive
-                  key={stableKeyOf(pane)}
-                  paneKey={stableKeyOf(pane)}
-                  isVisible={isPaneActive}
-                  // Cell background tier (paneCellBg): `project`/`terminal`
-                  // fully transparent (they frost themselves), chat + kanban +
-                  // browser in the frosted tier (`pane-frost`), the rest opaque
-                  // `bg-surface` so dense text stays crisp over the vibrancy.
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
-                >
-                  {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
-                </PaneKeepAlive>
-              );
-            });
+            // THE BOX AXIS, and not a Provider higher up: `visibleKeys` stays
+            // on `surfaceAlive` ALONE (LAYOUT-39), because that list is the
+            // floor of the residency cap and emptying it here would unmount the
+            // collapsed cells within seconds — leaving the zoom would find cells
+            // to rebuild.
+            //
+            // It belongs HERE and is not redundant with `PaneKeepAlive`, which
+            // already publishes `parentAlive && isVisible`: between the cell and
+            // these panes there is no shell at all, the wrapper of a collapsed
+            // cell is a plain div with `display:none`, and `display:none` does
+            // not touch contexts. Without this Provider a pane in a collapsed
+            // cell would read `true` and believe itself on screen.
+            //
+            // The Provider is NOT behind `enableZoom`: with the zoom off it
+            // carries `surfaceAlive`, which is the half of LAYOUT-38 the layout
+            // owes a task's drawer — the absence of a box coming down from a
+            // hidden ANCESTOR shell instead of stopping at the group's active
+            // tab.
+            return (
+              <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
+                {visiblePanes.map((pane) => {
+                  const isPaneActive = pane.id === group.activePaneId;
+                  return (
+                    <PaneKeepAlive
+                      key={stableKeyOf(pane)}
+                      paneKey={stableKeyOf(pane)}
+                      isVisible={isPaneActive}
+                      // Cell background tier (paneCellBg): `project`/`terminal`
+                      // fully transparent (they frost themselves), chat + kanban +
+                      // browser in the frosted tier (`pane-frost`), the rest opaque
+                      // `bg-surface` so dense text stays crisp over the vibrancy.
+                      className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
+                    >
+                      {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
+                    </PaneKeepAlive>
+                  );
+                })}
+              </PaneAliveContext.Provider>
+            );
           })()}
 
           {/* Single-column split preview — a filled region the width of THIS
@@ -1153,10 +1431,18 @@ export function GroupLayout({
     // the handlers, so pane DnD passes straight through.
     const isDraggingRow = draggingRowIdx === rowIdx;
     const rowDropSide = rowDropTarget?.idx === rowIdx ? rowDropTarget.side : null;
+    // THE THREE SIGNALS of an out-of-zoom cell, and they are three because none
+    // covers the others: the zero weight (`applyZoomWeights` has already set it,
+    // and the divider beside it goes with it), the `display:none` just below —
+    // which takes `clientHeight` to 0 and is also the only way that cell leaves
+    // tab-order and the accessibility tree — and the absence of a box, which
+    // goes all the way down to the panes.
+    const cellHasBox = !isZoomed || zoomCellKeys.has(gid);
     return (
       <div
         data-group-cell={`${rowIdx}-${groupIdx}`}
         className={`relative flex w-full h-full min-h-0 min-w-0 overflow-hidden ${isDraggingRow ? 'opacity-40' : ''}`}
+        style={cellHasBox ? undefined : { display: 'none' }}
         // DOVE CADRÀ, con l'attributo del contratto invece di un'ombra scritta
         // qui: `before`/`after` sono lo stesso inserimento posizionale della
         // barra delle tab, e adesso lo dicono con la stessa lama. L'asse lo
@@ -1180,9 +1466,9 @@ export function GroupLayout({
         )}
         <CellSubStack
           stack={subStack}
-          primary={renderGroupBlock(gid, rowIdx, seen)}
+          primary={renderGroupBlock(gid, rowIdx, seen, cellHasBox)}
           primaryKey={gid}
-          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen)}
+          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen, cellHasBox)}
           onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, gid, nextHeights))}
         />
       </div>
@@ -1314,6 +1600,13 @@ export function GroupLayout({
     <div
       ref={containerRef}
       data-split-surface
+      // The frame: an attribute on the surface that is already there, not a new
+      // container. The zoom is NOT a modal surface and carries no marker that
+      // would make it look like one (`.native-occlude`, `.glass-surface`,
+      // `role="dialog"`): with any of those Escape would stop interrupting the
+      // streaming turn, and a native browser pane inside the enlarged cell would
+      // freeze the very instant you enlarge it (LAYOUT-38).
+      data-pane-zoom={isZoomed ? '1' : undefined}
       // See PanelGrid: mid-drag, neutralise the divider grab band (CSS below)
       // so an edge drop that lands on the divider band still splits the group.
       data-drag-active={dragActive || undefined}
@@ -1360,17 +1653,58 @@ export function GroupLayout({
           );
         });
       })()}
-      {isMobile
-        ? renderMobile()
-        : treeRoot && (
-          <SplitTree
-            node={treeRoot}
-            renderLeaf={renderTreeLeaf}
-            onResize={handleTreeResize}
-            onEqualize={handleTreeEqualize}
-            gutter={1}
-          />
-        )}
+      {/* THE VEIL. It sits UNDER the stage (z-index), so it is reachable only
+          from the frame band: the "click outside" arrives with no
+          `stopPropagation` scattered around and without touching the surface's
+          drag handlers, which are in capture. It carries its own no-drag
+          attributes because up there that band takes the place that at rest is
+          the title bar.
+
+          Behind `zoomEnabled` rather than always mounted, and that is a
+          DELIBERATE difference from the standalone grid: there the veil is the
+          only child of its kind on the window's only surface, here the same
+          component is also mounted by a task's drawer, where the zoom does not
+          exist and a second `pane-zoom-scrim` in the document would just be a
+          namesake to discard in every assertion. Both halves of `zoomEnabled`
+          are fixed per host — neither `enableZoom` nor `dndScope` changes after
+          the mount — so gating here remounts nothing: it is `isZoomed`, which
+          does change, that is switched off with `hidden`. */}
+      {zoomEnabled && (
+        <div
+          className="pane-zoom-scrim app-no-drag"
+          data-testid="pane-zoom-scrim"
+          aria-hidden="true"
+          hidden={!isZoomed}
+          {...NO_DRAG_REGION}
+          onClick={exitZoom}
+        />
+      )}
+      <div className="pane-zoom-stage relative flex flex-col w-full h-full min-w-0 min-h-0">
+        {isMobile
+          ? renderMobile()
+          : zoomedTree && (
+            <SplitTree
+              node={zoomedTree}
+              renderLeaf={renderTreeLeaf}
+              // While the zoom is active the dividers are LINES, not handles,
+              // and passing no handler is what makes that true rather than what
+              // merely claims it: `SplitTree` reads an absent `onResize` as
+              // "this gap is not a handle" and does not wire the drag at all, so
+              // nothing moves — neither the committed weights nor the live
+              // inline `flex` of the flanking cells, which the drag used to
+              // write before it ever committed anything.
+              //
+              // The reason it must not commit: `handleTreeResize` converts
+              // pixels against a band that in the MODEL also contains the
+              // zero-weight cells, while on screen the band is made of the
+              // survivors alone. The weight would be wrong, and it would land in
+              // the project's persisted layout.
+              onResize={isZoomed ? undefined : handleTreeResize}
+              onEqualize={isZoomed ? undefined : handleTreeEqualize}
+              gutter={1}
+            />
+          )}
+      </div>
     </div>
   );
 }

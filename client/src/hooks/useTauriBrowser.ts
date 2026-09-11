@@ -393,6 +393,37 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const freezeSeqRef = useRef(0);
   const thawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * THE PARK IS A LATCH, NOT A MESSAGE (NATIVEPARK-01).
+   *
+   * Parking used to be one fire-and-forget IPC: `setBounds`'s zero branch sent
+   * the view off-screen and nothing remembered that it belonged there. Every
+   * later `applyBounds()` read `pendingRectRef` — which only ever holds a
+   * POSITIVE rect, because the zero branch never writes it — and put the view
+   * straight back on screen at the rect the cell had BEFORE it collapsed. Five
+   * callers do that without going through the placeholder, so none of them can
+   * know the pane has no box: `thaw()`, `setDevice`, the UA reconcile, the
+   * responsive resize and `recreate`'s handshake.
+   *
+   * So the state is held here instead of being inferred. Raised by a null rect
+   * measured on the placeholder, lowered ONLY by a positive one from the same
+   * door — never by `animateBounds`, which writes `pendingRectRef` on a path
+   * that knows nothing about the cell's box (it refuses non-positive rects, so
+   * it cannot open the latch either way).
+   *
+   * Read in three places, and none of the three covers the others:
+   *  - the top of `applyBounds`, so no bounds push can bring the view back;
+   *  - the slot read in `evaluateOcclusion`, so the freeze/thaw decision is
+   *    taken on "I don't know where it is" instead of the stale rect (deciding
+   *    on the stale rect meant THAWING, which is the exact sequence that put
+   *    the page back over a collapsed cell);
+   *  - the flush in `applyOpened`, which re-pushes that same stale rect through
+   *    `setBounds` when a view is (re)created — the recreate path reaches it
+   *    BEFORE the handshake, so guarding only the handshake would leave the
+   *    return open.
+   */
+  const hiddenRef = useRef(false);
+
   // Apply the effective bounds = the last slot rect, letterboxed to the device
   // dims when emulating. Centralised so device-mode switches can re-letterbox
   // without the placeholder re-measuring.
@@ -401,6 +432,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // bounds push (poll / ResizeObserver / device switch) so nothing re-parks or
     // re-shows it mid-overlay/animation. thaw() restores it via reflow-request.
     if (frozenRef.current) return;
+    // Parked: the pane has no box at all, so there is no geometry to apply and
+    // no caller here is entitled to invent one. Same shape as the guard below.
+    if (hiddenRef.current) return;
     const slot = pendingRectRef.current;
     if (!slot || !openedRef.current) return;
     // Overlay-hiding is handled by the freeze path (intersection-scoped), not here.
@@ -444,17 +478,29 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const setBounds = useCallback(
     (b: { x: number; y: number; width: number; height: number }) => {
       if (b.width > 0 && b.height > 0) {
+        // The ONE door that measures the placeholder, so the ONE that may open
+        // the latch: this rect is proof the pane has a box again.
+        hiddenRef.current = false;
         pendingRectRef.current = b; // remember the real SLOT rect
         applyBounds(); // show (letterboxed if emulating; off-screen if occluded)
-      } else if (openedRef.current) {
+      } else {
         // Explicit zero-rect = hide (drag/resize in flight, pane inactive, or an
         // HTML overlay over it — native views composite above the DOM). Park it
         // off-screen at the last real size (NOT 1×1) so the page keeps its layout
         // and stays screenshot-able; the next real rect restores it on-screen.
-        void paneInvoke('browser_set_bounds', {
-          id, x: -100000, y: 0,
-          width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
-        });
+        //
+        // The latch is raised even when there is no view to park yet: "this pane
+        // has no box" is a fact about the layout, and it does not expire while
+        // the webview is being born. Without that, a zero rect arriving before
+        // `browser_open` resolves would leave the latch open and `applyOpened`
+        // would flush the stale positive rect onto a cell that has none.
+        hiddenRef.current = true;
+        if (openedRef.current) {
+          void paneInvoke('browser_set_bounds', {
+            id, x: -100000, y: 0,
+            width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
+          });
+        }
       }
     },
     [applyBounds, id, paneInvoke],
@@ -605,7 +651,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // nativa: la cache non si aggiorna quando la vista si parcheggia, e basta
     // uno split ridimensionato perché descriva un posto che non esiste più.
     // La cache resta come ripiego finché lo slot non è nel DOM (montaggio).
-    const slot = liveSlotRect(id) ?? pendingRectRef.current;
+    //
+    // Parked, the answer is NULL and not the fallback: the cache describes where
+    // the cell used to be, and `decideFreeze(null, rects)` is "freeze whenever
+    // anything is open" — an extra freeze on a view that is already off-screen
+    // costs nothing, while the stale rect would answer "nothing covers you" and
+    // THAW, which is how the page came back over a collapsed cell.
+    const slot = hiddenRef.current ? null : (liveSlotRect(id) ?? pendingRectRef.current);
     if (decideFreeze(slot, rects)) freeze(); else thaw();
   }, [freeze, thaw, id]);
   const evaluateOcclusionRef = useRef(evaluateOcclusion);
@@ -746,7 +798,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // e farlo sparire la renderebbe anonima proprio nel momento in cui serve
         // sapere quale porta non risponde.
         setUrl(wantedUrl === 'about:blank' ? '' : wantedUrl);
-        if (pendingRectRef.current) setBounds(pendingRectRef.current);
+        // The flush is skipped while the pane is parked: `pendingRectRef` holds
+        // the rect the cell had before it collapsed, and re-pushing it here
+        // would put a freshly (re)created view back on screen over a cell that
+        // has no box. This runs BEFORE `recreate`'s handshake, so it is the
+        // first half of that return path, not a duplicate of it.
+        if (pendingRectRef.current && !hiddenRef.current) setBounds(pendingRectRef.current);
         // …e SUBITO dopo averla messa al suo posto, guardare se quel posto è
         // già coperto. Fin qui l'occlusione la decideva soltanto l'arrivo di un
         // overlay: una pane che si apre sotto un modale GIÀ aperto non riceveva

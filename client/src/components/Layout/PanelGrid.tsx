@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment, Suspense, lazy } from 'react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack, CompactionMarker } from '../../types';
-import { useTopics } from '../../contexts/TopicsContext';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { usePublishSplitPositions } from '../../contexts/SplitPositionContext';
-import { getProjectPathFromPaneId } from '../../state/pane/adapters';
+import { getProjectPathFromPaneId, isKnownPanePrefix } from '../../state/pane/adapters';
 import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeight } from '../../state/projectGridWeights';
 import { useGridResize } from '../../hooks/useGridResize';
 import { useLayoutMobile } from '../../hooks/useMobile';
@@ -34,16 +34,47 @@ import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { notifyPaneReflow } from './paneReflow';
+import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
+import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
+import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
+import { useSpawnedBrowserMap } from '../../state/browserSpawner';
+import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { ROW_INSET } from '../../lib/selectionStyles';
+import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey, remapTopicInCells, reorderCellPreservingPrimary } from './soloCells';
 import { recordSoloTombstones, restoreFromSoloTombstones, type SoloCellTombstone } from './soloCellTombstones';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { SplitTree } from './SplitTree';
+import { usePaneZoomChord } from './usePaneZoomChord';
 import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { shortcut } from '../../lib/shortcutLabel';
+
+/**
+ * The standalone grid, the way the zoom store names it. ONE surface per
+ * window, so a fixed key is enough: `App.tsx` keys this subtree on the active
+ * Spazio, so switching Spazio remounts the component and the unmount effect
+ * leaves the zoom. Leaving it there is intended, not a side effect: the store's
+ * docstring says so.
+ */
+const ZOOM_SURFACE_ID = 'standalone-grid';
+
+/** No cell revealed: the resting state, and a stable ref so the memo
+ *  downstream does not invalidate on every render while there is no zoom. */
+const NO_ZOOM_CELLS: ReadonlySet<string> = new Set();
+
+/** How a split GOT here, for the one decision that cares. */
+interface SplitPaneOptions {
+  /** The caller is PLACING a pane that just appeared (the agent's browser
+   *  landing in its own cell), not acting on an intent to reorganise the grid.
+   *  Only an intent leaves the zoom unconditionally; an automatic placement
+   *  leaves it only when the pane it places is outside the set. */
+  readonly auto?: boolean;
+}
 
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
@@ -471,20 +502,178 @@ export function PanelGrid({
   // Il fuoco puo' stare in un riquadro IMPILATO dentro una cella
   // (`cellStacks`): in quel caso si mostra la cella che lo ospita, perche' e'
   // lei a disegnarlo.
+  //
+  // That walk-up is no longer written here: it is `cellKeysForPanes`, which
+  // does it for anyone who starts from a pane and wants the cell — the zoom
+  // uses it for the same reason. It returns the keys in ROW ORDER, so the first
+  // one is the same cell the two nested loops used to find.
   const mobileVisibleKey = useMemo<string | null>(() => {
     if (!isMobile) return null;
     const firstKey = effectiveGridRows[0]?.itemKeys[0] ?? null;
     if (!focusedPanelId) return firstKey;
-    for (const row of effectiveGridRows) {
-      for (const key of row.itemKeys) {
-        if (itemMap.get(key)?.panelIds.includes(focusedPanelId)) return key;
-        for (const stacked of row.cellStacks?.[key]?.items ?? []) {
-          if (itemMap.get(stacked)?.panelIds.includes(focusedPanelId)) return key;
-        }
-      }
-    }
-    return firstKey;
+    const [hostKey] = cellKeysForPanes(effectiveGridRows, itemMap, [focusedPanelId]);
+    return hostKey ?? firstKey;
   }, [isMobile, effectiveGridRows, itemMap, focusedPanelId]);
+
+  // ── ZOOMING A CONVERSATION ──────────────────────────────────────────────
+  // The SCOPE and DEGRADATION rules do not live here and are not to be
+  // rewritten: `resolveEntryScope` chooses once and once only, at the gesture,
+  // and its outcome is what the store remembers; `resolveZoomCells` translates
+  // that scope into cells on every render. This surface reads that answer and
+  // applies it as three signals — zero weight in the tree, `display:none` on
+  // the cell wrapper, no box on the panes the cell hosts.
+  const terminalSessions = useTerminalSessions();
+  const spawnedBrowserByTopic = useSpawnedBrowserMap();
+  const zoomTarget = usePaneZoomStore((s) => s.bySurface[ZOOM_SURFACE_ID]);
+
+  // The panes of this surface as `zoomScope` reads them. The only distinction
+  // that module makes is chat / non-chat (`resolveZoomAnchor`), and in the
+  // standalone grid the id already carries it: a chat is keyed by its bare
+  // topic, everything else by a known prefix. It is the same line
+  // `sessionKeyForPaneId` draws, read by the same function, so the two cannot
+  // diverge.
+  const zoomPanes = useMemo<ZoomPane[]>(
+    () => openPanels.map((id) => (isKnownPanePrefix(id) ? { id } : { id, type: 'chat' })),
+    [openPanels],
+  );
+  const zoomDeps = useMemo(
+    () => ({
+      openPanes: zoomPanes,
+      topics,
+      terminals: terminalSessions,
+      spawnedBrowserByTopic,
+      rows: effectiveGridRows,
+      itemMap,
+    }),
+    [zoomPanes, topics, terminalSessions, spawnedBrowserByTopic, effectiveGridRows, itemMap],
+  );
+
+  // Below 768px the split branch is not rendered at all, so the zoom does not
+  // exist: it is the fact `useSplitLayoutAvailable()` publishes to the menus
+  // (`!useLayoutMobile()`), read here off the same variable that picks the
+  // branch.
+  const isZoomed = !!zoomTarget && !isMobile;
+  const zoomCellKeys = useMemo(
+    () => (isZoomed && zoomTarget ? resolveZoomCells(zoomTarget, zoomDeps) : NO_ZOOM_CELLS),
+    [isZoomed, zoomTarget, zoomDeps],
+  );
+
+  // The availability predicate: MORE THAN ONE LIVE CELL EXISTS. It is measured
+  // on cells and not on panes (a chat that shares its cell with its own browser
+  // stays zoomable), and it is ONE predicate for the plain gesture and for the
+  // modified one alike. It agrees with `resolveEntryScope` by construction and
+  // not by coincidence: the two measure the same set with the same function,
+  // and with a single live cell that one returns `null` while this one is
+  // false.
+  const liveCells = useMemo(() => liveCellKeys(effectiveGridRows, itemMap), [effectiveGridRows, itemMap]);
+  const canZoom = !isMobile && liveCells.size > 1;
+
+  const exitZoom = useCallback(() => { paneZoomActions.exit(ZOOM_SURFACE_ID); }, []);
+
+  // Returns whether it DID anything. The tab bar throws that answer away — a
+  // double click either enlarges or it does not — but the chord listener needs
+  // it: a surface that declines has to leave the event for the one it contains,
+  // or the one that contains it.
+  const handleToggleZoom = useCallback((paneId: string, requested: ZoomScope): boolean => {
+    // While the zoom is active EVERY trigger SHRINKS, whatever tab and whatever
+    // scope it carries: re-scoping without leaving would be a third state
+    // nobody can read off the screen, and you would come back out with a
+    // gesture other than the one you went in with. It is the obligation the tab
+    // bar cannot enforce on its own.
+    if (usePaneZoomStore.getState().bySurface[ZOOM_SURFACE_ID]) { exitZoom(); return true; }
+    // The SCOPE is fixed HERE, once, and what the store remembers is its
+    // outcome and not the key that was pressed. `null` = the gesture is not on
+    // offer, i.e. a single live cell exists: the same layout on which `canZoom`
+    // is false.
+    const scope = resolveEntryScope(paneId, requested, zoomDeps);
+    if (!scope) return false;
+    paneZoomActions.toggle(ZOOM_SURFACE_ID, paneId, scope);
+    return true;
+  }, [zoomDeps, exitZoom]);
+
+  // Cmd-E / Alt-Cmd-E. `detail.panelId` is the App-level focused panel, which on
+  // this surface IS one of `openPanels` — so the anchor is the panel itself, and
+  // a panel this grid does not hold is somebody else's chord.
+  //
+  // The OUTER surface of the two: a project panel of this grid mounts a
+  // `GroupLayout` with its own zoom inside it, and that one has the first
+  // refusal on a chord aimed at a pane of its own. Standing down is not
+  // unconditional though — when the inner grid declines (one live cell there,
+  // nothing to reveal) the chord comes back here and enlarges the CELL that
+  // hosts the project, which is the honest answer to "make this bigger".
+  const resolveChordAnchor = useCallback(
+    (panelId: string | null): string | null => (panelId && openPanels.includes(panelId) ? panelId : null),
+    [openPanels],
+  );
+  usePaneZoomChord(!isMobile, true, resolveChordAnchor, handleToggleZoom);
+
+  // DOES THIS PANE BELONG TO WHAT THE ZOOM IS SHOWING? The predicate is not
+  // rewritten here: `derived` asks the same `computeZoomPaneIds` that builds the
+  // set on every render, and `cell` is the anchor and nothing else, which is
+  // exactly what `resolveZoomCells` resolves that scope to. Read from the store
+  // and not from `zoomTarget` so a caller mid-commit sees the current record.
+  const paneBelongsToZoomSet = useCallback((paneId: string): boolean => {
+    const target = usePaneZoomStore.getState().bySurface[ZOOM_SURFACE_ID];
+    if (!target) return false;
+    if (target.scope === 'cell') return paneId === target.anchorPaneId;
+    return computeZoomPaneIds(resolveZoomAnchor(target.anchorPaneId, zoomDeps), zoomDeps).includes(paneId);
+  }, [zoomDeps]);
+
+  // Pruning. The cell set is already live by construction — `cellKeysForPanes`
+  // walks the rows and returns only keys `itemMap` knows, i.e. cells the grid
+  // draws — so what is left here is the half the set cannot state on its own:
+  // once the ANCHOR is gone, we leave. Plus the 768px gate, where the command
+  // does not exist and a record left over from a wider window must be closed.
+  useEffect(() => {
+    if (!zoomTarget) return;
+    if (isMobile) { exitZoom(); return; }
+    if (cellKeysForPanes(effectiveGridRows, itemMap, [zoomTarget.anchorPaneId]).size === 0) exitZoom();
+  }, [zoomTarget, isMobile, effectiveGridRows, itemMap, exitZoom]);
+
+  // Focus goes elsewhere: CELL against CELL, with the same walk-up as
+  // `cellKeysForPanes`, so switching tab INSIDE a cell of the set closes
+  // nothing. A focus that has no cell at all on this surface is not «outside
+  // the set»: it is a focus that does not live here, and it decides nothing.
+  useEffect(() => {
+    if (!isZoomed || !focusedPanelId) return;
+    const hosts = cellKeysForPanes(effectiveGridRows, itemMap, [focusedPanelId]);
+    if (hosts.size === 0) return;
+    for (const key of hosts) if (zoomCellKeys.has(key)) return;
+    exitZoom();
+  }, [isZoomed, focusedPanelId, effectiveGridRows, itemMap, zoomCellKeys, exitZoom]);
+
+  // A PANE IS BORN VISIBLE. It is the one rule that covers every way of
+  // opening — the «+», the new-tab shortcut, reopening a closed tab, the
+  // server's force-open — including the ones that never touch `focusedPanelId`,
+  // and that is why it is measured on the panes that APPEARED rather than on
+  // focus. A pane born inside a cell of the set (one more tab in the zoomed
+  // cell, or the browser the agent opens for the anchored conversation) is
+  // already visible: there we do not leave, and it is the same line that says so.
+  const prevOpenPanelsRef = useRef<readonly string[]>(openPanels);
+  useEffect(() => {
+    const before = new Set(prevOpenPanelsRef.current);
+    prevOpenPanelsRef.current = openPanels;
+    if (!isZoomed) return;
+    for (const id of openPanels) {
+      if (before.has(id)) continue;
+      const hosts = cellKeysForPanes(effectiveGridRows, itemMap, [id]);
+      let visible = false;
+      for (const key of hosts) if (zoomCellKeys.has(key)) { visible = true; break; }
+      if (!visible) { exitZoom(); return; }
+    }
+  }, [openPanels, isZoomed, effectiveGridRows, itemMap, zoomCellKeys, exitZoom]);
+
+  // Surface unmount (Spazio switch, window close).
+  useEffect(() => () => { paneZoomActions.exit(ZOOM_SURFACE_ID); }, []);
+
+  // Native views do not follow the DOM reflow on their own: entering and
+  // leaving are the same brackets a split already opens and closes.
+  const wasZoomedRef = useRef(false);
+  useEffect(() => {
+    if (wasZoomedRef.current === isZoomed) return;
+    wasZoomedRef.current = isZoomed;
+    notifyPaneReflow();
+  }, [isZoomed]);
 
   // Weighted "equalize": a cell that hosts a PROJECT with internal splits should
   // claim more of the row/column than a single-pane cell, so that double-clicking
@@ -911,7 +1100,21 @@ export function PanelGrid({
   // useProjectLayout's handleSplitGroupRef). Assigned right after the
   // callback below.
   const handleSplitPaneRef = useRef<((topicId: string, direction: 'right' | 'down') => void) | null>(null);
-  const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down') => {
+  const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down', opts?: SplitPaneOptions) => {
+    // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
+    // so the grid you see is always the one the command acts on.
+    //
+    // AN AUTO-SPLIT IS NOT AN INTENT, and that distinction is the whole layout
+    // this feature was asked for. `auto` is how the browser the agent opens for
+    // the anchored conversation gets a cell of its own: it arrives here through
+    // `pendingSoloPanelId`, not through a menu, and leaving the zoom for it
+    // would close the zoom with the very pane it was meant to reveal — the cell
+    // SHALL appear inside the zoom and the zoom SHALL NOT close (LAYOUT-36).
+    // So an automatic placement keeps the zoom only for a pane that BELONGS to
+    // the set; one that does not is a pane born outside it, the zoom has to go,
+    // and that is the same rule as everywhere else read off the same pure
+    // function.
+    if (!opts?.auto || !paneBelongsToZoomSet(topicId)) exitZoom();
     // Single-tab UX: if `topicId` is the only regular (non-solo) panel in
     // the standalone group, splitting it would leave the standalone group
     // empty and the user would see no visible split — just a single solo
@@ -998,6 +1201,7 @@ export function PanelGrid({
       pushUndo({
         description: 'Split pane',
         undo: () => {
+          exitZoom();
           setSoloCells(prevSoloSnap);
           setGridRows(prevRowsSnap);
           setGridRowHeights(prevHeightsSnap);
@@ -1171,7 +1375,7 @@ export function PanelGrid({
 
     // Focus the split-out panel so the source group falls back to its first remaining tab
     onFocusPanel(topicId);
-  }, [onFocusPanel, openPanels, soloTopicIds, soloCells, onNewChat, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, naturalGridItemsRef, setGridRows, setGridRowHeights, setSoloCells]);
+  }, [onFocusPanel, openPanels, soloTopicIds, soloCells, onNewChat, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, naturalGridItemsRef, setGridRows, setGridRowHeights, setSoloCells, exitZoom, paneBelongsToZoomSet]);
   handleSplitPaneRef.current = handleSplitPane;
 
   /* ---- Unsolo: merge a solo topic back into the main standalone group ---- */
@@ -1271,7 +1475,10 @@ export function PanelGrid({
       // splits side-by-side ('right'), a narrow/tall one stacks ('down').
       const rect = containerRef.current?.getBoundingClientRect() ?? null;
       const dir = chooseSplitOrientation(rect) === 'side' ? 'right' : 'down';
-      handleSplitPane(id, dir);
+      // `auto`: nobody asked to reorganise anything — this is the placement of a
+      // pane that has just appeared. Whether the zoom survives it is decided by
+      // whether that pane is part of the set, inside `handleSplitPane`.
+      handleSplitPane(id, dir, { auto: true });
     }
     onPendingSoloPanelIdConsumed?.();
   }, [pendingSoloPanelId, openPanels, soloTopicIds, onPendingSoloPanelIdConsumed, handleSplitPane]);
@@ -1310,6 +1517,9 @@ export function PanelGrid({
   const fullRowDropRef = useRefMirror(fullRowDrop);
 
   const handleDragStart = useCallback((topicId: string) => (e: React.DragEvent) => {
+    // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
+    // so the grid you see is always the one the command acts on.
+    exitZoom();
     setDraggingId(topicId);
     dropConsumedRef.current = false;
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topicId);
@@ -1329,7 +1539,7 @@ export function PanelGrid({
     if (windowId) {
       sendWS({ type: 'drag:start', topicId, windowId });
     }
-  }, [topics, windowId, sendWS]);
+  }, [topics, windowId, sendWS, exitZoom]);
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     const draggedId = draggingId;
@@ -2251,6 +2461,9 @@ export function PanelGrid({
     const prevHeights = gridRowHeightsRef.current;
     const prevSolo = soloCellsRawRef.current;
     const applyCollapsed = () => {
+    // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
+    // so the grid you see is always the one the command acts on.
+    exitZoom();
       // Batched (React 18) → naturalGridItems recomputes once to the lone pool cell.
       setSoloCells([]);
       setGridRows([{ itemKeys: ['standalone'], widths: [1] }]);
@@ -2261,6 +2474,7 @@ export function PanelGrid({
     pushUndo({
       description: 'Reimposta pannelli',
       undo: () => {
+        exitZoom();
         setSoloCells(prevSolo);
         setGridRows(prevRows);
         setGridRowHeights(prevHeights);
@@ -2268,7 +2482,7 @@ export function PanelGrid({
       redo: applyCollapsed,
     });
     applyCollapsed();
-  }, [isGridCollapsed, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, setSoloCells, setGridRows, setGridRowHeights]);
+  }, [isGridCollapsed, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, setSoloCells, setGridRows, setGridRowHeights, exitZoom]);
 
   // Palette / Topics-menu path — same per-window CustomEvent GroupLayout listens
   // to. A focused PROJECT window owns the event (its GroupLayout flattens), so we
@@ -2315,6 +2529,9 @@ export function PanelGrid({
     const prevHeights = gridRowHeightsRef.current;
     const prevSolo = soloCellsRawRef.current;
     const apply = () => {
+    // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
+    // so the grid you see is always the one the command acts on.
+    exitZoom();
       // Batched (React 18) → naturalGridItems recomputes once to the tiled grid.
       setSoloCells(nextSolo);
       setGridRows(rows);
@@ -2323,6 +2540,7 @@ export function PanelGrid({
     pushUndo({
       description: 'Disponi automaticamente',
       undo: () => {
+        exitZoom();
         setSoloCells(prevSolo);
         setGridRows(prevRows);
         setGridRowHeights(prevHeights);
@@ -2330,7 +2548,7 @@ export function PanelGrid({
       redo: apply,
     });
     apply();
-  }, [openPanels, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, setSoloCells, setGridRows, setGridRowHeights]);
+  }, [openPanels, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, setSoloCells, setGridRows, setGridRowHeights, exitZoom]);
 
   useEffect(() => {
     const handler = () => handleAutoTileGrid();
@@ -2377,8 +2595,15 @@ export function PanelGrid({
   }, [topicPositions, publishSplitPositions]);
 
   const renderGroupForKey = useCallback(
-    (item: GridItem, key: string, rowIdx: number, colIdx: number) => (
+    // `hasBox` = this cell occupies a rectangle in the layout. It is an axis
+    // SEPARATE from residency: whoever gets it false suspends (observers, polls,
+    // measurements against a zero viewport), it does not unmount.
+    (item: GridItem, key: string, rowIdx: number, colIdx: number, hasBox: boolean) => (
       <StandaloneChatGroup
+        hasBox={hasBox}
+        onToggleZoom={handleToggleZoom}
+        canZoom={canZoom}
+        isZoomed={isZoomed}
         topicIds={item.panelIds}
         focusedPanelId={focusedPanelId}
         onFocusPanel={onFocusPanel}
@@ -2407,8 +2632,14 @@ export function PanelGrid({
         // non sono affiancati e se ne vede UNO: se restasse legato alla cella
         // (0,0) il comando starebbe su quella nascosta, e la lista — con la
         // striscia delle tab tolta — non avrebbe più un tasto per riaprirsi.
+        //
+        // D6: while the zoom is active NO cell receives it, and the inset for the
+        // native pills goes with it: the zoomed cell is not flush with the
+        // window, the system lights sit above the frame. The command that
+        // reopens the column lives there, inside the frame, or zooming a cell
+        // other than (0,0) would push it off-screen with no way to reopen it.
         onToggleSidebar={
-          (isMobile ? key === mobileVisibleKey : rowIdx === 0 && colIdx === 0)
+          !isZoomed && (isMobile ? key === mobileVisibleKey : rowIdx === 0 && colIdx === 0)
             ? onToggleSidebar
             : undefined
         }
@@ -2465,7 +2696,7 @@ export function PanelGrid({
       canFlattenGrid, handleResetGridLayout,
       handleMergeIntoCell, handlePersistPoolReorder, handlePersistCellOrder,
       onClosePanelImmediate, onToggleFissato, isFissato,
-      isMobile, mobileVisibleKey,
+      isMobile, mobileVisibleKey, isZoomed, canZoom, handleToggleZoom,
     ],
   );
 
@@ -2507,6 +2738,16 @@ export function PanelGrid({
         (key) => itemMap.has(key),
       ),
     [effectiveGridRows, gridRowHeights, itemMap],
+  );
+
+  // The same tree with the out-of-zoom cells at weight 0. It is WEIGHTS, not
+  // shape: node ids are untouched, `keyFor` keys leaves on `leaf:<id>` and
+  // splits on the INDEX among siblings, and neither of the two depends on the
+  // weight — so entering and leaving remounts nothing. With no zoom it returns
+  // the identical tree, by ref, and this memo never invalidates for a no-op.
+  const zoomedTree = useMemo(
+    () => applyZoomWeights(treeRoot, zoomCellKeys),
+    [treeRoot, zoomCellKeys],
   );
 
   // Divider drag → shift weight on the matching gridRows band, preserving
@@ -2556,11 +2797,20 @@ export function PanelGrid({
     const showSplitRegion = zone === 'left' || zone === 'right'
       || (isTabTarget && (zone === 'top' || zone === 'bottom'));
     const stack = effectiveGridRows[rowIdx]?.cellStacks?.[key];
-    const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx);
+    // The three signals of an out-of-zoom cell, and they are three because none
+    // covers the others: the zero weight (`applyZoomWeights` has already set it,
+    // and the adjacent divider goes with it), the `display:none` just below —
+    // which takes `clientHeight` to 0, so on the way back the chat's reading
+    // anchor is restored, and which is also the only way for those cells to
+    // leave tab order and the accessibility tree — and the absence of a box,
+    // which goes all the way down to the panes.
+    const cellHasBox = !isZoomed || zoomCellKeys.has(key);
+    const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox);
     return (
       <div
         className={`flex w-full h-full min-h-0 min-w-0 overflow-hidden relative ${draggingGridKey === key ? 'opacity-40' : ''}`}
         style={{
+          ...(cellHasBox ? null : { display: 'none' }),
           boxShadow: zone === 'center' && !isTabTarget
             ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
             : undefined,
@@ -2579,7 +2829,7 @@ export function PanelGrid({
             renderStackItem={(stackKey) => {
               const stackItem = itemMap.get(stackKey);
               if (!stackItem) return null;
-              return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx);
+              return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox);
             }}
             onResize={(nextHeights) => handleCellStackResize(rowIdx, key, nextHeights)}
             isDragActive={isAnyDragActive}
@@ -2587,7 +2837,7 @@ export function PanelGrid({
         ) : primaryGroup}
       </div>
     );
-  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive]);
+  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys]);
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
@@ -2665,6 +2915,13 @@ export function PanelGrid({
     <div
       ref={containerRef}
       data-split-surface
+      // The frame: an attribute on the surface that is already there, not a new
+      // container. The zoom is NOT a modal surface and carries no marker that
+      // would make it look like one (`.native-occlude`, `.glass-surface`,
+      // `role="dialog"`): with any of those, Escape would stop interrupting the
+      // streaming turn, and a native browser pane inside the zoomed cell would
+      // freeze the very instant you zoom it.
+      data-pane-zoom={isZoomed ? '1' : undefined}
       // Mid tab-drag, neutralise the divider grab band (CSS below) so a tab
       // dropped onto a pane's inner edge that abuts a divider still splits —
       // the built-in SplitTree divider is z-50 pointer-events:auto but has no
@@ -2735,16 +2992,49 @@ export function PanelGrid({
           );
         });
       })()}
-      {treeRoot && !isMobile ? (
+      {/* THE SCRIM. Always mounted, not only when it is needed: inside this
+          surface there are already siblings that appear and disappear on every
+          drag (`FullWidthRowZone`, `RowGapDropZone`) without remounting the
+          tree, so the fixed node is not fear of a remount — it is that «drop an
+          attribute» reads better than «mount a node», and costs nothing. It is
+          switched off with `hidden`, never by unmounting, so a test that counts
+          it always finds 1. It sits UNDER the stage (z-index), so it is
+          reachable only from the frame band: the «click outside» arrives with no
+          `stopPropagation` scattered around and without touching the surface's
+          drag handlers, which are in capture. It carries its own no-drag
+          attributes because up there that band takes the place that at rest is
+          the title bar. */}
+      <div
+        className="pane-zoom-scrim app-no-drag"
+        data-testid="pane-zoom-scrim"
+        aria-hidden="true"
+        hidden={!isZoomed}
+        {...NO_DRAG_REGION}
+        onClick={exitZoom}
+      />
+      <div className="pane-zoom-stage relative flex flex-col w-full h-full min-w-0 min-h-0">
+      {zoomedTree && !isMobile ? (
         // The split-tree engine is the desktop renderer. On a narrow/mobile
         // viewport the legacy path stacks columns vertically and equalizes them;
         // the tree has no mobile mode, so we keep the legacy branch below ONLY as
         // the mobile (<768px) renderer (matches isMobile in that branch).
         <SplitTree
-          node={treeRoot}
+          node={zoomedTree}
           renderLeaf={renderTreeLeaf}
-          onResize={handleTreeResize}
-          onEqualize={handleTreeEqualize}
+          // While the zoom is active the dividers are LINES, not handles, and
+          // passing no handler is what MAKES that true rather than what claims
+          // it: `SplitTree` reads an absent `onResize` as "this gap is not a
+          // handle" and never wires the drag, so nothing moves — neither the
+          // committed weights nor the live inline `flex` of the flanking cells,
+          // which the drag wrote before it committed anything.
+          //
+          // The reason it must not commit: `handleTreeResize` converts pixels
+          // against a band that in the MODEL also includes the zero-weight
+          // cells, while on screen the band is made of the survivors alone. The
+          // committed weight would be wrong, and it would end up in the
+          // persisted layout.
+          onResize={isZoomed ? undefined : handleTreeResize}
+          onEqualize={isZoomed ? undefined : handleTreeEqualize}
           gutter={1}
         />
       ) : effectiveGridRows.map((row, rowIdx) => (
@@ -2768,6 +3058,16 @@ export function PanelGrid({
               seenGridKeys.add(key);
 
               const width = row.widths[colIdx] ?? 1 / row.itemKeys.length;
+              // On the phone the row that does not host the focused panel and
+              // the cell that is not the focused one leave the layout with
+              // `display:none` — and until now it ended there. `usePaneAlive()`
+              // inside those cells returned the DEFAULT `true`, so a pane with a
+              // ZERO box stayed alive and was, on top of that, the FLOOR of the
+              // residency cap, i.e. exempt from eviction, on the device with the
+              // least memory. The signal goes down here too. A single condition
+              // for both: a cell equal to `mobileVisibleKey` is by construction
+              // in the row that hosts it.
+              const cellHasBox = !(isMobile && mobileVisibleKey && key !== mobileVisibleKey);
               const isDraggingThis = draggingGridKey === key;
               const isTarget = gridDropTarget?.rowIdx === rowIdx && gridDropTarget?.colIdx === colIdx;
               const zone = isTarget ? gridDropTarget!.zone : null;
@@ -2813,7 +3113,7 @@ export function PanelGrid({
                         and the in-cell divider lets the user resize. */}
                     {(() => {
                       const stack = row.cellStacks?.[key];
-                      const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx);
+                      const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox);
                       if (!stack) return primaryGroup;
                       return (
                         <CellSubStack
@@ -2823,7 +3123,7 @@ export function PanelGrid({
                           renderStackItem={(stackKey) => {
                             const stackItem = itemMap.get(stackKey);
                             if (!stackItem) return null;
-                            return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx);
+                            return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox);
                           }}
                           onResize={(nextHeights) =>
                             handleCellStackResize(rowIdx, key, nextHeights)
@@ -2869,6 +3169,27 @@ export function PanelGrid({
           )}
         </Fragment>
       ))}
+      </div>
+
+      {/* D6: the command that reopens the column, INSIDE the frame. On cell
+          (0,0) it would land off-screen every time another cell is zoomed, and
+          with the column closed there would be no way left to reopen it. It sits
+          in the top band, to the right of the space for the native pills — hence
+          the inset on the left, the same one a cell's own bar uses. */}
+      {isZoomed && onToggleSidebar && (
+        <div
+          className="absolute z-10 flex items-center app-no-drag"
+          data-testid="pane-zoom-sidebar-toggle"
+          style={{
+            top: 0,
+            height: 'var(--pane-zoom-inset)',
+            left: `calc(${ROW_INSET}px + var(${CONTENT_CHROME_INSET_PROPERTY}, 0px))`,
+          }}
+          {...NO_DRAG_REGION}
+        >
+          <SidebarToggleButton onClick={onToggleSidebar} size="action" className="rounded-lg" />
+        </div>
+      )}
 
       {/* Pop-out presence markers — one card per detached OS window on this
           device, AFTER the grid rows. Space-agnostic (ruling 3.5): renders in

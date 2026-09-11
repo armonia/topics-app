@@ -30,6 +30,7 @@ import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
 import { useT } from '../../hooks/useT';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
+import { usePaneAlive } from '../../state/paneLiveness';
 import BrowserKeyboardCapture, { type BrowserKeyboardCaptureHandle } from './BrowserKeyboardCapture';
 import { useBrowserChromeBridge } from './useBrowserChromeBridge';
 import { openExternalOnce } from '../../lib/openExternal';
@@ -161,7 +162,27 @@ function isSeedableUrl(raw: string | undefined): raw is string {
   return true;
 }
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+  /**
+   * TWO QUESTIONS, NOT ONE (NATIVEPARK-02).
+   *
+   * The prop answers "is this the active tab of its cell". It cannot answer
+   * "does any shell above this pane still have a box", because the surface that
+   * collapses a cell is several levels up. Parking a native view off-screen at
+   * full size hides it from the user and not from WebKit: rAF keeps firing,
+   * timers stay unthrottled, the whole render tree stays retained. So a pane
+   * behind a hidden shell has to be switched OFF, not merely moved away.
+   *
+   * The line is global on purpose: every host of a browser pane gets the same
+   * answer, the task drawer's tiling included, where a browser behind a hidden
+   * kanban pane used to stay lit with its bounds at zero.
+   *
+   * Read into a binding first: `isVisibleProp && usePaneAlive()` short-circuits,
+   * and a hook that a prop can skip is a hook whose order changes between
+   * renders (`react-hooks/rules-of-hooks` says so, and it is right).
+   */
+  const paneAlive = usePaneAlive();
+  const isVisible = isVisibleProp && paneAlive;
   // SHARE MODE (Tauri only). Default 'auto' (2026-07-22): render the FAST private
   // native WKWebView when you're the only viewer, and auto-join the shared server
   // session when another device (phone PWA / web) opens the SAME context so they

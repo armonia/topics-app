@@ -1,12 +1,17 @@
 //! Which app chord a focused browser pane must NOT keep, and what the shell does
 //! with it. Windows shape of the table, compiled on EVERY platform.
 //!
-//! On macOS the same decision lives in `lib.rs` (`app_chord_dispatch_js` plus the
-//! reload branch of `install_shortcut_forwarder`), where it is welded to an
-//! NSEvent monitor: pure logic and AppKit calls in one block, so nothing of it
-//! can be run off a Mac and nothing of it is covered by a test. The Windows
-//! counterpart splits the two: this module is the decision, `chords_win.rs` is
-//! the WebView2 plumbing that feeds it.
+//! On macOS the same decision lives in `lib.rs`, and it is CUT IN TWO. The pure
+//! half is `app_chord_dispatch_js`: it picks the synthetic keydown and formats
+//! it, with no AppKit call in its body, so `#[cfg(target_os = "macos")]` means
+//! `cargo test --lib` both compiles AND runs it on the developer's own Mac -
+//! which `mod mac_chord_dispatch_tests` in `lib.rs` now does. The half that IS
+//! welded to the NSEvent monitor is the one handing it the arguments (the
+//! `modifierFlags` read, plus the reload branch of `install_shortcut_forwarder`):
+//! that half runs on no machine but a Mac and no test covers it - only the
+//! manual pass with focus inside a native browser pane does. The Windows
+//! counterpart splits the two the same way: this module is the decision,
+//! `chords_win.rs` is the WebView2 plumbing that feeds it.
 //!
 //! It is therefore compiled everywhere on purpose (`cargo test --lib` proves the
 //! table on the developer's Mac, where no WebView2 exists), and only Windows
@@ -155,7 +160,7 @@ mod tests {
 
     #[test]
     fn app_chords_from_the_registry_are_forwarded() {
-        for ch in ['w', 'k', 'b', 'p', 'n', 't', '1', '9', '/'] {
+        for ch in ['w', 'k', 'b', 'p', 'n', 't', 'e', '1', '9', '/'] {
             let a = decide(&chord(true, false, ChordKey::Char(ch)));
             let (js, swallow) = forwarded_key(&a).unwrap_or_else(|| panic!("Ctrl+{ch} not forwarded"));
             assert!(js.contains(&format!("key:'{ch}'")), "{js}");
@@ -219,9 +224,23 @@ mod tests {
         assert_eq!(decide(&chord(false, false, ChordKey::Tab)), ChordAction::PassThrough);
     }
 
+    /// The asymmetry that stays, and the one the zoom chord inherits: Ctrl+Alt+E
+    /// is the page's, so `⌥⌘E` has no Windows twin (LAYOUT-40 admits it in
+    /// writing). READ THIS BEFORE TRUSTING THE CASE: `Char('e')` is green here
+    /// BEFORE and AFTER the registry gained 'e', by construction, because
+    /// `decide()` returns on `c.alt` before it ever reaches the table. That is
+    /// not a flaw of the case, it is
+    /// what the case guards; its falsification is therefore a different one from
+    /// the forwarding case's: delete that early return and this test goes red
+    /// (measured on this build: 4 of the 5 keys stop being `PassThrough` -
+    /// Ctrl+Alt+W and Ctrl+Alt+E forward, Ctrl+Alt+R reloads, Ctrl+Alt+Tab
+    /// cycles - and only `Escape` survives, because its branch needs `!ctrl`;
+    /// the `assert_eq!` aborts at the first, so the red names `Char('w')`).
+    /// Whoever runs it, finds it green and concludes the registry change was
+    /// proved here has proved nothing.
     #[test]
     fn alt_is_never_ours() {
-        for key in [ChordKey::Char('w'), ChordKey::Char('r'), ChordKey::Tab, ChordKey::Escape] {
+        for key in [ChordKey::Char('w'), ChordKey::Char('e'), ChordKey::Char('r'), ChordKey::Tab, ChordKey::Escape] {
             let c = Chord { ctrl: true, shift: false, alt: true, key };
             assert_eq!(decide(&c), ChordAction::PassThrough, "{key:?} with Alt");
         }

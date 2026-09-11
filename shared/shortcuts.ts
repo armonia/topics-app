@@ -88,6 +88,27 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       { keys: ['⌘', '1-9'], description: 'Switch panel', desktopOnly: true, native: { chars: ['1', '2', '3', '4', '5', '6', '7', '8', '9'] } },
       { keys: ['⌘', 'W'], description: 'Close focused panel', desktopOnly: true, native: { chars: ['w'] } },
+      // ⌘E and ⌥⌘E share the char "e"; the renderer splits them on altKey, the
+      // way ⌘N/⌘⇧N and ⌘P/⌘⇧P split on shiftKey. The `native` field is NOT
+      // optional here, and it is the line to get right: `forwardedCmdChars()`
+      // skips every shortcut without it, so without the field 'e' never enters
+      // the generated table, the NSEvent monitor does not forward the chord, and
+      // ⌘E dies in exactly "chat plus the browser the agent opened" - the layout
+      // this command exists for (LAYOUT-41). No gate would notice: `gen:shortcuts`
+      // and this file's test compare the committed .rs against the generator's
+      // output, and a registry that never names 'e' matches a .rs that never
+      // names it either. They prove COHERENCE, never coverage.
+      // The list is ONE for both native sides, so Windows changes just as much:
+      // from here on Ctrl+E with a page focused is forwarded and swallowed
+      // instead of reaching that page. That is the wanted behaviour - there
+      // Ctrl+E zooms just like ⌘E here - and `chords.rs` ASSERTS it in
+      // `app_chords_from_the_registry_are_forwarded`.
+      // ⌥ asks for no field of its own: 'e' is forwarded identically with and
+      // without it, the way 'w' is Shift-agnostic. What tells the two scopes
+      // apart is the renderer, on `e.altKey`; getting the real Option bit that
+      // far is the native monitor's job (lib.rs), not the registry's.
+      { keys: ['⌘', 'E'], description: 'Enlarge the conversation', native: { chars: ['e'] } },
+      { keys: ['⌥', '⌘', 'E'], description: 'Enlarge this cell only', native: { chars: ['e'] } },
       { keys: ['⌘', '⇧', 'T'], description: 'Reopen closed tab (alias ⌘⇧U)', native: { chars: ['t', 'u'], requireShift: true } },
       // ⌃Tab / ⌃⇧Tab / ⌘⇧Tab key off keyCode 48 — forwarded by the hand-written
       // branch in lib.rs, not by the generated char table.

@@ -587,6 +587,15 @@ const IT: Dict = {
   'tab.menu.closeNow': 'Chiudi ora',
   'tab.menu.closeCountdown': 'Chiudi (con conto alla rovescia)',
   'tab.menu.closeOthers': 'Chiudi le altre',
+  // ZOOM: two entries to get IN, one to get OUT (LAYOUT-34, LAYOUT-40).
+  // The cell-only entry stays offered every time the command exists, the
+  // degraded layout included, where it does exactly what the plain one does:
+  // making it come and go would tie the menu to the derived set, which is the
+  // one set nobody can see on screen. While the zoom is open the menu offers
+  // the single reduce entry, because two labels for one action are noise.
+  'tab.menu.zoom': 'Ingrandisci',
+  'tab.menu.unzoom': 'Riduci',
+  'tab.menu.zoomCellOnly': 'Ingrandisci solo questa',
   'tab.menu.splitRight': 'Dividi a destra',
   'tab.menu.splitDown': 'Dividi in basso',
   'tab.menu.pin': 'Fissa',
@@ -1647,6 +1656,12 @@ const IT: Dict = {
   'processes.awaited.one': 'Un agente sta aspettando la fine di questo processo',
   'processes.awaited.many': '{n} agenti stanno aspettando la fine di questo processo',
   'processes.awaited.chip': 'atteso',
+  // The command that REOPENS the column. It had no key: App.tsx hard-codes its
+  // title and SidebarToggleButton falls back to a default one, so the first
+  // place that needs it translated is the zoom frame, where the command is
+  // re-rendered inside the inset because the zoomed cell may not be the
+  // top-left one (design D6).
+  'sidebar.expand': 'Riapri la colonna',
   'sidebar.tree': 'Barra laterale',
   'sidebar.pinned': 'Fissato',
   'sidebar.moreOptions': 'Altre opzioni',
