@@ -209,12 +209,51 @@ const TEST_NOISE = /^\s*\((?:pass|skip)\)/;
 const COLOR_WARNING_NOISE =
   /^(?:\x1b\[[0-9;]*[A-Za-z])*\s*(?:\(node:\d+\) Warning: The 'NO_COLOR' env is ignored|\(Use `node --trace-warnings)/;
 const isCheckNoise = (row: string): boolean => TEST_NOISE.test(row) || COLOR_WARNING_NOISE.test(row);
+
+/**
+ * THE SAME DEFECT A THIRD TIME, and this one has no string to name.
+ *
+ * The two filters above each know a shape of noise by heart. This one cannot:
+ * the line that buried the tail on card 392e95ae (2026-09-11) was
+ * `[Security] Project path denied: /private/tmp -> /private/tmp`, a legitimate
+ * warning the test server prints - once per request. It arrived some forty
+ * times, interleaved with `[Warn 400] Invalid path`, and `TAIL_LINES` cut
+ * exactly there: the saved tail was that pair over and over and the failing
+ * test was nowhere in it. Tomorrow it will be a different sentence.
+ *
+ * So what repeats is dropped, whatever it says. The FIRST occurrence keeps its
+ * place and carries the count, so nothing is hidden: a line that appears once
+ * is untouched, and a line that appears forty times still appears - once, with
+ * `[x40]` on it. Blank lines are left alone because collapsing them would weld
+ * unrelated blocks together.
+ *
+ * Note this is not run-length collapsing: those lines ALTERNATED, so only
+ * deduplication over the whole stream catches them.
+ */
+function collapseRepeats(rows: string[]): string[] {
+  const seen = new Map<string, number>();
+  for (const r of rows) if (r.trim()) seen.set(r, (seen.get(r) ?? 0) + 1);
+  const done = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    if (!r.trim()) { out.push(r); continue; }
+    const n = seen.get(r) ?? 1;
+    if (n === 1) { out.push(r); continue; }
+    if (done.has(r)) continue;
+    done.add(r);
+    out.push(`${r}   [x${n}]`);
+  }
+  return out;
+}
+
 export function failureTail(text: string, lines = TAIL_LINES): string {
   const rows = text.replace(/\s+$/, "").split("\n");
-  const kept = rows.filter((r) => !isCheckNoise(r));
+  const kept = collapseRepeats(rows.filter((r) => !isCheckNoise(r)));
   const dropped = rows.length - kept.length;
   const body = kept.slice(Math.max(0, kept.length - lines)).join("\n");
-  return dropped > 0 ? `[${dropped} righe di rumore omesse: (pass)/(skip) e avvisi colore di Node]\n${body}` : body;
+  return dropped > 0
+    ? `[${dropped} righe di rumore omesse: (pass)/(skip), avvisi colore di Node, e righe ripetute (la prima resta, col conteggio)]\n${body}`
+    : body;
 }
 
 interface RunOpts {
