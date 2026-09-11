@@ -5,16 +5,18 @@
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
-  parseCpuTimeSeconds,
-  parsePsRows,
-  summarizeFleet,
   resolveFleetRoots,
   registerFleetSocket,
   _resetFleetSockets,
   _resetFleetUsageCache,
   getFleetUsage,
-  type PsRow,
 } from "./fleet-usage";
+import {
+  parseCpuTimeSeconds,
+  parsePsRows,
+  summarizeFleet,
+  type PsRow,
+} from "./fleet-summary";
 
 describe("parsePsRows", () => {
   it("keeps the command intact when it contains spaces", () => {
