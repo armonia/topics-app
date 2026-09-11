@@ -181,7 +181,6 @@
     "client/src/hooks/useCompletionNotifier.tsx": 855,
     "server/routes/topics.control.test.ts": 855,
     "tests/e2e/board-drawer-scroll.spec.ts": 854,
-    "server/lib/fleet-usage.ts": 845,
     "server/providers/native/agent-loop.ts": 839,
     "server/browser-tools-handler.ts": 810,
     "relay/ponte.test.ts": 803,
