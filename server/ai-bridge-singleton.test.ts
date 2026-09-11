@@ -289,7 +289,19 @@ describe("ai-bridge · socket ownership", () => {
      *      a duration, so no threshold has to be retuned when the suite grows:
      *      the ceilings below are only there so that a hang ends as a red
      *      instead of a hung test. */
-    const REACH_CEILING_MS = 25_000;
+    // THE BIRTH OF A PROCESS FOLLOWS THE LOAD, like every other window in this
+    // file. `someoneListening` has gone through `slackMs` since it was written;
+    // this ceiling was left bare, and it is the one that measures the slowest
+    // thing here - five `spawn`s on a machine that is already running 1299 test
+    // files. Measured 2026-09-11 at load 13,0 on 12 cores: «1 of 5 daemons never
+    // reached the race within 25000 ms», and the sentence is correct, it says so
+    // itself - the machine never started #0. It still came back as a red, and it
+    // blocked three cards (983469e3, and the same signature twice before).
+    //
+    // This is NOT the widened deadline the comment above rejects. That one was a
+    // stopwatch standing in for the claim; this one is only there so that a hang
+    // ends as a red, and the claim is still the sentence `diagnose` prints.
+    const REACH_CEILING_MS = slackMs(25_000);
     const reachDeadline = Date.now() + REACH_CEILING_MS;
     while (Date.now() < reachDeadline && !racers.every((d) => d.said().trim().length > 0)) {
       await Bun.sleep(100);
@@ -300,7 +312,7 @@ describe("ai-bridge · socket ownership", () => {
     // is the teardown of a process, not a decision. The window is wide because
     // it costs nothing when things go right (the loop leaves at the first
     // reading) and it is only spent on the way to a red.
-    const settleDeadline = Date.now() + PROBE_MS * 10;
+    const settleDeadline = Date.now() + slackMs(PROBE_MS * 10);
     while (Date.now() < settleDeadline && racers.filter(stillRunning).length > 1) {
       await Bun.sleep(200);
     }
@@ -310,6 +322,7 @@ describe("ai-bridge · socket ownership", () => {
     // 45 s of ceiling against the 25 + 15 of internal waiting: the test must
     // have room to reach its own comparison, because the sentence that
     // comparison prints is the only useful thing when this case really fails.
-    // A bun timeout firing first would replace it with silence.
-  }, 45_000);
+    // A bun timeout firing first would replace it with silence. All three go
+    // through `slackMs`, so the ratio holds whatever the load does to them.
+  }, slackMs(45_000));
 });
