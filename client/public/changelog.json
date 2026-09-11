@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.2.303",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-11 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "pane-zoom: l'innesto sulle due griglie, il gesto, la cornice e la suite e2e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "pane-zoom: i cancelli finali, e una parola che era del prodotto prima che del codice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riporta main nel ramo, e togli un debito che il cancello ha reso finto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il mock che restaurava il modulo intero lo rendeva invisibile al cancello sul codice morto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento che spiegava il cancello era scritto nella lingua che il cancello vieta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.302",
     "date": "2026-09-11",
     "sections": {
@@ -353,6 +395,11 @@
           "en": "",
           "scope": "dispatch",
           "breaking": false
+        },
+        {
+          "it": "pane-zoom onda 1: i moduli puri, il chiavistello nativo, il registro delle chord",
+          "en": "",
+          "scope": null
         },
         {
           "it": "il tetto del compressore ha un numero contro, non solo un argomento",

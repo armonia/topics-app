@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.303 — 2026-09-11
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-11 [skip ci]
+- pane-zoom: l'innesto sulle due griglie, il gesto, la cornice e la suite e2e
+- pane-zoom: i cancelli finali, e una parola che era del prodotto prima che del codice
+- Riporta main nel ramo, e togli un debito che il cancello ha reso finto
+- Il mock che restaurava il modulo intero lo rendeva invisibile al cancello sul codice morto
+- Il commento che spiegava il cancello era scritto nella lingua che il cancello vieta
+
 ## 2.2.302 — 2026-09-11
 
 ### Correzioni
@@ -85,6 +95,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **dispatch** · il pavimento passa dai due campioni veri, non da un ragionamento
 - **dispatch** · dove cade il pavimento, e quale freno NON manca
 - **dispatch** · dove si rompe la memoria, e in che ordine
+- pane-zoom onda 1: i moduli puri, il chiavistello nativo, il registro delle chord
 - **dispatch** · il tetto del compressore ha un numero contro, non solo un argomento
 - **dispatch** · il buco non campionato e' largo 1,4 GB, non sette
 
