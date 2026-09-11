@@ -20,7 +20,7 @@ import { Select } from '../Shared/Select';
 import { boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
-import { friendlyModelLabel } from './format';
+import { buildDispatchModelOptions } from './dispatchModelOptions';
 import {
   GlobalSettingsSection,
   SettingsPanelHead,
@@ -105,13 +105,11 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           non un elemento di modulo nativo non c'è più niente da associare, e
           una `<label>` intorno a un bottone renderebbe cliccabile — cioè
           apribile — anche il testo della riga. */}
-      {/* The stored value stays in the option list even when its provider is
-          disconnected (`models` no longer carries it): otherwise the trigger
-          falls back to `Select`'s placeholder `-`, which reads as "nothing
-          set" while `dispatchModel` is still the value the dispatcher runs on
-          (`task-dispatcher.ts`). Same rule `TaskModelMenuOptions` follows for
-          the drawer/composer chips — never reconcile the stored value against
-          the live catalog. */}
+      {/* The option list is `buildDispatchModelOptions` (see its docstring):
+          the stored value stays on the list even when its provider is
+          disconnected, so this picker never falls back to `Select`'s own
+          placeholder `-`, which would read as "nothing set" while
+          `dispatchModel` is still the value the dispatcher runs on. */}
       <div className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
         <span>{tr('board.settings.model')}</span>
         <Select
@@ -120,13 +118,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           ariaLabel={tr('board.settings.model')}
           align="right"
           className="max-w-[55%]"
-          options={[
-            { value: 'auto', label: tr('board.settings.modelAuto') },
-            ...models.map((m) => ({ value: m, label: friendlyModelLabel(m) })),
-            ...(s.dispatchModel && !models.includes(s.dispatchModel)
-              ? [{ value: s.dispatchModel, label: friendlyModelLabel(s.dispatchModel) }]
-              : []),
-          ]}
+          options={buildDispatchModelOptions(models, s.dispatchModel, tr('board.settings.modelAuto'))}
         />
       </div>
 
