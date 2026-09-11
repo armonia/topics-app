@@ -6,7 +6,7 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -602,21 +602,39 @@ describe("il pavimento della memoria segue il runtime", () => {
     expect(r).toContain("240 MB");
   });
 
+  test("il pavimento nativo deve stare SOPRA il prezzo di un posto", () => {
+    // THE LESSON OF 2026-09-10, as an invariant instead of a number. The floor
+    // governs the NEXT admission, so it has to leave room for the card it is
+    // about to let in. With the old pair (floor 2, seat 0,25) it did not: the
+    // gate opened at 2 GB for a card whose checks then asked ~1,5, which is how
+    // seven cards were admitted onto a Mac that then froze.
+    expect(DISPATCH_MEM_FLOOR_NATIVE_GB).toBeGreaterThan(GB_PER_AGENT_NATIVE);
+    expect(DISPATCH_MEM_FLOOR_GB).toBeGreaterThan(GB_PER_AGENT_CLI);
+  });
+
   test("col runtime nativo: gli stessi 8,7 GB sono abbondanti", () => {
     // LA RIGA CHE CONTA: stessa macchina, stessa lettura, coda che riparte.
     expect(dispatchResourceBlock("/tmp", disco, ram(8.7), false)).toBeNull();
   });
 
-  test("il pavimento nativo esiste comunque: underCeiling 2 GB si ferma anche lui", () => {
+  test("il pavimento nativo esiste comunque: sotto la soglia si ferma anche lui", () => {
     // Non è zero: il server tiene le conversazioni in memoria e i tool leggono
     // file. Una macchina già in swap non deve peggiorare comunque.
     const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false);
     expect(r).toBeTruthy();
-    expect(r).toContain("pavimento di 2 GB");
+    // The number is READ from the constant, not copied: this test went red when
+    // the floor moved from 2 to 6, and a test that has to be edited every time
+    // the value it guards changes is guarding the digit, not the behaviour.
+    expect(r).toContain(`pavimento di ${DISPATCH_MEM_FLOOR_NATIVE_GB} GB`);
     // E il messaggio dice il costo GIUSTO: citare i 240 MB della CLI qui
     // manderebbe a cercare la causa nel posto sbagliato.
     expect(r).not.toContain("240 MB");
+    // Both halves, and the second is the one that was missing: the session is
+    // cheap, what the session LAUNCHES is not, and a message that only says
+    // "2,3 MB" reads as "there is no room for nothing" - which is what sent the
+    // 10/09 diagnosis after the wrong cause.
     expect(r).toContain("2,3 MB");
+    expect(r).toContain("1,5 GB");
   });
 
   test("il disco viene prima della RAM, su entrambi i runtime", () => {

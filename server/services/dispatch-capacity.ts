@@ -270,8 +270,48 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  * turni tengono la conversazione in memoria, i tool leggono file, e una
  * macchina già in swap non deve peggiorare comunque. Ma è il margine di
  * un'applicazione che lavora, non di N processi Node.
+ *
+ * ── AND TWO WAS STILL THE WRONG NUMBER: IT PRICED THE SESSION, NOT THE WORK ──
+ * Everything above measures the session OBJECT - 2,3 MB of messages inside a
+ * server that is already running. True, and beside the point. What a card
+ * actually costs is the CHECK RUN it launches: `test:unit:shards` forks four
+ * shards, and `e2e-touched` starts a test server and browsers. Those are
+ * processes, and they are exactly the thing the native floor decided not to
+ * count.
+ *
+ * MEASURED on 2026-09-11 with the board at work - the loaded case every earlier
+ * calibration was missing, because all of them sampled an idle Mac:
+ *
+ *   server alone, no card in checks .............. 0,57 GB   (10 processes)
+ *   one card inside test:unit:shards ............. 2,4 GB    (13-15)
+ *   three cards together, peak ................... 4,94 GB   (23)
+ *   -> marginal cost of one admitted card ........ ~1,5 GB
+ *
+ * 18 samples over that stretch: `availableMemGB` stayed between 7,74 and 10,94
+ * and Swapouts did not move (258.707, the same cumulative value as before the
+ * 10/09 crisis). That band IS the working point under real load.
+ *
+ * So a floor of 2 admits a card when the machine has 2 GB left, and that one
+ * card then asks for about 1,5 of them. That is not a brake that failed to
+ * hold: it is a brake set below the weight of a single admission, and it is the
+ * mechanism of the 10/09 freeze - seven cards admitted while `availableMemGB`
+ * read 9,69, which against a floor of 2 was wide open. Card 5edd2e5f says the
+ * gate "was already refusing"; it was not, and that line is corrected there.
+ *
+ * SIX, AND WHY THAT AND NOT A ROUNDER NUMBER. Three grounds, in order: it never
+ * bites inside the measured working band (7,74-10,94); it is four times the
+ * marginal cost of the admission it governs, so the card it lets in lands the
+ * machine near 4,5 GB and not near zero; and above all it stops short of the
+ * region where there are no measurements at all - between 7,7 GB (fine, seen)
+ * and 0,08 GB (the freeze, seen) nobody has ever sampled anything.
+ *
+ * WHAT WOULD MOVE IT, so the next person re-measures instead of re-guessing:
+ * the check suite is the load, so if the shards or the e2e set change size,
+ * this number is stale. Re-run the measurement the same way - the tree of the
+ * server process (`lsof -nP -iTCP:3333`, then walk the children) against
+ * `vm_stat`, while the board actually works.
  */
-export const DISPATCH_MEM_FLOOR_NATIVE_GB = 2;
+export const DISPATCH_MEM_FLOOR_NATIVE_GB = 6;
 
 /**
  * Quanta RAM prenotare per UN agente quando decidi quanti posti ha la macchina.
@@ -291,13 +331,20 @@ export const DISPATCH_MEM_FLOOR_NATIVE_GB = 2;
  * conversazione, i tool leggono file). Prezzare a 2,3 MB darebbe posti
  * illimitati su qualunque macchina, e il tetto smetterebbe di essere un tetto.
  *
+ * RAISED TO 1,5 FOR THE SAME REASON AS THE FLOOR ABOVE, and it is the same
+ * mistake in the other parameter: a quarter of a giga was "a hundred times the
+ * measured session", but the session is not what occupies the machine. One card
+ * inside its checks was measured at ~1,5 GB of real processes on 2026-09-11.
+ * A seat has to be priced at what the occupant weighs, and 0,25 handed out six
+ * times more seats than the machine has room for.
+ *
  * PERCHÉ CONTA. Il pavimento (`dispatchResourceBlock`) sa già distinguere i due
  * runtime; il TETTO no, e si vedeva: quattro task nativi su questa macchina
  * partivano a scaglioni di due perché `byMem` prenotava 3 GB a testa per
  * sessioni che ne chiedono due di megabyte.
  */
 export const GB_PER_AGENT_CLI = 3;
-export const GB_PER_AGENT_NATIVE = 0.25;
+export const GB_PER_AGENT_NATIVE = 1.5;
 
 /**
  * Memoria REALMENTE disponibile, in GB: quella che la macchina puo' dare SENZA
@@ -510,7 +557,7 @@ export function dispatchResourceBlock(
   if (memoryTooTight(mem, floor)) {
     const costo = agentsAreProcesses
       ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
-      : "Anche col runtime nativo (~2,3 MB per sessione) qui non c'è margine nemmeno per il server";
+      : "Con il runtime nativo la sessione pesa 2,3 MB, ma i check che lancia (shard unit, e2e) ne chiedono ~1,5 GB";
     return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${floor} GB. ` +
       `${costo}, e sotto questa riga la macchina va in swap. ` +
       `Riprendo appena si libera memoria: niente è andato perso.`;
