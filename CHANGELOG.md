@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.301 — 2026-09-11
+
+### Correzioni
+- **site** · `auth` incollato a un identificatore non è la rivendicazione
+
 ## 2.2.300 — 2026-09-11
 
 ### Correzioni
@@ -134,6 +139,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **gates** · clear identifier-language debt surfaced by the pre-review realign merge
 - **native** · un rifiuto dell'API non è una risposta mancata
 - **gates** · english identifier names in history-rehydrate.test.ts
+- **sidebar** · i messaggi di stato (offline/reconnecting/cached data) diventano pill come l'avviso di consumo Claude
+- **lang** · rinomina i nuovi nomi italiani che bloccavano il gate identifier-language
 - **chat** · a turn closed from outside its own row is not a turn that ended
 - **rails** · due nomi italiani nel test del ricarico bundle
 - **native** · la storia ricostruita porta di nuovo i tool call, con un tetto
