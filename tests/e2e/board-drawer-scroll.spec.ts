@@ -56,13 +56,38 @@ function chunk(type: string, data: Buffer): Buffer {
   crc.writeUInt32BE(crc32(body), 0);
   return Buffer.concat([len, body, crc]);
 }
+/**
+ * UNA FINTA CHE IL CANCELLO SUL CONTENUTO ACCETTA, e non per fortuna.
+ *
+ * Le sole bande orizzontali non bastavano piu': `isBlankLikeImage`
+ * (`server/services/image-shape.ts`) misura byte/pixel, e trenta bande di due
+ * grigi su 6010 righe si comprimono esattamente come una tinta piatta —
+ * misurato l'11/09: 25.906 byte contro i 25.900 della stessa immagine tutta di
+ * un colore, sei byte di differenza su 13,2 megapixel. Per quel cancello questa
+ * immagine ERA vuota, e aveva ragione: 0,00196 byte/px contro un pavimento di
+ * 0,01. Quattro casi di questo file rispondevano 400 al semino.
+ *
+ * Quindi una riga ogni 32 porta rumore vero. Non e' un trucco per superare la
+ * soglia: porta la finta a 0,0354 byte/px, cioe' in mezzo alle densita' delle
+ * schermate VERE da cui il pavimento e' stato ricavato (0,0229-0,0683), e nel
+ * video le bande si leggono meglio di prima perche' hanno una trama.
+ * Deterministica (seme fisso) perche' un fixture che cambia peso a ogni giro
+ * non e' un fixture.
+ */
 function tallPng(width: number, height: number): Buffer {
   const raw = Buffer.alloc(height * (width + 1));
+  let seed = 0x2f6e2b1;
   for (let y = 0; y < height; y++) {
     const off = y * (width + 1);
     raw[off] = 0; // filter: none
     // Bande orizzontali: nel video si vede QUALE fetta dell'immagine è a schermo.
     raw.fill(y % 400 < 200 ? 0x33 : 0xcc, off + 1, off + 1 + width);
+    if (y % 32 === 0) {
+      for (let x = 0; x < width; x++) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        raw[off + 1 + x] = (seed >>> 24) & 0xff;
+      }
+    }
   }
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
