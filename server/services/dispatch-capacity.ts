@@ -225,6 +225,27 @@ export function freeDiskGB(path: string): number | null {
  * lavoro: dava 48% mentre di liberi ce n'erano 1,9 GB, cioè un numero che non
  * dice quanti agenti ci stanno.
  */
+/**
+ * ── WHERE THIS FLOOR FALLS ON THIS MACHINE ──────────────────────────────────
+ * Written here instead of left for whoever finds the queue stopped with no
+ * explanation. Measured 2026-09-11 over 14 `vm_stat` samples in 56 s, machine
+ * healthy: 12,4-13,1 GB available. The floor is 12. It lives right up against
+ * it, and it did with the old sum too (mean 12,37 against the new 12,78): this
+ * is not a strictness introduced by the change of formula, it is the working
+ * point of a 32 GB Mac with a browser, an app and a server on it.
+ *
+ * The practical consequence: with an agent CLI at ~240 MB idle, about three
+ * agents are enough for the floor to bite. Whoever finds the queue stopped with
+ * "Memoria quasi finita" on a machine that looks fine is seeing this, not a
+ * fault.
+ *
+ * AND THE FLOOR IS NOT THE MISSING BRAKE: it governs the NEXT admissions,
+ * including the next turn of an agent already in flight (it goes through
+ * `admissionBlock`, inside the resume chain in `task-dispatcher.ts`). What does
+ * not exist is a lever on memory already committed DURING a turn: on
+ * 2026-09-10 the seven cards had been admitted while memory was still good, and
+ * the RAM ran out while they worked. See card 5edd2e5f.
+ */
 export const DISPATCH_MEM_FLOOR_GB = 12;
 
 /**
