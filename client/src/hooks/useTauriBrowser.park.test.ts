@@ -74,12 +74,12 @@ const realTauri = {
   currentWindowLabel: tauriShell.currentWindowLabel,
   releaseNativeFocus: tauriShell.releaseNativeFocus,
 };
-// Enumerato invece che sparso (`{ ...occlusionModule }`): uno spread rende il
-// modulo OPACO a knip, che da' per usati tutti i suoi export e smette di vedere
-// quelli morti — e' il punto cieco che `check:deadcode-blindspots` rifiuta. La
-// forma e' la stessa di `realTauri` qui sopra, e il costo e' che un export nuovo
-// va aggiunto qui: se non lo e', il mock lo lascia fuori e il test che lo usa
-// cade rumorosamente, che e' il modo giusto di scoprirlo.
+// Enumerated rather than spread (`{ ...occlusionModule }`): a namespace spread
+// makes the module OPAQUE to knip, which then counts every export as used and
+// stops seeing the dead ones. That is the blind spot `check:deadcode-blindspots`
+// refuses, and it is the shape `realTauri` uses ten lines above. The price is
+// that a new export has to be added here too; if it is not, the mock leaves it
+// out and the test that uses it fails loudly, which is the right way to find out.
 const realOcclusion = {
   OVERLAY_SELECTOR: occlusionModule.OVERLAY_SELECTOR,
   overlayPaints: occlusionModule.overlayPaints,
