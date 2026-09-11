@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.298",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lo stato del memo provider non e' roba da repo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.297",
     "date": "2026-09-11",
     "sections": {
