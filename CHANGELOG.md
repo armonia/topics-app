@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.298 — 2026-09-11
+
+### Sotto il cofano
+- lo stato del memo provider non e' roba da repo
+
 ## 2.2.297 — 2026-09-11
 
 ### Correzioni
