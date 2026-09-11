@@ -548,6 +548,29 @@ cui si legge se il progetto è quello selezionato.
 - **GIVEN** una scheda di progetto selezionata accanto a una chat a riposo
 - **THEN** i due fondi SHALL distare almeno 1,25:1
 
+### Requirement: CHROME-14 — Una scheda di progetto si legge come tale, in ogni stato
+
+CHROME-13 misura se una scheda di progetto è quella SELEZIONATA (il fondo). Resta
+una domanda diversa: se quella scheda è di un PROGETTO, e non di una chat. Una
+scheda di progetto SHALL portare un marcatore di tipo, distinto dall'icona reale
+del progetto (`ProjectFavicon`, che per un progetto senza favicon spedito non
+riserva spazio: decisione di prodotto, non difetto) e SHALL restare visibile
+tanto a riposo quanto SELEZIONATA — i due stati in cui i marcatori legati ai
+figli (tempo aggregato, indicatore di lavoro) sono deliberatamente spenti perché
+la barra del progetto stesso, aperta, già li mostra.
+
+#### Scenario: progetto senza favicon, a riposo
+- **GIVEN** una scheda di progetto che non ha un'icona spedita
+- **THEN** SHALL portare comunque il marcatore di tipo progetto
+
+#### Scenario: progetto senza favicon, selezionato
+- **GIVEN** la stessa scheda, ora selezionata
+- **THEN** il marcatore di tipo SHALL restare visibile
+
+#### Scenario: una chat non lo porta
+- **GIVEN** una scheda di chat, in qualunque stato
+- **THEN** NON SHALL portare il marcatore di tipo progetto
+
 ### Requirement: CHROME-12 — Prima si ferma, poi si chiude, e il segnale di lavoro sta in coda
 
 Il binario dei comandi in coda a una superficie di riga — una scheda della barra,

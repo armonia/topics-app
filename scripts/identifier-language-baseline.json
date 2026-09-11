@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-10",
+  "generated": "2026-09-11",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -2056,7 +2056,6 @@
       "parseSmapsRollup"
     ],
     "scripts/bench/session-memory.ts": [
-      "rssMb",
       "tls"
     ],
     "scripts/bench/streaming-shape.ts": [
@@ -3082,7 +3081,6 @@
     "server/lib/fleet-usage.ts": [
       "arr",
       "buf",
-      "sawRss",
       "suoi"
     ],
     "server/lib/gateway-sse-consumer.test.ts": [

@@ -1813,7 +1813,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // format, unreadable header) still passes, same as every other gate here.
     try {
       const shape = ctx.imageShapeOf?.(raw);
-      if (shape && isBlankLikeImage({ bytes: statSync(raw).size, width: shape.width, height: shape.height })) {
+      if (
+        shape &&
+        isBlankLikeImage({
+          bytes: statSync(raw).size,
+          width: shape.width,
+          height: shape.height,
+          vector: shape.vector,
+        })
+      ) {
         return { ok: false, reason: "image is blank (flat colour): not evidence of the work" };
       }
     } catch { /* unreadable ⇒ same as unmeasurable: promote, do not block */ }
