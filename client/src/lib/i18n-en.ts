@@ -460,6 +460,7 @@ const EN = {
 
   'tab.openedBrowser': 'This tab opened a browser',
   'tab.cloudSession': 'Cloud session (OpenClaw)',
+  'tab.project': 'Project',
   'tab.stopTurn': 'Stop the turn',
   'tab.stopTurnOn': 'Stop the turn on {name}',
   'tab.menu.stopTurn': 'Stop the turn',
