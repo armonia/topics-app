@@ -45,6 +45,19 @@ export interface Task {
   priority: number;
   kanbanOrder: number;
   assignedTo: string | null;
+  /**
+   * The PERSON and DEVICE that actually wrote the most recent collaborator
+   * comment on this task (`guest:<deviceId>` rows, resolved through
+   * `devices`/`people` the same way `TaskComment.actorPersonName` is — see
+   * `resolveGuestActor`). Deliberately separate from `assignedTo` (free text,
+   * chosen by a human) and from `machineId` (the fleet node an agent runs on):
+   * a collaborator EDITING a shared task is neither of those, and collapsing
+   * them is the exact confusion card ef40fa34 asks to undo. `null` when no
+   * collaborator has written on this task (the common case today: activity
+   * needs a `comment`/`edit` grant, see change `collaborator-activity`).
+   */
+  lastActorPersonName?: string | null;
+  lastActorDeviceName?: string | null;
   dueDate?: string;
   chatId?: string;
   createdAt: string;
