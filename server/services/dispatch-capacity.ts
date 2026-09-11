@@ -279,15 +279,40 @@ export const GB_PER_AGENT_CLI = 3;
 export const GB_PER_AGENT_NATIVE = 0.25;
 
 /**
- * Memoria REALMENTE disponibile (libera + inattiva reclamabile), in GB.
- * `null` quando non si riesce a misurare, con la stessa regola del disco: «non
- * lo so» non è «zero», o un errore di lettura fermerebbe la coda per sempre.
+ * Memoria REALMENTE disponibile, in GB: quella che la macchina puo' dare SENZA
+ * comprimere e senza swappare. `null` quando non si riesce a misurare, con la
+ * stessa regola del disco: «non lo so» non è «zero», o un errore di lettura
+ * fermerebbe la coda per sempre.
  *
  * `vm_stat` e non `os.freemem()`: su macOS la seconda riporta quasi nulla di
  * libero perché il kernel tiene le pagine reclamabili come cache, e userebbe
  * questo pavimento per bloccare il dispatch su un Mac da 32 GB in perfetta
  * salute. È lo stesso motivo per cui il commento in testa a questo file dice
  * che `os.freemem()` va ignorata.
+ *
+ * ── WHY `inactive` IS GONE, AND WHAT IT COST ────────────────────────────────
+ * This sum used to be `free + speculative + inactive`, with a comment above it
+ * saying INACTIVE pages are memory the kernel reclaims without swapping. Half
+ * true: an inactive FILE-BACKED page is simply dropped, while an inactive
+ * ANONYMOUS one is reclaimed only by compressing or swapping it - which is
+ * exactly the I/O storm the floor exists to avoid. `vm_stat` does not separate
+ * the two states, so the sum counted them together.
+ *
+ * The night of 2026-09-10, with seven cards running: `Pages free` 4.877 (76 MB
+ * of 32 GB), inactive 586.288, compressor 1.712.833 pages (26 GB), 258.707
+ * swapouts, the disk at 6.000-18.000 IOPS and the CPU at 40% IDLE - the
+ * processes were not computing, they were waiting on the disk. This function
+ * reported **9,7 GB available** and the gate admitted. The Mac became unusable
+ * and the agents had to be stopped by hand.
+ *
+ * ── THE SUM AS IT IS NOW, and why it is not merely "stricter" ───────────────
+ * `free + speculative + purgeable + file-backed`: everything obtainable without
+ * making the disk work. On the same machine once RECOVERED it reads 11,70 GB
+ * against the old 11,64 - that is, on a healthy machine the two agree, because
+ * there the inactive pages really ARE cache. They part company once the cache
+ * has been evicted and what is left inactive is dirty anonymous memory: the old
+ * sum kept counting it, this one does not. It discriminates where that matters
+ * and stays quiet where it does not, which is the only useful shape for a gate.
  *
  * Fuori da macOS la sonda non c'è e la risposta è `null`: su Linux le stesse
  * pagine si leggono da `/proc/meminfo` con nomi diversi, e inventare una
@@ -311,12 +336,57 @@ export function availableMemGB(
     Number(out.match(new RegExp(`Pages ${nome}:\\s+(\\d+)`))?.[1] ?? NaN);
   const free = pages("free");
   const speculative = pages("speculative");
-  const inactive = pages("inactive");
-  // Una sola delle tre illeggibile e il totale sarebbe una sottostima
-  // silenziosa, cioè un pavimento che morde quando non deve: meglio «non lo so».
-  if (!pageSize || !Number.isFinite(free) || !Number.isFinite(speculative) || !Number.isFinite(inactive)) return null;
-  return ((free + speculative + inactive) * pageSize) / 1e9;
+  const purgeable = pages("purgeable");
+  // NOT `Pages ...`: the line is called "File-backed pages", with the words the
+  // other way round. Read with the other pattern it yields NaN, hence `null`,
+  // hence a gate that stops measuring without saying so.
+  const fileBacked = Number(out.match(/File-backed pages:\s+(\d+)/)?.[1] ?? NaN);
+  // One of the four unreadable and the total would be a silent understatement,
+  // i.e. a floor that bites when it must not: better "I do not know".
+  if (!pageSize || ![free, speculative, purgeable, fileBacked].every(Number.isFinite)) return null;
+  return ((free + speculative + purgeable + fileBacked) * pageSize) / 1e9;
 }
+
+/**
+ * How much RAM the compressor is holding, in GB, or `null` when unmeasurable.
+ *
+ * The SECOND signal, independent of the first, and it exists because the first
+ * one can be fooled: on a machine that has just finished compressing, the
+ * file-backed cache can climb back for a moment and make it look as if there
+ * were room. The compressor cannot - those pages are memory already spent and
+ * NOT cedible, and to get them back the kernel has to decompress, which is
+ * work.
+ *
+ * On 2026-09-10 it held 26 GB of 32. Not an edge case invented out of caution:
+ * the measurement of the one night this machine locked up.
+ */
+export function compressorGB(
+  run: () => string | null = () => {
+    try {
+      if (process.platform !== "darwin") return null;
+      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+    } catch {
+      return null;
+    }
+  },
+): number | null {
+  const out = run();
+  if (!out) return null;
+  const pageSize = Number(out.match(/page size of (\d+) bytes/)?.[1] ?? 0);
+  const pagesInCompressor = Number(out.match(/Pages occupied by compressor:\s+(\d+)/)?.[1] ?? NaN);
+  if (!pageSize || !Number.isFinite(pagesInCompressor)) return null;
+  return (pagesInCompressor * pageSize) / 1e9;
+}
+
+/**
+ * The share of RAM held by the compressor past which dispatch is refused
+ * regardless of how many GB are reported "available".
+ *
+ * A third of the machine. On 2026-09-10 the share was 0,81 (26 GB of 32) and
+ * the gate admitted anyway; on the recovered machine it is 0,20. There is room
+ * between the two for a threshold that does not fire on ordinary use.
+ */
+export const COMPRESSOR_SHARE_CEILING = 1 / 3;
 
 /**
  * Il pavimento come predicato puro: prende i GB disponibili e risponde sì/no.
@@ -359,6 +429,15 @@ export function dispatchResourceBlock(
    * file misura la macchina, non decide le politiche.
    */
   agentsAreProcesses = true,
+  /** The second memory signal, injectable for the same reason: the case that
+   *  matters is "the compressor is holding half the machine", and reproducing
+   *  it for real would mean repeating the night of 2026-09-10.
+   *
+   *  LAST and not next to the other probe: these parameters are POSITIONAL and
+   *  callers already pass `agentsAreProcesses`. Slotted in the middle, that
+   *  boolean landed in the probe's place - seven type errors, and without the
+   *  typecheck it would have been a flag called as a function. */
+  readCompressorGB: () => number | null = compressorGB,
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -375,6 +454,18 @@ export function dispatchResourceBlock(
     return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${floor} GB. ` +
       `${costo}, e sotto questa riga la macchina va in swap. ` +
       `Riprendo appena si libera memoria: niente è andato perso.`;
+  }
+  // THE SECOND SIGNAL, read AFTER the first because it is the rarer one: when
+  // it bites, the "available" GB are lying (see `availableMemGB`). One sentence
+  // per card, same as above.
+  const compressed = (() => { try { return readCompressorGB(); } catch { return null; } })();
+  const totalGB = os.totalmem() / 1e9;
+  if (compressed != null && Number.isFinite(compressed) && totalGB > 0
+      && compressed / totalGB >= COMPRESSOR_SHARE_CEILING) {
+    return `Memoria sotto pressione: il compressore si tiene ${compressed.toFixed(1)} GB su ${totalGB.toFixed(0)}, ` +
+      `oltre ${Math.round(COMPRESSOR_SHARE_CEILING * 100)}%. Quelle pagine si riprendono solo decomprimendo, ` +
+      `cioè facendo lavorare il disco proprio mentre parte un agente. ` +
+      `Riprendo appena la pressione cala: niente è andato perso.`;
   }
   return null;
 }
