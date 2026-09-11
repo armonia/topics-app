@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { WifiOff, Loader2, DatabaseZap } from 'lucide-react';
 import { IdentityBlock } from './IdentityBlock';
 import type { SidebarCommands } from './ProfileMenu';
-import { SEGNALE_ATTESA, SEGNALE_GUASTO, PALLINO_ATTESA, PALLINO_GUASTO } from './chromeSignals';
+import { SEGNALE_ATTESA, SEGNALE_GUASTO } from './chromeSignals';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
@@ -148,22 +149,22 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
         </div>
       )}
 
-      {/* WebSocket connection status. Only visible when NOT connected: offline =
-          red, connecting/reconnecting = amber. The dot pulses; the label stays
-          steady, because a moving word is unreadable. */}
+      {/* WebSocket connection status, in the same bordered-pill shape as
+          `ProviderLimitNotice` below it: icon + compact label, not a bare dot
+          and a line of text. Offline = red, connecting/reconnecting = amber
+          with a spinning icon (there is real activity to show, unlike the old
+          pulsing dot which pulsed the same way whether retrying or stuck). */}
       {wsStatus && wsStatus !== 'connected' && (
-        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
+        <div className="py-1" style={{ paddingLeft: padLeft, paddingRight: padRight }}>
           <span
             data-testid="ws-connection-status"
-            className={`flex items-center gap-1.5 text-[11px] min-w-0 overflow-hidden ${
-              wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA
-            }`}
             title={tr('statusBar.wsTitle')}
+            className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-hover/60 px-2.5 py-1.5"
           >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse ${
-              wsStatus === 'offline' ? PALLINO_GUASTO : PALLINO_ATTESA
-            }`} />
-            <span className="truncate">
+            {wsStatus === 'offline'
+              ? <WifiOff size={15} aria-hidden="true" className={`shrink-0 ${SEGNALE_GUASTO}`} />
+              : <Loader2 size={15} aria-hidden="true" className={`shrink-0 animate-spin ${SEGNALE_ATTESA}`} />}
+            <span className={`truncate text-[12px] font-medium ${wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA}`}>
               {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
             </span>
           </span>
@@ -184,14 +185,14 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
           Shown only when the WS IS connected: otherwise the line above already
           says it, and two amber rows for one outage read as two outages. */}
       {wsStatus === 'connected' && dataNotice && (
-        <div style={{ paddingLeft: padLeft, paddingRight: padRight }}>
+        <div className="py-1" style={{ paddingLeft: padLeft, paddingRight: padRight }}>
           <span
             data-testid="data-notice"
-            className={`flex items-center gap-1.5 text-[11px] ${SEGNALE_ATTESA} min-w-0 overflow-hidden`}
             title={dataNotice}
+            className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-hover/60 px-2.5 py-1.5"
           >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PALLINO_ATTESA}`} />
-            <span className="truncate">{dataNotice}</span>
+            <DatabaseZap size={15} aria-hidden="true" className={`shrink-0 ${SEGNALE_ATTESA}`} />
+            <span className={`truncate text-[12px] font-medium ${SEGNALE_ATTESA}`}>{dataNotice}</span>
           </span>
         </div>
       )}

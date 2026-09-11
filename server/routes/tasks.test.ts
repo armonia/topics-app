@@ -668,8 +668,14 @@ describe("board router (human, project-scoped)", () => {
   test("POST stop parks the task (backlog, unbound) and aborts the turn — no auto-requeue", async () => {
     db.run("INSERT INTO topics (id) VALUES ('top-z')");
     const aborted: string[] = [];
+    const killed: string[] = [];
     const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
-    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake, {
+      abortTurn: async (sk: string) => { aborted.push(sk); },
+      // Card 9b36ea1b: stopping a card must ALSO kill the process tree its
+      // agent spawned, not just cancel the turn.
+      killAgentTree: async (sk: string) => { killed.push(sk); },
+    });
     const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "sbagliato", status: "in_progress" }))!.json();
     db.prepare("UPDATE tasks SET assigned_topic_id = 'top-z', dispatch_state = 'working', dispatch_attempts = 1 WHERE id = ?").run(t.id);
 
@@ -686,6 +692,10 @@ describe("board router (human, project-scoped)", () => {
     // tentativi — chi ferma per guardare non deve pagarlo al rilancio.
     expect(parked.dispatchAttempts).toBe(1);
     expect(aborted).toEqual(["topic:top-z"]); // "topic:" + id.slice(0,8)
+    // Same session key, and the tree comes before the turn cut: see
+    // `killAgentTree`'s doc for why the order matters (a CLI that exits first
+    // reparents its children before we can read the process table).
+    expect(killed).toEqual(["topic:top-z"]);
     // The reason is on the thread (visible feedback, not just a chip).
     const got = await (await call(r, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
     expect(got.comments.some((c: any) => /Fermato da te/.test(c.content))).toBe(true);

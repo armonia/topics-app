@@ -3392,7 +3392,7 @@ function StatusChip({ comment, ownerName }: { comment: TaskComment; ownerName: s
   const to = ev?.to as TaskStatus | undefined;
   const valid = !!to && TASK_STATUSES.includes(to);
   const at = new Date(comment.createdAt);
-  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName);
+  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName, { personName: comment.actorPersonName, deviceName: comment.actorDeviceName });
   const origin = actionOriginDisplay(comment.origin, tr);
   // L'app che sposta una card da sé non è una notizia: il nome resta solo per
   // chi lo è (tu, un agent, la verifica).
@@ -3479,7 +3479,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
       </div>
     );
   }
-  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName);
+  const who = authorDisplay(commentAuthorLabel(comment.author), tr, ownerName, { personName: comment.actorPersonName, deviceName: comment.actorDeviceName });
   const app = who.kind === 'system' || who.kind === 'dispatcher';
   /**
    * UNA RIGA DELL'APP È UN CHIP, non un paragrafo con un'intestazione sopra.

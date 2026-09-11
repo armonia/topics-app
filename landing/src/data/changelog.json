@@ -1,10 +1,68 @@
 [
   {
+    "version": "2.2.300",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "drop the quoted Italian UI label from an English comment",
+          "scope": "kill-agent-tree"
+        },
+        {
+          "text": "il budget dell'attesa si DERIVA dalla grazia, non si indovina",
+          "scope": "test"
+        },
+        {
+          "text": "parse Codex usage-limit dates in UTC, not locale time",
+          "scope": null
+        },
+        {
+          "text": "un vettore non ha densità, e il pavimento la misurava lo stesso",
+          "scope": "preview"
+        },
+        {
+          "text": "due casi argv portavano un budget da timeout, e sotto carico scattava",
+          "scope": "test"
+        },
+        {
+          "text": "anche il secondo chiamante del cancello inoltra il flag",
+          "scope": "preview"
+        },
+        {
+          "text": "la NASCITA di un processo segue il carico, come tutto il resto del file",
+          "scope": "test"
+        },
+        {
+          "text": "trenta bande grigie pesano come una tinta piatta, e il cancello aveva ragione",
+          "scope": "e2e"
+        },
+        {
+          "text": "un trigger nel DOM non è un trigger cliccabile, e questa copia era rimasta indietro",
+          "scope": "e2e"
+        },
+        {
+          "text": "la terza volta che la coda del referto è tutta rumore, e stavolta senza una stringa da nominare",
+          "scope": "checks"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.299",
     "date": "2026-09-11",
     "sections": {
       "new": [],
       "fixes": [
+        {
+          "text": "a project tab reads as a project even selected and icon-less",
+          "scope": "layout"
+        },
+        {
+          "text": "reject blank/empty-shell previews on the manual and live-capture gates",
+          "scope": "preview"
+        },
         {
           "text": "«e' morto» non e' «era gia' morto in quell'istante»",
           "scope": "test"
@@ -22,6 +80,10 @@
         {
           "text": "R1 sees an id claimed by an OPEN change's delta as in flight, not dangling",
           "scope": "spec-coverage"
+        },
+        {
+          "text": "teardown flush of project panes now CAS-guarded",
+          "scope": "terminal-e2e"
         }
       ],
       "perf": []
@@ -33,6 +95,14 @@
     "sections": {
       "new": [],
       "fixes": [
+        {
+          "text": "la scala dell'ospite esce dal file di componente, e i tre rail che il merge ha scoperto",
+          "scope": "share"
+        },
+        {
+          "text": "un proprietario sconosciuto non e' una regola assente",
+          "scope": "projects"
+        },
         {
           "text": "il freno della memoria smetteva di contare cio' che il Mac non poteva dare",
           "scope": "dispatch"
@@ -89,6 +159,14 @@
         {
           "text": "choose automatic models across coding providers",
           "scope": "tasks"
+        },
+        {
+          "text": "granular guest levels for collaboration and remote runs",
+          "scope": "grants"
+        },
+        {
+          "text": "PATCH accepts orgId, owner-only",
+          "scope": "projects"
         },
         {
           "text": "il coordinatore si apre dentro la Kanban, con il suo glifo",
@@ -255,6 +333,14 @@
         {
           "text": "dire lo stato del provider nella lingua di chi legge",
           "scope": "settings"
+        },
+        {
+          "text": "declare guest-share level refusal codes in shared/auth-codes",
+          "scope": "auth"
+        },
+        {
+          "text": "add missing auth.err phrases for manage_level_required/unknown_level",
+          "scope": "i18n"
         },
         {
           "text": "open Details tab when adding a subtask or opening its drawer",

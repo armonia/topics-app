@@ -39,4 +39,3 @@ export const SEGNALE_ATTESA = 'text-amber-800 dark:text-amber-400';
 export const SEGNALE_GUASTO = 'text-red-700 dark:text-red-400';
 export const PALLINO_OK = 'bg-emerald-600 dark:bg-emerald-400';
 export const PALLINO_ATTESA = 'bg-amber-700 dark:bg-amber-400';
-export const PALLINO_GUASTO = 'bg-red-500 dark:bg-red-400';
