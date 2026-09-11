@@ -1,5 +1,5 @@
 /**
- * Kill the process tree an agent's CLI has grown, on a human "Ferma".
+ * Kill the process tree an agent's CLI has grown, on a human stop.
  *
  * WHY IT EXISTS (card 9b36ea1b). Stopping a card used to cut the TURN —
  * `cutLiveTurn` in `routes/tasks.ts` — and nothing else: the CLI got a SIGINT
