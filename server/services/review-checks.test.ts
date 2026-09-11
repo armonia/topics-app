@@ -114,6 +114,32 @@ describe("failureTail", () => {
     " 1 fail",
   ].join("\n");
 
+  // The same shape from the other end, and the one that actually cost a night:
+  // a Playwright run ends with dozens of Node colour-warning PAIRS, and on card
+  // 6133a8e8 (2026-09-11) the whole saved tail - 3.779 characters - was that
+  // pair repeated, with the two failing specs nowhere in it.
+  const e2eRun = [
+    "  \u00d8  1 [chromium] > tests/e2e/terminal-tab-reload.spec.ts:67:7 > il caso vero",
+    "  Error: expect(locator).toHaveCount(expected) failed",
+    ...Array.from({ length: 24 }, (_, i) => [
+      `\u001b[1A\u001b[2K(node:${5000 + i}) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.`,
+      "(Use `node --trace-warnings ...` to show where the warning was created)",
+    ]).flat(),
+    "error: script \"check:e2e-touched\" exited with code 1",
+  ].join("\n");
+
+  test("the failing spec survives a wall of Node colour warnings", () => {
+    const tail = failureTail(e2eRun, 6);
+    expect(tail).toContain("terminal-tab-reload.spec.ts:67:7");
+    expect(tail).toContain("toHaveCount");
+    expect(tail).not.toContain("NO_COLOR");
+    expect(tail).not.toContain("trace-warnings");
+  });
+
+  test("the last line - the exit code - is not pushed out by the warnings either", () => {
+    expect(failureTail(e2eRun, 6)).toContain('exited with code 1');
+  });
+
   test("the reason survives a wall of skipped tests", () => {
     const tail = failureTail(run, 6);
     expect(tail).toContain("(fail) qualcosa > il caso che conta");
@@ -122,7 +148,7 @@ describe("failureTail", () => {
   });
 
   test("it says how many green lines it dropped, so the tail is not a lie", () => {
-    expect(failureTail(run, 6)).toContain("30 righe (pass)/(skip) omesse");
+    expect(failureTail(run, 6)).toContain("30 righe di rumore omesse");
   });
 
   test("with no noise it behaves exactly like the plain tail", () => {

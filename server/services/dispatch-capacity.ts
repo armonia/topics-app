@@ -225,6 +225,27 @@ export function freeDiskGB(path: string): number | null {
  * lavoro: dava 48% mentre di liberi ce n'erano 1,9 GB, cioè un numero che non
  * dice quanti agenti ci stanno.
  */
+/**
+ * ── WHERE THIS FLOOR FALLS ON THIS MACHINE ──────────────────────────────────
+ * Written here instead of left for whoever finds the queue stopped with no
+ * explanation. Measured 2026-09-11 over 14 `vm_stat` samples in 56 s, machine
+ * healthy: 12,4-13,1 GB available. The floor is 12. It lives right up against
+ * it, and it did with the old sum too (mean 12,37 against the new 12,78): this
+ * is not a strictness introduced by the change of formula, it is the working
+ * point of a 32 GB Mac with a browser, an app and a server on it.
+ *
+ * The practical consequence: with an agent CLI at ~240 MB idle, about three
+ * agents are enough for the floor to bite. Whoever finds the queue stopped with
+ * "Memoria quasi finita" on a machine that looks fine is seeing this, not a
+ * fault.
+ *
+ * AND THE FLOOR IS NOT THE MISSING BRAKE: it governs the NEXT admissions,
+ * including the next turn of an agent already in flight (it goes through
+ * `admissionBlock`, inside the resume chain in `task-dispatcher.ts`). What does
+ * not exist is a lever on memory already committed DURING a turn: on
+ * 2026-09-10 the seven cards had been admitted while memory was still good, and
+ * the RAM ran out while they worked. See card 5edd2e5f.
+ */
 export const DISPATCH_MEM_FLOOR_GB = 12;
 
 /**
@@ -249,8 +270,67 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  * turni tengono la conversazione in memoria, i tool leggono file, e una
  * macchina già in swap non deve peggiorare comunque. Ma è il margine di
  * un'applicazione che lavora, non di N processi Node.
+ *
+ * ── AND TWO WAS STILL THE WRONG NUMBER: IT PRICED THE SESSION, NOT THE WORK ──
+ * Everything above measures the session OBJECT - 2,3 MB of messages inside a
+ * server that is already running. True, and beside the point. What a card
+ * actually costs is the CHECK RUN it launches: `test:unit:shards` forks four
+ * shards, and `e2e-touched` starts a test server and browsers. Those are
+ * processes, and they are exactly the thing the native floor decided not to
+ * count.
+ *
+ * MEASURED on 2026-09-11 with the board at work - the loaded case every earlier
+ * calibration was missing, because all of them sampled an idle Mac:
+ *
+ *   server alone, no card in checks .............. 0,57 GB   (10 processes)
+ *   one card inside test:unit:shards ............. 2,4 GB    (13-15)
+ *   three cards together, peak ................... 4,94 GB   (23)
+ *   -> marginal cost of one admitted card ........ ~1,5 GB
+ *
+ * 18 samples over that stretch: `availableMemGB` stayed between 7,74 and 10,94
+ * and Swapouts did not move (258.707, the same cumulative value as before the
+ * 10/09 crisis). That band IS the working point under real load.
+ *
+ * So a floor of 2 admits a card when the machine has 2 GB left, and that one
+ * card then asks for about 1,5 of them. That is not a brake that failed to
+ * hold: it is a brake set below the weight of a single admission, and it is the
+ * mechanism of the 10/09 freeze - seven cards admitted while `availableMemGB`
+ * read 9,69, which against a floor of 2 was wide open. Card 5edd2e5f says the
+ * gate "was already refusing"; it was not, and that line is corrected there.
+ *
+ * SIX, AND WHY THAT AND NOT A ROUNDER NUMBER. Three grounds, in order: it never
+ * bites inside the measured working band (7,74-10,94); it is four times the
+ * marginal cost of the admission it governs, so the card it lets in lands the
+ * machine near 4,5 GB and not near zero; and above all it stops short of the
+ * region where there are no measurements at all - between 7,7 GB (fine, seen)
+ * and 0,08 GB (the freeze, seen) nobody has ever sampled anything.
+ *
+ * HOW BIG THE UNMEASURED GAP REALLY IS - narrower than "7,4 down to 0,08".
+ * The gate is a plain `available < 6`: it flips at SIX and nowhere else (there
+ * is no "margin minus seat price" rule anywhere - `byMem` divides TOTAL memory,
+ * not available). So the whole stretch below 6 needs no sampling at all: the
+ * admission verdict there is already REFUSE whatever the reading turns out to
+ * be. What is genuinely unknown AND decision-relevant is only the band where
+ * the gate is open and nobody has ever measured:
+ *
+ *     6,00 .. 7,39 GB   - 1,4 GB wide, gate OPEN, never sampled
+ *
+ * And at the worst healthy peak seen under real load (7,39 GB, ten checks at
+ * once, tree at 5,17 GB) the gate still admits, with 1,39 GB above the floor.
+ * The board at full tilt is not sitting on the threshold.
+ *
+ * The other thing still unknown is different in kind and does NOT change the
+ * verdict: where the machine starts to PAY - the first swapout. Anchors are the
+ * compressor share, 0,210 at the healthy peak and 0,291 at the 10/09 freeze; the
+ * onset is between them, and pinning it down means going near the damage.
+ *
+ * WHAT WOULD MOVE IT, so the next person re-measures instead of re-guessing:
+ * the check suite is the load, so if the shards or the e2e set change size,
+ * this number is stale. Re-run the measurement the same way - the tree of the
+ * server process (`lsof -nP -iTCP:3333`, then walk the children) against
+ * `vm_stat`, while the board actually works.
  */
-export const DISPATCH_MEM_FLOOR_NATIVE_GB = 2;
+export const DISPATCH_MEM_FLOOR_NATIVE_GB = 6;
 
 /**
  * Quanta RAM prenotare per UN agente quando decidi quanti posti ha la macchina.
@@ -270,24 +350,88 @@ export const DISPATCH_MEM_FLOOR_NATIVE_GB = 2;
  * conversazione, i tool leggono file). Prezzare a 2,3 MB darebbe posti
  * illimitati su qualunque macchina, e il tetto smetterebbe di essere un tetto.
  *
+ * RAISED TO 1,5 FOR THE SAME REASON AS THE FLOOR ABOVE, and it is the same
+ * mistake in the other parameter: a quarter of a giga was "a hundred times the
+ * measured session", but the session is not what occupies the machine. One card
+ * inside its checks was measured at ~1,5 GB of real processes on 2026-09-11.
+ * A seat has to be priced at what the occupant weighs, and 0,25 handed out six
+ * times more seats than the machine has room for.
+ *
  * PERCHÉ CONTA. Il pavimento (`dispatchResourceBlock`) sa già distinguere i due
  * runtime; il TETTO no, e si vedeva: quattro task nativi su questa macchina
  * partivano a scaglioni di due perché `byMem` prenotava 3 GB a testa per
  * sessioni che ne chiedono due di megabyte.
  */
 export const GB_PER_AGENT_CLI = 3;
-export const GB_PER_AGENT_NATIVE = 0.25;
+export const GB_PER_AGENT_NATIVE = 1.5;
 
 /**
- * Memoria REALMENTE disponibile (libera + inattiva reclamabile), in GB.
- * `null` quando non si riesce a misurare, con la stessa regola del disco: «non
- * lo so» non è «zero», o un errore di lettura fermerebbe la coda per sempre.
+ * Memoria REALMENTE disponibile, in GB: quella che la macchina puo' dare SENZA
+ * comprimere e senza swappare. `null` quando non si riesce a misurare, con la
+ * stessa regola del disco: «non lo so» non è «zero», o un errore di lettura
+ * fermerebbe la coda per sempre.
  *
  * `vm_stat` e non `os.freemem()`: su macOS la seconda riporta quasi nulla di
  * libero perché il kernel tiene le pagine reclamabili come cache, e userebbe
  * questo pavimento per bloccare il dispatch su un Mac da 32 GB in perfetta
  * salute. È lo stesso motivo per cui il commento in testa a questo file dice
  * che `os.freemem()` va ignorata.
+ *
+ * ── WHY `inactive` IS GONE, AND WHAT IT COST ────────────────────────────────
+ * This sum used to be `free + speculative + inactive`, with a comment above it
+ * saying INACTIVE pages are memory the kernel reclaims without swapping. Half
+ * true: an inactive FILE-BACKED page is simply dropped, while an inactive
+ * ANONYMOUS one is reclaimed only by compressing or swapping it - which is
+ * exactly the I/O storm the floor exists to avoid. `vm_stat` does not separate
+ * the two states, so the sum counted them together.
+ *
+ * The night of 2026-09-10, with seven cards running: `Pages free` 4.877 (76 MB
+ * of 32 GB), inactive 586.288, compressor 1.712.833 pages (26 GB), 258.707
+ * swapouts, the disk at 6.000-18.000 IOPS and the CPU at 40% IDLE - the
+ * processes were not computing, they were waiting on the disk. This function
+ * reported **9,7 GB available** - which is BELOW `DISPATCH_MEM_FLOOR_GB` (12),
+ * so the admission gate was already refusing. The seven cards had been admitted
+ * EARLIER, while memory was still good, and the RAM ran out while they worked.
+ * The Mac became unusable and the agents had to be stopped by hand.
+ *
+ * So this is a fix to the MEASUREMENT, not to that blockage: what is missing is
+ * a lever on memory already committed during a turn, and that has a card of its
+ * own (5edd2e5f). Said here because the first version of this comment claimed
+ * the gate had admitted, which is false, and a false diagnosis carved into a
+ * file outlives the board note that corrects it.
+ *
+ * ── THE SUM AS IT IS NOW, and why it is not merely "stricter" ───────────────
+ * `free + speculative + purgeable + file-backed`: everything obtainable without
+ * making the disk work. On the same machine once RECOVERED it reads 11,70 GB
+ * against the old 11,64 - that is, on a healthy machine the two agree, because
+ * there the inactive pages really ARE cache. They part company once the cache
+ * has been evicted and what is left inactive is dirty anonymous memory: the old
+ * sum kept counting it, this one does not. It discriminates where that matters
+ * and stays quiet where it does not, which is the only useful shape for a gate.
+ *
+ * ── WHERE THIS SUM SITS IN THE THREE STAGES OF PRESSURE ─────────────────────
+ * macOS gives memory back in three moves, in order: (1) evict the file-backed
+ * cache, which is free; (2) COMPRESS the dirty anonymous pages, which costs
+ * CPU while the RAM still holds; (3) SWAP to disk, which is the I/O storm.
+ *
+ * This sum is 92% file-backed cache - measured, 11,70 GB of 12,78 on a healthy
+ * sample - so it collapses at stage ONE, before the compressor starts filling
+ * at stage two. That is what makes it an early warning rather than a post
+ * mortem, and it is also why a second gate on the compressor's share would sit
+ * DOWNSTREAM of this one rather than ahead of it: by the time the compressor is
+ * a third of the machine, the cache this number is made of is long gone and the
+ * floor has already bitten. A swapout rate is later still - stage three is
+ * damage in progress, not a precursor.
+ *
+ * THE THIN PART, said out loud because it is where this will break: the floor
+ * (12 GB) sits about 0,8 GB under the healthy reading. On the night of
+ * 2026-09-10 purgeable and file-backed were not recorded, and under the most
+ * generous assumption possible - the cache still intact - this sum would have
+ * read 12,19 GB and the floor would NOT have bitten. That assumption is
+ * physically incoherent with 10 GB already compressed (stage one precedes stage
+ * two), but the margin it exposes is real: what protects this machine is a gap
+ * of a few hundred megabytes. Whoever measures the loaded case - the board at
+ * work, not an idle Mac - should check that gap first.
  *
  * Fuori da macOS la sonda non c'è e la risposta è `null`: su Linux le stesse
  * pagine si leggono da `/proc/meminfo` con nomi diversi, e inventare una
@@ -311,11 +455,72 @@ export function availableMemGB(
     Number(out.match(new RegExp(`Pages ${nome}:\\s+(\\d+)`))?.[1] ?? NaN);
   const free = pages("free");
   const speculative = pages("speculative");
-  const inactive = pages("inactive");
-  // Una sola delle tre illeggibile e il totale sarebbe una sottostima
-  // silenziosa, cioè un pavimento che morde quando non deve: meglio «non lo so».
-  if (!pageSize || !Number.isFinite(free) || !Number.isFinite(speculative) || !Number.isFinite(inactive)) return null;
-  return ((free + speculative + inactive) * pageSize) / 1e9;
+  const purgeable = pages("purgeable");
+  // NOT `Pages ...`: the line is called "File-backed pages", with the words the
+  // other way round. Read with the other pattern it yields NaN, hence `null`,
+  // hence a gate that stops measuring without saying so.
+  const fileBacked = Number(out.match(/File-backed pages:\s+(\d+)/)?.[1] ?? NaN);
+  // One of the four unreadable and the total would be a silent understatement,
+  // i.e. a floor that bites when it must not: better "I do not know".
+  if (!pageSize || ![free, speculative, purgeable, fileBacked].every(Number.isFinite)) return null;
+  return ((free + speculative + purgeable + fileBacked) * pageSize) / 1e9;
+}
+
+/**
+ * How much RAM the compressor is holding, in GB, or `null` when unmeasurable.
+ *
+ * The SECOND signal, independent of the first, and it exists because the first
+ * one can be fooled: on a machine that has just finished compressing, the
+ * file-backed cache can climb back for a moment and make it look as if there
+ * were room. The compressor cannot - those pages are memory already spent and
+ * NOT cedible, and to get them back the kernel has to decompress, which is
+ * work.
+ *
+ * On 2026-09-10 it held 26 GB of 32. Not an edge case invented out of caution:
+ * the measurement of the one night this machine locked up.
+ */
+export function compressorGB(
+  run: () => string | null = () => {
+    try {
+      if (process.platform !== "darwin") return null;
+      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+    } catch {
+      return null;
+    }
+  },
+): number | null {
+  const out = run();
+  if (!out) return null;
+  const pageSize = Number(out.match(/page size of (\d+) bytes/)?.[1] ?? 0);
+  const pagesInCompressor = Number(out.match(/Pages occupied by compressor:\s+(\d+)/)?.[1] ?? NaN);
+  if (!pageSize || !Number.isFinite(pagesInCompressor)) return null;
+  return (pagesInCompressor * pageSize) / 1e9;
+}
+
+/**
+ * HOW MANY PAGES THE MACHINE HAS SWAPPED OUT SINCE BOOT, cumulative, or `null`.
+ *
+ * A counter, not a rate: the difference between two readings over the elapsed
+ * time is the rate, the same shape `fleet-usage.ts` already uses for CPU. And
+ * the same trap applies - a reading with no previous base is NOT zero, it is
+ * "I do not know".
+ *
+ * Reported and not gated, deliberately: see the note on the compressor below.
+ */
+export function swapoutPages(
+  run: () => string | null = () => {
+    try {
+      if (process.platform !== "darwin") return null;
+      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+    } catch {
+      return null;
+    }
+  },
+): number | null {
+  const out = run();
+  if (!out) return null;
+  const n = Number(out.match(/Swapouts:\s+(\d+)/)?.[1] ?? NaN);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -371,11 +576,48 @@ export function dispatchResourceBlock(
   if (memoryTooTight(mem, floor)) {
     const costo = agentsAreProcesses
       ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
-      : "Anche col runtime nativo (~2,3 MB per sessione) qui non c'è margine nemmeno per il server";
+      : "Con il runtime nativo la sessione pesa 2,3 MB, ma i check che lancia (shard unit, e2e) ne chiedono ~1,5 GB";
     return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${floor} GB. ` +
       `${costo}, e sotto questa riga la macchina va in swap. ` +
       `Riprendo appena si libera memoria: niente è andato perso.`;
   }
+  // THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back
+  // out is the honest move rather than the tidy one.
+  //
+  // It was added here with a ceiling of one third, calibrated on "26 GB of 32
+  // on 2026-09-10". That number came from `Pages stored in compressor`
+  // (1.712.833 pages), which is LOGICAL compressed pages; what `compressorGB`
+  // reads - correctly - is `Pages occupied by compressor`, the physical RAM,
+  // which that night was 610.054 pages, 10,0 GB, a share of 0,291. The ceiling
+  // was therefore set from a number this code never computes, and 0,291 is
+  // BELOW one third: the guard would not have fired on the night it was written
+  // for. The arithmetic settles which line is which - 1.712.833 pages is 28,1
+  // GB, and with 9,6 GB inactive and 0,08 free that is 37,7 GB on a 34,36 GB
+  // machine, which cannot be.
+  //
+  // AND 0,25 IS NOT A SAFER RETUNE - IT IS A GUARANTEED FALSE POSITIVE. With
+  // the queue running again the share was sampled against the number of agents,
+  // and it rises with them, linearly:
+  //
+  //     0 agents (idle) 0,165 · 1 agent 0,186 · 2 agents 0,200
+  //     slope ~0,018 per agent -> ~0,237 at four, ~0,255 at FIVE
+  //
+  // So a ceiling of 0,25 fires at about five agents on a healthy machine: zero
+  // swapouts, `availableMemGB` well over the floor, nothing wrong. It would
+  // stop the board in normal operation before ever approaching a crisis, which
+  // is the opposite of what it was for. (Measured 2026-09-11 across three
+  // series, 0/55 samples ever showed the only reading that would justify it:
+  // available memory above the floor AND the share over 0,25.)
+  //
+  // The claim that used to stand here - "that night the floor was ALREADY
+  // refusing, 9,69 GB against a floor of 12" - is false and is corrected at
+  // DISPATCH_MEM_FLOOR_NATIVE_GB: the floor in force on this machine is the
+  // native one, and against it the gate was wide open. So the compressor is not
+  // a second brake behind a working first one; the first one simply had the
+  // wrong price. That is fixed there, and it is the fix that was needed.
+  //
+  // The numbers travel in the capacity payload instead, where they can earn a
+  // threshold if an incident ever gives them one.
   return null;
 }
 

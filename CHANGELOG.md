@@ -2,6 +2,149 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.297 — 2026-09-11
+
+### Correzioni
+- **dispatch** · il freno della memoria smetteva di contare cio' che il Mac non poteva dare
+- **test** · tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN
+- **lint** · translate new test comments to English per check:comment-language
+- **dispatch** · il tetto del compressore era tarato sulla riga sbagliata di vm_stat, e esce
+- **dispatch** · il pavimento nativo prezzava la sessione, non i check che lancia
+- **checks** · il tail di un check rosso non e' piu' fatto solo di avvisi colore
+
+### Sotto il cofano
+- **dispatch** · il pavimento passa dai due campioni veri, non da un ragionamento
+- **dispatch** · dove cade il pavimento, e quale freno NON manca
+- **dispatch** · dove si rompe la memoria, e in che ordine
+- **dispatch** · il tetto del compressore ha un numero contro, non solo un argomento
+- **dispatch** · il buco non campionato e' largo 1,4 GB, non sette
+
+## 2.2.296 — 2026-09-10
+
+### Novità
+- **board** · focus task detail on the conversation
+- **board** · compact supplementary delivery notes inline
+- **board** · make task conversations clear and actionable
+- **board** · align task preview with the floating chat composer
+- **providers** · make GPT setup and coding selection reliable
+- **tasks** · choose automatic models across coding providers
+- **board** · il coordinatore si apre dentro la Kanban, con il suo glifo
+- **codex** · resume threads instead of resending truncated history
+- **shell** · la finestra nascosta si aggiorna da sola, e ricaricare non perde piu' memoria
+- **chrome** · il menu utente e' largo quanto la colonna, e smette di dire tre volte le stesse due cose
+- **perf** · il pannello prestazioni si legge, e le sue righe dicono come stanno rispetto al totale
+- **perf** · il consumo si legge per sessione e per progetto
+
+### Correzioni
+- enforce project paths and device revocation across transports
+- reject destructive client build destinations
+- keep failed migrations unrecorded and retryable
+- release coalesced requests when response bodies fail
+- pause system polling while the page is hidden
+- restore profile focus when closing its menu
+- update vulnerable dependencies and deduplicate CodeMirror
+- keep security audit output and regression checks reliable
+- make task session details expandable without hiding replies or media
+- share bounded process probes and run one detection loop
+- isolate E2E runs, cleanup and report ownership
+- preserve serial test semantics in the parallel runner
+- **chrome** · la scheda selezionata si distingue, misurata
+- **gates** · il fixture del cancello relay porta anche client/package.json
+- **board** · show landing only for applicable deliveries
+- **board** · keep the wait visible when the drawer opens
+- **board** · show each delivery attachment once
+- **relay** · give the lint-gate fixture the module kind its config needs
+- **ui** · make provider limits readable and actionable
+- **dispatcher** · scope plan holds to Claude task providers
+- **board** · keep acknowledged task comments visible
+- **board** · explain fresh-session queue events clearly
+- **providers** · preserve Codex routing during snapshot refresh
+- **board** · clarify general auto and preserve model labels
+- **tasks** · read saved feedback before fresh execution
+- **codex** · keep MCP turns live
+- **codex** · preserve nullable MCP results
+- **test** · align review gate contracts
+- **codex** · block Claude child spawning
+- **terminal** · guard Codex child spawn route
+- **landing** · patch audited dependencies
+- **dispatch** · retain automatic reasoning effort
+- **tasks** · clarify comment authors and check results
+- **e2e** · rename gotoSidebar to navigateToSidebar for identifier-language gate
+- **settings** · dire lo stato del provider nella lingua di chi legge
+- **board** · open Details tab when adding a subtask or opening its drawer
+- **board** · un commit di consegna vuoto non vale piu' come «atterrato»
+- **task-chat** · fold settled failed actions into session details
+- **worktrees** · un repo senza main non e' un repo rotto
+- **board** · il gemello dell'anteprima non poteva rendere, e due spec lo cercavano
+- **codex** · retry fresh once when a resume dies mid-turn
+- **board** · la ricevuta non puo' smentire cio' che la card deve ancora
+- **e2e** · RECAPTURE-01 aspettava un testid che nessuno rende
+- **board** · un commit vuoto non assolve piu' nemmeno il RAMO
+- **e2e** · BOARD-LAND-01 cercava «Landa su main» nella conversazione
+- **board** · una bozza di revisione non resta nascosta dietro una linguetta
+- **gates** · clear identifier-language debt surfaced by the pre-review realign merge
+- **native** · un rifiuto dell'API non è una risposta mancata
+- **gates** · english identifier names in history-rehydrate.test.ts
+- **chat** · a turn closed from outside its own row is not a turn that ended
+- **rails** · due nomi italiani nel test del ricarico bundle
+- **native** · la storia ricostruita porta di nuovo i tool call, con un tetto
+- **terminal** · la finestra di avvio non ha diritto a un 404
+- **client** · un dato vecchio lo dice, e un guasto al boot non resta muto
+- **board** · due regressioni nate dalla risoluzione del merge, non dai rami
+- **usage** · il contratto sta in shared/, e nessun path di casa nei test
+- **quiescence** · chiedere il riavvio due volte non apre due attese
+- **spec** · i tre test di ieri sera dichiarano cosa provano, e le spec lo hanno
+- **usage** · due export che nessuno importava, e un contratto applicato invece che descritto
+- **bloat** · registro le 52 righe che ho aggiunto io, non la crescita di tutti
+- **deadcode** · il caricatore della colonna progetto smette di accecare knip
+
+### Prestazioni
+- avoid redundant board work and duplicate context analysis
+- reduce WebSocket fanout work and compress remote snapshots
+- cache type and lint checks with verified invalidation
+- **orchestrator** · al coordinatore la stessa fetta che legge la board
+- **boot** · il cancello del primo frame aspetta solo cio' che la finestra disegna
+- **boot** · la sezione Git chiusa non monta piu' il pannello, e il secondo salto arriva caldo
+- **boot** · le tre sonde dev leggono il frame che il server manda gia', invece di chiederlo
+- **bundle** · la colonna di progetto esce dal chunk d'ingresso
+
+### Sotto il cofano
+- make clean checkout setup reproducible
+- tighten quality baselines after cleanup
+- record senior quality review and validation evidence
+- record conversation and performance validation
+- **chrome** · nomi e commenti in inglese nel cancello CHROME-13
+- **settings** · keep provider setup inline and separate tools
+- remove private project name from performance review
+- **tasks** · align model selection identifiers
+- **chat** · exercise declared woken provider
+- **codex** · keep spawn regression scoped and traceable
+- **dispatch** · consolidate automatic model coverage
+- record live runtime and effort verification
+- **db** · refresh embedded migration manifest
+- **relay** · avoid nested lint runner in gate probe
+- **relay** · remove duplicate lint probe
+- stabilize client build fixture under shards
+- **e2e** · follow task detail tabs
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-09 [skip ci]
+- **board** · reach the unblock choice where it now lives
+- **automatic-gpt-task-model** · record live acceptance on the two real tasks
+- Pinned calendar tile: hover/focus preview instead of click-expand ICS band
+- add CODEX-02 for exec resume thread persistence
+- unblock static-rails baseline drift inherited from main
+- **board** · un cancello sulle opzioni dei sensori, che era il buco vero
+- **branch-status** · rename vuoto to empty, an identifier-language gate miss
+- **unit-shards** · serialize codex-complete.test.ts, a real OS-timing racer
+- **e2e** · apri la linguetta prima di cercarci dentro
+- **e2e** · il guardiano dell'azione fallita guarda il drawer, non la chat
+- **e2e** · il cassetto del coordinatore si guarda, non solo si asserisce
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-10 [skip ci]
+- **board** · one shared task-model catalog and menu across composer, drawer, board settings
+- **e2e** · la riga Git chiusa mostra il ramo, non lo cambia
+- Il pannello sa dire quanto costa una sessione, non solo quanto pesa la flotta
+- Rinomina i due nomi che il cancello della lingua non conosceva
+- Scrivi accanto alla query quanto costa davvero
+
 ## 2.2.295 — 2026-09-08
 
 ### Sotto il cofano

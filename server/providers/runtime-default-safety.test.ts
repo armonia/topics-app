@@ -32,7 +32,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const ENV = ["AI_PROVIDER", "ACP_AGENTS", "TOPICS_AGENT_RUNTIME"] as const;
+// `TOPICS_CREDENTIALS_KEYCHAIN` belongs here with the others: without it, a
+// macOS runner with the variable set to "1" in the environment of whoever
+// launches `bun test` (measured: inherited from the parent process, not from
+// this file) makes `readCredentials()` read the real Keychain instead of just
+// the fake `HOME` under test, and "no credential" stops being true. Reproduces
+// alone: `TOPICS_CREDENTIALS_KEYCHAIN=1 bun test runtime-default-safety.test.ts`.
+const ENV = ["AI_PROVIDER", "ACP_AGENTS", "TOPICS_AGENT_RUNTIME", "TOPICS_CREDENTIALS_KEYCHAIN"] as const;
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV) saved[k] = process.env[k];
 

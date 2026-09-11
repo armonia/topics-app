@@ -4,8 +4,9 @@
  * @covers KANBAN-07
  */
 import { test, expect, describe } from "bun:test";
+import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -68,7 +69,7 @@ describe("readGlobalCap — il tetto globale come sta scritto", () => {
   });
 });
 
-describe("effectiveDispatchCap — quanti agenti insieme, adesso", () => {
+describe("effectiveDispatchCap — quanti agenti insieme, now", () => {
   test("in auto vince la raccomandazione viva della macchina", () => {
     expect(effectiveDispatchCap({ auto: true, max: 8 }, 3)).toBe(3);
   });
@@ -81,13 +82,13 @@ describe("effectiveDispatchCap — quanti agenti insieme, adesso", () => {
     expect(effectiveDispatchCap({ auto: false, max: 2 }, 7)).toBe(2);
   });
 
-  test("mai sotto 1: un tetto di zero non è prudenza, è una board ferma", () => {
+  test("mai underCeiling 1: un tetto di zero non è prudenza, è una board ferma", () => {
     expect(effectiveDispatchCap({ auto: true, max: 0 }, 0)).toBe(1);
     expect(effectiveDispatchCap({ auto: false, max: -3 }, null)).toBe(1);
   });
 });
 
-describe("structuralDispatchCapacity — quanti ne regge in REGIME, non adesso", () => {
+describe("structuralDispatchCapacity — quanti ne regge in REGIME, non now", () => {
   test("non guarda il carico: due letture di fila danno lo stesso numero", () => {
     // La raccomandazione viva può cambiare fra due chiamate (il load si muove);
     // questa no, ed è il motivo per cui la quota di core divide per questa.
@@ -102,7 +103,7 @@ describe("structuralDispatchCapacity — quanti ne regge in REGIME, non adesso",
   });
 
   test("la raccomandazione viva non la supera mai: è il tetto meno ciò che il carico si è già preso", () => {
-    // A riposo il carico non morde e le due letture coincidono; sotto carico la
+    // A riposo il carico non morde e le due letture coincidono; underCeiling carico la
     // viva scende SOTTO la strutturale. Mai il contrario: la strutturale è il
     // tetto, la viva è il tetto meno quello che il carico si è già preso.
     expect(computeDispatchCapacity().recommended).toBeLessThanOrEqual(structuralDispatchCapacity());
@@ -199,7 +200,7 @@ describe("il pavimento sulle risorse", () => {
     expect(gb!).toBeGreaterThan(0);
   });
 
-  test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
+  test("underCeiling il pavimento BLOCCA, e la frase porta il numero", () => {
     // Misura iniettata: il caso che conta è il disco quasi pieno, e aspettarlo
     // sul serio vorrebbe dire non provarlo mai.
     const msg = dispatchResourceBlock("/qualunque", () => 3.5, wideMemory);
@@ -239,7 +240,7 @@ describe("il pavimento sulla memoria", () => {
     expect(dispatchResourceBlock("/qualunque", wideDisk, () => DISPATCH_MEM_FLOOR_GB + 8)).toBeNull();
   });
 
-  test("sotto il pavimento BLOCCA, e la frase porta il numero", () => {
+  test("underCeiling il pavimento BLOCCA, e la frase porta il numero", () => {
     const msg = dispatchResourceBlock("/qualunque", wideDisk, () => 2.1);
     expect(msg).not.toBeNull();
     expect(msg!).toContain("2.1 GB disponibili");
@@ -247,7 +248,7 @@ describe("il pavimento sulla memoria", () => {
     expect(msg!).toContain("Riprendo");
   });
 
-  test("la soglia è una soglia, e il verso è «sotto blocca»", () => {
+  test("la soglia è una soglia, e il verso è «underCeiling blocca»", () => {
     expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB + 0.1)).toBe(false);
     expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB)).toBe(false);
     expect(memoryTooTight(DISPATCH_MEM_FLOOR_GB - 0.1)).toBe(true);
@@ -262,59 +263,211 @@ describe("il pavimento sulla memoria", () => {
     expect(dispatchResourceBlock("/qualunque", wideDisk, () => null)).toBeNull();
   });
 
-  test("una sonda che esplode non ferma la coda", () => {
+  test("una sonda che throws non ferma la coda", () => {
     expect(
       dispatchResourceBlock("/qualunque", wideDisk, () => { throw new Error("vm_stat non c'è"); }),
     ).toBeNull();
   });
 
   test("il disco vince sulla memoria: una frase sola per card", () => {
-    // Entrambi sotto: due frasi insieme sono rumore, e il disco va per primo
+    // Entrambi underCeiling: due frasi insieme sono rumore, e il disco va per primo
     // perché un disco pieno ROMPE (scritture SQLite) mentre la RAM degrada.
     const msg = dispatchResourceBlock("/qualunque", () => 1, () => 1);
     expect(msg!).toContain("Disco quasi pieno");
     expect(msg!).not.toContain("Memoria quasi finita");
   });
 
-  test("legge vm_stat davvero: pagine libere + speculative + inattive", () => {
-    // Un vm_stat finto ma nella forma vera, cosi' l'unita' e' verificata senza
-    // dipendere da quanta RAM ha la macchina che esegue la suite.
-    // 65536 pagine da 16384 byte = 1,073 GB per ciascuna delle tre voci.
-    const finto = [
+  /** A synthetic `vm_stat` with four equal entries, so the arithmetic reads at
+   *  a glance: the four that count are 65536 pages, the others are not. */
+  const finto = [
+    "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+    "Pages free:                                65536.",
+    "Pages active:                             700000.",
+    "Pages inactive:                           400000.",
+    "Pages speculative:                         65536.",
+    "Pages throttled:                               0.",
+    "Pages purgeable:                           65536.",
+    "File-backed pages:                         65536.",
+    "Anonymous pages:                          800000.",
+    "Pages occupied by compressor:             100000.",
+  ].join("\n");
+
+  test("il pavimento resta coerente col numero nuovo: la sera NO, la macchina sana SI'", () => {
+    // ITEM 3 DELLA CARD, e il verso che non si vede: cambiando il significato
+    // di `availableMemGB` senza ritoccare `DISPATCH_MEM_FLOOR_GB` si poteva
+    // rendere il cancello molto piu' severo SENZA cambiare un numero - una
+    // politica nuova entrata di soppiatto, col silenzio come sintomo. Qui i due
+    // campioni veri passano dal pavimento VERO, non da una soglia di comodo.
+    const thatNight = [
       "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
-      "Pages free:                                65536.",
-      "Pages active:                             700000.",
-      "Pages inactive:                            65536.",
-      "Pages speculative:                         65536.",
-      "Pages throttled:                               0.",
+      "Pages free:                                 4877.",
+      "Pages inactive:                           586288.",
+      "Pages speculative:                           876.",
+      "Pages purgeable:                            5000.",
+      "File-backed pages:                        100000.",
+      "Pages occupied by compressor:            1712833.",
     ].join("\n");
+    const healthy = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                               49689.",
+      "Pages inactive:                          695839.",
+      "Pages speculative:                        36974.",
+      "Pages purgeable:                          26839.",
+      "File-backed pages:                       705344.",
+      "Pages occupied by compressor:            316162.",
+    ].join("\n");
+
+    const gate = (vm: string) => dispatchResourceBlock(
+      "/qualunque", () => 500, () => availableMemGB(() => vm), true,
+    );
+
+    expect(gate(thatNight)).not.toBeNull();   // the night of 2026-09-10: refuse
+    expect(gate(healthy)).toBeNull();         // healthy machine: admit
+
+    // E il margine sul verso «sano» si dichiara, perche' e' sottile: se un
+    // domani scendesse sotto il pavimento, il cancello smetterebbe di
+    // dispacciare su una macchina in salute e questo test lo direbbe subito.
+    expect(availableMemGB(() => healthy)!).toBeGreaterThan(DISPATCH_MEM_FLOOR_GB);
+  });
+
+  test("la somma e' cio' che si ottiene SENZA far lavorare il disco", () => {
+    // free 65536 + speculative 65536 + purgeable 65536 + file-backed 65536
+    // = 4 x 65536 x 16384 / 1e9 = 4,295 GB. A unit error (pages counted as
+    // bytes) would give 0,0002 and the floor would bite ALWAYS.
     const gb = availableMemGB(() => finto);
     expect(gb).not.toBeNull();
-    // 3 x 65536 x 16384 / 1e9 = 3,221 GB. Un errore di unita' (pagine contate
-    // come byte) darebbe 0,0002 e il pavimento morderebbe SEMPRE.
-    expect(gb!).toBeCloseTo(3.221, 2);
+    expect(gb!).toBeCloseTo(4.295, 2);
   });
 
   test("le pagine ATTIVE non contano: sono in uso, non disponibili", () => {
-    // La riga `Pages active` del campione sopra vale 700000 pagine, cioe' 11,5
-    // GB: se finisse nel totale il pavimento non morderebbe mai su una macchina
-    // piena, che e' precisamente il caso per cui esiste.
-    const withActive = [
+    // The sample's `Pages active` line is 700000 pages, i.e. 11,5 GB: if it
+    // entered the total the floor would never bite on a full machine, which is
+    // precisely the case it exists for.
+    expect(availableMemGB(() => finto)!).toBeLessThan(5);
+  });
+
+  test("le INATTIVE non contano piu', ed e' il difetto del 10/09", () => {
+    // THE SAMPLE IS THE REAL NIGHT, rebuilt from the measured figures: free
+    // 4.877, inactive 586.288, compressor 1.712.833 pages (26 GB of 32),
+    // 258.707 swapouts. `Pages speculative` is calibrated so that the OLD sum
+    // (free+speculative+inactive) reproduces the 9,7 GB it reported that night;
+    // purgeable and file-backed were not recorded, so here they are DELIBERATELY
+    // generous - 100.000 pages of cache, 1,6 GB - and the verdict has to hold
+    // anyway. With 26 GB in the compressor the real cache was far less than
+    // that: the test is harsher on itself than the machine was.
+    const thatNight = [
       "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
-      "Pages free:                                65536.",
-      "Pages active:                             700000.",
-      "Pages inactive:                            65536.",
-      "Pages speculative:                         65536.",
+      "Pages free:                                 4877.",
+      "Pages active:                             900000.",
+      "Pages inactive:                           586288.",
+      "Pages speculative:                           876.",
+      "Pages purgeable:                            5000.",
+      "File-backed pages:                        100000.",
+      "Anonymous pages:                         1400000.",
+      "Pages occupied by compressor:            1712833.",
     ].join("\n");
-    expect(availableMemGB(() => withActive)!).toBeLessThan(4);
+
+    const old = (4877 + 876 + 586288) * 16384 / 1e9;
+    expect(old).toBeCloseTo(9.7, 1); // the number that admitted, for the record
+
+    const now = availableMemGB(() => thatNight);
+    expect(now).not.toBeNull();
+    expect(now!).toBeLessThan(2);
+    // And the floor bites: the verdict that never arrived that night.
+    expect(memoryTooTight(now, DISPATCH_MEM_FLOOR_GB)).toBe(true);
+    expect(memoryTooTight(old, DISPATCH_MEM_FLOOR_GB)).toBe(true);
+  });
+
+  test("su una macchina SANA la somma nuova non e' piu' stretta della old", () => {
+    // The symmetric risk, and the more insidious one: a correct probe that
+    // reports "exhausted" on a healthy Mac switches dispatch off forever, and
+    // nobody notices because the symptom is silence. This sample is the REAL
+    // `vm_stat` of this machine once the work was done.
+    const healthy = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                               49689.",
+      "Pages active:                            714234.",
+      "Pages inactive:                          695839.",
+      "Pages speculative:                        36974.",
+      "Pages purgeable:                          26839.",
+      "File-backed pages:                       705344.",
+      "Anonymous pages:                         741703.",
+      "Pages occupied by compressor:            316162.",
+    ].join("\n");
+    const old = (49689 + 36974 + 695839) * 16384 / 1e9;
+    const now = availableMemGB(() => healthy)!;
+    expect(old).toBeCloseTo(12.8, 1);
+    expect(now).toBeCloseTo(13.4, 1);
+    // The two agree within half a gigabyte: where the inactive pages REALLY are
+    // cache, the new sum says the same thing. It discriminates where that
+    // matters and stays quiet where it does not.
+    expect(Math.abs(now - old)).toBeLessThan(1);
   });
 
   test("un output illeggibile vale «non lo so», non una sottostima", () => {
-    // Una voce mancante e il totale sarebbe piu' basso del vero, cioe' un
-    // pavimento che morde quando non deve: peggio del non sapere.
+    // A missing entry would make the total lower than the truth, i.e. a floor
+    // that bites when it must not: worse than not knowing.
     expect(availableMemGB(() => "roba che non e' vm_stat")).toBeNull();
     expect(availableMemGB(() => "Pages free: 100.\nPages inactive: 50.")).toBeNull(); // manca page size
     expect(availableMemGB(() => null)).toBeNull();
+    // "File-backed pages" has the words the other way round: read with the
+    // `Pages <name>` pattern it would yield NaN, hence `null`, hence a gate that
+    // stops measuring without saying so. The sample above contains it and is
+    // NOT null: this line is what proves the right pattern is in use.
+    const withoutFileBacked = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                65536.",
+      "Pages speculative:                         65536.",
+      "Pages purgeable:                           65536.",
+    ].join("\n");
+    expect(availableMemGB(() => withoutFileBacked)).toBeNull();
+  });
+
+  test("le DUE righe del compressore non sono la stessa cosa, e il codice legge quella fisica", () => {
+    // THE DEFECT THIS TEST PINS. `vm_stat` exposes `Pages stored in compressor`
+    // (logical compressed pages) and `Pages occupied by compressor` (physical
+    // RAM held): on the night of 2026-09-10 they stood at 2,8:1. The first
+    // draft of this work took 1.712.833 - the `stored` line - called it
+    // `occupied` and set a one-third ceiling on top of it. With the line the
+    // code actually reads, the share that night was 0,291, BELOW the ceiling:
+    // the guard would not have fired on the night it was written for.
+    //
+    // The arithmetic settles which line is which, with nobody to take on trust:
+    // 1.712.833 pages are 28,1 GB, and with 9,6 GB inactive and 0,08 free that
+    // is 37,7 GB on a 34,36 GB machine. They do not fit.
+    const thatNight = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages stored in compressor:              1712833.",
+      "Pages occupied by compressor:             610054.",
+      "Swapouts:                                 258707.",
+    ].join("\n");
+    const physical = compressorGB(() => thatNight)!;
+    expect(physical).toBeCloseTo(10.0, 1);          // occupied, not stored
+    expect(physical / 34.36).toBeCloseTo(0.291, 2); // the real share that night
+    expect(1712833 * 16384 / 1e9).toBeCloseTo(28.1, 1); // stored: 2,8x, would not fit
+
+    const healthy = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+      + "Pages occupied by compressor:             314558.\n"
+      + "Swapouts:                                 258707.";
+    expect(compressorGB(() => healthy)!).toBeCloseTo(5.15, 1);
+
+    // The CUMULATIVE swapouts are identical in the two samples, and it is the
+    // most eloquent fact of the night: since the crisis ended the machine has
+    // not swapped a single page. A counter, not a rate: the difference between
+    // two readings is the rate, and a reading with no previous base is not
+    // zero, it is "I do not know" - the same rule as `makeInstantCpu`.
+    expect(swapoutPages(() => thatNight)).toBe(258707);
+    expect(swapoutPages(() => healthy)).toBe(258707);
+    expect(swapoutPages(() => "niente")).toBeNull();
+    expect(swapoutPages(() => null)).toBeNull();
+  });
+
+  test("nessun tetto sul compressore: il cancello ha UN solo segnale sulla memoria", () => {
+    // The direction that stops an untunable guard from creeping back in. With
+    // memory to spare the gate admits WHATEVER the compressor is doing: if
+    // somebody later put a threshold back without a measurement under load to
+    // justify it, this test would say so.
+    expect(dispatchResourceBlock("/qualunque", () => 500, () => 20, true)).toBeNull();
   });
 });
 
@@ -350,7 +503,7 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(su12(0.75, 0).freeCores).toBeCloseTo(5.25, 5);
   });
 
-  test("agenti che compilano: il tetto scende sotto lo strutturale", () => {
+  test("agenti che compilano: il tetto scende underCeiling lo strutturale", () => {
     // Due agenti a 2,5 core l'uno: 5 di quota spesi, ne resta 1, quindi un
     // posto solo in più. Questo è il freno che morde.
     expect(su12(5, 2).slots).toBe(3);
@@ -379,10 +532,10 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   // I core li chiediamo AL MODULO, non a `os.cpus()`.
   //
   // Non è pignoleria: con `os.cpus().length` questo blocco è caduto una volta
-  // nella suite intera e mai da solo, perché sotto carico quella lettura sa
+  // nella suite intera e mai da solo, perché underCeiling carico quella lettura sa
   // tornare vuota (vedi `server/lib/machine-cores.ts`). Un test che chiede la
   // stessa cosa da una porta diversa può rispondersi «un core» mentre il codice
-  // sotto misura ne vede dodici, e allora il rosso non parla del codice: parla
+  // underCeiling misura ne vede dodici, e allora il rosso non parla del codice: parla
   // di quanto era occupata la macchina che lo eseguiva.
   const cores = computeDispatchCapacity(0, () => null).cores;
 
@@ -395,7 +548,7 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
     expect(cap.reason).toContain("di quota");
   });
 
-  test("carico NOSTRO oltre la quota: il tetto scende e la riga dice da cosa", () => {
+  test("carico NOSTRO overCeiling la quota: il tetto scende e la riga dice da cosa", () => {
     const strutturale = structuralDispatchCapacity();
     // La flotta si mangia quattro volte la sua quota: il residuo va a zero e
     // resta solo il pavimento, che è 2 e non 1 apposta.
@@ -415,13 +568,13 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
     expect(cap.reason).not.toContain("di quota");
   });
 
-  test("una sonda che esplode vale «non lo so», non un tick caduto", () => {
+  test("una sonda che throws vale «non lo so», non un tick caduto", () => {
     const cap = computeDispatchCapacity(0, () => { throw new Error("ps morto"); });
     expect(cap.oursCores).toBeNull();
     expect(cap.recommended).toBeGreaterThanOrEqual(1);
   });
 
-  test("`running` non gonfia mai il tetto oltre lo strutturale", () => {
+  test("`running` non gonfia mai il tetto overCeiling lo strutturale", () => {
     const cap = computeDispatchCapacity(99, () => fleetReading({ coreUnits: 0, cores }));
     expect(cap.recommended).toBe(structuralDispatchCapacity());
   });
@@ -435,7 +588,7 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
  * nativo un agente costa 2,3 MB — dieci ne costano meno di UNO con la CLI — e
  * tenere lo stesso margine ferma la coda su una macchina che sta benissimo.
  *
- * Non è teoria: il 2026-08-16 il dispatch era bloccato con 8,7 GB liberi
+ * Non è teoria: il 2026-08-16 il dispatch era blocked con 8,7 GB liberi
  * mentre gli agenti che doveva lanciare ne avrebbero chiesti venti di megabyte.
  */
 describe("il pavimento della memoria segue il runtime", () => {
@@ -449,21 +602,52 @@ describe("il pavimento della memoria segue il runtime", () => {
     expect(r).toContain("240 MB");
   });
 
+  test("il cancello scatta a SEI e non a una soglia derivata", () => {
+    // Written because it was got wrong twice in one night, in both directions:
+    // once reading the CLI constant (12) instead of the native one, once
+    // inventing a "margin minus seat price" threshold at 7,50 that exists
+    // nowhere. There is no derived threshold: `byMem` divides TOTAL memory, not
+    // available, so the only rule on available memory is this one.
+    const disk = () => 500;
+    const open = (gb: number) => dispatchResourceBlock("/tmp", disk, () => gb, false) === null;
+    expect(open(7.39)).toBe(true);   // worst healthy peak measured under load
+    expect(open(6.01)).toBe(true);
+    expect(open(5.99)).toBe(false);
+  });
+
+  test("il pavimento nativo deve stare SOPRA il prezzo di un posto", () => {
+    // THE LESSON OF 2026-09-10, as an invariant instead of a number. The floor
+    // governs the NEXT admission, so it has to leave room for the card it is
+    // about to let in. With the old pair (floor 2, seat 0,25) it did not: the
+    // gate opened at 2 GB for a card whose checks then asked ~1,5, which is how
+    // seven cards were admitted onto a Mac that then froze.
+    expect(DISPATCH_MEM_FLOOR_NATIVE_GB).toBeGreaterThan(GB_PER_AGENT_NATIVE);
+    expect(DISPATCH_MEM_FLOOR_GB).toBeGreaterThan(GB_PER_AGENT_CLI);
+  });
+
   test("col runtime nativo: gli stessi 8,7 GB sono abbondanti", () => {
     // LA RIGA CHE CONTA: stessa macchina, stessa lettura, coda che riparte.
     expect(dispatchResourceBlock("/tmp", disco, ram(8.7), false)).toBeNull();
   });
 
-  test("il pavimento nativo esiste comunque: sotto 2 GB si ferma anche lui", () => {
+  test("il pavimento nativo esiste comunque: sotto la soglia si ferma anche lui", () => {
     // Non è zero: il server tiene le conversazioni in memoria e i tool leggono
     // file. Una macchina già in swap non deve peggiorare comunque.
     const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false);
     expect(r).toBeTruthy();
-    expect(r).toContain("pavimento di 2 GB");
+    // The number is READ from the constant, not copied: this test went red when
+    // the floor moved from 2 to 6, and a test that has to be edited every time
+    // the value it guards changes is guarding the digit, not the behaviour.
+    expect(r).toContain(`pavimento di ${DISPATCH_MEM_FLOOR_NATIVE_GB} GB`);
     // E il messaggio dice il costo GIUSTO: citare i 240 MB della CLI qui
     // manderebbe a cercare la causa nel posto sbagliato.
     expect(r).not.toContain("240 MB");
+    // Both halves, and the second is the one that was missing: the session is
+    // cheap, what the session LAUNCHES is not, and a message that only says
+    // "2,3 MB" reads as "there is no room for nothing" - which is what sent the
+    // 10/09 diagnosis after the wrong cause.
     expect(r).toContain("2,3 MB");
+    expect(r).toContain("1,5 GB");
   });
 
   test("il disco viene prima della RAM, su entrambi i runtime", () => {
@@ -498,7 +682,7 @@ describe("il pavimento della memoria segue il runtime", () => {
  */
 describe("il tetto conosce il runtime: 3 GB per una CLI, 0,25 per una sessione nativa", () => {
   test("i due prezzi non sono lo stesso numero, e il nativo costa molto meno", () => {
-    // Se un giorno qualcuno li riallinea, i test qui sotto passerebbero per
+    // Se un giorno qualcuno li riallinea, i test qui underCeiling passerebbero per
     // caso: questa riga è la sentinella che rende visibile la regressione.
     expect(GB_PER_AGENT_NATIVE).toBeLessThan(GB_PER_AGENT_CLI);
   });

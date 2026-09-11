@@ -399,3 +399,7 @@ tools/out/win/probe/
 
 # Private, installation-scoped AI credentials (never shipped).
 .topics-secrets/
+
+# Marcatori Spotlight: cartelle che ricambiano a ogni build non vanno indicizzate
+# (senza questa riga i marcatori nelle cartelle TRACCIATE sporcano ogni git status)
+.metadata_never_index

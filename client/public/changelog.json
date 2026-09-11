@@ -1,5 +1,789 @@
 [
   {
+    "version": "2.2.297",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "il freno della memoria smetteva di contare cio' che il Mac non poteva dare",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "translate new test comments to English per check:comment-language",
+          "en": "",
+          "scope": "lint",
+          "breaking": false
+        },
+        {
+          "it": "il tetto del compressore era tarato sulla riga sbagliata di vm_stat, e esce",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il pavimento nativo prezzava la sessione, non i check che lancia",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il tail di un check rosso non e' piu' fatto solo di avvisi colore",
+          "en": "",
+          "scope": "checks",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il pavimento passa dai due campioni veri, non da un ragionamento",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "dove cade il pavimento, e quale freno NON manca",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "dove si rompe la memoria, e in che ordine",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il tetto del compressore ha un numero contro, non solo un argomento",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "il buco non campionato e' largo 1,4 GB, non sette",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.296",
+    "date": "2026-09-10",
+    "sections": {
+      "new": [
+        {
+          "it": "focus task detail on the conversation",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "compact supplementary delivery notes inline",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "make task conversations clear and actionable",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "align task preview with the floating chat composer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "make GPT setup and coding selection reliable",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "choose automatic models across coding providers",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "il coordinatore si apre dentro la Kanban, con il suo glifo",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "resume threads instead of resending truncated history",
+          "en": "",
+          "scope": "codex",
+          "breaking": false
+        },
+        {
+          "it": "la finestra nascosta si aggiorna da sola, e ricaricare non perde piu' memoria",
+          "en": "",
+          "scope": "shell",
+          "breaking": false
+        },
+        {
+          "it": "il menu utente e' largo quanto la colonna, e smette di dire tre volte le stesse due cose",
+          "en": "",
+          "scope": "chrome",
+          "breaking": false
+        },
+        {
+          "it": "il pannello prestazioni si legge, e le sue righe dicono come stanno rispetto al totale",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        },
+        {
+          "it": "il consumo si legge per sessione e per progetto",
+          "en": "",
+          "scope": "perf",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "enforce project paths and device revocation across transports",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "reject destructive client build destinations",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keep failed migrations unrecorded and retryable",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "release coalesced requests when response bodies fail",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "pause system polling while the page is hidden",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "restore profile focus when closing its menu",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "update vulnerable dependencies and deduplicate CodeMirror",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keep security audit output and regression checks reliable",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "make task session details expandable without hiding replies or media",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "share bounded process probes and run one detection loop",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "isolate E2E runs, cleanup and report ownership",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "preserve serial test semantics in the parallel runner",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la scheda selezionata si distingue, misurata",
+          "en": "",
+          "scope": "chrome",
+          "breaking": false
+        },
+        {
+          "it": "il fixture del cancello relay porta anche client/package.json",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "show landing only for applicable deliveries",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "keep the wait visible when the drawer opens",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "show each delivery attachment once",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "give the lint-gate fixture the module kind its config needs",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "make provider limits readable and actionable",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "scope plan holds to Claude task providers",
+          "en": "",
+          "scope": "dispatcher",
+          "breaking": false
+        },
+        {
+          "it": "keep acknowledged task comments visible",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "explain fresh-session queue events clearly",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "preserve Codex routing during snapshot refresh",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "clarify general auto and preserve model labels",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "read saved feedback before fresh execution",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "keep MCP turns live",
+          "en": "",
+          "scope": "codex",
+          "breaking": false
+        },
+        {
+          "it": "preserve nullable MCP results",
+          "en": "",
+          "scope": "codex",
+          "breaking": false
+        },
+        {
+          "it": "align review gate contracts",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "block Claude child spawning",
+          "en": "",
+          "scope": "codex",
+          "breaking": false
+        },
+        {
+          "it": "guard Codex child spawn route",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "patch audited dependencies",
+          "en": "",
+          "scope": "landing",
+          "breaking": false
+        },
+        {
+          "it": "retain automatic reasoning effort",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "clarify comment authors and check results",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "rename gotoSidebar to navigateToSidebar for identifier-language gate",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "dire lo stato del provider nella lingua di chi legge",
+          "en": "",
+          "scope": "settings",
+          "breaking": false
+        },
+        {
+          "it": "open Details tab when adding a subtask or opening its drawer",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "un commit di consegna vuoto non vale piu' come «atterrato»",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "fold settled failed actions into session details",
+          "en": "",
+          "scope": "task-chat",
+          "breaking": false
+        },
+        {
+          "it": "un repo senza main non e' un repo rotto",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        },
+        {
+          "it": "il gemello dell'anteprima non poteva rendere, e due spec lo cercavano",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "retry fresh once when a resume dies mid-turn",
+          "en": "",
+          "scope": "codex",
+          "breaking": false
+        },
+        {
+          "it": "la ricevuta non puo' smentire cio' che la card deve ancora",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "RECAPTURE-01 aspettava un testid che nessuno rende",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "un commit vuoto non assolve piu' nemmeno il RAMO",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "BOARD-LAND-01 cercava «Landa su main» nella conversazione",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "una bozza di revisione non resta nascosta dietro una linguetta",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "clear identifier-language debt surfaced by the pre-review realign merge",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "un rifiuto dell'API non è una risposta mancata",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "english identifier names in history-rehydrate.test.ts",
+          "en": "",
+          "scope": "gates",
+          "breaking": false
+        },
+        {
+          "it": "a turn closed from outside its own row is not a turn that ended",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "due nomi italiani nel test del ricarico bundle",
+          "en": "",
+          "scope": "rails",
+          "breaking": false
+        },
+        {
+          "it": "la storia ricostruita porta di nuovo i tool call, con un tetto",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "la finestra di avvio non ha diritto a un 404",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "un dato vecchio lo dice, e un guasto al boot non resta muto",
+          "en": "",
+          "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "due regressioni nate dalla risoluzione del merge, non dai rami",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "il contratto sta in shared/, e nessun path di casa nei test",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
+          "it": "chiedere il riavvio due volte non apre due attese",
+          "en": "",
+          "scope": "quiescence",
+          "breaking": false
+        },
+        {
+          "it": "i tre test di ieri sera dichiarano cosa provano, e le spec lo hanno",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
+          "it": "due export che nessuno importava, e un contratto applicato invece che descritto",
+          "en": "",
+          "scope": "usage",
+          "breaking": false
+        },
+        {
+          "it": "registro le 52 righe che ho aggiunto io, non la crescita di tutti",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        },
+        {
+          "it": "il caricatore della colonna progetto smette di accecare knip",
+          "en": "",
+          "scope": "deadcode",
+          "breaking": false
+        }
+      ],
+      "perf": [
+        {
+          "it": "avoid redundant board work and duplicate context analysis",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "reduce WebSocket fanout work and compress remote snapshots",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "cache type and lint checks with verified invalidation",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "al coordinatore la stessa fetta che legge la board",
+          "en": "",
+          "scope": "orchestrator",
+          "breaking": false
+        },
+        {
+          "it": "il cancello del primo frame aspetta solo cio' che la finestra disegna",
+          "en": "",
+          "scope": "boot",
+          "breaking": false
+        },
+        {
+          "it": "la sezione Git chiusa non monta piu' il pannello, e il secondo salto arriva caldo",
+          "en": "",
+          "scope": "boot",
+          "breaking": false
+        },
+        {
+          "it": "le tre sonde dev leggono il frame che il server manda gia', invece di chiederlo",
+          "en": "",
+          "scope": "boot",
+          "breaking": false
+        },
+        {
+          "it": "la colonna di progetto esce dal chunk d'ingresso",
+          "en": "",
+          "scope": "bundle",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "make clean checkout setup reproducible",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "tighten quality baselines after cleanup",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "record senior quality review and validation evidence",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "record conversation and performance validation",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nomi e commenti in inglese nel cancello CHROME-13",
+          "en": "",
+          "scope": "chrome",
+          "breaking": false
+        },
+        {
+          "it": "keep provider setup inline and separate tools",
+          "en": "",
+          "scope": "settings",
+          "breaking": false
+        },
+        {
+          "it": "remove private project name from performance review",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "align model selection identifiers",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        },
+        {
+          "it": "exercise declared woken provider",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "keep spawn regression scoped and traceable",
+          "en": "",
+          "scope": "codex",
+          "breaking": false
+        },
+        {
+          "it": "consolidate automatic model coverage",
+          "en": "",
+          "scope": "dispatch",
+          "breaking": false
+        },
+        {
+          "it": "record live runtime and effort verification",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "refresh embedded migration manifest",
+          "en": "",
+          "scope": "db",
+          "breaking": false
+        },
+        {
+          "it": "avoid nested lint runner in gate probe",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "remove duplicate lint probe",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "stabilize client build fixture under shards",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "follow task detail tabs",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-09 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "reach the unblock choice where it now lives",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "record live acceptance on the two real tasks",
+          "en": "",
+          "scope": "automatic-gpt-task-model",
+          "breaking": false
+        },
+        {
+          "it": "Pinned calendar tile: hover/focus preview instead of click-expand ICS band",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "add CODEX-02 for exec resume thread persistence",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "unblock static-rails baseline drift inherited from main",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un cancello sulle opzioni dei sensori, che era il buco vero",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "rename vuoto to empty, an identifier-language gate miss",
+          "en": "",
+          "scope": "branch-status",
+          "breaking": false
+        },
+        {
+          "it": "serialize codex-complete.test.ts, a real OS-timing racer",
+          "en": "",
+          "scope": "unit-shards",
+          "breaking": false
+        },
+        {
+          "it": "apri la linguetta prima di cercarci dentro",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "il guardiano dell'azione fallita guarda il drawer, non la chat",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "il cassetto del coordinatore si guarda, non solo si asserisce",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-10 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "one shared task-model catalog and menu across composer, drawer, board settings",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "la riga Git chiusa mostra il ramo, non lo cambia",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il pannello sa dire quanto costa una sessione, non solo quanto pesa la flotta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina i due nomi che il cancello della lingua non conosceva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scrivi accanto alla query quanto costa davvero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.295",
     "date": "2026-09-08",
     "sections": {

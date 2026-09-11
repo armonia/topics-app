@@ -1,5 +1,375 @@
 [
   {
+    "version": "2.2.297",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "il freno della memoria smetteva di contare cio' che il Mac non poteva dare",
+          "scope": "dispatch"
+        },
+        {
+          "text": "tre file di test dell'auth nativo non azzeravano TOPICS_CREDENTIALS_KEYCHAIN",
+          "scope": "test"
+        },
+        {
+          "text": "translate new test comments to English per check:comment-language",
+          "scope": "lint"
+        },
+        {
+          "text": "il tetto del compressore era tarato sulla riga sbagliata di vm_stat, e esce",
+          "scope": "dispatch"
+        },
+        {
+          "text": "il pavimento nativo prezzava la sessione, non i check che lancia",
+          "scope": "dispatch"
+        },
+        {
+          "text": "il tail di un check rosso non e' piu' fatto solo di avvisi colore",
+          "scope": "checks"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.296",
+    "date": "2026-09-10",
+    "sections": {
+      "new": [
+        {
+          "text": "focus task detail on the conversation",
+          "scope": "board"
+        },
+        {
+          "text": "compact supplementary delivery notes inline",
+          "scope": "board"
+        },
+        {
+          "text": "make task conversations clear and actionable",
+          "scope": "board"
+        },
+        {
+          "text": "align task preview with the floating chat composer",
+          "scope": "board"
+        },
+        {
+          "text": "make GPT setup and coding selection reliable",
+          "scope": "providers"
+        },
+        {
+          "text": "choose automatic models across coding providers",
+          "scope": "tasks"
+        },
+        {
+          "text": "il coordinatore si apre dentro la Kanban, con il suo glifo",
+          "scope": "board"
+        },
+        {
+          "text": "resume threads instead of resending truncated history",
+          "scope": "codex"
+        },
+        {
+          "text": "la finestra nascosta si aggiorna da sola, e ricaricare non perde piu' memoria",
+          "scope": "shell"
+        },
+        {
+          "text": "il menu utente e' largo quanto la colonna, e smette di dire tre volte le stesse due cose",
+          "scope": "chrome"
+        },
+        {
+          "text": "il pannello prestazioni si legge, e le sue righe dicono come stanno rispetto al totale",
+          "scope": "perf"
+        },
+        {
+          "text": "il consumo si legge per sessione e per progetto",
+          "scope": "perf"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "enforce project paths and device revocation across transports",
+          "scope": null
+        },
+        {
+          "text": "reject destructive client build destinations",
+          "scope": null
+        },
+        {
+          "text": "keep failed migrations unrecorded and retryable",
+          "scope": null
+        },
+        {
+          "text": "release coalesced requests when response bodies fail",
+          "scope": null
+        },
+        {
+          "text": "pause system polling while the page is hidden",
+          "scope": null
+        },
+        {
+          "text": "restore profile focus when closing its menu",
+          "scope": null
+        },
+        {
+          "text": "update vulnerable dependencies and deduplicate CodeMirror",
+          "scope": null
+        },
+        {
+          "text": "keep security audit output and regression checks reliable",
+          "scope": null
+        },
+        {
+          "text": "make task session details expandable without hiding replies or media",
+          "scope": null
+        },
+        {
+          "text": "share bounded process probes and run one detection loop",
+          "scope": null
+        },
+        {
+          "text": "isolate E2E runs, cleanup and report ownership",
+          "scope": null
+        },
+        {
+          "text": "preserve serial test semantics in the parallel runner",
+          "scope": null
+        },
+        {
+          "text": "la scheda selezionata si distingue, misurata",
+          "scope": "chrome"
+        },
+        {
+          "text": "il fixture del cancello relay porta anche client/package.json",
+          "scope": "gates"
+        },
+        {
+          "text": "show landing only for applicable deliveries",
+          "scope": "board"
+        },
+        {
+          "text": "keep the wait visible when the drawer opens",
+          "scope": "board"
+        },
+        {
+          "text": "show each delivery attachment once",
+          "scope": "board"
+        },
+        {
+          "text": "give the lint-gate fixture the module kind its config needs",
+          "scope": "relay"
+        },
+        {
+          "text": "make provider limits readable and actionable",
+          "scope": "ui"
+        },
+        {
+          "text": "scope plan holds to Claude task providers",
+          "scope": "dispatcher"
+        },
+        {
+          "text": "keep acknowledged task comments visible",
+          "scope": "board"
+        },
+        {
+          "text": "explain fresh-session queue events clearly",
+          "scope": "board"
+        },
+        {
+          "text": "preserve Codex routing during snapshot refresh",
+          "scope": "providers"
+        },
+        {
+          "text": "clarify general auto and preserve model labels",
+          "scope": "board"
+        },
+        {
+          "text": "read saved feedback before fresh execution",
+          "scope": "tasks"
+        },
+        {
+          "text": "keep MCP turns live",
+          "scope": "codex"
+        },
+        {
+          "text": "preserve nullable MCP results",
+          "scope": "codex"
+        },
+        {
+          "text": "align review gate contracts",
+          "scope": "test"
+        },
+        {
+          "text": "block Claude child spawning",
+          "scope": "codex"
+        },
+        {
+          "text": "guard Codex child spawn route",
+          "scope": "terminal"
+        },
+        {
+          "text": "patch audited dependencies",
+          "scope": "landing"
+        },
+        {
+          "text": "retain automatic reasoning effort",
+          "scope": "dispatch"
+        },
+        {
+          "text": "clarify comment authors and check results",
+          "scope": "tasks"
+        },
+        {
+          "text": "rename gotoSidebar to navigateToSidebar for identifier-language gate",
+          "scope": "e2e"
+        },
+        {
+          "text": "dire lo stato del provider nella lingua di chi legge",
+          "scope": "settings"
+        },
+        {
+          "text": "open Details tab when adding a subtask or opening its drawer",
+          "scope": "board"
+        },
+        {
+          "text": "un commit di consegna vuoto non vale piu' come «atterrato»",
+          "scope": "board"
+        },
+        {
+          "text": "fold settled failed actions into session details",
+          "scope": "task-chat"
+        },
+        {
+          "text": "un repo senza main non e' un repo rotto",
+          "scope": "worktrees"
+        },
+        {
+          "text": "il gemello dell'anteprima non poteva rendere, e due spec lo cercavano",
+          "scope": "board"
+        },
+        {
+          "text": "retry fresh once when a resume dies mid-turn",
+          "scope": "codex"
+        },
+        {
+          "text": "la ricevuta non puo' smentire cio' che la card deve ancora",
+          "scope": "board"
+        },
+        {
+          "text": "RECAPTURE-01 aspettava un testid che nessuno rende",
+          "scope": "e2e"
+        },
+        {
+          "text": "un commit vuoto non assolve piu' nemmeno il RAMO",
+          "scope": "board"
+        },
+        {
+          "text": "BOARD-LAND-01 cercava «Landa su main» nella conversazione",
+          "scope": "e2e"
+        },
+        {
+          "text": "una bozza di revisione non resta nascosta dietro una linguetta",
+          "scope": "board"
+        },
+        {
+          "text": "clear identifier-language debt surfaced by the pre-review realign merge",
+          "scope": "gates"
+        },
+        {
+          "text": "un rifiuto dell'API non è una risposta mancata",
+          "scope": "native"
+        },
+        {
+          "text": "english identifier names in history-rehydrate.test.ts",
+          "scope": "gates"
+        },
+        {
+          "text": "a turn closed from outside its own row is not a turn that ended",
+          "scope": "chat"
+        },
+        {
+          "text": "due nomi italiani nel test del ricarico bundle",
+          "scope": "rails"
+        },
+        {
+          "text": "la storia ricostruita porta di nuovo i tool call, con un tetto",
+          "scope": "native"
+        },
+        {
+          "text": "la finestra di avvio non ha diritto a un 404",
+          "scope": "terminal"
+        },
+        {
+          "text": "un dato vecchio lo dice, e un guasto al boot non resta muto",
+          "scope": "client"
+        },
+        {
+          "text": "due regressioni nate dalla risoluzione del merge, non dai rami",
+          "scope": "board"
+        },
+        {
+          "text": "il contratto sta in shared/, e nessun path di casa nei test",
+          "scope": "usage"
+        },
+        {
+          "text": "chiedere il riavvio due volte non apre due attese",
+          "scope": "quiescence"
+        },
+        {
+          "text": "i tre test di ieri sera dichiarano cosa provano, e le spec lo hanno",
+          "scope": "spec"
+        },
+        {
+          "text": "due export che nessuno importava, e un contratto applicato invece che descritto",
+          "scope": "usage"
+        },
+        {
+          "text": "registro le 52 righe che ho aggiunto io, non la crescita di tutti",
+          "scope": "bloat"
+        },
+        {
+          "text": "il caricatore della colonna progetto smette di accecare knip",
+          "scope": "deadcode"
+        }
+      ],
+      "perf": [
+        {
+          "text": "avoid redundant board work and duplicate context analysis",
+          "scope": null
+        },
+        {
+          "text": "reduce WebSocket fanout work and compress remote snapshots",
+          "scope": null
+        },
+        {
+          "text": "cache type and lint checks with verified invalidation",
+          "scope": null
+        },
+        {
+          "text": "al coordinatore la stessa fetta che legge la board",
+          "scope": "orchestrator"
+        },
+        {
+          "text": "il cancello del primo frame aspetta solo cio' che la finestra disegna",
+          "scope": "boot"
+        },
+        {
+          "text": "la sezione Git chiusa non monta piu' il pannello, e il secondo salto arriva caldo",
+          "scope": "boot"
+        },
+        {
+          "text": "le tre sonde dev leggono il frame che il server manda gia', invece di chiederlo",
+          "scope": "boot"
+        },
+        {
+          "text": "la colonna di progetto esce dal chunk d'ingresso",
+          "scope": "bundle"
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.291",
     "date": "2026-09-08",
     "sections": {
