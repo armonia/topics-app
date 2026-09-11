@@ -207,11 +207,31 @@ const unackedJsonByKey = new Map<string, string>();
  * later teardown/reconnect flush retries it. `keepalive` lets the teardown
  * path's fetch survive page unload (best-effort; beacon is the primary
  * unload channel, see flushAllPending).
+ *
+ * `baseSeq`, WHEN GIVEN, is a compare-and-swap guard (mirrors
+ * `syncServer.ts`'s `teardownFlushUrl`): the server accepts the write only if
+ * the row is still at that seq. Only the TEARDOWN paths pass it — see
+ * `beaconValue` below for why the in-session debounced write never does.
+ * A 409 there means the row moved on since this tab last saw it (a test
+ * reset, another device, a fresher write from this same tab) and the stale
+ * value is DROPPED, not retried: retrying a rejected teardown flush would
+ * just get rejected again, or — if the row happens to settle back — overwrite
+ * state fresher than what this dying tab is holding, which is the exact bug
+ * the guard exists to prevent.
  */
-async function putWithRetry(key: string, json: string, keepalive = false): Promise<void> {
+async function putWithRetry(
+  key: string,
+  json: string,
+  keepalive = false,
+  baseSeq?: number,
+): Promise<void> {
+  const url =
+    baseSeq === undefined
+      ? `/api/ui-state/${encodeURIComponent(key)}`
+      : `/api/ui-state/${encodeURIComponent(key)}?base=${baseSeq}`;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await fetch(`/api/ui-state/${encodeURIComponent(key)}`, {
+      const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
         body: json,
@@ -230,6 +250,8 @@ async function putWithRetry(key: string, json: string, keepalive = false): Promi
         }
         return;
       }
+      // 409 = compare-and-swap conflict: terminal, never retried (see docstring).
+      if (res.status === 409) return;
     } catch {
       /* network error — fall through to retry / give up */
     }
@@ -284,15 +306,29 @@ function queueSync(key: string, state: unknown): void {
 // same guarantee: on pagehide / tab-hide, synchronously beacon every pending
 // AND every not-yet-acked value; on WS reconnect, retry the un-acked set.
 
-/** Beacon a single value out synchronously (survives page teardown; can't read
- *  the response, so the echo/seq guards are updated optimistically — the server
- *  re-broadcasts our own write, which repopulates them). Returns true if queued. */
+/**
+ * Beacon a single value out synchronously (survives page teardown; can't read
+ * the response, so the echo/seq guards are updated optimistically — the server
+ * re-broadcasts our own write, which repopulates them). Returns true if queued.
+ *
+ * Carries `?base=` — the last server_seq THIS TAB has actually seen for `key`
+ * — exactly like `syncServer.ts`'s `teardownFlushUrl`. Without it a dying
+ * tab's pagehide beacon is an UNCONDITIONAL overwrite with no ordering
+ * guarantee against its OWN network stack: it can land any number of
+ * milliseconds after pagehide fires, including after another client (a test
+ * harness resetting this project's key to a known-empty state, or a peer
+ * device) has already moved the row on. `?base=` makes the server reject that
+ * late write with 409 instead of silently resurrecting stale panes — the
+ * same clobber this project's key used to be exposed to, that pane-store-v2
+ * closed for its own channel (see hermetic.ts's docstring on the mechanism).
+ */
 function beaconValue(key: string, json: string): boolean {
+  const base = lastAppliedSeqByKey.get(key) ?? 0;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
       // sendBeacon can't set headers — pass the client id as a query param, the
       // same fallback syncServer.ts uses. Server reads header first, then ?cid=.
-      const url = `/api/ui-state/${encodeURIComponent(key)}?cid=${encodeURIComponent(getTabId())}`;
+      const url = `/api/ui-state/${encodeURIComponent(key)}?base=${base}&cid=${encodeURIComponent(getTabId())}`;
       const blob = new Blob([json], { type: 'application/json' });
       if (navigator.sendBeacon(url, blob)) {
         lastSyncedJsonByKey.set(key, json);
@@ -304,7 +340,7 @@ function beaconValue(key: string, json: string): boolean {
   }
   // Beacon unavailable/failed — keepalive fetch is the last resort (response
   // may not be read during teardown, but the write can still land).
-  void putWithRetry(key, json, true);
+  void putWithRetry(key, json, true, base);
   return false;
 }
 
