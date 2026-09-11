@@ -3074,6 +3074,11 @@
       "obj",
       "sidechain"
     ],
+    "server/lib/fleet-summary.ts": [
+      "arr",
+      "sawRss",
+      "suoi"
+    ],
     "server/lib/fleet-usage.test.ts": [
       "ferma",
       "senza",
