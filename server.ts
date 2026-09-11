@@ -92,6 +92,7 @@ import { createPreviewManager, type PreviewManager, type PreviewProcess } from "
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { killProcessTree } from "./server/lib/process-tree";
+import { killAgentProcessTree } from "./server/lib/kill-agent-tree";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
@@ -2358,6 +2359,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
+  killAgentTree: killAgentProcessTree,
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
   // lo usa in ogni tick e resume per sapere quante barre sono in volo.
