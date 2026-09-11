@@ -25,10 +25,18 @@
  * moment. It is a window and not a single read because the pane can mount
  * twice, and the first mount used to eat the request the second one needed.
  */
-import type { SectionId } from '@/components/Settings/sections';
-
-/** What can be asked of the Profile pane: the page, or one of its dropdowns. */
-export type PageProfile = Extract<SectionId, 'profile' | 'followers' | 'privacy'>;
+/**
+ * What can be asked of the Profile pane: the page, or one of its dropdowns.
+ *
+ * This is its OWN union, not `Extract<SectionId, ...>`. It used to borrow from
+ * the Settings panel because the three values matched, but the two lists
+ * answer different questions: `SectionId` is "which page does the Settings
+ * panel show", this is "which page/dropdown does the Profile pane show", and
+ * `'privacy'` left `SectionId` (settings no longer has its own Privacy page,
+ * the pane's dropdown is now the only Privacy surface) while it must stay
+ * here untouched — the pane's dropdown did not move.
+ */
+export type PageProfile = 'profile' | 'followers' | 'privacy';
 
 export const EVENTO_PAGINA_PROFILO = 'topics:profile-page';
 

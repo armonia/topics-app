@@ -23,7 +23,7 @@
  * that the labels are in the dictionary in both languages, without mounting a
  * DOM the project does not have.
  */
-import { Bell, Building2, CalendarDays, Cpu, CreditCard, MonitorSmartphone, Palette, Plug, ShieldCheck, UserRound, Users } from 'lucide-react';
+import { Bell, Building2, CalendarDays, Cpu, CreditCard, MonitorSmartphone, Palette, Plug, UserRound, Users } from 'lucide-react';
 
 export type SectionId =
   | 'appearance'
@@ -34,7 +34,6 @@ export type SectionId =
   | 'profile'
   | 'organization'
   | 'followers'
-  | 'privacy'
   | 'devices'
   | 'plan';
 
@@ -59,7 +58,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'tools', labelKey: 'settings.section.tools', icon: Plug },
   { id: 'profile', labelKey: 'settings.section.profile', icon: UserRound },
   { id: 'followers', labelKey: 'settings.section.followers', icon: Users },
-  { id: 'privacy', labelKey: 'settings.section.privacy', icon: ShieldCheck },
+  // Privacy has no entry of its own any more: the whole page was an exact
+  // duplicate of the Profile pane's Privacy dropdown (same `PrivacySection`,
+  // same switches, nothing left over here), and a page with zero exclusive
+  // content is a second door to the same room. Reach it from the pane.
   { id: 'organization', labelKey: 'settings.section.organization', icon: Building2 },
   // The id stays `devices`: it is the key the identity row deep-links to
   // (`onOpenDevices`, and `openSettings('devices')` from the Profile pane).
@@ -75,4 +77,4 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
  * followers and privacy as dropdowns opened from the header. What is left here
  * is the settings panel, where the configuration of this installation lives.
  */
-export const IDENTITY_SECTIONS: readonly SectionId[] = ['profile', 'followers', 'privacy'];
+export const IDENTITY_SECTIONS: readonly SectionId[] = ['profile', 'followers'];
