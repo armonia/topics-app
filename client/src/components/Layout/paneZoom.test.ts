@@ -1,5 +1,6 @@
 /**
- * The mechanism of the zoom: weights go to zero, the tree keeps its shape.
+ * The mechanism of the zoom: the cells outside the set go to weight zero, the
+ * survivors are rescaled to fill what they gave up, and the tree keeps its shape.
  *
  * Every assertion here is about the two things that make "entering and leaving
  * the zoom remounts nothing" true — leaf ids untouched, and a tree handed back
@@ -69,8 +70,12 @@ describe('applyZoomWeights', () => {
   test('only the cells OUTSIDE the set lose their weight, and the ids stay', () => {
     const root = grid();
     const zoomed = applyZoomWeights(root, new Set(['standalone']));
-    expect(rowWeights(zoomed!)).toEqual([0.7, 0]);
-    expect(rowLeafWeights(zoomed!, 0)).toEqual({ standalone: 0.6, 'solo:B': 0 });
+    // The survivor is RESCALED to the weight the dropped siblings gave up, not
+    // left at its own: weights render as `flex-grow`, so a lone survivor at 0.6
+    // of a total that fell to 0.6 claims 60% of the surface and 40% stays blank.
+    // LAYOUT-35 asks that it FILL the surface.
+    expect(rowWeights(zoomed!)).toEqual([1, 0]);
+    expect(rowLeafWeights(zoomed!, 0)).toEqual({ standalone: 1, 'solo:B': 0 });
     // The ids are the React keys: a zoom that renamed one would remount the
     // pane it was meant to reveal.
     expect(Object.keys(rowLeafWeights(zoomed!, 0))).toEqual(Object.keys(rowLeafWeights(root, 0)));
@@ -80,7 +85,7 @@ describe('applyZoomWeights', () => {
   test('a whole ROW collapses when none of its columns is in the set', () => {
     const root = grid();
     const zoomed = applyZoomWeights(root, new Set(['solo:C']));
-    expect(rowWeights(zoomed!)).toEqual([0, 0.3]);
+    expect(rowWeights(zoomed!)).toEqual([0, 1]);
     // The collapsed row is handed back by REFERENCE, weights inside untouched:
     // at weight 0 it occupies nothing, and rewriting its children would throw
     // away the structural sharing that keeps the memo downstream cheap.
@@ -90,9 +95,31 @@ describe('applyZoomWeights', () => {
 
   test('a set that spans two cells keeps both, and only them', () => {
     const zoomed = applyZoomWeights(grid(), new Set(['standalone', 'solo:C']));
+    // Nothing is dropped at the ROW level here, so the rows keep their own
+    // weights untouched — the rescale only fires where a sibling went to zero.
     expect(rowWeights(zoomed!)).toEqual([0.7, 0.3]);
-    expect(rowLeafWeights(zoomed!, 0)).toEqual({ standalone: 0.6, 'solo:B': 0 });
+    expect(rowLeafWeights(zoomed!, 0)).toEqual({ standalone: 1, 'solo:B': 0 });
     expect(rowLeafWeights(zoomed!, 1)).toEqual({ 'solo:C': 1 });
+  });
+
+  test('the surviving cells FILL the surface: the total weight is the one before the zoom', () => {
+    // The invariant LAYOUT-35 states in prose, asserted as a number. Measured on
+    // main before the fix: a project window 904px wide zoomed to an 832px
+    // surface with the chat at 416 and a 416px empty band beside it, because the
+    // survivor kept 0.5 while its sibling went to 0.
+    const root = grid();
+    const total = (n: LayoutNode): number =>
+      isSplit(n) ? n.children.reduce((sum, c) => sum + c.weight, 0) : 1;
+    for (const set of [['standalone'], ['solo:B'], ['solo:C'], ['standalone', 'solo:C']]) {
+      const zoomed = applyZoomWeights(root, new Set(set))!;
+      expect(total(zoomed)).toBeCloseTo(total(root), 10);
+      // …and at every level below it, for the rows that survived.
+      if (!isSplit(zoomed)) throw new Error('expected a split at the root');
+      zoomed.children.forEach((row, i) => {
+        if (row.weight === 0 || !isSplit(row.node)) return;
+        expect(total(row.node)).toBeCloseTo(total(rowNode(root, i)), 10);
+      });
+    }
   });
 
   test('an empty set hands back the SAME tree, by reference', () => {

@@ -126,9 +126,26 @@ function holdsAnyKey(node: LayoutNode, cellKeys: ReadonlySet<string>): boolean {
 function zoomNode(node: LayoutNode, cellKeys: ReadonlySet<string>): LayoutNode {
   if (isLeaf(node)) return node;
   let changed = false;
+  // The survivors are RESCALED, not left at the weight they had. Weights are
+  // rendered as `flex-grow`, so zeroing the others does not hand their space to
+  // anyone: with two equal columns the survivor keeps 0.5, flex distributes half
+  // the surface and the other half stays unclaimed — LAYOUT-35 asks that the
+  // surviving cell FILL the surface, and it did not. Measured on main before
+  // this: a 832px zoom surface with the chat at 416 and 416px of empty band.
+  //
+  // The factor is total-before / total-kept, not `1 / total-kept`, so the rule
+  // holds whatever convention the siblings' weights follow (summing to 1, or to
+  // their own count) and the container's total grow comes out unchanged. The
+  // survivors keep their proportions relative to each other.
+  const totalAll = node.children.reduce((sum, child) => sum + child.weight, 0);
+  const totalKept = node.children.reduce(
+    (sum, child) => sum + (holdsAnyKey(child.node, cellKeys) ? child.weight : 0),
+    0,
+  );
+  const scale = totalKept > 0 ? totalAll / totalKept : 1;
   const children = node.children.map((child) => {
     const keep = holdsAnyKey(child.node, cellKeys);
-    const weight = keep ? child.weight : 0;
+    const weight = keep ? child.weight * scale : 0;
     const inner = keep ? zoomNode(child.node, cellKeys) : child.node;
     if (weight === child.weight && inner === child.node) return child;
     changed = true;
