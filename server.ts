@@ -1900,7 +1900,7 @@ previewManager = createPreviewManager({
     try {
       const forma = imageShape(path);
       if (!forma) return false;
-      return isBlankLikeImage({ bytes: statSync(path).size, width: forma.width, height: forma.height });
+      return isBlankLikeImage({ bytes: statSync(path).size, width: forma.width, height: forma.height, vector: forma.vector });
     } catch { return false; }
   },
   fetchPage: async (url) => {
