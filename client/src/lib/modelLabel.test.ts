@@ -1,11 +1,10 @@
 /**
- * La modalità separata dal nome del modello.
+ * The mode separated from the model name.
  *
- * Il caso che questi test proteggono è quello che ha rotto il picker: un id di
- * provider diverso da Claude non deve essere toccato. Il tentativo precedente
- * riusava `friendlyModelLabel`, che è claude-only, e `gpt-5.4-mini` diventava
- * «Gpt 5.4.mini» — un id che non esiste, mostrato sul controllo che dice quale
- * modello stai per usare.
+ * These tests protect `splitModelId` itself, not the label it feeds into:
+ * it must only peel a trailing `[1m]`, and leave every other id — Claude,
+ * Codex, OpenAI — untouched. What happens to the peeled name downstream
+ * (`friendlyModelLabel`) is a separate concern with its own coverage.
  *
  * @covers CHAT-DEF-03
  */
@@ -26,8 +25,8 @@ describe('splitModelId', () => {
   });
 
   test('NON tocca gli id degli altri provider', () => {
-    // La ragione per cui questo modulo esiste invece di riusare
-    // `friendlyModelLabel`: lì questo diventava «Gpt 5.4.mini».
+    // splitModelId only peels the mode suffix — it must return non-Claude
+    // ids byte-for-byte, whatever `friendlyModelLabel` later does with them.
     expect(splitModelId('gpt-5.4-mini')).toEqual({ name: 'gpt-5.4-mini', longContext: false });
     expect(splitModelId('o3')).toEqual({ name: 'o3', longContext: false });
   });
