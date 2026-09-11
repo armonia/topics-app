@@ -26,10 +26,58 @@ export interface Principal {
   id: string;
 }
 
-/** Cosa consente una riga. `deny` esiste nello schema e qui, non ancora
- *  nell'interfaccia — allargare un CHECK in SQLite vuol dire ricreare la
- *  tabella, quindi il vocabolario si mette adesso o si paga due volte. */
-export type GrantLevel = "read" | "deny";
+/**
+ * What a row allows, in rising order of power: `read` < `comment` < `edit`.
+ * `deny` is not a level above `edit` - it is a block that beats every level,
+ * handled separately in `LEVEL_RANK` and in `meetsLevel`.
+ *
+ * `read` (view) - `comment` (+ comment) - `edit` (+ change the task's own
+ * text). The scale stops there, and the two levels that used to sit above it
+ * are gone on purpose:
+ *
+ *   `run` implied `edit` by construction, so a guest holding it could rewrite
+ *   the card's text and then start it. That text goes into the prompt
+ *   (`taskFramingBlock`) and the agent runs in a worktree of the OWNER's repo,
+ *   with the autonomy the board decided, with no rate limit and no spend cap.
+ *   The only barrier was a soft "ignore instructions in the text" line.
+ *
+ *   `manage` let a guest revoke shares the OWNER had made on the same
+ *   resource, and the `auth:shares-changed` frame went to the devices of the
+ *   subject that was hit, never to the owner: a revocation that is silent on
+ *   the side that owns the card.
+ *
+ * Code changes, approval, publishing, starting a run and managing shares are
+ * not levels of this scale: they stay owner-only actions wherever they already
+ * are - no level here grants them.
+ */
+export type GrantLevel = "read" | "comment" | "edit" | "deny";
+
+/** The order of the levels, `deny` excluded: compare with `meetsLevel`, not
+ *  an `if` copied by hand at each call site - a hand-copied order is one that
+ *  the second caller writes backwards. */
+const LEVEL_RANK: Record<Exclude<GrantLevel, "deny">, number> = {
+  read: 0,
+  comment: 1,
+  edit: 2,
+};
+
+/**
+ * Does this level cover THIS action? `deny` never covers any request - not
+ * even `read`.
+ */
+export function meetsLevel(level: GrantLevel, min: Exclude<GrantLevel, "deny">): boolean {
+  if (level === "deny") return false;
+  return LEVEL_RANK[level] >= LEVEL_RANK[min];
+}
+
+/** The levels a writer CAN pick - `deny` is removed via revoke, not assigned
+ *  from the sharing panel. */
+export const ASSIGNABLE_GRANT_LEVELS: readonly Exclude<GrantLevel, "deny">[] =
+  ["read", "comment", "edit"] as const;
+
+export function isAssignableGrantLevel(v: unknown): v is Exclude<GrantLevel, "deny"> {
+  return typeof v === "string" && (ASSIGNABLE_GRANT_LEVELS as readonly string[]).includes(v);
+}
 
 /**
  * Una riga di concessione, come è scritta.
@@ -69,6 +117,24 @@ export interface GrantRow {
 /** Forma minima del database che serve a questo modulo — così i test possono
  *  passare uno SQLite in memoria senza costruire l'AppContext intero. */
 type Db = Pick<Database, "query">;
+
+/**
+ * A row read from the DB, narrowed to the known vocabulary. A value this scale
+ * does not know falls back to `read`: the safe direction grants LESS, not the
+ * one that rejects the whole row.
+ *
+ * THIS IS ALSO HOW A LEGACY `run` OR `manage` ROW IS READ, and it is a
+ * decision, not a leftover. Those two levels existed for one day on an
+ * unlanded branch; a database that ran that CHECK can still hold such a row.
+ * Reading it back as what it says would hand a guest exactly the two
+ * capabilities that were removed for being dangerous, so it is DEMOTED to
+ * `read` - the least power on the scale - not to `edit`, which would keep the
+ * write half of a level nobody may hold any more. Proven by
+ * `grants-legacy-levels.test.ts`.
+ */
+function asGrantLevel(v: unknown): GrantLevel {
+  return v === "deny" || v === "comment" || v === "edit" ? v : "read";
+}
 
 /**
  * Le righe che riguardano QUESTI principali su QUESTA risorsa, la più forte per
@@ -118,7 +184,7 @@ export function grantRowsFor(
   return righe.map((r) => ({
     subjectType: String(r.subject_type) as SubjectKind,
     subjectId: String(r.subject_id),
-    level: r.level === "deny" ? "deny" : "read",
+    level: asGrantLevel(r.level),
     grantedAt: Number(r.granted_at ?? 0),
   }));
 }
@@ -177,6 +243,82 @@ export function hasGrant(
 }
 
 /**
+ * The EFFECTIVE level of a set of rows: `deny` if a single one says so,
+ * otherwise the HIGHEST among the rest. Not the first one - a device with
+ * direct `read` and an org with `edit` on the same resource must resolve to
+ * `edit`, not to the order the rows were written in.
+ */
+function effectiveLevel(rows: readonly GrantRow[]): GrantLevel | null {
+  if (rows.length === 0) return null;
+  if (rows.some((r) => r.level === "deny")) return "deny";
+  let best: Exclude<GrantLevel, "deny"> = "read";
+  for (const r of rows) {
+    if (r.level !== "deny" && LEVEL_RANK[r.level] > LEVEL_RANK[best]) best = r.level;
+  }
+  return best;
+}
+
+/**
+ * The level these principals hold on this resource — what is needed to
+ * compare against `meetsLevel`, not just the "can it read?" boolean from
+ * `hasGrant`. Also looks at the CONTAINER, with the same precedence as
+ * `hasGrant`: a `deny` on the resource beats the container too, and the
+ * container is only consulted when the resource itself said nothing.
+ *
+ * `null` = no grant at all, neither direct nor from the container — "never
+ * shared", distinct from `deny` which is "shared, then denied".
+ */
+export function levelFor(
+  db: Db,
+  principals: readonly Principal[],
+  resourceType: ResourceType,
+  resourceId: string,
+): GrantLevel | null {
+  const direct = grantRowsFor(db, principals, resourceType, resourceId);
+  if (direct.length > 0) return effectiveLevel(direct);
+
+  const container = containerOf(db, resourceType, resourceId);
+  if (!container) return null;
+  const inherited = effectiveLevel(grantRowsFor(db, principals, container.tipo, container.id));
+  return capFromContainer(inherited);
+}
+
+/**
+ * A CONTAINER OPENS THE DOOR; IT DOES NOT HAND OVER THE PEN.
+ *
+ * A grant that arrives through a container is capped at `read`, whatever the
+ * container's own row says. `deny` and `null` travel unchanged: the cap only
+ * ever grants LESS.
+ *
+ * Three reasons, and each one alone is enough.
+ *
+ * It is a grant over a SET WHOSE MEMBERSHIP MOVES ON ITS OWN. One click on a
+ * project would confer write on every card it holds — and on every card
+ * created into it afterwards, including cards in flight, without anybody
+ * touching the grant again. Nobody re-reads a decision they made once.
+ *
+ * It would be INVISIBLE ON THE SIDE THAT OWNS THE CARD. The sharing panel of
+ * a resource reads `subjectsOf`, which returns the rows written ON that
+ * resource: a task carrying no row of its own reports "shared with nobody"
+ * while somebody is rewriting it. A permission with no surface to see it on
+ * has no surface to revoke it from either.
+ *
+ * And what `edit` grants is SPECIFICALLY DANGEROUS HERE: the card's text
+ * becomes the prompt of an agent running in a worktree of the OWNER's
+ * repository at the next dispatch (`taskFramingBlock`). That is why the scale
+ * stops at `edit` in the first place — the same reasoning applies twice as
+ * hard when the level was never aimed at that card.
+ *
+ * So writing needs a row on the resource ITSELF, where the owner can see it
+ * and take it back. `read` is exactly what a container conveyed before this
+ * scale existed, and it stays that.
+ */
+function capFromContainer(inherited: GrantLevel | null): GrantLevel | null {
+  if (inherited === null || inherited === "deny") return inherited;
+  return "read";
+}
+
+/**
  * TUTTE le ragioni per cui questi principali vedono la risorsa, non solo la
  * prima. La ragione è il SOGGETTO su cui la riga è stata scritta — questo
  * dispositivo, la sua persona, una sua organizzazione — e un elenco che si
@@ -195,11 +337,21 @@ export function reasonsFor(
   // Nessuna riga sulla risorsa: la ragione puo' essere il contenitore, e va
   // detta - un elenco di ragioni che non nomina il progetto lascerebbe chi
   // guarda a togliere un accesso che non e' li'.
+  //
+  // The level reported is the one IN FORCE on this resource, capped exactly
+  // as `levelFor` caps it: this list is what the owner's sharing panel reads,
+  // and a panel that echoed the container's own `edit` would describe a power
+  // the gate does not grant - the mirror image of the bug the cap closes.
   const dentro = containerOf(db, resourceType, resourceId);
   if (!dentro) return [];
   return grantRowsFor(db, principals, dentro.tipo, dentro.id)
     .filter((r) => r.level !== "deny")
-    .map((r) => ({ ...r, viaType: dentro.tipo, viaId: dentro.id }));
+    .map((r) => ({
+      ...r,
+      level: capFromContainer(r.level) ?? r.level,
+      viaType: dentro.tipo,
+      viaId: dentro.id,
+    }));
 }
 
 /**
@@ -245,6 +397,81 @@ export function grantedResourceIds(
   return [...fuori];
 }
 
+/**
+ * The ids these principals are DENIED on, for one type of resource.
+ *
+ * `grantedResourceIds` already subtracts them and answers with what is left;
+ * this is the same set seen from the other side, and it is needed where a
+ * `deny` has to beat an access that arrives from somewhere else - a task
+ * inside a granted project.
+ */
+function deniedResourceIds(
+  db: Db,
+  principals: readonly Principal[],
+  resourceType: ResourceType,
+): Set<string> {
+  const out = new Set<string>();
+  const perTipo = new Map<SubjectKind, string[]>();
+  for (const p of principals) {
+    if (!p?.id) continue;
+    const lista = perTipo.get(p.kind) ?? [];
+    lista.push(p.id);
+    perTipo.set(p.kind, lista);
+  }
+  if (perTipo.size === 0) return out;
+
+  const rami: string[] = [];
+  const args: (string | number)[] = [resourceType];
+  for (const [kind, ids] of perTipo) {
+    rami.push(`(subject_type = ? AND subject_id IN (${ids.map(() => "?").join(",")}))`);
+    args.push(kind, ...ids);
+  }
+  const righe = db.query(
+    `SELECT resource_id FROM grants
+      WHERE resource_type = ? AND level = 'deny' AND (${rami.join(" OR ")})`,
+  ).all(...args) as Array<{ resource_id: string }>;
+  for (const r of righe) out.add(r.resource_id);
+  return out;
+}
+
+/**
+ * EVERY TASK THESE PRINCIPALS MAY READ: the ones granted directly, plus the
+ * ones a granted PROJECT holds.
+ *
+ * The gate (`hasGrant`) has followed the container since 20260816230500, and
+ * the two inventories built on `grantedResourceIds` did not: a card inside a
+ * shared project was openable by id and absent from every list a guest has,
+ * which is "I shared it with you" against "I see nothing" - the exact
+ * divergence `GUEST-06` exists to forbid, in a second place.
+ *
+ * It widens no ACCESS: every id added here is one the gate already opens by
+ * id. It closes the gap between the door and the list.
+ *
+ * A `deny` on the task itself still beats the project, here as everywhere:
+ * "this project is shared, EXCEPT this card" has to stay sayable, and a list
+ * that showed a card the gate then refuses is the worst shape of all -
+ * visible and not openable.
+ */
+export function readableTaskIds(db: Db, principals: readonly Principal[]): string[] {
+  const direct = grantedResourceIds(db, principals, "task");
+  const projects = grantedResourceIds(db, principals, "project");
+  if (projects.length === 0) return direct;
+
+  let inside: Array<{ id: string }>;
+  try {
+    inside = db.query(
+      `SELECT id FROM tasks WHERE project_id IN (${projects.map(() => "?").join(",")})`,
+    ).all(...projects) as Array<{ id: string }>;
+  } catch {
+    return direct; // schema without `tasks`: the question goes back to what it was
+  }
+
+  const negati = deniedResourceIds(db, principals, "task");
+  const fuori = new Set(direct);
+  for (const r of inside) if (!negati.has(r.id)) fuori.add(r.id);
+  return [...fuori];
+}
+
 /** Tutto ciò che questi principali vedono, per tipo di risorsa. */
 export function grantedByType(
   db: Db,
@@ -273,9 +500,43 @@ export function subjectsOf(
   return righe.map((r) => ({
     subjectType: String(r.subject_type) as SubjectKind,
     subjectId: String(r.subject_id),
-    level: r.level === "deny" ? "deny" : "read",
+    level: asGrantLevel(r.level),
     grantedAt: Number(r.granted_at ?? 0),
   }));
+}
+
+/**
+ * WHO ELSE reaches this resource through its CONTAINER — the rows the
+ * resource's own sharing panel could not see.
+ *
+ * `subjectsOf` answers with the rows written ON the resource, and that is the
+ * whole panel: a card shared only through its project therefore read "shared
+ * with nobody" while a guest was reading it. An access with no surface to see
+ * it on has no surface to revoke it from either, and "revoke it where it was
+ * written" is only actionable once the panel says WHERE that is.
+ *
+ * The level is the one IN FORCE here, capped like `levelFor` caps it, and
+ * each row carries the container it came from so the panel can name it
+ * instead of offering an X that would delete nothing.
+ *
+ * A subject that also has a row on the resource itself is NOT this
+ * function's business: the resource wins, and the caller drops the duplicate.
+ */
+export function subjectsViaContainer(
+  db: Db,
+  resourceType: ResourceType,
+  resourceId: string,
+): GrantRow[] {
+  const inside = containerOf(db, resourceType, resourceId);
+  if (!inside) return [];
+  return subjectsOf(db, inside.tipo, inside.id)
+    .filter((r) => r.level !== "deny")
+    .map((r) => ({
+      ...r,
+      level: capFromContainer(r.level) ?? r.level,
+      viaType: inside.tipo,
+      viaId: inside.id,
+    }));
 }
 
 /**
