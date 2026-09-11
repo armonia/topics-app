@@ -403,6 +403,10 @@ export interface BoardFilters {
   projectId: string[];
   /** Labels in AND: "only the visible ones in review" is this plus the column. */
   labels: TaskLabel[];
+  /** `Task.lastActorPersonName` — who actually worked the task. */
+  person: string[];
+  /** `Task.lastActorDeviceName` — the device that person used. */
+  computer: string[];
 }
 
 /** What the ONE field owns: every axis except the project, which keeps its own

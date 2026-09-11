@@ -628,3 +628,47 @@ describe("uno scatto BIANCO non si allega", () => {
     expect(h.previewImage).not.toBe("");
   });
 });
+
+describe("uno scatto DENSO ma dell'APP VUOTA non si allega", () => {
+  // `blankShot` reads the PNG bytes and a real welcome screen (icon, text,
+  // borders) is NOT byte-uniform: it passes that gate and still shows
+  // nothing about the card. Only the rendered DOM can tell.
+  it("il testo del DOM e' quello della schermata senza topic ⇒ ritira", async () => {
+    const retirements: Array<{ taskId: string; reason: string }> = [];
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+      emptyAppShell: async () => true,
+      retirePreview: (taskId, reason) => { retirements.push({ taskId, reason }); },
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(retirements).toHaveLength(1);
+    expect(retirements[0]!.reason).toContain("app vuota");
+    expect(h.reviewNotes.at(-1)!.content).toContain("schermata vuota");
+  });
+
+  it("DOM pieno ⇒ si allega come sempre, il gate resta muto", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+      emptyAppShell: async () => false,
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).not.toBe("");
+  });
+
+  it("senza la dipendenza il comportamento e quello di prima", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+    });
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).not.toBe("");
+  });
+});

@@ -12,6 +12,7 @@ import {
   commentAuthorLabel,
   AGENT_AUTHOR,
   AGENT_AUTHOR_PREFIX,
+  GUEST_AUTHOR_PREFIX,
   AUTHOR_NAME_MAX_CHARS,
   AUTHOR_NAME_MAX_WORDS,
 } from './comment-author';
@@ -75,6 +76,29 @@ describe('commentAuthorLabel — agent:<id>', () => {
     const got = commentAuthorLabel(AGENT_AUTHOR_PREFIX);
     expect(got.label).toBe('agent');
     expect(got.agentId).toBe(null);
+  });
+});
+
+describe('commentAuthorLabel — guest:<deviceId>', () => {
+  const AUTHOR = `${GUEST_AUTHOR_PREFIX}9260871e-780f-474d-9bf6-ff0de59dac3a`;
+
+  test('a collaborator write gets its own kind, distinct from the agent', () => {
+    const got = commentAuthorLabel(AUTHOR);
+    expect(got.kind).toBe('guest');
+    expect(got.guestDeviceId).toBe('9260871e-780f-474d-9bf6-ff0de59dac3a');
+    expect(got.agentId).toBe(null);
+    expect(got.derived).toBe(true);
+    // The regression this exists for: before COLLAB-01, `guest:<uuid>` did not
+    // match `looksLikeName` (too long) and fell through to the generic agent
+    // label — an owner reading the thread could not tell their own agent from
+    // a collaborator who had just written on a shared task.
+    expect(got.label).not.toBe('agent');
+  });
+
+  test('the prefix with nothing after it is a guest with no device id', () => {
+    const got = commentAuthorLabel(GUEST_AUTHOR_PREFIX);
+    expect(got.kind).toBe('guest');
+    expect(got.guestDeviceId).toBe(null);
   });
 });
 

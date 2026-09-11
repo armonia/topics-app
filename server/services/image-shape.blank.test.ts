@@ -35,6 +35,19 @@ describe("un'immagine che non mostra niente", () => {
     expect(BLANK_DENSITY_FLOOR).toBeLessThan(0.0229);
   });
 
+  test("un SVG vero sta SOTTO il pavimento e non e' vuoto: 174 byte per 240x80", () => {
+    // The fixture of `board-conversation-details.spec.ts`: a filled rect plus a
+    // text label, 0,00906 byte/px. A vector carries instructions, not samples,
+    // so this floor - measured on PNGs - would reject every SVG ever drawn.
+    // It did, on main, for three e2e shards.
+    expect(isBlankLikeImage({ bytes: 174, width: 240, height: 80, vector: true })).toBe(false);
+  });
+
+  test("lo stesso numero su un RASTER resta vuoto: il flag non e' un lasciapassare", () => {
+    expect(isBlankLikeImage({ bytes: 174, width: 240, height: 80, vector: false })).toBe(true);
+    expect(isBlankLikeImage({ bytes: 174, width: 240, height: 80 })).toBe(true);
+  });
+
   test("senza numeri non si emette un verdetto", () => {
     expect(isBlankLikeImage({ bytes: 0, width: 1280, height: 720 })).toBe(false);
     expect(isBlankLikeImage({ bytes: 4257, width: 0, height: 0 })).toBe(false);

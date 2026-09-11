@@ -227,6 +227,7 @@ export const PREVIEW_RULE = [
   "· DIAGRAM .svg — the delivery has NO rendered surface (a plan, an architecture, a protocol, a migration): you DRAW the structure — boxes, arrows, five words per node — you do not photograph the document.",
   "A TAB of the task (open_browser_pane) does NOT replace the preview: the live page dies with the server that serves it, the preview stays.",
   "The preview is an ATTACHMENT, not source. Never leave it in the repo root: an untracked file there BLOCKS the land (it would be swallowed by the realign merge, and the land refuses rather than swallow it — measured twice on 18/08), and a committed one is repo litter. Write it under ~/.topics/media/, or if it genuinely documents a decision worth keeping, under docs/archive/ — never the root.",
+  "The screenshot has to show YOUR work, not the app with nothing open: a shot of the empty \"Welcome to Topics\" shell (no topic selected) is not evidence of anything, and a gate now rejects it on the auto-captured path. Look at the file before you attach it.",
   "One single gate, and it holds for all three: at 268px wide (`sips -Z 268 <file>`) you must still be able to say what it shows.",
 ].join("\n");
 
@@ -1478,6 +1479,16 @@ export interface TaskComment {
    * session and the service's Actor argument.
    */
   origin?: TaskActionOrigin | null;
+  /**
+   * Resolved at READ time from `author` (`guest:<deviceId>`), never stored:
+   * the person's display name and the device's own name (`devices.name`, e.g.
+   * "iPhone di Attilio"), so `commentAuthorLabel`'s generic 'guest' placeholder
+   * becomes a name a reader recognises. Null for every row that is not a
+   * collaborator's own write, or whose device/person no longer resolves
+   * (revoked, deleted) — the caller falls back to the placeholder then.
+   */
+  actorPersonName?: string | null;
+  actorDeviceName?: string | null;
 }
 
 /**
@@ -1494,7 +1505,7 @@ export interface TaskComment {
  * quello del thread, o `kind` diventa una `string` da una parte e un'unione
  * dall'altra senza che niente lo dica.
  */
-export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId' | 'origin'>;
+export type CardComment = Pick<TaskComment, 'author' | 'content' | 'kind' | 'messageId' | 'origin' | 'actorPersonName' | 'actorDeviceName'>;
 
 /**
  * Il bloccante di un task, RISOLTO dal server leggendolo dal DB.

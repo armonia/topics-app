@@ -8,7 +8,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { providerHold, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage } from "./provider-hold";
+import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage } from "./provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from "../../shared/provider-hold";
 
 const NOW = 1_800_000_000_000;
@@ -22,7 +22,7 @@ describe("the hold survives a restart (mirrored on disk)", () => {
     const path = join(dir, "state", "provider-hold.json");
     expect(configureProviderHoldStore(path, NOW)).toBeNull();
     setProviderHold({ untilMs: NOW + 60_000, window: "five_hour", reason: "finestra di 5 ore esaurita" }, NOW);
-    expect(JSON.parse(readFileSync(path, "utf8")).untilMs).toBe(NOW + 60_000);
+    expect(JSON.parse(readFileSync(path, "utf8")).claude.untilMs).toBe(NOW + 60_000);
     clearProviderHold();
     expect(existsSync(path)).toBe(false);
   });
@@ -82,6 +82,37 @@ describe("provider hold", () => {
 
   test("the label is an hour a person reads", () => {
     expect(holdUntilLabel({ untilMs: NOW })).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("a hold is per provider", () => {
+  beforeEach(() => { clearProviderHold(); clearProviderHold("codex"); resetProviderHoldStore(); });
+  afterEach(() => { clearProviderHold(); clearProviderHold("codex"); });
+
+  test("a Codex wall does not touch Claude's, and vice versa", () => {
+    setProviderHold({ untilMs: NOW + 60_000, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" }, NOW);
+    expect(providerHold(NOW)).toBeNull();
+    expect(providerHold(NOW, "codex")?.reason).toBe("Codex plan usage limit reached");
+    expect(isProviderHeld("codex", NOW)).toBe(true);
+    expect(isProviderHeld("claude-code", NOW)).toBe(false);
+    setProviderHold({ untilMs: NOW + 30_000, window: "five_hour", reason: "finestra di 5 ore esaurita" }, NOW);
+    expect(isProviderHeld("topics", NOW)).toBe(true);
+    expect(providerHold(NOW, "codex")).not.toBeNull();
+  });
+
+  test("only the Claude hold reaches the listener", () => {
+    const seen: Array<number | null> = [];
+    const off = onProviderHold((h) => seen.push(h?.untilMs ?? null));
+    setProviderHold({ untilMs: NOW + 60_000, window: "usage_limit", reason: "held", provider: "codex" }, NOW);
+    expect(seen).toEqual([]);
+    setProviderHold({ untilMs: NOW + 60_000, window: "five_hour", reason: "held" }, NOW);
+    off();
+    expect(seen).toEqual([NOW + 60_000]);
+  });
+
+  test("an unrecognised provider carries no hold key, so it is never reported held", () => {
+    setProviderHold({ untilMs: NOW + 60_000, window: "five_hour", reason: "held" }, NOW);
+    expect(isProviderHeld("openai", NOW)).toBe(false);
   });
 });
 

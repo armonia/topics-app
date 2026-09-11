@@ -5,7 +5,7 @@ import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
-import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
@@ -92,6 +92,7 @@ import { createPreviewManager, type PreviewManager, type PreviewProcess } from "
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
 import { killProcessTree } from "./server/lib/process-tree";
+import { killAgentProcessTree } from "./server/lib/kill-agent-tree";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { formatMb, parseSlimSkip, slimWorktree } from "./server/services/worktree-slim";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
@@ -146,7 +147,7 @@ import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from "./server/services/task-auto-model";
-import { PLAN_DISPATCH_HOLD_AT } from "./shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
 import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
@@ -1421,11 +1422,14 @@ const taskDispatcher = createTaskDispatcher({
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     return taskProviderForModel(model, getSnapshotManager().getSnapshot());
   },
-  automaticModelOutsideClaude: () => {
+  // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
+  // runtime that is not held right now, whichever one that is (the memo does
+  // not name Claude specifically any more, see server/lib/provider-hold.ts).
+  automaticModelAvailable: () => {
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     const snapshot = getSnapshotManager().getSnapshot();
-    return automaticTaskModels(snapshot, readCodexModels(), true).length > 0
-      || snapshot.providers.some(provider => provider.name === "codex" && provider.status === "loading");
+    return automaticTaskModels(snapshot, readCodexModels(), (provider) => isProviderHeld(provider)).length > 0
+      || snapshot.providers.some(provider => provider.status === "loading" && !isProviderHeld(provider.name));
   },
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
@@ -1451,13 +1455,17 @@ const taskDispatcher = createTaskDispatcher({
   // restrict that catalog, and held Claude runtimes cannot classify or execute.
   pickAutoModel: async (task, selection, options) => {
     const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
+    const claudeApproachingLimit = (() => {
+      const window = planUsage()?.fiveHour;
+      return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+    })();
     return pickAutomaticTaskModel(task, selection, {
       snapshot: getSnapshotManager().getSnapshot(),
       getProvider: tryGetProvider,
-      claudeHeld: !!providerHold() || (() => {
-        const window = planUsage()?.fiveHour;
-        return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
-      })(),
+      // AGPT-01 extended: any provider under its own hold is excluded, not
+      // only Claude. Claude keeps one extra reason (the approaching-limit
+      // window has no equivalent for Codex, which has no usage endpoint).
+      isHeld: (provider) => isProviderHeld(provider) || (providerHoldKey(provider) === "claude" && claudeApproachingLimit),
       requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
       log: (message) => console.log(`[dispatcher] ${message}`),
     });
@@ -1900,7 +1908,7 @@ previewManager = createPreviewManager({
     try {
       const forma = imageShape(path);
       if (!forma) return false;
-      return isBlankLikeImage({ bytes: statSync(path).size, width: forma.width, height: forma.height });
+      return isBlankLikeImage({ bytes: statSync(path).size, width: forma.width, height: forma.height, vector: forma.vector });
     } catch { return false; }
   },
   fetchPage: async (url) => {
@@ -1912,6 +1920,23 @@ previewManager = createPreviewManager({
         return { status: res.status, body: (await res.text()).slice(0, 200_000) };
       } finally { clearTimeout(t); }
     } catch { return null; }
+  },
+  // `blankShot` reads bytes; this reads the DOM the SPA drew, which is the
+  // only place "the app has no topic open" is visible. Own throwaway
+  // context (the screenshot's one is already destroyed by the time this
+  // runs). "Welcome to Topics" is the literal string PanelGrid renders when
+  // no topic is selected — see client/src/components/Layout/PanelGrid.tsx.
+  emptyAppShell: async (url) => {
+    const id = `preview-shell-check:${Math.random().toString(36).slice(2)}`;
+    try {
+      await browserService.createContext(id, { viewport: { width: 1440, height: 760 } });
+      const nav = await browserService.navigate(id, url);
+      if (nav.error) return false;
+      await new Promise((r) => setTimeout(r, 1500));
+      const text = await browserService.evaluate(id, "document.body ? document.body.innerText : ''");
+      return typeof text === "string" && text.includes("Welcome to Topics");
+    } catch { return false; }
+    finally { try { await browserService.destroyContext(id); } catch { /* ignore */ } }
   },
   // Reuse the already-running headless Chromium (no extra launch) via a throwaway
   // context, sized to 1440px. Best-effort → boolean.
@@ -2358,6 +2383,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
+  killAgentTree: killAgentProcessTree,
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
   // lo usa in ogni tick e resume per sapere quante barre sono in volo.

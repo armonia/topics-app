@@ -37,6 +37,19 @@
 /** The prefix that marks an author as an agent identity rather than a name. */
 export const AGENT_AUTHOR_PREFIX = 'agent:';
 
+/**
+ * The prefix a collaborator's own write carries (`handleGuestComment` /
+ * `handleGuestEdit` in `server/routes/tasks.ts`): `guest:<deviceId>`.
+ *
+ * Before this kind existed, a `guest:` row fell through every other branch —
+ * it does not match a reserved role, it is not `agent:`-prefixed, and its
+ * length (a device id) fails `looksLikeName` — and landed on the generic
+ * `agent` label. So a collaborator's own comment was shown to the project
+ * owner as if a dispatched agent had written it: the one identity the card
+ * asks to keep apart from a person's, collapsed into it.
+ */
+export const GUEST_AUTHOR_PREFIX = 'guest:';
+
 /** The generic agent: no id known, or the stored author was not a name. */
 export const AGENT_AUTHOR = 'agent';
 
@@ -67,8 +80,8 @@ export const RESERVED_AUTHORS = ['user', 'system', 'dispatcher', 'verifier'] as 
 
 export type ReservedAuthor = (typeof RESERVED_AUTHORS)[number];
 
-/** A reserved role, or `agent` for anything that speaks on an agent's behalf. */
-export type CommentAuthorKind = ReservedAuthor | 'agent';
+/** A reserved role, an agent, or a collaborator writing through a shared grant. */
+export type CommentAuthorKind = ReservedAuthor | 'agent' | 'guest';
 
 export interface CommentAuthorLabel {
   /** Which surface spoke. Drives styling, never the printed text. */
@@ -77,6 +90,10 @@ export interface CommentAuthorLabel {
   label: string;
   /** The agent identity when the author carried one, else null. */
   agentId: string | null;
+  /** The device id when the author was `guest:<deviceId>`, else null. The
+   *  caller resolves this to a person/device NAME (a DB lookup this pure
+   *  module cannot do) and overrides `label` for display. */
+  guestDeviceId: string | null;
   /** True when `label` is not the stored author verbatim. */
   derived: boolean;
 }
@@ -108,21 +125,31 @@ export function commentAuthorLabel(author: string | null | undefined): CommentAu
   const trimmed = typeof author === 'string' ? author.trim() : '';
 
   const role = reservedAuthor(trimmed);
-  if (role) return { kind: role, label: role, agentId: null, derived: role !== author };
+  if (role) return { kind: role, label: role, agentId: null, guestDeviceId: null, derived: role !== author };
+
+  if (trimmed.toLowerCase().startsWith(GUEST_AUTHOR_PREFIX)) {
+    const id = trimmed.slice(GUEST_AUTHOR_PREFIX.length).trim();
+    // Placeholder label: the caller (which has the database) overrides it with
+    // the resolved person/device name. Without a resolution this still reads
+    // as "someone else", never as "you" or "an agent" — the wrong label this
+    // kind exists to stop.
+    return { kind: 'guest', label: 'guest', agentId: null, guestDeviceId: id || null, derived: true };
+  }
 
   if (trimmed.toLowerCase().startsWith(AGENT_AUTHOR_PREFIX)) {
     const id = trimmed.slice(AGENT_AUTHOR_PREFIX.length).trim();
-    if (!id) return { kind: 'agent', label: AGENT_AUTHOR, agentId: null, derived: true };
+    if (!id) return { kind: 'agent', label: AGENT_AUTHOR, agentId: null, guestDeviceId: null, derived: true };
     return {
       kind: 'agent',
       label: `${AGENT_AUTHOR} ${id.slice(0, AGENT_ID_SHORT_CHARS)}`,
       agentId: id,
+      guestDeviceId: null,
       derived: true,
     };
   }
 
   if (looksLikeName(trimmed)) {
-    return { kind: 'agent', label: trimmed, agentId: null, derived: trimmed !== author };
+    return { kind: 'agent', label: trimmed, agentId: null, guestDeviceId: null, derived: trimmed !== author };
   }
-  return { kind: 'agent', label: AGENT_AUTHOR, agentId: null, derived: true };
+  return { kind: 'agent', label: AGENT_AUTHOR, agentId: null, guestDeviceId: null, derived: true };
 }

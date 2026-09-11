@@ -14,12 +14,18 @@ const CLAUDE_DESCRIPTIONS: Record<string, string> = {
   fable: 'Highest capability for the hardest reasoning and complex coding work.',
 };
 
-/** ACP sessions currently omit the Topics bridge, so they are not automatic task candidates. */
-export function automaticTaskModels(snapshot: ProvidersSnapshot | null, codexModels: ReturnType<typeof readCodexModels>, claudeHeld = false): CodingModel[] {
+/** Whether a runtime is one an unconstrained Auto may still pick: the default
+ *  `() => false` is "nothing is held", so an absent predicate changes nothing. */
+type HeldCheck = (provider: string) => boolean;
+
+/** AGPT-01: excludes ANY held provider from the candidate pool, not only
+ *  Claude. ACP sessions currently omit the Topics bridge, so they are not
+ *  automatic task candidates either. */
+export function automaticTaskModels(snapshot: ProvidersSnapshot | null, codexModels: ReturnType<typeof readCodexModels>, isHeld: HeldCheck = () => false): CodingModel[] {
   return (snapshot?.providers ?? []).flatMap((entry): CodingModel[] => {
-    if (entry.status !== 'ready') return [];
+    if (entry.status !== 'ready' || isHeld(entry.name)) return [];
     if (entry.name === 'codex') return codexModels.filter(model => entry.models.includes(model.slug)).map(model => ({ ...model, provider: entry.name }));
-    if (claudeHeld || !CLAUDE_TASK_RUNTIMES.has(entry.name)) return [];
+    if (!CLAUDE_TASK_RUNTIMES.has(entry.name)) return [];
     return entry.models.filter(model => model.startsWith('claude-')).map(slug => ({
       slug, provider: entry.name, description: CLAUDE_DESCRIPTIONS[familyOf(slug) ?? ''] ?? 'Available Claude coding model.',
       defaultEffort: 'medium', efforts: [...EFFORT_TIERS],
@@ -45,7 +51,7 @@ export async function pickAutomaticTaskModel(
   deps: {
     snapshot: ProvidersSnapshot | null;
     getProvider: (name: string) => AIProvider | undefined;
-    claudeHeld?: boolean;
+    isHeld?: HeldCheck;
     requiredEffort?: string;
     codexModels?: typeof readCodexModels;
     log?: (message: string) => void;
@@ -53,10 +59,11 @@ export async function pickAutomaticTaskModel(
 ) {
   const restrictedProvider = taskModelSelection(selection).provider;
   if (restrictedProvider) taskProviderForModel(selection, deps.snapshot);
-  const models = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), deps.claudeHeld)
+  const isHeld = deps.isHeld ?? (() => false);
+  const models = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
     .filter(model => !restrictedProvider || model.provider === restrictedProvider);
   if (!models.length && deps.snapshot?.providers.some(p => p.status === 'loading'
-    && (restrictedProvider ? p.name === restrictedProvider : p.name === 'codex' || (!deps.claudeHeld && CLAUDE_TASK_RUNTIMES.has(p.name))))) {
+    && (restrictedProvider ? p.name === restrictedProvider : !isHeld(p.name) && (p.name === 'codex' || CLAUDE_TASK_RUNTIMES.has(p.name))))) {
     throw Object.assign(new Error('Waiting for coding provider discovery.'), { code: 'task_provider_pending' });
   }
   return pickCodingTaskPlan(task, {

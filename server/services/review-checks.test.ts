@@ -151,6 +151,41 @@ describe("failureTail", () => {
     expect(failureTail(run, 6)).toContain("30 righe di rumore omesse");
   });
 
+  // The third shape, and the one no filter can know by name: a legitimate
+  // warning the test server prints once per request. On card 392e95ae
+  // (2026-09-11) `[Security] Project path denied: /private/tmp -> /private/tmp`
+  // arrived some forty times, ALTERNATING with `[Warn 400] Invalid path`, and
+  // the whole saved tail was that pair. Note the alternation: run-length
+  // collapsing would not have touched it.
+  const noisyServer = [
+    "(fail) e2e-touched > lo spec che e' caduto davvero",
+    "Error: expected 2 received 4",
+    ...Array.from({ length: 20 }, () => [
+      "[test-server:err] [Security] Project path denied: /private/tmp -> /private/tmp",
+      "[Warn 400] Invalid path",
+    ]).flat(),
+    "error: script \"check:e2e-touched\" exited with code 1",
+  ].join("\n");
+
+  test("una riga ripetuta non seppellisce il caso caduto, e resta col conteggio", () => {
+    const tail = failureTail(noisyServer, 6);
+    expect(tail).toContain("lo spec che e' caduto davvero");
+    expect(tail).toContain("expected 2 received 4");
+    expect(tail).toContain("exited with code 1");
+    // The line does not vanish: it shows ONCE, and says how many there were.
+    expect(tail).toContain("Project path denied: /private/tmp -> /private/tmp   [x20]");
+    expect(tail.split("Project path denied").length - 1).toBe(1);
+  });
+
+  test("una riga che compare UNA volta non viene toccata, nemmeno se somiglia al rumore", () => {
+    const once = [
+      "[Security] Project path denied: /private/tmp -> /private/tmp",
+      "(fail) il caso",
+      "error: boom",
+    ].join("\n");
+    expect(failureTail(once, 6)).toBe(once);
+  });
+
   test("with no noise it behaves exactly like the plain tail", () => {
     const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
     expect(failureTail(text, 3)).toBe(tailOf(text, 3));

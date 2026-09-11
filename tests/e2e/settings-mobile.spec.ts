@@ -138,7 +138,6 @@ const SCHEDE = [
   "Strumenti",
   "Profilo",
   "Follower",
-  "Privacy",
   "Organizzazione",
   "Dispositivi",
   "Piano",
