@@ -602,6 +602,19 @@ describe("il pavimento della memoria segue il runtime", () => {
     expect(r).toContain("240 MB");
   });
 
+  test("il cancello scatta a SEI e non a una soglia derivata", () => {
+    // Written because it was got wrong twice in one night, in both directions:
+    // once reading the CLI constant (12) instead of the native one, once
+    // inventing a "margin minus seat price" threshold at 7,50 that exists
+    // nowhere. There is no derived threshold: `byMem` divides TOTAL memory, not
+    // available, so the only rule on available memory is this one.
+    const disk = () => 500;
+    const open = (gb: number) => dispatchResourceBlock("/tmp", disk, () => gb, false) === null;
+    expect(open(7.39)).toBe(true);   // worst healthy peak measured under load
+    expect(open(6.01)).toBe(true);
+    expect(open(5.99)).toBe(false);
+  });
+
   test("il pavimento nativo deve stare SOPRA il prezzo di un posto", () => {
     // THE LESSON OF 2026-09-10, as an invariant instead of a number. The floor
     // governs the NEXT admission, so it has to leave room for the card it is
