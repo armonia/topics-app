@@ -6,7 +6,7 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, COMPRESSOR_SHARE_CEILING } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -318,43 +318,16 @@ describe("il pavimento sulla memoria", () => {
     ].join("\n");
 
     const gate = (vm: string) => dispatchResourceBlock(
-      "/qualunque", () => 500,
-      () => availableMemGB(() => vm), true,
-      () => compressorGB(() => vm),
+      "/qualunque", () => 500, () => availableMemGB(() => vm), true,
     );
 
-    expect(gate(thatNight)).not.toBeNull();   // la sera del 10/09: si rifiuta
-    expect(gate(healthy)).toBeNull();         // a macchina sana: si ammette
+    expect(gate(thatNight)).not.toBeNull();   // the night of 2026-09-10: refuse
+    expect(gate(healthy)).toBeNull();         // healthy machine: admit
 
     // E il margine sul verso «sano» si dichiara, perche' e' sottile: se un
     // domani scendesse sotto il pavimento, il cancello smetterebbe di
     // dispacciare su una macchina in salute e questo test lo direbbe subito.
     expect(availableMemGB(() => healthy)!).toBeGreaterThan(DISPATCH_MEM_FLOOR_GB);
-  });
-
-  test("il compressore ferma il dispatch anche quando i GB dicono di si'", () => {
-    // THE 2026-09-10 CASE, at the gate and no longer only in the probe. Plenty
-    // of disk, and 20 GB of "available" memory - above the floor, so the first
-    // signal ADMITS. This is the situation where the GB lie: the cache climbs
-    // back for a moment while the compressor holds half the machine.
-    const totalGB = os.totalmem() / 1e9;
-    const overCeiling = () => totalGB * 0.6;   // above the one-third ceiling
-    const underCeiling = () => totalGB * 0.1;  // ordinary use
-
-    const blocked = dispatchResourceBlock("/qualunque", () => 500, () => 20, true, overCeiling);
-    expect(blocked).not.toBeNull();
-    expect(blocked!).toContain("compressore");
-    // The sentence names the NUMBER and what it would cost, not just "no room".
-    expect(blocked!).toContain("decomprimendo");
-
-    // And with the same "available" memory but a quiet compressor it passes:
-    // without this direction the test would only prove the function can say no.
-    expect(dispatchResourceBlock("/qualunque", () => 500, () => 20, true, underCeiling)).toBeNull();
-
-    // A probe that does not measure does NOT block: "I do not know" is not "full".
-    expect(dispatchResourceBlock("/qualunque", () => 500, () => 20, true, () => null)).toBeNull();
-    const throws = () => { throw new Error("vm_stat morto"); };
-    expect(dispatchResourceBlock("/qualunque", () => 500, () => 20, true, throws)).toBeNull();
   });
 
   test("la somma e' cio' che si ottiene SENZA far lavorare il disco", () => {
@@ -450,22 +423,51 @@ describe("il pavimento sulla memoria", () => {
     expect(availableMemGB(() => withoutFileBacked)).toBeNull();
   });
 
-  test("il compressore e' il SECONDO segnale, e il 10/09 teneva 26 GB su 32", () => {
-    const thatNight = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
-      + "Pages occupied by compressor:            1712833.";
-    const gb = compressorGB(() => thatNight);
-    expect(gb).not.toBeNull();
-    expect(gb!).toBeCloseTo(28.1, 1);
-    expect(gb! / 32).toBeGreaterThan(COMPRESSOR_SHARE_CEILING);
+  test("le DUE righe del compressore non sono la stessa cosa, e il codice legge quella fisica", () => {
+    // THE DEFECT THIS TEST PINS. `vm_stat` exposes `Pages stored in compressor`
+    // (logical compressed pages) and `Pages occupied by compressor` (physical
+    // RAM held): on the night of 2026-09-10 they stood at 2,8:1. The first
+    // draft of this work took 1.712.833 - the `stored` line - called it
+    // `occupied` and set a one-third ceiling on top of it. With the line the
+    // code actually reads, the share that night was 0,291, BELOW the ceiling:
+    // the guard would not have fired on the night it was written for.
+    //
+    // The arithmetic settles which line is which, with nobody to take on trust:
+    // 1.712.833 pages are 28,1 GB, and with 9,6 GB inactive and 0,08 free that
+    // is 37,7 GB on a 34,36 GB machine. They do not fit.
+    const thatNight = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages stored in compressor:              1712833.",
+      "Pages occupied by compressor:             610054.",
+      "Swapouts:                                 258707.",
+    ].join("\n");
+    const physical = compressorGB(() => thatNight)!;
+    expect(physical).toBeCloseTo(10.0, 1);          // occupied, not stored
+    expect(physical / 34.36).toBeCloseTo(0.291, 2); // the real share that night
+    expect(1712833 * 16384 / 1e9).toBeCloseTo(28.1, 1); // stored: 2,8x, would not fit
 
     const healthy = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
-      + "Pages occupied by compressor:             316162.";
-    const quiet = compressorGB(() => healthy)!;
-    expect(quiet).toBeCloseTo(5.2, 1);
-    expect(quiet / 32).toBeLessThan(COMPRESSOR_SHARE_CEILING);
+      + "Pages occupied by compressor:             314558.\n"
+      + "Swapouts:                                 258707.";
+    expect(compressorGB(() => healthy)!).toBeCloseTo(5.15, 1);
 
-    expect(compressorGB(() => "niente")).toBeNull();
-    expect(compressorGB(() => null)).toBeNull();
+    // The CUMULATIVE swapouts are identical in the two samples, and it is the
+    // most eloquent fact of the night: since the crisis ended the machine has
+    // not swapped a single page. A counter, not a rate: the difference between
+    // two readings is the rate, and a reading with no previous base is not
+    // zero, it is "I do not know" - the same rule as `makeInstantCpu`.
+    expect(swapoutPages(() => thatNight)).toBe(258707);
+    expect(swapoutPages(() => healthy)).toBe(258707);
+    expect(swapoutPages(() => "niente")).toBeNull();
+    expect(swapoutPages(() => null)).toBeNull();
+  });
+
+  test("nessun tetto sul compressore: il cancello ha UN solo segnale sulla memoria", () => {
+    // The direction that stops an untunable guard from creeping back in. With
+    // memory to spare the gate admits WHATEVER the compressor is doing: if
+    // somebody later put a threshold back without a measurement under load to
+    // justify it, this test would say so.
+    expect(dispatchResourceBlock("/qualunque", () => 500, () => 20, true)).toBeNull();
   });
 });
 

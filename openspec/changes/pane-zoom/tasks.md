@@ -163,11 +163,15 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   E' comportamento della capability remote-browser, non del layout: quello che
   deve fare sta scritto in `NATIVEPARK-01` del delta `specs/remote-browser/spec.md`
   di questa change, ed e' l'id che il test di 2.2 deve dichiarare.
-- [ ] 2.2 Test unitario della transizione, header `@covers NATIVEPARK-01`. Dopo un
-  park, sono no-op sulla geometria una chiamata diretta ad `applyBounds` e tutte e
-  CINQUE le vie di ritorno che il requisito nomina: `thaw` (:581), `setDevice`
-  (:1611), il riconcilio UA (:1644), `setResponsiveSize` (:1656) e la stretta di
-  mano di `recreate` (:1722). Si asserisce contando i comandi di geometria inviati
+- [ ] 2.2 `client/src/hooks/useTauriBrowser.park.test.ts`, sulla convenzione del
+  gia' esistente `useTauriBrowser.polls.test.ts`: test unitario della transizione,
+  header `@covers NATIVEPARK-01`. Il path si scrive QUI perche' e' il quinto dei
+  cinque file di test nuovi che il proposal conta nell'Impact, ed e' quel conto che
+  `check:untraced-tests` deve far tornare: un task che dice «un test unitario»
+  senza dire dove lascia il conto aperto. Dopo un park, sono no-op sulla geometria
+  una chiamata diretta ad `applyBounds` e tutte e CINQUE le vie di ritorno che il
+  requisito nomina: `thaw` (:581), `setDevice` (:1611), il riconcilio UA (:1644),
+  `setResponsiveSize` (:1656) e la stretta di mano di `recreate` (:1722). Si asserisce contando i comandi di geometria inviati
   alla vista, non guardando lo schermo. La quinta e' quella che mancava, e una via
   non provata e' una via che torna.
   Poi: `decideFreeze(null, rects)` con overlay presenti torna `true`
@@ -379,7 +383,9 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   su `key_code` e su `chars` e un `format!`, zero `msg_send!`. Si interroga quindi
   da un modulo figlio, nella forma che questo file usa gia' per i test
   macOS-only, `#[cfg(all(test, target_os = "macos"))] mod ...` con `use super::…`
-  (ce ne sono gia' tre: lib.rs:11509, :11731, :12336). Modulo nuovo,
+  (ce ne sono gia' QUATTRO: lib.rs:11394, :11509, :11731, :12336; la prima
+  stesura ne contava tre e saltava :11394, ed e' design.md ad avere il conto
+  giusto). Modulo nuovo,
   `use super::app_chord_dispatch_js`, e tre asserzioni: con `alt = true` su un
   char inoltrato la funzione torna comunque `Some` e il JS porta `altKey:true`;
   con `alt = false` lo stesso char porta `altKey:false`; e le due stringhe sono
@@ -608,6 +614,71 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   essere visibile. Senza questa seconda asserzione il caso sarebbe verde anche col
   comando applicato dentro una cella collassata, che e' il guasto per cui la
   regola esiste.
+
+- [ ] 7.9 I cinque scenari di `LAYOUT-37` che non tocca nessun caso di 7.1 ne'
+  di 7.3, nello stesso `tests/e2e/pane-zoom.spec.ts` e con la stessa doppia
+  dichiarazione. La lista di 7.1 copre i TRE di Escape e si ferma li': «l'ancora
+  sparisce», «il fuoco va altrove», «cambio di Spazio», «ricaricamento» e «lo
+  zoom non viaggia» restano scritti in una spec approvata e provati da niente, e
+  il `@covers` a livello FILE tiene il cancello verde lo stesso. E' il buco della
+  stessa classe che 7.8 chiude su `LAYOUT-35`, applicato al requisito accanto.
+  Due dei cinque non sono rifiniture: l'uscita su fuoco-altrove e l'uscita quando
+  sparisce l'ancora sono cablaggio VERO, scritto in 3.1, e oggi non le asserisce
+  nessuno. Ognuno porta la sua
+  `test.info().annotations.push({ type: "spec", description: "LAYOUT-37" })`, o
+  non conta.
+  (a) **L'ancora sparisce.** Si entra con scope `derived` su una chat la cui
+  cella ha DUE tab, e si chiude la SOLA tab ancorata (testid `pane-tab-close`,
+  dichiarato a PaneTabBar.tsx:2360). `[data-pane-zoom]` SHALL essere sparito e le
+  celle prima collassate SHALL essere di nuovo visibili. La costruzione a due tab
+  non e' zelo: chiudendo l'unica tab sparirebbe la CELLA, e l'uscita sarebbe
+  spiegata dalla potatura invece che dall'ancora, cioe' il caso sarebbe verde per
+  la ragione sbagliata. Serve la guardia contro il verde a vuoto, prima di
+  chiudere: almeno un `[data-split-leaf]` SHALL risultare collassato, o lo zoom
+  non stava rivelando niente. L'altra meta' dello scenario, la chiusura da un
+  ALTRO dispositivo, arriva sullo stesso effetto di potatura e non merita un caso
+  proprio; chi lo volesse comunque ha gia' l'attrezzo in `helpers/multi-client.ts`
+  (l'harness di `browser-cross-device-close.spec.ts`).
+  (b) **Il fuoco va altrove, e le meta' da asserire sono DUE.** La prima: a zoom
+  attivo il fuoco va su una pane che sta in una cella FUORI dal set, e lo zoom
+  SHALL chiudersi. L'innesco non puo' essere un clic sulla tab di quella cella,
+  che sta a `display:none` e non si clicca: si passa da fuori della griglia, cioe'
+  dalla voce di sidebar del topic gia' aperto li', che dispatcha
+  `topics:open-topic` (`Layout/spaceHelpers.ts:169`). La seconda, che e' la sola
+  a mordere un'implementazione troppo grossolana: si cambia tab DENTRO la cella
+  del set, e `[data-pane-zoom]` SHALL restare. Senza di lei «esce sul cambio di
+  fuoco» sarebbe soddisfatto anche da un effetto che esce SEMPRE.
+  (c) **Cambio di Spazio.** A zoom attivo si passa a un altro gruppo e si torna
+  (`space-row`, l'harness di `spaces-switcher.spec.ts`): nessuno dei due SHALL
+  risultare ingrandito. Va scritto nel caso PERCHE' e' voluto e non un difetto:
+  `App.tsx:2088` chiavia il sottoalbero su `activeSpaceId`, la superficie si
+  rimonta, e l'effetto di smontaggio di 3.1 chiama `exit(surfaceId)`. Guardia
+  contro il verde a vuoto: al ritorno la griglia SHALL avere le stesse celle di
+  prima, o «non ingrandito» sarebbe vero perche' il layout si e' perso.
+  (d) **Ricaricamento.** A zoom attivo si ricarica: `[data-pane-zoom]` SHALL
+  essere assente e la griglia SHALL essere quella di prima. La seconda meta',
+  «nessuna cornice su una griglia non ancora idratata», ha due trappole da sapere
+  PRIMA di scriverla. Il bersaglio: 3.1 monta scrim e stage INCONDIZIONATI,
+  quindi contare il nodo `.pane-zoom-scrim` darebbe 1 sempre e proverebbe il
+  contrario di cio' che si vuole; si asserisce su `[data-pane-zoom]` della
+  superficie e sulla visibilita' computata del velo, mai sulla presenza del nodo.
+  La finestra: l'osservazione conta solo se cade PRIMA dell'idratazione, e la
+  finestra di boot si allarga ritardando ENTRAMBI i canali, il frame WS
+  `ui-state:init` e il ripiego `GET /api/ui-state/pane-store-v2`
+  (`state/pane/bootstrap.ts:125` e :315). Ritardarne uno solo lascia passare
+  l'altro, e il caso misura il nulla.
+  (e) **Lo zoom non viaggia, e sono DUE asserzioni.** Due contesti con la stessa
+  griglia (`openTwoDevices`, `helpers/multi-client.ts`), e si ingrandisce su A. La
+  prima: su B `[data-pane-zoom]` SHALL restare assente e le scatole dei
+  `[data-split-leaf]` SHALL essere quelle lette prima del gesto. La seconda e' la
+  meta' che la spec scrive e che nessun DOM mostra: durante il gesto su A NON
+  SHALL partire nessuna scrittura dello stato dei pannelli, cioe' zero `PUT` su
+  `**/api/ui-state/pane-store-v2*`, che e' la sincronizzazione col rimbalzo di
+  `state/pane/middleware/syncServer.ts:150`. Il glob va scritto con la coda: quel
+  `PUT` accoda `?base=<seq>`, e un pattern che finisce sulla chiave non combacia,
+  cioe' conta zero per il motivo sbagliato. Serve la guardia: nello stesso test
+  un'azione che SCRIVE davvero, per esempio aprire una tab, SHALL far salire il
+  contatore, o «zero PUT» vuol dire solo che l'ascoltatore non era montato.
 
 ## T8 — Cancelli finali
 

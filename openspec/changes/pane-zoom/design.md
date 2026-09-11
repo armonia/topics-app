@@ -61,7 +61,7 @@ riconciliazione, nessuna scrittura di persistenza, nessun tombstone, nessun
 ```ts
 onDoubleClick={(e) => {
   markDraftTouched(pane.id);
-  if (pane.preview && onPinPane) { onPinPane(pane.id); return; }
+  if (pane.preview) { onPinPane?.(pane.id); return; }
   if (canZoom) onToggleZoom?.(pane.id, e.altKey ? 'cell' : 'derived');
 }}
 ```
@@ -72,6 +72,20 @@ restano verdi. Il significato dichiarato del gesto (commento a
 PaneTabBar.tsx:1253-1256) non cambia, scala: la fissi, poi la isoli. ⌥ e' libero
 sulla linguetta: in tutto `PaneTabBar.tsx` non compare nessun `altKey`, e
 l'unico `onDoubleClick` del file e' quello di :1257.
+
+**Il cancello del primo livello e' `pane.preview`, non la presenza della
+callback**, e la differenza va scritta perche' la prima stesura la sbagliava.
+Con `if (pane.preview && onPinPane)` una tab in anteprima montata da un ospite
+che non passa `onPinPane` scivolerebbe nel ramo zoom: il gesto che la spec
+assegna al «fissa» ingrandirebbe. Oggi non morderebbe, ed e' verificato: la prop
+e' opzionale (PaneTabBar.tsx:207) e arriva `undefined` da GroupLayout.tsx:1036 e
+:1275 quando l'ospite non la passa, ma le due superfici che accendono lo zoom la
+passano sempre (StandaloneChatGroup.tsx:688, ProjectWindow.tsx:617). Un cancello
+che dipende da CHI ha montato la barra invece che dallo stato della tab e' pero'
+un cancello che cambia significato appena qualcuno monta una terza superficie,
+e non e' quello che la spec dichiara. Con `onPinPane?.()` il ramo anteprima
+assorbe il gesto e esce comunque: se la callback manca, il doppio clic su
+un'anteprima resta esattamente il no-op che e' oggi.
 
 **Il modificatore chiede la SOLA cella.** ⌥ + doppio clic, ⌥⌘E, e una voce di
 menu distinta, «Ingrandisci solo questa», ingrandiscono la cella che ospita la
