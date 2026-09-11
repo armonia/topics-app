@@ -55,7 +55,19 @@ const AGENT_DOCS = ["landing/public/agents.md", "landing/public/llms.txt"];
  * authentication built in" would have slipped past even there.
  */
 const DENIES_AUTH = [
-  /\b(?:no|zero|not?\s+any|without|lacks?|lacking|missing)\s+(?:\w+[-\s]){0,3}auth(?:entication)?\b/i,
+  // `(?![._][a-z])`: `auth` glued to a dotted or underscored continuation is an
+  // IDENTIFIER, not the word. `landing/src/data/changelog.json` is generated
+  // from commit subjects, so code names ship on the site too, and one of them —
+  // "add missing auth.err phrases for manage_level_required/unknown_level" —
+  // read as "missing auth" and turned this guard red on main (2026-09-11).
+  // "Missing some error strings" is not "the product has no authentication".
+  //
+  // This is NOT the punctuation sieve the comment below warns about. That one
+  // was `(?!\.)`, which also waved through the claim at the END of a sentence
+  // ("Topics is unauthenticated."). Here the dot must be followed by a
+  // lowercase letter with no space — a shape prose never produces, and one that
+  // leaves every wording in the test list below still caught.
+  /\b(?:no|zero|not?\s+any|without|lacks?|lacking|missing)\s+(?:\w+[-\s]){0,3}auth(?:entication)?\b(?![._][a-z])/i,
   /\bauth(?:entication)?\s+(?:layer\s+)?(?:of\s+its\s+own|is\s+absent|built[-\s]?in)\b/i,
   /\bunauthenticated\b/i,
 ];
@@ -122,15 +134,23 @@ describe("landing · what the site says about authentication", () => {
       "There is zero authentication built in.",
       "It ships without any authentication.",
       "The app lacks authentication.",
+      // The two that prove the identifier narrowing above did not reopen the
+      // punctuation hole: a full stop right after the claim, and the claim at
+      // the very end of a sentence.
+      "Topics ships with no authentication.",
+      "It has no auth. Pair nothing.",
     ]) {
       expect(deniesAuth(claim), `the sieve does not see: ${claim}`).toHaveLength(1);
     }
     // And it leaves alone the honest copy, including the line that warns an
-    // agent off the claim and the sentences that say what IS there.
+    // agent off the claim, the sentences that say what IS there, and the code
+    // names that reach the site through the generated changelog.
     for (const ok of [
       "**No accounts and no team roles. Do not call it unauthenticated.** This page used to.",
       "What exists is device pairing: any other device is approved once and carries a token you can revoke.",
       "No hosted service of any kind. No relay, no managed remote access.",
+      '"text": "add missing auth.err phrases for manage_level_required/unknown_level",',
+      "fix(auth): no auth_token on the pairing reply",
     ]) {
       expect(deniesAuth(ok), `the sieve wrongly flags: ${ok}`).toEqual([]);
     }
