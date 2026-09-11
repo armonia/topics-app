@@ -1644,6 +1644,25 @@ describe("tasks routes — anteprima dalla sessione dell'agente", () => {
     expect(resp.status).toBe(200);
   });
 
+  // An explicit gesture ("I want THIS ONE") is no longer enough past the
+  // allowlist and the extension check: a byte-uniform image is never
+  // evidence of any work, and this door ignored that entirely. The shape
+  // gate was removed here on purpose, but nobody put one back on CONTENT.
+  // `isBlankLikeImage` is the same measure already in production for the
+  // auto-captured shots.
+  test("a byte-uniform preview is refused even on the manual door (explicit gesture included)", async () => {
+    const ctx = makeCtx(db, broadcasts) as any;
+    ctx.imageShapeOf = () => ({ width: 1280, height: 720, ratio: 720 / 1280 });
+    const r = createTasksRouter(ctx);
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    // `x.png` on disk is 1 byte: well below the measured density floor.
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { previewImage: media("x.png") }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).error).toContain("blank");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.previewImage).toBeNull();
+  });
+
   test("e non travolge i tre rami del protocollo: png, svg e webm entrano", async () => {
     const r = createTasksRouter(makeCtx(db, broadcasts));
     for (const p of [media("schermata.png"), media("schema.svg"), media("clip.webm")]) {

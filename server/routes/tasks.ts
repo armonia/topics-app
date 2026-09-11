@@ -17,7 +17,7 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
@@ -30,6 +30,7 @@ import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOT
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
+import { isBlankLikeImage } from "../services/image-shape";
 import { parseTaskPatch, unapplicableFieldsBody, checkConstraintBody, type FieldRead } from "./task-patch";
 import { getTerminalSessionById } from "./terminal";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
@@ -1803,6 +1804,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!checkExists(raw)) {
       return { ok: false, reason: `file not found on disk: ${raw}` };
     }
+    // A BLANK IMAGE IS NOT EVIDENCE, and this gate holds even on an explicit
+    // gesture. The shape gate below was removed BECAUSE the crop already does
+    // its job — but a flat, uniform image has no job left for the crop to do:
+    // no layout choice makes an empty screenshot show the work. `isBlankLikeImage`
+    // is the same measured floor already used for the auto-captured path
+    // (`preview-manager.ts`); a card that could not be measured (unknown
+    // format, unreadable header) still passes, same as every other gate here.
+    try {
+      const shape = ctx.imageShapeOf?.(raw);
+      if (shape && isBlankLikeImage({ bytes: statSync(raw).size, width: shape.width, height: shape.height })) {
+        return { ok: false, reason: "image is blank (flat colour): not evidence of the work" };
+      }
+    } catch { /* unreadable ⇒ same as unmeasurable: promote, do not block */ }
     // NIENTE CANCELLO SULLA FORMA, e la ragione e' una misura.
     //
     // Ci avevo messo un terzo cancello: un'anteprima piu' alta che larga occupa

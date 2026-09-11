@@ -68,7 +68,7 @@ export function codexTopicsMcpProfile(
 // ============ Constants ============
 
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
-const KILL_GRACE_MS = 3_000;
+export const KILL_GRACE_MS = 3_000;
 
 const ENV_ALLOWLIST = new Set([
   "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",

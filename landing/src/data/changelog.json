@@ -1,5 +1,33 @@
 [
   {
+    "version": "2.2.299",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "«e' morto» non e' «era gia' morto in quell'istante»",
+          "scope": "test"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.298",
+    "date": "2026-09-11",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "R1 sees an id claimed by an OPEN change's delta as in flight, not dangling",
+          "scope": "spec-coverage"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.297",
     "date": "2026-09-11",
     "sections": {
