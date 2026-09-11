@@ -226,8 +226,8 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   GIA' attivo, dove resta la sola «Riduci» (LAYOUT-40).
   Props `onToggleZoom(paneId, scope)` / `canZoom` / `isZoomed`; il predicato arriva
   da 3.9.
-- [ ] 3.5 Le due chord, il bit di Option che oggi si perde per strada, e il prezzo
-  su Windows.
+- [ ] 3.5 Le due chord nel registro, e il prezzo che si paga su due sponde. Il
+  bit di Option e' lavoro di 3.11, non di qui.
   `useKeyboardShortcuts.ts`: ⌘E (ambito automatico) e ⌥⌘E (sola cella); Escape come
   ULTIMO ramo, dopo lo stop del turno (il ramo e' a :468-473). `shared/shortcuts.ts`:
   due righe nel gruppo «Panels & tabs» (:87), tutte e due **col campo `native`**,
@@ -271,10 +271,15 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   quello che e': oggi elenca c, v, x, a, z, f, l, y e non ha mai nominato 'e',
   quindi resta verde con e senza questa change e non prova niente sul punto. E'
   esattamente cio' che `LAYOUT-41` chiede di non lasciare all'omissione.
-  **Falsificazione**: si aggiunge prima `'e'` al test Rust e si lancia
-  `cargo test --lib` con il registro ANCORA vecchio. Deve essere ROSSO. Se e'
-  verde, le due sponde non stanno leggendo lo stesso elenco e il claim di
-  `LAYOUT-41` e' falso prima ancora di partire.
+  **Falsificazione, e vale per (a), non per (b).** Si aggiunge prima `'e'` ad (a)
+  e si lancia `cargo test --lib` col registro ANCORA vecchio: deve essere ROSSO.
+  Se e' verde, le due sponde non stanno leggendo lo stesso elenco e il claim di
+  `LAYOUT-41` e' falso prima ancora di partire. (b) invece e' verde prima e dopo
+  per costruzione, perche' `decide()` esce su `c.alt` prima di guardare la tabella
+  (chords.rs:103-105): non e' un difetto del caso, e' cio' che il caso presidia, e
+  la sua falsificazione e' un'altra, cioe' togliere quel ramo e vederlo rosso. Va
+  scritto, o il primo che lancia (b) e lo trova verde crede di aver provato
+  qualcosa che non ha provato.
 
   Il bit di Option, che il campo `native` NON copre, e la funzione macOS da
   rendere interrogabile stanno in **3.11**: e' la stessa cucitura, ma e' lavoro
@@ -358,8 +363,8 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   (c) un parametro `alt: bool` su `app_chord_dispatch_js` (:8460), dopo `shift`,
   cosi' i modificatori restano in fila;
   (d) `altKey:{alt}` al posto della costante dentro il `format!` di :8485;
-  (e) il passaggio al chiamante, che e' **UNO solo e sta a :8611**
-  (`app_chord_dispatch_js(cmd, ctrl, shift, &chars, key_code)`). Non a :8473:
+  (e) il passaggio al chiamante, che e' **UNO solo e sta a :8611**, dove oggi si
+  legge `app_chord_dispatch_js(cmd, ctrl, shift, &chars, key_code)`. Non a :8473:
   quella riga e' il ramo `is_forwarded_cmd_chord` DENTRO la funzione, e chi la
   legge come una chiamata conta un chiamante che non esiste.
   I rami di decisione (:8469-8480) NON cambiano, e va detto perche' invece di
@@ -388,9 +393,10 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   (Escape), o a rispondere e' un altro ramo.
   **Falsificazione**: con la firma nuova gia' a posto si rimette `altKey:false`
   come costante a :8485 e si lancia
-  `(cd desktop-tauri/src-tauri && cargo test --lib)`. Deve essere ROSSO sulla
-  disuguaglianza delle due stringhe. Un test che non si e' mai visto rosso qui non
-  e' un cancello, e' una parafrasi della firma.
+  `(cd desktop-tauri/src-tauri && cargo test --lib)`. Deve essere ROSSO
+  sull'asserzione che le due stringhe differiscono, che li' tornano identiche. Un
+  test che non si e' mai visto rosso qui non e' un cancello, e' una parafrasi
+  della firma.
 
   **Il confronto da rifare PRIMA di toccare la costante**, perche' quella vale per
   ogni chord inoltrata e non solo per la nuova. I char inoltrati oggi sono

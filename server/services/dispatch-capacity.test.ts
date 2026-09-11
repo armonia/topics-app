@@ -292,6 +292,46 @@ describe("il pavimento sulla memoria", () => {
     "Pages occupied by compressor:             100000.",
   ].join("\n");
 
+  test("il pavimento resta coerente col numero nuovo: la sera NO, la macchina sana SI'", () => {
+    // ITEM 3 DELLA CARD, e il verso che non si vede: cambiando il significato
+    // di `availableMemGB` senza ritoccare `DISPATCH_MEM_FLOOR_GB` si poteva
+    // rendere il cancello molto piu' severo SENZA cambiare un numero - una
+    // politica nuova entrata di soppiatto, col silenzio come sintomo. Qui i due
+    // campioni veri passano dal pavimento VERO, non da una soglia di comodo.
+    const thatNight = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                 4877.",
+      "Pages inactive:                           586288.",
+      "Pages speculative:                           876.",
+      "Pages purgeable:                            5000.",
+      "File-backed pages:                        100000.",
+      "Pages occupied by compressor:            1712833.",
+    ].join("\n");
+    const healthy = [
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                               49689.",
+      "Pages inactive:                          695839.",
+      "Pages speculative:                        36974.",
+      "Pages purgeable:                          26839.",
+      "File-backed pages:                       705344.",
+      "Pages occupied by compressor:            316162.",
+    ].join("\n");
+
+    const gate = (vm: string) => dispatchResourceBlock(
+      "/qualunque", () => 500,
+      () => availableMemGB(() => vm), true,
+      () => compressorGB(() => vm),
+    );
+
+    expect(gate(thatNight)).not.toBeNull();   // la sera del 10/09: si rifiuta
+    expect(gate(healthy)).toBeNull();         // a macchina sana: si ammette
+
+    // E il margine sul verso «sano» si dichiara, perche' e' sottile: se un
+    // domani scendesse sotto il pavimento, il cancello smetterebbe di
+    // dispacciare su una macchina in salute e questo test lo direbbe subito.
+    expect(availableMemGB(() => healthy)!).toBeGreaterThan(DISPATCH_MEM_FLOOR_GB);
+  });
+
   test("il compressore ferma il dispatch anche quando i GB dicono di si'", () => {
     // THE 2026-09-10 CASE, at the gate and no longer only in the probe. Plenty
     // of disk, and 20 GB of "available" memory - above the floor, so the first
