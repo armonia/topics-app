@@ -103,7 +103,7 @@ describe("delegated agent start capability", () => {
 
   test("stored project aliases remain live only for their canonical board", () => {
     const db = database();
-    const path = "/tmp/delegated-project-alias";
+    const path = "/tmp/delegated-project-alias"; // allow-shared-tmp: identity data stored only in the in-memory database
     const storeId = "11111111-1111-4111-8111-111111111111";
     const boardId = projectIdForPath(path);
     db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run(storeId, path);

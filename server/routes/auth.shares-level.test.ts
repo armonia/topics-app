@@ -198,7 +198,7 @@ describe("GET /api/auth/shared · il livello viaggia con la riga", () => {
   });
 
   test("resolves local identity once and finds a bound capability through its UUID alias", async () => {
-    const projectPath = "/tmp/shared-bound-capability-alias";
+    const projectPath = "/tmp/shared-bound-capability-alias"; // allow-shared-tmp: identity data stored only in the in-memory database
     const storeId = "33333333-3333-4333-8333-333333333333";
     const boardId = projectIdForPath(projectPath);
     db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
@@ -277,7 +277,7 @@ describe("GET /api/auth/shares · chi arriva dal progetto", () => {
   });
 
   test("a project-store UUID grant reaches its canonical board tasks", async () => {
-    const projectPath = "/tmp/project-share-alias";
+    const projectPath = "/tmp/project-share-alias"; // allow-shared-tmp: identity data stored only in the in-memory database
     const storeId = "11111111-1111-4111-8111-111111111111";
     const boardId = projectIdForPath(projectPath);
     db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
@@ -301,7 +301,7 @@ describe("GET /api/auth/shares · chi arriva dal progetto", () => {
   });
 
   test("legacy UUID grants and canonical denies resolve as one project permission", async () => {
-    const projectPath = "/tmp/project-share-legacy-alias";
+    const projectPath = "/tmp/project-share-legacy-alias"; // allow-shared-tmp: identity data stored only in the in-memory database
     const storeId = "22222222-2222-4222-8222-222222222222";
     const boardId = projectIdForPath(projectPath);
     db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");

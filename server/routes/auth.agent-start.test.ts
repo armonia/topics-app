@@ -171,7 +171,7 @@ describe("agent start capability routes", () => {
 
   test("project aliases share one confined capability and board settings boundary", async () => {
     const db = database();
-    const path = "/tmp/canonical-capability-project";
+    const path = "/tmp/canonical-capability-project"; // allow-shared-tmp: identity data stored only in the in-memory database
     const storeId = "11111111-1111-4111-8111-111111111111";
     const otherStoreId = "22222222-2222-4222-8222-222222222222";
     const boardId = projectIdForPath(path);
