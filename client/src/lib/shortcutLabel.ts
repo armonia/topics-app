@@ -60,6 +60,38 @@ export const ENTER = usesCtrl ? 'Enter' : '\u21b5';
 const SEP = usesCtrl ? '+' : '';
 
 /**
+ * Spell ONE key token of the shortcut registry (`shared/shortcuts.ts`) the way
+ * this system spells it.
+ *
+ * The registry writes modifiers as tokens (`Mod`, `Shift`, `Alt`, `Ctrl`),
+ * never as glyphs, so the same row reads `⌘⇧T` on a Mac and
+ * `Ctrl+Shift+T` on Windows. `Ctrl` is Control PROPER — on a Mac `⌃`, a
+ * different key from `⌘`; on Windows and Linux it collapses onto the primary
+ * modifier, because there it IS the same key. Anything that is not a modifier
+ * (a letter, `Esc`, `1-9`) passes through untouched.
+ */
+export function keyLabel(token: string): string {
+  switch (token) {
+    case 'Mod': return MOD;
+    case 'Shift': return SHIFT;
+    case 'Alt': return ALT;
+    case 'Ctrl': return usesCtrl ? 'Ctrl' : '\u2303';
+    default: return token;
+  }
+}
+
+/**
+ * The whole chord as one caption, e.g. `⌘⇧T` or `Ctrl+Shift+T`.
+ *
+ * Used to compare two chords, which is not decoration: on Windows `⌃⇧Tab`
+ * and `⌘⇧Tab` are the SAME caption, and a row that names one as the alias
+ * of the other would read "Ctrl+Shift+Tab (alias Ctrl+Shift+Tab)".
+ */
+export function chordLabel(keys: readonly string[]): string {
+  return keys.map(keyLabel).join(SEP);
+}
+
+/**
  * Compose a shortcut with the right names for this system.
  *
  *   shortcut('K')                  → `⌘K`   / `Ctrl+K`

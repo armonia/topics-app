@@ -8,6 +8,7 @@ import { useT } from '../../hooks/useT';
 // chord-forwarding allowlist (shortcuts_generated.rs) — add a chord once and
 // both the window below and the desktop forwarder pick it up. See the file.
 import { SHORTCUT_GROUPS } from '../../../../shared/shortcuts';
+import { chordLabel, keyLabel, usesCtrl } from '../../lib/shortcutLabel';
 
 interface KeyboardShortcutsProps {
   isOpen: boolean;
@@ -42,7 +43,9 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
             // `desktopOnly` voleva dire "solo nella shell desktop", ma il filtro
             // le toglieva SEMPRE: ⌘W, ⌘1-9 e ⌘⇧N non comparivano nemmeno
             // sull'app desktop, cioè l'unico posto in cui funzionano.
-            const shortcuts = group.shortcuts.filter(s => !s.desktopOnly || isDesktop);
+            // `macOnly` drops the rows whose MECHANISM is macOS-only (the
+            // right-modifier tap): elsewhere they would be listed and dead.
+            const shortcuts = group.shortcuts.filter(s => (!s.desktopOnly || isDesktop) && (!s.macOnly || !usesCtrl));
             if (shortcuts.length === 0) return null;
             return (
               <div key={group.title}>
@@ -52,7 +55,15 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
                     <div key={s.description} className="flex items-center justify-between gap-3">
                       <span className="text-compact text-app-text-secondary">{s.description}</span>
                       <div className="flex items-center gap-0.5 shrink-0">
-                        {s.keys.map((k, i) => <kbd key={i} className="kbd">{k}</kbd>)}
+                        {s.keys.map((k, i) => <kbd key={i} className="kbd">{keyLabel(k)}</kbd>)}
+                        {/* The alias only when it READS different: on Windows
+                            ⌃⇧Tab and ⌘⇧Tab are the same caption. */}
+                        {s.alias && chordLabel(s.alias) !== chordLabel(s.keys) && (
+                          <>
+                            <span className="px-0.5 text-mini text-app-text-muted">/</span>
+                            {s.alias.map((k, i) => <kbd key={`a${i}`} className="kbd">{keyLabel(k)}</kbd>)}
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}

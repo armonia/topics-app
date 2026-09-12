@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SHORTCUT_GROUPS, renderRustModule } from './shortcuts';
+import { MOD, MODIFIER_TOKENS, SHORTCUT_GROUPS, renderRustModule } from './shortcuts';
 
 const GENERATED_RS = join(
   import.meta.dir,
@@ -45,6 +45,39 @@ describe('shortcut registry', () => {
       for (const s of g.shortcuts) {
         expect(seen.has(s.description)).toBe(false);
         seen.add(s.description);
+      }
+    }
+  });
+
+
+  it('no key is written as a Mac glyph: the registry speaks in tokens', () => {
+    // The defect this guards: a glyph written here is printed VERBATIM by the
+    // shortcuts window on every system, so on Windows the list names keys that
+    // are not on the keyboard. Tokens are resolved per platform at render time
+    // (`client/src/lib/shortcutLabel.ts`).
+    const GLYPHS = ['\u2318', '\u21e7', '\u2325', '\u2303'];
+    for (const g of SHORTCUT_GROUPS) {
+      for (const s of g.shortcuts) {
+        for (const k of [...s.keys, ...(s.alias ?? [])]) {
+          for (const glyph of GLYPHS) expect(k.includes(glyph)).toBe(false);
+        }
+        // Same for the prose: an alias belongs in `alias`, not in the sentence.
+        for (const glyph of GLYPHS) expect(s.description.includes(glyph)).toBe(false);
+      }
+    }
+  });
+
+  it('every modifier token is one the renderer knows', () => {
+    const KNOWN = new Set<string>(MODIFIER_TOKENS);
+    // A token the renderer does not know would pass through and be PRINTED as
+    // itself: `Mod` on the screen instead of the key.
+    for (const g of SHORTCUT_GROUPS) {
+      for (const s of g.shortcuts) {
+        for (const k of [...s.keys, ...(s.alias ?? [])]) {
+          if (k === k.toUpperCase() && k.length > 2 && !KNOWN.has(k)) {
+            expect(['Tab', 'Esc', '1-9']).toContain(k);
+          }
+        }
       }
     }
   });
@@ -96,13 +129,13 @@ describe('shortcut registry', () => {
 
   it('both zoom chords are declared, and both carry the forwarding flag', () => {
     const rows = SHORTCUT_GROUPS.flatMap(g => g.shortcuts).filter(
-      s => s.keys.includes('E') && s.keys.includes('⌘'),
+      s => s.keys.includes('E') && s.keys.includes(MOD),
     );
     // ⌘E and ⌥⌘E. The modifier twin stays in the registry (and therefore in the
     // window that lists the shortcuts) on every platform, even where the native
     // side cannot deliver it — that asymmetry is admitted in LAYOUT-40, not
     // papered over by dropping the row.
-    expect(rows.map(r => r.keys.join('')).sort()).toEqual(['⌘E', '⌥⌘E']);
+    expect(rows.map(r => r.keys.join('+')).sort()).toEqual(['Alt+Mod+E', 'Mod+E']);
     for (const r of rows) expect(r.native?.chars).toEqual(['e']);
   });
 });

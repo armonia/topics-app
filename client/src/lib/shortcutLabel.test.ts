@@ -72,3 +72,35 @@ describe('the modifier follows the system', () => {
     }
   });
 });
+
+describe('the registry speaks in tokens, the caption in the local keys', () => {
+  it('on a Mac a token becomes its glyph, and Control stays a DIFFERENT key', async () => {
+    const out = await onPlatform('MacIntel', (m) =>
+      [m.keyLabel('Mod'), m.keyLabel('Shift'), m.keyLabel('Alt'), m.keyLabel('Ctrl'), m.keyLabel('Tab')]);
+    expect(out).toEqual(['⌘', '⇧', '⌥', '⌃', 'Tab']);
+  });
+
+  it('on Windows Control COLLAPSES onto the primary modifier, because it is the same key', async () => {
+    const out = await onPlatform('Win32', (m) =>
+      [m.keyLabel('Mod'), m.keyLabel('Shift'), m.keyLabel('Alt'), m.keyLabel('Ctrl'), m.keyLabel('Tab')]);
+    expect(out).toEqual(['Ctrl', 'Shift', 'Alt', 'Ctrl', 'Tab']);
+  });
+
+  it('and that collapse makes two chords ONE caption — which the panel has to notice', async () => {
+    // `⌃⇧Tab` (Previous panel) and `⌘⇧Tab` (its alias) are two keyboards' worth
+    // of difference on a Mac and the same three keys on Windows. A row that
+    // printed both would read «Ctrl+Shift+Tab / Ctrl+Shift+Tab».
+    const mac = await onPlatform('MacIntel', (m) =>
+      [m.chordLabel(['Ctrl', 'Shift', 'Tab']), m.chordLabel(['Mod', 'Shift', 'Tab'])]);
+    expect(mac[0]).not.toBe(mac[1]);
+    const win = await onPlatform('Win32', (m) =>
+      [m.chordLabel(['Ctrl', 'Shift', 'Tab']), m.chordLabel(['Mod', 'Shift', 'Tab'])]);
+    expect(win[0]).toBe(win[1]);
+    expect(win[0]).toBe('Ctrl+Shift+Tab');
+  });
+
+  it('a key that is not a modifier passes through untouched', async () => {
+    const out = await onPlatform('Win32', (m) => [m.keyLabel('1-9'), m.keyLabel('Esc'), m.keyLabel('/')]);
+    expect(out).toEqual(['1-9', 'Esc', '/']);
+  });
+});
