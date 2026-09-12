@@ -10,6 +10,7 @@ import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { paneShellOrder } from './paneShellOrder';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
@@ -1359,9 +1360,14 @@ export function GroupLayout({
             // owes a task's drawer — the absence of a box coming down from a
             // hidden ANCESTOR shell instead of stopping at the group's active
             // tab.
+            //
+            // Inside it, the panes are laid out in SHELL order, not in tab
+            // order: see paneShellOrder. Following the strip here would make a
+            // reposition detach and re-attach live subtrees, which is a browser
+            // pane reloading.
             return (
               <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
-                {visiblePanes.map((pane) => {
+                {paneShellOrder(visiblePanes, stableKeyOf).map((pane) => {
                   const isPaneActive = pane.id === group.activePaneId;
                   return (
                     <PaneKeepAlive
@@ -1569,8 +1575,11 @@ export function GroupLayout({
         {belowSlot && <LeadingSlot node={belowSlot} />}
         {/* Stessa cosa nella vista piatta: vedi CHROME_BAR_CONSUMED. */}
         <div className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot ? CHROME_BAR_CONSUMED : ''}`}>
-          {flatPanes
-            .filter((p) => isResidentPane(p) || p.id === activePaneId)
+          {/* Shell order again, for the same reason as the grouped branch. */}
+          {paneShellOrder(
+            flatPanes.filter((p) => isResidentPane(p) || p.id === activePaneId),
+            stableKeyOf,
+          )
             .map((pane) => {
               const isPaneActive = pane.id === activePaneId;
               return (

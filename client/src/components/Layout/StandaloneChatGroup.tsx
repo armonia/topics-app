@@ -43,6 +43,7 @@ import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import type { ZoomScope } from './zoomScope';
+import { paneShellOrder } from './paneShellOrder';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
@@ -998,8 +999,11 @@ export function StandaloneChatGroup({
             // `hasBox`). `PaneKeepAlive` publishes `parentAlive && isVisible`,
             // so the multiplication with the parent does the rest for free,
             // nested shells included.
+            //
+            // Inside it, shell order, not tab order: see paneShellOrder. A
+            // reposition of the strip must not move these subtrees in the DOM.
             <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
-              {visitedPanes.map((pane) => {
+              {paneShellOrder(visitedPanes, stableKeyOf).map((pane) => {
                 const isPaneActive = pane.id === activePaneId;
                 return (
                   <PaneKeepAlive
