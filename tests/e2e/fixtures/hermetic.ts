@@ -55,9 +55,9 @@ import {
  * troverebbero tab di terminale che nessuno ha aperto. Chi la chiude davvero è
  * l'endpoint vero, lo stesso che usa la UI — non una copia di test della logica.
  */
-async function killLiveTerminalSessions(request: APIRequestContext): Promise<void> {
+async function killLiveTerminalSessions(request: APIRequestContext): Promise<string[]> {
   const res = await request.get(`${E2E_BASE}/api/terminal/sessions`).catch(() => null);
-  if (!res?.ok()) return;
+  if (!res?.ok()) return [];
   // La rotta risponde con un ARRAY NUDO, non con `{ sessions: [...] }`.
   //
   // La prima stesura leggeva `body.sessions`, che su un array e' `undefined`:
@@ -79,6 +79,19 @@ async function killLiveTerminalSessions(request: APIRequestContext): Promise<voi
   await Promise.all(
     ids.map((id) => request.delete(`${E2E_BASE}/api/terminal/sessions/${encodeURIComponent(id)}`).catch(() => {})),
   );
+  return ids;
+}
+
+/** The session ids the server still lists, i.e. whatever survived a kill. */
+async function liveTerminalSessionIds(request: APIRequestContext): Promise<string[]> {
+  const res = await request.get(`${E2E_BASE}/api/terminal/sessions`).catch(() => null);
+  if (!res?.ok()) return [];
+  const body = (await res.json().catch(() => null)) as
+    | { sessions?: Array<{ id?: string }> }
+    | Array<{ id?: string }>
+    | null;
+  const righe = Array.isArray(body) ? body : (body?.sessions ?? []);
+  return righe.map((s) => s.id).filter((id): id is string => !!id);
 }
 
 /**
@@ -131,6 +144,36 @@ async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
         `Un reset che fallisce in silenzio è esattamente ciò che nessuno vede fallire: ` +
         `il file riparte dallo stato lasciato dal precedente e il rosso spunta altrove.`,
     );
+  }
+
+  // AND NOW CHECK THEY ARE ACTUALLY DEAD, because once they were not.
+  //
+  // Measured in the trace of `TERMUI-04`, CI run 34561185449 shard 3: the
+  // `beforeAll` lists FOUR sessions and fires four DELETEs; the reset runs right
+  // after; and the `beforeEach` of the first test reads the list again and finds
+  // the SAME four ids — before any browser exists that could have recreated them.
+  // The test opened two shells and counted four, then six, then eight on retries.
+  //
+  // The why is in the comment on `killLiveTerminalSessions`: the PTY lives in the
+  // bridge, outside SQLite. The reset deletes the rows, the server's reconcile
+  // finds the processes still alive and writes them back. Killing first and
+  // resetting second therefore leaves open the door they come back through.
+  //
+  // A second round closes the ones that were merely slow. If they survive that
+  // too the file does NOT start: a red that names the ids here beats a red twelve
+  // files later on a spec that has nothing to do with it.
+  const survivors = await liveTerminalSessionIds(request);
+  if (survivors.length > 0) {
+    await killLiveTerminalSessions(request);
+    const stubborn = await liveTerminalSessionIds(request);
+    if (stubborn.length > 0) {
+      throw new Error(
+        `[hermetic] ${stubborn.length} terminal session(s) survived the reset AND a second round of DELETEs: ` +
+          `${stubborn.join(", ")}\n` +
+          `The PTY lives in the bridge, not in SQLite: the reset deletes the row and the reconcile writes ` +
+          `it back while the process is alive. The phantom tabs later files find are born here.`,
+      );
+    }
   }
 }
 
