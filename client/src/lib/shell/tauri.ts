@@ -9,6 +9,21 @@ interface TauriInternals {
 }
 
 function internals(): TauriInternals | null {
+  // `typeof window` rather than `window`, because NO WINDOW IS ALSO "not under
+  // Tauri" - and reading a name that does not exist is a ReferenceError, thrown
+  // SYNCHRONOUSLY, which is a different kind of failure from the null this
+  // function promises.
+  //
+  // It bit in the test suite, and the symptom pointed at an innocent file. A
+  // pane teardown schedules `browser_close` behind a 350ms grace
+  // (`useTauriBrowser`); the test file that unmounted the pane finishes first and
+  // takes its fake `window` with it, so the timer fires into a global that is
+  // gone. `.catch()` cannot help: there is no promise yet, the throw escapes the
+  // timer, and bun reports an unhandled error BETWEEN tests - which then kills
+  // the next file with "Cannot call describe() after the test run has
+  // completed". Seen in CI on `client/src/lib/authorDisplay.test.ts`, which has
+  // nothing to do with browser panes and was simply next in the shard.
+  if (typeof window === 'undefined') return null;
   const w = window as unknown as { __TAURI_INTERNALS__?: TauriInternals };
   return w.__TAURI_INTERNALS__ ?? null;
 }

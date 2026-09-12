@@ -851,6 +851,31 @@ dimostra invece di essere taciuto.
 - **WHEN** si guarda la casa di Topics
 - **THEN** SHALL contenere almeno un file, perche' una HOME vuota passerebbe senza dimostrare niente
 
+### Requirement: SHELL-TAURI-01 — Chiedere se c'e' il guscio SHALL rispondere, non sollevare
+
+I soccorritori che riconoscono il guscio Tauri (`client/src/lib/shell/tauri.ts`)
+promettono due risposte sole: il guscio, oppure niente. Nessun ambiente SHALL
+poterli far sollevare un'eccezione, e in particolare non l'assenza del global
+`window`: nessuna finestra e' un modo di NON essere sotto Tauri, non un guasto.
+
+#### Scenario: Un timer scattato dopo che la finestra non c'e' piu'
+- **GIVEN** lo smontaggio di una pane browser ha programmato la sua chiusura dietro una grazia di 350 ms
+- **AND** nel frattempo chi aveva creato il `window` finto l'ha portato via
+- **WHEN** il timer scatta e chiede al guscio di chiudere
+- **THEN** la chiamata torna una promessa RIFIUTATA, che il `.catch()` del chiamante raccoglie
+- **AND** non viene sollevata nessuna eccezione sincrona, che sfuggirebbe a quel `.catch()` e uscirebbe dal timer
+
+#### Scenario: L'etichetta della finestra senza finestra
+- **GIVEN** non esiste nessun global `window`
+- **WHEN** si chiede l'etichetta della finestra corrente
+- **THEN** la risposta e' nulla, esattamente come fuori da Tauri
+
+#### Scenario: Il rosso finisce su un file innocente
+- **GIVEN** un'eccezione sincrona sfugge da un timer dopo la fine del file che l'ha programmato
+- **WHEN** la suite passa al file successivo dello shard
+- **THEN** quel file muore con «Cannot call describe() after the test run has completed», pur non avendo niente a che vedere con le pane browser
+- **AND** il bersaglio cambia a ogni giro, perche' la vittima e' semplicemente chi viene dopo
+
 ### Requirement: RUNTIME-20 — Dopo una riconnessione il recupero si aggancia alla SOCKET, non allo stato mostrato
 
 Lo stato di connessione mostrato all'interfaccia e' ADDOLCITO di proposito: tiene
