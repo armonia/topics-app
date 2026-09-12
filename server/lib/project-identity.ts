@@ -13,7 +13,7 @@ export type ProjectIdentityResolver = (projectId: string) => CanonicalProjectIde
 export function createProjectIdentityResolver(
   db: Pick<Database, "query">,
 ): ProjectIdentityResolver {
-  const identities = new Map<string, CanonicalProjectIdentity>();
+  const catalog = new Map<string, CanonicalProjectIdentity>();
   let catalogueLoaded = false;
 
   const remember = (storeId: string, path: string): CanonicalProjectIdentity => {
@@ -23,12 +23,12 @@ export function createProjectIdentityResolver(
       boardId,
       aliases: storeId === boardId ? [boardId] : [boardId, storeId],
     } satisfies CanonicalProjectIdentity;
-    for (const alias of identity.aliases) identities.set(alias, identity);
+    for (const alias of identity.aliases) catalog.set(alias, identity);
     return identity;
   };
 
   return (projectId: string) => {
-    const known = identities.get(projectId);
+    const known = catalog.get(projectId);
     if (known) return known;
     try {
       const direct = db.query("SELECT id, path FROM projects WHERE id = ?").get(projectId) as
@@ -39,14 +39,14 @@ export function createProjectIdentityResolver(
         catalogueLoaded = true;
         const rows = db.query("SELECT id, path FROM projects").all() as Array<{ id: string; path: string }>;
         for (const row of rows) remember(row.id, row.path);
-        const resolved = identities.get(projectId);
+        const resolved = catalog.get(projectId);
         if (resolved) return resolved;
       }
     } catch {
       // Reduced schemas have no project catalogue. Preserve their literal boundary.
     }
     const literal = { storeId: projectId, boardId: projectId, aliases: [projectId] } as const;
-    identities.set(projectId, literal);
+    catalog.set(projectId, literal);
     return literal;
   };
 }
