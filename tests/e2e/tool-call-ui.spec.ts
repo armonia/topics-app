@@ -5,6 +5,29 @@
  */
 import { expect, test } from "@playwright/test";
 import { slackMs } from "../helpers/time-slack";
+
+/**
+ * HOW LONG A SURFACE OF THIS FILE GETS TO APPEAR.
+ *
+ * Every wait here is the same shape: `goToApp`, `openTopic`, then wait for a
+ * row/strip/group to be on screen before asserting what it SAYS. None of them
+ * is the claim — each would hold at an infinite timeout — so each follows the
+ * load. What they are not is cheap: this is the FIRST paint of a surface, and
+ * on a cold runner it pays the whole chain at once.
+ *
+ * MEASURED, and it corrected an assumption of mine. On CI the same wait took
+ * 16,5 s on the first attempt and 2,0 s on the RETRY of the same run, against
+ * 1,1 s locally on the same bundle. So the steady state on that machine is ~2x
+ * this one and the first hit is ~8x more than that. The load factor alone does
+ * not cover it: a GitHub runner reads `load 2.4/4` and yields x1.2, because it
+ * is not OVERLOADED — it is slow, and `loadavg` cannot see that. The base has
+ * to be written for a COLD machine, not a warm one; the factor then follows
+ * whatever load is on top.
+ *
+ * 30 s and not more: a surface that is not there after thirty seconds is not
+ * slow, it is broken, and this file must still be able to say so.
+ */
+const RENDER = slackMs(30_000);
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
@@ -96,7 +119,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
 
     // Wait for the assistant message bubble to render.
     const assistant = page.locator('[data-testid="message-content-assistant"]').last();
-    await assistant.waitFor({ state: "visible", timeout: 10_000 });
+    await assistant.waitFor({ state: "visible", timeout: RENDER });
 
     // Reasoning row is present (collapsed by default).
     const reasoning = assistant.locator('[data-testid="reasoning-row"]');
@@ -166,11 +189,9 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
 
       const split = page.locator('[data-testid="message-token-split"]').last();
       // SETUP, not the object: the claim below is what the two figures SAY, and
-      // this only waits for the row to exist after `goToApp` + `openTopic`. It
-      // is written for a quiet machine and follows the load — measured on CI on
-      // 2026-09-12, the same wait took 16,5 s on the first attempt and 2,0 s on
-      // the retry of the SAME run, i.e. the window was describing the runner.
-      await expect(split).toBeVisible({ timeout: slackMs(15_000) });
+      // this only waits for the row to exist after `goToApp` + `openTopic`.
+      // See RENDER for the budget and the measurement behind it.
+      await expect(split).toBeVisible({ timeout: RENDER });
       // 900k riletti; nuovi = 30k freschi + 60k scritti + 10k a un'ora = 100k.
       // Le scritture stanno coi nuovi: erano token freschi, pagati DI PIÙ per
       // essere memorizzati — contarle come cache spaccerebbe per risparmio un
@@ -187,7 +208,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       const opacity = () => row.evaluate((el) => getComputedStyle(el).opacity);
       expect(Number(await opacity())).toBeLessThan(0.5);
       await bubble.hover();
-      await expect.poll(async () => Number(await opacity()), { timeout: 4000 }).toBeGreaterThan(0.9);
+      await expect.poll(async () => Number(await opacity()), { timeout: slackMs(4_000) }).toBeGreaterThan(0.9);
 
       // Una riga sola: l'altezza della riga di servizio non supera quella di una
       // singola riga di testo a 11px (line-height 1.5 ≈ 16,5px, con margine).
@@ -224,9 +245,8 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
 
       const assistant = page.locator('[data-testid="message-content-assistant"]').last();
       // SETUP, like the one above: the object is the strip that must NOT be
-      // there. Failed at 11,3 s on a 10 s budget in a CI run whose local twin
-      // took 0,7 s.
-      await assistant.waitFor({ state: "visible", timeout: slackMs(10_000) });
+      // there. See RENDER.
+      await assistant.waitFor({ state: "visible", timeout: RENDER });
 
       // Nessuna striscia. Agganciata alla RIGA del messaggio e non al suo
       // contenuto: dentro `message-content-assistant` la striscia non c'è più
@@ -270,7 +290,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await openTopic(page, new RegExp(fresh.name));
 
       const row = page.locator('[data-testid="tool-call-row-tc-expand"]');
-      await row.waitFor({ state: "visible", timeout: 10_000 });
+      await row.waitFor({ state: "visible", timeout: RENDER });
 
       // The collapsed header shows the tool name + a command *preview* ("Shell"
       // + "echo hello", buildToolDisplayLabel summary). The ShellCard body —
@@ -324,7 +344,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await openTopic(page, new RegExp(fresh.name));
 
       const shell = page.locator('[data-testid="tool-call-row-tc-lean-shell"]');
-      await shell.waitFor({ state: "visible", timeout: 10_000 });
+      await shell.waitFor({ state: "visible", timeout: RENDER });
       const write = page.locator('[data-testid="tool-call-row-tc-lean-write"]');
       await expect(write).toBeVisible();
 
@@ -337,9 +357,9 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
 
       // OPEN: the whole text is fetched and drawn, tail included.
       await shell.locator("button").first().click();
-      await expect(shell.locator('[data-testid="tool-call-args"]')).toContainText(SHELL_TAIL, { timeout: 10_000 });
+      await expect(shell.locator('[data-testid="tool-call-args"]')).toContainText(SHELL_TAIL, { timeout: RENDER });
       await write.locator("button").first().click();
-      await expect(write.locator('[data-testid="tool-call-result"]')).toContainText(WRITE_TAIL, { timeout: 10_000 });
+      await expect(write.locator('[data-testid="tool-call-result"]')).toContainText(WRITE_TAIL, { timeout: RENDER });
       // The Write card also counts the characters of the WHOLE content, not of
       // the preview. The card formats the number with the browser's locale, so
       // the digit groups may be split by any separator (or none).
@@ -390,7 +410,7 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
 
       // ONE summary row instead of five per-call rows.
       const group = page.locator('[data-testid="tool-group-row"]');
-      await expect(group).toBeVisible({ timeout: 10_000 });
+      await expect(group).toBeVisible({ timeout: RENDER });
       await expect(group).toContainText("5 azioni");
       await expect(group).toContainText("Read ×3");
       // Wall-clock span: first startedAt → last endedAt = 41s.
@@ -444,7 +464,7 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
       // The three Reads aggregate; the Task stays a standalone row, visible
       // WITHOUT expanding the group (its action log is the primary signal).
       const group = page.locator('[data-testid="tool-group-row"]');
-      await expect(group).toBeVisible({ timeout: 10_000 });
+      await expect(group).toBeVisible({ timeout: RENDER });
       await expect(group).toContainText("3 azioni");
       await expect(page.locator('[data-testid="tool-call-row-s-task"]')).toBeVisible();
       await expect(page.locator('[data-testid="tool-call-row-s-r1"]')).toHaveCount(0);
@@ -481,14 +501,14 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
       await openTopic(page, new RegExp(fresh.name));
 
       const row = page.locator('[data-testid="tool-call-row-hl-read"]');
-      await row.waitFor({ state: "visible", timeout: 10_000 });
+      await row.waitFor({ state: "visible", timeout: RENDER });
       await row.locator("button").first().click();
 
       const result = row.locator('[data-testid="tool-call-result"]');
       await expect(result).toContainText("export const app");
       // hljs tokens appear once the lazy tokenizer chunk lands (language
       // derived from the .ts extension) — the same facade markdown fences use.
-      await expect(result.locator(".hljs-keyword").first()).toBeVisible({ timeout: 10_000 });
+      await expect(result.locator(".hljs-keyword").first()).toBeVisible({ timeout: RENDER });
     } finally {
       await deleteTopic(request, fresh.id);
     }
