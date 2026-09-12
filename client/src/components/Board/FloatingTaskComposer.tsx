@@ -458,7 +458,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         {dragOver && (
           <div
             data-testid="composer-drop-hint"
-            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-emerald-400/70 bg-app-bg/70 text-xs text-emerald-300"
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-emerald-400/70 bg-app-bg/70 text-compact text-emerald-300"
           >{tr('board.composer.dropToAttach')}</div>
         )}
         <textarea
@@ -477,7 +477,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
             if (images.length) { e.preventDefault(); void addFiles(images); }
           }}
           placeholder={tr('board.composer.placeholder')}
-          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
+          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-body-lg leading-5 text-app-text outline-none transition-[min-height] duration-200 ease-out placeholder:text-app-placeholder ${
             expanded ? 'min-h-[4.5rem]' : 'min-h-0'
           }`}
         />
@@ -494,7 +494,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   // looked at before you send it.
                   <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                 ) : (
-                  <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 px-1.5 py-1 text-[11px] text-app-text-heading dark:bg-white/10">
+                  <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 px-1.5 py-1 text-mini text-app-text-heading dark:bg-white/10">
                     <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                   </span>
                 )}
@@ -514,7 +514,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         {expanded && (proposal || link) && (
           <div
             data-testid="composer-intake"
-            className="mx-2.5 mb-2 flex items-center gap-2 overflow-x-auto rounded-lg border border-app-border bg-black/5 px-2 py-1.5 text-[11px] scrollbar-hide dark:bg-white/5"
+            className="mx-2.5 mb-2 flex items-center gap-2 overflow-x-auto rounded-lg border border-app-border bg-black/5 px-2 py-1.5 text-mini scrollbar-hide dark:bg-white/5"
           >
             {link ? (
               <>
@@ -592,7 +592,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   // L'UNICO chip che può stringersi (l'etichetta è troncabile),
                   // con un pavimento: sotto ~5.5rem resterebbero icona e chevron
                   // senza una lettera di nome, che è peggio di far scorrere la riga.
-                  className="flex min-w-[5.5rem] max-w-[13rem] items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-xs text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+                  className="flex min-w-[5.5rem] max-w-[13rem] items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-compact text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
                 >
                   {autoTarget
                     ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
@@ -627,10 +627,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               onClick={() => setModelOpen(true)}
               data-testid="composer-model-chip"
               title={model ? tr('board.composer.modelNamedTitle', { label: friendlyModelLabel(model) }) : tr('board.composer.modelAutoTitle')}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-black/5 px-2 py-1 text-mini text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             ><Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" /><span className={CHIP_LABEL}>{model ? friendlyModelLabel(model) : tr('board.composer.modelAutoChip')}</span><ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /></button>
             <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.model')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.model')}</p>
               <TaskModelMenuOptions
                 models={models}
                 value={model}
@@ -644,14 +644,14 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               onClick={() => setPrioOpen(true)}
               data-testid="composer-priority-chip"
               title={prio !== null ? tr('board.composer.priorityNamedTitle', { label: PRIORITY_LABEL[prio] }) : tr('board.composer.priorityAutoTitle')}
-              className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+              className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-mini text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-app-text-faint'}`} />
               <span className={CHIP_LABEL}>{prio !== null ? PRIORITY_LABEL[prio] : tr('board.composer.priorityAutoChip')}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
               <button
                 role="option" aria-selected={prio === null}
                 onClick={() => { setPrio(null); setPrioOpen(false); }}
@@ -681,7 +681,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               title={`${tr(todo ? 'board.composer.startTodoTitle' : 'board.composer.startBacklogTitle')}${
                 planFirst ? tr('board.composer.startPlanFirstTitle') : ''
               }`}
-              className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-[11px] text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+              className="flex shrink-0 items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-mini text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
             >
               <StatusIcon status={birthStatus} className="h-3 w-3" />
               <span className={CHIP_LABEL}>{STATUS_LABEL[birthStatus]}</span>
@@ -691,7 +691,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={startOpen} anchorRef={startBtnRef} onClose={() => setStartOpen(false)} minWidth={240} role="menu">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.start')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.composer.start')}</p>
               {START_CHOICES.map(([s, hintKey]) => (
                 <button
                   key={s} role="menuitemradio" aria-checked={birthStatus === s}
@@ -702,7 +702,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   <StatusIcon status={s} className="h-3 w-3" />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span>{STATUS_LABEL[s]}</span>
-                    <span className="text-[11px] leading-tight text-app-text-muted">{tr(hintKey)}</span>
+                    <span className="text-mini leading-tight text-app-text-muted">{tr(hintKey)}</span>
                   </span>
                   {birthStatus === s && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
@@ -720,7 +720,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 <ClipboardList className={`h-3 w-3 shrink-0 ${planFirst ? 'text-violet-300' : 'text-app-text-muted'}`} />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span>{tr('board.task.planFirst')}</span>
-                  <span className="text-[11px] leading-tight text-app-text-muted">{tr('board.composer.planFirstHint')}</span>
+                  <span className="text-mini leading-tight text-app-text-muted">{tr('board.composer.planFirstHint')}</span>
                 </span>
                 {planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>

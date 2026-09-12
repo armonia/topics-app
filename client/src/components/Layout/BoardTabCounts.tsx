@@ -91,7 +91,7 @@ export function BoardTabCounts({ projectPath }: { projectPath?: string }) {
           data-testid={`tab-board-count-${status}`}
           title={`${STATUS_LABEL[status]}: ${n}`}
           aria-label={`${STATUS_LABEL[status]}: ${n}`}
-          className="flex items-center gap-0.5 tabular-nums text-[11px] leading-none text-app-text-secondary"
+          className="flex items-center gap-0.5 tabular-nums text-mini leading-none text-app-text-secondary"
         >
           <StatusIcon status={status} />
           {n}

@@ -119,7 +119,7 @@ export function BrowserTabConsoleCue({ paneId, onFill }: { paneId: string; onFil
   if (errors <= 0) return null;
   return (
     <span
-      className={`flex items-center gap-0.5 tabular-nums text-[10px] font-medium ${onFill ? 'text-white' : DANGER_TEXT}`}
+      className={`flex items-center gap-0.5 tabular-nums text-micro font-medium ${onFill ? 'text-white' : DANGER_TEXT}`}
       title={t('browser.tab.consoleErrors', { n: String(errors) })}
       aria-label={t('browser.tab.consoleErrors', { n: String(errors) })}
       data-testid="browser-tab-console-cue"
@@ -249,7 +249,7 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
         {address && (
           <div className="px-3 pt-2 pb-1.5 flex items-start gap-2">
             <BrowserFavicon url={chrome.url} faviconUrl={chrome.faviconUrl} size={14} className="mt-[1px]" />
-            <span className="flex-1 min-w-0 text-[11px] leading-snug text-app-text break-all line-clamp-2" data-testid="browser-tab-menu-address">
+            <span className="flex-1 min-w-0 text-mini leading-snug text-app-text break-all line-clamp-2" data-testid="browser-tab-menu-address">
               {address}
             </span>
           </div>
@@ -344,14 +344,14 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
           <>
             <div className={POPOVER_DIVIDER} />
             <div className="px-3 py-1 flex items-center gap-2" data-testid="browser-tab-zoom">
-              <span className="flex-1 text-[12px] text-app-text">{t('browser.tab.zoom')}</span>
+              <span className="flex-1 text-compact text-app-text">{t('browser.tab.zoom')}</span>
               <div className="flex items-center rounded-md border border-app-border-input overflow-hidden">
                 <button type="button" onClick={() => c.setZoom?.(-1)} title={t('browser.dev.zoomOut')}
                   className="w-6 h-6 flex items-center justify-center hover:bg-app-hover text-app-text-secondary">
                   <Minus size={12} />
                 </button>
                 <button type="button" onClick={() => c.setZoom?.('reset')} title={t('browser.dev.zoomReset')}
-                  className={`px-1.5 h-6 text-[11px] tabular-nums hover:bg-app-hover ${Math.round(chrome.zoom) !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'}`}>
+                  className={`px-1.5 h-6 text-mini tabular-nums hover:bg-app-hover ${Math.round(chrome.zoom) !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'}`}>
                   {Math.round(chrome.zoom)}%
                 </button>
                 <button type="button" onClick={() => c.setZoom?.(1)} title={t('browser.dev.zoomIn')}
@@ -367,7 +367,7 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
             are four taps of comparison, not four decisions. */}
         {c?.setDevice && (
           <div className="px-3 py-1 flex items-center gap-2" data-testid="browser-tab-device">
-            <span className="flex-1 text-[12px] text-app-text flex items-center gap-1.5">
+            <span className="flex-1 text-compact text-app-text flex items-center gap-1.5">
               <DeviceGlyph size={13} className="text-app-text-tertiary" />
               {t('browser.tab.device')}
             </span>

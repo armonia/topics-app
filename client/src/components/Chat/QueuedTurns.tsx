@@ -77,7 +77,7 @@ export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSe
               onClick={onSendNow}
               data-testid="queue-send-now"
               data-queue-busy={busy ? 'true' : 'false'}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-primary-hover transition-colors"
+              className="inline-flex items-center gap-1 text-mini font-medium text-primary hover:text-primary-hover transition-colors"
               title={t(busy ? 'chat.queue.sendNowTitle' : 'chat.queue.sendNowIdleTitle')}
             >
               <Send size={11} className="flex-shrink-0" />
@@ -90,7 +90,7 @@ export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSe
               type="button"
               onClick={onClear}
               data-testid="queue-clear"
-              className="text-[11px] text-app-text-muted hover:text-red-500 transition-colors"
+              className="text-mini text-app-text-muted hover:text-red-500 transition-colors"
               title={t('chat.queue.clearTitle')}
             >
               {t('chat.queue.clear')}
@@ -169,7 +169,7 @@ function QueuedBubble({
       <div
         data-testid="queued-bubble"
         data-queued-id={turn.id}
-        className="relative max-w-[85%] min-w-0 px-3 py-2 rounded-2xl border border-dashed border-app-border bg-app-user-bubble/60 text-[13px] leading-relaxed text-app-text-secondary"
+        className="relative max-w-[85%] min-w-0 px-3 py-2 rounded-2xl border border-dashed border-app-border bg-app-user-bubble/60 text-body leading-relaxed text-app-text-secondary"
         title={editing ? undefined : t('chat.queue.waitingTitle')}
       >
         {editing ? (
@@ -186,7 +186,7 @@ function QueuedBubble({
               else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
             }}
             rows={1}
-            className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-app-text outline-none"
+            className="w-full resize-none bg-transparent text-body leading-relaxed text-app-text outline-none"
           />
         ) : (
           <button
@@ -203,7 +203,7 @@ function QueuedBubble({
             diceva anche lei «in coda», e due strisce affiancate col nome della
             stessa cosa non si distinguono. Qui l'unica cosa che conta è il
             VERSO: questi messaggi partono da te. */}
-        <p className="mt-0.5 text-right text-[11px] text-app-text-muted">{t('chat.queue.waiting')}</p>
+        <p className="mt-0.5 text-right text-mini text-app-text-muted">{t('chat.queue.waiting')}</p>
         {onRemove && !editing && (
           // Fuori dalla bolla, sul suo fianco: dentro dovrebbe rubare spazio al
           // testo o coprirlo. Appare al passaggio del mouse, e SEMPRE dove il

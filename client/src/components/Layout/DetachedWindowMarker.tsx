@@ -47,8 +47,8 @@ export function DetachedWindowMarker({ topics, onReopenTopic }: DetachedWindowMa
           >
             <AppWindow size={16} className="flex-shrink-0 text-app-text-tertiary" />
             <div className="min-w-0 flex-1">
-              <div className="text-[12px] text-app-text truncate">{label}</div>
-              <div className="text-[11px] text-app-text-tertiary">{tr('window.elsewhere')}</div>
+              <div className="text-compact text-app-text truncate">{label}</div>
+              <div className="text-mini text-app-text-tertiary">{tr('window.elsewhere')}</div>
             </div>
           </button>
         );

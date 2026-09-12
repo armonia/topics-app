@@ -12,7 +12,7 @@ export function RangeSelector({ value, onChange }: RangeSelectorProps) {
         <button
           key={r}
           onClick={() => onChange(r)}
-          className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+          className={`px-2 py-0.5 text-mini rounded transition-colors ${
             value === r
               ? 'bg-primary text-white font-medium'
               : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'

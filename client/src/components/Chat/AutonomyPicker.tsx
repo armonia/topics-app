@@ -102,7 +102,7 @@ export function AutonomyPicker({ value, onChange }: {
         aria-label={`Autonomia: ${current.label}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`h-7 px-2 inline-flex items-center gap-1 rounded-lg text-[11px] font-medium transition-colors ${
+        className={`h-7 px-2 inline-flex items-center gap-1 rounded-lg text-mini font-medium transition-colors ${
           current.value === 'ask'
             ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
             : 'text-app-text-tertiary hover:text-app-text hover:bg-app-hover'
@@ -141,8 +141,8 @@ export function AutonomyPicker({ value, onChange }: {
               >
                 <LIcon size={13} className="mt-0.5 flex-shrink-0 text-app-text-muted" />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[12px] font-medium text-app-text">{l.label}</span>
-                  <span className="block text-[11px] text-app-text-muted leading-snug">{l.desc}</span>
+                  <span className="block text-compact font-medium text-app-text">{l.label}</span>
+                  <span className="block text-mini text-app-text-muted leading-snug">{l.desc}</span>
                 </span>
                 {active && <Check size={13} className="mt-0.5 flex-shrink-0 text-primary" />}
               </button>

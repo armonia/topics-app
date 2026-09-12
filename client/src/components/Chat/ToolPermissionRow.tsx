@@ -62,7 +62,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
     const freed = outcome.decision === 'allow_free';
     return (
       <div
-        className="mt-1.5 flex items-center gap-1.5 rounded-md bg-app-hover/30 px-3 py-1.5 text-[12px] text-app-text-muted"
+        className="mt-1.5 flex items-center gap-1.5 rounded-md bg-app-hover/30 px-3 py-1.5 text-compact text-app-text-muted"
         data-testid={`tool-permission-outcome-${toolCallId}`}
       >
         <Icon
@@ -97,7 +97,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
       className="mt-1.5 space-y-2.5 rounded-md border border-amber-500/25 bg-app-hover/30 px-3 py-2.5"
       data-testid={`tool-permission-${toolCallId}`}
     >
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+      <div className="flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <ShieldQuestion size={12} />
         <span>{tr('permission.asks')}</span>
       </div>
@@ -107,15 +107,15 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           del corpo della chat (13px), non del chrome del log: è la cosa su cui
           si decide. */}
       <div className="space-y-1">
-        <div className="font-mono text-[13px] leading-snug text-app-text break-all">{request.toolName}</div>
+        <div className="font-mono text-body leading-snug text-app-text break-all">{request.toolName}</div>
         {summary && (
-          <div className="font-mono text-[11.5px] leading-snug text-app-text-muted break-all" data-testid="tool-permission-detail">
+          <div className="font-mono text-compact leading-snug text-app-text-muted break-all" data-testid="tool-permission-detail">
             {summary}
           </div>
         )}
       </div>
 
-      {error && <div className="rounded px-2 py-1 text-[12px] text-red-500 bg-red-500/5">{error}</div>}
+      {error && <div className="rounded px-2 py-1 text-compact text-red-500 bg-red-500/5">{error}</div>}
 
       <div className="flex flex-wrap gap-1.5">
         {PERMISSION_CHOICES.map((choice) => {
@@ -130,7 +130,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
               title={tr(PERMISSION_HINT_KEY[choice])}
               data-testid={`tool-permission-${choice}-${toolCallId}`}
               className={
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ' +
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-body font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ' +
                 (isDeny
                   ? 'text-app-text-secondary hover:bg-app-hover'
                   : choice === 'allow'
@@ -145,7 +145,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
         })}
       </div>
 
-      <div className="text-[11px] leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_always)}</div>
+      <div className="text-mini leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_always)}</div>
 
       {/* ── «Passa a libero» ────────────────────────────────────────────────
           Sotto una linea, e non in fila con gli altri tre, perché non è un
@@ -166,14 +166,14 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           data-testid={`tool-permission-allow_free-${toolCallId}`}
           className={
             'flex w-full items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-1.5 ' +
-            'text-[12.5px] font-medium text-amber-600 dark:text-amber-400 transition-colors ' +
+            'text-body font-medium text-amber-600 dark:text-amber-400 transition-colors ' +
             'hover:bg-amber-500/15 disabled:opacity-40 disabled:cursor-not-allowed'
           }
         >
           {sending === 'allow_free' ? <Loader2 size={13} className="animate-spin" /> : <ShieldOff size={13} />}
           {tr(PERMISSION_LABEL_KEY.allow_free)}
         </button>
-        <div className="text-[11px] leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_free)}</div>
+        <div className="text-mini leading-snug text-app-text-muted">{tr(PERMISSION_HINT_KEY.allow_free)}</div>
       </div>
     </div>
   );

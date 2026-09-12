@@ -47,11 +47,11 @@ export function CalendarTilePreview({ browserId, active }: { browserId: string; 
       className="w-[220px] overflow-hidden rounded-lg border border-app-border bg-app-panel shadow-xl"
     >
       {!active ? (
-        <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{t('calendar.preview.notOpen')}</div>
+        <div className="px-2 py-1.5 text-mini text-app-text-muted">{t('calendar.preview.notOpen')}</div>
       ) : failed ? (
-        <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{t('calendar.preview.unavailable')}</div>
+        <div className="px-2 py-1.5 text-mini text-app-text-muted">{t('calendar.preview.unavailable')}</div>
       ) : !src ? (
-        <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{t('calendar.preview.loading')}</div>
+        <div className="px-2 py-1.5 text-mini text-app-text-muted">{t('calendar.preview.loading')}</div>
       ) : (
         <img
           src={src}

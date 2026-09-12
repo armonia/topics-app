@@ -203,13 +203,13 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
     <div className="flex flex-col h-full bg-app-bg">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-elevated flex-shrink-0">
-        <span className="text-[12px] font-medium text-app-text truncate">
+        <span className="text-compact font-medium text-app-text truncate">
           {scriptName || processId.slice(0, 8)}
         </span>
-        <span className={`text-[11px] ${statusColor}`}>
+        <span className={`text-mini ${statusColor}`}>
           {statusLabel}
         </span>
-        <span className="text-[11px] text-app-text-muted">
+        <span className="text-mini text-app-text-muted">
           {formatDuration(startedAt, completedAt)}
         </span>
         <div className="flex-1" />
@@ -222,7 +222,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
             nothing follows but the Stop button, so appearing and disappearing
             here moves nothing. */}
         {status === 'running' && (
-          <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+          <span className="flex items-center gap-1.5 text-mini text-app-text-muted">
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             {offset} lines
           </span>
@@ -230,7 +230,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
         {status === 'running' && (
           <button
             onClick={handleStop}
-            className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-red-500 hover:bg-red-500/10 rounded transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 text-mini text-red-500 hover:bg-red-500/10 rounded transition-colors"
             title="Stop process"
           >
             <Square size={10} />
@@ -243,7 +243,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
       <pre
         ref={preRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-auto p-3 text-[12px] leading-relaxed text-app-text font-mono whitespace-pre-wrap break-words select-text"
+        className="flex-1 overflow-auto p-3 text-compact leading-relaxed text-app-text font-mono whitespace-pre-wrap break-words select-text"
       >
         {output || pending
           ? (pending ? (output ? output + '\n' + pending : pending) : output)

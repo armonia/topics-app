@@ -469,7 +469,7 @@ test.describe("Chrome — i segnali di stato nei due temi", () => {
         root.style.cssText = "position:fixed;top:0;left:0;z-index:99999;padding:8px;";
         const banda = document.createElement("div");
         banda.id = "banda-errore";
-        banda.className = "px-3 py-1 text-[11px] text-amber-800 dark:text-amber-400 bg-amber-500/10";
+        banda.className = "px-3 py-1 text-mini text-amber-800 dark:text-amber-400 bg-amber-500/10";
         banda.textContent = "Impossibile aggiornare l'elenco dei file";
         root.appendChild(banda);
         document.body.appendChild(root);

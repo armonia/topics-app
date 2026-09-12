@@ -36,7 +36,7 @@ export function SessionLiveRow({ phase, since }: {
   since?: string | null;
 }) {
   return (
-    <div className="flex items-center justify-center gap-1.5 py-1 text-center text-[11px] text-app-text-secondary" data-testid="task-session-live">
+    <div className="flex items-center justify-center gap-1.5 py-1 text-center text-mini text-app-text-secondary" data-testid="task-session-live">
       <Spinner size="sm" tone="current" className="shrink-0" />
       <span className="min-w-0">
         {phase}

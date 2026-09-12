@@ -40,7 +40,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
     <div data-testid="cost-probe-panel" className="px-4 py-3 border-b border-app-border">
       <div className="flex items-center justify-between mb-1.5">
         <span
-          className="text-[12px] font-medium text-app-text"
+          className="text-compact font-medium text-app-text"
           title={tr('cost.hint')}
         >
           Costo · contesto × chiamate
@@ -50,7 +50,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
             card would be the most convenient lie of all. In that case the number
             is carried by the agent row. */}
         {hasMultiplier && (
-          <span data-testid="cost-probe-total" className="text-[12px] font-semibold tabular-nums text-app-text-secondary">
+          <span data-testid="cost-probe-total" className="text-compact font-semibold tabular-nums text-app-text-secondary">
             {dollari(probe.costUsd)}
           </span>
         )}
@@ -65,7 +65,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
       {agentUsd > 0 && (
         <div
           data-testid="cost-probe-agent"
-          className="mt-0.5 mb-1.5 flex items-baseline justify-between text-[11px] text-app-text-secondary"
+          className="mt-0.5 mb-1.5 flex items-baseline justify-between text-mini text-app-text-secondary"
         >
           <span>{tr('cost.agent')}</span>
           <span className="tabular-nums font-medium text-app-text">
@@ -87,7 +87,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
         data-testid="cost-probe-product"
         data-context={probe.contextTokens}
         data-calls={probe.toolCalls}
-        className="flex items-baseline gap-1.5 text-[13px] tabular-nums text-app-text"
+        className="flex items-baseline gap-1.5 text-body tabular-nums text-app-text"
       >
         <span className="font-semibold">{formatTokens(probe.contextTokens)}</span>
         <span className="text-app-text-muted">×</span>
@@ -98,7 +98,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
 
       {/* Il numero su cui si può ancora decidere: non quanto è già andato, ma
           quanto costa la PROSSIMA chiamata. È sempre il contesto intero. */}
-      {hasMultiplier && <div className="mt-1.5 text-[11px] text-app-text-secondary">
+      {hasMultiplier && <div className="mt-1.5 text-mini text-app-text-secondary">
         {tr('cost.eachCallRereads')}{' '}
         <span className="tabular-nums font-medium text-app-text">{formatTokens(probe.contextTokens)}</span>
         {probe.perCallUsd > 0 && (
@@ -109,14 +109,14 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
         .
       </div>}
 
-      {hasMultiplier && <div className="mt-0.5 text-[11px] text-app-text-muted">
+      {hasMultiplier && <div className="mt-0.5 text-mini text-app-text-muted">
         {tr('cost.reallySent')}{' '}
         <span className="tabular-nums" data-testid="cost-probe-measured">{milioni(probe.promptTokens)}</span>
         {' '}{tr('cost.overMessages', { n: probe.messages })}
       </div>}
 
       {probe.lastTurn && probe.lastTurn.toolCalls > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-app-border text-[11px] text-app-text-secondary" data-testid="cost-probe-lastturn">
+        <div className="mt-1.5 pt-1.5 border-t border-app-border text-mini text-app-text-secondary" data-testid="cost-probe-lastturn">
           {tr('cost.lastTurn')}{' '}
           <span className="tabular-nums font-medium text-app-text">{probe.lastTurn.toolCalls}</span>
           {' '}× <span className="tabular-nums">{formatTokens(probe.lastTurn.contextTokens)}</span>

@@ -149,7 +149,7 @@ export function BrowserTabAddress({ paneId, label }: { paneId: string; label: st
         spellCheck={false}
         autoComplete="off"
         aria-label="address"
-        className="w-full min-w-0 bg-transparent outline-none text-app-text text-[12px] py-1 p-0 m-0 border-0"
+        className="w-full min-w-0 bg-transparent outline-none text-app-text text-compact py-1 p-0 m-0 border-0"
       />
     </div>
   ) : null;

@@ -213,11 +213,11 @@ export function PairingGate({ session }: { session: SessionState }) {
             height={52}
             className="mx-auto mb-4 rounded-[12px] border border-app-border"
           />
-          <div className="mb-5 text-[11px] font-medium uppercase tracking-[0.08em] text-app-text-muted">
+          <div className="mb-5 text-mini font-medium uppercase tracking-[0.08em] text-app-text-muted">
             Topics{VERSIONE ? ` · ${VERSIONE}` : ''}
           </div>
 
-          <h1 className="text-[19px] font-semibold text-app-text">{titolo}</h1>
+          <h1 className="text-headline font-semibold text-app-text">{titolo}</h1>
           {/* THE SUBJECT of the request, right under the heading.
 
               "Authorise this device" does not say to WHOM. With one
@@ -225,22 +225,22 @@ export function PairingGate({ session }: { session: SessionState }) {
               towards something unnamed. Here the name is there, and it is the
               one a person would use saying it out loud. */}
           {installazione && (
-            <p className="mt-1 text-[13px] font-medium text-app-text">{installazione}</p>
+            <p className="mt-1 text-body font-medium text-app-text">{installazione}</p>
           )}
-          <p className="mt-2 text-[13px] leading-relaxed text-app-text-secondary">{spiegazione}</p>
+          <p className="mt-2 text-body leading-relaxed text-app-text-secondary">{spiegazione}</p>
 
           {error && !denied && (
             <div className="mt-6 rounded-lg border border-app-border bg-surface px-4 py-3">
-              <p className="text-[13px] text-app-text-secondary">
+              <p className="text-body text-app-text-secondary">
                 {t(chiaveFrase(error))}
               </p>
               {/* The retry is already running: saying so makes the wait a wait
                   instead of a block. The button is for whoever does not want to
                   wait for the next round, not the only way out. */}
-              <p className="mt-1 text-[12px] text-app-text-muted">{t('pair.retrying')}</p>
+              <p className="mt-1 text-compact text-app-text-muted">{t('pair.retrying')}</p>
               <button
                 onClick={() => { attemptsRef.current = 0; setOraRiprova((n) => n + 1); }}
-                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
+                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-body text-app-text hover:bg-surface"
               >
                 {t('pair.retry')}
               </button>
@@ -249,10 +249,10 @@ export function PairingGate({ session }: { session: SessionState }) {
 
           {denied && (
             <div className="mt-6">
-              <p className="text-[13px] text-app-text-secondary">{t('pair.denied')}</p>
+              <p className="text-body text-app-text-secondary">{t('pair.denied')}</p>
               <button
                 onClick={() => { setDenied(false); setCode(null); void refreshSession(); }}
-                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-[13px] text-app-text hover:bg-surface"
+                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-body text-app-text hover:bg-surface"
               >
                 {t('pair.retry')}
               </button>
@@ -262,17 +262,17 @@ export function PairingGate({ session }: { session: SessionState }) {
           {code && !denied && (
             <>
               <div
-                className="mt-8 select-all font-mono text-[34px] font-semibold tracking-[0.12em] text-app-text"
+                className="mt-8 select-all font-mono text-display-md font-semibold tracking-[0.12em] text-app-text"
                 aria-label={t('pair.code.aria', { code: code.split('').join(' ') })}
               >
                 {code}
               </div>
-              <p className="mt-4 text-[13px] leading-relaxed text-app-text-secondary">
+              <p className="mt-4 text-body leading-relaxed text-app-text-secondary">
                 {t('pair.codeHint')}
                 <br />
                 {t('pair.checkThenTap')} <span className="text-app-text">{t('pair.approve')}</span>.
               </p>
-              <div className="mt-6 flex items-center justify-center gap-2 text-[12px] text-app-text-muted">
+              <div className="mt-6 flex items-center justify-center gap-2 text-compact text-app-text-muted">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
                 {t('pair.waiting')}
               </div>
@@ -280,14 +280,14 @@ export function PairingGate({ session }: { session: SessionState }) {
           )}
 
           {!code && !error && !denied && (
-            <div className="mt-8 text-[13px] text-app-text-muted">{t('pair.preparing')}</div>
+            <div className="mt-8 text-body text-app-text-muted">{t('pair.preparing')}</div>
           )}
 
           {/* THE STATE, always, at the bottom. A dot telling whether the machine
               is answering separates "I am waiting" from "it is broken" without
               asking anyone to read: green while the loop works, amber while it
               retries. It is what the screen already knew and never showed. */}
-          <div className="mt-10 flex items-center justify-center gap-2 text-[11px] text-app-text-muted">
+          <div className="mt-10 flex items-center justify-center gap-2 text-mini text-app-text-muted">
             <span
               className={`h-1.5 w-1.5 rounded-full ${error ? 'animate-pulse bg-amber-500' : 'bg-emerald-500'}`}
             />

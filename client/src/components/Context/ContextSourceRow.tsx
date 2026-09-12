@@ -74,11 +74,11 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <span className="text-[13px] leading-none flex-shrink-0">{icon}</span>
-        <span className="text-[12px] text-app-text truncate flex-1 min-w-0">{source.label}</span>
+        <span className="text-body leading-none flex-shrink-0">{icon}</span>
+        <span className="text-compact text-app-text truncate flex-1 min-w-0">{source.label}</span>
 
         {/* Token count */}
-        <span className="text-[11px] text-app-text-muted tabular-nums flex-shrink-0">
+        <span className="text-mini text-app-text-muted tabular-nums flex-shrink-0">
           ~{formatTokens(source.tokens)} tok
           {!source.countInBudget && <span className="ml-1 text-app-text-muted italic">(archive)</span>}
         </span>
@@ -130,30 +130,30 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
                 ref={textareaRef}
                 value={editContent}
                 onChange={e => setEditContent(e.target.value)}
-                className="w-full px-2 py-1.5 border border-app-border-light rounded text-[11px] bg-surface dark:bg-elevated text-app-text font-mono resize-y min-h-[80px] focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full px-2 py-1.5 border border-app-border-light rounded text-mini bg-surface dark:bg-elevated text-app-text font-mono resize-y min-h-[80px] focus:outline-none focus:ring-1 focus:ring-primary"
                 rows={6}
               />
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleSaveEdit}
-                  className="flex items-center gap-1 px-2 py-1 text-[11px] bg-primary text-white rounded hover:bg-primary-hover transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-mini bg-primary text-white rounded hover:bg-primary-hover transition-colors"
                 >
                   <Save size={10} /> Save
                 </button>
                 <button
                   onClick={handleCancelEdit}
-                  className="flex items-center gap-1 px-2 py-1 text-[11px] text-app-text-secondary hover:bg-app-hover rounded transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 text-mini text-app-text-secondary hover:bg-app-hover rounded transition-colors"
                 >
                   <X size={10} /> Cancel
                 </button>
               </div>
             </div>
           ) : source.preview ? (
-            <div className="text-[11px] text-app-text-secondary font-mono whitespace-pre-wrap break-words line-clamp-6 bg-black/3 dark:bg-white/3 rounded p-2">
+            <div className="text-mini text-app-text-secondary font-mono whitespace-pre-wrap break-words line-clamp-6 bg-black/3 dark:bg-white/3 rounded p-2">
               {source.preview}
             </div>
           ) : (
-            <div className="text-[11px] text-app-text-muted italic">No content</div>
+            <div className="text-mini text-app-text-muted italic">No content</div>
           )}
           {/* Color indicator bar */}
           <div className="mt-1.5 h-0.5 rounded-full" style={{ backgroundColor: color, width: '100%', opacity: 0.3 }} />

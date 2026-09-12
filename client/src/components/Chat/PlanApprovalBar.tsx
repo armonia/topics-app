@@ -27,7 +27,7 @@ export function PlanApprovalBar({ onApprove, onReject, busy }: {
       className="mx-2 mb-1.5 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5"
     >
       <ClipboardList size={14} className="flex-shrink-0 text-amber-500" />
-      <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">
+      <span className="min-w-0 flex-1 truncate text-compact text-app-text">
         {tr('plan.awaiting')}
       </span>
       <button
@@ -35,7 +35,7 @@ export function PlanApprovalBar({ onApprove, onReject, busy }: {
         onClick={onReject}
         disabled={busy}
         data-testid="plan-reject"
-        className="flex-shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-40 transition-colors"
+        className="flex-shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-mini font-medium text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-40 transition-colors"
       >
         <X size={12} /> Rifiuta
       </button>
@@ -44,7 +44,7 @@ export function PlanApprovalBar({ onApprove, onReject, busy }: {
         onClick={onApprove}
         disabled={busy}
         data-testid="plan-approve"
-        className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+        className="flex-shrink-0 inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-mini font-medium text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
       >
         <Check size={12} /> {tr('plan.approveAndRun')}
       </button>

@@ -127,7 +127,7 @@ export function TopicsMenuItems({
         testId="topics-menu-view"
         minWidth={230}
         tail={
-          <span data-testid="topics-menu-view-tail" className="flex-shrink-0 text-[11px] text-app-text-tertiary">
+          <span data-testid="topics-menu-view-tail" className="flex-shrink-0 text-mini text-app-text-tertiary">
             {viewMode === 'state' ? tr('app.viewByStateShort') : tr('app.viewTimelineShort')}
             {showArchived ? ` \u00b7 ${tr('app.archivedShort')}` : ''}
           </span>
@@ -215,7 +215,7 @@ export function TopicsMenuItems({
         minWidth={260}
       >
         {historyRows.length === 0 ? (
-          <div className="px-3 py-2 text-[11px] text-app-text-secondary">{tr('palette.noHistory')}</div>
+          <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('palette.noHistory')}</div>
         ) : historyRows.map((entry) => (
           <button
             key={entry.id}
@@ -232,7 +232,7 @@ export function TopicsMenuItems({
               ? <Globe2 size={glyph} className="flex-shrink-0" />
               : <RotateCcw size={glyph} className="flex-shrink-0" />}
             <span className="min-w-0 flex-1 truncate text-left">{entry.label || entry.detail || entry.url}</span>
-            <span className="flex-shrink-0 text-[10px] text-app-text-tertiary tabular-nums">{formatRowAge(entry.at)}</span>
+            <span className="flex-shrink-0 text-micro text-app-text-tertiary tabular-nums">{formatRowAge(entry.at)}</span>
           </button>
         ))}
         <div className="border-t border-app-border" />

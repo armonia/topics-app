@@ -40,7 +40,7 @@ export function BrowserNoticeStrip({ message, hint, action, onDismiss, testId }:
   const tr = useT();
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px] flex-shrink-0"
+      className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-compact flex-shrink-0"
       data-testid={testId}
       role="alert"
     >

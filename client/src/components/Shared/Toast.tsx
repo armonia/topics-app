@@ -111,7 +111,7 @@ function ToastItem({ toast: t, onRemove }: { toast: Toast; onRemove: (id: string
       data-testid="toast"
       // `items-start` and not `items-center`: a message on two lines keeps the
       // icon and the close button on the FIRST line, where they belong.
-      className={`flex items-start gap-2 px-3 py-2 rounded-lg shadow-lg text-[11px] font-medium text-white transition-all duration-300 ${bg} ${
+      className={`flex items-start gap-2 px-3 py-2 rounded-lg shadow-lg text-mini font-medium text-white transition-all duration-300 ${bg} ${
         state === 'enter' ? 'opacity-0 translate-y-2' :
         state === 'exit'  ? 'opacity-0 -translate-y-1' :
                             'opacity-100 translate-y-0'

@@ -352,7 +352,7 @@ export function BrowserToolbar({
             ? navMenu.entries.filter(e => e.index < navMenu.activeIndex).reverse()
             : navMenu.entries.filter(e => e.index > navMenu.activeIndex);
           if (items.length === 0) {
-            return <div className="px-3 py-1.5 text-[11px] text-app-text-faint">{tr('browser.nav.empty')}</div>;
+            return <div className="px-3 py-1.5 text-mini text-app-text-faint">{tr('browser.nav.empty')}</div>;
           }
           return (
             <div data-testid="browser-nav-history-menu">
@@ -361,8 +361,8 @@ export function BrowserToolbar({
                   onClick={() => { onGoToNavIndex?.(e.index); setNavMenu(null); }}
                   className="w-full px-3 py-1.5 text-left hover:bg-app-hover"
                   title={e.url}>
-                  <div className="text-[12px] text-app-text truncate">{e.title || e.url}</div>
-                  <div className="text-[10px] text-app-text-faint truncate">{e.url}</div>
+                  <div className="text-compact text-app-text truncate">{e.title || e.url}</div>
+                  <div className="text-micro text-app-text-faint truncate">{e.url}</div>
                 </button>
               ))}
             </div>
@@ -438,11 +438,11 @@ export function BrowserToolbar({
                   placeholder={tr('browser.url.placeholder')}
                   spellCheck={false}
                   data-testid="browser-url-input"
-                  className={`w-full ${padL} pr-2 py-1 text-[12px] rounded-md border border-transparent bg-transparent hover:bg-black/5 dark:hover:bg-white/5 focus:bg-transparent focus:border-app-border-input focus:outline-none text-app-text-heading placeholder-app-text-faint transition-colors ${showPretty ? 'text-transparent caret-transparent' : ''}`}
+                  className={`w-full ${padL} pr-2 py-1 text-compact rounded-md border border-transparent bg-transparent hover:bg-black/5 dark:hover:bg-white/5 focus:bg-transparent focus:border-app-border-input focus:outline-none text-app-text-heading placeholder-app-text-faint transition-colors ${showPretty ? 'text-transparent caret-transparent' : ''}`}
                 />
                 {showPretty && urlParts && (
                   <div
-                    className={`absolute ${leftClass} right-2 py-1 text-[12px] truncate pointer-events-none select-none`}
+                    className={`absolute ${leftClass} right-2 py-1 text-compact truncate pointer-events-none select-none`}
                     aria-hidden
                     data-testid="browser-url-pretty"
                   >
@@ -635,7 +635,7 @@ export function BrowserToolbar({
                       key={entry}
                       type="button"
                       onClick={() => { onUrlChange(entry); setHistoryOpen(false); }}
-                      className="w-full px-3 py-1.5 text-left text-[11px] text-app-text hover:bg-app-hover truncate"
+                      className="w-full px-3 py-1.5 text-left text-mini text-app-text hover:bg-app-hover truncate"
                       title={displayUrl(entry)}
                     >
                       {prettyUrl(entry)}

@@ -996,7 +996,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               aria-label={label}
               data-testid="terminal-key"
               onPointerDown={(e) => { e.preventDefault(); sendToTerminal(data); }}
-              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-[3px] rounded bg-white/10 text-white text-[11px] font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-[13px] ${wide ? 'px-3 coarse:px-4' : ''}`}
+              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-[3px] rounded bg-white/10 text-white text-mini font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-body ${wide ? 'px-3 coarse:px-4' : ''}`}
             >
               {label}
             </button>
@@ -1004,7 +1004,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <div className="flex-1" />
           <button
             onClick={handleCopyOutput}
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded bg-white/10 text-white text-[11px] active:bg-white/30 transition-colors coarse:min-h-11 coarse:px-3"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded bg-white/10 text-white text-mini active:bg-white/30 transition-colors coarse:min-h-11 coarse:px-3"
             title={t('terminal.copyOutput')}
             aria-label={t('terminal.copyOutput')}
           >
@@ -1052,7 +1052,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <pre
             data-testid="terminal-text"
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 px-[1px] overflow-hidden whitespace-pre text-[13px] leading-[17px] text-app-text-muted"
+            className="pointer-events-none absolute inset-x-0 bottom-0 px-[1px] overflow-hidden whitespace-pre text-body leading-[17px] text-app-text-muted"
             style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}
           >{scrollbackSeed}</pre>
         )}
@@ -1066,7 +1066,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             // tile across every visible terminal (9 invisible blurs = a big chunk
             // of GPU compositing, measured via CDP trace). Gating it to hover keeps
             // the exact glass look when shown and drops the idle GPU cost to zero.
-            className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-black/40 text-white text-[11px] opacity-0 hover:opacity-100 hover:backdrop-blur-sm transition-opacity"
+            className="absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-md bg-black/40 text-white text-mini opacity-0 hover:opacity-100 hover:backdrop-blur-sm transition-opacity"
             title={t('terminal.copyOutput')}
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -1075,7 +1075,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         )}
         {stale && (
           <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
-            <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
+            <div className="flex items-center gap-1.5 text-app-text-muted text-compact">
               <Clock size={13} />
               <span>{t('terminal.stale.title')}</span>
             </div>
@@ -1084,7 +1084,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return (
                 <div
                   data-testid="terminal-stale-info"
-                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-[10px] leading-relaxed text-app-text-muted/70"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-micro leading-relaxed text-app-text-muted/70"
                 >
                   {info?.type && (
                     <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
@@ -1122,7 +1122,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                 restartTerminalSession(sessionId, toast, t);
               }}
               title={t('terminal.reloadTitle')}
-              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
               <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
               <span>{reloading ? t('terminal.restarting') : t('terminal.reload')}</span>
@@ -1138,7 +1138,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             lossless-reconnect effect, so this owns its own state. */}
         {dormantEmpty && !stale && !reloading && (
           <div data-testid="terminal-dormant-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
-            <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
+            <div className="flex items-center gap-1.5 text-app-text-muted text-compact">
               <Clock size={13} />
               <span>{t('terminal.dormant.title')}</span>
             </div>
@@ -1147,7 +1147,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return (
                 <div
                   data-testid="terminal-dormant-info"
-                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-[10px] leading-relaxed text-app-text-muted/70"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-micro leading-relaxed text-app-text-muted/70"
                 >
                   {info?.type && (
                     <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
@@ -1182,7 +1182,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                 restartTerminalSession(sessionId, toast, t);
               }}
               title={t('terminal.resumeTitle')}
-              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
               <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
               <span>{reloading ? t('terminal.restarting') : t('terminal.resume')}</span>
@@ -1197,7 +1197,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         {inputDropped && !stale && (
           <div
             data-testid="terminal-input-dropped"
-            className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-white text-[11px] font-medium"
+            className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-white text-mini font-medium"
           >
             <AlertTriangle size={12} />
             <span>{t('terminal.inputDropped')}</span>
@@ -1208,7 +1208,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             boot). Cleared on WS reconnect (ws.onopen) or a safety timeout. */}
         {reloading && !stale && (
           <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
-            <div className="flex items-center gap-2 text-app-text-muted text-[12px]">
+            <div className="flex items-center gap-2 text-app-text-muted text-compact">
               <RotateCw size={14} className="animate-spin" />
               <span>{t('terminal.restartingSession')}</span>
             </div>

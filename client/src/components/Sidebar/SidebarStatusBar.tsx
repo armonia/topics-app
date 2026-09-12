@@ -115,7 +115,7 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
       {degradedLines && (
         <div
           data-testid="boot-degraded-notice"
-          className={`flex flex-col gap-0.5 pt-1 pb-1.5 text-[11px] leading-snug ${SEGNALE_ATTESA}`}
+          className={`flex flex-col gap-0.5 pt-1 pb-1.5 text-mini leading-snug ${SEGNALE_ATTESA}`}
           style={{
             paddingLeft: inset?.left ?? (isMobile ? 'max(32px, var(--sal))' : ROW_INSET),
             paddingRight: inset?.right ?? (isMobile ? 'max(32px, var(--sar))' : ROW_INSET),
@@ -164,7 +164,7 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
             {wsStatus === 'offline'
               ? <WifiOff size={15} aria-hidden="true" className={`shrink-0 ${SEGNALE_GUASTO}`} />
               : <Loader2 size={15} aria-hidden="true" className={`shrink-0 animate-spin ${SEGNALE_ATTESA}`} />}
-            <span className={`truncate text-[12px] font-medium ${wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA}`}>
+            <span className={`truncate text-compact font-medium ${wsStatus === 'offline' ? SEGNALE_GUASTO : SEGNALE_ATTESA}`}>
               {wsStatus === 'connecting' ? 'Connecting…' : wsStatus === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
             </span>
           </span>
@@ -192,7 +192,7 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
             className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-app-border bg-app-hover/60 px-2.5 py-1.5"
           >
             <DatabaseZap size={15} aria-hidden="true" className={`shrink-0 ${SEGNALE_ATTESA}`} />
-            <span className={`truncate text-[12px] font-medium ${SEGNALE_ATTESA}`}>{dataNotice}</span>
+            <span className={`truncate text-compact font-medium ${SEGNALE_ATTESA}`}>{dataNotice}</span>
           </span>
         </div>
       )}

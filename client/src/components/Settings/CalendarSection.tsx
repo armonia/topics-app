@@ -90,19 +90,19 @@ export function CalendarSection() {
   return (
     <div className="space-y-5">
       <header className="space-y-1">
-        <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-app-text">
+        <h3 className="flex items-center gap-2 text-body-lg font-semibold text-app-text">
           <CalendarDays size={15} className="text-app-text-tertiary" />
           {t('settings.section.calendar')}
         </h3>
-        <p className="text-[11.5px] leading-relaxed text-app-text-muted">{t('calendar.blurb')}</p>
+        <p className="text-compact leading-relaxed text-app-text-muted">{t('calendar.blurb')}</p>
       </header>
 
       {/* The switch. Off with no address is not a choice yet, so it stays
           inert until there is something to switch on. */}
       <div className="flex items-start justify-between gap-3 border-b border-app-border py-2">
         <div className={`min-w-0 flex-1${configured ? '' : ' opacity-50'}`}>
-          <div className="text-[12.5px] text-app-text">{t('calendar.sync')}</div>
-          <div className="mt-0.5 text-[11px] text-app-text-muted">
+          <div className="text-body text-app-text">{t('calendar.sync')}</div>
+          <div className="mt-0.5 text-mini text-app-text-muted">
             {configured ? t('calendar.sync.configured') : t('calendar.sync.needsUrl')}
           </div>
         </div>
@@ -116,10 +116,10 @@ export function CalendarSection() {
       </div>
 
       <div className="space-y-2">
-        <label className="block text-[12px] text-app-text" htmlFor="calendar-feed-url">
+        <label className="block text-compact text-app-text" htmlFor="calendar-feed-url">
           {t('calendar.feedUrl')}
         </label>
-        <p className="text-[11px] leading-relaxed text-app-text-muted">{t('calendar.feedUrl.how')}</p>
+        <p className="text-mini leading-relaxed text-app-text-muted">{t('calendar.feedUrl.how')}</p>
         <div className="flex flex-wrap items-center gap-2">
           <input
             id="calendar-feed-url"
@@ -133,14 +133,14 @@ export function CalendarSection() {
             value={feedUrl}
             placeholder={configured ? t('calendar.feedUrl.set') : t('calendar.feedUrl.placeholder')}
             onChange={(e) => { setFeedUrl(e.target.value); setProbe(null); }}
-            className="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-2.5 py-1.5 text-[12px] text-app-text placeholder:text-app-text-muted focus:border-primary focus:outline-none coarse:min-h-11"
+            className="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg px-2.5 py-1.5 text-compact text-app-text placeholder:text-app-text-muted focus:border-primary focus:outline-none coarse:min-h-11"
           />
           <button
             type="button"
             data-testid="calendar-test"
             disabled={!feedUrl.trim() || probing}
             onClick={() => { void test(); }}
-            className="flex items-center gap-1.5 rounded-md border border-app-border px-2.5 py-1.5 text-[12px] text-app-text-secondary transition-colors hover:bg-app-hover disabled:opacity-40 coarse:min-h-11 coarse:px-3"
+            className="flex items-center gap-1.5 rounded-md border border-app-border px-2.5 py-1.5 text-compact text-app-text-secondary transition-colors hover:bg-app-hover disabled:opacity-40 coarse:min-h-11 coarse:px-3"
           >
             {probing && <Loader2 size={12} className="animate-spin" />}
             {t('calendar.test')}
@@ -150,7 +150,7 @@ export function CalendarSection() {
             data-testid="calendar-save"
             disabled={!feedUrl.trim()}
             onClick={() => { void save(); }}
-            className="rounded-md bg-primary px-2.5 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40 coarse:min-h-11 coarse:px-3"
+            className="rounded-md bg-primary px-2.5 py-1.5 text-compact font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40 coarse:min-h-11 coarse:px-3"
           >
             {t('calendar.save')}
           </button>
@@ -159,7 +159,7 @@ export function CalendarSection() {
         {probe && (
           <div
             data-testid="calendar-probe"
-            className={`flex items-start gap-1.5 text-[11.5px] ${probe.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
+            className={`flex items-start gap-1.5 text-compact ${probe.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
           >
             {probe.ok ? <Check size={13} className="mt-0.5 flex-shrink-0" /> : <TriangleAlert size={13} className="mt-0.5 flex-shrink-0" />}
             <span>
@@ -169,14 +169,14 @@ export function CalendarSection() {
             </span>
           </div>
         )}
-        {saveError && <div className="text-[11.5px] text-red-600 dark:text-red-400">{saveError}</div>}
+        {saveError && <div className="text-compact text-red-600 dark:text-red-400">{saveError}</div>}
 
         {configured && (
           <button
             type="button"
             data-testid="calendar-forget"
             onClick={() => { void patch({ calendarFeedUrl: null, calendarEnabled: false }); }}
-            className="text-[11.5px] text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+            className="text-compact text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
           >
             {t('calendar.forget')}
           </button>
@@ -218,8 +218,8 @@ function Dial({ label, hint, value, options, onChange }: {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1">
       <span className="flex min-w-0 flex-col">
-        <span className="text-[12px] text-app-text">{label}</span>
-        <span className="text-[11px] break-words text-app-text-muted">{hint}</span>
+        <span className="text-compact text-app-text">{label}</span>
+        <span className="text-mini break-words text-app-text-muted">{hint}</span>
       </span>
       <Select
         ariaLabel={label}

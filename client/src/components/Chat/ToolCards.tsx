@@ -78,7 +78,7 @@ function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
   const running = live.status === 'running';
   return (
     <div className="space-y-1" data-testid="shell-live">
-      <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+      <div className="flex items-center gap-1.5 text-mini text-app-text-muted">
         <span
           data-testid="shell-live-status"
           data-status={running ? 'running' : 'ended'}
@@ -87,12 +87,12 @@ function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
         <span>{running ? 'in corso' : (live.exitCode != null ? `uscita ${live.exitCode}` : 'terminata')}</span>
       </div>
       {live.truncatedLines > 0 && (
-        <div className="text-[11px] text-app-text-muted">{tr('tool.logTruncated', { n: live.truncatedLines })}</div>
+        <div className="text-mini text-app-text-muted">{tr('tool.logTruncated', { n: live.truncatedLines })}</div>
       )}
       {live.output && (
         <pre
           data-testid="shell-live-output"
-          className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
+          className="tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
         >
           {live.output}
         </pre>
@@ -116,18 +116,18 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
     <div className="space-y-1">
       <HighlightedPre
         testId="tool-call-args"
-        className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5"
+        className="text-mini font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5"
         prefix="$ "
         code={command}
         lang="bash"
       />
-      {cwd && <div className="text-[11px] font-mono text-app-text-muted truncate">cwd: {cwd}</div>}
+      {cwd && <div className="text-mini font-mono text-app-text-muted truncate">cwd: {cwd}</div>}
       {output && (
         <div>
           {typeof exitCode === 'number' && exitCode !== 0 && (
-            <div className="text-[11px] font-mono text-red-500 mb-0.5">exit {exitCode}</div>
+            <div className="text-mini font-mono text-red-500 mb-0.5">exit {exitCode}</div>
           )}
-          <pre data-testid="tool-call-result" className={`tool-card-code text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
+          <pre data-testid="tool-call-result" className={`tool-card-code text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
             {output}
           </pre>
         </div>
@@ -147,11 +147,11 @@ export function ReadCard({ filePath, content, offset, limit }: {
     : '';
   return (
     <div className="space-y-1">
-      <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}{meta}</div>
+      <div data-testid="tool-call-args" className="text-mini font-mono text-app-text-secondary truncate">{filePath}{meta}</div>
       {content && (
         <HighlightedPre
           testId="tool-call-result"
-          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
+          className="text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5"
           code={content}
           lang={langFromPath(filePath)}
         />
@@ -167,9 +167,9 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
 }) {
   return (
     <div className="space-y-1">
-      <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
+      <div data-testid="tool-call-args" className="text-mini font-mono text-app-text-secondary truncate">{filePath}</div>
       {unifiedDiff ? (
-        <pre data-testid="tool-call-result" className="tool-card-code text-[11px] font-mono whitespace-pre overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="tool-card-code text-mini font-mono whitespace-pre overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
           {unifiedDiff.split('\n').map((line, i) => (
             <span key={i} className={
               line.startsWith('+') && !line.startsWith('+++') ? 'block text-green-500' :
@@ -186,9 +186,9 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
         <div className={`grid gap-1.5 [&>*]:min-w-0 ${oldString && newString ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {oldString && (
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-red-500/70 mb-0.5">- Before</div>
+              <div className="text-mini uppercase tracking-wide text-red-500/70 mb-0.5">- Before</div>
               <HighlightedPre
-                className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-red-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-red-500/40"
+                className="text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-red-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-red-500/40"
                 code={oldString}
                 lang={langFromPath(filePath)}
               />
@@ -196,10 +196,10 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
           )}
           {newString && (
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-green-500/70 mb-0.5">+ After</div>
+              <div className="text-mini uppercase tracking-wide text-green-500/70 mb-0.5">+ After</div>
               <HighlightedPre
                 testId="tool-call-result"
-                className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40"
+                className="text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40"
                 code={newString}
                 lang={langFromPath(filePath)}
               />
@@ -216,13 +216,13 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
 export function WriteCard({ filePath, content }: { filePath: string; content?: string }) {
   return (
     <div className="space-y-1">
-      <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">
+      <div data-testid="tool-call-args" className="text-mini font-mono text-app-text-secondary truncate">
         {filePath}{content ? ` · ${content.length.toLocaleString()} chars` : ''}
       </div>
       {content && (
         <HighlightedPre
           testId="tool-call-result"
-          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40"
+          className="text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40"
           code={content}
           lang={langFromPath(filePath)}
         />
@@ -240,11 +240,11 @@ export function SearchCard({ query, content, mode, numFiles, numMatches }: {
 }) {
   return (
     <div className="space-y-1">
-      <pre data-testid="tool-call-args" className="tool-card-code text-[11px] font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
+      <pre data-testid="tool-call-args" className="tool-card-code text-mini font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
         {query}
       </pre>
       {(mode != null || numFiles != null || numMatches != null) && (
-        <div className="text-[11px] text-app-text-muted">
+        <div className="text-mini text-app-text-muted">
           {[
             mode,
             numFiles != null ? `${numFiles} file${numFiles === 1 ? '' : 's'}` : null,
@@ -253,7 +253,7 @@ export function SearchCard({ query, content, mode, numFiles, numMatches }: {
         </div>
       )}
       {content && (
-        <pre data-testid="tool-call-result" className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
           {content}
         </pre>
       )}
@@ -276,19 +276,19 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => { e.preventDefault(); openLink(url, { external: isExternalLinkGesture(e), origin: e.target }); }}
-          className="text-[11px] font-mono text-blue-500 hover:underline break-all"
+          className="text-mini font-mono text-blue-500 hover:underline break-all"
         >
           {url}
         </a>
         {typeof statusCode === 'number' && (
-          <span className={`text-[11px] font-mono flex-shrink-0 ${statusCode >= 400 ? 'text-red-500' : 'text-green-500'}`}>{statusCode}</span>
+          <span className={`text-mini font-mono flex-shrink-0 ${statusCode >= 400 ? 'text-red-500' : 'text-green-500'}`}>{statusCode}</span>
         )}
         {typeof bytes === 'number' && (
-          <span className="text-[11px] text-app-text-muted flex-shrink-0">{(bytes / 1024).toFixed(1)} KB</span>
+          <span className="text-mini text-app-text-muted flex-shrink-0">{(bytes / 1024).toFixed(1)} KB</span>
         )}
       </div>
       {prompt && (
-        <pre className="tool-card-code text-[11px] text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
+        <pre className="tool-card-code text-mini text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
           {prompt}
         </pre>
       )}
@@ -303,8 +303,8 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
   return (
     <ul className="space-y-1">
       {items.map((t, i) => (
-        <li key={i} className="flex items-start gap-2 text-[12px]">
-          <span className="mt-0.5 text-[12px] flex-shrink-0">
+        <li key={i} className="flex items-start gap-2 text-compact">
+          <span className="mt-0.5 text-compact flex-shrink-0">
             {t.status === 'completed' ? <CircleCheck size={13} aria-hidden="true" /> : t.status === 'in_progress' ? <CircleDot size={13} aria-hidden="true" /> : <Circle size={13} aria-hidden="true" />}
           </span>
           <span className={
@@ -340,24 +340,24 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
   return (
     <div className="space-y-1.5">
       {(subAgentType || description) && (
-        <div className="text-[11px] text-app-text-secondary">
+        <div className="text-mini text-app-text-secondary">
           {subAgentType && <span className="font-mono text-purple-500">{subAgentType}</span>}
           {subAgentType && description && ' · '}
           {description}
         </div>
       )}
       {actions.length === 0 ? (
-        <div className="text-[11px] italic text-app-text-muted">
+        <div className="text-mini italic text-app-text-muted">
           {isRunning ? tr('chat.tool.subAgentStarting') : (result ? null : tr('chat.tool.noActivity'))}
         </div>
       ) : (
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
+          <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">
             {tr(actions.length === 1 ? 'chat.tool.activityOne' : 'chat.tool.activityMany', { n: actions.length })}
           </div>
           <ul className="space-y-0.5 max-h-72 overflow-auto bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-purple-500/40">
             {actions.map((a) => (
-              <li key={a.index} className="flex items-start gap-2 text-[11px] font-mono leading-snug">
+              <li key={a.index} className="flex items-start gap-2 text-mini font-mono leading-snug">
                 {/* `w-6`: al decimo passo «10.» non ci stava più in `w-4` e
                     spingeva la colonna del tool. */}
                 <span className="flex-shrink-0 w-6 text-right tabular-nums text-app-text-muted">{a.index + 1}.</span>
@@ -377,7 +377,7 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
       )}
       {result && (
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">{tr('chat.tool.finalResult')}</div>
+          <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">{tr('chat.tool.finalResult')}</div>
           <ClampedPre text={result} />
         </div>
       )}
@@ -408,10 +408,10 @@ const PLAN_MARKDOWN_COMPONENTS: Components = {};
 export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Piano proposto</div>
+      <div className="text-mini uppercase tracking-wide text-app-text-muted">Piano proposto</div>
       <div
         data-testid="plan-card-body"
-        className="prose prose-sm max-w-none text-[12px] text-app-text bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto prose-p:my-0.5 prose-headings:my-1 prose-headings:text-[13px] prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1 prose-code:text-[11px]"
+        className="prose prose-sm max-w-none text-compact text-app-text bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto prose-p:my-0.5 prose-headings:my-1 prose-headings:text-body prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1 prose-code:text-mini"
       >
         <ChatMarkdown components={PLAN_MARKDOWN_COMPONENTS}>{text}</ChatMarkdown>
       </div>
@@ -429,7 +429,7 @@ function ArgsPre({ args }: { args: Record<string, unknown> }) {
   const oneLine = JSON.stringify(args);
   const text = oneLine.length <= 100 ? oneLine : JSON.stringify(args, null, 2);
   return (
-    <pre data-testid="tool-call-args" className="tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
+    <pre data-testid="tool-call-args" className="tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
       {text}
     </pre>
   );
@@ -469,7 +469,7 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
   const { shown, oversized, length } = clampBody(text);
   return (
     <div className="space-y-1">
-      <pre data-testid={testId} className={`tool-card-code text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
+      <pre data-testid={testId} className={`tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
         {expanded ? text : shown}
         {oversized && !expanded && <span className="text-app-text-muted">…</span>}
       </pre>
@@ -477,7 +477,7 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
         <button
           type="button"
           onClick={() => setExpanded((e) => !e)}
-          className="text-[11px] text-blue-500 hover:underline"
+          className="text-mini text-blue-500 hover:underline"
         >
           {expanded ? 'Mostra meno' : `Mostra tutto (${formatBytes(length)})`}
         </button>
@@ -519,8 +519,8 @@ export function MonitorCard({ description, command, wsUrl, persistent, result, i
   const armato = !result;
   return (
     <div className="space-y-1">
-      {description && <div className="text-[12px] text-app-text">{description}</div>}
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+      {description && <div className="text-compact text-app-text">{description}</div>}
+      <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
         {armato && (
           <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
             <span className={`inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ${isRunning ? 'animate-pulse' : ''}`} />
@@ -531,9 +531,9 @@ export function MonitorCard({ description, command, wsUrl, persistent, result, i
         {wsUrl && <span className="font-mono text-blue-500 break-all">{wsUrl}</span>}
       </div>
       {command && (
-        <HighlightedPre code={command} lang="bash" className="text-[11px] font-mono text-app-text whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5" prefix={<span className="text-app-text-muted select-none">$ </span>} />
+        <HighlightedPre code={command} lang="bash" className="text-mini font-mono text-app-text whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5" prefix={<span className="text-app-text-muted select-none">$ </span>} />
       )}
-      {armato && <div className="text-[11px] text-app-text-muted">{tr('monitor.armed.blurb')}</div>}
+      {armato && <div className="text-mini text-app-text-muted">{tr('monitor.armed.blurb')}</div>}
       {result && <ResultPre text={result} />}
     </div>
   );
@@ -577,7 +577,7 @@ export function WaitCard({ processId, until, timeoutMs, result, sessionKey }: {
 
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${running ? 'bg-green-500 animate-pulse' : live.status === 'error' ? 'bg-red-500' : 'bg-app-text-muted/50'}`} />
         <span className="font-mono text-app-text-secondary">{live.scriptName || processId}</span>
         {live.known
@@ -585,7 +585,7 @@ export function WaitCard({ processId, until, timeoutMs, result, sessionKey }: {
           : <span>waiting</span>}
         {elapsed && <span className="font-mono">{elapsed}</span>}
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
         {until && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">until /{until}/</span>}
         {timeoutMs != null && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">max {Math.round(timeoutMs / 1000)}s</span>}
       </div>
@@ -602,7 +602,7 @@ export function BashOutputCard({ shellId, filter, output, sessionKey }: {
   const live = useBackgroundShell(shellId, sessionKey);
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
         <span className="font-mono">shell <span className="text-app-text-secondary">{shellId}</span></span>
         {filter && <span className="font-mono">filter <span className="text-app-text-secondary">/{filter}/</span></span>}
       </div>
@@ -620,7 +620,7 @@ export function BashOutputCard({ shellId, filter, output, sessionKey }: {
 export function KillShellCard({ shellId, result }: { shellId: string; result?: string }) {
   return (
     <div className="space-y-1">
-      <div className="text-[11px] text-app-text-muted font-mono">shell <span className="text-app-text-secondary">{shellId}</span></div>
+      <div className="text-mini text-app-text-muted font-mono">shell <span className="text-app-text-secondary">{shellId}</span></div>
       {result && <ResultPre text={result} />}
     </div>
   );
@@ -633,8 +633,8 @@ export function NotebookEditCard({ notebookPath, cellId, editMode, cellType }: {
 }) {
   return (
     <div className="space-y-1">
-      <div className="text-[11px] font-mono text-app-text-secondary break-all">{notebookPath}</div>
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="text-mini font-mono text-app-text-secondary break-all">{notebookPath}</div>
+      <div className="flex flex-wrap items-center gap-2 text-mini text-app-text-muted">
         {editMode && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">{editMode}</span>}
         {cellType && <span className="font-mono">{cellType}</span>}
         {cellId && <span className="font-mono">cell <span className="text-app-text-secondary">{cellId}</span></span>}
@@ -663,7 +663,7 @@ export function SkillCard({ result }: { result?: string }) {
   if (!body) return null;
   return (
     <div className="space-y-1">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">{tr('chat.tool.skillInstructions')}</div>
+      <div className="text-mini uppercase tracking-wide text-app-text-muted">{tr('chat.tool.skillInstructions')}</div>
       <ClampedPre text={body} />
     </div>
   );
@@ -685,7 +685,7 @@ export function LspCard({ operation, filePath, symbol, result }: {
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 text-mini">
         <span className="font-mono text-app-text">{operation}</span>
         {symbol && <span className="font-mono text-app-text-secondary">{symbol}</span>}
         {filePath && <span className="font-mono text-app-text-muted break-all">{filePath}</span>}

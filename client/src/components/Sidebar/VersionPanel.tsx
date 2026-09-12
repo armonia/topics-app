@@ -101,15 +101,15 @@ export function VersionPanel({
     <div data-testid="version-panel" className="space-y-3">
       {/* Identity */}
       <div className="flex items-baseline justify-between">
-        <span className="text-[13px] font-semibold text-app-text">Topics</span>
+        <span className="text-body font-semibold text-app-text">Topics</span>
         <span className="flex items-center gap-1.5">
-          <span className="text-[12px] tabular-nums text-app-text-secondary">v{appVersion}</span>
+          <span className="text-compact tabular-nums text-app-text-secondary">v{appVersion}</span>
           {isDev && (
-            <span className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-[9px] leading-tight">dev</span>
+            <span className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-nano leading-tight">dev</span>
           )}
         </span>
       </div>
-      <div className="space-y-1 text-[11px] text-app-text-muted">
+      <div className="space-y-1 text-mini text-app-text-muted">
         {/* LA DATA CON IL SUO «QUANTO TEMPO FA», ed e' qui che sta bene: la
             riga di stato la mostrava di continuo, competendo con gli fps e la
             memoria, per rispondere a una domanda che si fa una volta ogni
@@ -139,7 +139,7 @@ export function VersionPanel({
       {drift && (
         <div
           data-testid="version-bundle-drift"
-          className="flex gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-600 dark:text-amber-400"
+          className="flex gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-mini text-amber-600 dark:text-amber-400"
         >
           <AlertCircle size={12} className="mt-0.5 shrink-0" />
           <span>
@@ -154,7 +154,7 @@ export function VersionPanel({
         <button
           onClick={onOpenChangelog}
           data-testid="changelog-open"
-          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
         >
           <Sparkles size={12} />
           <span>{tr('version.whatsNew')}</span>
@@ -166,7 +166,7 @@ export function VersionPanel({
       {shouldWarnAboutSidecars(sidecars) && (
         <div
           data-testid="version-incomplete-install"
-          className="flex gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-600 dark:text-amber-400"
+          className="flex gap-1.5 rounded border border-amber-500/30 bg-amber-500/10 p-2 text-mini text-amber-600 dark:text-amber-400"
         >
           <AlertCircle size={12} className="mt-0.5 shrink-0" />
           <span>
@@ -178,7 +178,7 @@ export function VersionPanel({
 
       {/* Auto-update box */}
       <div className="border-t border-app-border pt-2.5">
-        <div className="text-[9px] uppercase tracking-wide text-app-text-muted mb-1.5">{tr('version.updates')}</div>
+        <div className="text-nano uppercase tracking-wide text-app-text-muted mb-1.5">{tr('version.updates')}</div>
         <UpdateBox
           available={available}
           state={status.state}
@@ -217,17 +217,17 @@ function UpdateBox({
     return swUpdate ? (
       <button
         onClick={() => window.location.reload()}
-        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
       >
         <Download size={12} /> {tr('version.swReady')}
       </button>
     ) : (
-      <div className="text-[11px] text-app-text-muted">{tr('version.webUpToDate')}</div>
+      <div className="text-mini text-app-text-muted">{tr('version.webUpToDate')}</div>
     );
   }
 
   if (state === 'checking') {
-    return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><RefreshCw size={12} className="animate-spin" /> {tr('version.checking')}</div>;
+    return <div className="flex items-center gap-1.5 text-mini text-app-text-muted"><RefreshCw size={12} className="animate-spin" /> {tr('version.checking')}</div>;
   }
   if (state === 'update-available') {
     // In automatico si DICE che sta arrivando, non si chiede di scaricarla: il
@@ -235,7 +235,7 @@ function UpdateBox({
     // credere che senza quel clic non succeda niente.
     if (autoUpdate) {
       return (
-        <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+        <div className="flex items-center gap-1.5 text-mini text-app-text-muted">
           <RefreshCw size={12} />
           {tr('version.autoArriving', { v: newVersion ? ` v${newVersion}` : '' })}
         </div>
@@ -243,10 +243,10 @@ function UpdateBox({
     }
     return (
       <div className="space-y-1.5">
-        <div className="text-[11px] text-app-text">{tr('version.available', { v: newVersion ? ` v${newVersion}` : '' })}</div>
+        <div className="text-mini text-app-text">{tr('version.available', { v: newVersion ? ` v${newVersion}` : '' })}</div>
         {/* One button: the shell downloads and installs in the same call, so
             "Download" alone promised a step that ended with nothing waiting. */}
-        <button onClick={onDownload} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+        <button onClick={onDownload} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
           <Download size={12} /> {tr('update.downloadInstall')}
         </button>
       </div>
@@ -257,21 +257,21 @@ function UpdateBox({
     // the same "Check for updates" button and the click looked like a no-op.
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><Check size={12} /> {tr('update.title.upToDate')}</div>
-        <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
+        <div className="flex items-center gap-1.5 text-mini text-app-text-muted"><Check size={12} /> {tr('update.title.upToDate')}</div>
+        <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
           <RefreshCw size={12} /> {tr('version.check')}
         </button>
       </div>
     );
   }
   if (state === 'downloading') {
-    return <div className="flex items-center gap-1.5 text-[11px] text-app-text-muted"><Download size={12} /> {tr('version.downloading', { pct: progress !== undefined ? `${Math.round(progress)}%` : '' })}</div>;
+    return <div className="flex items-center gap-1.5 text-mini text-app-text-muted"><Download size={12} /> {tr('version.downloading', { pct: progress !== undefined ? `${Math.round(progress)}%` : '' })}</div>;
   }
   if (state === 'ready') {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-emerald-500"><Check size={12} /> {tr('version.ready')}</div>
-        <button onClick={onInstall} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25 transition-colors">
+        <div className="flex items-center gap-1.5 text-mini text-emerald-500"><Check size={12} /> {tr('version.ready')}</div>
+        <button onClick={onInstall} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25 transition-colors">
           <Rocket size={12} /> {tr('version.installRestart')}
         </button>
       </div>
@@ -280,8 +280,8 @@ function UpdateBox({
   if (state === 'error') {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-1.5 text-[11px] text-red-500"><AlertCircle size={12} /> {tr(updateTitle({ state: 'error', error }).key)}</div>
-        <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
+        <div className="flex items-center gap-1.5 text-mini text-red-500"><AlertCircle size={12} /> {tr(updateTitle({ state: 'error', error }).key)}</div>
+        <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
           <RefreshCw size={12} /> {tr('common.retry')}
         </button>
       </div>
@@ -289,7 +289,7 @@ function UpdateBox({
   }
   // idle
   return (
-    <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
+    <button onClick={onCheck} className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-mini font-medium hover:bg-app-hover text-app-text-secondary transition-colors">
       <RefreshCw size={12} /> {tr('version.check')}
     </button>
   );

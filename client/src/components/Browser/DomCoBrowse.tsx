@@ -537,7 +537,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         >
           <div className="text-center">
             <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
-            <p className="text-[12px] text-app-text-muted">{tr('browser.shared.starting')}</p>
+            <p className="text-compact text-app-text-muted">{tr('browser.shared.starting')}</p>
           </div>
         </div>
       )}

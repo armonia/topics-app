@@ -243,7 +243,7 @@ export function TurnActivityIndicator({
       data-slow={state === 'slow' ? 'true' : undefined}
       data-retry={state === 'retry' ? 'true' : undefined}
       data-waiting={state === 'waiting' ? 'true' : undefined}
-      className="flex items-center gap-2 mt-1 text-[11px] leading-none select-none"
+      className="flex items-center gap-2 mt-1 text-mini leading-none select-none"
       role="status"
       aria-live="polite"
       aria-label={

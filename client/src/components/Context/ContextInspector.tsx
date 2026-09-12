@@ -25,7 +25,7 @@ import { Spinner } from '../Shared/Spinner';
  * copie e una che divergeva già.
  */
 const SECTION_HEADER =
-  'flex items-center px-4 py-1 text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2';
+  'flex items-center px-4 py-1 text-micro font-semibold text-app-text-tertiary uppercase tracking-wider bg-black/2 dark:bg-white/2';
 
 /** Extract a human-readable message from an unknown thrown value. */
 function errMessage(err: unknown): string {
@@ -203,7 +203,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           <div key={node.path}>
             {node.type === 'dir' ? (
               <div>
-                <div className="flex items-center gap-1.5 py-1 px-2 text-[12px] text-app-text hover:bg-app-hover rounded cursor-default">
+                <div className="flex items-center gap-1.5 py-1 px-2 text-compact text-app-text hover:bg-app-hover rounded cursor-default">
                   <FolderOpen size={12} className="text-app-text-tertiary" />
                   <span className="font-medium">{node.name}</span>
                 </div>
@@ -212,12 +212,12 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             ) : (
               <button
                 onClick={() => handleOpenMemoryFile(node.path)}
-                className="w-full flex items-center gap-1.5 py-1 px-2 text-[12px] text-app-text-secondary hover:bg-app-hover hover:text-app-text rounded transition-colors text-left"
+                className="w-full flex items-center gap-1.5 py-1 px-2 text-compact text-app-text-secondary hover:bg-app-hover hover:text-app-text rounded transition-colors text-left"
               >
                 <FileText size={12} className="text-app-text-tertiary flex-shrink-0" />
                 <span className="truncate flex-1">{node.name}</span>
                 {node.tokens !== undefined && (
-                  <span className="text-[11px] text-app-text-muted flex-shrink-0">~{node.tokens} tok</span>
+                  <span className="text-mini text-app-text-muted flex-shrink-0">~{node.tokens} tok</span>
                 )}
               </button>
             )}
@@ -236,7 +236,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           >
             <ChevronLeft size={14} />
           </button>
-          <span className="text-[13px] font-medium text-app-text truncate">
+          <span className="text-body font-medium text-app-text truncate">
             OpenClaw Memory Tree
           </span>
           <div className="flex-1" />
@@ -248,7 +248,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-3">
           {memoryIndex.length > 0 ? renderTree(memoryIndex) : (
-            <div className="text-[12px] text-app-text-muted text-center py-8">No memory files found</div>
+            <div className="text-compact text-app-text-muted text-center py-8">No memory files found</div>
           )}
         </div>
       </div>
@@ -261,7 +261,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           un terzo bersaglio per una cosa che si aggiorna da sola dal filo a
           ogni turno: è andato via con la riga di sezioni vuote qui sotto. */}
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-app-border flex-shrink-0">
-        <span className="text-[12px] font-medium text-app-text">{tr('ctxInspector.title')}</span>
+        <span className="text-compact font-medium text-app-text">{tr('ctxInspector.title')}</span>
         {loading && <Spinner size="sm" />}
         <div className="flex-1" />
         {/* «Compatta ora» — l'unica azione di questo pannello, quindi sta in
@@ -272,7 +272,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           <button
             type="button"
             onClick={() => { onCompact(); onClose(); }}
-            className="px-2 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors inline-flex items-center gap-1.5"
+            className="px-2 py-1 text-mini rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors inline-flex items-center gap-1.5"
             title={tr('ctxInspector.compact')}
           >
             <ChevronsDownUp size={12} />
@@ -331,7 +331,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
             <div>
               <div className={SECTION_HEADER}>
                 <span className="flex-1">{tr('ctxInspector.section.files')}</span>
-                <label className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-primary hover:bg-primary/10 cursor-pointer transition-colors normal-case tracking-normal">
+                <label className="flex items-center gap-1 px-1.5 py-0.5 rounded text-micro text-primary hover:bg-primary/10 cursor-pointer transition-colors normal-case tracking-normal">
                   <Upload size={10} />
                   <span>{tr('ctxInspector.addFile')}</span>
                   <input
@@ -346,8 +346,8 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
                 <div>
                   {fileSources.map(source => (
                     <div key={source.id} className="flex items-center gap-2 px-4 py-1.5 hover:bg-app-hover/50 border-b border-app-border last:border-b-0">
-                      <span className="text-[12px] text-app-text truncate flex-1">{source.label}</span>
-                      <span className="text-[11px] text-app-text-muted tabular-nums">{formatTokens(source.tokens)}</span>
+                      <span className="text-compact text-app-text truncate flex-1">{source.label}</span>
+                      <span className="text-mini text-app-text-muted tabular-nums">{formatTokens(source.tokens)}</span>
                       <button aria-label={tr('ctxInspector.removeSource')}
                         onClick={() => handleRemoveContextFile(source.id.replace('file:', ''))}
                         className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/10 text-app-text-muted hover:text-red-500 transition-colors"
@@ -396,7 +396,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
               className="border-t border-app-border"
               onToggle={(e) => setAmbienteAperto((e.currentTarget as HTMLDetailsElement).open)}
             >
-              <summary className="px-4 py-2 text-[11px] text-app-text-tertiary cursor-pointer hover:text-app-text-secondary select-none">
+              <summary className="px-4 py-2 text-mini text-app-text-tertiary cursor-pointer hover:text-app-text-secondary select-none">
                 {tr('sessionEnv.title')}
               </summary>
               {ambienteAperto && <SessionEnvironmentPanel topicId={topic.id} />}
@@ -407,7 +407,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
               className="border-t border-app-border"
               onToggle={(e) => setEnvelopeAperto((e.currentTarget as HTMLDetailsElement).open)}
             >
-              <summary className="px-4 py-2 text-[11px] text-app-text-tertiary cursor-pointer hover:text-app-text-secondary select-none">
+              <summary className="px-4 py-2 text-mini text-app-text-tertiary cursor-pointer hover:text-app-text-secondary select-none">
                 {tr('ctxInspector.envelope')}
               </summary>
               {envelopeAperto && (

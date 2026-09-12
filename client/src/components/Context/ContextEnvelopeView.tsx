@@ -34,12 +34,12 @@ export function ContextEnvelopeView({ topicId, providerName, onMessage }: Props)
 
   if (loading && !preview) {
     return (
-      <div className="text-xs text-gray-400 px-3 py-2">Loading canonical envelope…</div>
+      <div className="text-compact text-gray-400 px-3 py-2">Loading canonical envelope…</div>
     );
   }
   if (error) {
     return (
-      <div className="text-xs text-red-500 px-3 py-2">Envelope error: {error}</div>
+      <div className="text-compact text-red-500 px-3 py-2">Envelope error: {error}</div>
     );
   }
   if (!preview) return null;
@@ -47,13 +47,13 @@ export function ContextEnvelopeView({ topicId, providerName, onMessage }: Props)
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 mt-3 pt-3">
       <div className="flex items-center justify-between px-3 mb-2">
-        <h3 className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold">
+        <h3 className="text-compact uppercase tracking-wide text-gray-500 dark:text-gray-400 font-semibold">
           Canonical Envelope
         </h3>
         <ProviderBadge envelope={preview.envelope} />
       </div>
 
-      <div className="flex gap-1 px-3 mb-2 text-xs">
+      <div className="flex gap-1 px-3 mb-2 text-compact">
         <TabButton active={tab === 'preview'} onClick={() => setTab('preview')}>Preview</TabButton>
         <TabButton active={tab === 'history'} onClick={() => setTab('history')}>
           History ({preview.envelope.history.length})
@@ -82,9 +82,9 @@ function ProviderBadge({ envelope }: { envelope: ContextEnvelope }) {
   };
   const cls = strategyColors[envelope.providerStrategy] || 'bg-gray-100 text-gray-600';
   return (
-    <span className="flex items-center gap-1.5 text-xs">
+    <span className="flex items-center gap-1.5 text-compact">
       <span className="font-mono text-gray-500 dark:text-gray-400">{envelope.providerName}</span>
-      <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${cls}`}>
+      <span className={`px-1.5 py-0.5 rounded text-mini font-medium ${cls}`}>
         {envelope.providerStrategy}
       </span>
     </span>
@@ -95,7 +95,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`px-2 py-1 rounded text-xs ${
+      className={`px-2 py-1 rounded text-compact ${
         active
           ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -113,9 +113,9 @@ function PreviewTab({ preview }: { preview: { envelope: ContextEnvelope; payload
   }, [preview]);
   const meta = preview.envelope.sessionMeta;
   return (
-    <div className="px-3 space-y-2 text-xs">
+    <div className="px-3 space-y-2 text-compact">
       {meta && (
-        <div className="text-[11px] text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded p-2 space-y-0.5">
+        <div className="text-mini text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded p-2 space-y-0.5">
           {meta.topicName && (
             <div><span className="text-gray-400">topic:</span> <strong>{meta.topicName}</strong></div>
           )}
@@ -126,7 +126,7 @@ function PreviewTab({ preview }: { preview: { envelope: ContextEnvelope; payload
             <div className="truncate"><span className="text-gray-400">cwd:</span> <span className="font-mono">{meta.workingDir}</span></div>
           )}
           {meta.worktreeId && (
-            <div><span className="text-gray-400">worktree:</span> <span className="font-mono text-[11px]">{meta.worktreeId}</span></div>
+            <div><span className="text-gray-400">worktree:</span> <span className="font-mono text-mini">{meta.worktreeId}</span></div>
           )}
           {typeof meta.totalStoredMessages === 'number' && (
             <div><span className="text-gray-400">messages in DB:</span> {meta.totalStoredMessages}</div>
@@ -141,15 +141,15 @@ function PreviewTab({ preview }: { preview: { envelope: ContextEnvelope; payload
         <strong>{preview.envelope.history.length}</strong> historic turn(s) ·{' '}
         <strong>{preview.envelope.diagnostics.droppedHistoryTurns}</strong> dropped
       </div>
-      <details className="text-xs">
+      <details className="text-compact">
         <summary className="cursor-pointer text-gray-500 dark:text-gray-400">Adaptation notes</summary>
         <ul className="mt-1 list-disc list-inside text-gray-600 dark:text-gray-300 space-y-0.5">
           {preview.payload.adaptationNotes.map((n, i) => <li key={i}>{n}</li>)}
         </ul>
       </details>
-      <details className="text-xs">
+      <details className="text-compact">
         <summary className="cursor-pointer text-gray-500 dark:text-gray-400">Raw envelope JSON</summary>
-        <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded overflow-auto max-h-64 text-[11px]">
+        <pre className="mt-1 p-2 bg-gray-50 dark:bg-gray-800 rounded overflow-auto max-h-64 text-mini">
           {JSON.stringify(preview.envelope, null, 2)}
         </pre>
       </details>
@@ -159,7 +159,7 @@ function PreviewTab({ preview }: { preview: { envelope: ContextEnvelope; payload
 
 function HistoryTab({ entries, dropped }: { entries: EnvelopeHistoryEntry[]; dropped: number }) {
   return (
-    <div className="px-3 space-y-1 text-xs max-h-72 overflow-auto">
+    <div className="px-3 space-y-1 text-compact max-h-72 overflow-auto">
       {dropped > 0 && (
         <div className="text-amber-700 dark:text-amber-300 mb-2">
           <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" aria-hidden="true" />
@@ -178,10 +178,10 @@ function HistoryTab({ entries, dropped }: { entries: EnvelopeHistoryEntry[]; dro
               : 'text-gray-700 dark:text-gray-300'
           }`}
         >
-          <span className="font-mono text-[11px] text-gray-400 mt-0.5">{e.role}</span>
+          <span className="font-mono text-mini text-gray-400 mt-0.5">{e.role}</span>
           <span className="flex-1 truncate">
             {e.excluded ? (
-              <em className="text-xs">excluded · {e.excludeReason}</em>
+              <em className="text-compact">excluded · {e.excludeReason}</em>
             ) : e.strippedMarkers.length > 0 ? (
               <span className="text-amber-600 dark:text-amber-400">
                 stripped {e.strippedMarkers.length} marker(s) · {e.bytesDropped}B dropped
@@ -199,25 +199,25 @@ function HistoryTab({ entries, dropped }: { entries: EnvelopeHistoryEntry[]; dro
 function SnapshotsTab({ snapshots, onClear }: { snapshots: ContextEnvelope[]; onClear: () => Promise<void> }) {
   if (snapshots.length === 0) {
     return (
-      <div className="px-3 text-xs text-gray-500 dark:text-gray-400">
+      <div className="px-3 text-compact text-gray-500 dark:text-gray-400">
         No snapshots yet. Snapshots are kept in memory only. They reset on server restart.
         Send a message to capture one.
       </div>
     );
   }
   return (
-    <div className="px-3 text-xs space-y-2 max-h-72 overflow-auto">
+    <div className="px-3 text-compact space-y-2 max-h-72 overflow-auto">
       {snapshots.map((s, i) => {
         const ts = new Date(s.diagnostics.assembledAt).toLocaleTimeString();
         const enabled = s.systemBlocks.filter((b) => b.enabled && b.injectedByTopicsApp).length;
         return (
           <div key={i} className="border border-gray-200 dark:border-gray-700 rounded p-2">
-            <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+            <div className="flex justify-between text-mini text-gray-500 mb-1">
               <span>{ts} · {s.providerName} ({s.providerStrategy})</span>
               <span>{enabled} blocks · {s.history.length} turns</span>
             </div>
             <div className="text-gray-700 dark:text-gray-300 truncate">
-              <span className="font-mono text-[11px] text-gray-400">user:</span>{' '}
+              <span className="font-mono text-mini text-gray-400">user:</span>{' '}
               {s.userMessage.content.slice(0, 120)}{s.userMessage.content.length > 120 ? '…' : ''}
             </div>
           </div>
@@ -225,7 +225,7 @@ function SnapshotsTab({ snapshots, onClear }: { snapshots: ContextEnvelope[]; on
       })}
       <button
         onClick={onClear}
-        className="text-[11px] text-red-500 hover:underline mt-1"
+        className="text-mini text-red-500 hover:underline mt-1"
       >
         Clear snapshots
       </button>

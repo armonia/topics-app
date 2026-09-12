@@ -1397,7 +1397,7 @@ function App() {
       } as React.CSSProperties}
     >
       {/* Skip to main content link for keyboard users */}
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-body-lg">
         Skip to main content
       </a>
       {/* IL VELO del cassetto mobile. Sta montato SEMPRE (su mobile) e a riposo
@@ -1631,7 +1631,7 @@ function App() {
               {!isMobile ? (
                 <span
                   data-testid="sidebar-topics-title"
-                  className={`flex min-h-7 items-center ${ROW_PX} py-0.5 font-semibold text-app-text tracking-[-0.01em] truncate text-[15px]`}
+                  className={`flex min-h-7 items-center ${ROW_PX} py-0.5 font-semibold text-app-text tracking-[-0.01em] truncate text-title`}
                 >
                   Topics
                 </span>
@@ -1687,7 +1687,7 @@ function App() {
                     (`TITLE_INSET_WITH_CONTROLS_MAC` / `_WINDOWS`), not on this label: the
                     commands no longer come out over the word, they sit to its
                     left and stay there. */}
-                <span className="font-semibold text-app-text tracking-[-0.01em] truncate text-[17px]">Topics</span>
+                <span className="font-semibold text-app-text tracking-[-0.01em] truncate text-title">Topics</span>
                 {/* HOW HEAVY THE MACHINE IS, right next to its name. This is
                     what stayed on screen when the numbers at the foot of the
                     column moved into this menu: the exact figures are one click

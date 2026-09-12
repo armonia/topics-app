@@ -70,13 +70,13 @@ export function SpendCapControl() {
 
   return (
     <div className="space-y-1" data-testid="spend-cap-control">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.spend.title')}
       </p>
 
       {/* THE NUMBER, always. The total beside the window: 24 hours says whether
           last night went wrong, the total says what the whole thing has cost. */}
-      <p className="text-[12px] font-medium text-app-text-heading" data-testid="spend-24h">
+      <p className="text-compact font-medium text-app-text-heading" data-testid="spend-24h">
         {tr('board.spend.window', { amount: spendLabel(spend.cents24h) })}
         {spend.centsTotal > 0 && (
           <span className="font-normal text-app-text-secondary">
@@ -85,7 +85,7 @@ export function SpendCapControl() {
         )}
       </p>
       {spend.unpriced24h > 0 && (
-        <p className="text-[11px] leading-snug text-app-text-secondary" data-testid="spend-unpriced">
+        <p className="text-mini leading-snug text-app-text-secondary" data-testid="spend-unpriced">
           {tr('board.spend.unpriced', { tokens: formatTokens(spend.unpriced24h) })}
         </p>
       )}
@@ -93,7 +93,7 @@ export function SpendCapControl() {
       {/* THE CAPS. Empty = no limit, and the placeholder says so, not a tooltip. */}
       <div className="space-y-1 pt-0.5">
         <label className="flex items-center justify-between gap-3">
-          <span className="text-[11px] text-app-text-muted">{tr('board.spend.capTask')}</span>
+          <span className="text-mini text-app-text-muted">{tr('board.spend.capTask')}</span>
           <input
             type="number"
             min={0}
@@ -108,7 +108,7 @@ export function SpendCapControl() {
           />
         </label>
         <label className="flex items-center justify-between gap-3">
-          <span className="text-[11px] text-app-text-muted">{tr('board.spend.capDay')}</span>
+          <span className="text-mini text-app-text-muted">{tr('board.spend.capDay')}</span>
           <input
             type="number"
             min={0}
@@ -130,7 +130,7 @@ export function SpendCapControl() {
       {capDay > 0 && (
         <p
           data-testid="spend-cap-distance"
-          className={`text-[11px] leading-snug ${overDay ? 'text-amber-300' : 'text-app-text-secondary'}`}
+          className={`text-mini leading-snug ${overDay ? 'text-amber-300' : 'text-app-text-secondary'}`}
         >
           {overDay
             ? tr('board.spend.overDay', { spent: spendLabel(spend.cents24h), cap: spendLabel(capDay) })
@@ -138,12 +138,12 @@ export function SpendCapControl() {
         </p>
       )}
       {capTask > 0 && (
-        <p className="text-[11px] leading-snug text-app-text-secondary" data-testid="spend-cap-task-note">
+        <p className="text-mini leading-snug text-app-text-secondary" data-testid="spend-cap-task-note">
           {tr('board.spend.capTaskNote', { cap: spendLabel(capTask) })}
         </p>
       )}
       {capTask === 0 && capDay === 0 && (
-        <p className="text-[11px] leading-snug text-app-text-faint" data-testid="spend-cap-off">
+        <p className="text-mini leading-snug text-app-text-faint" data-testid="spend-cap-off">
           {tr('board.spend.noCaps')}
         </p>
       )}

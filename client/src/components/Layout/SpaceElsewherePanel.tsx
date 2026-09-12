@@ -42,16 +42,16 @@ export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
       data-testid="space-elsewhere"
     >
       <AppWindow size={22} className="text-app-text-tertiary" aria-hidden="true" />
-      <div className="text-[13px] text-app-text">
+      <div className="text-body text-app-text">
         <b>{name}</b> {tr('space.elsewhere')}
       </div>
-      <div className="max-w-[380px] text-[12px] text-app-text-secondary">
+      <div className="max-w-[380px] text-compact text-app-text-secondary">
         {tr('space.elsewhere.blurb')}
       </div>
       <div className="flex items-center gap-2 pt-1">
         <button
           onClick={() => { void focusSpaceWindow(windowLabel); }}
-          className="rounded-md border border-app-border px-3 py-1.5 text-[12px] text-app-text transition-colors hover:bg-app-hover"
+          className="rounded-md border border-app-border px-3 py-1.5 text-compact text-app-text transition-colors hover:bg-app-hover"
           data-testid="space-elsewhere-focus"
         >
           Portala davanti
@@ -67,7 +67,7 @@ export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
               }
             });
           }}
-          className="flex items-center gap-1.5 rounded-md border border-app-border px-3 py-1.5 text-[12px] text-app-text transition-colors hover:bg-app-hover"
+          className="flex items-center gap-1.5 rounded-md border border-app-border px-3 py-1.5 text-compact text-app-text transition-colors hover:bg-app-hover"
           data-testid="space-elsewhere-reattach"
         >
           <CornerDownLeft size={13} />

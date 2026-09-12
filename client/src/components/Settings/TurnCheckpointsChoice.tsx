@@ -38,7 +38,7 @@ export function TurnCheckpointsChoice({
           void onSave({ turnCheckpointsEnabled: v }).catch(() => { /* the section renders the error */ });
         }}
       />
-      {saving && <div className="pb-1 text-[11px] text-app-text-muted">{tr('settings.turnCheckpoints.saving')}</div>}
+      {saving && <div className="pb-1 text-mini text-app-text-muted">{tr('settings.turnCheckpoints.saving')}</div>}
     </div>
   );
 }

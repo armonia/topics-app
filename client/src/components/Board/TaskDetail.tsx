@@ -121,7 +121,7 @@ function OutputUrlProbeNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (!task.outputUrl || task.urlProbeStatus !== 'dead') return null;
   return (
-    <div className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-[11px] text-red-300">
+    <div className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-mini text-red-300">
       <WifiOff className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.previewUnreachable')}</span>{' '}
@@ -135,7 +135,7 @@ function SystemDeliveryNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (task.deliveredBy !== 'system') return null;
   return (
-    <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+    <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-mini text-amber-200">
       <Hourglass className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.movedToReviewBySystem')}</span>{' '}
@@ -206,7 +206,7 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
               data-testid={b.testId}
               disabled={busy} onClick={b.onClick}
               title={b.word.title}
-              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-compact disabled:opacity-50 ${
                 isPrimary ? `font-medium ${primaryCls}` : neutralCls
               }`}
             >{busy && isPrimary ? <Spinner size="sm" tone="current" /> : b.icon} {b.word.label}</button>
@@ -222,7 +222,7 @@ function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: {
           disabled={busy} onClick={onLand}
           data-testid="task-land"
           title={d.land.title}
-          className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs disabled:opacity-50 ${
+          className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-compact disabled:opacity-50 ${
             d.primary === 'accept' ? 'bg-sky-700 font-medium text-white hover:bg-sky-800' : neutralCls
           }`}
         ><GitMerge className="h-3.5 w-3.5" /> {d.land.label}</button>
@@ -239,7 +239,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
   if (task.checksState === 'running') {
     const progress = task.checksProgress;
     return (
-      <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-app-text-heading">
+      <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
         <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
         {progress
           ? tr('board.task.checks.runningProgress', { done: progress.done, total: progress.total })
@@ -269,7 +269,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
 
   if (task.checksState === 'pass') {
     return (
-      <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-200">
+      <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-mini text-emerald-200">
         <Check className="h-3 w-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
           {tr('board.task.checks.pass')}{at}{runs.length ? `: ${runs.map((r) => r.name).join(', ')}` : ''}
@@ -279,7 +279,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
   }
 
   return (
-    <div className="rounded bg-rose-500/10 text-[11px] text-rose-200">
+    <div className="rounded bg-rose-500/10 text-mini text-rose-200">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-white/5"
@@ -297,7 +297,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
                 {r.ok ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" /> : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
-                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-app-text-heading">
+                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-micro leading-snug text-app-text-heading">
                   {r.spawnError ?? r.tail}
                 </pre>
               )}
@@ -433,7 +433,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
           // qui sotto. Un chip che tronca senza tooltip è un'informazione che
           // esiste e non si può leggere.
           title={`${label} · ${why}`}
-          className="inline-flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+          className="inline-flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-muted"
         >
           <GitCompare className="h-3 w-3 shrink-0" />
           <span className="shrink-0">{label}</span>
@@ -467,7 +467,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
         onClick={() => setOpen((s) => !s)}
         data-testid="task-changes-trigger"
         title={tr('board.task.changes.openTitle')}
-        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/10"
+        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/10"
       >
         <GitCompare className="h-3 w-3 shrink-0" />
         <span className="shrink-0">{label}</span>
@@ -479,10 +479,10 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
           <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
         </span>
         {from && (
-          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-[9px] text-app-text-faint">{from}</span>
+          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-nano text-app-text-faint">{from}</span>
         )}
         {notes.length > 0 && (
-          <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300">
+          <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-nano text-indigo-300">
             {tr('board.task.changes.pending', { n: notes.length })}
           </span>
         )}
@@ -504,7 +504,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
         <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} />
         {notes.length > 0 && (
           <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
-            <span className="min-w-0 flex-1 text-[11px] text-app-text-heading">
+            <span className="min-w-0 flex-1 text-mini text-app-text-heading">
               {notesError
                 ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
                 : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
@@ -512,14 +512,14 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
             <button
               onClick={() => setNotes([])}
               disabled={sendingNotes}
-              className="rounded px-2 py-0.5 text-[11px] text-app-text-secondary hover:text-app-text disabled:opacity-40"
+              className="rounded px-2 py-0.5 text-mini text-app-text-secondary hover:text-app-text disabled:opacity-40"
             >
               {tr('board.task.changes.discard')}
             </button>
             <button
               onClick={sendNotes}
               disabled={sendingNotes}
-              className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-[11px] text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
+              className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-mini text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
             >
               {sendingNotes ? <Spinner size="sm" tone="current" /> : <Send className="h-3 w-3" />}
               {tr('board.task.changes.send')}
@@ -586,20 +586,20 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
 
   return (
     <div className="shrink-0 border-b border-app-border px-3 py-2">
-      <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted">
+      <div className="flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.task.attempts')} <span className="normal-case tracking-normal text-app-text-faint">· {tr('board.task.attempts.parallel', { n: attempts.length })}</span>
         {running > 0 && (
-          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] normal-case tracking-normal text-amber-300">
+          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-nano normal-case tracking-normal text-amber-300">
             <Spinner size="xs" tone="current" /> {tr('board.task.attempts.running', { n: running })}
           </span>
         )}
       </div>
       {!decided && running === 0 && (
-        <p className="mt-1 text-[11px] text-app-text-secondary">
+        <p className="mt-1 text-mini text-app-text-secondary">
           {tr('board.task.attempts.pickHint')}
         </p>
       )}
-      {error && <p className="mt-1 text-[11px] text-rose-300">{error}</p>}
+      {error && <p className="mt-1 text-mini text-rose-300">{error}</p>}
       <div className="mt-1.5 space-y-1.5">
         {attempts.map((a) => {
           const won = a.state === 'selected';
@@ -613,21 +613,21 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                 won ? 'border-emerald-500/40 bg-emerald-500/5' : dead ? 'border-app-border-subtle bg-white/[0.02] opacity-50' : 'border-app-border bg-white/[0.03]'
               }`}
             >
-              <div className="flex items-center gap-1.5 text-[11px]">
+              <div className="flex items-center gap-1.5 text-mini">
                 <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
-                {won && <span className="rounded bg-emerald-500/25 px-1 text-[9px] text-emerald-200">{tr('board.task.attempt.selected')}</span>}
-                {dead && <span className="rounded bg-white/10 px-1 text-[9px] text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                {won && <span className="rounded bg-emerald-500/25 px-1 text-nano text-emerald-200">{tr('board.task.attempt.selected')}</span>}
+                {dead && <span className="rounded bg-white/10 px-1 text-nano text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
                 <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
-                {a.branch && <span className="truncate font-mono text-[10px] text-app-text-faint">{a.branch}</span>}
+                {a.branch && <span className="truncate font-mono text-micro text-app-text-faint">{a.branch}</span>}
               </div>
               {a.summary && (
-                <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-[11px] leading-snug text-app-text-heading">{a.summary}</p>
+                <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-mini leading-snug text-app-text-heading">{a.summary}</p>
               )}
               <div className="mt-1 flex items-center gap-1.5">
                 {work && (
                   <button
                     onClick={() => setOpenDiff((cur) => (cur === a.id ? null : a.id))}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
                   >{tr(openDiff === a.id ? 'board.task.attempt.closeDiff' : 'board.task.attempt.openDiff')}</button>
                 )}
                 {/* «Apri la chat» diceva meno di quel che fa: è la SESSIONE di
@@ -636,13 +636,13 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                   <button
                     onClick={() => onOpenTopic(a.topicId!)}
                     title={tr('board.task.openSessionTitle')}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
                   >{tr('board.task.openSession')}</button>
                 )}
                 {a.topicId && !dead && shouldExplainMissingSession(resolveSession(a.topicId)) && (
                   <span
                     title={tr('board.task.sessionGoneTitle')}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-faint"
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-faint"
                   >{tr('board.task.sessionGone')}</span>
                 )}
                 {!decided && running === 0 && a.topicId && (
@@ -651,7 +651,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                     disabled={!!picking}
                     data-testid="task-attempt-pick"
                     title={work ? undefined : tr('board.task.attempt.emptyTitle')}
-                    className="ml-auto flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
+                    className="ml-auto flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-mini font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
                   >
                     {picking === a.id && <Spinner size="sm" tone="current" />} {tr('board.task.attempt.pick')}
                   </button>
@@ -683,8 +683,8 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
   }, [projectId, taskId, attemptId]);
-  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
-  if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">{tr('board.task.diffUnreadable')}</p>;
+  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-mini text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
+  if (state === 'error') return <p className="mt-1.5 text-mini text-rose-300">{tr('board.task.diffUnreadable')}</p>;
   // Un tentativo si legge SOLO dal suo worktree (i riferimenti durevoli parlano
   // del vincitore), quindi qui i codici sono due: «non ha prodotto niente» e
   // «non ricostruibile» — e restano distinti anche in una riga sola.
@@ -692,7 +692,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
     const why = state.code === 'no_changes' || !state.code
       ? tr('board.task.changes.empty')
       : tr('board.task.changes.unreadable');
-    return <p className="mt-1.5 text-[11px] text-app-text-muted">{why}</p>;
+    return <p className="mt-1.5 text-mini text-app-text-muted">{why}</p>;
   }
   return (
     // Accordion puro (vedi TaskChangesSection): il tetto in vh era il surrogato
@@ -1751,7 +1751,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           && isThreadSpeech(previous.comment);
         if (foldedDeliveryNotes.has(item.id)) return (
           <details key={item.id} data-testid="task-delivery-note" className="group rounded border border-app-border-subtle">
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-1 text-mini text-app-text-muted hover:text-app-text">
               <ChevronRight className="h-3 w-3 shrink-0 group-open:rotate-90" />
               <span className="shrink-0">{tr('board.task.deliveryNote')}</span>
               <span data-testid="task-delivery-note-preview" className="truncate text-app-text-secondary">{stripMarkdown(item.comment.content)}</span>
@@ -1772,7 +1772,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   {replyOptions.map((opt) => (
                     <button key={opt} disabled={sending || busy || uploading}
                       onClick={() => void answerOption(opt)}
-                      className="rounded border border-app-border bg-white/5 px-2.5 py-1.5 text-left text-xs text-app-text hover:bg-white/10 disabled:opacity-50">
+                      className="rounded border border-app-border bg-white/5 px-2.5 py-1.5 text-left text-compact text-app-text hover:bg-white/10 disabled:opacity-50">
                       {stripMarkdown(opt)}
                     </button>
                   ))}
@@ -1787,7 +1787,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <p
                 data-testid={commentChipTestId(chip)}
                 role={receipt ? 'status' : undefined}
-                className="pr-1 text-right text-[10px] text-app-text-faint"
+                className="pr-1 text-right text-micro text-app-text-faint"
               >{tr(chip === 'note' ? 'board.task.noteSaved' : chip === 'saved' ? 'board.task.commentSaved'
                 : chip === 'delivered' || chip === 'answered' ? 'board.task.delivered' : 'board.task.queuedForTurn')}</p>
             )}
@@ -1801,7 +1801,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         // two greys for one person would be a difference that means nothing.
         return (
           <div key={item.id} className="flex justify-end">
-            <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-sm text-app-text">
+            <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-body-lg text-app-text">
               <div className={COMPACT_MD_CLS}><ChatMarkdown components={{}}>{item.msg.content}</ChatMarkdown></div>
             </div>
           </div>
@@ -1845,7 +1845,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {details}
         {task.previewImage && !previewInThread && (
           <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-xs text-app-text-secondary hover:bg-white/5">
+            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact text-app-text-secondary hover:bg-white/5">
             <Paperclip className="h-3.5 w-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{task.previewImage.split('/').pop()}</span>
             <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
@@ -1860,7 +1860,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             la sessione e' nella stessa lista, "ha un topic" non dice piu'
             niente su quello che c'e' da leggere. */}
         {timeline.length === 0 && (
-          <p data-testid="task-thread-empty" className="text-xs text-app-text-muted">
+          <p data-testid="task-thread-empty" className="text-compact text-app-text-muted">
             {tr(emptyThreadKey(task.status))}
           </p>
         )}
@@ -1871,7 +1871,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             excluded from the list below, so it is painted once. */}
         {task.status === 'done' && deliveryWord && (
           <div data-testid="task-delivery-band" className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 pb-1 pt-1.5">
-            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-emerald-300">{tr('board.task.deliveryBand')}</div>
+            <div className="mb-1 text-micro font-medium uppercase tracking-wide text-emerald-300">{tr('board.task.deliveryBand')}</div>
             <CommentBubble
               comment={deliveryWord}
               ownerName={ownerName}
@@ -1965,7 +1965,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button
             onClick={() => onOpenTask(task.parentTaskId!)}
             title={tr('board.task.openParentCardTitle')}
-            className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+            className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-mini text-violet-300 hover:bg-violet-500/25"
           >⤴ {tr('board.task.parentTask')}</button>
         )}
         {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
@@ -1978,14 +1978,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               onClick={openProjMenu}
               data-testid="task-project-chip"
               title={tr('board.task.projectChipTitle', { label: projectLabel })}
-              className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-app-text-secondary hover:text-app-text"
+              className="flex min-w-0 flex-1 items-center gap-1 text-mini text-app-text-secondary hover:text-app-text"
             >
               <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
               <span className="min-w-0 truncate font-medium">{projectLabel}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
             </button>
             {reopened && (
-              <details data-testid="task-reopened-notice" className="group relative shrink-0 text-[11px] text-app-text-muted">
+              <details data-testid="task-reopened-notice" className="group relative shrink-0 text-mini text-app-text-muted">
                 <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-app-text">
                   ↩︎ {tr('board.task.reopened')}
                 </summary>
@@ -2000,7 +2000,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} />
             ) : showsStoppedChip(task) ? (
               // Same rule as the card, one module: `stoppedChip.ts`.
-              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+              <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
           </div>
         )}
@@ -2019,7 +2019,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             onCreate={doCreateProject}
             busy={projBusy}
             listLabel={tr('board.task.moveProjectTo')}
-            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-micro leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
           />
           <div className={POPOVER_DIVIDER} />
           <button
@@ -2037,13 +2037,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
             onBlur={saveTitle}
             onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-app-text outline-none"
+            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
           />
         ) : (
           <p
             onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
             title={tr('board.task.editTitleTitle')}
-            className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-sm leading-5 text-app-text hover:bg-white/5"
+            className="-mx-1.5 line-clamp-2 cursor-text break-words rounded px-1.5 py-1 text-body-lg leading-5 text-app-text hover:bg-white/5"
           >{task ? <MorphText text={task.text} /> : null}</p>
         )}
         {/* THE WAIT IS IDENTITY, NOT METADATA. It used to sit in the meta row,
@@ -2062,7 +2062,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   onClick={() => openBlockerMenu(blockerChipRef.current)}
                   data-testid="task-blocked-by-chip"
                   title={tr('task.blocked.hint', { what: blockedChip.title })}
-                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300 hover:bg-amber-500/25"
+                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-300 hover:bg-amber-500/25"
                 >
                   <Lock className="h-3 w-3 shrink-0" />
                   <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
@@ -2071,7 +2071,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </div>
             )}
             <Menu open={blockerMenuOpen} anchorRef={blockerAnchorRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus testId="task-blocker-picker">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.blockedBy')}</p>
               <button
                 role="option" aria-selected={!task.blockedByTaskId}
                 onClick={() => pickBlocker(null)}
@@ -2084,7 +2084,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {boardTasks === null ? (
                   <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
                 ) : blockerCandidates.length === 0 ? (
-                  <p className="px-2.5 py-2 text-xs text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
+                  <p className="px-2.5 py-2 text-compact text-app-text-muted">{tr('board.task.noOtherTasks')}</p>
                 ) : blockerCandidates.map((t) => (
                   <button
                     key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
@@ -2109,7 +2109,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {task && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span
-              className="flex items-center gap-1 text-[11px] text-app-text-muted"
+              className="flex items-center gap-1 text-mini text-app-text-muted"
               title={tr('task.lastUpdate', { when: new Date(task.updatedAt).toLocaleString('it-IT') })}
             ><Clock className="h-3 w-3 shrink-0" /> {fmtUpdatedAt(task.updatedAt)}</span>
             <button
@@ -2119,7 +2119,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               title={priorityAwaitingAgent(task)
                 ? tr('task.priority.auto')
                 : tr('task.priority.change')}
-              className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
+              className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-mini ${
                 !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
               }`}
             >
@@ -2128,7 +2128,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-faint" />
             </button>
             <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.priority')}</p>
               {PRIORITY_ORDER.map((p) => (
                 <button
                   key={p} role="option" aria-selected={p === task?.priority}
@@ -2157,14 +2157,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   : task.labels.some((l) => l.label === 'decisione') // allow-italian: the label vocabulary IS the data, compared by value
                     ? tr('task.close.decision')
                     : tr('task.close.none')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={labelMenuOpen} anchorRef={labelBtnRef} onClose={() => setLabelMenuOpen(false)} minWidth={220} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.whoCloses')}</p>
               {CLOSER_LABELS.map((l) => (
                 <button
                   key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
@@ -2175,7 +2175,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   {task.labels.some((x) => x.label === l) && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               ))}
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.filter.kind')}</p>
               {KIND_LABELS.map((l) => (
                 <button
                   key={l} role="option" aria-selected={task.labels.some((x) => x.label === l)}
@@ -2201,14 +2201,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
                   })
                 : `${task.model ? `${fmtModel(task.model)}. ` : ''}${tr('task.model.hint')}`}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{task.effort ? ` · ${task.effort}` : ''}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
             </button>
             <Menu open={modelMenuOpen && !task.assignedTopicId} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.agentModel')}</p>
               <TaskModelMenuOptions
                 models={models}
                 value={task.model || null}
@@ -2227,14 +2227,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               data-testid="task-node-chip"
               disabled={nodePickerLocked}
               title={nodePickerLocked ? tr('board.task.node.runningTitle') : tr('board.task.node.title')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
             >
               <Server className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.machineId ? machineLabel(machines, task.machineId) : tr('board.task.node.chipLocal')}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />
             </button>
             <Menu open={nodeMenuOpen} anchorRef={nodeBtnRef} onClose={() => setNodeMenuOpen(false)} minWidth={220} role="listbox">
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.node.heading')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.node.heading')}</p>
               <button
                 role="option" aria-selected={!task.machineId} disabled={busy}
                 onClick={() => changeNode(null)}
@@ -2255,14 +2255,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     aria-hidden="true"
                   />
                   <span className="min-w-0 flex-1 truncate">{m.name}</span>
-                  <span className="shrink-0 text-[10px] text-app-text-muted">
+                  <span className="shrink-0 text-micro text-app-text-muted">
                     {m.status === 'online' ? tr('board.task.node.online') : tr('board.task.node.offline')}
                   </span>
                   {m.id === task.machineId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               ))}
               {nodes.length === 0 && (
-                <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-app-text-muted">{tr('board.task.node.empty')}</p>
+                <p className="px-2.5 pb-1.5 pt-1 text-mini leading-snug text-app-text-muted">{tr('board.task.node.empty')}</p>
               )}
             </Menu>
             {/* Who is working it stays in the row for the same reason the wait
@@ -2276,7 +2276,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 data-testid="task-subtask-work-chip"
                 data-kind="parent-turn"
                 title={tr('task.work.hint', { what: workChip.title })}
-                className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted hover:bg-white/20"
+                className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-white/20"
               >
                 <UserRound className="h-3 w-3 shrink-0" />
                 <span className="max-w-[14rem] truncate">{workChip.label}</span>
@@ -2287,8 +2287,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 data-kind={workChip.kind}
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
-                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300'
-                  : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-app-text-muted'}
+                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-mini text-rose-300'
+                  : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'
                   ? <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -2313,7 +2313,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             onBlur={saveDesc}
             onKeyDown={cancelKey}
             placeholder={tr('board.task.descPlaceholder')}
-            className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-app-text-heading outline-none"
+            className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading outline-none"
           />
         ) : task?.description ? (
           <>
@@ -2333,7 +2333,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <p
                 onClick={toggleDescOpen}
                 title={tr('board.task.descExpandTitle')}
-                className="mt-1 cursor-pointer truncate text-xs leading-5 text-app-text-secondary hover:text-app-text-heading"
+                className="mt-1 cursor-pointer truncate text-compact leading-5 text-app-text-secondary hover:text-app-text-heading"
                 data-testid="task-desc-summary"
               >
                 <span className="text-app-text-faint">{tr('board.task.descChars', { n: fmtCount(task.description.length, locale) })}</span>
@@ -2344,14 +2344,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <div
                 onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                 title={tr('board.task.editDescTitle')}
-                className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
               ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
             )}
           </>
         ) : (
           <button
             onClick={() => { setDescDraft(''); setEditingDesc(true); }}
-            className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
+            className="flex w-full items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-faint hover:text-app-text-secondary"
           >{tr('board.task.addDesc')}</button>
         )}
         {/* (L'anteprima stava QUI, sorella della descrizione ma fuori dal
@@ -2393,7 +2393,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onChange={(e) => setSubDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
                 placeholder={tr('board.task.addSubtaskPlaceholder')}
-                className="w-full rounded bg-white/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
+                className="w-full rounded bg-white/5 px-2 py-1 text-compact text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
               />
               {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
             </div>
@@ -2484,7 +2484,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               {mediaPaths.map((p) => {
                 const name = p.split('/').pop() || p;
                 return (
-                  <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-app-text-heading">
+                  <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-compact text-app-text-heading">
                     <Paperclip className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
                     <button
                       type="button"
@@ -2521,14 +2521,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <div className="flex flex-wrap items-center gap-2">
                 {isAgentReview && <button disabled={recapturing} onClick={recapturePreview}
                   title={tr('board.task.recapturePreviewTitle')} data-testid="task-recapture-preview"
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-app-text-secondary hover:bg-white/10 disabled:opacity-40">
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-compact text-app-text-secondary hover:bg-white/10 disabled:opacity-40">
                   {recapturing ? <Spinner size="sm" tone="current" /> : <Camera className="h-3 w-3" />}{tr('board.task.recapturePreview')}
                 </button>}
               </div>
-              {!task.previewImage && task.previewRetiredAt && <p data-testid="task-preview-retired" className="mt-1.5 text-xs text-app-text-muted">
+              {!task.previewImage && task.previewRetiredAt && <p data-testid="task-preview-retired" className="mt-1.5 text-compact text-app-text-muted">
                 {tr('board.task.previewRetired')}{task.previewRetiredReason ? `: ${task.previewRetiredReason}` : ''}
               </p>}
-              {!task.previewImage && !task.previewRetiredAt && <p data-testid="task-preview-missing" className="mt-1.5 text-xs text-app-text-muted">
+              {!task.previewImage && !task.previewRetiredAt && <p data-testid="task-preview-missing" className="mt-1.5 text-compact text-app-text-muted">
                 {tr('board.task.previewMissing', { recapture: tr('board.task.recapturePreview') })}
               </p>}
             </div>
@@ -2544,7 +2544,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 return (
                   <div
                     key={t.contextId}
-                    className="group/prev flex shrink-0 items-center rounded-md border border-app-border bg-white/[0.02] text-xs text-app-text-muted"
+                    className="group/prev flex shrink-0 items-center rounded-md border border-app-border bg-white/[0.02] text-compact text-app-text-muted"
                   >
                     <button
                       onClick={() => { setWorkspaceOpen(true); browser.reopenTab(t.contextId); }}
@@ -2553,7 +2553,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     >
                       <Globe className="h-3 w-3 shrink-0" />
                       <span className="max-w-[10rem] truncate">{label}</span>
-                      <span className="text-[9px] uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
+                      <span className="text-nano uppercase tracking-wide text-app-text-faint">{tr('board.task.closedTab')}</span>
                     </button>
                     {/* The ONLY call site of `removeTab`, and it was hover-only:
                         with a finger the tray of closed tabs could only get
@@ -2619,7 +2619,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           onClick={() => task && setStatusMenuOpen(true)}
           data-testid="task-status-chip"
           title={tr('board.task.changeStatusTitle')}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-app-text-heading hover:bg-white/10"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact text-app-text-heading hover:bg-white/10"
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
@@ -2635,7 +2635,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             la copia vive dentro il pannello di condivisione. */}
         {task && <ShareControl resourceType="task" resourceId={task.id} deepLink={() => buildTaskLink(task.id, task.text)} />}
         <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
+          <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.moveTo')}</p>
           {TASK_STATUSES.map((s) => (
             <button
               key={s} role="option" aria-selected={s === task?.status}
@@ -2662,7 +2662,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           )}
           {task && (
             <Menu open={optionsMenuOpen} anchorRef={optionsBtnRef} onClose={() => setOptionsMenuOpen(false)} align="right" minWidth={240}>
-              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.options')}</p>
+              <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.task.options')}</p>
               <button
                 role="menuitem" disabled={busy} onClick={togglePlanFirst}
                 title={tr('task.planFirst')}
@@ -2742,7 +2742,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 >
                   <Globe className="h-3.5 w-3.5 shrink-0 text-app-text-secondary" />
                   <span className="min-w-0 flex-1">{tr('board.task.openInProject')}</span>
-                  <span className="shrink-0 text-[10px] text-app-text-faint">{workspaceManifest.length}</span>
+                  <span className="shrink-0 text-micro text-app-text-faint">{workspaceManifest.length}</span>
                 </button>
               )}
             </Menu>
@@ -2787,7 +2787,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       {notice && (
         <div
           data-testid="task-detail-notice"
-          className="flex shrink-0 items-start justify-between gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-300"
+          className="flex shrink-0 items-start justify-between gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-mini text-sky-300"
         >
           <span>{notice}</span>
           <button aria-label={tr('board.task.closeError')} onClick={() => setNotice(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
@@ -2810,7 +2810,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           invece di offrire una via d'uscita, ed è il motivo per cui otto card
           sono rimaste così per settimane. */}
       {task && showsLandingDebt(task) && (
-        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-mini text-rose-300">
           <span className="min-w-0">
             <TriangleAlert className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
             {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
@@ -2835,7 +2835,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           reminder + the button — same treatment as the "not on main" band
           above, for the same reason (a comment scrolls away, this does not). */}
       {task && showsDeployProposal(task) && (
-        <div data-testid="task-deploy-proposed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-300">
+        <div data-testid="task-deploy-proposed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-mini text-sky-300">
           <span className="min-w-0"><Rocket className="w-4 h-4 shrink-0" aria-hidden="true" /> {tr('board.task.deployProposed')}</span>
           <button
             data-testid="task-deploy-now"
@@ -2845,7 +2845,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         </div>
       )}
       {task?.deployState === 'running' && (
-        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-300">
+        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-300">
           <Spinner size="sm" tone="current" /> {tr('board.task.deployRunning')}
         </div>
       )}
@@ -2860,12 +2860,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
            same `load()`. */
         <div data-testid="task-load-error" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <AlertTriangle className="h-6 w-6 text-rose-300" />
-          <p className="text-sm text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
-          <p className="max-w-sm break-words text-[11px] text-app-text-muted">{loadFailedMessage}</p>
+          <p className="text-body-lg text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
+          <p className="max-w-sm break-words text-mini text-app-text-muted">{loadFailedMessage}</p>
           <button
             data-testid="task-load-retry"
             onClick={() => { void load(); }}
-            className="rounded-md border border-app-border px-3 py-1.5 text-xs text-app-text-heading hover:bg-white/10"
+            className="rounded-md border border-app-border px-3 py-1.5 text-compact text-app-text-heading hover:bg-white/10"
           >
             {tr('board.task.loadRetry')}
           </button>
@@ -2880,7 +2880,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-app-border px-3 py-1.5">
         <button type="button" data-testid="task-conversation-toggle" aria-pressed={(!workspaceOpen || twoCol) && !detailsOpen && !deliveryOpen}
           onClick={() => { setWorkspaceOpen(false); setDetailsOpen(false); setDeliveryOpen(false); }}
-          className={`rounded px-2 py-1 text-xs ${!workspaceOpen && !detailsOpen && !deliveryOpen ? 'bg-app-hover text-app-text' : 'text-app-text-secondary hover:text-app-text'}`}>
+          className={`rounded px-2 py-1 text-compact ${!workspaceOpen && !detailsOpen && !deliveryOpen ? 'bg-app-hover text-app-text' : 'text-app-text-secondary hover:text-app-text'}`}>
           {tr('board.task.threadLabel')}
         </button>
         <button type="button" data-testid="task-details-toggle" aria-expanded={detailsOpen}
@@ -2891,7 +2891,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             setWorkspaceOpen(false);
             stickRef.current = false;
           }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-app-text-muted hover:bg-white/5 hover:text-app-text">
+          className="flex items-center gap-1 rounded px-2 py-1 text-compact text-app-text-muted hover:bg-white/5 hover:text-app-text">
           {detailsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {tr('board.task.detailsLabel')}
         </button>
@@ -2903,13 +2903,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             setWorkspaceOpen(false);
             stickRef.current = false;
           }}
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-app-text-secondary hover:bg-app-hover hover:text-app-text">
+          className="flex items-center gap-1 rounded px-2 py-1 text-compact text-app-text-secondary hover:bg-app-hover hover:text-app-text">
           {deliveryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {tr('board.task.deliveryBand')}
         </button>
         <button type="button" data-testid="task-workspace-toggle" data-open={workspaceOpen ? '1' : '0'} aria-expanded={workspaceOpen}
           onClick={toggleWorkspaceOpen}
-          className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-xs text-app-text-muted hover:bg-white/5 hover:text-app-text">
+          className="ml-auto flex min-w-0 items-center gap-1 rounded px-2 py-1 text-compact text-app-text-muted hover:bg-white/5 hover:text-app-text">
           <span className="truncate">{tr('board.task.workspaceLabel')}</span>
           {hasWorkspacePanes && <span>{workspacePaneCount}</span>}
         </button>
@@ -2925,7 +2925,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {workspaceOpen && !twoCol && (
             <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
               {hasWorkspacePanes ? <GroupLayout {...browser.groupLayoutProps} /> : (
-                <p className="p-4 text-xs text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
+                <p className="p-4 text-compact text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
               )}
             </div>
           )}
@@ -2954,12 +2954,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             data-testid="task-thread-dropzone"
           >
             {task.status === 'review' && !task.assignedTopicId && !task.parentTaskId && (
-              <p data-testid="task-comment-note-context" className="mb-1 px-1 text-[11px] text-app-text-secondary">
+              <p data-testid="task-comment-note-context" className="mb-1 px-1 text-mini text-app-text-secondary">
                 {tr('board.task.unassignedNoteContext')}
               </p>
             )}
             {fileDragOver && (
-              <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded border border-dashed border-emerald-400/60 bg-app-bg/70 text-[11px] text-emerald-300">
+              <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded border border-dashed border-emerald-400/60 bg-app-bg/70 text-mini text-emerald-300">
                 {tr('board.task.dropToAttach')}
               </div>
             )}
@@ -2975,7 +2975,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {task && loadFailedMessage && (
               <div
                 data-testid="task-stale-warning"
-                className="mb-2 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200"
+                className="mb-2 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-mini text-amber-200"
               >
                 <span className="min-w-0 flex-1 break-words">{tr('board.task.staleAfterAction', { reason: loadFailedMessage })}</span>
                 <button
@@ -2990,7 +2990,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             {error && (
               <div
                 data-testid="task-action-error"
-                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[11px] text-rose-300"
+                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-mini text-rose-300"
               >
                 <span className="min-w-0 flex-1 break-words">{error}</span>
                 <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
@@ -3004,7 +3004,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     {a.isImage ? (
                       <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-app-text-heading">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}
@@ -3045,7 +3045,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   const imgs = imagesFromClipboard(e.clipboardData);
                   if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
                 }}
-                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-title' : 'text-body'}`}
                 style={{ minHeight: 32, maxHeight: 140 }}
               />
               <DictationButton
@@ -3074,7 +3074,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <button type="button" onClick={() => void send({ quiet: true })}
                   disabled={busy || sending || uploading || (!draft.trim() && attachments.length === 0)}
                   title={tr('board.task.quietNoteTitle')} data-testid="task-reply-quiet-note"
-                  className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-app-text-secondary hover:bg-app-hover disabled:opacity-50">
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-compact text-app-text-secondary hover:bg-app-hover disabled:opacity-50">
                   <StickyNote className="h-3.5 w-3.5" />{tr('board.task.quietNote')}
                 </button>
               </div>
@@ -3099,10 +3099,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-                <p className="text-xs text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
+                <p className="text-compact text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
                 <button
                   onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
-                  className="rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
+                  className="rounded bg-white/10 px-2.5 py-1.5 text-compact text-app-text hover:bg-white/20"
                 >{tr('board.task.openTab')}</button>
               </div>
             )}
@@ -3168,10 +3168,10 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             onClick={() => onOpenTask?.(node.id)}
             data-testid={`subtask-open-${node.id}`}
             title={tr('board.task.openSubtaskCardTitle')}
-            className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}
+            className={`min-w-0 flex-1 truncate text-left text-compact ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text'}`}
           >{node.text}</button>
         ) : (
-          <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-secondary'}`}>{node.text}</span>
+          <span className={`min-w-0 flex-1 truncate text-compact ${node.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-secondary'}`}>{node.text}</span>
         )}
         {stalled ? (
           <span data-testid={`subtask-queue-reason-${node.id}`} className="flex min-w-0 shrink">
@@ -3183,7 +3183,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             data-testid={`subtask-work-${node.id}`}
             data-kind="unattended"
             title={work.title}
-            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-[10px] text-rose-300"
+            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-micro text-rose-300"
           ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
         ) : (
           <span
@@ -3193,7 +3193,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             className="flex shrink-0 text-app-text-muted"
           ><UserRound className="h-2.5 w-2.5" /></span>
         ))}
-        {hasKids && <span className="shrink-0 text-[10px] text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+        {hasKids && <span className="shrink-0 text-micro text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
@@ -3250,10 +3250,10 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
   }
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-      <p className="text-sm text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
+      <p className="text-body-lg text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
         onClick={(e) => openLink(url, { external: isExternalLinkGesture(e), origin: e.target })}
-        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-app-text hover:bg-white/20"
+        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-compact text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
   );
@@ -3294,7 +3294,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-xs text-app-text hover:bg-white/20"
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-compact text-app-text hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>
@@ -3345,7 +3345,7 @@ const SessionRun = memo(function SessionRun({ items, sessionKey, onMessage }: {
       toolCalls: group.parts.flatMap((part) => part.message.toolCalls ?? []),
     } }; });
   }, [items]);
-  return <div className={`text-sm text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={items[0].msg.id}>
+  return <div className={`text-body-lg text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={items[0].msg.id}>
     {groups.map(({ folded, parts, summary, key }) => {
       const content = parts.map(({ message, originalId }) => <MessageContent
         key={message.id}
@@ -3399,7 +3399,7 @@ function StatusChip({ comment, ownerName }: { comment: TaskComment; ownerName: s
   const mover = who.kind === 'system' || who.kind === 'dispatcher' ? null : who.name;
   return (
     <span
-      className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-1 px-1.5 py-0.5 text-[11px] text-app-text-muted"
+      className="inline-flex min-w-0 max-w-full flex-wrap items-center justify-center gap-1 px-1.5 py-0.5 text-mini text-app-text-muted"
       title={`${who.name} (${who.detail})${origin ? ` · ${origin}` : ''} · ${comment.content} · ${at.toLocaleString('it-IT')}`}
       data-testid="task-status-event"
     >
@@ -3433,7 +3433,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
       aria-label={tr('board.task.statusTrail')}
     >
       {comments.map((c) => <StatusChip key={c.id} comment={c} ownerName={ownerName} />)}
-      <span className="shrink-0 text-[11px] text-app-text-faint">
+      <span className="shrink-0 text-mini text-app-text-faint">
         {new Date(last.createdAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
       </span>
     </div>
@@ -3469,12 +3469,12 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   if (comment.kind === 'review-note') {
     return (
       <div className="pr-8">
-        <p className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
+        <p className="flex items-center gap-1 text-micro font-medium uppercase tracking-wide text-emerald-400/80">
           <Camera size={11} /> {tr('board.task.reviewPreview')}
           {origin && <span className="normal-case tracking-normal text-app-text-faint">{origin}</span>}
           <span className="ml-auto normal-case tracking-normal text-app-text-faint">{commentTime(comment.createdAt)}</span>
         </p>
-        <div className="text-sm text-app-text"><CommentBody content={comment.content} /></div>
+        <div className="text-body-lg text-app-text"><CommentBody content={comment.content} /></div>
         <MediaStrip media={comment.media} onPreview={onPreview} />
       </div>
     );
@@ -3502,7 +3502,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   if (oneLiner) {
     return (
       <div
-        className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 px-1.5 py-0.5 text-center text-[11px] text-app-text-muted"
+        className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 px-1.5 py-0.5 text-center text-mini text-app-text-muted"
         data-testid="task-app-note"
         title={`${who.name} (${who.detail})${origin ? ` · ${origin}` : ''} · ${comment.content} · ${new Date(comment.createdAt).toLocaleString('it-IT')}`}
       >
@@ -3520,12 +3520,12 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
     // su un thread che mescola quattro voci è la differenza che serve per prima.
     return (
       <div className="pr-8">
-        {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-[10px]" title={who.detail}>
+        {(!continuation || app) && <p className="flex items-baseline gap-1.5 text-micro" title={who.detail}>
           <span className={`font-medium uppercase tracking-wide ${app ? 'text-app-text-faint' : 'text-app-text-secondary'}`}>{who.name}</span>
           {origin && <span className="text-app-text-faint">{origin}</span>}
           <span className="ml-auto text-app-text-faint">{commentTime(comment.createdAt)}</span>
         </p>}
-        <div className={`text-sm ${app ? 'text-app-text-muted' : 'text-app-text'}`}>
+        <div className={`text-body-lg ${app ? 'text-app-text-muted' : 'text-app-text'}`}>
           <CommentBody content={comment.content} questionActions={questionActions} historicalQuestion={historicalQuestion} />
         </div>
         <MediaStrip media={comment.media} onPreview={onPreview} />
@@ -3539,10 +3539,10 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   // colori diversi erano il motivo per cui il drawer «non sembrava l'app».
   return (
     <div className="flex justify-end">
-      <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-sm text-app-text">
+      <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-body-lg text-app-text">
         <CommentBody content={comment.content} />
         <MediaStrip media={comment.media} onPreview={onPreview} />
-        <p className="mt-0.5 text-right text-[9px] text-app-text-muted" title={who.detail}>
+        <p className="mt-0.5 text-right text-nano text-app-text-muted" title={who.detail}>
           {who.name}{origin ? ` · ${origin}` : ''} · {commentTime(comment.createdAt)}
         </p>
       </div>
@@ -3565,7 +3565,7 @@ export function CommentBody({ content, questionActions, historicalQuestion = fal
   const options = q.options.length > 0 ? (
     <ul className="mt-1 space-y-0.5">
       {q.options.map((opt, i) => (
-        <li key={i} className="flex items-start gap-1.5 text-xs text-app-text-secondary">
+        <li key={i} className="flex items-start gap-1.5 text-compact text-app-text-secondary">
           <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-app-text-muted" />
           <span className={`min-w-0 flex-1 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{opt}</ChatMarkdown></span>
         </li>
@@ -3581,14 +3581,14 @@ export function CommentBody({ content, questionActions, historicalQuestion = fal
           e i backtick attorno a un path arrivavano qui come caratteri. */}
       {historicalQuestion ? (
         <details className="group text-app-text-secondary" data-testid="task-past-question">
-          <summary className="flex cursor-pointer list-none items-start gap-1.5 py-1 text-sm hover:text-app-text">
+          <summary className="flex cursor-pointer list-none items-start gap-1.5 py-1 text-body-lg hover:text-app-text">
             <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 group-open:rotate-90" />
             <span>{stripMarkdown(q.question)}</span>
           </summary>
           <div className={`pl-5 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{q.question}</ChatMarkdown>{options}</div>
         </details>
       ) : <div className="rounded border border-app-border bg-white/[0.02] px-2.5 py-2">
-        <div className={`text-[13px] leading-snug text-app-text ${COMPACT_MD_CLS}`}>
+        <div className={`text-body leading-snug text-app-text ${COMPACT_MD_CLS}`}>
           <ChatMarkdown components={{}}>{q.question}</ChatMarkdown>
         </div>
         {questionActions ?? options}

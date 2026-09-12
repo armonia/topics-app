@@ -67,21 +67,21 @@ export function CommandMenu({
         {/* Status */}
         <button
           onClick={() => handleAction(onStatus)}
-          className="w-full px-3 py-2 text-left text-[12px] text-app-text hover:bg-app-hover flex items-center gap-2 transition-colors"
+          className="w-full px-3 py-2 text-left text-compact text-app-text hover:bg-app-hover flex items-center gap-2 transition-colors"
         >
           <Terminal size={14} className="text-primary" />
           <span>Status</span>
-          <span className="ml-auto text-[11px] text-app-text-muted">/status</span>
+          <span className="ml-auto text-mini text-app-text-muted">/status</span>
         </button>
 
         {/* Reasoning toggle */}
         <button
           onClick={() => handleAction(onReasoning)}
-          className="w-full px-3 py-2 text-left text-[12px] text-app-text hover:bg-app-hover flex items-center gap-2 transition-colors"
+          className="w-full px-3 py-2 text-left text-compact text-app-text hover:bg-app-hover flex items-center gap-2 transition-colors"
         >
           <Brain size={14} className="text-purple-500 dark:text-purple-400" />
           <span>Reasoning</span>
-          <span className="ml-auto text-[11px] text-app-text-muted">/reasoning</span>
+          <span className="ml-auto text-mini text-app-text-muted">/reasoning</span>
         </button>
 
         <div className="h-px bg-app-border my-1" />
@@ -89,11 +89,11 @@ export function CommandMenu({
         {/* Clear */}
         <button
           onClick={() => handleAction(onClear)}
-          className="w-full px-3 py-2 text-left text-[12px] text-red-500 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
+          className="w-full px-3 py-2 text-left text-compact text-red-500 dark:text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
         >
           <Trash2 size={14} />
           <span>Clear conversation</span>
-          <span className="ml-auto text-[11px] text-app-text-muted">/clear</span>
+          <span className="ml-auto text-mini text-app-text-muted">/clear</span>
         </button>
       </Menu>
     </>

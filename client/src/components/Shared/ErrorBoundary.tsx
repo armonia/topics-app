@@ -78,12 +78,12 @@ export class ErrorBoundary extends Component<Props, State> {
               <Frown className="w-8 h-8 mx-auto" aria-hidden="true" />
             )}
           </div>
-          <h2 className="text-[15px] font-semibold text-app-text mb-1">
+          <h2 className="text-title font-semibold text-app-text mb-1">
             {chunkError
               ? tr('crash.staleBundle.title')
               : tr(this.props.fallbackMessageKey ?? 'crash.generic.title')}
           </h2>
-          <p className="text-[12px] text-app-text-muted mb-4 max-w-xs">
+          <p className="text-compact text-app-text-muted mb-4 max-w-xs">
             {chunkError ? tr('crash.staleBundle.body') : tr('crash.generic.body')}
           </p>
           {/* The raw message stays, and stays raw: it is the diagnostic, not
@@ -91,13 +91,13 @@ export class ErrorBoundary extends Component<Props, State> {
               it gets is a translated label, so it reads as a quotation rather
               than as the app talking. */}
           {!chunkError && raw && (
-            <p className="text-[11px] text-app-text-muted mb-4 max-w-xs font-mono break-words">
+            <p className="text-mini text-app-text-muted mb-4 max-w-xs font-mono break-words">
               {tr('crash.generic.detail')} {raw}
             </p>
           )}
           <button
             onClick={chunkError ? reloadForNewBundle : this.handleReset}
-            className="px-4 py-2 text-[13px] font-medium bg-primary text-white rounded-lg hover:opacity-90 transition-opacity"
+            className="px-4 py-2 text-body font-medium bg-primary text-white rounded-lg hover:opacity-90 transition-opacity"
           >
             {chunkError ? tr('crash.staleBundle.action') : tr('crash.generic.action')}
           </button>

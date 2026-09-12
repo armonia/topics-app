@@ -285,7 +285,7 @@ function QuestionsForm({
       className="space-y-3 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+      <div className="flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>{tr('tool.agentWaits')}</span>
         {stepped && (
@@ -301,7 +301,7 @@ function QuestionsForm({
         <div className="space-y-1">
           <label
             htmlFor={`${toolCallId}-plan-edit`}
-            className="block text-[11px] uppercase tracking-wide text-app-text-muted"
+            className="block text-mini uppercase tracking-wide text-app-text-muted"
           >
             {tr('plan.edit.label')}
           </label>
@@ -312,15 +312,15 @@ function QuestionsForm({
             disabled={submitting}
             rows={10}
             data-testid="plan-edit-input"
-            className="w-full text-[13px] leading-snug bg-surface border border-app-border rounded px-2 py-1.5 resize-y font-mono"
+            className="w-full text-body leading-snug bg-surface border border-app-border rounded px-2 py-1.5 resize-y font-mono"
           />
-          <div className="text-[11px] text-app-text-muted">{tr('plan.edit.hint')}</div>
+          <div className="text-mini text-app-text-muted">{tr('plan.edit.hint')}</div>
         </div>
       )}
       {/* Le risposte già date, in una riga: si vede cosa hai scelto senza
           tornare indietro, e tornare indietro resta possibile col tasto sotto. */}
       {stepped && step > 0 && (
-        <div className="text-[11px] text-app-text-muted space-y-0.5" data-testid="ask-step-recap">
+        <div className="text-mini text-app-text-muted space-y-0.5" data-testid="ask-step-recap">
           {questions.slice(0, step).map((q, i) => (
             <div key={`${toolCallId}-recap-${i}`} className="truncate">
               <span className="uppercase tracking-wide">{q.header || `Domanda ${i + 1}`}</span>
@@ -340,23 +340,23 @@ function QuestionsForm({
               size (13px, see MessageBubble), not at the 10-11px log chrome the
               surrounding tool row uses. Only the eyebrow/header/hint stay
               small, because those are labels about the content, not content. */}
-          <legend className="text-[13px] leading-snug font-medium text-app-text">
+          <legend className="text-body leading-snug font-medium text-app-text">
             {/* Una domanda su più righe è una domanda più il suo CONTESTO: il
                 permesso mette sotto al nome dello strumento gli argomenti con
                 cui verrebbe eseguito. Renderizzate di fila collasserebbero in
                 una riga sola, incollando il riassunto al nome. */}
             {q.question.split('\n')[0]}
             {q.header && (
-              <span className="ml-2 text-[10.5px] uppercase tracking-wide text-app-text-muted">
+              <span className="ml-2 text-mini uppercase tracking-wide text-app-text-muted">
                 {q.header}
               </span>
             )}
             {q.multiSelect && (
-              <span className="ml-2 text-[10.5px] normal-case tracking-normal text-app-text-muted">(scelta multipla)</span>
+              <span className="ml-2 text-mini normal-case tracking-normal text-app-text-muted">(scelta multipla)</span>
             )}
             {q.question.includes('\n') && (
               <div
-                className="mt-1 font-mono text-[11.5px] font-normal leading-snug text-app-text-muted break-all"
+                className="mt-1 font-mono text-compact font-normal leading-snug text-app-text-muted break-all"
                 data-testid="ask-question-detail"
               >
                 {q.question.slice(q.question.indexOf('\n') + 1)}
@@ -373,7 +373,7 @@ function QuestionsForm({
                 const showRec = rec.isRecommended && !already;
                 if (showRec) already = true;
                 return (
-              <label key={`${toolCallId}-q-${qIdx}-o-${oIdx}`} className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
+              <label key={`${toolCallId}-q-${qIdx}-o-${oIdx}`} className="flex items-start gap-2 text-body cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
                 <input
                   type={inputType}
                   name={q.multiSelect ? undefined : `${toolCallId}-q-${qIdx}`}
@@ -390,7 +390,7 @@ function QuestionsForm({
                       <span
                         data-testid="ask-recommended"
                         title={tr('ask.recommended.hint')}
-                        className="text-[10px] leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
+                        className="text-micro leading-none uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/12 text-primary"
                       >
                         {tr('ask.recommended')}
                       </span>
@@ -399,7 +399,7 @@ function QuestionsForm({
                   {/* Wraps instead of truncating: the description is often the
                       only thing that distinguishes two options. */}
                   {opt.description && (
-                    <div className="text-[12px] leading-snug text-app-text-muted">{opt.description}</div>
+                    <div className="text-compact leading-snug text-app-text-muted">{opt.description}</div>
                   )}
                 </div>
               </label>
@@ -421,7 +421,7 @@ function QuestionsForm({
                 ragione per cui il composer non accetta prosa su questa domanda
                 (`answerFromText`): qui la si prende premendo. */}
             {!isPlanApprovalSchema({ kind: 'questions', questions: [q] }) && (
-            <label className="flex items-start gap-2 text-[13px] cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
+            <label className="flex items-start gap-2 text-body cursor-pointer hover:bg-app-hover rounded px-1.5 py-1">
               <input
                 type={inputType}
                 name={q.multiSelect ? undefined : `${toolCallId}-q-${qIdx}`}
@@ -440,7 +440,7 @@ function QuestionsForm({
                   rows={2}
                   placeholder={tr('ask.answerPlaceholder')}
                   data-testid={`ask-other-input-${qIdx}`}
-                  className="mt-1 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
+                  className="mt-1 w-full text-body bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
                 />
               </div>
             </label>
@@ -450,7 +450,7 @@ function QuestionsForm({
         );
       })}
       {error && (
-        <div className="text-[12px] text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
+        <div className="text-compact text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
       )}
       <div className="flex justify-end items-center gap-2">
         {stepped && step > 0 && (
@@ -459,7 +459,7 @@ function QuestionsForm({
             onClick={() => setStep((s) => Math.max(0, s - 1))}
             disabled={submitting}
             data-testid="ask-step-back"
-            className="px-3 py-1.5 text-[12.5px] font-medium rounded-md text-app-text-secondary hover:bg-app-hover disabled:opacity-40 transition-colors"
+            className="px-3 py-1.5 text-body font-medium rounded-md text-app-text-secondary hover:bg-app-hover disabled:opacity-40 transition-colors"
           >
             {tr('ask.back')}
           </button>
@@ -468,7 +468,7 @@ function QuestionsForm({
           type="submit"
           disabled={(isLast ? !allAnswered : !canAdvance) || submitting}
           data-testid={isLast ? 'ask-submit' : 'ask-step-next'}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 text-body font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
           {submitting ? tr('ask.sending') : isLast ? tr('ask.send') : tr('ask.next')}
@@ -512,18 +512,18 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
         }}
         className="space-y-2 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       >
-        {message && <div className="text-[13px] leading-snug text-app-text">{message}</div>}
+        {message && <div className="text-body leading-snug text-app-text">{message}</div>}
         <textarea
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
           disabled={submitting}
           rows={4}
           placeholder={tr('ask.jsonPlaceholder')}
-          className="w-full text-[12.5px] font-mono bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
+          className="w-full text-body font-mono bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
         />
-        {error && <div className="text-[12px] text-red-500">{error}</div>}
+        {error && <div className="text-compact text-red-500">{error}</div>}
         <div className="flex justify-end">
-          <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
+          <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-body font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
             {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
             {submitting ? tr('ask.sending') : tr('ask.send')}
           </button>
@@ -549,13 +549,13 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
       className="space-y-2 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
-      {message && <div className="text-[13px] leading-snug text-app-text">{message}</div>}
+      {message && <div className="text-body leading-snug text-app-text">{message}</div>}
       {/* `<div>` e non `<label>`: da quando il campo `enum` è il `Select`
           dell'app — un bottone che apre un menu, non un elemento di modulo — una
           `<label>` avvolgente renderebbe il nome del campo un secondo grilletto.
           Ogni controllo porta quindi il proprio nome accessibile a mano. */}
       {fields.map((f) => (
-        <div key={f.name} className="block text-[13px]">
+        <div key={f.name} className="block text-body">
           <span className="text-app-text">
             {f.name}
             {f.required && <span className="text-red-500 ml-0.5">*</span>}
@@ -596,14 +596,14 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
               }}
               disabled={submitting}
               aria-label={f.name}
-              className="mt-0.5 w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5"
+              className="mt-0.5 w-full text-body bg-surface border border-app-border rounded px-2 py-1.5"
             />
           )}
         </div>
       ))}
-      {error && <div className="text-[12px] text-red-500">{error}</div>}
+      {error && <div className="text-compact text-red-500">{error}</div>}
       <div className="flex justify-end">
-        <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
+        <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-body font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
           {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
@@ -674,7 +674,7 @@ function RawForm({
       }}
       className="space-y-2 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
     >
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+      <div className="flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>{tr('tool.agentWaits')}</span>
       </div>
@@ -684,11 +684,11 @@ function RawForm({
         disabled={submitting}
         rows={3}
         placeholder={tr('ask.answerPlaceholder')}
-        className="w-full text-[13px] bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
+        className="w-full text-body bg-surface border border-app-border rounded px-2 py-1.5 resize-none"
       />
-      {error && <div className="text-[12px] text-red-500">{error}</div>}
+      {error && <div className="text-compact text-red-500">{error}</div>}
       <div className="flex justify-end">
-        <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
+        <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 text-body font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
           {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>

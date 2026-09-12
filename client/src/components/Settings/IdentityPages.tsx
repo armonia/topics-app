@@ -31,8 +31,8 @@ import { useSelf } from '../Profile/useSelf';
 function PageHeader({ title, blurb }: { title: string; blurb: string }) {
   return (
     <div className="border-b border-app-border pb-3">
-      <h2 className="text-[15px] font-semibold text-app-text">{title}</h2>
-      <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">{blurb}</p>
+      <h2 className="text-title font-semibold text-app-text">{title}</h2>
+      <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">{blurb}</p>
     </div>
   );
 }

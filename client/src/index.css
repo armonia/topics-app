@@ -267,6 +267,65 @@
 }
 .dark .scrollbar-topbar::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.5); }
 
+/* THE TYPE SCALE, and it is the only one.
+ *
+ * WHAT IT REPLACES. Before this block the app had no scale at all: 1550 font
+ * sizes written as arbitrary values (eleven pixels in square brackets), spread
+ * over 24 distinct sizes, plus Tailwind's own two smallest steps used next to
+ * the bracketed spelling of the very same pixels. Four defects came out of
+ * that, and each one is closed here:
+ *   1. six HALF-PIXEL sizes (9.5 10.5 11.5 12.5 13.5, 88 uses over 27 files).
+ *      A half pixel is not a size: the rasteriser rounds it, and which way it
+ *      rounds depends on the platform, the zoom level and the device pixel
+ *      ratio. So the same badge was 11px on one machine and 12px on the next.
+ *   2. text below the readable floor: 7px and 8px, nine uses.
+ *   3. the same size written two ways, so a search for one found half the
+ *      occurrences.
+ *   4. no source: every new component invented its own number, which is how a
+ *      scale becomes 24 sizes without anyone deciding it.
+ *
+ * `--text-*: initial` wipes Tailwind's default scale before ours is declared.
+ * Two reasons, and the second is the one that matters. First, its `sm` step
+ * means 14px and here the ladder is denser, so keeping both names alive would
+ * have left two scales in the same file. Second, the default steps carry an
+ * IMPLICIT line-height (its `xs` sets 12px AND a 16px line box), which the
+ * 1550 arbitrary values did not: mixing them meant a size change silently
+ * moving a line box too. Every step below is font-size and nothing else. Line
+ * height stays where you can see it, on a `leading-*` next to the size.
+ *
+ * ROUNDING, for the record. Half pixels went UP (9.5 to 10, 11.5 to 12): the
+ * grid is one pixel, so one of the two directions had to be picked once, and up
+ * is the one that never makes text harder to read. 7px and 8px went to the 9px
+ * floor. 15px went to 16, 17 to 16, 18 and 19 to 20, 22 to 24, 34 to 32: the
+ * nearest step. Above `title` a pixel or two is a rendering choice nobody makes
+ * on purpose.
+ *
+ * ADDING A STEP is allowed and is a DECISION: you edit this block, and the
+ * comment says what the step is for. What is not allowed is going around it
+ * with `text-[Npx]` in a component, which is exactly what
+ * `scripts/check-typography.ts` (run as `check:typography`) refuses.
+ *
+ * OUT OF SCOPE, on purpose: the editor and the terminal. Their size follows a
+ * user setting, is applied inline from that setting, and has nothing to do with
+ * the chrome around them. */
+@theme {
+  --text-*: initial;
+
+  /* Under 9px is not small text, it is unreadable text. */
+  --text-nano: 9px;      /* counters, corner badges, the smallest chips */
+  --text-micro: 10px;    /* dense metadata: timestamps, path fragments, hints */
+  --text-mini: 11px;     /* THE default of this UI: rows, labels, menus, chips */
+  --text-compact: 12px;  /* buttons, inputs, secondary body */
+  --text-body: 13px;     /* body: message text, descriptions, dialog prose */
+  --text-body-lg: 14px;  /* body when a surface has room: modals, empty states */
+  --text-title: 16px;    /* the title of a panel, a modal, a card */
+  --text-headline: 20px; /* the heading of a whole page or an empty state */
+  --text-display: 24px;  /* numbers and codes meant to be read across a room */
+  --text-display-md: 32px;
+  --text-display-lg: 40px;
+  --text-display-xl: 48px;
+}
+
 /* Font stack */
 :root {
   /* CIÒ CHE NON DIPINGIAMO NOI, e per cui il tema andava DICHIARATO.
@@ -1324,7 +1383,7 @@ html, body {
  * `pre:not(.tool-card-code)` — questa regola è UNLAYERED, e in Tailwind v4 una
  * regola fuori dai layer batte QUALUNQUE utility, che sta in `@layer utilities`.
  * Le card dei tool scrivono sui loro `pre` `bg-app-hover/40 px-2 py-1.5
- * text-[11px]`, e non ne applicavano NESSUNA: vinceva tutto questo blocco. Il
+ * text-mini`, e non ne applicavano NESSUNA: vinceva tutto questo blocco. Il
  * risultato era un riquadro ardesia (#1f2937) anche in tema chiaro, con sopra la
  * palette di sintassi CHIARA scritta apposta per il fondo dell'app (vedi
  * `.tool-card-code` più sotto, che si dichiara «follows the app theme») —

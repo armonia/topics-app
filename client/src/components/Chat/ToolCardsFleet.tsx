@@ -20,7 +20,7 @@ export function AgentMessageCard({ to, message, result }: {
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 text-mini">
         <span className="text-app-text-muted">a</span>
         <span className="font-mono text-app-text">{to}</span>
       </div>
@@ -37,7 +37,7 @@ export function AgentControlCard({ op, target, result }: {
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 text-mini">
         <span className="font-mono text-app-text">{op}</span>
         {target && <span className="font-mono text-app-text-secondary break-all">{target}</span>}
       </div>
@@ -53,7 +53,7 @@ export function ArtifactCard({ action, title, url, filePath, result }: {
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 text-mini">
         <span className="font-mono text-app-text">{action}</span>
         {title && <span className="text-app-text-secondary">{title}</span>}
         {filePath && <span className="font-mono text-app-text-muted break-all">{filePath}</span>}
@@ -67,7 +67,7 @@ export function ArtifactCard({ action, title, url, filePath, result }: {
              e.preventDefault();
              openLink(url, { external: isExternalLinkGesture(e), origin: e.target });
            }}
-           className="block break-all font-mono text-[11px] text-app-accent hover:underline">{url}</a>
+           className="block break-all font-mono text-mini text-app-accent hover:underline">{url}</a>
       )}
       {result && <ResultPre text={result} />}
     </div>
@@ -83,12 +83,12 @@ export function AskUserCard({ questions, result }: {
     <div className="space-y-1.5">
       {questions.map((q, i) => (
         <div key={i} className="space-y-1">
-          {q.header && <div className="text-[10px] uppercase tracking-wide text-app-text-muted">{q.header}</div>}
-          <div className="text-[11px] text-app-text">{q.question}</div>
+          {q.header && <div className="text-micro uppercase tracking-wide text-app-text-muted">{q.header}</div>}
+          <div className="text-mini text-app-text">{q.question}</div>
           {q.options && q.options.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {q.options.map((o, j) => (
-                <span key={j} className="rounded border border-app-border px-1.5 py-0.5 text-[10px] text-app-text-secondary">{o}</span>
+                <span key={j} className="rounded border border-app-border px-1.5 py-0.5 text-micro text-app-text-secondary">{o}</span>
               ))}
             </div>
           )}

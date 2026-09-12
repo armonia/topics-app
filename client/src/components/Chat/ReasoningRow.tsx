@@ -21,7 +21,7 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true }: Prop
   const length = content.length;
 
   return (
-    <div data-testid="reasoning-row" className="text-[12px]">
+    <div data-testid="reasoning-row" className="text-compact">
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
@@ -30,14 +30,14 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true }: Prop
         {collapsed ? <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />}
         <Brain size={13} className="text-purple-500 flex-shrink-0" />
         <span className="text-app-text">Reasoning</span>
-        <span className="text-[11px] text-app-text-muted">({length.toLocaleString()} chars)</span>
+        <span className="text-mini text-app-text-muted">({length.toLocaleString()} chars)</span>
         {partial && (
           <span className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse flex-shrink-0" />
         )}
       </button>
       {!collapsed && (
         <div className="ml-5 pb-1.5">
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap leading-relaxed bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
+          <pre className="text-mini font-mono text-app-text-secondary whitespace-pre-wrap leading-relaxed bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto">
             {content}
           </pre>
         </div>

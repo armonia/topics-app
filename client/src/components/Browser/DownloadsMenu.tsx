@@ -124,7 +124,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
           : <Download size={14} aria-hidden />}
         {activeCount > 0 && (
           <span
-            className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full bg-primary text-white text-[9px] leading-[13px] text-center tabular-nums"
+            className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full bg-primary text-white text-nano leading-[13px] text-center tabular-nums"
             data-testid="browser-downloads-badge"
           >
             {activeCount}
@@ -142,7 +142,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         ariaLabel="Download"
       >
         <div className="px-3 py-1 flex items-center justify-between gap-2">
-          <span className="text-[11px] font-medium text-app-text-secondary">Download</span>
+          <span className="text-mini font-medium text-app-text-secondary">Download</span>
           <button
             type="button"
             onClick={() => setWanted(false)}
@@ -185,7 +185,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                       download
                       target="_blank"
                       rel="noreferrer"
-                      className="block text-[12px] text-app-text truncate hover:underline"
+                      className="block text-compact text-app-text truncate hover:underline"
                       title={tr('downloads.save', { name: d.filename })}
                       data-testid="browser-download-item"
                     >
@@ -195,18 +195,18 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
                     <button
                       type="button"
                       onClick={() => onOpen!(d.savedPath!)}
-                      className="block w-full text-left text-[12px] text-app-text truncate hover:underline"
+                      className="block w-full text-left text-compact text-app-text truncate hover:underline"
                       title={tr('downloads.open', { path: d.savedPath! })}
                       data-testid="browser-download-item"
                     >
                       {d.filename}
                     </button>
                   ) : (
-                    <div className="text-[12px] text-app-text truncate" title={d.filename} data-testid="browser-download-item">
+                    <div className="text-compact text-app-text truncate" title={d.filename} data-testid="browser-download-item">
                       {d.filename}
                     </div>
                   )}
-                  <div className="text-[10px] text-app-text-faint truncate flex items-center gap-1.5">
+                  <div className="text-micro text-app-text-faint truncate flex items-center gap-1.5">
                     <span className="truncate">
                       {failed ? 'Non riuscito' : d.detail || (done ? 'Completato' : 'In corso…')}
                     </span>

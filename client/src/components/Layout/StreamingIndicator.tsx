@@ -290,7 +290,7 @@ function LabeledLoader({
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
       <span
-        className={`text-[10px] leading-none tabular-nums flex-shrink-0 ${
+        className={`text-micro leading-none tabular-nums flex-shrink-0 ${
           isStale ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-tertiary'
         }`}
         aria-hidden="true"

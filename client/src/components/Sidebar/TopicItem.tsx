@@ -484,7 +484,7 @@ export const TopicItem = memo(function TopicItem({
         {!isStreaming && (
           <RelativeTime
             at={topic.updatedAt}
-            className={cn('flex-shrink-0 text-[11px] tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+            className={cn('flex-shrink-0 text-mini tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
           />
         )}
         {/* The SAME shared loader the tab bar renders, in the same 16px slot —

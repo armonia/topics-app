@@ -55,7 +55,7 @@ export function FriendsTab() {
         className="flex min-w-0 flex-1 items-center gap-3 text-left coarse:min-h-11"
       >
         <PersonAvatar github={p.github} size={32} />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-app-text">{p.displayName}</span>
+        <span className="min-w-0 flex-1 truncate text-body text-app-text">{p.displayName}</span>
       </button>
       {actions.map((a) => (
         <button
@@ -64,7 +64,7 @@ export function FriendsTab() {
           disabled={busy === p.id}
           onClick={() => void act(p.id, a.what)}
           data-testid={`${a.testId}-${p.id}`}
-          className={`flex-shrink-0 rounded-md border px-2.5 py-1 text-[12px] disabled:opacity-60 coarse:min-h-11 ${
+          className={`flex-shrink-0 rounded-md border px-2.5 py-1 text-compact disabled:opacity-60 coarse:min-h-11 ${
             a.tone === 'primary'
               ? 'border-primary bg-primary/10 text-primary hover:bg-primary/20'
               : 'border-app-border text-app-text hover:bg-app-hover'
@@ -79,7 +79,7 @@ export function FriendsTab() {
   const group = (title: string, people: FriendPerson[], testId: string, actions: Parameters<typeof row>[1]) => (
     people.length > 0 && (
       <section className="space-y-1.5">
-        <h3 className="text-[11.5px] uppercase tracking-wide text-app-text-tertiary">{title}</h3>
+        <h3 className="text-compact uppercase tracking-wide text-app-text-tertiary">{title}</h3>
         <ul data-testid={testId} className="space-y-1">{people.map((p) => row(p, actions))}</ul>
       </section>
     )
@@ -100,7 +100,7 @@ export function FriendsTab() {
         { what: 'cancel', label: t('profile.friend.withdraw'), tone: 'quiet', testId: 'friend-withdraw' },
       ])}
       {empty && (
-        <p data-testid="friends-tab-empty" className="text-[12px] text-app-text-muted">
+        <p data-testid="friends-tab-empty" className="text-compact text-app-text-muted">
           {t('profile.friend.empty')}
         </p>
       )}

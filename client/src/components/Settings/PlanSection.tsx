@@ -135,45 +135,45 @@ export function PlanSection() {
 
   if (!piano) return null;
 
-  const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent coarse:min-h-11';
-  const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:min-w-11';
+  const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-compact text-app-text outline-none focus:border-app-accent coarse:min-h-11';
+  const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:min-w-11';
 
   const giorni = giorniAllaScadenza(piano.expiresAt, Date.now());
   const warnExpiry = scadenzaVicina(piano.expiresAt, Date.now());
 
   return (
     <div className="space-y-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">
+      <h3 className="text-mini font-semibold uppercase tracking-wide text-app-text-secondary">
         {t('plan.title')}
       </h3>
-      <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('plan.blurb')}</p>
+      <p className="text-mini leading-relaxed text-app-text-tertiary">{t('plan.blurb')}</p>
 
       <div className="space-y-2.5 rounded-lg border border-app-border px-3 py-2.5">
         {/* ── COSA HAI. Prima riga, sempre, anche sul gratuito. */}
         <div className="flex items-center gap-2">
           <CreditCard size={12} className="flex-shrink-0 text-app-text-tertiary" />
-          <span className="min-w-0 flex-1 text-[12px] text-app-text">
+          <span className="min-w-0 flex-1 text-compact text-app-text">
             {t(piano.plan === 'team' ? 'plan.current.team' : 'plan.current.free', {
               posti: String(piano.seats),
             })}
           </span>
         </div>
 
-        <p className="text-[11px] leading-relaxed text-app-text-tertiary">
+        <p className="text-mini leading-relaxed text-app-text-tertiary">
           {t(piano.remoteAccess ? 'plan.remote.on' : 'plan.remote.off')}
         </p>
 
         {/* La scadenza si nomina solo quando è vicina: un conto alla rovescia
             che parte da un anno è rumore, e il rumore addestra a non leggere. */}
         {warnExpiry && giorni !== null && (
-          <p className="text-[11px] leading-relaxed text-app-text">
+          <p className="text-mini leading-relaxed text-app-text">
             {t(giorni < 0 ? 'plan.expiredSince' : 'plan.expiresIn', { giorni: String(Math.abs(giorni)) })}
           </p>
         )}
 
         {/* ── PERCHÉ, quando c'è un perché da dire. */}
         {mostraMotivo(piano.reason) && (
-          <p className={`rounded border px-2 py-1.5 text-[11px] leading-relaxed ${
+          <p className={`rounded border px-2 py-1.5 text-mini leading-relaxed ${
             colpaNostra(piano.reason)
               ? 'border-app-border bg-app-bg text-app-text'
               : 'border-app-border text-app-text-secondary'
@@ -185,7 +185,7 @@ export function PlanSection() {
         {/* ── COMPRARE, solo se si può davvero. */}
         {siPuoComprare(pagamento) && piano.plan !== 'team' && (
           <div className="flex items-center gap-1.5 border-t border-app-border pt-2.5">
-            <label htmlFor="plan-seats" className="text-[11px] text-app-text-tertiary">
+            <label htmlFor="plan-seats" className="text-mini text-app-text-tertiary">
               {t('plan.seatsLabel')}
             </label>
             <input
@@ -196,7 +196,7 @@ export function PlanSection() {
               value={posti}
               onChange={(e) => setPosti(Number(e.target.value))}
               onBlur={() => setPosti(postiValidi(posti))}
-              className="w-16 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent coarse:min-h-11"
+              className="w-16 rounded border border-app-border bg-app-bg px-2 py-1 text-compact text-app-text outline-none focus:border-app-accent coarse:min-h-11"
             />
             <button disabled={inCorso} onClick={() => void compra()} className={`${bottone} ml-auto`}>
               {t('plan.subscribe')}
@@ -207,7 +207,7 @@ export function PlanSection() {
         {/* ── INCOLLARE UN GETTONE. Resta sempre: è la strada di chi ha pagato
             fuori da qui, ed è anche l'unica su un'installazione senza Stripe. */}
         <div className="space-y-1.5 border-t border-app-border pt-2.5">
-          <div className="text-[11px] text-app-text-tertiary">{t('plan.tokenHint')}</div>
+          <div className="text-mini text-app-text-tertiary">{t('plan.tokenHint')}</div>
           <div className="flex gap-1.5">
             <input
               value={gettone}
@@ -223,14 +223,14 @@ export function PlanSection() {
           </div>
         </div>
 
-        {errore && <p className="text-[11px] leading-relaxed text-app-text">{t(errore)}</p>}
+        {errore && <p className="text-mini leading-relaxed text-app-text">{t(errore)}</p>}
 
         {/* ── L'IDENTIFICATIVO. Serve a chi conia il gettone, e senza un modo di
             copiarlo la persona lo trascrive a mano da uno schermo. */}
         {piano.installationId && (
           <div className="flex items-center gap-2 border-t border-app-border pt-2.5">
-            <span className="text-[11px] text-app-text-tertiary">{t('plan.installationId')}</span>
-            <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-app-text-secondary">
+            <span className="text-mini text-app-text-tertiary">{t('plan.installationId')}</span>
+            <code className="min-w-0 flex-1 truncate font-mono text-mini text-app-text-secondary">
               {piano.installationId}
             </code>
             <button
@@ -262,7 +262,7 @@ export function PlanSection() {
         )}
       </div>
 
-      <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('plan.footnote')}</p>
+      <p className="text-mini leading-relaxed text-app-text-tertiary">{t('plan.footnote')}</p>
     </div>
   );
 }

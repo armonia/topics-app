@@ -61,7 +61,7 @@ function Anteprima({ activity, vuoto, appName, nomeIgnoto }: { activity: Discord
     return (
       <div
         data-testid="discord-preview"
-        className="rounded-md border border-dashed border-app-border px-3 py-2 text-[11px] text-app-text-muted"
+        className="rounded-md border border-dashed border-app-border px-3 py-2 text-mini text-app-text-muted"
       >
         {vuoto}
       </div>
@@ -75,15 +75,15 @@ function Anteprima({ activity, vuoto, appName, nomeIgnoto }: { activity: Discord
       {/* L'iniziale del nome VERO. La «T» fissa di prima faceva credere che
           Discord non stesse onorando l'immagine, mentre era solo questo
           quadratino disegnato da noi. */}
-      <div className="mt-0.5 h-8 w-8 flex-shrink-0 rounded bg-primary/15 text-center text-[13px] font-semibold leading-8 text-primary">
+      <div className="mt-0.5 h-8 w-8 flex-shrink-0 rounded bg-primary/15 text-center text-body font-semibold leading-8 text-primary">
         {(appName ?? '?').slice(0, 1).toUpperCase()}
       </div>
       <div className="min-w-0">
-        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-app-text-tertiary">
+        <div className="truncate text-mini font-semibold uppercase tracking-wide text-app-text-tertiary">
           {appName ?? nomeIgnoto}
         </div>
-        <div className="truncate text-[12px] text-app-text">{activity.details}</div>
-        {activity.state && <div className="truncate text-[11.5px] text-app-text-secondary">{activity.state}</div>}
+        <div className="truncate text-compact text-app-text">{activity.details}</div>
+        {activity.state && <div className="truncate text-compact text-app-text-secondary">{activity.state}</div>}
       </div>
     </div>
   );
@@ -144,19 +144,19 @@ export function DiscordSection() {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">
+      <h3 className="text-mini font-semibold uppercase tracking-wide text-app-text-secondary">
         {t('discord.title')}
       </h3>
-      <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('discord.blurb')}</p>
+      <p className="text-mini leading-relaxed text-app-text-tertiary">{t('discord.blurb')}</p>
 
       <div className="space-y-3 rounded-lg border border-app-border px-3 py-2.5" data-testid="discord-card">
         {/* L'interruttore */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-[12.5px] text-app-text">{t('discord.toggle')}</div>
+            <div className="text-body text-app-text">{t('discord.toggle')}</div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${COLORE[stato]}`} aria-hidden="true" />
-              <span className="text-[11px] text-app-text-muted" data-testid="discord-state">
+              <span className="text-mini text-app-text-muted" data-testid="discord-state">
                 {t(`discord.state.${stato}`)}
                 {stato === 'connected' && status?.user?.username ? ` · ${status.user.username}` : ''}
               </span>
@@ -179,7 +179,7 @@ export function DiscordSection() {
         {/* Perché non funziona, quando non funziona. Il messaggio del server è
             in chiaro: «non riesco» senza la ragione manda a indovinare. */}
         {acceso && status?.lastError && stato !== 'connected' && (
-          <p className="text-[11px] leading-snug text-app-text-muted">{status.lastError}</p>
+          <p className="text-mini leading-snug text-app-text-muted">{status.lastError}</p>
         )}
 
         {/* Quanto se ne vede.
@@ -191,7 +191,7 @@ export function DiscordSection() {
             disegnato, non di sistema. È la stessa ragione per cui nel pannello
             non c'è un solo `<select>` nativo. */}
         <div className="space-y-1 border-t border-app-border pt-2">
-          <div className="mb-1 text-[11px] font-medium text-app-text-secondary" id="discord-level-label">
+          <div className="mb-1 text-mini font-medium text-app-text-secondary" id="discord-level-label">
             {t('discord.level')}
           </div>
           <div role="radiogroup" aria-labelledby="discord-level-label" className="space-y-0.5">
@@ -214,8 +214,8 @@ export function DiscordSection() {
                   {livello === l && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[12px] text-app-text">{t(`discord.level.${l}`)}</span>
-                  <span className="block text-[11px] leading-snug text-app-text-muted">{t(`discord.level.${l}.hint`)}</span>
+                  <span className="block text-compact text-app-text">{t(`discord.level.${l}`)}</span>
+                  <span className="block text-mini leading-snug text-app-text-muted">{t(`discord.level.${l}.hint`)}</span>
                 </span>
               </button>
             ))}
@@ -224,17 +224,17 @@ export function DiscordSection() {
 
         {/* Ciò che vedono gli altri */}
         <div className="space-y-1.5 border-t border-app-border pt-2">
-          <div className="text-[11px] font-medium text-app-text-secondary">{t('discord.preview')}</div>
+          <div className="text-mini font-medium text-app-text-secondary">{t('discord.preview')}</div>
           <Anteprima
             activity={preview?.[livello] ?? null}
             vuoto={t('discord.previewEmpty')}
             appName={status?.applicationName ?? null}
             nomeIgnoto={t('discord.appNameUnknown')}
           />
-          <p className="text-[10.5px] leading-snug text-app-text-muted">{t('discord.previewNote')}</p>
+          <p className="text-mini leading-snug text-app-text-muted">{t('discord.previewNote')}</p>
         </div>
 
-        {errore && <p className="text-[11px] text-red-500">{errore}</p>}
+        {errore && <p className="text-mini text-red-500">{errore}</p>}
       </div>
     </div>
   );

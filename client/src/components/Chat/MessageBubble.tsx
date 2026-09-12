@@ -244,7 +244,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         data-testid="goal-loop-row"
         data-goal-loop={goalRow.kind === 'nudge' ? `nudge:${goalRow.attempt}` : `stop:${goalRow.reason}`}
-        className="my-1 flex items-center justify-center gap-1.5 px-2 text-[11px] text-app-text-muted"
+        className="my-1 flex items-center justify-center gap-1.5 px-2 text-mini text-app-text-muted"
       >
         <Target size={11} className="flex-shrink-0" />
         <span className="truncate">
@@ -318,7 +318,7 @@ export const MessageBubble = memo(function MessageBubble({
         // against the floating message-action toolbars that overlap this row.
         <div className="flex items-center gap-3 my-3 pointer-events-none">
           <div className="flex-1 h-px bg-app-border" />
-          <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wider">{dateSep}</span>
+          <span className="text-mini font-medium text-app-text-muted uppercase tracking-wider">{dateSep}</span>
           <div className="flex-1 h-px bg-app-border" />
         </div>
       )}
@@ -376,7 +376,7 @@ export const MessageBubble = memo(function MessageBubble({
                   onClick={handleDeleteClick}
                   className={`h-7 flex items-center justify-center rounded transition-colors ${
                     deleteArmed
-                      ? 'px-1.5 gap-1 text-red-600 dark:text-red-400 bg-red-500/10 text-[11px] font-medium'
+                      ? 'px-1.5 gap-1 text-red-600 dark:text-red-400 bg-red-500/10 text-mini font-medium'
                       : 'w-7 text-app-text-muted hover:text-red-500'
                   }`}
                   title={deleteArmed ? tr('chat.message.deleteArmed') : tr('chat.message.delete')}
@@ -390,7 +390,7 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           )}
           {isEmojiOnly(msg.content) ? (
-            <div className="text-[32px] leading-none py-0.5">
+            <div className="text-display-md leading-none py-0.5">
               {msg.content.trim()}
             </div>
           ) : (
@@ -406,7 +406,7 @@ export const MessageBubble = memo(function MessageBubble({
             // erano turni riusciti bordati di giallo senza una parola che
             // dicesse perché. Il verdetto ora è una riga sua, in cima al
             // contenuto (`TurnErrorBanner` in MessageContent).
-            className={`text-[13px] leading-relaxed overflow-hidden ${
+            className={`text-body leading-relaxed overflow-hidden ${
               msg.role === 'user'
                 // Grigio di sistema, non il blu del marchio: in quest'app il
                 // blu è l'accento delle azioni e del caricamento, e un
@@ -464,14 +464,14 @@ export const MessageBubble = memo(function MessageBubble({
               onClick={onRetry}
               data-testid="message-retry"
               title={tr('msg.resend')}
-              className="mt-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
+              className="mt-1.5 px-3 py-1 text-compact font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
             >
               ↻ {tr('common.retry')}
             </button>
           )}
           {/* Queued indicator for offline messages */}
           {msg.role === 'user' && (msg.queued || msg.partial) && (
-            <div className="text-[11px] text-amber-500 mt-0.5 text-right">
+            <div className="text-mini text-amber-500 mt-0.5 text-right">
               Queued
             </div>
           )}
@@ -489,7 +489,7 @@ export const MessageBubble = memo(function MessageBubble({
               >
                 <ChevronLeft size={14} />
               </button>
-              <span className="text-[11px] text-app-text-muted font-medium tabular-nums min-w-[2ch] text-center">
+              <span className="text-mini text-app-text-muted font-medium tabular-nums min-w-[2ch] text-center">
                 {(msg.activeBranchIndex ?? 0) + 1}/{msg.siblingCount}
               </span>
               <button
@@ -534,7 +534,7 @@ export const MessageBubble = memo(function MessageBubble({
           {(!isWorkOnlyAssistant(msg) || hasTurnMetrics) && msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div
               data-testid="message-meta-row"
-              className={`text-[11px] mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
+              className={`text-mini mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
                 msg.role === 'user' ? 'justify-end' : 'justify-start'
               } ${
                 // La riga di servizio (ora, durata, costo) e' una delle cose che

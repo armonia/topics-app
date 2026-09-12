@@ -1638,7 +1638,7 @@ function ChatPaneComponent({
     >
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
-          <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
+          <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
           <button aria-label={tr('chat.command.dismiss')} onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1">
             <X size={12} />
           </button>
@@ -1656,7 +1656,7 @@ function ChatPaneComponent({
       {servedFromCache && (
         <div
           data-testid="chat-cached-history-notice"
-          className="chat-measure px-3 py-1 flex items-center gap-1.5 flex-shrink-0 text-[11px] text-amber-600 dark:text-amber-400"
+          className="chat-measure px-3 py-1 flex items-center gap-1.5 flex-shrink-0 text-mini text-amber-600 dark:text-amber-400"
         >
           {/* A dot and not an icon component: it is the same six-pixel signal
               the status bar uses for a data notice, and at this size a glyph

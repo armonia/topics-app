@@ -1315,7 +1315,7 @@ export function TopicTree({
                 a nessuno — il comando gli passa sopra. */}
             <RelativeTime
               at={item.lastActivity}
-              className={`flex-shrink-0 text-[11px] tabular-nums ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+              className={`flex-shrink-0 text-mini tabular-nums ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
             />
             {/* Numeric status indicators (git changed-files / ahead-behind /
                 running processes / open-chat count) were removed from the
@@ -1440,7 +1440,7 @@ export function TopicTree({
             <Icon size={14} className="text-app-text-secondary flex-shrink-0" />
             <span className={TAB_LABEL}>{label}</span>
             {items.length > 0 && (
-              <span className="text-[11px] text-app-text-tertiary">{items.length}</span>
+              <span className="text-mini text-app-text-tertiary">{items.length}</span>
             )}
             <ChevronRight
               size={12}
@@ -1540,7 +1540,7 @@ export function TopicTree({
           key="unpin-preview"
           data-testid="unpin-preview"
           data-vanish="true"
-          className="mx-1.5 mb-1 px-2.5 rounded-lg pointer-events-none flex items-center gap-1.5 text-[11px] font-medium
+          className="mx-1.5 mb-1 px-2.5 rounded-lg pointer-events-none flex items-center gap-1.5 text-mini font-medium
                      bg-amber-500/12 text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-500/30"
           style={{ height: ROW_PX }}
         >
@@ -1987,7 +1987,7 @@ export function TopicTree({
                 >
                   {rows.length > 0
                     ? <SidebarRowList>{rows.map(item => renderItem(item))}</SidebarRowList>
-                    : <div className="px-3 py-1 text-[11px] text-app-text-muted">{tr('sidebar.noTabs')}</div>}
+                    : <div className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
             })}
@@ -2069,7 +2069,7 @@ export function TopicTree({
         )}
 
         {filteredItems.length === 0 && (
-          <div className="px-4 py-8 text-center text-[12px] text-app-text-muted">
+          <div className="px-4 py-8 text-center text-compact text-app-text-muted">
             {searchQuery ? 'No results' : 'No active items'}
           </div>
         )}
@@ -2238,7 +2238,7 @@ export function TopicTree({
             className={`${MODAL_PANEL} w-[360px] p-3`}
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="mb-2 truncate text-[12px] font-medium text-app-text-heading">
+            <p className="mb-2 truncate text-compact font-medium text-app-text-heading">
               {progettoDaCondividere.nome}
             </p>
             <Suspense fallback={null}>
@@ -2396,7 +2396,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           <SessionActivity subjectId={s.id} onFill={onFill} />
         </span>
         {projectName && (
-          <span className={`text-[11px] truncate max-w-[80px] ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
+          <span className={`text-mini truncate max-w-[80px] ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
             {projectName}
           </span>
         )}
@@ -2426,7 +2426,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             another (real last touch, not frozen createdAt). */}
         <RelativeTime
           at={lastActivity}
-          className={`flex-shrink-0 text-[11px] tabular-nums ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+          className={`flex-shrink-0 text-mini tabular-nums ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
         />
         {/* Pinned ("Fissato") trailing glyph — mirrors the chat row's rail. */}
         {pinned && (
@@ -2827,7 +2827,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
         <RelativeTime
           at={bc.lastActivity}
-          className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums"
+          className="flex-shrink-0 text-mini text-app-text-tertiary tabular-nums"
         />
         {/* Pin glyph — same "Fissato" indicator as chat / terminal / project
             rows, nella stessa colonna perché ora sta nello stesso binario. */}

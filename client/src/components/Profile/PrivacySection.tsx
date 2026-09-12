@@ -78,8 +78,8 @@ function Switch({ on, onToggle, label, help, testId, disabled }: {
         </span>
       </button>
       <div className="min-w-0">
-        <div className="text-[13px] text-app-text">{label}</div>
-        <p className="text-[11.5px] leading-snug text-app-text-muted">{help}</p>
+        <div className="text-body text-app-text">{label}</div>
+        <p className="text-compact leading-snug text-app-text-muted">{help}</p>
       </div>
     </li>
   );
@@ -125,7 +125,7 @@ export function PrivacySection() {
   if (!ready) return null;
   if (!privacy) {
     return (
-      <p data-testid="privacy-unavailable" className="text-[12px] text-app-text-muted">
+      <p data-testid="privacy-unavailable" className="text-compact text-app-text-muted">
         {t('profile.notFound')}
       </p>
     );
@@ -146,7 +146,7 @@ export function PrivacySection() {
           />
         ))}
       </ul>
-      {error && <p className="text-[11px] text-red-500">{t('privacy.failed')}</p>}
+      {error && <p className="text-mini text-red-500">{t('privacy.failed')}</p>}
     </div>
   );
 }

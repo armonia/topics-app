@@ -45,14 +45,14 @@ export function PlanSurface({ content }: { content: string }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
       <div className="min-w-0 rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
-        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">{tr('board.task.proposedPlan')}</p>
-        <div className={`min-w-0 break-words text-sm text-app-text ${PLAN_MD_CLS}`} data-testid="plan-surface-body">
+        <p className="mb-2.5 text-mini font-semibold uppercase tracking-wide text-violet-300">{tr('board.task.proposedPlan')}</p>
+        <div className={`min-w-0 break-words text-body-lg text-app-text ${PLAN_MD_CLS}`} data-testid="plan-surface-body">
           <ChatMarkdown components={{}}>{body}</ChatMarkdown>
         </div>
         {options.length > 0 && (
           <ul className="mt-3 space-y-1 border-t border-violet-500/20 pt-3" data-testid="plan-surface-options">
             {options.map((opt, i) => (
-              <li key={i} className="flex items-start gap-2 text-[13px] text-app-text">
+              <li key={i} className="flex items-start gap-2 text-body text-app-text">
                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-violet-300/70" />
                 <span className="min-w-0 break-words">{opt}</span>
               </li>

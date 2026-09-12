@@ -123,7 +123,7 @@ export function PresencePopover({
         visibility: pos ? 'visible' : 'hidden',
       }}
     >
-      <div className="flex items-center gap-2 border-b border-app-border px-3 py-2 text-[11px] font-medium text-app-text">
+      <div className="flex items-center gap-2 border-b border-app-border px-3 py-2 text-mini font-medium text-app-text">
         {titolo}
       </div>
       {children}

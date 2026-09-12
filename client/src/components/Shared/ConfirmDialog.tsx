@@ -86,13 +86,13 @@ export function ConfirmDialog({
         className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="text-sm font-semibold text-app-text-heading mb-2">{title}</h3>
-        <div className="text-xs text-app-text-body mb-3">{children}</div>
+        <h3 className="text-body-lg font-semibold text-app-text-heading mb-2">{title}</h3>
+        <div className="text-compact text-app-text-body mb-3">{children}</div>
         <div className="flex items-center justify-end gap-2">
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
+            className="px-3 py-1.5 text-compact rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
           >
             {cancelWord}
           </button>
@@ -101,8 +101,8 @@ export function ConfirmDialog({
             disabled={confirmDisabled}
             className={
               tone === 'danger'
-                ? 'px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:hover:bg-red-600 transition-colors'
-                : 'px-3 py-1.5 text-xs rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:hover:bg-primary transition-colors'
+                ? 'px-3 py-1.5 text-compact rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-40 disabled:hover:bg-red-600 transition-colors'
+                : 'px-3 py-1.5 text-compact rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:hover:bg-primary transition-colors'
             }
           >
             {confirmWord}

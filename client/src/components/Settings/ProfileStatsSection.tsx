@@ -36,9 +36,9 @@ function compatto(n: number): string {
 function Cifra({ valore, etichetta, nota }: { valore: string; etichetta: string; nota?: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[19px] font-semibold leading-tight text-app-text tabular-nums">{valore}</div>
-      <div className="truncate text-[10.5px] uppercase tracking-wide text-app-text-tertiary">{etichetta}</div>
-      {nota && <div className="truncate text-[10.5px] text-app-text-muted">{nota}</div>}
+      <div className="text-headline font-semibold leading-tight text-app-text tabular-nums">{valore}</div>
+      <div className="truncate text-mini uppercase tracking-wide text-app-text-tertiary">{etichetta}</div>
+      {nota && <div className="truncate text-mini text-app-text-muted">{nota}</div>}
     </div>
   );
 }
@@ -184,8 +184,8 @@ export function ProfileStatsSection() {
   if (errore) {
     return (
       <div className="space-y-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">{t('profile.stats.title')}</h3>
-        <p className="text-[11px] text-app-text-tertiary">{t('profile.stats.unavailable')}</p>
+        <h3 className="text-mini font-semibold uppercase tracking-wide text-app-text-secondary">{t('profile.stats.title')}</h3>
+        <p className="text-mini text-app-text-tertiary">{t('profile.stats.unavailable')}</p>
       </div>
     );
   }
@@ -197,16 +197,16 @@ export function ProfileStatsSection() {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">
+      <h3 className="text-mini font-semibold uppercase tracking-wide text-app-text-secondary">
         {t('profile.stats.title')}
       </h3>
-      <p className="text-[11px] leading-relaxed text-app-text-tertiary">
+      <p className="text-mini leading-relaxed text-app-text-tertiary">
         {fromWhen ? t('profile.stats.blurbSince', { data: fromWhen }) : t('profile.stats.blurb')}
       </p>
 
       <div className="space-y-3 rounded-lg border border-app-border px-3 py-3" data-testid="profile-stats">
         {!s ? (
-          <div className="text-[11px] text-app-text-tertiary">{t('profile.stats.loading')}</div>
+          <div className="text-mini text-app-text-tertiary">{t('profile.stats.loading')}</div>
         ) : (
           <>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
@@ -240,11 +240,11 @@ export function ProfileStatsSection() {
             <Sparkline serie={s.activity.last30} />
 
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-app-border pt-2">
-              <span className="text-[11px] text-app-text-secondary">
+              <span className="text-mini text-app-text-secondary">
                 {t('profile.stats.spend', { v: s.cost.measuredUsd.toFixed(2) })}
               </span>
               {s.cost.uncertainRows > 0 && (
-                <span className="text-[10.5px] text-app-text-muted">
+                <span className="text-mini text-app-text-muted">
                   {t('profile.stats.uncertain', { n: s.cost.uncertainRows })}
                 </span>
               )}
@@ -253,7 +253,7 @@ export function ProfileStatsSection() {
             {/* Il banner sta qui e non in una scheda sua: è la stessa misura,
                 in un formato che si può portare fuori. */}
             <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-2">
-              <span className="text-[11px] text-app-text-secondary">{t('profile.banner.label')}</span>
+              <span className="text-mini text-app-text-secondary">{t('profile.banner.label')}</span>
               {/* `coarse:min-h-11`: dentro una riga flex questi `<a>` sono
                   elementi flex, quindi non ricadono nell'esenzione WCAG per il
                   link INLINE dentro una frase — sono bottoni a tutti gli
@@ -263,7 +263,7 @@ export function ProfileStatsSection() {
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => { e.preventDefault(); openLink(bannerUrl(), { external: isExternalLinkGesture(e), origin: e.target }); }}
-                className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {t('profile.banner.open')}
               </a>
@@ -272,7 +272,7 @@ export function ProfileStatsSection() {
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => { e.preventDefault(); openLink(bannerUrl('light'), { external: isExternalLinkGesture(e), origin: e.target }); }}
-                className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {t('profile.banner.light')}
               </a>
@@ -300,20 +300,20 @@ export function ProfileStatsSection() {
                   // diventa un'etichetta e smette di dire che e' successo ORA.
                   setTimeout(() => setCopiato(false), 2000);
                 }}
-                className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover coarse:min-h-11"
               >
                 {copiato ? t('profile.banner.copied') : t('profile.banner.copy')}
               </button>
-              <span className="text-[10.5px] text-app-text-muted">{t('profile.banner.hint')}</span>
+              <span className="text-mini text-app-text-muted">{t('profile.banner.hint')}</span>
               {avviso && (
-                <p data-testid="profile-banner-warning" className="w-full text-[10.5px] leading-snug text-amber-400">{avviso}</p>
+                <p data-testid="profile-banner-warning" className="w-full text-mini leading-snug text-amber-400">{avviso}</p>
               )}
             </div>
 
             {/* ── Pagina pubblica: token-gated, condivisione deliberata. ── */}
             <div className="flex flex-col gap-1.5 border-t border-app-border pt-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] text-app-text-secondary">{t('profile.public.label')}</span>
+                <span className="text-mini text-app-text-secondary">{t('profile.public.label')}</span>
                 {/* Pubblica / Revoca — il gesto deliberato. */}
                 {!token ? (
                   <button
@@ -321,7 +321,7 @@ export function ProfileStatsSection() {
                     data-testid="profile-public-publish"
                     onClick={handlePublish}
                     disabled={tokenBusy != null || appSettings == null}
-                    className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
+                    className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
                   >
                     {tokenBusy === 'publishing' ? t('profile.public.publishing') : t('profile.public.publish')}
                   </button>
@@ -332,7 +332,7 @@ export function ProfileStatsSection() {
                       target="_blank"
                       rel="noreferrer"
                       onClick={(e) => { e.preventDefault(); openLink(publicUrl!, { external: isExternalLinkGesture(e), origin: e.target }); }}
-                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover coarse:min-h-11"
                     >
                       {t('profile.public.open')}
                     </a>
@@ -344,7 +344,7 @@ export function ProfileStatsSection() {
                         setCopiatoLink(await copyText(publicUrl));
                         setTimeout(() => setCopiatoLink(false), 2000);
                       }}
-                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover coarse:min-h-11"
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover coarse:min-h-11"
                     >
                       {copiatoLink ? t('profile.public.copied') : t('profile.public.copy')}
                     </button>
@@ -353,7 +353,7 @@ export function ProfileStatsSection() {
                       data-testid="profile-public-revoke"
                       onClick={handleRevoke}
                       disabled={tokenBusy != null}
-                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover hover:text-app-text disabled:opacity-50 coarse:min-h-11"
+                      className="flex items-center rounded border border-app-border px-2 py-0.5 text-mini text-app-text-tertiary hover:bg-app-hover hover:text-app-text disabled:opacity-50 coarse:min-h-11"
                     >
                       {tokenBusy === 'revoking' ? t('profile.public.revoking') : t('profile.public.revoke')}
                     </button>
@@ -365,12 +365,12 @@ export function ProfileStatsSection() {
                   rest and the link still in the list, which reads exactly like
                   a click that did nothing. */}
               {tokenError && (
-                <p data-testid="profile-public-error" className="text-[10.5px] leading-snug text-red-500">
+                <p data-testid="profile-public-error" className="text-mini leading-snug text-red-500">
                   {tokenError}
                 </p>
               )}
               {/* State: unpublished, or how far the link actually reaches. */}
-              <p className="text-[10.5px] text-app-text-muted">
+              <p className="text-mini text-app-text-muted">
                 {!token
                   ? t('profile.public.notPublished')
                   : link.reach === 'public'
@@ -395,9 +395,9 @@ export function ProfileStatsSection() {
                   onChange={togglePublishCost}
                   disabled={appSettings == null}
                 />
-                <span className="text-[11px] text-app-text-secondary">
+                <span className="text-mini text-app-text-secondary">
                   {t('profile.public.showCost')}
-                  <span className="ml-1 text-[10.5px] text-app-text-muted">{t('profile.public.showCostHint')}</span>
+                  <span className="ml-1 text-mini text-app-text-muted">{t('profile.public.showCostHint')}</span>
                 </span>
               </label>
             </div>

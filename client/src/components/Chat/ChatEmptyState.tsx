@@ -100,17 +100,17 @@ export function ChatEmptyState({
         fading ? 'absolute bottom-full left-0 right-0 opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
+      <p className="text-body-lg font-medium text-app-text-secondary">{topic.name}</p>
       {/* `hasSystemPrompt` because the topics list no longer carries the prompt
           itself (see shared/types.ts): the badge only ever asked whether there
           is one. The direct field stays as the answer for a single topic. */}
       {(topic.hasSystemPrompt || topic.systemPrompt) && (
-        <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">
+        <p className="text-mini text-purple-400 mt-1 flex items-center justify-center gap-1">
           <Sparkles className="w-4 h-4" aria-hidden="true" /> {t('chat.empty.systemPrompt')}
         </p>
       )}
       {!topic.projectPath && (
-        <p className="text-[12px] text-app-text-muted mt-2">{t('chat.empty.start')}</p>
+        <p className="text-compact text-app-text-muted mt-2">{t('chat.empty.start')}</p>
       )}
       {/* Sopra le spunte e sotto il nome: e' il posto in cui si guarda per
           capire DOVE si sta scrivendo, prima di decidere cosa scrivere. Sparisce
@@ -121,7 +121,7 @@ export function ChatEmptyState({
         <p
           data-testid="chat-empty-context"
           title={t('chat.empty.contextTitle')}
-          className="mt-2 text-[11px] text-app-text-faint break-words"
+          className="mt-2 text-mini text-app-text-faint break-words"
         >
           {bits.join(' · ')}
         </p>
@@ -133,7 +133,7 @@ export function ChatEmptyState({
               key={q.labelKey}
               type="button"
               onClick={() => onPick(t(q.msgKey))}
-              className="px-3 py-1.5 text-[12px] rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift flex items-center gap-1.5"
+              className="px-3 py-1.5 text-compact rounded-full border border-app-border-light text-app-text-secondary hover:bg-app-hover hover:border-primary hover:text-primary transition-all hover-lift flex items-center gap-1.5"
             >
               <q.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
               {t(q.labelKey)}
@@ -142,7 +142,7 @@ export function ChatEmptyState({
         </div>
       )}
       {showHints && (
-        <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-[11px] text-app-text-faint">
+        <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 justify-center text-mini text-app-text-faint">
           <span className="flex items-center gap-1.5"><kbd className="kbd">{shortcut('K')}</kbd> {t('chat.empty.hint.commands')}</span>
           <span className="flex items-center gap-1.5"><kbd className="kbd">/</kbd> {t('chat.empty.hint.slash')}</span>
           {topic.projectPath && <span className="flex items-center gap-1.5"><kbd className="kbd">@</kbd> {t('chat.empty.hint.mention')}</span>}

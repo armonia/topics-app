@@ -57,7 +57,7 @@ export function DictationStrip({
       className={`${CHAT_STRIP} bg-app-hover border border-app-border-light px-3 py-2 flex items-center gap-2.5 flex-shrink-0`}
     >
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${listening ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
-      <span className="text-[12px] font-medium text-app-text">
+      <span className="text-compact font-medium text-app-text">
         {listening
           ? tr(live ? 'chat.dictation.live' : 'chat.dictation.listening')
           : tr('chat.dictation.transcribing')}
@@ -67,11 +67,11 @@ export function DictationStrip({
       {/* The live text takes the place of the hint, not a line of its own: a
           strip that grows while you speak pushes the composer down mid-sentence. */}
       {listening && partial ? (
-        <span data-testid="dictation-partial" className="text-[11px] italic text-app-text-tertiary truncate min-w-0">
+        <span data-testid="dictation-partial" className="text-mini italic text-app-text-tertiary truncate min-w-0">
           {partial}
         </span>
       ) : (
-        <span className="text-[11px] text-app-text-secondary truncate min-w-0">
+        <span className="text-mini text-app-text-secondary truncate min-w-0">
           {listening ? `${hint} · ` : ''}{engine ?? tr('chat.dictation.engineUnknown')}
         </span>
       )}
@@ -80,7 +80,7 @@ export function DictationStrip({
           type="button"
           onClick={onStop}
           data-testid="dictation-stop"
-          className="ml-auto px-3 py-1 text-[11px] rounded-md bg-app-surface border border-app-border-light hover:bg-app-hover transition-colors flex-shrink-0"
+          className="ml-auto px-3 py-1 text-mini rounded-md bg-app-surface border border-app-border-light hover:bg-app-hover transition-colors flex-shrink-0"
         >
           {tr('chat.dictation.stop')}
         </button>
@@ -99,7 +99,7 @@ function Elapsed({ since }: { since: number }) {
   }, []);
   const s = Math.max(0, Math.floor((now - since) / 1000));
   const text = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  return <span data-testid="dictation-elapsed" className="text-[11px] tabular-nums text-app-text-secondary">{text}</span>;
+  return <span data-testid="dictation-elapsed" className="text-mini tabular-nums text-app-text-secondary">{text}</span>;
 }
 
 const BARS = 12;

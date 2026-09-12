@@ -20,7 +20,7 @@ import { useT } from '../../hooks/useT';
  * il modo più veloce per rendere lento il pannello.
  *
  * Le righe NON hanno una tipografia loro: prendono quella delle righe della
- * lista modifiche, con cui dividono il pannello. Con un `text-[12px]` erano
+ * lista modifiche, con cui dividono il pannello. Con un `text-compact` erano
  * alte 24px contro 25,5 (misurato), cioè due liste sulla stessa colonna che non
  * stanno sulla stessa griglia — e l'evidenziazione al passaggio del mouse lo
  * mostra riga per riga.
@@ -46,7 +46,7 @@ function RowFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) 
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
       className="w-full flex items-center gap-1.5 px-3 py-[3px] text-left hover:bg-app-hover transition-colors"
     >
-      <span className={`${stateColor(file.status)} text-[8px] font-bold w-[14px] text-center flex-shrink-0`}>
+      <span className={`${stateColor(file.status)} text-nano font-bold w-[14px] text-center flex-shrink-0`}>
         {file.status}
       </span>
       <span className="truncate text-app-text-body min-w-0">
@@ -56,9 +56,9 @@ function RowFile({ file, onOpen }: { file: GitCommitFile; onOpen: () => void }) 
           </span>
         )}
         {nome}
-        {dir && <span className="text-app-text-muted ml-1 text-[11px]">{dir}</span>}
+        {dir && <span className="text-app-text-muted ml-1 text-mini">{dir}</span>}
       </span>
-      <span className="ml-auto text-[10px] tabular-nums flex-shrink-0 leading-none">
+      <span className="ml-auto text-micro tabular-nums flex-shrink-0 leading-none">
         {file.binary
           ? <span className="text-app-text-muted">bin</span>
           : <>
@@ -179,7 +179,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
         // porta già il popover, e un secondo «Cronologia» qui sarebbe una
         // ripetizione dentro un contenitore alto quattro righe.
         loading && commits.length === 0 ? (
-          <div className="px-3 py-2 flex items-center gap-2 text-[11px] text-app-text-muted">
+          <div className="px-3 py-2 flex items-center gap-2 text-mini text-app-text-muted">
             <Spinner size="sm" /> Carico…
           </div>
         ) : null
@@ -188,7 +188,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
           <button
             onClick={() => setExpanded(v => !v)}
             aria-expanded={expanded}
-            className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
+            className="flex items-center gap-1 text-mini font-medium text-app-text-tertiary uppercase tracking-wider hover:text-app-text-hover transition-colors"
           >
             {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
             <History size={10} />
@@ -206,9 +206,9 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
           delle modifiche. */}
       {expanded && (
         <div className={inPopover ? 'pb-1 overflow-y-auto flex-1 min-h-0' : 'pb-1 overflow-y-auto flex-1 min-h-0 max-h-[220px]'}>
-          {errore && <div className="px-3 py-1 text-[11px] text-red-500">{errore}</div>}
+          {errore && <div className="px-3 py-1 text-mini text-red-500">{errore}</div>}
           {!errore && !loading && commits.length === 0 && (
-            <div className="px-3 py-1 text-[11px] text-app-text-muted">{t('git.history.noCommits')}</div>
+            <div className="px-3 py-1 text-mini text-app-text-muted">{t('git.history.noCommits')}</div>
           )}
 
           {commits.map(c => {
@@ -224,7 +224,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
                 >
                   <GitCommit size={10} className="flex-shrink-0 text-app-text-tertiary" />
                   <span className="truncate text-app-text-body min-w-0">{c.message}</span>
-                  <span className="ml-auto flex items-center gap-1.5 flex-shrink-0 text-[10px] text-app-text-muted">
+                  <span className="ml-auto flex items-center gap-1.5 flex-shrink-0 text-micro text-app-text-muted">
                     <span className="font-mono">{c.shortHash || c.hash.slice(0, 7)}</span>
                     <span>{c.ago}</span>
                   </span>
@@ -233,10 +233,10 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
                 {aperto && (
                   <div className="bg-app-hover/40">
                     {caricandoDettaglio && (
-                      <div className="px-3 py-1 text-[11px] text-app-text-muted">{t('common.loading')}</div>
+                      <div className="px-3 py-1 text-mini text-app-text-muted">{t('common.loading')}</div>
                     )}
                     {!caricandoDettaglio && dettaglio?.files.length === 0 && (
-                      <div className="px-3 py-1 text-[11px] text-app-text-muted">
+                      <div className="px-3 py-1 text-mini text-app-text-muted">
                         {t('git.history.noFilesHere')}
                       </div>
                     )}
@@ -258,7 +258,7 @@ export function CommitHistory({ projectPath, onOpenFile, reloadKey, variant = 's
           {commits.length >= limit && (
             <button
               onClick={() => setLimit(l => l + PAGINA)}
-              className="w-full px-3 py-1 text-[11px] text-primary hover:underline text-left"
+              className="w-full px-3 py-1 text-mini text-primary hover:underline text-left"
             >
               {t('git.history.showMore', { n: PAGINA })}
             </button>

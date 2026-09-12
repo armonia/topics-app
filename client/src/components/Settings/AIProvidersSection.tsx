@@ -153,19 +153,19 @@ export function AIProvidersSection() {
 
   // Keep setup reachable when a previously registered provider fails.
   const providersBody = error && entries.length === 0 ? (
-    <div className="flex items-center gap-2 text-[12px] text-red-500">
+    <div className="flex items-center gap-2 text-compact text-red-500">
       <AlertCircle size={12} className="flex-shrink-0" />
       <span className="break-words flex-1">{error.message || 'Failed to load providers.'}</span>
       <button
         onClick={() => { void retry(); }}
-        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
+        className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover"
       >
         <RefreshCw size={11} />
         {tr('common.retry')}
       </button>
     </div>
   ) : loading && entries.length === 0 ? (
-    <div className="text-[12px] text-app-text-muted">Loading…</div>
+    <div className="text-compact text-app-text-muted">Loading…</div>
   ) : null;
 
   const renderProvider = (entry: ProviderSnapshotEntry) => (
@@ -191,20 +191,20 @@ export function AIProvidersSection() {
   return (
     <div className="space-y-6" data-testid="ai-providers-settings">
       <div className="space-y-3">
-        <h3 className="flex items-center gap-2 text-[13px] font-medium text-app-text">
+        <h3 className="flex items-center gap-2 text-body font-medium text-app-text">
           <Cpu size={14} />
           {tr('ai.api.title')}
         </h3>
-        <p className="text-[12px] text-app-text-secondary">{tr('ai.api.intro')}</p>
-        <p className="text-[11px] text-app-text-muted" data-testid="api-billing-note">{tr('ai.api.billing')}</p>
+        <p className="text-compact text-app-text-secondary">{tr('ai.api.intro')}</p>
+        <p className="text-mini text-app-text-muted" data-testid="api-billing-note">{tr('ai.api.billing')}</p>
         {providersBody}
         {(settingsError || defaultError) && (
-          <div role="alert" className="text-[11px] text-red-500">{defaultError ?? settingsError}</div>
+          <div role="alert" className="text-mini text-red-500">{defaultError ?? settingsError}</div>
         )}
         {/* A runtime can be the saved default even though it is deliberately
             absent from the provider cards. Validate against the full registry. */}
         {snapshot && settings?.aiProvider && !snapshot.providers.some((entry) => entry.name === settings.aiProvider) && (
-          <div data-testid="provider-default-missing" className="flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
+          <div data-testid="provider-default-missing" className="flex items-center gap-2 text-mini text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
             <AlertCircle size={12} className="flex-shrink-0" />
             <span className="flex-1 break-words">
               {tr('ai.saved.prefix')} <span className="font-mono">{settings.aiProvider}</span>{tr('ai.saved.suffix')}
@@ -229,8 +229,8 @@ export function AIProvidersSection() {
       </div>
 
       {entries.some((entry) => !isApiProvider(entry.name)) && <div className="border-t border-app-border pt-3 space-y-2">
-        <h3 className="text-[13px] font-medium text-app-text">{tr('ai.agents.title')}</h3>
-        <p className="text-[11px] text-app-text-secondary">{tr('ai.agents.hint')}</p>
+        <h3 className="text-body font-medium text-app-text">{tr('ai.agents.title')}</h3>
+        <p className="text-mini text-app-text-secondary">{tr('ai.agents.hint')}</p>
         {entries.filter((entry) => !isApiProvider(entry.name)).map(renderProvider)}
       </div>}
 
@@ -241,15 +241,15 @@ export function AIProvidersSection() {
           aria-expanded={advanced}
           aria-controls="ai-providers-advanced"
           onClick={() => setAdvanced((value) => !value)}
-          className="w-full flex items-center gap-2 py-2 coarse:min-h-11 text-left text-[12px] font-medium text-app-text"
+          className="w-full flex items-center gap-2 py-2 coarse:min-h-11 text-left text-compact font-medium text-app-text"
         >
           {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           {tr('ai.advanced.title')}
         </button>
-        <p className="text-[11px] text-app-text-muted">{tr('ai.advanced.hint')}</p>
+        <p className="text-mini text-app-text-muted">{tr('ai.advanced.hint')}</p>
         {advanced && <div id="ai-providers-advanced" data-testid="ai-providers-advanced" className="mt-3 space-y-4">
           {settings && <div className="space-y-3 rounded-lg border border-app-border px-3 py-3">
-            <h3 className="text-[13px] font-medium text-app-text">{tr('ai.execution.title')}</h3>
+            <h3 className="text-body font-medium text-app-text">{tr('ai.execution.title')}</h3>
             <AgentRuntimeChoice
               settings={settings}
               saving={saving}
@@ -356,14 +356,14 @@ function ProviderCard({
         {expanded ? <ChevronDown size={13} className="text-app-text-muted flex-shrink-0" /> : <ChevronRight size={13} className="text-app-text-muted flex-shrink-0" />}
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[entry.status]}`} />
         <span className="min-w-0 flex-1">
-          <span className="block text-[12px] font-semibold text-app-text">{label}</span>
-          {selectedModel && <span className="block truncate text-[11px] text-app-text-secondary" title={selectedModel}>{selectedModel}</span>}
+          <span className="block text-compact font-semibold text-app-text">{label}</span>
+          {selectedModel && <span className="block truncate text-mini text-app-text-secondary" title={selectedModel}>{selectedModel}</span>}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1">
-          <span className="text-[11px] text-app-text-secondary">{tr(`ai.status.${entry.status}`)}</span>
+          <span className="text-mini text-app-text-secondary">{tr(`ai.status.${entry.status}`)}</span>
           {entry.isDefault && (
             <span
-              className="text-[11px] bg-primary/20 text-primary px-1.5 py-0.5 rounded"
+              className="text-mini bg-primary/20 text-primary px-1.5 py-0.5 rounded"
               title={!defaultKnown
                 ? tr('ai.default.unknown')
                 : explicitDefault
@@ -378,14 +378,14 @@ function ProviderCard({
 
       {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-app-border space-y-2">
-          {isApiProvider(entry.name) && <p className="text-[11px] text-app-text-secondary">{tr('ai.api.chat')}</p>}
+          {isApiProvider(entry.name) && <p className="text-mini text-app-text-secondary">{tr('ai.api.chat')}</p>}
           {/* Action row */}
           <div className="flex items-center gap-2 flex-wrap">
             {canTest && (
               <button
                 onClick={(e) => { e.stopPropagation(); onTest(); }}
                 disabled={testing}
-                className="flex items-center gap-1 px-2 py-1 coarse:min-h-11 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
+                className="flex items-center gap-1 px-2 py-1 coarse:min-h-11 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
               >
                 <RefreshCw size={11} className={testing ? 'animate-spin' : ''} />
                 {tr('ai.testConnection')}
@@ -394,7 +394,7 @@ function ProviderCard({
             {!entry.isDefault && entry.status === 'ready' && (
               <button
                 onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
-                className="px-2 py-1 coarse:min-h-11 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover"
+                className="px-2 py-1 coarse:min-h-11 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover"
               >
                 {tr('ai.setDefault')}
               </button>
@@ -404,13 +404,13 @@ function ProviderCard({
               <button
                 onClick={(e) => { e.stopPropagation(); onClearDefault(); }}
                 disabled={saving}
-                className="px-2 py-1 coarse:min-h-11 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
+                className="px-2 py-1 coarse:min-h-11 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover disabled:opacity-50"
               >
                 {tr('ai.clearDefault')}
               </button>
             )}
             {result && (
-              <span className={`text-[11px] flex items-center gap-1 ${result.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+              <span className={`text-mini flex items-center gap-1 ${result.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
                 {result.ok ? <Check size={11} /> : <AlertCircle size={11} />}
                 {result.message}
               </span>
@@ -430,14 +430,14 @@ function ProviderCard({
 
           {/* Binary path */}
           {entry.binaryPath && (
-            <div className="text-[11px] text-app-text-muted font-mono break-all">
+            <div className="text-mini text-app-text-muted font-mono break-all">
               {entry.binaryPath}
             </div>
           )}
 
           {/* Last error (only when no fresh test result has overridden) */}
           {entry.lastError && !result && (
-            <div className="flex items-start gap-1.5 text-[11px] text-red-500">
+            <div className="flex items-start gap-1.5 text-mini text-red-500">
               <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
               <span className="break-words">{entry.lastError}</span>
             </div>
@@ -454,14 +454,14 @@ function ProviderCard({
 
           {apiProvider && (hasKey && entry.status === 'ready' ? (
             <details className="border-t border-app-border pt-2" data-testid={`provider-key-details-${entry.name}`}>
-              <summary className="cursor-pointer py-1 text-[12px] text-app-text-secondary coarse:min-h-11">{tr('ai.api.replaceKey')}</summary>
+              <summary className="cursor-pointer py-1 text-compact text-app-text-secondary coarse:min-h-11">{tr('ai.api.replaceKey')}</summary>
               <div className="pt-2"><ApiKeyForm provider={apiProvider} replacing onSaved={onAfterConfigure} /></div>
             </details>
           ) : <ApiKeyForm provider={apiProvider} replacing={hasKey} onSaved={onAfterConfigure} />)}
 
           {/* Freshness footer */}
           {entry.fetchedAt && (
-            <div className="text-[11px] text-app-text-muted pt-1">
+            <div className="text-mini text-app-text-muted pt-1">
               Updated {relativeTime(entry.fetchedAt)}
             </div>
           )}
@@ -584,8 +584,8 @@ function UnregisteredClaudeCode({
   const tr = useT();
   return (
     <div className="rounded-lg border border-dashed border-app-border px-3 py-2">
-      <div className="text-[12px] font-semibold text-app-text">Claude Code</div>
-      <div className="text-[11px] text-app-text-muted mb-1">
+      <div className="text-compact font-semibold text-app-text">Claude Code</div>
+      <div className="text-mini text-app-text-muted mb-1">
         {tr('ai.claude.missing.prefix')} <span className="font-mono">claude</span> {tr('ai.claude.missing.suffix')}
       </div>
       <SettingSelect
@@ -617,7 +617,7 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
   };
 
   return (
-    <div className="text-[11px]">
+    <div className="text-mini">
       <div className="flex items-center gap-1.5">
         {req.present ? (
           <Check size={12} className="text-green-500 flex-shrink-0" />
@@ -631,7 +631,7 @@ function RequirementRow({ req }: { req: { key: string; label: string; present: b
           <span className="break-words flex-1">{req.hint}</span>
           <button
             onClick={copy}
-            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface border border-app-border hover:bg-app-hover text-[11px]"
+            className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface border border-app-border hover:bg-app-hover text-mini"
             title="Copy"
           >
             <Copy size={10} />

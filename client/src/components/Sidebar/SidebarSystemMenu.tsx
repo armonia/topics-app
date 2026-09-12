@@ -131,7 +131,7 @@ const ProjectUsagePanel = lazy(importProjectUsagePanel);
  *  diverge. */
 function item(isMobile: boolean): string {
   return 'w-full flex items-center gap-2.5 px-3 text-app-text hover:bg-app-hover transition-colors '
-    + (isMobile ? 'py-3 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]');
+    + (isMobile ? 'py-3 text-body-lg' : 'py-1.5 text-compact coarse:py-3 coarse:text-body-lg');
 }
 
 export interface SidebarSystemMenuProps {
@@ -358,7 +358,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           minWidth={320}
           className="max-h-[min(78vh,560px)] overflow-y-auto"
         >
-          <Suspense fallback={<div className="p-3 text-center text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
+          <Suspense fallback={<div className="p-3 text-center text-mini text-app-text-muted">{tr('common.loading')}</div>}>
             <ProjectUsagePanel range={usageRange} onRange={setUsageRange} />
           </Suspense>
         </SubmenuItem>
@@ -380,7 +380,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           minWidth={300}
           className="max-h-[min(78vh,560px)] overflow-y-auto"
         >
-          <Suspense fallback={<div className="p-3 text-center text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
+          <Suspense fallback={<div className="p-3 text-center text-mini text-app-text-muted">{tr('common.loading')}</div>}>
             <SystemStatusPanel enabled />
           </Suspense>
         </SubmenuItem>
@@ -399,7 +399,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         className="p-3 space-y-3"
         onOpenChange={setMostraVersione}
         tail={
-          <span className="flex flex-shrink-0 items-center gap-1.5 text-[12px] tabular-nums">
+          <span className="flex flex-shrink-0 items-center gap-1.5 text-compact tabular-nums">
             <VersionChip
               appVersion={version}
               shellVersion={versioneGuscio}
@@ -412,7 +412,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           </span>
         }
       >
-        <Suspense fallback={<div className="min-h-24 text-[11px] text-app-text-muted">{tr('common.loading')}</div>}>
+        <Suspense fallback={<div className="min-h-24 text-mini text-app-text-muted">{tr('common.loading')}</div>}>
           <VersionPanel
             appVersion={version}
             shellVersion={versioneGuscio}

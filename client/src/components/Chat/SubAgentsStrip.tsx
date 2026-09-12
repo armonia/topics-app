@@ -23,7 +23,7 @@ function SubAgentRow({ id, name, busy }: { id: string; name: string; busy: boole
       type="button"
       onClick={() => window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }))}
       title={busy ? tr('subagent.busy', { name }) : tr('subagent.open', { name })}
-      className="flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface/60 px-2.5 py-1 text-[11px] text-app-text hover:bg-app-surface transition-colors max-w-[200px]"
+      className="flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface/60 px-2.5 py-1 text-mini text-app-text hover:bg-app-surface transition-colors max-w-[200px]"
     >
       {busy
         ? <Loader2 size={11} className="animate-spin text-blue-500 flex-shrink-0" />
@@ -40,7 +40,7 @@ export const SubAgentsStrip = memo(function SubAgentsStrip({ topicSessionKey }: 
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg/40 overflow-x-auto">
-      <span className="flex items-center gap-1 text-[11px] text-app-text-muted flex-shrink-0">
+      <span className="flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0">
         <Bot size={12} />
         <span>Sotto-agenti</span>
       </span>

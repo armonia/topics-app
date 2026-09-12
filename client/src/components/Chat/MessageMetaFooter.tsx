@@ -195,8 +195,8 @@ export function MessageMetaFooter({ latencyMs, latencyTitle, latencyPrefix, prom
       data-variant={variant}
       className={
         inline
-          ? 'text-[11px] text-app-text-muted flex items-center gap-1.5 whitespace-nowrap'
-          : 'mt-2 text-[11px] text-app-text-muted flex items-center gap-1.5 flex-wrap'
+          ? 'text-mini text-app-text-muted flex items-center gap-1.5 whitespace-nowrap'
+          : 'mt-2 text-mini text-app-text-muted flex items-center gap-1.5 flex-wrap'
       }
     >
       {parts.map((p, i) => (

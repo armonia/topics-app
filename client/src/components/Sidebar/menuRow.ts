@@ -10,5 +10,5 @@
  */
 export function menuRowClass(isMobile: boolean): string {
   return 'w-full flex items-center gap-2.5 px-3 text-app-text hover:bg-app-hover transition-colors '
-    + (isMobile ? 'py-3 min-h-11 text-[14px]' : 'py-1.5 text-[12px] coarse:py-3 coarse:text-[14px]');
+    + (isMobile ? 'py-3 min-h-11 text-body-lg' : 'py-1.5 text-compact coarse:py-3 coarse:text-body-lg');
 }

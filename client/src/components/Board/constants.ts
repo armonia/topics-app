@@ -16,8 +16,8 @@ export const COMPACT_MD_CLS =
   // a hash — wraps instead of forcing the surface (card / drawer) to overflow.
   '[&_p]:my-0.5 [&_p]:break-words [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 ' +
   '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:break-words [&_li]:marker:text-app-text-muted ' +
-  '[&_h1]:font-semibold [&_h1]:text-[13px] [&_h2]:font-semibold [&_h2]:text-[13px] [&_h3]:font-semibold [&_h3]:text-xs [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
-  '[&_code]:text-xs md:[&_code]:text-[11px] [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-app-border-light [&_blockquote]:pl-2 [&_blockquote]:text-app-text-secondary [&_strong]:font-semibold';
+  '[&_h1]:font-semibold [&_h1]:text-body [&_h2]:font-semibold [&_h2]:text-body [&_h3]:font-semibold [&_h3]:text-compact [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
+  '[&_code]:text-compact md:[&_code]:text-mini [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-app-border-light [&_blockquote]:pl-2 [&_blockquote]:text-app-text-secondary [&_strong]:font-semibold';
 
 // A PLAN is a document, not a chat bubble: this reading typography gives it a
 // roomy vertical rhythm, section-divider headings, and prominent numbered steps
@@ -27,16 +27,16 @@ export const COMPACT_MD_CLS =
 export const PLAN_MD_CLS =
   '[&_p]:my-2 [&_p]:leading-relaxed ' +
   // Headings act as section titles with an underline divider; first one flush to top.
-  '[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:pb-1 [&_h1]:border-b [&_h1]:border-app-border [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:text-app-text ' +
-  '[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-app-border [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:text-app-text ' +
-  '[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:text-app-text ' +
+  '[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:pb-1 [&_h1]:border-b [&_h1]:border-app-border [&_h1]:text-title [&_h1]:font-semibold [&_h1]:text-app-text ' +
+  '[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-app-border [&_h2]:text-body-lg [&_h2]:font-semibold [&_h2]:text-app-text ' +
+  '[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-body [&_h3]:font-semibold [&_h3]:text-app-text ' +
   '[&>*:first-child]:mt-0 ' +
   // Roomy lists; numbered steps get a bold violet marker so each step reads as a beat.
   '[&_ul]:my-2 [&_ul]:pl-5 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:pl-6 [&_ol]:list-decimal ' +
   '[&_li]:my-1.5 [&_li]:pl-1 [&_li]:leading-relaxed [&_li]:marker:text-violet-300/70 [&_ol>li]:marker:font-semibold [&_ol>li]:marker:text-violet-300 ' +
   '[&_li_ul]:my-1 [&_li_ol]:my-1 ' +
-  '[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-black/40 [&_pre]:p-3 [&_pre]:text-[12px] ' +
-  '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_code]:text-[12px] ' +
+  '[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-black/40 [&_pre]:p-3 [&_pre]:text-compact ' +
+  '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_code]:text-compact ' +
   '[&_a]:text-sky-400 [&_a]:underline [&_strong]:font-semibold [&_strong]:text-app-text ' +
   '[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-violet-400/40 [&_blockquote]:pl-3 [&_blockquote]:text-app-text-secondary ' +
   '[&_hr]:my-3 [&_hr]:border-app-border';
@@ -363,7 +363,7 @@ export const filterFocusRingClass =
   'has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary/70';
 
 export const filterFieldClass = (active: boolean) =>
-  `flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${filterFocusRingClass} ${
+  `flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 rounded-md px-2 text-mini transition-colors ${filterFocusRingClass} ${
     active
       ? 'bg-black/15 text-app-text dark:bg-white/15'
       : 'bg-black/5 text-app-text-heading hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'
@@ -375,7 +375,7 @@ export const filterFieldClass = (active: boolean) =>
  * already the field. Shared so the two inputs cannot drift apart again.
  */
 export const filterInputClass =
-  'h-5 min-w-0 flex-1 bg-transparent text-[11px] leading-none text-app-text outline-none placeholder:text-app-placeholder';
+  'h-5 min-w-0 flex-1 bg-transparent text-mini leading-none text-app-text outline-none placeholder:text-app-placeholder';
 
 /**
  * A PILL inside the token field: the value the field holds. It sits on an
@@ -384,12 +384,12 @@ export const filterInputClass =
  * pills melt into the field the moment it darkens.
  */
 export const filterTokenPillClass =
-  'inline-flex shrink-0 items-center gap-1 rounded border border-app-border-light bg-black/5 px-1.5 py-0.5 text-[11px] font-medium text-app-text-heading dark:bg-white/10';
+  'inline-flex shrink-0 items-center gap-1 rounded border border-app-border-light bg-black/5 px-1.5 py-0.5 text-mini font-medium text-app-text-heading dark:bg-white/10';
 
 /** Caption of a group inside a filter dropdown. It was a local string inside
  *  `InlineFilters`; the field that owns the menu now owns the class. */
 export const filterMenuCaptionClass =
-  'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted';
+  'px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted';
 
 /**
  * The board's five filter axes. It used to be declared TWICE inside

@@ -78,7 +78,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
     // moves rather than on the day it breaks.
     <div data-testid="system-status-panel" className="pt-2 pb-2 px-2">
       {error && !status && (
-        <div className="px-2 py-1 text-[11px] text-red-500">{error}</div>
+        <div className="px-2 py-1 text-mini text-red-500">{error}</div>
       )}
 
       {status && (
@@ -162,7 +162,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
         <button
           onClick={doRefresh}
           disabled={refreshing || loading}
-          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-mini text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
         >
           <RefreshCw size={12} className={refreshing || loading ? 'animate-spin' : ''} />
           {refreshing
@@ -198,7 +198,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
               });
             }}
             disabled={restarting}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] rounded transition-colors whitespace-nowrap ${
+            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-mini rounded transition-colors whitespace-nowrap ${
               confirmingRestart
                 ? 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20'
                 : 'text-amber-400 hover:text-amber-300 hover:bg-app-hover'
@@ -216,7 +216,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
       {erroreRiavvio && (
         <div
           data-testid="system-restart-error"
-          className="mt-1.5 flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1 text-[11px] text-red-400"
+          className="mt-1.5 flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1 text-mini text-red-400"
         >
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           <span className="min-w-0 break-words">{erroreRiavvio}</span>
@@ -243,12 +243,12 @@ function StatusRow({ icon, label, value, detail, color }: StatusRowProps) {
     <div className="flex items-center gap-1.5 px-2 py-1.5 rounded">
       <span className={`w-1.5 h-1.5 rounded-full ${dotColor} flex-shrink-0`} />
       <span className="text-app-text-muted flex-shrink-0">{icon}</span>
-      <span className="text-[11px] text-app-text-muted flex-shrink-0">{label}</span>
-      <span className="text-[11px] font-medium text-app-text flex-1 text-right">
+      <span className="text-mini text-app-text-muted flex-shrink-0">{label}</span>
+      <span className="text-mini font-medium text-app-text flex-1 text-right">
         {value}
       </span>
       {detail && (
-        <span className="text-[11px] text-app-text-muted flex-shrink-0">{detail}</span>
+        <span className="text-mini text-app-text-muted flex-shrink-0">{detail}</span>
       )}
     </div>
   );

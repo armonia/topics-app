@@ -149,10 +149,10 @@ export function SuggestionMenu<T>({
     >
       <div className="px-3 py-1.5 border-b border-app-border flex items-center gap-2">
         {headerIcon ?? <Search size={12} className="text-app-text-secondary" />}
-        <span className="text-[11px] text-app-text-muted font-medium">{headerLabel}</span>
-        {filterBadge && <span className="text-[11px] text-primary font-mono">{filterBadge}</span>}
+        <span className="text-mini text-app-text-muted font-medium">{headerLabel}</span>
+        {filterBadge && <span className="text-mini text-primary font-mono">{filterBadge}</span>}
         <div className="flex-1" />
-        <span className="text-[11px] text-app-text-muted">{hint ?? '↑↓ navigate · Enter select · Esc close'}</span>
+        <span className="text-mini text-app-text-muted">{hint ?? '↑↓ navigate · Enter select · Esc close'}</span>
       </div>
 
       <div
@@ -163,12 +163,12 @@ export function SuggestionMenu<T>({
         className="overflow-y-auto flex-1"
       >
         {loading ? (
-          <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
+          <div className="px-3 py-4 text-center text-compact text-app-text-muted">
             <Spinner size="md" className="mx-auto mb-2" />
             {loadingLabel ?? 'Loading…'}
           </div>
         ) : items.length === 0 ? (
-          <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
+          <div className="px-3 py-4 text-center text-compact text-app-text-muted">
             {emptyLabel ?? 'No matches'}
           </div>
         ) : (

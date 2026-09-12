@@ -179,7 +179,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
       body: (
         <div className="space-y-2">
           <p>{tr('board.publish.confirmBodyStart', { n: p.ahead })}<span className="font-mono">origin/{p.branch}</span>{tr('board.publish.confirmBodyEnd')}</p>
-          <ul className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-[11px]">
+          <ul className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-mini">
             {shown.map((c) => (
               <li key={c.hash} className="truncate">• {c.subject} ({c.hash}, {c.author})</li>
             ))}
@@ -219,7 +219,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
         onClick={() => { setOpen((s) => !s); refresh(); }}
         title={title}
         /* The row's one height (`TOOLBAR_CONTROL_H`), not a literal of its own. */
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1.5 rounded px-2 text-[11px] transition-colors ${tone}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1.5 rounded px-2 text-mini transition-colors ${tone}`}
       >
         <span>{tr('board.toolbar.delivery')}</span>
         {unlanded.length > 0 && (
@@ -239,7 +239,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
               chiuso il cui lavoro non risulta da nessuna parte. */}
           {unlanded.length > 0 && (
             <div className="border-b border-app-border pb-1">
-              <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-rose-300/90">
+              <div className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-rose-300/90">
                 {tr('board.unlanded.title')}
               </div>
               {unlanded.map((t) => (
@@ -253,13 +253,13 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                   <span className="min-w-0 flex-1 truncate text-left">{t.text}</span>
                 </button>
               ))}
-              <p className="px-3 pb-1 pt-1 text-[11px] leading-snug text-app-text-muted">
+              <p className="px-3 pb-1 pt-1 text-mini leading-snug text-app-text-muted">
                 {tr('board.unlanded.blurb')}
               </p>
             </div>
           )}
           {/* GRADINO 2 — su main, ma non ancora fuori. */}
-          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
+          <div className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-app-text-muted">{tr('board.publish.toPublish')}</div>
           {/* COSA SUCCEDE DOPO IL PUSH, detto PRIMA del clic e non in un
               tooltip: su questo repo main e' spedito, quindi «Pubblica» non e'
               un salvataggio — fa uscire una release che arriva all'auto-updater
@@ -276,14 +276,14 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                  un avviso che non si legge non e' un avviso. Stessa taratura
                  dei segnali della status bar (amber-800 chiaro / amber-400
                  scuro, 6,04 e 11,52), che l'ha gia' pagata una volta. */
-              className="px-3 pb-1 text-[11px] leading-snug text-amber-800 dark:text-amber-400"
+              className="px-3 pb-1 text-mini leading-snug text-amber-800 dark:text-amber-400"
             >
               {tr('board.publish.consequence')}
             </p>
           )}
           <div className="p-1 pt-0">
             {pending.length === 0 ? (
-              <div className="px-2 py-1.5 text-[11px] text-app-text-muted">{tr('board.publish.nothing')}</div>
+              <div className="px-2 py-1.5 text-mini text-app-text-muted">{tr('board.publish.nothing')}</div>
             ) : pending.map((p) => {
               const isOpen = expanded === p.projectId;
               return (
@@ -295,27 +295,27 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                       title={isOpen ? tr('board.unlanded.hide') : tr('board.unlanded.show')}
                     >
                       {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
-                      <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">{p.name}<span className="ml-1 text-[11px] text-app-text-muted">{p.ahead} commit · {p.branch}</span></span>
+                      <span className="min-w-0 flex-1 truncate text-compact text-app-text">{p.name}<span className="ml-1 text-mini text-app-text-muted">{p.ahead} commit · {p.branch}</span></span>
                     </button>
-                    <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
+                    <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-mini text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
                   </div>
                   {isOpen && (
                     <ul className="mb-1 ml-4 space-y-0.5 border-l border-app-border pl-2">
                       {p.commits.map((c) => (
-                        <li key={c.hash} className="flex items-baseline gap-1.5 text-[11px] leading-tight">
+                        <li key={c.hash} className="flex items-baseline gap-1.5 text-mini leading-tight">
                           <code className="shrink-0 text-app-text-muted">{c.hash}</code>
                           <span className="min-w-0 flex-1 truncate text-app-text-heading" title={c.subject}>{c.subject}</span>
                           <span className="shrink-0 text-app-text-faint">{c.author} · {c.when}</span>
                         </li>
                       ))}
-                      {p.commits.length >= 50 && <li className="text-[10px] text-app-text-faint">{tr('board.publish.truncated')}</li>}
+                      {p.commits.length >= 50 && <li className="text-micro text-app-text-faint">{tr('board.publish.truncated')}</li>}
                     </ul>
                   )}
                   {isOpen && (
                     <div className="mb-1.5 ml-4 border-l border-app-border pl-2">
-                      <div className="mb-0.5 text-[9px] uppercase tracking-wide text-app-text-faint">{tr('board.publish.diffTitle')}</div>
-                      {diffs[p.projectId] === 'loading' && <div className="text-[11px] text-app-text-muted">{tr('board.publish.loadingDiff')}</div>}
-                      {diffs[p.projectId] === 'error' && <div className="text-[11px] text-red-400">{tr('board.publish.diffError')}</div>}
+                      <div className="mb-0.5 text-nano uppercase tracking-wide text-app-text-faint">{tr('board.publish.diffTitle')}</div>
+                      {diffs[p.projectId] === 'loading' && <div className="text-mini text-app-text-muted">{tr('board.publish.loadingDiff')}</div>}
+                      {diffs[p.projectId] === 'error' && <div className="text-mini text-red-400">{tr('board.publish.diffError')}</div>}
                       {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
                         <UnifiedDiff bundle={diffs[p.projectId] as DiffBundle} />
                       )}
@@ -324,7 +324,7 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                 </div>
               );
             })}
-            {msg && <div className="mt-0.5 border-t border-app-border px-2 py-1.5 text-[11px] text-app-text-secondary">{msg}</div>}
+            {msg && <div className="mt-0.5 border-t border-app-border px-2 py-1.5 text-mini text-app-text-secondary">{msg}</div>}
           </div>
       </Menu>
     </>
@@ -368,13 +368,13 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid="worktree-count-badge"
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-[11px] ${orphan > 0
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${orphan > 0
           ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
           : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
       >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
-        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
-          <p className="text-[12px] font-medium text-app-text-heading">{tr('board.worktree.countOpen', { n: count })}</p>
+        <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
+          <p className="text-compact font-medium text-app-text-heading">{tr('board.worktree.countOpen', { n: count })}</p>
           <p>{tr('board.worktree.whatStart')}<span className="font-mono">git worktree</span>{tr('board.worktree.whatEnd')}</p>
           {branches && branches.total > 0 && (
             <p data-testid="worktree-branches-line">
@@ -389,15 +389,15 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
           <button
             onClick={onGc}
             disabled={gcRunning}
-            className="shrink-0 rounded bg-white/10 px-2 py-1 text-[11px] text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            className="shrink-0 rounded bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
           >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
-          <span className="text-[10px] leading-snug text-app-text-muted">
+          <span className="text-micro leading-snug text-app-text-muted">
             {tr('board.worktree.gcHint')}
           </span>
         </div>
         {gcResult && (
-          <p className="border-t border-app-border px-3 py-1.5 text-[11px] leading-snug text-app-text-secondary" data-testid="worktree-gc-result">{gcResult}</p>
+          <p className="border-t border-app-border px-3 py-1.5 text-mini leading-snug text-app-text-secondary" data-testid="worktree-gc-result">{gcResult}</p>
         )}
       </Menu>
     </>
@@ -456,14 +456,14 @@ function LoadAdviceChip() {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         data-testid="load-advice-chip"
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-[11px] font-medium ${cls}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini font-medium ${cls}`}
       >
         <AlertTriangle className="h-3 w-3 shrink-0" />
         {tr('board.load.stopN', { n: over })}
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288}>
-        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
-          <p className="text-[12px] font-medium text-app-text-heading">
+        <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
+          <p className="text-compact font-medium text-app-text-heading">
             {tr('board.load.headline', { running: cap.running ?? 0, recommended: cap.recommended })}
           </p>
           {cap.oursCores != null ? (
@@ -509,10 +509,10 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         onClick={() => setOpen((o) => !o)}
         data-testid="missions-button"
         title={tr('board.toolbar.missionsTitle')}
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-[11px] ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
-        <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+        <div className="px-3 pb-1 pt-2 text-micro font-semibold uppercase tracking-wide text-app-text-muted">
           {tr('board.mission.toProject')}
         </div>
         {MISSIONS.map((m) => (
@@ -523,8 +523,8 @@ function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
             className={`${POPOVER_ITEM} flex-col !items-start gap-0.5 py-1.5`}
           >
             <span className="font-medium text-app-text">{m.name}</span>
-            <span className="text-[11px] leading-snug text-app-text-secondary">{m.summary}</span>
-            <span className="text-[11px] leading-snug text-app-text-muted">{tr('board.mission.doneWhen', { what: m.doneWhen })}</span>
+            <span className="text-mini leading-snug text-app-text-secondary">{m.summary}</span>
+            <span className="text-mini leading-snug text-app-text-muted">{tr('board.mission.doneWhen', { what: m.doneWhen })}</span>
           </button>
         ))}
       </Menu>
@@ -1815,11 +1815,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <>
             <button
               onClick={() => setMode('project')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-xs ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-xs ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
@@ -1864,7 +1864,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               disabled={openingOrchestrator}
               title={tr('board.orchestrator.openTitle')}
               aria-label={tr('board.orchestrator.open')}
-              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] disabled:cursor-wait disabled:opacity-60 ${
+              className={`flex items-center gap-1 rounded px-2 py-0.5 text-mini disabled:cursor-wait disabled:opacity-60 ${
                 orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
               }`}
             >
@@ -1919,15 +1919,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         </div>
       )}
       </div>
-      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
+      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact text-rose-300">{error}</div>}
       {dropNotice && (
-        <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-300">{dropNotice}</div>
+        <div data-testid="board-drop-notice" className="shrink-0 bg-sky-500/10 px-3 py-1.5 text-compact text-sky-300">{dropNotice}</div>
       )}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
       {showArchived && mode === 'project' && (
-        <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
+        <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-compact text-amber-200">
           <Archive className="h-3.5 w-3.5 shrink-0" />
           <span>{tr('board.archive.banner', { count: tasks.length, restore: taskActionWord('restore', tr).label })}</span>
           <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
@@ -2056,19 +2056,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   // di priorità ed etichette. Vedi il memo `dragPreview`.
                   <div
                     data-drag-preview=""
-                    className="w-64 rounded-md border border-app-border bg-surface p-2.5 text-sm text-app-text shadow-xl"
+                    className="w-64 rounded-md border border-app-border bg-surface p-2.5 text-body-lg text-app-text shadow-xl"
                   >
                     <div className="flex items-start gap-2">
                       <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
                       <div className="min-w-0 flex-1">
                         <div className="leading-snug">{activeTask.text}</div>
                         {dragPreview.subtitle && (
-                          <div className="mt-1 truncate text-[11px] text-app-text-muted">{dragPreview.subtitle}</div>
+                          <div className="mt-1 truncate text-mini text-app-text-muted">{dragPreview.subtitle}</div>
                         )}
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-micro text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}

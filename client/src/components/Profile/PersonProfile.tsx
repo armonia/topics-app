@@ -69,14 +69,14 @@ export function PersonProfile({ personId, onBack }: { personId: string; onBack: 
         type="button"
         onClick={onBack}
         data-testid="person-profile-back"
-        className="inline-flex items-center gap-1.5 text-[12px] text-app-text-muted hover:text-primary coarse:min-h-11"
+        className="inline-flex items-center gap-1.5 text-compact text-app-text-muted hover:text-primary coarse:min-h-11"
       >
         <ArrowLeft size={13} />
         {t('profile.back')}
       </button>
 
       {missing === personId && (
-        <p data-testid="person-profile-missing" className="text-[13px] text-app-text-muted">
+        <p data-testid="person-profile-missing" className="text-body text-app-text-muted">
           {t('profile.notFound')}
         </p>
       )}

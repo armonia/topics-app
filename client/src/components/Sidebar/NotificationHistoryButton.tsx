@@ -134,7 +134,7 @@ export function NotificationHistoryButton({
           data-testid="notification-history-panel"
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-app-border flex-shrink-0">
-            <span className="text-[12px] font-semibold text-app-text">{tr('notifications.panelTitle')}</span>
+            <span className="text-compact font-semibold text-app-text">{tr('notifications.panelTitle')}</span>
             <button
               onClick={() => { setOpen(false); onOpenSettings(); }}
               className="w-6 h-6 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors cursor-pointer"
@@ -150,12 +150,12 @@ export function NotificationHistoryButton({
             {rows.length === 0 ? (
               <div className="px-3 py-6 text-center" data-testid="notification-history-empty">
                 <Inbox size={18} className="mx-auto mb-2 text-app-text-muted" aria-hidden="true" />
-                <div className="text-[12px] text-app-text-secondary">
+                <div className="text-compact text-app-text-secondary">
                   {loading ? tr('common.loading') : tr('notifications.empty')}
                 </div>
                 {!loading && (
                   // La verità, non un riempitivo: il registro parte da qui.
-                  <div className="text-[11px] text-app-text-muted mt-1">
+                  <div className="text-mini text-app-text-muted mt-1">
                     {tr('notifications.logStartsHere')}
                   </div>
                 )}
@@ -185,13 +185,13 @@ export function NotificationHistoryButton({
                         />
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline gap-2">
-                            <span className="text-[12px] font-medium text-app-text truncate">{row.title}</span>
-                            <span className="text-[10px] text-app-text-muted tabular-nums flex-shrink-0 ml-auto">
+                            <span className="text-compact font-medium text-app-text truncate">{row.title}</span>
+                            <span className="text-micro text-app-text-muted tabular-nums flex-shrink-0 ml-auto">
                               {formatNotificationAge(row.createdAt)}
                             </span>
                           </span>
                           {row.body && (
-                            <span className="block text-[11px] text-app-text-secondary line-clamp-2">{row.body}</span>
+                            <span className="block text-mini text-app-text-secondary line-clamp-2">{row.body}</span>
                           )}
                         </span>
                       </button>
@@ -206,14 +206,14 @@ export function NotificationHistoryButton({
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
-                className="w-full px-3 py-2 text-[11px] text-app-text-secondary hover:bg-app-hover transition-colors cursor-pointer disabled:cursor-default"
+                className="w-full px-3 py-2 text-mini text-app-text-secondary hover:bg-app-hover transition-colors cursor-pointer disabled:cursor-default"
                 data-testid="notification-history-more"
               >
                 {loadingMore ? tr('notifications.loadingMore') : tr('notifications.loadMore')}
               </button>
             )}
             {rows.length > 0 && !hasMore && (
-              <div className="px-3 py-2 text-[11px] text-app-text-muted text-center" data-testid="notification-history-end">
+              <div className="px-3 py-2 text-mini text-app-text-muted text-center" data-testid="notification-history-end">
                 {tr('notifications.allLoaded')}
               </div>
             )}

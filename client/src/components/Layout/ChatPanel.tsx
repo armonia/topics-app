@@ -140,14 +140,14 @@ export function ChatPanel({
             </div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" {...NO_DRAG_REGION} draggable onDragStart={onDragStart}>
-              <span className="text-[14px] font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
+              <span className="text-body-lg font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
               {topic.provider === 'openclaw' && (
-                <span className="text-[11px] px-1 py-px rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5 flex-shrink-0" title="Cloud (OpenClaw)">
+                <span className="text-mini px-1 py-px rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5 flex-shrink-0" title="Cloud (OpenClaw)">
                   <Cloud size={10} /> Cloud
                 </span>
               )}
               {currentMessages.length > 0 && (
-                <span className="text-[11px] text-app-text-muted tabular-nums ml-1">{currentMessages.length} msg</span>
+                <span className="text-mini text-app-text-muted tabular-nums ml-1">{currentMessages.length} msg</span>
               )}
             </div>
           )}
@@ -210,14 +210,14 @@ export function ChatPanel({
             {/* Same real project favicon as the sidebar / tab bar; icon-less
                 projects render nothing (no fake folder glyph). */}
             <ProjectFavicon path={suggestedProject} size={16} className="flex-shrink-0" />
-            <div className="flex-1 min-w-0"><div className="text-[12px] font-medium text-primary">{tr('chat.linkProject.question')}</div><div className="text-[11px] text-app-text-secondary truncate">{suggestedProject}</div></div>
-            <button onClick={() => { onUpdateTopic(topic.id, { projectPath: suggestedProject }); setSuggestedProject(null); }} className="px-3 py-1 text-[11px] bg-primary text-white rounded-md hover:bg-primary-hover transition-colors">{tr('chat.linkProject.link')}</button>
-            <button onClick={() => setSuggestedProject(null)} className="px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text transition-colors">{tr('chat.linkProject.skip')}</button>
+            <div className="flex-1 min-w-0"><div className="text-compact font-medium text-primary">{tr('chat.linkProject.question')}</div><div className="text-mini text-app-text-secondary truncate">{suggestedProject}</div></div>
+            <button onClick={() => { onUpdateTopic(topic.id, { projectPath: suggestedProject }); setSuggestedProject(null); }} className="px-3 py-1 text-mini bg-primary text-white rounded-md hover:bg-primary-hover transition-colors">{tr('chat.linkProject.link')}</button>
+            <button onClick={() => setSuggestedProject(null)} className="px-2 py-1 text-mini text-app-text-muted hover:text-app-text transition-colors">{tr('chat.linkProject.skip')}</button>
           </div>
         )}
         {commandResult && (
           <div className={`px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
-            <div className={`text-[12px] flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
+            <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
             <button aria-label={tr('chat.command.dismiss')} onClick={() => setCommandResult(null)} className="text-app-text-muted hover:text-app-text p-1"><X size={12} /></button>
           </div>
         )}

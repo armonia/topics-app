@@ -87,7 +87,7 @@ export function SidebarUpdateBanner({
     <div
       data-testid={testId}
       data-update-kind={kind}
-      className={`edge-lit flex w-full items-start gap-2 rounded-lg p-2.5 text-[12px] ${
+      className={`edge-lit flex w-full items-start gap-2 rounded-lg p-2.5 text-compact ${
         tone === 'ready'
           ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
           : tone === 'error'
@@ -97,7 +97,7 @@ export function SidebarUpdateBanner({
     >
       {icon && <span className="mt-0.5 flex-shrink-0">{icon}</span>}
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wide text-app-text-tertiary">{tr(EYEBROW_KEY[kind])}</div>
+        <div className="text-micro uppercase tracking-wide text-app-text-tertiary">{tr(EYEBROW_KEY[kind])}</div>
         {/* IT WRAPS, IT DOES NOT TRUNCATE. The column gives this card about
             244px: "Aggiornamento v2.2.277 disponibile" came out cut after
             "disp", and a version announcement that hides the end of itself is

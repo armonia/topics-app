@@ -672,7 +672,7 @@ export function PinnedTiles({
         }}
       >
         <div
-          className={`${PINNED_TILE_H} pointer-events-none flex items-center justify-center rounded-lg border border-dashed border-app-border text-[11px] text-app-text-tertiary`}
+          className={`${PINNED_TILE_H} pointer-events-none flex items-center justify-center rounded-lg border border-dashed border-app-border text-mini text-app-text-tertiary`}
         >
           Fissa qui
         </div>

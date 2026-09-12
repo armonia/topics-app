@@ -5,8 +5,8 @@ import type { ReactNode } from 'react';
  *
  * Prima ogni pannello scriveva il suo vuoto a mano, con stili che divergevano
  * anche DENTRO lo stesso file (CommandPalette rendeva "No projects" con
- * `px-4 py-8 text-center text-[13px]` e "Nessun risultato" di colonna con
- * `px-3 py-2 text-[11px] italic`). Le due misure NON sono un errore da
+ * `px-4 py-8 text-center text-body` e "Nessun risultato" di colonna con
+ * `px-3 py-2 text-mini italic`). Le due misure NON sono un errore da
  * appiattire: sono due cose diverse, e restano due `variant`.
  *
  *  · `panel`   — il vuoto di TUTTO un pannello: centrato, generoso, con spazio
@@ -36,15 +36,15 @@ export function EmptyState({ icon, title, hint, action, variant = 'panel', class
     // Vuoto di colonna: una riga sola, come la resa storica delle sezioni del
     // CommandPalette. Niente icona/azione — se servono, è un `panel`.
     return (
-      <div data-testid="empty-state" data-variant="section" className={`px-3 py-2 text-[11px] text-app-text-muted italic ${className}`}>{title}</div>
+      <div data-testid="empty-state" data-variant="section" className={`px-3 py-2 text-mini text-app-text-muted italic ${className}`}>{title}</div>
     );
   }
 
   return (
     <div data-testid="empty-state" data-variant="panel" className={`flex flex-col items-center justify-center gap-1 px-4 py-8 text-center ${className}`}>
       {icon && <div className="text-app-text-muted opacity-40 mb-1">{icon}</div>}
-      <p className="text-[13px] text-app-text-muted">{title}</p>
-      {hint && <p className="text-[12px] text-app-text-tertiary max-w-xs">{hint}</p>}
+      <p className="text-body text-app-text-muted">{title}</p>
+      {hint && <p className="text-compact text-app-text-tertiary max-w-xs">{hint}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );

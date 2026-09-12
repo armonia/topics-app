@@ -147,9 +147,9 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
             }`}
           >
             <File size={14} className="text-app-text-muted flex-shrink-0" />
-            <span className="text-[12px] font-medium truncate">{file.name}</span>
+            <span className="text-compact font-medium truncate">{file.name}</span>
             {dir && (
-              <span className="text-[11px] text-app-text-muted truncate ml-auto flex-shrink-0">
+              <span className="text-mini text-app-text-muted truncate ml-auto flex-shrink-0">
                 {dir}
               </span>
             )}

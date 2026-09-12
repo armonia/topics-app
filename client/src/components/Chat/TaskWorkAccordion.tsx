@@ -46,7 +46,7 @@ export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; 
       data-testid="task-work-accordion"
       data-open={open ? 'true' : 'false'}
       data-actions={String(total)}
-      className="my-0.5 text-[12px]"
+      className="my-0.5 text-compact"
     >
       <button
         type="button"
@@ -70,11 +70,11 @@ export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; 
           >
             {label ?? workTitle}
           </span>
-          {label && total > 0 && <span className="text-[11px] text-app-text-muted">{workTitle}</span>}
+          {label && total > 0 && <span className="text-mini text-app-text-muted">{workTitle}</span>}
           {summary.errors > 0 && (
             <span
               data-testid="task-work-errors"
-              className="flex-shrink-0 inline-flex items-center gap-0.5 tabular-nums text-[11px] text-red-500"
+              className="flex-shrink-0 inline-flex items-center gap-0.5 tabular-nums text-mini text-red-500"
             >
               <X size={11} /> {tr('chat.taskWork.failed', { n: String(summary.errors) })}
             </span>
@@ -82,18 +82,18 @@ export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; 
           {!label && summary.subAgents > 0 && (
             <span
               data-testid="task-work-subagents"
-              className="flex-shrink-0 inline-flex items-center gap-0.5 text-[11px] text-app-text-muted"
+              className="flex-shrink-0 inline-flex items-center gap-0.5 text-mini text-app-text-muted"
             >
               <Users size={11} /> {summary.subAgents}
             </span>
           )}
-          {!label && <span className="min-w-0 flex-1 truncate text-[11px] text-app-text-muted">
+          {!label && <span className="min-w-0 flex-1 truncate text-mini text-app-text-muted">
             {formatToolCounts(summary.counts)}
           </span>}
           {!label && files && (
             <span
               data-testid="task-work-files"
-              className="hidden flex-shrink-0 items-center gap-1 text-[11px] text-app-text-muted sm:inline-flex"
+              className="hidden flex-shrink-0 items-center gap-1 text-mini text-app-text-muted sm:inline-flex"
             >
               <FileDiff size={11} /> {files}
             </span>
@@ -101,7 +101,7 @@ export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; 
           {!label && summary.durationMs !== undefined && (
             <span
               data-testid="task-work-duration"
-              className="flex-shrink-0 tabular-nums text-[10px] text-app-text-muted"
+              className="flex-shrink-0 tabular-nums text-micro text-app-text-muted"
             >
               {formatDurationMs(summary.durationMs)}
             </span>

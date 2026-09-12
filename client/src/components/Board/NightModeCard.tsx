@@ -114,17 +114,17 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
         />
       </label>
 
-      <p className="mt-1 text-[11px] leading-snug text-app-text-muted">{tr('board.night.blurb')}</p>
+      <p className="mt-1 text-mini leading-snug text-app-text-muted">{tr('board.night.blurb')}</p>
 
       {enabled && (
         <>
           <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-[11px] text-app-text-muted">{tr('board.night.until')}</span>
+            <span className="text-mini text-app-text-muted">{tr('board.night.until')}</span>
             <input
               type="time"
               value={until}
               onChange={(e) => onChange({ nightModeUntil: e.target.value })}
-              className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text"
+              className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text"
               data-testid="night-mode-until"
             />
           </div>
@@ -132,9 +132,9 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
           <div className="mt-2 flex items-start gap-2" data-testid="night-mode-state">
             <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${toneDot}`} aria-hidden />
             <div className="min-w-0">
-              <div className="text-[11px] font-medium text-app-text">{tr(info.titleKey)}</div>
+              <div className="text-mini font-medium text-app-text">{tr(info.titleKey)}</div>
               {detail && (
-                <div className="text-[11px] leading-snug text-app-text-muted">{detail}</div>
+                <div className="text-mini leading-snug text-app-text-muted">{detail}</div>
               )}
             </div>
           </div>
@@ -145,7 +145,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
                   «oltre la soglia» sì. La soglia è per core, quindi la stessa
                   barra significa la stessa cosa su macchine diverse. */}
               <div className="mt-2">
-                <div className="flex items-baseline justify-between text-[10px] text-app-text-muted">
+                <div className="flex items-baseline justify-between text-micro text-app-text-muted">
                   <span>{tr('board.night.load')}</span>
                   <span className="tabular-nums">
                     {st.load1.toFixed(1)} / {soglia.toFixed(1)} ({tr('board.night.cores', { n: st.cores })})
@@ -159,7 +159,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
                 </div>
               </div>
 
-              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-app-text-muted">
+              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-micro text-app-text-muted">
                 <span>
                   {st.busySessions === 0
                     ? tr('board.night.nobodyAttached')

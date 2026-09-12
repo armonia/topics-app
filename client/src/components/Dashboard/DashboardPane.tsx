@@ -43,7 +43,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
       <div className="flex items-center justify-between px-4 py-2 border-b border-app-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <BarChart3 size={14} className="text-app-text-muted" />
-          <span className="text-[13px] font-semibold text-app-text">Dashboard</span>
+          <span className="text-body font-semibold text-app-text">Dashboard</span>
         </div>
         <div className="flex items-center gap-1.5">
           {/* The refresh glyph keeps its box when it is not spinning. Mounting
@@ -55,14 +55,14 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
             aria-hidden={!loading}
             className={`text-app-text-muted ${loading ? 'animate-spin' : 'opacity-0'}`}
           />
-          <span className="text-[11px] text-app-text-muted">Auto-refresh 60s</span>
+          <span className="text-mini text-app-text-muted">Auto-refresh 60s</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-4 p-4">
         {/* The one banner, whether or not numbers had landed before the failure. */}
         {error && (
-          <div className="text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">
+          <div className="text-mini text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">
             {kpis ? `Refresh failed: ${error}` : error}
           </div>
         )}
@@ -78,7 +78,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
                 <button
                   key={opt.value}
                   onClick={() => setSelectedMetric(opt.value)}
-                  className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                  className={`px-2 py-0.5 text-mini rounded transition-colors ${
                     selectedMetric === opt.value
                       ? 'bg-primary/10 text-primary font-medium'
                       : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'

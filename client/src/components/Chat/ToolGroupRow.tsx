@@ -51,7 +51,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
   const expanded = open || live;
 
   return (
-    <div data-testid="tool-group-row" data-group-id={tools[0]?.id} className="text-[12px]">
+    <div data-testid="tool-group-row" data-group-id={tools[0]?.id} className="text-compact">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -92,12 +92,12 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
           {summary.errors > 0 && (
             <span
               data-testid="tool-group-errors"
-              className="flex-shrink-0 inline-flex items-center gap-0.5 text-[11px] tabular-nums text-red-500"
+              className="flex-shrink-0 inline-flex items-center gap-0.5 text-mini tabular-nums text-red-500"
             >
               <X size={11} /> {summary.errors} {summary.errors === 1 ? 'fallita' : 'fallite'}
             </span>
           )}
-          <span className="min-w-0 flex-1 text-[11px] text-app-text-muted truncate">
+          <span className="min-w-0 flex-1 text-mini text-app-text-muted truncate">
             {formatToolCounts(summary.counts)}
           </span>
           {/* La colonna di destra è ormai di soli NUMERI: durata e costo, che si
@@ -110,13 +110,13 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
               <ElapsedTimer since={summary.startedAt} title={tr('toolgroup.elapsed')} />
             )}
             {summary.durationMs !== undefined && !live && (
-              <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-duration">
+              <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-duration">
                 {formatDurationMs(summary.durationMs)}
               </span>
             )}
             {/* Costo sommato delle azioni del gruppo — la sua parte del turno. */}
             {groupCost && (
-              <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title={tr('toolgroup.cost')}>
+              <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-group-cost" title={tr('toolgroup.cost')}>
                 {groupCost}
               </span>
             )}

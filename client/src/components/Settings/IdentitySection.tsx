@@ -106,12 +106,12 @@ export function TolliQueue({ tolti, onDelete, inCorso, rifiuto, t }: {
   if (tolti.length === 0) return null;
   return (
     <div>
-      <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+      <h4 className="mb-1.5 text-mini font-medium uppercase tracking-wide text-app-text-muted">
         {t('identity.removedHeading')}
       </h4>
       <ul className="space-y-1" data-testid="identity-removed">
         {tolti.map((m) => (
-          <li key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text-muted">
+          <li key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-compact text-app-text-muted">
             <User size={12} className="flex-shrink-0 opacity-50" />
             <span className="min-w-0 flex-1 truncate line-through">{m.name}</span>
             <button
@@ -129,7 +129,7 @@ export function TolliQueue({ tolti, onDelete, inCorso, rifiuto, t }: {
       {/* Il rifiuto DICE cosa fare prima: «ha ancora un dispositivo» è una
           condizione da sciogliere, non un divieto. */}
       {rifiuto && (
-        <p className="mt-1 px-3 text-[11px] leading-snug text-app-text-secondary">{t(rifiuto)}</p>
+        <p className="mt-1 px-3 text-mini leading-snug text-app-text-secondary">{t(rifiuto)}</p>
       )}
     </div>
   );
@@ -418,13 +418,13 @@ export function IdentitySection({ onOrgChange }: {
   // I due elenchi. `tolti` esiste per un gesto solo: cancellare davvero.
   const { presenti, tolti } = splitMembri(membri);
   const soloTu = presenti.length <= 1;
-  const campo = 'w-full rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary';
+  const campo = 'w-full rounded border border-app-border bg-app-bg px-2 py-1 text-body text-app-text outline-none focus:border-primary';
 
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-[13px] font-semibold text-app-text">{t('identity.title')}</h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
+        <h3 className="text-body font-semibold text-app-text">{t('identity.title')}</h3>
+        <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">
           {/* A chi è solo non si spiega un concetto che non gli serve ancora:
               gli si dice a cosa servirà, in una riga. */}
           {soloTu ? t('identity.blurb.solo') : t('identity.blurb.group')}
@@ -438,7 +438,7 @@ export function IdentitySection({ onOrgChange }: {
             <button
               key={g.id}
               onClick={() => setScelto(g.id)}
-              className={`max-w-[14rem] truncate rounded border px-2 py-1 text-[11.5px] ${
+              className={`max-w-[14rem] truncate rounded border px-2 py-1 text-compact ${
                 g.id === scelto
                   ? 'border-primary bg-app-hover text-app-text'
                   : 'border-app-border text-app-text-secondary hover:bg-app-hover'
@@ -467,7 +467,7 @@ export function IdentitySection({ onOrgChange }: {
                 <button
                   disabled={inCorso}
                   onClick={() => void salva()}
-                  className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
+                  className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover disabled:opacity-50"
                 >
                   {t('identity.save')}
                 </button>
@@ -483,7 +483,7 @@ export function IdentitySection({ onOrgChange }: {
                     onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                   />
                 ) : (
-                  <div className="flex size-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-400">
+                  <div className="flex size-5 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-nano font-bold text-indigo-400">
                     {gruppo.name.slice(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -493,7 +493,7 @@ export function IdentitySection({ onOrgChange }: {
                   className="group flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default coarse:min-h-11"
                   title={amministra ? t('identity.renameGroup') : t('identity.notAdmin')}
                 >
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">
+                  <span className="min-w-0 flex-1 truncate text-mini font-semibold uppercase tracking-wide text-app-text-secondary">
                     {gruppo.name}
                   </span>
                   {amministra && (
@@ -543,13 +543,13 @@ export function IdentitySection({ onOrgChange }: {
                   <button
                     disabled={inCorso}
                     onClick={() => void salva()}
-                    className="rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
+                    className="rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover disabled:opacity-50"
                   >
                     {t('identity.save')}
                   </button>
                   <button
                     onClick={() => setModifica(null)}
-                    className="rounded px-2 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover"
+                    className="rounded px-2 py-0.5 text-mini text-app-text-tertiary hover:bg-app-hover"
                   >
                     {t('identity.cancel')}
                   </button>
@@ -567,8 +567,8 @@ export function IdentitySection({ onOrgChange }: {
                   className="min-w-0 flex-1 text-left coarse:min-h-11"
                   title={t('identity.editPerson')}
                 >
-                  <span className="block truncate text-[12.5px] text-app-text">{m.name}</span>
-                  {m.email && <span className="block truncate text-[11px] text-app-text-muted">{m.email}</span>}
+                  <span className="block truncate text-body text-app-text">{m.name}</span>
+                  {m.email && <span className="block truncate text-mini text-app-text-muted">{m.email}</span>}
                 </button>
                 {/* THE NAME EDITS, THE ICON OPENS. Two different verbs need two
                     different targets: on this row the name is already the way
@@ -599,9 +599,9 @@ export function IdentitySection({ onOrgChange }: {
                     options={RUOLI.map((r) => ({ value: r, label: t(`identity.role.${r}`) }))}
                   />
                 ) : (
-                  <span className="flex-shrink-0 text-[11px] text-app-text-muted">{t(`identity.role.${m.role}`)}</span>
+                  <span className="flex-shrink-0 text-mini text-app-text-muted">{t(`identity.role.${m.role}`)}</span>
                 ))}
-                <span className="flex-shrink-0 text-[11px] text-app-text-muted">
+                <span className="flex-shrink-0 text-mini text-app-text-muted">
                   {/* Zero dispositivi non è un errore: è il caso normale di chi
                       è stato aggiunto e non si è ancora collegato. Detto qui,
                       perché un contatore a zero senza spiegazione sembra un
@@ -628,13 +628,13 @@ export function IdentitySection({ onOrgChange }: {
         ))}
 
         {!amministra ? (
-          <div className="border-t border-app-border px-3 py-2 text-[11px] text-app-text-muted">
+          <div className="border-t border-app-border px-3 py-2 text-mini text-app-text-muted">
             {t('identity.notAdmin')}
           </div>
         ) : nuovo === null ? (
           <button
             onClick={() => { setNuovo({ nome: '', email: '' }); setRifiuto(null); }}
-            className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-[12.5px] text-app-text-secondary hover:bg-app-hover coarse:min-h-11"
+            className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-body text-app-text-secondary hover:bg-app-hover coarse:min-h-11"
           >
             <Plus size={13} className="flex-shrink-0 text-app-text-tertiary" />
             {t('identity.addPerson')}
@@ -662,13 +662,13 @@ export function IdentitySection({ onOrgChange }: {
               <button
                 disabled={inCorso}
                 onClick={() => void aggiungi()}
-                className="rounded border border-app-border px-2 py-0.5 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
+                className="rounded border border-app-border px-2 py-0.5 text-mini text-app-text hover:bg-app-hover disabled:opacity-50"
               >
                 {t('identity.add')}
               </button>
               <button
                 onClick={() => { setNuovo(null); setRifiuto(null); }}
-                className="rounded px-2 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover"
+                className="rounded px-2 py-0.5 text-mini text-app-text-tertiary hover:bg-app-hover"
               >
                 {t('identity.cancel')}
               </button>
@@ -678,7 +678,7 @@ export function IdentitySection({ onOrgChange }: {
                 vedrebbe. Il nome digitato resta, così riprovare non vuol dire
                 riscrivere. */}
             {rifiuto && (
-              <p className="text-[11px] leading-snug text-app-text-secondary">
+              <p className="text-mini leading-snug text-app-text-secondary">
                 {t(rifiuto === 'noSeats' ? 'identity.noSeats' : 'identity.addFailed')}
               </p>
             )}
@@ -692,7 +692,7 @@ export function IdentitySection({ onOrgChange }: {
         {memberRefusal && (
           <p
             data-testid="identity-error"
-            className="border-t border-app-border px-3 py-2 text-[11px] leading-snug text-red-500"
+            className="border-t border-app-border px-3 py-2 text-mini leading-snug text-red-500"
           >
             {t(memberRefusal)}
           </p>
@@ -713,7 +713,7 @@ export function IdentitySection({ onOrgChange }: {
       {nuovoGruppo === null ? (
         <button
           onClick={() => { setNuovoGruppo(''); setGroupRefusal(null); }}
-          className="flex items-center gap-1.5 text-[11.5px] text-app-text-secondary hover:text-app-text coarse:min-h-11"
+          className="flex items-center gap-1.5 text-compact text-app-text-secondary hover:text-app-text coarse:min-h-11"
         >
           <Plus size={12} className="flex-shrink-0 text-app-text-tertiary" />
           {t('identity.newGroup')}
@@ -732,13 +732,13 @@ export function IdentitySection({ onOrgChange }: {
           <button
             disabled={inCorso}
             onClick={() => void createGroup()}
-            className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50"
+            className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover disabled:opacity-50"
           >
             {t('identity.create')}
           </button>
           <button
             onClick={() => { setNuovoGruppo(null); setGroupRefusal(null); }}
-            className="flex-shrink-0 rounded px-2 py-1 text-[11px] text-app-text-tertiary hover:bg-app-hover"
+            className="flex-shrink-0 rounded px-2 py-1 text-mini text-app-text-tertiary hover:bg-app-hover"
           >
             {t('identity.cancel')}
           </button>
@@ -748,12 +748,12 @@ export function IdentitySection({ onOrgChange }: {
       {/* Attached to the form, like the one on «add a person» fifteen lines
           up: whoever just pressed «Create» is looking here. */}
       {groupRefusal && (
-        <p data-testid="identity-group-error" className="text-[11px] leading-snug text-red-500">
+        <p data-testid="identity-group-error" className="text-mini leading-snug text-red-500">
           {t(groupRefusal)}
         </p>
       )}
 
-      <p className="text-[10px] leading-snug text-app-text-muted">
+      <p className="text-micro leading-snug text-app-text-muted">
         {t('identity.footnote')}
       </p>
     </div>

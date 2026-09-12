@@ -209,7 +209,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-app-text-tertiary">
+      <div className="flex items-center gap-2 px-3 py-2 text-mini text-app-text-tertiary">
         <Spinner size="sm" />
         Loading branches...
       </div>
@@ -218,7 +218,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
 
   return (
     <>
-    <div className="text-[12px]">
+    <div className="text-compact">
       {/* New branch input */}
       {showNewInput && (
         <div className="px-2 py-1.5 border-b border-app-border flex items-center gap-1">
@@ -228,7 +228,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             value={newBranchName}
             onChange={e => setNewBranchName(e.target.value)}
             placeholder="branch-name"
-            className="flex-1 min-w-0 h-[22px] px-1.5 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+            className="flex-1 min-w-0 h-[22px] px-1.5 text-mini bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
             onKeyDown={e => {
               if (e.key === 'Enter') { e.preventDefault(); handleCreateBranch(); }
               if (e.key === 'Escape') { setShowNewInput(false); setNewBranchName(''); }
@@ -238,7 +238,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
           <button
             onClick={handleCreateBranch}
             disabled={creating || !newBranchName.trim()}
-            className="px-1.5 h-[22px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+            className="px-1.5 h-[22px] text-mini font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
           >
             {creating ? <Spinner size="xs" tone="current" /> : 'Create'}
           </button>
@@ -247,7 +247,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
 
       {/* Local branches */}
       <div className="px-2 py-1 flex items-center justify-between">
-        <div className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
+        <div className="flex items-center gap-1 text-mini font-medium text-app-text-tertiary uppercase tracking-wider">
           <Monitor size={10} />
           Local ({localBranches.length})
         </div>
@@ -283,7 +283,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       {/* Remote branches */}
       {remoteBranches.length > 0 && (
         <>
-          <div className="px-2 py-1 mt-1 flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
+          <div className="px-2 py-1 mt-1 flex items-center gap-1 text-mini font-medium text-app-text-tertiary uppercase tracking-wider">
             <Globe size={10} />
             Remote ({remoteBranches.length})
           </div>
@@ -312,7 +312,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                 ) : (
                   <Globe size={12} className="flex-shrink-0 opacity-30" />
                 )}
-                <span className="truncate text-[11px]">{localName}</span>
+                <span className="truncate text-mini">{localName}</span>
               </div>
             );
           })}
@@ -323,7 +323,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
       {remotes !== undefined && (
         <>
           <div className="px-2 py-1 mt-1 flex items-center justify-between">
-            <div className="flex items-center gap-1 text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
+            <div className="flex items-center gap-1 text-mini font-medium text-app-text-tertiary uppercase tracking-wider">
               <Link size={10} />
               Remotes{remotes.length > 0 ? ` (${remotes.length})` : ''}
             </div>
@@ -345,14 +345,14 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                   value={newRemoteName}
                   onChange={e => setNewRemoteName(e.target.value)}
                   placeholder="name"
-                  className="w-[50px] h-[20px] px-1 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                  className="w-[50px] h-[20px] px-1 text-mini bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
                 />
                 <input
                   type="text"
                   value={newRemoteUrl}
                   onChange={e => setNewRemoteUrl(e.target.value)}
                   placeholder="https://github.com/..."
-                  className="flex-1 min-w-0 h-[20px] px-1 text-[11px] bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
+                  className="flex-1 min-w-0 h-[20px] px-1 text-mini bg-app-hover dark:bg-app-bg border border-app-border-input rounded focus:outline-none focus:border-primary text-app-text-heading placeholder-app-text-faint"
                   onKeyDown={e => {
                     if (e.key === 'Enter') { e.preventDefault(); handleAddRemoteSubmit(); }
                     if (e.key === 'Escape') { setShowRemoteInput(false); setNewRemoteName('origin'); setNewRemoteUrl(''); }
@@ -362,7 +362,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
                 <button
                   onClick={handleAddRemoteSubmit}
                   disabled={addingRemote || !newRemoteName.trim() || !newRemoteUrl.trim()}
-                  className="px-1.5 h-[20px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
+                  className="px-1.5 h-[20px] text-mini font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
                 >
                   {addingRemote ? <Spinner size="xs" tone="current" /> : 'Add'}
                 </button>
@@ -396,7 +396,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             role="menuitem"
             data-testid="branch-menu-checkout"
             onClick={() => { const n = rowMenu.name; setRowMenu(null); handleCheckout(n); }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
             <GitBranch size={14} className="text-app-text-tertiary" /> Checkout
           </button>
@@ -405,7 +405,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             role="menuitem"
             data-testid="branch-menu-delete"
             onClick={() => { const n = rowMenu.name; setRowMenu(null); void askDeleteBranch(n); }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-app-hover transition-colors flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 text-compact text-red-600 dark:text-red-400 hover:bg-app-hover transition-colors flex items-center gap-2"
           >
             <Trash2 size={14} /> Delete branch
           </button>
@@ -416,7 +416,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
           role="menuitem"
           data-testid="remote-menu-remove"
           onClick={() => { const n = rowMenu.name; setRowMenu(null); void removeRemote(n); }}
-          className="w-full text-left px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-app-hover transition-colors flex items-center gap-2"
+          className="w-full text-left px-3 py-1.5 text-compact text-red-600 dark:text-red-400 hover:bg-app-hover transition-colors flex items-center gap-2"
         >
           <Trash2 size={14} /> Remove remote
         </button>
@@ -479,10 +479,10 @@ function BranchRow({ branch, switching, deleting, onCheckout, onDelete, onOpenMe
       )}
       <span className="truncate">{branch.name}</span>
       {(branch.ahead !== undefined && branch.ahead > 0) && (
-        <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 flex-shrink-0">↑{branch.ahead}</span>
+        <span className="ml-auto text-mini text-green-600 dark:text-green-400 flex-shrink-0">↑{branch.ahead}</span>
       )}
       {(branch.behind !== undefined && branch.behind > 0) && (
-        <span className={`${branch.ahead ? '' : 'ml-auto'} text-[11px] text-red-600 dark:text-red-400 flex-shrink-0`}>↓{branch.behind}</span>
+        <span className={`${branch.ahead ? '' : 'ml-auto'} text-mini text-red-600 dark:text-red-400 flex-shrink-0`}>↓{branch.behind}</span>
       )}
       {/* Delete button — only on non-current branches */}
       {!branch.current && (
@@ -518,7 +518,7 @@ function RemoteRow({ remote, canRemove, onRemove, onOpenMenu }: {
     <div
       data-testid="remote-row"
       data-remote={remote.name}
-      className="flex items-center gap-1.5 px-2 py-[3px] text-[11px] group/remote hover:bg-app-hover transition-colors select-none"
+      className="flex items-center gap-1.5 px-2 py-[3px] text-mini group/remote hover:bg-app-hover transition-colors select-none"
       {...press.handlers}
       data-pressing={press.pressed || undefined}
       onContextMenu={e => {
@@ -530,7 +530,7 @@ function RemoteRow({ remote, canRemove, onRemove, onOpenMenu }: {
     >
       <Link size={10} className="text-app-text-muted flex-shrink-0" />
       <span className="font-medium text-app-text-heading">{remote.name}</span>
-      <span className="truncate text-app-text-muted text-[11px] min-w-0">{remote.fetchUrl}</span>
+      <span className="truncate text-app-text-muted text-mini min-w-0">{remote.fetchUrl}</span>
       {canRemove && (
         <button
           data-testid="remote-remove"

@@ -75,13 +75,13 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
           className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-90' : ''}`}
         />
         <FileDiff size={13} className="flex-shrink-0 text-app-text-secondary" />
-        <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-app-text-secondary">
+        <span className="flex-shrink-0 text-mini font-medium tabular-nums text-app-text-secondary">
           {tr('chat.changes.chip', { n: String(rows.length) })}
         </span>
         {branch && (
           <span
             data-testid="chat-changes-branch"
-            className="flex min-w-0 items-center gap-1 text-[11px] text-app-text-muted"
+            className="flex min-w-0 items-center gap-1 text-mini text-app-text-muted"
             title={changes?.git?.root}
           >
             <GitBranch size={12} className="flex-shrink-0" />

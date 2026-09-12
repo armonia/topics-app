@@ -135,7 +135,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
               setEditing(false);
             }
           }}
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-app-text outline-none"
+          className="min-w-0 flex-1 bg-transparent text-compact text-app-text outline-none"
           placeholder={tr('goal.placeholder')}
         />
       </div>
@@ -162,19 +162,19 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
             />
           )}
           <Target size={13} className="flex-shrink-0 text-app-text-secondary" />
-          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-app-text">
+          <span className="min-w-0 flex-1 truncate text-compact font-medium text-app-text">
             {goal.content}
           </span>
           {byAgent && (
             <span
               data-testid="goal-by-agent"
-              className="flex-shrink-0 rounded border border-app-border px-1 py-px text-[10px] uppercase tracking-wide text-app-text-muted"
+              className="flex-shrink-0 rounded border border-app-border px-1 py-px text-micro uppercase tracking-wide text-app-text-muted"
             >
               {tr('goal.byAgent')}
             </span>
           )}
           {rows.length > 0 && (
-            <span className="flex-shrink-0 text-[11px] tabular-nums text-app-text-muted">
+            <span className="flex-shrink-0 text-mini tabular-nums text-app-text-muted">
               {done}/{rows.length}
             </span>
           )}
@@ -182,7 +182,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
         {(chasing || waiting) && (
           <span
             data-testid="goal-loop-state"
-            className={`flex-shrink-0 text-[11px] tabular-nums ${waiting ? 'text-amber-500' : 'text-app-text-secondary'}`}
+            className={`flex-shrink-0 text-mini tabular-nums ${waiting ? 'text-amber-500' : 'text-app-text-secondary'}`}
           >
             {waiting ? tr('goal.loop.waitingYou') : tr('goal.loop.continuing', { n: String(goal.continuations) })}
           </span>
@@ -240,7 +240,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
       </div>
 
       {!expanded && active && (
-        <div className="truncate px-2.5 pb-1.5 pl-[38px] text-[11px] text-app-text-secondary">
+        <div className="truncate px-2.5 pb-1.5 pl-[38px] text-mini text-app-text-secondary">
           {active.content}
         </div>
       )}
@@ -248,12 +248,12 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
       {expanded && rows.length > 0 && (
         <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
           {!own && (
-            <li className="pb-0.5 text-[10px] uppercase tracking-wide text-app-text-muted">
+            <li className="pb-0.5 text-micro uppercase tracking-wide text-app-text-muted">
               {tr('goal.notCompacted')}
             </li>
           )}
           {rows.map((r, i) => (
-            <li key={i} className="flex items-start gap-2 text-[12px]">
+            <li key={i} className="flex items-start gap-2 text-compact">
               <span className="mt-0.5 flex-shrink-0">
                 {r.status === 'completed' ? (
                   <CircleCheck size={13} aria-hidden="true" />

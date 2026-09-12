@@ -221,6 +221,14 @@ jobs:
           bun run check:test-skips
           bun run check:emdash
           bun run check:bloat
+          # La scala tipografica e' UNA, e sta nel blocco `@theme` di
+          # index.css. Questo rifiuta le due strade per uscirne: una misura
+          # assoluta scritta a mano nel componente (`text-[12.5px]`, cioe' il
+          # modo in cui le dimensioni erano diventate 24, sei delle quali a
+          # mezzo pixel) e una classe della scala di Tailwind, che il reset
+          # `--text-*: initial` ha spento — quella e' la meta' che non si vede
+          # leggendo il diff: la classe resta nel DOM e non genera niente.
+          bun run check:typography
           bun run check:ui-language
           # Lo stesso standard, applicato ai commenti (deciso il 21/08).
           # Ratchet su `scripts/comment-language-baseline.json`: nasce

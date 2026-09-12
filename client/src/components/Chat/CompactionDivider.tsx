@@ -57,13 +57,13 @@ export function CompactionDivider({ marker, summary }: { marker: CompactionMarke
             onClick={() => setOpen((o) => !o)}
             data-testid="compaction-divider-toggle"
             title={open ? tr('compaction.hide') : tr('compaction.show')}
-            className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px] hover:bg-app-hover transition-colors"
+            className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini hover:bg-app-hover transition-colors"
           >
             {chip}
             <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
           </button>
         ) : (
-          <div className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px]">
+          <div className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini">
             {chip}
           </div>
         )}

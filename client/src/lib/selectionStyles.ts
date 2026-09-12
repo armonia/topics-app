@@ -353,7 +353,7 @@ export const ROW_GAP = 'gap-2';
  *
  * Sopra c'è scritto «13px, che è la misura più GRANDE delle tre». Era vero fra
  * quelle tre, ma ne mancava una: le RIGHE della colonna, che non passavano di
- * qui e stavano già a `text-[14px] md:text-[13px]` (TopicItem, TopicTree). Cioè
+ * qui e stavano già a `text-body-lg md:text-body` (TopicItem, TopicTree). Cioè
  * sul telefono una riga era 14 e la tessera fissata accanto a lei 13 — misurato
  * a 390×844, nella stessa colonna, una sopra l'altra.
  *
@@ -417,7 +417,7 @@ export const ROW_GAP = 'gap-2';
  * the cap height is not even an integer. So the grid wins and the half pixel
  * stays: whoever reopens this, reopen it holding these numbers.
  */
-export const TAB_LABEL_TYPE = 'text-[14px] md:text-[13px] font-medium leading-5';
+export const TAB_LABEL_TYPE = 'text-body-lg md:text-body font-medium leading-5';
 export const TAB_LABEL = `${TAB_LABEL_TYPE} text-app-text`;
 
 /**

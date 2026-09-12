@@ -70,7 +70,7 @@ interface SelectProps<T extends string> {
 
 const TRIGGER_BASE =
   'flex items-center gap-1.5 rounded-md border border-app-border bg-surface px-2 py-1 ' +
-  'coarse:min-h-[44px] coarse:px-3 coarse:text-[14px] text-[12px] text-app-text ' +
+  'coarse:min-h-[44px] coarse:px-3 coarse:text-body-lg text-compact text-app-text ' +
   'outline-none transition-colors hover:bg-app-hover focus-visible:border-primary ' +
   'disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -148,7 +148,7 @@ export function Select<T extends string>({
             <span className="flex min-w-0 flex-col">
               <span className={o.value === value ? 'text-primary' : undefined}>{o.label}</span>
               {o.hint && (
-                <span className="text-[11px] text-app-text-muted">{o.hint}</span>
+                <span className="text-mini text-app-text-muted">{o.hint}</span>
               )}
             </span>
           </button>

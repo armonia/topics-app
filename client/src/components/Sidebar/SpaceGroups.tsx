@@ -257,7 +257,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         </button>
         {card.detachedLabel && (
           <span
-            className="flex flex-shrink-0 items-center gap-1 rounded px-1 text-[10px] text-app-text-tertiary"
+            className="flex flex-shrink-0 items-center gap-1 rounded px-1 text-micro text-app-text-tertiary"
             data-testid="space-detached"
             aria-label={tr('space.detachedLabel')}
             title={tr('space.detachedOwnWindow', { name: card.name })}
@@ -274,7 +274,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
             }`}
           />
         )}
-        <span className="flex-shrink-0 text-[11px] tabular-nums text-app-text-tertiary">{card.count}</span>
+        <span className="flex-shrink-0 text-mini tabular-nums text-app-text-tertiary">{card.count}</span>
       </div>
 
       {expanded && (
@@ -336,7 +336,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
                   autoFocus
                   value={renameDraft}
                   onChange={(e) => setRenameDraft(e.target.value)}
-                  className="w-full rounded-md border border-app-border-light bg-app-hover px-2 py-1 text-[12px] text-app-text outline-none focus:border-primary"
+                  className="w-full rounded-md border border-app-border-light bg-app-hover px-2 py-1 text-compact text-app-text outline-none focus:border-primary"
                   placeholder={tr('space.renamePlaceholder')}
                   aria-label={tr('space.renameLabel')}
                 />

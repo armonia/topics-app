@@ -93,7 +93,7 @@ function ProjectChip({ chip }: { chip: BoardProjectChip }) {
       // un fondo promette un click che non c'è. Il raggruppamento lo fa adesso
       // la distanza (`CHIP_SPACING` doppio del gap fra i blocchi), che è come si
       // raggruppa senza disegnare un contorno.
-      className="flex min-w-0 flex-shrink-0 items-center text-[11px]"
+      className="flex min-w-0 flex-shrink-0 items-center text-mini"
       // La larghezza viene da `chipWidth(n)`, la STESSA funzione che l'aritmetica
       // del ritaglio usa per decidere quante ce ne stanno. Con una misura fissa
       // per tutte, una pastiglia da una cifra si portava dietro 7px di vuoto in
@@ -330,7 +330,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
         <span
           data-testid="board-project-more"
           title={tr('board.projects.more', { n: nascosti })}
-          className="flex-shrink-0 tabular-nums text-[11px] text-app-text-tertiary"
+          className="flex-shrink-0 tabular-nums text-mini text-app-text-tertiary"
         >
           +{nascosti}
         </span>
@@ -356,7 +356,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
               key={status}
               data-testid={`board-count-${status}`}
               title={`${STATUS_LABEL[status]}: ${n}`}
-              className="flex items-center gap-1 tabular-nums text-[11px] text-app-text-secondary"
+              className="flex items-center gap-1 tabular-nums text-mini text-app-text-secondary"
             >
               <StatusIcon status={status} />
               {n}
@@ -366,7 +366,7 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
             <span
               data-testid="board-count-rest"
               title={rolled.statuses.map((s) => `${STATUS_LABEL[s]}: ${counts.find((c) => c.status === s)?.n ?? 0}`).join(' · ')}
-              className="flex items-center gap-1 tabular-nums text-[11px] text-app-text-tertiary"
+              className="flex items-center gap-1 tabular-nums text-mini text-app-text-tertiary"
             >
               <MoreHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
               {rolled.n}

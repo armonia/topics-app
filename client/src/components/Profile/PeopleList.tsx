@@ -38,7 +38,7 @@ export function PeopleList({ people, emptyText, testId }: {
   }, [follows]);
 
   if (people.length === 0) {
-    return <p data-testid={`${testId}-empty`} className="text-[12px] text-app-text-muted">{emptyText}</p>;
+    return <p data-testid={`${testId}-empty`} className="text-compact text-app-text-muted">{emptyText}</p>;
   }
 
   return (
@@ -57,10 +57,10 @@ export function PeopleList({ people, emptyText, testId }: {
             >
               <PersonAvatar github={p.github} size={36} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] text-app-text">
+                <span className="block truncate text-body text-app-text">
                   {p.github?.name || p.displayName}
                 </span>
-                <span className="block truncate text-[11px] text-app-text-muted">
+                <span className="block truncate text-mini text-app-text-muted">
                   {p.githubLogin ? `@${p.githubLogin}` : t('profile.noGithub')}
                 </span>
               </span>
@@ -70,7 +70,7 @@ export function PeopleList({ people, emptyText, testId }: {
                   onClick={(e) => { e.stopPropagation(); void toggleFollow(p); }}
                   aria-pressed={isFollowing}
                   data-testid={`person-follow-${p.id}`}
-                  className={`flex-shrink-0 rounded border px-2 py-1 text-[11.5px] coarse:min-h-11 ${
+                  className={`flex-shrink-0 rounded border px-2 py-1 text-compact coarse:min-h-11 ${
                     isFollowing
                       ? 'border-app-border text-app-text-secondary hover:bg-app-hover'
                       : 'border-primary text-primary hover:bg-primary/10'

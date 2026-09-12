@@ -41,7 +41,7 @@ export function LoadOlderDivider({
           data-testid="chat-load-older-button"
           aria-busy={loading || undefined}
           title={label}
-          className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px] hover:bg-app-hover transition-colors disabled:cursor-progress"
+          className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini hover:bg-app-hover transition-colors disabled:cursor-progress"
         >
           {loading ? <Loader2 size={12} className="flex-shrink-0 animate-spin" /> : <History size={12} className="flex-shrink-0" />}
           <span className="font-medium">{label}</span>

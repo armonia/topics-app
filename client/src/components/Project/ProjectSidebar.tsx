@@ -284,7 +284,7 @@ function RailButton({
           un cerchio chiaro attorno a un numero colorato è una terza cosa che non
           dice niente. */}
       {badge !== null && badge > 0 && (
-        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-[9px] font-bold leading-none tabular-nums ${toneClass}`}>
+        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-nano font-bold leading-none tabular-nums ${toneClass}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
@@ -377,17 +377,17 @@ function GitSectionRow({
             <span className="truncate max-w-[110px] text-app-text-muted" title={git.branch}>{git.branch}</span>
           )}
           {git && git.fileCount > 0 && (
-            <span className="text-[11px] font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
+            <span className="text-mini font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
               {git.fileCount}
             </span>
           )}
           {git && git.behind > 0 && (
-            <span className="text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
+            <span className="text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
               ↓{git.behind}
             </span>
           )}
           {git && git.ahead > 0 && (
-            <span className="text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
+            <span className="text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
               ↑{git.ahead}
             </span>
           )}
@@ -1063,7 +1063,7 @@ export function ProjectSidebar({
                 <span>{tr('project.sidebar.processes')}</span>
                 <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 {runningCount > 0 && (
-                  <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                  <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                     {runningCount}
                   </span>
                 )}
@@ -1322,7 +1322,7 @@ export function ProjectSidebar({
             <span>{tr('project.sidebar.processes')}</span>
             <ChevronRight size={12} className={`transition-transform duration-150 text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             {runningCount > 0 && (
-              <span className="ml-auto text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+              <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
                 {runningCount}
               </span>
             )}

@@ -119,7 +119,7 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] text-[12px] bg-app-hover"
+      className="flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] text-compact bg-app-hover"
       style={{ paddingLeft: `${depth * 16 + 12}px` }}
     >
       <span className="w-4 h-4 flex-shrink-0" />
@@ -131,7 +131,7 @@ function InlineInput({ depth, icon, onSubmit, onCancel }: {
         onChange={e => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => { if (value.trim()) onSubmit(value.trim()); else onCancel(); }}
-        className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-[12px] text-app-text-body outline-none focus:border-primary"
+        className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-compact text-app-text-body outline-none focus:border-primary"
       />
     </div>
   );
@@ -235,7 +235,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
         // `--bg-surface` mentre questa colonna è `--chrome-bg` — cioè una fascia
         // da bordo a bordo sotto un'intestazione che è una card rientrata.
         // Il passo verticale resta quello denso dell'albero: vedi la costante.
-        className={`group/node ${TREE_ROW_CARD} flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none ${
+        className={`group/node ${TREE_ROW_CARD} flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-compact select-none ${
           isSelected
             ? SELECTED_SURFACE
             : isMultiSelected
@@ -294,7 +294,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
             onKeyDown={handleRenameKeyDown}
             onBlur={handleRenameBlur}
             onClick={e => e.stopPropagation()}
-            className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-[12px] text-app-text-body outline-none focus:border-primary"
+            className="flex-1 min-w-0 bg-surface border border-primary/50 rounded px-1.5 py-0.5 text-compact text-app-text-body outline-none focus:border-primary"
           />
         ) : (
           <>
@@ -323,13 +323,13 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
             {gitStatus && !isSelected && (
               <span
                 data-testid="git-status-letter"
-                className={`text-[11px] flex-shrink-0 ml-1 ${gitStatusTextClass(gitStatus)}`}
+                className={`text-mini flex-shrink-0 ml-1 ${gitStatusTextClass(gitStatus)}`}
               >
                 {gitStatusLabel(gitStatus)}
               </span>
             )}
             {node.size !== undefined && !isDir && !gitStatus && (
-              <span className="ml-auto text-[11px] text-app-text-faint flex-shrink-0">
+              <span className="ml-auto text-mini text-app-text-faint flex-shrink-0">
                 {node.size < 1024 ? `${node.size}B` : node.size < 1048576 ? `${(node.size / 1024).toFixed(1)}K` : `${(node.size / 1048576).toFixed(1)}M`}
               </span>
             )}
@@ -374,7 +374,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
           {node.children === undefined && loadingDirs.has(node.path) && (
             // Senza questa riga una cartella oltre il terzo livello si apriva e
             // restava BIANCA: indistinguibile da una cartella vuota.
-            <div className="flex items-center gap-1.5 py-[2px] text-[11px] text-app-text-tertiary" style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}>
+            <div className="flex items-center gap-1.5 py-[2px] text-mini text-app-text-tertiary" style={{ paddingLeft: `${(depth + 1) * 12 + 8}px` }}>
               <Spinner size="xs" tone="current" />
             </div>
           )}
@@ -428,7 +428,7 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, loadingDirs, expand
                     // Stessa forma e stessa indentazione delle righe che
                     // segue: era l'unica riga dell'albero rimasta full-bleed,
                     // con un hover tinto di primary invece del rialzo neutro.
-                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[11px] text-primary`}
+                    className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-mini text-primary`}
                     style={{ paddingLeft: `${(depth + 1) * SIDEBAR_INDENT_STEP + 8}px` }}
                     onClick={() => onExpandOverflow(node.path)}
                   >
@@ -1364,8 +1364,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   if (error && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2">
-        <p className="text-red-500 text-[13px]">{error}</p>
-        <button onClick={loadFiles} className="text-[12px] text-primary hover:underline">Retry</button>
+        <p className="text-red-500 text-body">{error}</p>
+        <button onClick={loadFiles} className="text-compact text-primary hover:underline">Retry</button>
       </div>
     );
   }
@@ -1382,7 +1382,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       style={{ ...contextMenuStyle(), zIndex: Z_CONTEXT_MENU }}
     >
       {/* Header */}
-      <div className="px-3 py-1.5 text-[11px] text-app-text-tertiary font-medium truncate border-b border-app-border mb-1">
+      <div className="px-3 py-1.5 text-mini text-app-text-tertiary font-medium truncate border-b border-app-border mb-1">
         {isMultiSelect ? `${multiSelectCount} items selected` : contextMenuNode.name}
       </div>
 
@@ -1391,7 +1391,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         <button
           role="menuitem"
           onClick={handleOpenFile}
-          className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+          className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
         >
           <FileText size={14} className="text-app-text-tertiary" /> Open
         </button>
@@ -1403,21 +1403,21 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           <button
             role="menuitem"
             onClick={handleCopyPath}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
             <Copy size={14} className="text-app-text-tertiary" /> Copy Path
           </button>
           <button
             role="menuitem"
             onClick={handleCopyRelativePath}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
             <Copy size={14} className="text-app-text-tertiary" /> Copy Relative Path
           </button>
           <button
             role="menuitem"
             onClick={() => { filesApi.reveal(contextMenuNode.path); setContextMenuPos(null); }}
-            className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
           >
             <ExternalLink size={14} className="text-app-text-tertiary" /> Show in Finder
           </button>
@@ -1429,14 +1429,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       <button
         role="menuitem"
         onClick={() => handleNewItem('file')}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+        className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
         <FilePlus size={14} className="text-app-text-tertiary" /> New File
       </button>
       <button
         role="menuitem"
         onClick={() => handleNewItem('dir')}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+        className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
         <FolderPlus size={14} className="text-app-text-tertiary" /> New Folder
       </button>
@@ -1447,7 +1447,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       <button
         role="menuitem"
         onClick={handleDuplicate}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+        className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
       >
         <Copy size={14} className="text-app-text-tertiary" /> Duplicate{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
@@ -1457,7 +1457,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         <button
           role="menuitem"
           onClick={handleRename}
-          className="w-full text-left px-3 py-1.5 text-[12px] text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
+          className="w-full text-left px-3 py-1.5 text-compact text-app-text-body hover:bg-app-hover transition-colors flex items-center gap-2"
         >
           <Pencil size={14} className="text-app-text-tertiary" /> Rename
         </button>
@@ -1467,7 +1467,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       <button
         role="menuitem"
         onClick={handleDelete}
-        className="w-full text-left px-3 py-1.5 text-[12px] text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
+        className="w-full text-left px-3 py-1.5 text-compact text-red-500 hover:bg-red-500/10 transition-colors flex items-center gap-2"
       >
         <Trash2 size={14} /> {tr('files.trash')}{isMultiSelect ? ` (${multiSelectCount})` : ''}
       </button>
@@ -1533,10 +1533,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
          4,5 di WCAG AA per un capello. amber-800 dà 6,34:1 in chiaro e
          amber-400 7,78:1 in scuro. È la stessa lettura che serve a chi legge
          un errore, nei due temi. */
-      className="px-3 py-1 text-[11px] text-amber-800 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0"
+      className="px-3 py-1 text-mini text-amber-800 dark:text-amber-400 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-shrink-0"
     >
       <span className="truncate">{error}</span>
-      <button onClick={loadFiles} className="text-[11px] text-primary hover:underline flex-shrink-0">{tr('common.retry')}</button>
+      <button onClick={loadFiles} className="text-mini text-primary hover:underline flex-shrink-0">{tr('common.retry')}</button>
     </div>
   ) : null;
 
@@ -1623,7 +1623,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           onDrop={handleRootDrop}
         >
           <div className="flex items-center justify-between px-2 py-1.5 border-b border-app-border sticky top-0 bg-surface z-10">
-            <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">Explorer</span>
+            <span className="text-mini font-medium text-app-text-tertiary uppercase tracking-wider">Explorer</span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={() => handleNewItem('file')}

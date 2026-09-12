@@ -116,7 +116,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
       ><X className="w-5 h-5" aria-hidden="true" /></button>
       {scale > 1 && (
         <button
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-xs bg-black/50 rounded-full px-3 py-1"
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white text-compact bg-black/50 rounded-full px-3 py-1"
           onClick={(e) => { e.stopPropagation(); setScale(1); setOffset({ x: 0, y: 0 }); }}
         >{tr('lightbox.resetZoom')}</button>
       )}

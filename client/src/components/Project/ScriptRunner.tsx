@@ -44,7 +44,7 @@ function AwaitedChip({ watchers }: { watchers?: { label: string; since: string; 
   return (
     <span
       data-testid="process-awaited"
-      className="flex items-center gap-1 text-[9px] uppercase tracking-wide px-1 py-px rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 flex-shrink-0"
+      className="flex items-center gap-1 text-nano uppercase tracking-wide px-1 py-px rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 flex-shrink-0"
       title={`${testa}\n${chi}`}
     >
       <Hourglass size={9} className="animate-pulse" />
@@ -160,7 +160,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
 
   if (!ready) {
     return (
-      <div className="flex items-center gap-2 px-3 py-2 text-app-text-tertiary text-[11px]">
+      <div className="flex items-center gap-2 px-3 py-2 text-app-text-tertiary text-mini">
         <Spinner size="sm" />
       </div>
     );
@@ -176,7 +176,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   // perche il pannello e muto.
   if (scriptEntries.length === 0 && detectedRows.length === 0 && shellRows.length === 0) {
     return (
-      <div data-testid="script-runner-empty" className="px-3 py-2 text-[11px] text-app-text-tertiary leading-relaxed">
+      <div data-testid="script-runner-empty" className="px-3 py-2 text-mini text-app-text-tertiary leading-relaxed">
         {found.length === 0
           ? <>{tr('scripts.noManifest')}</>
           : <>{tr('scripts.noneDeclared', { files: found.join(', ') })}</>}
@@ -190,7 +190,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   }
 
   return (
-    <div data-testid="script-runner" className="text-[12px] pb-1">
+    <div data-testid="script-runner" className="text-compact pb-1">
       {scriptEntries.map((script) => {
         const { id, name, detail: cmd, from } = script;
         const running = runningMap.get(name);
@@ -237,13 +237,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               <span className={`flex-1 truncate ${isStopping ? 'text-red-500/70' : running ? 'text-green-500 font-medium' : failed ? 'text-red-500' : 'text-app-text-body'}`}>
                 {name}
                 {piuManifest && (
-                  <span className="ml-1.5 text-[10px] text-app-text-faint">{from}</span>
+                  <span className="ml-1.5 text-micro text-app-text-faint">{from}</span>
                 )}
               </span>
               {failed && !isStopping && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onOpenProcessLog?.(failed.processId, name); }}
-                  className="text-[10px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full flex-shrink-0 hover:bg-red-500/20 transition-colors"
+                  className="text-micro font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full flex-shrink-0 hover:bg-red-500/20 transition-colors"
                   title={tr('processes.openFailedLog')}
                 >
                   exit {failed.exitCode}
@@ -257,7 +257,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   href={`http://${window.location.hostname}:${port}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] text-primary hover:underline flex-shrink-0"
+                  className="text-mini text-primary hover:underline flex-shrink-0"
                   onClick={e => {
                     // The dev server opens as a pane of this topic, not as a system tab.
                     // stopPropagation stays: the row underneath opens the process log.
@@ -279,7 +279,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 </button>
               )}
               {!running && !isStopping && (
-                <span className="text-[11px] text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
+                <span className="text-mini text-app-text-faint truncate max-w-[100px] hidden group-hover:block">{cmd}</span>
               )}
             </div>
           </div>
@@ -309,7 +309,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 )}
                 <span className={`truncate ${isStopping ? 'text-red-500/70' : 'text-green-500 font-medium'}`}>{sp.scriptName}</span>
                 <span
-                  className="text-[9px] uppercase tracking-wide px-1 py-px rounded bg-app-text-faint/15 text-app-text-faint flex-shrink-0"
+                  className="text-nano uppercase tracking-wide px-1 py-px rounded bg-app-text-faint/15 text-app-text-faint flex-shrink-0"
                   title="Started in a Claude session and auto-detected by Topics (logs not captured)"
                 >
                   auto
@@ -322,7 +322,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                     href={`http://${window.location.hostname}:${port}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[11px] text-primary hover:underline flex-shrink-0"
+                    className="text-mini text-primary hover:underline flex-shrink-0"
                     onClick={e => {
                       // The dev server opens as a pane of this topic, not as a system tab.
                       // stopPropagation stays: the row underneath opens the process log.
@@ -373,7 +373,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               )}
               <span className={`truncate ${isStopping ? 'text-red-500/70' : 'text-green-500 font-medium'}`}>{sp.scriptName}</span>
               <span
-                className="text-[9px] uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
+                className="text-nano uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
                 title={tr('scripts.shellFromAgent')}
               >
                 shell
@@ -386,7 +386,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                   href={`http://${window.location.hostname}:${port}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] text-primary hover:underline flex-shrink-0"
+                  className="text-mini text-primary hover:underline flex-shrink-0"
                   onClick={e => {
                     // The dev server opens as a pane of this topic, not as a system tab.
                     // stopPropagation stays: the row underneath opens the process log.

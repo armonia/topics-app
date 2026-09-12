@@ -618,3 +618,49 @@ la stessa guardia (`check:test-globals`).
 #### Scenario: un file che rimette a posto passa senza un fiato
 - **GIVEN** un file di test che installa `globalThis.window` e lo toglie in `afterAll`
 - **THEN** `bun test` su quel file SHALL uscire zero senza la firma della guardia
+
+### Requirement: GATE-14 — La scala tipografica è una sola, e ci si esce solo dichiarando
+
+Misurato su `client/src` prima di questa card: 1550 dimensioni di font, tutte
+scritte come valori arbitrari (`text-[11px]`), su 24 dimensioni distinte. Sei
+erano a mezzo pixel (9.5 10.5 11.5 12.5 13.5, 88 usi su 27 file) — e mezzo
+pixel non è una dimensione: il rasterizzatore arrotonda, e da che parte dipende
+da piattaforma, zoom e densità dello schermo. Due stavano sotto la soglia di
+leggibilità (7px e 8px, 9 usi). La stessa misura si scriveva in due modi
+(`text-xs` accanto a `text-[12px]`), quindi cercarne uno ne trovava metà.
+Nessuno ha deciso niente di tutto questo: è ciò a cui un client converge quando
+la dimensione di un componente nuovo si sceglie guardando il vicino.
+
+La scala SHALL esistere come SORGENTE UNICA: un blocco `@theme` in
+`client/src/index.css` con gradini NOMINATI, e SHALL dichiarare la sola
+`font-size` — l'altezza di riga resta su un `leading-*` esplicito accanto alla
+misura, perché un gradino che porta con sé un'interlinea implicita sposta un
+box di riga mentre sembra cambiare solo la dimensione.
+
+Un gradino SHALL essere un numero INTERO di pixel e SHALL stare al di sopra
+della soglia di 9px. Aggiungerne uno è una decisione legittima e si prende in
+quel blocco; ciò che non è permesso è aggirarlo.
+
+Il cancello `check:typography` SHALL uscire non-zero quando un file di
+`client/src` porta una misura assoluta in un valore arbitrario, o una classe
+della scala di Tailwind (che il reset `--text-*: initial` ha spento, quindi non
+genera più niente e il testo cade sulla misura ereditata), o quando un gradino
+del blocco `@theme` non rispetta le due regole qui sopra. Una misura RELATIVA in
+valore arbitrario (`text-[0.92em]`) NON SHALL essere rossa: dice «rispetto a chi
+mi contiene», che nessun gradino fisso può dire.
+
+#### Scenario: una misura scritta a mano in un componente
+- **GIVEN** un file di `client/src` con `text-[12.5px]`
+- **THEN** `check:typography` SHALL uscire non-zero nominando file, riga e misura
+
+#### Scenario: una classe della scala spenta
+- **GIVEN** un file di `client/src` con `text-xs`
+- **THEN** `check:typography` SHALL uscire non-zero, perché quella classe non genera più alcuna dimensione
+
+#### Scenario: un gradino a mezzo pixel nel blocco `@theme`
+- **GIVEN** un `@theme` che dichiara `--text-qualcosa: 10.5px`
+- **THEN** `check:typography` SHALL uscire non-zero
+
+#### Scenario: colori, allineamenti e misure relative restano verdi
+- **GIVEN** un file con `text-app-text-muted`, `text-center` e `text-[0.92em]`
+- **THEN** `check:typography` SHALL uscire zero

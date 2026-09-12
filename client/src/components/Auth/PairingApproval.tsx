@@ -116,7 +116,7 @@ export function PairingApproval() {
         <div key={r.id} className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
           <div className="flex items-center gap-2">
             <Smartphone size={14} className="text-app-text-secondary" />
-            <span className="text-[13px] font-medium text-app-text">{r.name} chiede accesso</span>
+            <span className="text-body font-medium text-app-text">{r.name} chiede accesso</span>
           </div>
           {/* WHERE FROM, in words, with the address behind it.
 
@@ -127,7 +127,7 @@ export function PairingApproval() {
               previous line remains. */}
           {(r.from || r.ip) && (
             <div
-              className={`mt-0.5 text-[11px] ${
+              className={`mt-0.5 text-mini ${
                 r.from === 'internet' ? 'text-amber-600 dark:text-amber-500' : 'text-app-text-muted'
               }`}
             >
@@ -137,10 +137,10 @@ export function PairingApproval() {
             </div>
           )}
 
-          <div className="mt-3 rounded-lg bg-app-bg py-2 text-center font-mono text-[22px] font-semibold tracking-[0.1em] text-app-text">
+          <div className="mt-3 rounded-lg bg-app-bg py-2 text-center font-mono text-display font-semibold tracking-[0.1em] text-app-text">
             {r.code}
           </div>
-          <p className="mt-2 text-[11px] leading-snug text-app-text-secondary">
+          <p className="mt-2 text-mini leading-snug text-app-text-secondary">
             {tr('pair.verifyCode')}
           </p>
 
@@ -155,14 +155,14 @@ export function PairingApproval() {
             <button
               disabled={inCorso === r.id}
               onClick={() => void rispondi(r.id, false)}
-              className="flex-1 rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text hover:bg-app-bg disabled:opacity-50"
+              className="flex-1 rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
             >
               Nega
             </button>
             <button
               disabled={inCorso === r.id}
               onClick={() => void rispondi(r.id, true, { mio: true })}
-              className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-compact font-medium text-white hover:opacity-90 disabled:opacity-50"
               data-testid="pair-approve-owner"
             >
               {tr('pair.mine')}
@@ -187,12 +187,12 @@ export function PairingApproval() {
                 }}
                 placeholder={tr('pair.whose')}
                 aria-label={tr('pair.personName')}
-                className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-app-text outline-none focus:border-primary"
+                className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
               />
               <button
                 disabled={inCorso === r.id || !altrui.nome.trim()}
                 onClick={() => { void rispondi(r.id, true, { personName: altrui.nome }); setAltrui(null); }}
-                className="flex-shrink-0 rounded-lg border border-app-border px-2.5 py-1.5 text-[12px] text-app-text hover:bg-app-bg disabled:opacity-50"
+                className="flex-shrink-0 rounded-lg border border-app-border px-2.5 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
                 data-testid="pair-approve-guest"
               >
                 Autorizza
@@ -202,12 +202,12 @@ export function PairingApproval() {
             <button
               disabled={inCorso === r.id}
               onClick={() => setAltrui({ id: r.id, nome: '' })}
-              className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
+              className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
             >
               {tr('pair.someoneElse')}
             </button>
           )}
-          <p className="mt-1.5 text-[10px] leading-snug text-app-text-muted">
+          <p className="mt-1.5 text-micro leading-snug text-app-text-muted">
             {tr('pair.guestBlurb')}
           </p>
         </div>

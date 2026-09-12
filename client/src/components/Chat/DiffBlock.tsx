@@ -90,59 +90,59 @@ export const DiffBlock = memo(forwardRef<DiffBlockHandle, DiffBlockProps>(functi
   const replaceLines = edit.replaceText.split('\n');
 
   return (
-    <div className="my-2 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-[12.5px]">
+    <div className="my-2 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-body">
       {/* File path header */}
       <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">
           <FileCode size={14} />
-          <span className="font-mono text-[11px]">{edit.filePath}</span>
+          <span className="font-mono text-mini">{edit.filePath}</span>
         </div>
         <div className="flex items-center gap-1">
           {state === 'pending' && (
             <>
               <button
                 onClick={handleApply}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-mini font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
               >
                 <Check size={12} /> Apply
               </button>
               <button
                 onClick={handleReject}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-mini font-medium bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
               >
                 <X size={12} /> Reject
               </button>
             </>
           )}
           {state === 'applying' && (
-            <span className="text-[11px] text-gray-500">Applying...</span>
+            <span className="text-mini text-gray-500">Applying...</span>
           )}
           {state === 'applied' && (
             <>
-              <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+              <span className="flex items-center gap-1 text-mini text-emerald-600 dark:text-emerald-400 font-medium">
                 <Check size={12} /> Applied
               </span>
               <button
                 onClick={handleUndo}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors ml-1"
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-mini font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors ml-1"
               >
                 <Undo2 size={12} /> Undo
               </button>
             </>
           )}
           {state === 'undoing' && (
-            <span className="text-[11px] text-gray-500">Undoing...</span>
+            <span className="text-mini text-gray-500">Undoing...</span>
           )}
           {state === 'rejected' && (
-            <span className="text-[11px] text-gray-400">Dismissed</span>
+            <span className="text-mini text-gray-400">Dismissed</span>
           )}
           {state === 'error' && (
             <div className="flex items-center gap-2">
               <AlertTriangle size={12} className="text-red-500" />
-              <span className="text-[11px] text-red-500">{errorMsg}</span>
+              <span className="text-mini text-red-500">{errorMsg}</span>
               <button
                 onClick={() => { setState('pending'); setErrorMsg(''); setContentAtApply(null); }}
-                className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline"
+                className="text-mini text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline"
               >
                 Retry
               </button>
@@ -152,7 +152,7 @@ export const DiffBlock = memo(forwardRef<DiffBlockHandle, DiffBlockProps>(functi
       </div>
 
       {/* Diff content - unified view */}
-      <div className={`font-mono text-[12px] leading-[1.6] overflow-x-auto ${state === 'rejected' ? 'opacity-50' : ''}`}>
+      <div className={`font-mono text-compact leading-[1.6] overflow-x-auto ${state === 'rejected' ? 'opacity-50' : ''}`}>
         {searchLines.map((line, i) => (
           <div key={`s-${i}`} className="px-3 bg-red-500/10 text-red-700 dark:text-red-300">
             <span className="select-none text-red-400 mr-2">-</span>

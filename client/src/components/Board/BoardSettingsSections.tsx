@@ -94,7 +94,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch }: {
  * `Menu` becomes a full-width sheet this must not narrow.
  */
 export const SETTINGS_PANEL_SHELL =
-  'mx-auto w-full max-w-[400px] space-y-2 overflow-y-auto overscroll-contain px-3 py-2.5 text-xs text-app-text-heading max-h-[min(70vh,640px)]';
+  'mx-auto w-full max-w-[400px] space-y-2 overflow-y-auto overscroll-contain px-3 py-2.5 text-compact text-app-text-heading max-h-[min(70vh,640px)]';
 
 /**
  * The settings panel for the GENERAL board, which has no project and therefore

@@ -74,7 +74,7 @@ export function GlobalCapControl() {
 
   return (
     <div className="space-y-1" data-testid="global-cap-control">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.dispatch.parallel')}
       </p>
 
@@ -93,7 +93,7 @@ export function GlobalCapControl() {
               data-testid={`global-cap-brake-${m}`}
               disabled={s.saving || !s.cap}
               onClick={() => { if (!active) void saveGlobalCap({ mode: m }); }}
-              className={`rounded px-1.5 py-0.5 text-[11px] ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
+              className={`rounded px-1.5 py-0.5 text-mini ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
             >{tr(m === 'count' ? 'board.dispatch.brakeCount' : 'board.dispatch.brakeResources')}</button>
           );
         })}
@@ -134,7 +134,7 @@ function CountBrake() {
           scope: that number is not "this board's". */}
       <p
         data-testid="global-cap-running"
-        className={`text-[12px] font-medium ${full ? 'text-amber-300' : 'text-app-text-heading'}`}
+        className={`text-compact font-medium ${full ? 'text-amber-300' : 'text-app-text-heading'}`}
       >
         {limit === null
           ? tr('board.dispatch.runningLoading')
@@ -145,9 +145,9 @@ function CountBrake() {
               ? tr('board.dispatch.runningOver', { running, cap: limit })
               : tr('board.dispatch.running', { running, cap: limit })}
       </p>
-      <p className="text-[11px] leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
+      <p className="text-mini leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
       {full && (
-        <p className="text-[11px] leading-snug text-amber-300/80">
+        <p className="text-mini leading-snug text-amber-300/80">
           {tr(over ? 'board.dispatch.capOver' : 'board.dispatch.capFull')}
         </p>
       )}
@@ -176,21 +176,21 @@ function CountBrake() {
                 // whatever stale number the row still carried.
                 void saveGlobalCap({ auto: false, max: m === 'off' ? GLOBAL_CAP_OFF : lastFixed });
               }}
-              className={`rounded px-1.5 py-0.5 text-[11px] ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
+              className={`rounded px-1.5 py-0.5 text-mini ${active ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`}
             >{tr(label)}</button>
           );
         })}
       </div>
 
       {mode === 'auto' && s.capacity && (
-        <p className="text-[11px] leading-snug text-app-text-faint">{s.capacity.reason}</p>
+        <p className="text-mini leading-snug text-app-text-faint">{s.capacity.reason}</p>
       )}
       {mode === 'off' && (
-        <p className="text-[11px] leading-snug text-app-text-faint">{tr('board.dispatch.noLimitHint')}</p>
+        <p className="text-mini leading-snug text-app-text-faint">{tr('board.dispatch.noLimitHint')}</p>
       )}
       {mode === 'fixed' && (
         <label className="flex items-center justify-between gap-3">
-          <span className="text-[11px] text-app-text-muted">
+          <span className="text-mini text-app-text-muted">
             {tr('board.dispatch.fixed')}
             {s.capacity && (
               <span className="text-app-text-faint">
@@ -235,11 +235,11 @@ function ResourcesBrake() {
 
   return (
     <>
-      <p data-testid="global-cap-running" className="text-[12px] font-medium text-app-text-heading">
+      <p data-testid="global-cap-running" className="text-compact font-medium text-app-text-heading">
         {s.cap ? tr('board.dispatch.runningResources', { running }) : tr('board.dispatch.runningLoading')}
       </p>
-      <p className="text-[11px] leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
-      <p className="text-[11px] leading-snug text-app-text-faint">{tr('board.dispatch.resourcesHint')}</p>
+      <p className="text-mini leading-snug text-app-text-secondary">{tr('board.dispatch.oneMachine')}</p>
+      <p className="text-mini leading-snug text-app-text-faint">{tr('board.dispatch.resourcesHint')}</p>
 
       <BudgetSlider
         share={share}
@@ -258,7 +258,7 @@ function ResourcesBrake() {
         <p
           data-testid="global-cap-verdict"
           data-admit={!atCeiling || running <= 0}
-          className={`text-[11px] font-medium leading-snug ${
+          className={`text-mini font-medium leading-snug ${
             !atCeiling ? SUCCESS_TEXT : running <= 0 ? WARNING_TEXT : DANGER_TEXT
           }`}
         >
@@ -310,7 +310,7 @@ function BudgetSlider({ share, used, budget, usable, cores, totalMemGB, onCommit
 
   return (
     <div className="space-y-0.5 pt-1" data-testid="global-cap-budget">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
+      <div className="flex items-center justify-between gap-2 text-mini">
         <span className="text-app-text-muted">{tr('board.dispatch.budget')}</span>
         <span className="font-medium text-app-text-heading" data-testid="global-cap-budget-value">
           {tr('board.dispatch.budgetOfPc', { pct: Math.round(shown * 100) })}
@@ -336,12 +336,12 @@ function BudgetSlider({ share, used, budget, usable, cores, totalMemGB, onCommit
         }}
       />
       {cores > 0 && (
-        <p className="text-[11px] leading-snug text-app-text-faint" data-testid="global-cap-budget-units">
+        <p className="text-mini leading-snug text-app-text-faint" data-testid="global-cap-budget-units">
           {tr('board.dispatch.budgetHint', { cores, units, mem })}
         </p>
       )}
       <p
-        className={`text-[11px] leading-snug ${liveBand ? BAND_TEXT[liveBand] : 'text-app-text-faint'}`}
+        className={`text-mini leading-snug ${liveBand ? BAND_TEXT[liveBand] : 'text-app-text-faint'}`}
         data-testid="global-cap-budget-live"
         data-band={liveBand ?? 'none'}
       >

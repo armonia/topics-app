@@ -41,7 +41,7 @@ export function PresenceList({ people, empty, hint }: {
   const tr = useT();
   if (people.length === 0) {
     return (
-      <div className="px-3 py-3 text-[11px] text-app-text-muted">
+      <div className="px-3 py-3 text-mini text-app-text-muted">
         <div>{empty}</div>
         {hint && <div className="mt-0.5 text-app-text-muted/80">{hint}</div>}
       </div>
@@ -55,7 +55,7 @@ export function PresenceList({ people, empty, hint }: {
       {away.length > 0 && (
         <>
           {here.length > 0 && (
-            <div className="px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">
+            <div className="px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide text-app-text-muted">
               {tr('statusBar.presence.offlineGroup')}
             </div>
           )}
@@ -81,13 +81,13 @@ export function PresencePerson({ p }: { p: PresenceRow }) {
       onClick={() => openPersonProfile(p.id)}
       data-testid="presence-person"
       data-online={p.presente ? 'true' : 'false'}
-      className="flex w-full items-center gap-2 px-3 py-1 text-left text-[11px] hover:bg-app-hover coarse:min-h-11"
+      className="flex w-full items-center gap-2 px-3 py-1 text-left text-mini hover:bg-app-hover coarse:min-h-11"
       title={p.nome}
     >
       <span className={`flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full ${p.presente ? '' : 'opacity-50'}`}>
         {p.avatarUrl
           ? <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
+          : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-nano font-semibold leading-none text-app-text">
               {p.iniziali}
             </span>}
       </span>
@@ -151,7 +151,7 @@ export function FaceStack({ faces, max = MAX_FACES, total }: {
         >
           {f.avatarUrl
             ? <img src={f.avatarUrl} alt="" className="h-full w-full object-cover" />
-            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[7px] font-semibold leading-none text-app-text">
+            : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-nano font-semibold leading-none text-app-text">
                 {f.iniziali}
               </span>}
         </span>

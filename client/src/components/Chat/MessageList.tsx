@@ -1833,7 +1833,7 @@ export function MessageList({
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary/30 rounded-lg pointer-events-none">
           <div className="text-center">
             <Paperclip size={20} className="mx-auto mb-1 text-primary/50" />
-            <p className="text-primary/70 font-medium text-[12px]">Drop files here</p>
+            <p className="text-primary/70 font-medium text-compact">Drop files here</p>
           </div>
         </div>
       )}

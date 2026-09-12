@@ -54,7 +54,7 @@ function absoluteUrl(url: string): string {
 
 function Meta({ icon: Icon, children }: { icon: typeof MapPin; children: React.ReactNode }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-app-text-secondary">
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-compact text-app-text-secondary">
       <Icon size={13} className="flex-shrink-0 text-app-text-tertiary" />
       <span className="truncate">{children}</span>
     </span>
@@ -70,7 +70,7 @@ function Counter({ n, label, onClick, testId }: {
       onClick={onClick}
       disabled={!onClick}
       data-testid={testId}
-      className="inline-flex items-baseline gap-1 rounded px-1 py-0.5 text-[12.5px] text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:pointer-events-none coarse:min-h-11"
+      className="inline-flex items-baseline gap-1 rounded px-1 py-0.5 text-body text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:pointer-events-none coarse:min-h-11"
     >
       <span className="font-semibold text-app-text tabular-nums">{compactNum(n)}</span>
       {label}
@@ -149,7 +149,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h1 data-testid="profile-name" className="truncate text-[20px] font-semibold leading-tight text-app-text">
+            <h1 data-testid="profile-name" className="truncate text-headline font-semibold leading-tight text-app-text">
               {name}
             </h1>
             {persona.githubLogin && (
@@ -159,13 +159,13 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
                 rel="noreferrer"
                 onClick={(e) => { e.preventDefault(); openLink(githubUrl, { external: isExternalLinkGesture(e), origin: e.target }); }}
                 data-testid="profile-login"
-                className="text-[14px] leading-tight text-app-text-muted hover:text-primary"
+                className="text-body-lg leading-tight text-app-text-muted hover:text-primary"
               >
                 @{persona.githubLogin}
               </a>
             )}
             {persona.followsViewer && !persona.isMe && (
-              <span className="ml-2 rounded border border-app-border px-1.5 py-0.5 align-middle text-[10.5px] text-app-text-muted">
+              <span className="ml-2 rounded border border-app-border px-1.5 py-0.5 align-middle text-mini text-app-text-muted">
                 {t('profile.followsYou')}
               </span>
             )}
@@ -178,7 +178,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
                 onClick={() => void toggleFollow()}
                 data-testid="profile-follow"
                 aria-pressed={persona.viewerFollows}
-                className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-[12.5px] font-medium coarse:min-h-11 ${
+                className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-body font-medium coarse:min-h-11 ${
                   persona.viewerFollows
                     ? 'border-app-border text-app-text hover:bg-app-hover'
                     : 'border-primary bg-primary/10 text-primary hover:bg-primary/20'
@@ -191,7 +191,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
           </div>
         </div>
 
-        {g?.bio && <p className="text-[13px] leading-snug text-app-text-secondary">{g.bio}</p>}
+        {g?.bio && <p className="text-body leading-snug text-app-text-secondary">{g.bio}</p>}
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {g?.company && <Meta icon={Building2}>{g.company}</Meta>}
@@ -256,12 +256,12 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
                 placeholder="github login"
                 spellCheck={false}
                 data-testid="profile-github-input"
-                className="min-w-0 flex-1 rounded border border-app-border bg-app-surface px-2 py-1 text-[12px] text-app-text"
+                className="min-w-0 flex-1 rounded border border-app-border bg-app-surface px-2 py-1 text-compact text-app-text"
               />
               <button
                 type="button"
                 onClick={() => void saveLogin()}
-                className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-[12px] text-app-text hover:bg-app-hover"
+                className="flex-shrink-0 rounded border border-app-border px-2 py-1 text-compact text-app-text hover:bg-app-hover"
               >
                 {t('common.save')}
               </button>
@@ -271,14 +271,14 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
               type="button"
               onClick={() => { setDraft(persona.githubLogin ?? ''); setEditingLogin(true); }}
               data-testid="profile-github-edit"
-              className="inline-flex items-center gap-1.5 text-[12px] text-app-text-muted hover:text-primary coarse:min-h-11"
+              className="inline-flex items-center gap-1.5 text-compact text-app-text-muted hover:text-primary coarse:min-h-11"
             >
               <Github size={13} />
               {persona.githubLogin ?? t('profile.noGithub')}
             </button>
           )
         )}
-        {error && <p className="text-[11px] text-red-500">{error}</p>}
+        {error && <p className="text-mini text-red-500">{error}</p>}
       </div>
     </div>
   );
@@ -289,7 +289,7 @@ export function ProfileTopicsStats({ persona }: { persona: PersonWithProfile }) 
   const t = useT();
   if (!persona.stats) {
     return (
-      <p data-testid="profile-stats-hidden" className="text-[12px] text-app-text-muted">
+      <p data-testid="profile-stats-hidden" className="text-compact text-app-text-muted">
         {t('profile.topics.hidden')}
       </p>
     );
@@ -302,19 +302,19 @@ export function ProfileTopicsStats({ persona }: { persona: PersonWithProfile }) 
   ];
   return (
     <div data-testid="profile-topics-stats">
-      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+      <h3 className="mb-2 text-mini font-medium uppercase tracking-wide text-app-text-muted">
         {t('profile.topics.title')}
       </h3>
       <dl className="grid grid-cols-3 gap-3">
         {figures.map(([value, label]) => (
           <div key={label} className="min-w-0 rounded-md border border-app-border px-3 py-2">
-            <dd className="text-[17px] font-semibold leading-tight text-app-text tabular-nums">{value}</dd>
-            <dt className="truncate text-[10.5px] uppercase tracking-wide text-app-text-tertiary">{label}</dt>
+            <dd className="text-title font-semibold leading-tight text-app-text tabular-nums">{value}</dd>
+            <dt className="truncate text-mini uppercase tracking-wide text-app-text-tertiary">{label}</dt>
           </div>
         ))}
       </dl>
       {s.ultimoPrompt && (
-        <p className="mt-2 text-[11px] text-app-text-muted">
+        <p className="mt-2 text-mini text-app-text-muted">
           {t('profile.topics.lastPrompt')}: {new Date(s.ultimoPrompt).toLocaleString()}
         </p>
       )}

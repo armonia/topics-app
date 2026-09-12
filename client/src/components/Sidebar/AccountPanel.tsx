@@ -75,9 +75,9 @@ export interface LocalFacts {
   devices: { connected: number; total: number } | null;
 }
 
-const FIELD = 'w-full min-w-0 rounded border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-app-text outline-none focus:border-app-accent';
-const PRIMARY = 'flex w-full items-center justify-center gap-1.5 rounded border border-primary bg-primary/10 px-2 py-1.5 text-[11.5px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50';
-const QUIET = 'flex-shrink-0 rounded px-2 py-1 text-[11px] text-app-text-tertiary hover:bg-app-hover';
+const FIELD = 'w-full min-w-0 rounded border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-app-accent';
+const PRIMARY = 'flex w-full items-center justify-center gap-1.5 rounded border border-primary bg-primary/10 px-2 py-1.5 text-compact font-medium text-primary hover:bg-primary/20 disabled:opacity-50';
+const QUIET = 'flex-shrink-0 rounded px-2 py-1 text-mini text-app-text-tertiary hover:bg-app-hover';
 
 export function AccountPanel({ who, DeviceIcon, facts, doors }: {
   who: LabelIdentity;
@@ -116,16 +116,16 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
       <div data-testid="account-identity" className="flex items-center gap-2.5 px-3 py-2.5">
         {who.avatarUrl
           ? <img src={who.avatarUrl} alt="" className="h-8 w-8 flex-shrink-0 rounded-full object-cover" />
-          : <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary text-[12px] font-semibold leading-none text-white">
+          : <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary text-compact font-semibold leading-none text-white">
               {who.iniziali || '?'}
             </span>}
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[12.5px] font-medium text-app-text">{who.nome}</span>
+          <span className="truncate text-body font-medium text-app-text">{who.nome}</span>
           {/* The second line is the ACCOUNT where the word means something, and
               the device where it does not: never both, and never a blank. */}
           {speaksOfAccounts
             ? (
-              <span className={`flex min-w-0 items-center gap-1 text-[11px] ${linked ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
+              <span className={`flex min-w-0 items-center gap-1 text-mini ${linked ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
                 {linked
                   ? <ShieldCheck size={11} className="flex-shrink-0 text-app-text-muted" />
                   : <Mail size={11} className="flex-shrink-0 text-app-text-muted" />}
@@ -135,7 +135,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
               </span>
             )
             : who.dettaglio && (
-              <span className="flex min-w-0 items-center gap-1 text-[11px] text-app-text-muted">
+              <span className="flex min-w-0 items-center gap-1 text-mini text-app-text-muted">
                 <DeviceIcon size={11} className="flex-shrink-0" />
                 <span className="truncate">{who.dettaglio}</span>
               </span>
@@ -149,7 +149,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
         <div data-testid="account-signin" className="border-t border-app-border px-3 py-2.5">
           {step.phase === 'address' ? (
             <div className="space-y-1.5">
-              <p className="text-[11px] leading-snug text-app-text-tertiary">{t('statusBar.account.why')}</p>
+              <p className="text-mini leading-snug text-app-text-tertiary">{t('statusBar.account.why')}</p>
               <input
                 type="email"
                 value={email}
@@ -172,7 +172,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
             </div>
           ) : (
             <div className="space-y-1.5">
-              <p className="text-[11px] leading-snug text-app-text-tertiary">
+              <p className="text-mini leading-snug text-app-text-tertiary">
                 {t('account.codeSent', { email: step.email })}
               </p>
               <input
@@ -209,7 +209,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
           definition, hence the one case where the sentence was needed was the
           one case where the block that held it was not rendered. */}
       {error && (
-        <p data-testid="account-error" className="border-t border-app-border px-3 py-2 text-[11px] leading-snug text-red-500">
+        <p data-testid="account-error" className="border-t border-app-border px-3 py-2 text-mini leading-snug text-red-500">
           {t(error)}
         </p>
       )}
@@ -217,7 +217,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
       {/* The link holds with the service unreachable, and that is said out loud
           rather than leaving a person to read the silence as a fault. */}
       {linked && state && !state.configured && (
-        <p className="border-t border-app-border px-3 py-2 text-[11px] leading-snug text-app-text-tertiary">
+        <p className="border-t border-app-border px-3 py-2 text-mini leading-snug text-app-text-tertiary">
           {t('account.offline')}
         </p>
       )}
@@ -228,7 +228,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
              and they found a place where those things can also be opened (see
              `LocalFacts`). */}
       {anyFact && (
-        <div className="border-t border-app-border px-3 py-2 text-[11px]">
+        <div className="border-t border-app-border px-3 py-2 text-mini">
           <Fact label={t('statusBar.me.machine')}>
             <DeviceIcon size={11} className="flex-shrink-0 text-app-text-muted" />
             <span className="truncate">{facts.device}</span>
@@ -247,7 +247,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
             onClick={() => void signOut()}
             disabled={busy}
             data-testid="account-signout"
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11.5px] text-app-text-secondary hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-compact text-app-text-secondary hover:bg-app-hover disabled:opacity-50 coarse:min-h-11"
           >
             <span className="truncate">{t('account.unlink')}</span>
           </button>

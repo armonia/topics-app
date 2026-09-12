@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // `tailwind` is the name of the framework this client's classes come from,
+  // and the constant that lists ITS font-size steps (the ones the type scale
+  // switches off) has to name it to be understood. `scanned` is a regular past
+  // participle the dictionary does not carry, next to `emitted`, `supplied` and
+  // `verified`; the other gates in this folder already count files with it.
+  "tailwind", "scanned",
   // The steps under a card. It is an Italian dictionary word (a loanword), and
   // it is also what this project calls the thing everywhere: `subtaskCount`'s
   // UI, `Card.tsx`'s `const checklist = children`, the `checklist_frozen` queue

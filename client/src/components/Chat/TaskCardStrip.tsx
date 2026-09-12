@@ -30,10 +30,10 @@ export function TaskCardStrip({ topicId }: { topicId: string }) {
       className="chat-measure flex flex-shrink-0 items-center gap-2 border-b border-app-border px-3 py-1.5"
     >
       <ClipboardList size={13} className="flex-shrink-0 text-app-text-secondary" />
-      <span className="flex-shrink-0 text-[10px] uppercase tracking-wide text-app-text-muted">
+      <span className="flex-shrink-0 text-micro uppercase tracking-wide text-app-text-muted">
         {tr('chat.session.taskLabel')}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-app-text" title={task.text}>
+      <span className="min-w-0 flex-1 truncate text-compact text-app-text" title={task.text}>
         {task.text}
       </span>
       {/* Stesso imbuto del click su una notifica e di un link `/task/<id>`
@@ -47,7 +47,7 @@ export function TaskCardStrip({ topicId }: { topicId: string }) {
         data-testid="chat-open-task-card"
         onClick={(e) => { e.stopPropagation(); openTaskInApp({ taskId: task.taskId }); }}
         title={tr('chat.session.openTaskCardTitle')}
-        className="flex-shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-app-text-heading hover:bg-white/10"
+        className="flex-shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
       >{tr('chat.session.openTaskCard')}</button>
     </div>
   );

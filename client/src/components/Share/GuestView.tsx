@@ -79,8 +79,8 @@ export function GuestView({ deviceName }: { deviceName: string }) {
     // da un menu dell'app che non dovrebbe nemmeno esserci.
     <div className={`fixed inset-0 ${MODAL_LAYER} overflow-y-auto bg-app-bg`}>
       <header className="sticky top-0 flex items-center gap-2 border-b border-app-border bg-app-bg px-4 py-3">
-        <span className="text-[15px] font-semibold text-app-text">Topics</span>
-        <span className="rounded bg-app-hover px-1.5 py-px text-[10px] text-app-text-secondary">
+        <span className="text-title font-semibold text-app-text">Topics</span>
+        <span className="rounded bg-app-hover px-1.5 py-px text-micro text-app-text-secondary">
           ospite · {deviceName}
         </span>
         <button
@@ -93,10 +93,10 @@ export function GuestView({ deviceName }: { deviceName: string }) {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-5">
-        {stato === 'carico' && <p className="text-[13px] text-app-text-muted">{tr('guest.loading')}</p>}
+        {stato === 'carico' && <p className="text-body text-app-text-muted">{tr('guest.loading')}</p>}
 
         {stato === 'errore' && (
-          <p className="text-[13px] text-app-text-secondary">
+          <p className="text-body text-app-text-secondary">
             {tr('guest.error')}
           </p>
         )}
@@ -105,8 +105,8 @@ export function GuestView({ deviceName }: { deviceName: string }) {
           // Un elenco vuoto senza spiegazione si legge come «rotto». Qui si dice
           // che è normale, e di chi è la mossa successiva.
           <div className="rounded-xl border border-app-border bg-app-hover/30 px-4 py-5 text-center">
-            <p className="text-[13px] text-app-text">{tr('guest.empty.title')}</p>
-            <p className="mt-1 text-[12px] text-app-text-secondary">
+            <p className="text-body text-app-text">{tr('guest.empty.title')}</p>
+            <p className="mt-1 text-compact text-app-text-secondary">
               {tr('guest.empty.blurb')}
             </p>
           </div>
@@ -114,7 +114,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
 
         {tasks.length > 0 && (
           <section className="mb-6">
-            <h2 className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+            <h2 className="mb-2 flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-app-text-muted">
               <LayoutGrid size={11} /> {tr('guest.cards')}
             </h2>
             <ul className="space-y-1.5" data-testid="guest-tasks">
@@ -127,12 +127,12 @@ export function GuestView({ deviceName }: { deviceName: string }) {
 
         {chats.length > 0 && (
           <section>
-            <h2 className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+            <h2 className="mb-2 flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-app-text-muted">
               <MessageSquare size={11} /> Chat
             </h2>
             <ul className="space-y-1.5" data-testid="guest-chats">
               {chats.map((c) => (
-                <li key={c.id} className="rounded-lg border border-app-border px-3 py-2.5 text-[13px] text-app-text">
+                <li key={c.id} className="rounded-lg border border-app-border px-3 py-2.5 text-body text-app-text">
                   {c.name}
                 </li>
               ))}
@@ -147,7 +147,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
             true of everything on the page - each card states its own level on
             itself, which is the only place a per-card answer can live. */}
         {stato === 'pronto' && !vuoto && readOnlyThroughout && (
-          <p className="mt-6 text-center text-[11px] text-app-text-muted">
+          <p className="mt-6 text-center text-mini text-app-text-muted">
             {tr('guest.readOnly')}
           </p>
         )}

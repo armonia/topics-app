@@ -41,7 +41,7 @@ export interface DiffReview {
 }
 
 /** Gutter sticky: due numeri + l'aggancio. Resta a sinistra mentre la riga scorre. */
-const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-[10px] tabular-nums text-app-text-faint';
+const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-micro tabular-nums text-app-text-faint';
 
 /**
  * Composer/note in sospeso: vivono DENTRO il contenitore che scorre in
@@ -66,20 +66,20 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         }}
         rows={2}
         placeholder={tr('diff.note.placeholder')}
-        className="w-full resize-y rounded bg-white/5 px-2 py-1 font-sans text-[11.5px] text-app-text outline-none placeholder:text-app-placeholder"
+        className="w-full resize-y rounded bg-white/5 px-2 py-1 font-sans text-compact text-app-text outline-none placeholder:text-app-placeholder"
       />
       <div className="mt-1 flex items-center gap-1.5">
         <button
           onClick={() => text.trim() && onSave(text)}
           disabled={!text.trim()}
-          className="rounded bg-indigo-500/20 px-2 py-0.5 font-sans text-[11px] text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-40"
+          className="rounded bg-indigo-500/20 px-2 py-0.5 font-sans text-mini text-indigo-200 hover:bg-indigo-500/30 disabled:opacity-40"
         >
           {tr('common.add')}
         </button>
-        <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-[11px] text-app-text-secondary hover:text-app-text">
+        <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-mini text-app-text-secondary hover:text-app-text">
           {tr('common.cancel')}
         </button>
-        <span className="ml-auto font-sans text-[10px] text-app-text-faint">{shortcut('\u21b5')}</span>
+        <span className="ml-auto font-sans text-micro text-app-text-faint">{shortcut('\u21b5')}</span>
       </div>
     </div>
   );
@@ -137,23 +137,23 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
       <button
         onClick={() => setUserOpen(!open)}
         title={row.origPath ? `${row.origPath} -> ${path}` : path}
-        className="flex w-full items-center gap-1.5 bg-elevated px-2 py-1 text-left text-[11px] hover:bg-app-hover"
+        className="flex w-full items-center gap-1.5 bg-elevated px-2 py-1 text-left text-mini hover:bg-app-hover"
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
         <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
         <ChangedFileEntry
           row={row}
           trailing={fileNotes.length > 0 ? (
-            <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300" title={tr('diff.pendingNotes', { n: String(fileNotes.length) })}>
+            <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-nano text-indigo-300" title={tr('diff.pendingNotes', { n: String(fileNotes.length) })}>
               {fileNotes.length}
             </span>
           ) : undefined}
         />
       </button>
       {open && (
-        <div className="overflow-x-auto font-mono text-[11.5px] leading-[1.55]">
+        <div className="overflow-x-auto font-mono text-compact leading-[1.55]">
           {!chunk ? (
-            <div className="px-2 py-1 font-sans text-[11px] text-app-text-muted">
+            <div className="px-2 py-1 font-sans text-mini text-app-text-muted">
               {tr('diff.patchMissing')}
             </div>
           ) : binary ? (
@@ -194,7 +194,7 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
                 </div>
                 {attached?.map((n) => (
                   <div key={n.id} className={`${OVERLAY} flex items-start gap-1.5 border-y border-indigo-500/20 bg-indigo-500/5 px-2 py-1`}>
-                    <span className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-[11.5px] text-app-text">{n.body}</span>
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-compact text-app-text">{n.body}</span>
                     <button
                       onClick={() => review!.onRemoveNote(n.id)}
                       title="Togli la nota"
@@ -220,13 +220,13 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
           {overflow > 0 && (
             <button
               onClick={() => setShowAll(true)}
-              className="w-full px-2 py-1 text-left font-sans text-[10px] text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
+              className="w-full px-2 py-1 text-left font-sans text-micro text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
             >
               {tr('diff.showAll', { total: rows.length, more: overflow })}
             </button>
           )}
           {partial && (
-            <div className="px-2 py-0.5 font-sans text-[10px] text-amber-400/80">
+            <div className="px-2 py-0.5 font-sans text-micro text-amber-400/80">
               {tr('diff.cutHere')}
             </div>
           )}
@@ -248,7 +248,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
   const missing = files.filter((f) => !f.chunk).length;
 
   if (files.length === 0) {
-    return <div className="px-1 py-1 text-[11px] text-app-text-muted">{tr('diff.noChanges')}</div>;
+    return <div className="px-1 py-1 text-mini text-app-text-muted">{tr('diff.noChanges')}</div>;
   }
 
   return (
@@ -265,7 +265,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
         />
       ))}
       {bundle.truncated && (
-        <div className="px-1 py-0.5 text-[10px] text-amber-400/80">
+        <div className="px-1 py-0.5 text-micro text-amber-400/80">
           {tr('diff.truncated', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}
         </div>
       )}

@@ -353,28 +353,28 @@ export function DevicesSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-[13px] font-semibold text-app-text">{t('devices.title')}</h3>
-        <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
+        <h3 className="text-body font-semibold text-app-text">{t('devices.title')}</h3>
+        <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">
           {t('devices.blurb')}
         </p>
       </div>
 
       {(refusal ?? errore) && (
         <div data-testid="devices-error" className="flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/30 px-3 py-2">
-          <p className="flex-1 text-[12px] text-app-text-secondary">{refusal ?? errore}</p>
+          <p className="flex-1 text-compact text-app-text-secondary">{refusal ?? errore}</p>
           <button
             onClick={() => { setRefusal(null); setErrore(null); void carica(); }}
-            className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover"
+            className="rounded-md border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover"
           >
             {t('devices.retry')}
           </button>
         </div>
       )}
 
-      {devices === null && <p className="text-[12px] text-app-text-muted">{t('devices.loading')}</p>}
+      {devices === null && <p className="text-compact text-app-text-muted">{t('devices.loading')}</p>}
 
       {devices !== null && attivi.length === 0 && !errore && (
-        <p className="rounded-lg border border-app-border bg-app-hover/30 px-3 py-2.5 text-[12px] text-app-text-secondary">
+        <p className="rounded-lg border border-app-border bg-app-hover/30 px-3 py-2.5 text-compact text-app-text-secondary">
           {t('devices.none')}
         </p>
       )}
@@ -389,14 +389,14 @@ export function DevicesSection() {
             <Monitor size={14} className="flex-shrink-0 text-app-text-secondary" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <span className="truncate text-[12.5px] text-app-text">{computer.name}</span>
+                <span className="truncate text-body text-app-text">{computer.name}</span>
                 {computer.current && (
-                  <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
+                  <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-micro text-primary">
                     {t('devices.youAreHere')}
                   </span>
                 )}
               </div>
-              <div className="text-[11px] text-app-text-muted">
+              <div className="text-mini text-app-text-muted">
                 {t('devices.thisComputerNote')}
               </div>
             </div>
@@ -434,7 +434,7 @@ export function DevicesSection() {
                     }}
                     onBlur={() => void salvaNome()}
                     aria-label={t('devices.newNameFor', { nome: d.name })}
-                    className="w-full rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-[12.5px] text-app-text outline-none focus:border-primary"
+                    className="w-full rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-body text-app-text outline-none focus:border-primary"
                   />
                 ) : (
                   <button
@@ -442,9 +442,9 @@ export function DevicesSection() {
                     className="group flex max-w-full items-center gap-1 text-left coarse:min-h-11"
                     title={t('devices.rename')}
                   >
-                    <span className="truncate text-[12.5px] text-app-text">{d.name}</span>
+                    <span className="truncate text-body text-app-text">{d.name}</span>
                     {d.current && (
-                      <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] text-primary">
+                      <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-micro text-primary">
                         {t('devices.youAreHere')}
                       </span>
                     )}
@@ -453,7 +453,7 @@ export function DevicesSection() {
                         normale: quello da vedere a colpo d'occhio è l'altro. */}
                     {d.role === 'guest' && (
                       <span
-                        className="flex-shrink-0 rounded bg-app-hover px-1.5 py-px text-[10px] text-app-text-secondary"
+                        className="flex-shrink-0 rounded bg-app-hover px-1.5 py-px text-micro text-app-text-secondary"
                         title={t('devices.guestTitle')}
                         data-testid="device-role-guest"
                       >
@@ -463,7 +463,7 @@ export function DevicesSection() {
                     <Pencil size={10} className="flex-shrink-0 text-app-text-tertiary opacity-0 transition-opacity group-hover:opacity-100" />
                   </button>
                 )}
-                <div className="text-[11px] text-app-text-muted">
+                <div className="text-mini text-app-text-muted">
                   {d.connected ? t('devices.connectedNow') : t('devices.seen', { quando: quando(d.lastSeenAt, t, locale) })}
                   {d.firstIp && ` · ${t('devices.fromIp', { ip: d.firstIp.replace(/^::ffff:/, '') })}`}
                   {/* DI CHI è. Si mostra solo se ci sono davvero più persone:
@@ -478,13 +478,13 @@ export function DevicesSection() {
                 {persone.length > 1 && (
                   sposta === d.id ? (
                     <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <span className="text-[11px] text-app-text-secondary">{t('devices.whose')}</span>
+                      <span className="text-mini text-app-text-secondary">{t('devices.whose')}</span>
                       {persone.map((p) => (
                         <button
                           key={p.id}
                           disabled={inCorso === d.id}
                           onClick={() => void moveOn(d.id, p.id)}
-                          className={`rounded border px-1.5 py-0.5 text-[11px] disabled:opacity-50 ${
+                          className={`rounded border px-1.5 py-0.5 text-mini disabled:opacity-50 ${
                             d.person?.id === p.id
                               ? 'border-primary/40 bg-primary/10 text-primary'
                               : 'border-app-border text-app-text hover:bg-app-hover'
@@ -495,7 +495,7 @@ export function DevicesSection() {
                       ))}
                       <button
                         onClick={() => setSposta(null)}
-                        className="rounded px-1.5 py-0.5 text-[11px] text-app-text-tertiary hover:bg-app-hover"
+                        className="rounded px-1.5 py-0.5 text-mini text-app-text-tertiary hover:bg-app-hover"
                       >
                         {t('devices.cancel')}
                       </button>
@@ -504,7 +504,7 @@ export function DevicesSection() {
                     <button
                       onClick={() => setSposta(d.id)}
                       data-testid="device-move-person"
-                      className="mt-0.5 text-[11px] text-app-text-tertiary underline decoration-dotted underline-offset-2 hover:text-app-text"
+                      className="mt-0.5 text-mini text-app-text-tertiary underline decoration-dotted underline-offset-2 hover:text-app-text"
                     >
                       {t('devices.otherPerson')}
                     </button>
@@ -514,7 +514,7 @@ export function DevicesSection() {
 
               {conferma === d.id ? (
                 <div className="flex flex-shrink-0 items-center gap-1">
-                  <span className="mr-1 text-[11px] text-app-text-secondary">{t('devices.revokeQuestion')}</span>
+                  <span className="mr-1 text-mini text-app-text-secondary">{t('devices.revokeQuestion')}</span>
                   <button
                     aria-label={t('devices.confirmRevoke')}
                     disabled={inCorso === d.id}
@@ -547,15 +547,15 @@ export function DevicesSection() {
 
       {revocati.length > 0 && (
         <div>
-          <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+          <h4 className="mb-1.5 text-mini font-medium uppercase tracking-wide text-app-text-muted">
             {t('devices.revokedHeading')}
           </h4>
           <ul className="space-y-1" data-testid="devices-revoked">
             {revocati.map((d) => (
-              <li key={d.id} className="flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-app-text-muted">
+              <li key={d.id} className="flex items-center gap-2.5 px-3 py-1.5 text-compact text-app-text-muted">
                 <Smartphone size={12} className="flex-shrink-0 opacity-50" />
                 <span className="truncate line-through">{d.name}</span>
-                <span className="ml-auto flex-shrink-0 text-[11px]">{t('devices.revokedWhen', { quando: quando(d.revokedAt, t, locale) })}</span>
+                <span className="ml-auto flex-shrink-0 text-mini">{t('devices.revokedWhen', { quando: quando(d.revokedAt, t, locale) })}</span>
               </li>
             ))}
           </ul>
@@ -567,17 +567,17 @@ export function DevicesSection() {
           handshake is the device pairing the node already has, and the token
           this machine keeps is a device token issued by the node. */}
       <div data-testid="settings-node-pair" className="border-t border-app-border pt-4">
-        <h4 className="flex items-center gap-1.5 text-[12px] font-semibold text-app-text">
+        <h4 className="flex items-center gap-1.5 text-compact font-semibold text-app-text">
           <Server size={13} className="flex-shrink-0 text-app-text-secondary" />
           {t('settings.machines.pair.title')}
         </h4>
-        <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
+        <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">
           {t('settings.machines.pair.blurb')}
         </p>
 
         {pairPhase === 'address' && (
           <div className="mt-2 space-y-1.5" data-testid="node-pair-address">
-            <label className="block text-[11px] text-app-text-muted" htmlFor="node-pair-url">
+            <label className="block text-mini text-app-text-muted" htmlFor="node-pair-url">
               {t('settings.machines.pair.address')}
             </label>
             <div className="flex items-center gap-1.5">
@@ -587,30 +587,30 @@ export function DevicesSection() {
                 onChange={(e) => setNodeAddress(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void startPairing(); }}
                 placeholder={t('settings.machines.pair.addressPlaceholder')}
-                className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-[12.5px] text-app-text outline-none focus:border-primary coarse:min-h-11"
+                className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-body text-app-text outline-none focus:border-primary coarse:min-h-11"
               />
               <button
                 onClick={() => void startPairing()}
                 disabled={pairBusy || !nodeAddress.trim()}
-                className="flex-shrink-0 rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
+                className="flex-shrink-0 rounded-md border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
               >
                 {t('settings.machines.pair.add')}
               </button>
             </div>
             {pairError && (
-              <p data-testid="node-pair-error" className="text-[11px] leading-relaxed text-red-400">{pairError}</p>
+              <p data-testid="node-pair-error" className="text-mini leading-relaxed text-red-400">{pairError}</p>
             )}
           </div>
         )}
 
         {pairPhase === 'code' && pairing && (
           <div className="mt-2 space-y-1.5" data-testid="node-pair-code">
-            <p className="text-[12px] text-app-text-secondary">{t('settings.machines.pair.codeIntro')}</p>
-            <p className="font-mono text-[20px] tracking-[0.3em] text-app-text">{pairing.code}</p>
-            <p className="text-[11px] text-app-text-muted">{t('settings.machines.pair.codeWait')}</p>
+            <p className="text-compact text-app-text-secondary">{t('settings.machines.pair.codeIntro')}</p>
+            <p className="font-mono text-headline tracking-[0.3em] text-app-text">{pairing.code}</p>
+            <p className="text-mini text-app-text-muted">{t('settings.machines.pair.codeWait')}</p>
             <button
               onClick={restartPairing}
-              className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover"
+              className="rounded-md border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover"
             >
               {t('settings.machines.pair.cancel')}
             </button>
@@ -619,7 +619,7 @@ export function DevicesSection() {
 
         {pairPhase === 'outcome' && pairOutcome && (
           <div className="mt-2 space-y-1.5" data-testid="node-pair-outcome">
-            <p className={`text-[12px] leading-relaxed ${pairOutcome.state === 'approved' ? 'text-app-text' : 'text-app-text-secondary'}`}>
+            <p className={`text-compact leading-relaxed ${pairOutcome.state === 'approved' ? 'text-app-text' : 'text-app-text-secondary'}`}>
               {pairOutcome.state === 'approved'
                 ? t('settings.machines.pair.approved', { name: pairOutcome.name ?? nodeAddress.trim() })
                 : pairOutcome.state === 'denied'
@@ -628,7 +628,7 @@ export function DevicesSection() {
             </p>
             <button
               onClick={restartPairing}
-              className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover"
+              className="rounded-md border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover"
             >
               {pairOutcome.state === 'approved' ? t('settings.machines.pair.close') : t('settings.machines.pair.again')}
             </button>

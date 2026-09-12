@@ -25,7 +25,7 @@ export function WorktreeChip({ worktree, onFill }: { worktree: WorktreeLabel; on
       data-worktree-chip={worktree.id}
       className={cn(
         'flex-shrink-0 flex items-center gap-1 max-w-[96px] h-[18px] px-1.5 rounded-md',
-        'text-[11px] leading-none',
+        'text-mini leading-none',
         onFill ? cn(ON_FILL_TEXT_SOFT, 'bg-white/15') : 'text-app-text-secondary bg-app-hover',
       )}
       title={worktree.branchName ? `${name} · ${worktree.branchName}` : name}

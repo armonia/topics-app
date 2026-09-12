@@ -68,7 +68,7 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
             <span className="flex items-center justify-center w-11 h-11 rounded-2xl bg-app-panel border border-app-border-subtle text-primary shadow-sm">
               <Compass size={20} strokeWidth={1.75} />
             </span>
-            <h1 className="text-[15px] font-medium text-app-text-heading">{tr('browser.newTab.title')}</h1>
+            <h1 className="text-title font-medium text-app-text-heading">{tr('browser.newTab.title')}</h1>
           </div>
 
           <form onSubmit={submit} className="relative" data-testid="browser-new-tab-form">
@@ -86,13 +86,13 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
               spellCheck={false}
               autoComplete="off"
               data-testid="browser-new-tab-input"
-              className="w-full h-11 pl-10 pr-4 rounded-full bg-app-input border border-app-border-input text-[13px] text-app-text placeholder:text-app-placeholder shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
+              className="w-full h-11 pl-10 pr-4 rounded-full bg-app-input border border-app-border-input text-body text-app-text placeholder:text-app-placeholder shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
             />
           </form>
 
           {sites.length > 0 ? (
             <div className="mt-8" data-testid="browser-new-tab-sites">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-app-text-faint mb-2 px-1">
+              <p className="text-micro font-semibold uppercase tracking-wider text-app-text-faint mb-2 px-1">
                 {tr('browser.newTab.topSites')}
               </p>
               <div className="grid grid-cols-4 gap-1.5">
@@ -106,7 +106,7 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
                       className="w-full flex flex-col items-center gap-2 px-2 py-3 rounded-xl border border-transparent hover:border-app-border-subtle hover:bg-app-hover transition-colors"
                     >
                       <BrowserFavicon url={site.url} faviconUrl={site.favicon} size={22} />
-                      <span className="w-full text-[11px] text-app-text-secondary truncate text-center">
+                      <span className="w-full text-mini text-app-text-secondary truncate text-center">
                         {site.host}
                       </span>
                     </button>
@@ -125,7 +125,7 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
               </div>
             </div>
           ) : (
-            <p className="mt-8 text-center text-[11px] text-app-text-faint" data-testid="browser-new-tab-empty">
+            <p className="mt-8 text-center text-mini text-app-text-faint" data-testid="browser-new-tab-empty">
               {tr('browser.newTab.empty')}
             </p>
           )}

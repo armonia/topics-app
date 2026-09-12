@@ -40,9 +40,9 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
             «acceso» e stava sopra la riga che dice che non c'è nessuno in
             ascolto — il glifo diceva il contrario del testo. */}
         <Unplug size={28} className="mx-auto mb-3 text-app-text-tertiary" aria-hidden />
-        <div className="text-[13px] font-medium text-app-text">{message}</div>
-        {hint && <div className="mt-1.5 text-[12px] text-app-text-muted leading-snug">{hint}</div>}
-        <div className="mt-1.5 text-[11px] text-app-text-tertiary">
+        <div className="text-body font-medium text-app-text">{message}</div>
+        {hint && <div className="mt-1.5 text-compact text-app-text-muted leading-snug">{hint}</div>}
+        <div className="mt-1.5 text-mini text-app-text-tertiary">
           {tr('parked.checkedAt', { when: hhmm(checkedAt) })}
         </div>
         <div className="mt-4 flex items-center justify-center gap-2">
@@ -50,7 +50,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
             type="button"
             onClick={onRetry}
             disabled={checking}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-md border border-app-border-light text-app-text hover:bg-app-hover transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-compact rounded-md border border-app-border-light text-app-text hover:bg-app-hover transition-colors disabled:opacity-50"
           >
             <RotateCw size={12} className={checking ? 'animate-spin' : undefined} aria-hidden />
             {checking ? tr('browser.parked.checking') : tr('browser.parked.retry')}
@@ -58,7 +58,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
         </div>
         {/* La scheda si chiude con la scorciatoia che chiude qualunque pane: non
             serve un bottone in più, serve saperlo. */}
-        <div className="mt-3 text-[11px] text-app-text-tertiary">
+        <div className="mt-3 text-mini text-app-text-tertiary">
           <kbd className="kbd">{shortcut('W')}</kbd> {tr('parked.closesTab')}
         </div>
       </div>

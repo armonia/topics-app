@@ -547,7 +547,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
             title={tr('resize.both')}
           />
           {/* size readout */}
-          <div className="absolute left-2 bottom-2 z-10 px-2 py-0.5 rounded-md glass-surface border border-app-border text-[11px] tabular-nums text-app-text-secondary pointer-events-none select-none">
+          <div className="absolute left-2 bottom-2 z-10 px-2 py-0.5 rounded-md glass-surface border border-app-border text-mini tabular-nums text-app-text-secondary pointer-events-none select-none">
             {resp.width} × {resp.height}
           </div>
         </>

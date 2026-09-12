@@ -126,7 +126,7 @@ function MediaImage({ path }: { path: string }) {
 
   if (error) {
     return (
-      <div data-testid="media-image-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
+      <div data-testid="media-image-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-body-lg text-app-text-muted">
         <ImageOff aria-hidden className="w-4 h-4 inline-block align-[-3px] mr-1" />Image failed to load: {getFileName(path)}
       </div>
     );
@@ -186,7 +186,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
 
   if (error) {
     return (
-      <div data-testid="voice-player-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-sm text-app-text-muted">
+      <div data-testid="voice-player-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-body-lg text-app-text-muted">
         <MicOff aria-hidden className="w-4 h-4 inline-block align-[-3px] mr-1" />Voice message failed to load
       </div>
     );
@@ -291,7 +291,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
             }}
           />
         </div>
-        <div className={`flex justify-between text-[11px] tabular-nums ${isUserMessage ? 'text-white/60' : 'text-app-text-muted'}`}>
+        <div className={`flex justify-between text-mini tabular-nums ${isUserMessage ? 'text-white/60' : 'text-app-text-muted'}`}>
           <span>{fmt(currentTime)}</span>
           <span>{fmt(duration)}</span>
         </div>
@@ -305,7 +305,7 @@ function MediaAudio({ path, isVoice, isUserMessage }: { path: string; isVoice?: 
   const src = getMediaUrl(path);
   return (
     <div data-testid="media-audio" className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
-      <div className="flex items-center gap-2 mb-2 text-sm text-app-text-secondary"><Music aria-hidden className="w-4 h-4 shrink-0" />{getFileName(path)}</div>
+      <div className="flex items-center gap-2 mb-2 text-body-lg text-app-text-secondary"><Music aria-hidden className="w-4 h-4 shrink-0" />{getFileName(path)}</div>
       <audio controls className="w-full" preload="metadata">
         <source src={src} />
         Your browser does not support audio playback.
@@ -327,8 +327,8 @@ function MediaFile({ path }: { path: string }) {
     >
       <FileIcon path={path} size={24} />
       <div className="flex-1 min-w-0">
-        <div data-testid="media-file-name" className="text-sm font-medium truncate">{getFileName(path)}</div>
-        <div className="text-xs text-app-text-muted uppercase">{getExtension(path)} file</div>
+        <div data-testid="media-file-name" className="text-body-lg font-medium truncate">{getFileName(path)}</div>
+        <div className="text-compact text-app-text-muted uppercase">{getExtension(path)} file</div>
       </div>
       <Download size={16} className="text-app-text-muted flex-shrink-0" />
     </a>
@@ -462,31 +462,31 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       {/* Header with language + controls */}
       <div className="flex items-center justify-between bg-app-code-bg rounded-t-md px-2.5 py-1 border-b border-white/5">
         <div className="flex items-center gap-2">
-          {language && <span className="text-[11px] uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
+          {language && <span className="text-mini uppercase tracking-wider text-indigo-300/70 font-medium">{language}</span>}
           {/* One line and many lines are two sentences, not one with a hole:
               the singular does not agree between the two languages. */}
-          <span className="text-[11px] text-gray-400">
+          <span className="text-mini text-gray-400">
             {lineCount === 1 ? tr('code.lineCount.one') : tr('code.lineCount.many', { n: lineCount })}
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowLineNumbers(p => !p)}
-            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
+            className={`text-mini px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${showLineNumbers ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
             title={tr('code.toggleLineNumbers')}
           >
             #
           </button>
           <button
             onClick={() => setWordWrap(p => !p)}
-            className={`text-[11px] px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
+            className={`text-mini px-1.5 py-0.5 rounded transition-colors inline-flex items-center justify-center min-w-6 min-h-6 ${wordWrap ? 'bg-indigo-500/20 text-indigo-300' : 'text-gray-400 hover:text-gray-200'}`}
             title={tr('code.toggleWordWrap')}
           >
             ↩
           </button>
           <button
             onClick={handleCopy}
-            className="text-gray-400 hover:text-gray-200 rounded px-1.5 py-0.5 text-[11px] flex items-center justify-center gap-1 min-h-6 transition-colors"
+            className="text-gray-400 hover:text-gray-200 rounded px-1.5 py-0.5 text-mini flex items-center justify-center gap-1 min-h-6 transition-colors"
           >
             {copied ? <><Check size={10} /> {tr('code.copied')}</> : <><Copy size={10} /> {tr('code.copy')}</>}
           </button>
@@ -500,16 +500,16 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           trabocca spesso, ed è lo stesso difetto di prima, solo visibile. */}
       <pre
         {...(wordWrap ? {} : { tabIndex: 0 })}
-        className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-[12.5px] leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`}
+        className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-body leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`}
         style={{ margin: 0 }}
       >
-        <code className="text-[12.5px]">
+        <code className="text-body">
           {showLineNumbers ? (
             <table className="border-collapse w-full">
               <tbody>
                 {displayLines.map((line, i) => (
                   <tr key={i}>
-                    <td className="text-right pr-3 text-gray-600 select-none w-[1%] whitespace-nowrap text-[11px] align-top">{i + 1}</td>
+                    <td className="text-right pr-3 text-gray-600 select-none w-[1%] whitespace-nowrap text-mini align-top">{i + 1}</td>
                     <td className={wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}>{line}</td>
                   </tr>
                 ))}
@@ -526,7 +526,7 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
       {isLong && (
         <button
           onClick={() => setCollapsed(p => !p)}
-          className="w-full bg-app-code-bg hover:bg-app-code-bg text-indigo-300/70 hover:text-indigo-300 text-[11px] py-1.5 rounded-b-md border-t border-white/5 transition-colors"
+          className="w-full bg-app-code-bg hover:bg-app-code-bg text-indigo-300/70 hover:text-indigo-300 text-mini py-1.5 rounded-b-md border-t border-white/5 transition-colors"
         >
           {collapsed ? tr('code.showAll', { n: lineCount }) : tr('code.showLess')}
         </button>
@@ -616,12 +616,12 @@ export const markdownComponents: Components = {
   },
   code: ({ children, className }) => {
     const isBlock = className?.includes('language-');
-    if (isBlock) return <code className="text-[12.5px]">{children}</code>;
-    return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-[12.5px] font-mono">{children}</code>;
+    if (isBlock) return <code className="text-body">{children}</code>;
+    return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-body font-mono">{children}</code>;
   },
   table: ({ children }) => (
     <div className="overflow-x-auto my-2">
-      <table className="min-w-full border-collapse border border-app-border-light text-sm">{children}</table>
+      <table className="min-w-full border-collapse border border-app-border-light text-body-lg">{children}</table>
     </div>
   ),
   th: ({ children }) => (
@@ -689,7 +689,7 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
           {applyAllState === 'idle' && (
             <button
               onClick={handleApplyAll}
-              className="flex items-center gap-1.5 px-3 py-1 rounded text-[12px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1 rounded text-compact font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
             >
               <CheckCheck size={14} /> Apply All ({diffIndices.length} edits)
             </button>
@@ -699,7 +699,7 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
               {/* `current`: il verde lo porta la riga, l'anello lo eredita —
                   l'ultima copia a mano del cerchietto è finita qui. */}
               <Spinner size="sm" tone="current" />
-              <span className="text-[12px] text-app-text-secondary">
+              <span className="text-compact text-app-text-secondary">
                 Applying {applyProgress.applied}/{applyProgress.total}...
                 {applyProgress.failed > 0 && <span className="text-red-500 ml-1">({applyProgress.failed} failed)</span>}
               </span>
@@ -708,7 +708,7 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
           {applyAllState === 'done' && (
             <div className="flex items-center gap-2">
               <CheckCheck size={14} className="text-emerald-500" />
-              <span className="text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">
+              <span className="text-compact text-emerald-600 dark:text-emerald-400 font-medium">
                 {applyProgress.applied} applied
                 {applyProgress.failed > 0 && <span className="text-red-500 ml-1">({applyProgress.failed} failed)</span>}
               </span>
@@ -875,7 +875,7 @@ function CompactionSummaryFold({ summary, components }: { summary: string; compo
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px] text-app-text-muted hover:bg-app-hover transition-colors"
+        className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-mini text-app-text-muted hover:bg-app-hover transition-colors"
       >
         <Layers size={12} className="flex-shrink-0" />
         <span className="font-medium">{tr('compaction.summaryTitle')}</span>
@@ -983,7 +983,7 @@ function TurnErrorBanner({ text }: { text: string }) {
   return (
     <div
       data-testid="turn-error"
-      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-[12px] leading-snug text-amber-900 dark:text-amber-200"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-compact leading-snug text-amber-900 dark:text-amber-200"
     >
       <span aria-hidden className="flex-shrink-0 leading-snug"><TriangleAlert className="w-4 h-4" /></span>
       <span className="min-w-0 break-words">{text}</span>
@@ -1009,7 +1009,7 @@ function WokenBanner({ label }: { label?: string }) {
   return (
     <div
       data-testid="woken-banner"
-      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-compact leading-snug text-blue-900 dark:text-blue-200"
     >
       <span aria-hidden className="flex-shrink-0 leading-snug"><Bell className="w-4 h-4" /></span>
       <span className="min-w-0 break-words">
@@ -1035,7 +1035,7 @@ function RipresoBanner() {
   return (
     <div
       data-testid="ripreso-banner"
-      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-[12px] leading-snug text-blue-900 dark:text-blue-200"
+      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-compact leading-snug text-blue-900 dark:text-blue-200"
     >
       <span aria-hidden className="flex-shrink-0 leading-snug">↻</span>
       <span className="min-w-0 break-words">{tr('ripreso.banner')}</span>
@@ -1205,7 +1205,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             // stare su una bolla blu. Su un grigio di sistema quello stesso
             // azzurro diventa una barra colorata a caso — la stessa ragione per
             // cui la selezione in quest'app non si colora.
-            <div key={i} className="border-l-3 border-app-border-light pl-2 mb-1 text-sm opacity-75 italic">
+            <div key={i} className="border-l-3 border-app-border-light pl-2 mb-1 text-body-lg opacity-75 italic">
               {block.content}
             </div>
           );

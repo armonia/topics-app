@@ -46,7 +46,7 @@ export function TimeSeriesChart({ points, metric, height = 200 }: TimeSeriesChar
 
   if (points.length === 0) {
     return (
-      <div ref={containerRef} className="flex items-center justify-center text-app-text-muted text-[12px]" style={{ height }}>
+      <div ref={containerRef} className="flex items-center justify-center text-app-text-muted text-compact" style={{ height }}>
         No data for selected range
       </div>
     );

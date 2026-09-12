@@ -25,7 +25,7 @@ export function DraftCard({ draft }: { draft: DraftPreview }) {
       aria-label={tr('board.draft.label')}
       className="rounded-lg border border-dashed border-app-border-light bg-white/[0.03] p-3 opacity-80"
     >
-      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-app-text-muted">{tr('board.draft.label')}</p>
+      <p className="mb-1.5 text-micro font-medium uppercase tracking-wide text-app-text-muted">{tr('board.draft.label')}</p>
       {draft.images.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {draft.images.slice(0, 3).map((p) => (
@@ -33,12 +33,12 @@ export function DraftCard({ draft }: { draft: DraftPreview }) {
           ))}
         </div>
       )}
-      <span className="block break-words text-sm leading-snug text-app-text-heading">{draft.title || tr('board.draft.untitled')}</span>
+      <span className="block break-words text-body-lg leading-snug text-app-text-heading">{draft.title || tr('board.draft.untitled')}</span>
       {draft.description && (
-        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-app-text-secondary">{stripMarkdown(draft.description)}</p>
+        <p className="mt-1 line-clamp-2 break-words text-compact leading-snug text-app-text-secondary">{stripMarkdown(draft.description)}</p>
       )}
       {draft.files.length > 0 && (
-        <p className="mt-1 truncate text-[11px] text-app-text-muted">{draft.files.join(' · ')}</p>
+        <p className="mt-1 truncate text-mini text-app-text-muted">{draft.files.join(' · ')}</p>
       )}
     </div>
   );

@@ -144,7 +144,7 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   const tone = onFill ? ON_FILL_TEXT : 'text-app-text-tertiary';
   return (
     <span
-      className={`truncate-tight text-[11px] tabular-nums ${tone} ${className}`}
+      className={`truncate-tight text-mini tabular-nums ${tone} ${className}`}
       title={title}
     >
       {lead}
@@ -211,7 +211,7 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
   const tone = onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary';
   return (
     <span
-      className={`truncate-tight text-[11px] ${tone} ${className}`}
+      className={`truncate-tight text-mini ${tone} ${className}`}
       title={preview.text}
       // Ancora per l'e2e: il testo dell'anteprima è quello dell'ultimo
       // messaggio, quindi non è cercabile per stringa senza inseguire il seed.
@@ -265,7 +265,7 @@ function SessionElapsedTicking({ subjectId, onFill, className = '' }: SessionAct
   const tone = timeToneClass(voice, onFill);
   return (
     <span
-      className={`ml-0.5 flex-shrink-0 text-[10px] leading-none tabular-nums ${
+      className={`ml-0.5 flex-shrink-0 text-micro leading-none tabular-nums ${
         tone ?? (onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70')
       } ${className}`}
       data-time-voice={voice}
@@ -322,7 +322,7 @@ function ProjectElapsedTicking({ startedAt, onFill, className = '' }: {
   const tone = timeToneClass('live', onFill);
   return (
     <span
-      className={`ml-0.5 flex-shrink-0 text-[10px] leading-none tabular-nums ${
+      className={`ml-0.5 flex-shrink-0 text-micro leading-none tabular-nums ${
         tone ?? (onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70')
       } ${className}`}
       data-time-voice="live"
@@ -355,7 +355,7 @@ export function SessionActivityBar({ subjectId, className = '' }: { subjectId: s
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-surface flex-shrink-0 ${className}`}>
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot} ${activity.working || activity.tier === 'input' ? 'animate-pulse' : ''}`} />
-      <SessionActivity subjectId={subjectId} className="!text-[12px]" />
+      <SessionActivity subjectId={subjectId} className="!text-compact" />
     </div>
   );
 }

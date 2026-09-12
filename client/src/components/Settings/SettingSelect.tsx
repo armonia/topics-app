@@ -35,8 +35,8 @@ export function SettingSelect({
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1">
       <span className="flex min-w-0 flex-col">
-        <span className="text-[12px] text-app-text">{label}</span>
-        {hint && <span className="text-[11px] text-app-text-muted break-words">{hint}</span>}
+        <span className="text-compact text-app-text">{label}</span>
+        {hint && <span className="text-mini text-app-text-muted break-words">{hint}</span>}
       </span>
       <Select
         ariaLabel={label}

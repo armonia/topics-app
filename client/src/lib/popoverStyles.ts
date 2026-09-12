@@ -107,7 +107,7 @@ export const POPOVER_PANEL =
  * per tutti gli altri menu.
  */
 export const POPOVER_ITEM =
-  'w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-left text-[12px] coarse:text-[14px] text-app-text hover:bg-app-hover transition-colors';
+  'w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-left text-compact coarse:text-body-lg text-app-text hover:bg-app-hover transition-colors';
 
 
 /**
@@ -166,7 +166,7 @@ export const ACTIVE_TEXT = 'text-blue-800 dark:text-primary';
  *  verticale del suo fratello non distruttivo: se divergessero, un menu con una
  *  voce rossa avrebbe una riga più bassa delle altre. */
 export const POPOVER_ITEM_DANGER =
-  `w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-left text-[12px] coarse:text-[14px] ${DANGER_TEXT} hover:bg-red-600/10 transition-colors`;
+  `w-full flex items-center gap-2 px-3 py-1.5 coarse:py-3 text-left text-compact coarse:text-body-lg ${DANGER_TEXT} hover:bg-red-600/10 transition-colors`;
 
 /** Hairline separator between menu groups. */
 export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';

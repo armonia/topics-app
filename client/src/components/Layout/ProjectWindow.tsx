@@ -391,7 +391,7 @@ export function ProjectWindowPane({
     switch (pane.type) {
       case 'chat': {
         const topic = pane.topicId ? topics[pane.topicId] : null;
-        if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-sm">Topic not found</div>;
+        if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-body-lg">Topic not found</div>;
         const wrappedSendMessage = pane.preview
           ? async (sk: string, content: string, options?: SendMessageOptions) => {
               pinPaneById(pane.id);

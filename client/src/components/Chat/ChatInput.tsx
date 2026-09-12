@@ -95,7 +95,7 @@ function AddMenu({
   const tr = useT();
 
   const anyActive = isCallActive || isListening || isSpeaking || autoTTS;
-  const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
+  const rowClass = 'w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover disabled:opacity-40 disabled:pointer-events-none';
 
   return (
     <>
@@ -134,7 +134,7 @@ function AddMenu({
         >
           <Paperclip size={14} />
           {tr('chat.composer.attachFile')}
-          <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('U')}</span>
+          <span className="ml-auto text-mini text-app-text-muted">{shortcut('U')}</span>
         </button>}
         {/* «Registra voce» NON sta qui: è il tasto col microfono in fondo alla
             riga, l'unico ammesso prima dell'invio. Due porte per lo stesso
@@ -146,21 +146,21 @@ function AddMenu({
           <button
             type="button"
             onClick={() => { toggleCall(); setOpen(false); }}
-            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover ${
               isCallActive ? 'text-red-500' : 'text-app-text'
             }`}
             disabled={uploading}
           >
             {isCallActive ? <PhoneOff size={14} /> : <Phone size={14} />}
             {isCallActive ? tr('chat.call.end') : tr('chat.call.start')}
-            <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('C', { shift: true })}</span>
+            <span className="ml-auto text-mini text-app-text-muted">{shortcut('C', { shift: true })}</span>
           </button>
         )}
         {sttSupported && !isCallActive && (
           <button
             type="button"
             onClick={() => { toggleListening(); setOpen(false); }}
-            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover ${
               isListening ? 'text-green-500' : 'text-app-text'
             }`}
             // La dettatura scrive nel composer, non parla con l'agente: uno
@@ -173,7 +173,7 @@ function AddMenu({
           >
             {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
             {isListening ? tr('chat.dictation.menuStop') : tr('chat.dictation.menuStart')}
-            <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('D', { shift: true })}</span>
+            <span className="ml-auto text-mini text-app-text-muted">{shortcut('D', { shift: true })}</span>
           </button>
         )}
         <button
@@ -182,13 +182,13 @@ function AddMenu({
             if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
             setOpen(false);
           }}
-          className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+          className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-compact transition-colors hover:bg-app-hover ${
             isSpeaking || autoTTS ? 'text-blue-500' : 'text-app-text'
           }`}
         >
           {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
           {isSpeaking ? tr('chat.tts.stop') : autoTTS ? tr('chat.tts.autoOn') : tr('chat.tts.auto')}
-          <span className="ml-auto text-[11px] text-app-text-muted">{shortcut('S', { shift: true })}</span>
+          <span className="ml-auto text-mini text-app-text-muted">{shortcut('S', { shift: true })}</span>
         </button>
         {onExport && (
           <button
@@ -199,7 +199,7 @@ function AddMenu({
           >
             <Download size={14} />
             {tr('chat.composer.export')}
-            <span className="ml-auto text-[11px] text-app-text-muted">.md</span>
+            <span className="ml-auto text-mini text-app-text-muted">.md</span>
           </button>
         )}
 
@@ -215,11 +215,11 @@ function AddMenu({
               key={cmd.cmd}
               type="button"
               onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
-              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
+              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-compact transition-colors hover:bg-app-hover text-app-text"
             >
               <Icon size={14} className="text-app-text-muted" />
-              <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
-              <span className="text-[11px] text-app-text-muted text-right truncate">{tr(cmd.descriptionKey)}</span>
+              <span className="font-mono text-primary text-mini whitespace-nowrap">{cmd.cmd}</span>
+              <span className="text-mini text-app-text-muted text-right truncate">{tr(cmd.descriptionKey)}</span>
             </button>
           );
         })}
@@ -989,14 +989,14 @@ export function ChatInput({
             'bg-gray-400'
           }`} />
           <div className="flex-1">
-            <div className="text-[12px] font-medium text-green-700 dark:text-green-300">{tr('chat.call.active')}</div>
-            <div className="text-[11px] text-app-text-secondary">
+            <div className="text-compact font-medium text-green-700 dark:text-green-300">{tr('chat.call.active')}</div>
+            <div className="text-mini text-app-text-secondary">
               {callStatus === 'listening' && tr('chat.call.listening')}
               {callStatus === 'processing' && tr('chat.call.processing')}
               {callStatus === 'speaking' && tr('chat.call.speaking')}
             </div>
           </div>
-          <button onClick={toggleCall} className="px-3 py-1 text-[11px] bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">{tr('chat.call.endButton')}</button>
+          <button onClick={toggleCall} className="px-3 py-1 text-mini bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">{tr('chat.call.endButton')}</button>
         </div>
       )}
 
@@ -1038,10 +1038,10 @@ export function ChatInput({
             <Spinner size="sm" tone="current" className="text-amber-600 dark:text-amber-500 flex-shrink-0" />
           )}
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+            <div className="text-mini text-amber-700 dark:text-amber-400 font-medium">
               {tr(serverResume ? 'chat.turnInterrupted.resuming' : 'chat.turnInterrupted')}
             </div>
-            <div className="text-[11px] text-amber-600 dark:text-amber-500 truncate">
+            <div className="text-mini text-amber-600 dark:text-amber-500 truncate">
               {serverResume
                 ? tr('chat.turnInterrupted.resuming.detail')
                 : interruptedTurn && tr(TURN_CAUSE_KEY[interruptedTurn.cause])}
@@ -1056,7 +1056,7 @@ export function ChatInput({
             <button
               data-testid="turn-interrupted-retry"
               onClick={() => { void sendMessageDirect(lastUserText); }}
-              className="px-3 py-1.5 text-[11px] rounded-md transition-colors flex items-center gap-1 bg-amber-500 text-white hover:bg-amber-600"
+              className="px-3 py-1.5 text-mini rounded-md transition-colors flex items-center gap-1 bg-amber-500 text-white hover:bg-amber-600"
             >
               <RotateCw className="w-3.5 h-3.5 shrink-0" aria-hidden="true" /> {tr('chat.turnInterrupted.retry')}
             </button>
@@ -1099,19 +1099,19 @@ export function ChatInput({
           <div className="flex-1 min-w-0">
             {stoppedByUser ? (
               <>
-                <div className="text-[11px] text-app-text font-medium">{tr('chat.turnStopped')}</div>
-                <div className="text-[11px] text-app-text-muted">{tr('chat.turnStopped.detail')}</div>
+                <div className="text-mini text-app-text font-medium">{tr('chat.turnStopped')}</div>
+                <div className="text-mini text-app-text-muted">{tr('chat.turnStopped.detail')}</div>
               </>
             ) : (
               <>
-                <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">{tr('chat.noAnswer')}</div>
-                <div className="text-[11px] text-amber-600 dark:text-amber-500">{tr('chat.noAnswer.detail')}</div>
+                <div className="text-mini text-amber-700 dark:text-amber-400 font-medium">{tr('chat.noAnswer')}</div>
+                <div className="text-mini text-amber-600 dark:text-amber-500">{tr('chat.noAnswer.detail')}</div>
               </>
             )}
           </div>
           <button
             onClick={() => { const lastMsg = currentMessages[currentMessages.length - 1]; if (lastMsg?.content) sendMessageDirect(lastMsg.content); }}
-            className={`px-3 py-1.5 text-[11px] rounded-md transition-colors flex items-center gap-1 ${
+            className={`px-3 py-1.5 text-mini rounded-md transition-colors flex items-center gap-1 ${
               stoppedByUser
                 ? 'bg-app-border text-app-text hover:bg-app-border-light'
                 : 'bg-amber-500 text-white hover:bg-amber-600'
@@ -1166,7 +1166,7 @@ export function ChatInput({
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
-          <div className="text-[11px] text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
+          <div className="text-mini text-app-text-secondary italic min-w-0 truncate">{othersTypingText || 'typing...'}</div>
         </div>
       )}
       </div>
@@ -1214,10 +1214,10 @@ export function ChatInput({
           <div className={`${COMPOSER_CARD} flex gap-2 items-center p-3`}>
             <div className="flex-1 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 rounded-xl px-3 py-2.5">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-              <span className="text-red-500 font-medium text-[12px]">{tr('chat.recording.label')}</span>
-              <span className="text-red-400 font-mono text-[12px]">{formatRecordingTime(recordingTime)}</span>
+              <span className="text-red-500 font-medium text-compact">{tr('chat.recording.label')}</span>
+              <span className="text-red-400 font-mono text-compact">{formatRecordingTime(recordingTime)}</span>
             </div>
-            <button type="button" onClick={stopRecording} className="bg-red-500 text-white px-4 py-2.5 rounded-xl hover:bg-red-600 transition-colors flex items-center gap-1.5 text-[12px] font-medium">
+            <button type="button" onClick={stopRecording} className="bg-red-500 text-white px-4 py-2.5 rounded-xl hover:bg-red-600 transition-colors flex items-center gap-1.5 text-compact font-medium">
               {tr('chat.recording.stop')}
             </button>
           </div>
@@ -1242,7 +1242,7 @@ export function ChatInput({
                       aria-label={tr('chat.attachments.removeImage')}
                       data-testid="composer-image-remove"
                       onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))}
-                      className="tap-expand absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 coarse:w-6 coarse:h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                      className="tap-expand absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 coarse:w-6 coarse:h-6 flex items-center justify-center text-compact hover:bg-red-600"
                     ><X className="w-3 h-3" aria-hidden="true" /></button>
                   </div>
                 ))}
@@ -1251,7 +1251,7 @@ export function ChatInput({
                     {isImageFile(file) ? (
                       <ImageThumbnail file={file} onRemove={() => removePendingFile(index)} />
                     ) : (
-                      <div className="relative flex items-center gap-1.5 bg-app-hover rounded-lg px-2 py-1 text-[11px]">
+                      <div className="relative flex items-center gap-1.5 bg-app-hover rounded-lg px-2 py-1 text-mini">
                         <Paperclip size={14} className="text-app-text-tertiary" />
                         <span className="max-w-24 truncate text-app-text-secondary">{file.name}</span>
                         {/* ~8x16 and nameless. `tap-expand-y` and not the full
@@ -1264,7 +1264,7 @@ export function ChatInput({
                           aria-label={tr('chat.attachments.removeFile', { name: file.name })}
                           data-testid="composer-file-remove"
                           onClick={() => removePendingFile(index)}
-                          className="tap-expand-y ml-0.5 inline-flex items-center justify-center text-red-400 hover:text-red-500 font-bold text-xs coarse:h-6 coarse:w-6"
+                          className="tap-expand-y ml-0.5 inline-flex items-center justify-center text-red-400 hover:text-red-500 font-bold text-compact coarse:h-6 coarse:w-6"
                         ><X className="w-3 h-3" aria-hidden="true" /></button>
                       </div>
                     )}
@@ -1278,7 +1278,7 @@ export function ChatInput({
               <div className="mx-3 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-amber-500 rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                  <div className="text-mini text-amber-600 dark:text-amber-400 font-medium">
                     {tr('chat.edit.editing')}
                   </div>
                 </div>
@@ -1293,10 +1293,10 @@ export function ChatInput({
               <div className="mx-3 mt-2 flex items-center gap-1.5">
                 <div className="w-0.5 h-5 bg-primary rounded-full flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-app-text-tertiary font-medium">
+                  <div className="text-mini text-app-text-tertiary font-medium">
                     {tr(replyingTo.role === 'user' ? 'chat.reply.toYourself' : 'chat.reply.toAssistant')}
                   </div>
-                  <div className="text-[11px] text-app-text-secondary truncate">
+                  <div className="text-mini text-app-text-secondary truncate">
                     {replyingTo.content.slice(0, 80)}{replyingTo.content.length > 80 ? '…' : ''}
                   </div>
                 </div>
@@ -1309,7 +1309,7 @@ export function ChatInput({
             {/* Row 0c: Context pills (inside card) */}
             {hasContext && (
               <div className="px-3 mt-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-                <span className="text-[11px] text-app-text-muted font-medium flex-shrink-0">Context</span>
+                <span className="text-mini text-app-text-muted font-medium flex-shrink-0">Context</span>
                 {contextFilePaths.length > 0 && (
                   <ContextPills
                     files={contextFilePaths.map(cf => ({
@@ -1385,7 +1385,7 @@ export function ChatInput({
                 aria-label={tr('chat.composer.inputAria', { name: topic.name })}
                 aria-describedby="chat-input-hint"
                 placeholder={awaitingAnswer ? tr('chat.answerPlaceholder') : replyingTo ? tr('chat.composer.placeholderReply') : topic.projectPath ? tr('chat.composer.placeholderProject') : tr('chat.composer.placeholder')}
-                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-[16px]' : 'text-[13px]'}`}
+                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-title' : 'text-body'}`}
                 style={{ minHeight: '32px', maxHeight: '140px' }}
                 rows={1}
                 disabled={uploading}
@@ -1567,7 +1567,7 @@ export function ChatInput({
                       il primo. */}
                   {fastUi.costMultiplier && (
                     <span
-                      className="pointer-events-none text-[9px] font-medium leading-none tabular-nums"
+                      className="pointer-events-none text-nano font-medium leading-none tabular-nums"
                       data-testid="fast-mode-cost"
                     >{fastUi.costMultiplier}×</span>
                   )}
@@ -1615,7 +1615,7 @@ export function ChatInput({
                       data-testid="context-notice"
                       data-context-level={contextNotice.level}
                       data-context-reason={contextNotice.reason}
-                      className="pointer-events-none text-[10px] font-semibold leading-none tabular-nums"
+                      className="pointer-events-none text-micro font-semibold leading-none tabular-nums"
                     >
                       {contextNotice.reason === 'cost'
                         ? formatTokens(contextNotice.used)
@@ -1667,8 +1667,8 @@ export function ChatInput({
                         : 'text-app-text hover:bg-app-hover'
                     }`}
                   >
-                    <span className="text-[12px] font-mono text-primary whitespace-nowrap">{cmd.cmd}</span>
-                    <span className="text-[11px] text-app-text-muted truncate">{cmd.description}</span>
+                    <span className="text-compact font-mono text-primary whitespace-nowrap">{cmd.cmd}</span>
+                    <span className="text-mini text-app-text-muted truncate">{cmd.description}</span>
                   </button>
                 ))}
               </div>
@@ -1690,7 +1690,7 @@ export function ChatInput({
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFileSelect} />
           </>
         )}
-        {chatError && <div className="text-red-500 text-[11px] px-3 pb-1.5">{chatError}</div>}
+        {chatError && <div className="text-red-500 text-mini px-3 pb-1.5">{chatError}</div>}
       </form>
 
       {/* Context Inspector popover — anchored to the ring on desktop, a bottom

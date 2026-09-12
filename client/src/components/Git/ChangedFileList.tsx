@@ -64,7 +64,7 @@ function markOf(row: ChangedFileRow): { letter: string; tone: string } {
 const LEFT_TO_RIGHT_MARK = '\u200E';
 
 /** How wide the mark column is, so every row's name starts on the same pixel. */
-const MARK_CELL = 'w-4 shrink-0 text-center font-mono text-[10px] font-bold leading-none';
+const MARK_CELL = 'w-4 shrink-0 text-center font-mono text-micro font-bold leading-none';
 
 /** The word a screen reader gets instead of the letter (see `ChangedFileMark`). */
 const STATUS_WORD_KEY: Record<ChangedFileStatus, string> = {
@@ -117,7 +117,7 @@ export function ChangedFilePath({ row }: { row: ChangedFileRow }) {
         </span>
       )}
       {dir && (
-        <span className="path-elide-left min-w-0 flex-1 text-[11px] text-app-text-muted">
+        <span className="path-elide-left min-w-0 flex-1 text-mini text-app-text-muted">
           {LEFT_TO_RIGHT_MARK + dir.slice(0, -1)}
         </span>
       )}
@@ -156,7 +156,7 @@ export function ChangedFileCounts({ row }: { row: ChangedFileRow }) {
   const tr = useT();
   if (row.binary) {
     return (
-      <span className="shrink-0 tabular-nums text-[10px] text-app-text-muted" title={tr('git.files.binaryTitle')}>
+      <span className="shrink-0 tabular-nums text-micro text-app-text-muted" title={tr('git.files.binaryTitle')}>
         {tr('git.files.binary')}
       </span>
     );
@@ -164,7 +164,7 @@ export function ChangedFileCounts({ row }: { row: ChangedFileRow }) {
   if (!row.added && !row.removed) return null;
   return (
     <span
-      className="shrink-0 tabular-nums text-[10px] leading-none"
+      className="shrink-0 tabular-nums text-micro leading-none"
       title={tr('git.files.countsTitle', { add: String(row.added ?? 0), del: String(row.removed ?? 0) })}
     >
       {!!row.added && <span className="text-emerald-600 dark:text-emerald-400">+{row.added}</span>}
@@ -198,14 +198,14 @@ export function ChangedFileList({ rows, onOpen, loading, error, emptyLabel, test
   const rest = (rows?.length ?? 0) - shown.length;
   return (
     <div data-testid={testId}>
-      {loading && <div className="px-1 py-1 text-[10px] text-app-text-muted">{tr('git.files.loading')}</div>}
-      {error && <div className="px-1 py-1 text-[10px] text-red-600 dark:text-red-400">{tr('git.files.error')}</div>}
+      {loading && <div className="px-1 py-1 text-micro text-app-text-muted">{tr('git.files.loading')}</div>}
+      {error && <div className="px-1 py-1 text-micro text-red-600 dark:text-red-400">{tr('git.files.error')}</div>}
       {!loading && !error && rows?.length === 0 && (
-        <div className="px-1 py-1 text-[10px] text-app-text-muted">{emptyLabel ?? tr('git.files.empty')}</div>
+        <div className="px-1 py-1 text-micro text-app-text-muted">{emptyLabel ?? tr('git.files.empty')}</div>
       )}
       {shown.map((row) => {
         const inner = <ChangedFileEntry row={row} />;
-        const className = 'flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-[11px] leading-tight';
+        const className = 'flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-mini leading-tight';
         return onOpen ? (
           <button
             key={row.path}
@@ -227,7 +227,7 @@ export function ChangedFileList({ rows, onOpen, loading, error, emptyLabel, test
       {rest > 0 && (
         // The tail is DECLARED instead of vanishing: a list truncated in
         // silence makes you believe you saw all of it.
-        <div className="px-1 pt-1 text-[10px] text-app-text-muted">{tr('git.files.more', { n: String(rest) })}</div>
+        <div className="px-1 pt-1 text-micro text-app-text-muted">{tr('git.files.more', { n: String(rest) })}</div>
       )}
     </div>
   );

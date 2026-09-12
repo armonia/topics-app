@@ -56,22 +56,22 @@ export function AccountSection() {
 
   if (!mostraSezione(state) || !state) return null;
 
-  const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-[12px] text-app-text outline-none focus:border-app-accent';
-  const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-[11px] text-app-text hover:bg-app-hover disabled:opacity-50';
+  const campo = 'flex-1 min-w-0 rounded border border-app-border bg-app-bg px-2 py-1 text-compact text-app-text outline-none focus:border-app-accent';
+  const bottone = 'flex-shrink-0 rounded border border-app-border px-2 py-1 text-mini text-app-text hover:bg-app-hover disabled:opacity-50';
 
   return (
     <div className="space-y-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-app-text-secondary">
+      <h3 className="text-mini font-semibold uppercase tracking-wide text-app-text-secondary">
         {t('account.title')}
       </h3>
-      <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('account.blurb')}</p>
+      <p className="text-mini leading-relaxed text-app-text-tertiary">{t('account.blurb')}</p>
 
       <div className="space-y-2 rounded-lg border border-app-border px-3 py-2.5">
         {state.linked ? (
           <>
             <div className="flex items-center gap-2">
               <Mail size={12} className="flex-shrink-0 text-app-text-tertiary" />
-              <span className="min-w-0 flex-1 truncate text-[12px] text-app-text">
+              <span className="min-w-0 flex-1 truncate text-compact text-app-text">
                 {t('account.linkedAs', { email: state.email ?? '' })}
               </span>
               <button
@@ -88,19 +88,19 @@ export function AccountSection() {
               </button>
             </div>
             {state.personName && (
-              <p className="text-[11px] text-app-text-tertiary">
+              <p className="text-mini text-app-text-tertiary">
                 {t('account.linkedTo', { nome: state.personName })}
               </p>
             )}
             {/* Il collegamento vale anche col servizio spento: lo si DICE, invece
                 di lasciar credere che qualcosa qui si sia rotto. */}
             {!state.configured && (
-              <p className="text-[11px] text-app-text-tertiary">{t('account.offline')}</p>
+              <p className="text-mini text-app-text-tertiary">{t('account.offline')}</p>
             )}
           </>
         ) : step.phase === 'address' ? (
           <div className="space-y-1.5">
-            <div className="text-[11px] text-app-text-tertiary">{t('account.notLinked')}</div>
+            <div className="text-mini text-app-text-tertiary">{t('account.notLinked')}</div>
             <div className="flex gap-1.5">
               <input
                 type="email"
@@ -118,7 +118,7 @@ export function AccountSection() {
           </div>
         ) : (
           <div className="space-y-1.5">
-            <p className="text-[11px] text-app-text-tertiary">
+            <p className="text-mini text-app-text-tertiary">
               {t('account.codeSent', { email: step.email })}
             </p>
             <div className="flex gap-1.5">
@@ -140,7 +140,7 @@ export function AccountSection() {
               </button>
               <button
                 onClick={back}
-                className="flex-shrink-0 rounded px-2 py-1 text-[11px] text-app-text-tertiary hover:bg-app-hover"
+                className="flex-shrink-0 rounded px-2 py-1 text-mini text-app-text-tertiary hover:bg-app-hover"
               >
                 {t('account.cancel')}
               </button>
@@ -148,10 +148,10 @@ export function AccountSection() {
           </div>
         )}
 
-        {error && <p className="text-[11px] text-red-500">{t(error)}</p>}
+        {error && <p className="text-mini text-red-500">{t(error)}</p>}
       </div>
 
-      <p className="text-[11px] leading-relaxed text-app-text-tertiary">{t('account.footnote')}</p>
+      <p className="text-mini leading-relaxed text-app-text-tertiary">{t('account.footnote')}</p>
     </div>
   );
 }

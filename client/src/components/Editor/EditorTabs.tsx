@@ -232,7 +232,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
   if (tabs.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-app-text-tertiary text-[13px]">
+      <div className="flex items-center justify-center h-full text-app-text-tertiary text-body">
         <div className="text-center">
           <File size={32} className="mx-auto mb-2 opacity-30" />
           <p>Select a file to view its content</p>
@@ -255,7 +255,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               onClick={() => setActiveIndex(i)}
               onDoubleClick={() => { if (tab.preview) pinTab(tab.path); }}
               onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] cursor-pointer border-r border-app-border max-w-[180px] group select-none ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-compact cursor-pointer border-r border-app-border max-w-[180px] group select-none ${
                 isActive
                   ? 'bg-surface text-app-text border-b-2 border-b-primary'
                   : 'text-app-text-muted hover:bg-app-hover'
@@ -265,7 +265,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
               <span className={`truncate ${tab.preview ? 'italic' : ''}`}>{tab.name}</span>
               {isModified && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Unsaved changes" />}
               {status === 'saved' && <span className="flex-shrink-0"><Check className="w-3 h-3 text-green-500" aria-hidden="true" /></span>}
-              {status === 'error' && <span className="text-[11px] text-red-500 flex-shrink-0">!</span>}
+              {status === 'error' && <span className="text-mini text-red-500 flex-shrink-0">!</span>}
               <button
                 onClick={(e) => closeTab(i, e)}
                 aria-label={t('editor.tab.close', { name: tab.name })}
@@ -282,7 +282,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       {activeTab && (
         <BreadcrumbNav filePath={activeTab.path} projectPath={projectPath} openFile={openFile} actions={
           <>
-            {!activeIsMedia && !activeMdPreview && !(activeIsHtml && activeHtmlPreview) && <span className="text-[11px] text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
+            {!activeIsMedia && !activeMdPreview && !(activeIsHtml && activeHtmlPreview) && <span className="text-mini text-app-text-muted tabular-nums">Ln {cursorPos.line}, Col {cursorPos.col}</span>}
             {!activeIsMedia && !(activeIsHtml && activeHtmlPreview) && <WrapBtn active={wordWrap} onClick={toggleWrap} />}
             {activeIsMd && <PreviewBtn previewing={activeMdPreview} onClick={togglePreview} />}
             {activeIsHtml && <PreviewBtn previewing={activeHtmlPreview} onClick={toggleHtmlPreview} label="HTML" />}
@@ -313,13 +313,13 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
           // lo scriveva sul file vero. Stesso pattern del gemello FilePane.tsx:174.
           <div className="flex items-center justify-center h-full px-6">
             <div className="text-center max-w-md">
-              <p className="text-[13px] text-red-500 mb-1">{activeTab.loadError}</p>
-              <p className="text-[12px] text-app-text-tertiary mb-3">
+              <p className="text-body text-red-500 mb-1">{activeTab.loadError}</p>
+              <p className="text-compact text-app-text-tertiary mb-3">
                 {t('editor.loadFailed')}
               </p>
               <button
                 onClick={() => { const p = activeTab.path; setTabs(prev => prev.map(t => t.path === p ? { ...t, loadError: undefined, loading: true } : t)); filesApi.content(p).then(content => setTabs(prev => prev.map(t => t.path === p ? { ...t, content, originalContent: content, loadError: undefined, loading: false } : t))).catch((err: unknown) => setTabs(prev => prev.map(t => t.path === p ? { ...t, loadError: err instanceof Error ? err.message : String(err), loading: false } : t))); }}
-                className="text-[12px] text-primary hover:underline"
+                className="text-compact text-primary hover:underline"
               >
                 {t('common.retry')}
               </button>

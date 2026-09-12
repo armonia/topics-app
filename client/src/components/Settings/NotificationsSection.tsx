@@ -65,7 +65,7 @@ function NativeBannerStatus() {
   }[verdict.health];
 
   return (
-    <div className="flex items-start gap-2 mb-3 text-[11.5px]">
+    <div className="flex items-start gap-2 mb-3 text-compact">
       {verdict.health === 'ok' ? (
         <Check size={13} className={`shrink-0 mt-px ${tone}`} />
       ) : (
@@ -77,7 +77,7 @@ function NativeBannerStatus() {
           <div className="text-app-text-muted mt-0.5">{verdict.hint}</div>
         )}
         {status?.logPath && verdict.health !== 'ok' && (
-          <div className="text-app-text-muted mt-0.5 font-mono text-[10.5px] break-all">
+          <div className="text-app-text-muted mt-0.5 font-mono text-mini break-all">
             {status.logPath}
           </div>
         )}
@@ -86,7 +86,7 @@ function NativeBannerStatus() {
             type="button"
             disabled={busy}
             onClick={() => { void act(); }}
-            className="mt-1.5 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="mt-1.5 rounded-lg bg-primary px-3 py-1.5 text-compact font-medium text-white hover:opacity-90 disabled:opacity-50"
           >{tr(action.labelKey)}</button>
         )}
       </div>
@@ -137,7 +137,7 @@ function FocusGateStatus() {
   if (state !== 'blocked') return null;
 
   return (
-    <div className="flex items-start gap-2 mb-3 text-[11.5px] text-app-text-muted">
+    <div className="flex items-start gap-2 mb-3 text-compact text-app-text-muted">
       <Moon size={13} className="shrink-0 mt-px" />
       <div className="min-w-0">
         {tr('notif.focus.blurb')}{' '}
@@ -181,8 +181,8 @@ function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
   return (
     <div className="space-y-2" data-testid="settings-muted-projects">
       <div>
-        <h3 className="text-[13px] font-medium text-app-text mb-1">{tr('notif.muted.title')}</h3>
-        <p className="text-[12px] leading-snug text-app-text-muted">
+        <h3 className="text-body font-medium text-app-text mb-1">{tr('notif.muted.title')}</h3>
+        <p className="text-compact leading-snug text-app-text-muted">
           {tr('notif.muted.blurb')}
         </p>
       </div>
@@ -195,8 +195,8 @@ function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
           >
             <BellOff size={14} className="shrink-0 text-app-text-muted" />
             <div className="min-w-0 flex-1" title={path}>
-              <div className="truncate text-[12px] text-app-text">{projectName(path)}</div>
-              <div className="truncate font-mono text-[10.5px] text-app-text-muted">{path}</div>
+              <div className="truncate text-compact text-app-text">{projectName(path)}</div>
+              <div className="truncate font-mono text-mini text-app-text-muted">{path}</div>
             </div>
             <button
               type="button"
@@ -248,16 +248,16 @@ function PushDevices() {
   return (
     <div className="space-y-3" data-testid="settings-push-devices">
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
           <Smartphone size={14} />
           {tr('notif.push.title')}
         </label>
-        <p className="text-[12px] leading-snug text-app-text-muted">
+        <p className="text-compact leading-snug text-app-text-muted">
           {tr('notif.push.blurb')}
         </p>
       </div>
 
-      <div className="flex items-start gap-2 text-[11.5px]" data-testid="push-status">
+      <div className="flex items-start gap-2 text-compact" data-testid="push-status">
         {status.health === 'on' ? (
           <Check size={13} className={`shrink-0 mt-px ${tone}`} />
         ) : (
@@ -278,7 +278,7 @@ function PushDevices() {
           disabled={loading}
           onClick={() => void subscribe()}
           data-testid="push-subscribe"
-          className="rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded-lg bg-primary px-3 py-1.5 text-compact font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {tr('notif.push.enableHere')}
         </button>
@@ -293,7 +293,7 @@ function PushDevices() {
             onChange={(v) => void setDevicePrefs(thisDevice.deviceId!, { enabled: v })}
           />
           <div>
-            <div className="text-[12px] text-app-text mb-1">{tr('notif.push.whenOpen')}</div>
+            <div className="text-compact text-app-text mb-1">{tr('notif.push.whenOpen')}</div>
             <div className="flex gap-1.5" data-testid="push-when-open">
               {([
                 ['native', 'Notifica di sistema'],
@@ -305,7 +305,7 @@ function PushDevices() {
                   data-testid={`push-when-open-${value}`}
                   aria-pressed={thisDevice.whenOpen === value}
                   onClick={() => void setDevicePrefs(thisDevice.deviceId!, { whenOpen: value })}
-                  className={`rounded-lg border px-2.5 py-1.5 text-[12px] transition-colors ${
+                  className={`rounded-lg border px-2.5 py-1.5 text-compact transition-colors ${
                     thisDevice.whenOpen === value
                       ? 'border-app-border bg-app-hover text-app-text'
                       : 'border-app-border text-app-text-muted hover:bg-app-hover'
@@ -315,7 +315,7 @@ function PushDevices() {
                 </button>
               ))}
             </div>
-            <p className="mt-1 text-[11px] leading-snug text-app-text-muted">
+            <p className="mt-1 text-mini leading-snug text-app-text-muted">
               {tr('notif.push.oneVoice')}
             </p>
           </div>
@@ -324,7 +324,7 @@ function PushDevices() {
             disabled={loading}
             onClick={() => void unsubscribe()}
             data-testid="push-unsubscribe"
-            className="text-[11.5px] text-app-text-muted underline underline-offset-2 hover:text-app-text disabled:opacity-50"
+            className="text-compact text-app-text-muted underline underline-offset-2 hover:text-app-text disabled:opacity-50"
           >
             {tr('notif.push.unsubscribe')}
           </button>
@@ -333,7 +333,7 @@ function PushDevices() {
 
       {others.length > 0 && (
         <div className="space-y-1">
-          <div className="text-[12px] text-app-text">{tr('notif.push.others')}</div>
+          <div className="text-compact text-app-text">{tr('notif.push.others')}</div>
           <ul className="space-y-1">
             {others.map((d) => (
               <li
@@ -343,8 +343,8 @@ function PushDevices() {
               >
                 <Smartphone size={14} className="shrink-0 text-app-text-muted" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12px] text-app-text">{d.label}</div>
-                  <div className="truncate text-[10.5px] text-app-text-muted">
+                  <div className="truncate text-compact text-app-text">{d.label}</div>
+                  <div className="truncate text-mini text-app-text-muted">
                     {d.enabled ? 'riceve le notifiche' : 'spento'}
                   </div>
                 </div>
@@ -378,11 +378,11 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
   return (
     <div className="space-y-5">
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
           <Bell size={14} />
           Topic completion notifications
         </label>
-        <p className="text-[12px] text-app-text-muted mb-2">
+        <p className="text-compact text-app-text-muted mb-2">
           {tr('notif.topic.blurb')}
         </p>
 

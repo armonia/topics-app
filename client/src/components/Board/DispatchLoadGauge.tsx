@@ -158,14 +158,14 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
         aria-valuemax={reading.limit != null && Number.isFinite(reading.limit) ? reading.limit : undefined}
         aria-label={phrase}
         title={phrase}
-        className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium normal-case tracking-normal tabular-nums hover:bg-white/10 ${loadToneClass(reading)}`}
+        className={`flex items-center gap-1 rounded px-1 py-0.5 text-micro font-medium normal-case tracking-normal tabular-nums hover:bg-white/10 ${loadToneClass(reading)}`}
       >
         <LoadRing reading={reading} size={12} />
         <span data-testid="dispatch-load-word">{tr(loadWordKey(reading))}</span>
       </button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={264} testId="dispatch-load-popover">
-        <div className="space-y-1.5 px-3 py-2.5 text-[11px] leading-snug text-app-text-secondary">
-          <p className="flex items-center gap-1.5 text-[12px] font-medium text-app-text-heading">
+        <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
+          <p className="flex items-center gap-1.5 text-compact font-medium text-app-text-heading">
             <Gauge className="h-3.5 w-3.5 shrink-0" />
             {tr('board.gauge.popoverTitle')}
           </p>
@@ -191,7 +191,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
               type="button"
               data-testid="dispatch-load-settings"
               onClick={() => { setOpen(false); onOpenSettings(); }}
-              className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-[11px] text-app-text-secondary hover:bg-white/10"
+              className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/10"
             >{tr('board.gauge.settings')}</button>
           )}
         </div>
@@ -215,7 +215,7 @@ export function DispatchLoadSummary() {
   return (
     <div className="space-y-0.5 pt-1" data-testid="dispatch-load-summary">
       <p
-        className={`flex items-center gap-1.5 text-[11px] font-medium tabular-nums ${loadToneClass(reading)}`}
+        className={`flex items-center gap-1.5 text-mini font-medium tabular-nums ${loadToneClass(reading)}`}
         data-tone={toneAttr(reading)}
         data-fill={reading.fill.toFixed(2)}
       >
@@ -240,7 +240,7 @@ export function DispatchLoadSummary() {
         <span className="text-app-text-muted">{tr(loadWordKey(reading))}</span>
       </p>
       {numbers.length > 0 && (
-        <p className="text-[10px] leading-snug text-app-text-tertiary tabular-nums">{numbers.join(' · ')}</p>
+        <p className="text-micro leading-snug text-app-text-tertiary tabular-nums">{numbers.join(' · ')}</p>
       )}
     </div>
   );

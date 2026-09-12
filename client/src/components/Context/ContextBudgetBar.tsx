@@ -74,10 +74,10 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
       {live && (
         <div className="mb-3">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[11px] text-app-text-secondary">
+            <span className="text-mini text-app-text-secondary">
               {live.model ? live.model : tr('ctxInspector.live')}
             </span>
-            <span className={`text-[11px] tabular-nums ${liveColor}`}>
+            <span className={`text-mini tabular-nums ${liveColor}`}>
               {formatTokens(live.used)} / {live.estimated ? '≈' : ''}{formatTokens(live.size)}
             </span>
           </div>
@@ -89,7 +89,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
                 style={{ width: `${Math.min(Math.max(live.percent, 0), 100)}%` }}
               />
             </div>
-            <span data-testid="live-context-percent" className={`text-[15px] font-semibold tabular-nums leading-none ${liveColor}`}>
+            <span data-testid="live-context-percent" className={`text-title font-semibold tabular-nums leading-none ${liveColor}`}>
               {live.percent}%
             </span>
           </div>
@@ -104,12 +104,12 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
             diverse: chiamarli tutti e due "Context" faceva sembrare che il
             13% dell'envelope fosse il 13% della finestra. */}
         <span
-          className="text-[11px] text-app-text-secondary"
+          className="text-mini text-app-text-secondary"
           title={tr('ctxInspector.injected.hint')}
         >
           {tr('ctxInspector.injected')}
         </span>
-        <span data-testid="budget-percent" className={`text-[11px] tabular-nums ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-secondary'}`}>
+        <span data-testid="budget-percent" className={`text-mini tabular-nums ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-secondary'}`}>
           {formatTokens(totalTokens)} / {formatTokens(budgetLimit)} ({budgetLimit > 0 ? budgetPercent : 0}%)
         </span>
       </div>
@@ -138,7 +138,7 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
           if (catSources.length === 0) return null;
           const catTokens = catSources.reduce((sum, s) => sum + s.tokens, 0);
           return (
-            <div key={cat} className="flex items-center gap-1 text-[10px] text-app-text-muted">
+            <div key={cat} className="flex items-center gap-1 text-micro text-app-text-muted">
               <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
               <span className="capitalize">{cat === 'openclaw' ? 'OpenClaw' : cat}</span>
               <span className="tabular-nums">{formatTokens(catTokens)}</span>

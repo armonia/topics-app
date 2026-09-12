@@ -120,21 +120,21 @@ export function GuestCard({ task, onChanged }: {
             aria-label={tr('guest.editText')}
             data-testid="guest-edit-text"
             rows={3}
-            className="w-full resize-y rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-[13px] leading-snug text-app-text outline-none focus:border-primary"
+            className="w-full resize-y rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-body leading-snug text-app-text outline-none focus:border-primary"
           />
           <div className="flex gap-1.5">
             <button
               disabled={busy}
               onClick={() => void saveText()}
               data-testid="guest-edit-save"
-              className="rounded-md bg-primary px-2 py-1 text-[11px] text-white disabled:opacity-50"
+              className="rounded-md bg-primary px-2 py-1 text-mini text-white disabled:opacity-50"
             >
               {tr('common.save')}
             </button>
             <button
               disabled={busy}
               onClick={() => setDraft(null)}
-              className="rounded-md border border-app-border px-2 py-1 text-[11px] text-app-text-secondary disabled:opacity-50"
+              className="rounded-md border border-app-border px-2 py-1 text-mini text-app-text-secondary disabled:opacity-50"
             >
               {tr('common.cancel')}
             </button>
@@ -142,7 +142,7 @@ export function GuestCard({ task, onChanged }: {
         </div>
       ) : (
         <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1 text-[13px] leading-snug text-app-text">{task.text}</div>
+          <div className="min-w-0 flex-1 text-body leading-snug text-app-text">{task.text}</div>
           {guestMeets(level, 'edit') && (
             <button
               onClick={() => setDraft(task.text)}
@@ -156,7 +156,7 @@ export function GuestCard({ task, onChanged }: {
         </div>
       )}
 
-      <div className="mt-1 flex items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="mt-1 flex items-center gap-2 text-mini text-app-text-muted">
         {/* The guest is the one person here who is NOT a Topics user:
             `in_progress` and a project slug are our internals, and this is the
             only screen where they were printed raw. Same two helpers the board
@@ -186,7 +186,7 @@ export function GuestCard({ task, onChanged }: {
           {thread && thread.length > 0 && (
             <ul className="mb-2 space-y-1.5" data-testid="guest-thread">
               {thread.map((c) => (
-                <li key={c.id} className="text-[12px] leading-snug text-app-text-secondary">
+                <li key={c.id} className="text-compact leading-snug text-app-text-secondary">
                   <span className="text-app-text-muted">{c.author}</span> {c.content}
                 </li>
               ))}
@@ -200,7 +200,7 @@ export function GuestCard({ task, onChanged }: {
               aria-label={tr('guest.commentPlaceholder')}
               data-testid="guest-comment-input"
               rows={2}
-              className="min-w-0 flex-1 resize-y rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-[12px] text-app-text outline-none focus:border-primary"
+              className="min-w-0 flex-1 resize-y rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
             />
             <button
               disabled={busy || comment.trim().length === 0}
@@ -215,7 +215,7 @@ export function GuestCard({ task, onChanged }: {
         </div>
       )}
 
-      {failed && <p className="mt-1.5 text-[11px] text-red-500">{tr('guest.writeFailed')}</p>}
+      {failed && <p className="mt-1.5 text-mini text-red-500">{tr('guest.writeFailed')}</p>}
     </li>
   );
 }

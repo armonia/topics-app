@@ -21,8 +21,8 @@ export function LandingNotice({ band, testId, compact }: { band: LandingBand; te
     ? 'border-rose-500/30 bg-rose-500/10 text-rose-300'
     : 'border-amber-500/20 bg-amber-500/10 text-amber-300';
   const box = compact
-    ? `mt-2 rounded-md border px-2 py-1.5 text-xs leading-snug ${tone}`
-    : `shrink-0 border-b px-3 py-1.5 text-[11px] ${tone}`;
+    ? `mt-2 rounded-md border px-2 py-1.5 text-compact leading-snug ${tone}`
+    : `shrink-0 border-b px-3 py-1.5 text-mini ${tone}`;
   return (
     <div data-testid={testId} className={box}>
       {/* An icon, not the emoji glyph: U+26A0 U+FE0F forces the colour emoji

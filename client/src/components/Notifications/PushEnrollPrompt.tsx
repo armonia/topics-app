@@ -35,8 +35,8 @@ export function PushEnrollPrompt() {
       <div className="flex items-start gap-2">
         <BellRing size={14} className="mt-0.5 shrink-0 text-app-text-secondary" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-app-text">{tr('push.prompt.title')}</div>
-          <p className="mt-0.5 text-[11.5px] leading-snug text-app-text-secondary">
+          <div className="text-body font-medium text-app-text">{tr('push.prompt.title')}</div>
+          <p className="mt-0.5 text-compact leading-snug text-app-text-secondary">
             {tr('push.prompt.blurb')}
           </p>
         </div>
@@ -53,7 +53,7 @@ export function PushEnrollPrompt() {
         <button
           type="button"
           onClick={decline}
-          className="flex-1 rounded-lg border border-app-border px-3 py-1.5 text-[12px] text-app-text hover:bg-app-bg"
+          className="flex-1 rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text hover:bg-app-bg"
         >
           {tr('common.notNow')}
         </button>
@@ -62,7 +62,7 @@ export function PushEnrollPrompt() {
           disabled={loading}
           onClick={() => { void subscribe().then(() => disarm()); }}
           data-testid="push-enroll-accept"
-          className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-compact font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           Avvisami
         </button>

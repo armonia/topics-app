@@ -230,13 +230,13 @@ export function ProjectFilterPicker({ tasks, mode, selectedIds: selectedFilterId
         {p.path ? (
           // Monospace and wrapping on the path: a long path on one single line
           // becomes unreadable, and it is exactly the datum you come looking for.
-          <div className="break-all font-mono text-[10px] text-app-text-muted">{homeTilde(p.path)}</div>
+          <div className="break-all font-mono text-micro text-app-text-muted">{homeTilde(p.path)}</div>
         ) : (
           // Why it is not there: without this line the tooltip of a vanished
           // project just looks like a tooltip with a piece missing.
-          <div className="text-[10px] text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
+          <div className="text-micro text-app-text-faint">{tr('board.filter.projectUnknown')}</div>
         )}
-        {c && <div className="text-[10px] text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
+        {c && <div className="text-micro text-app-text-muted">{countsSummary(c, STATUS_LABEL)}</div>}
       </div>
     );
   };

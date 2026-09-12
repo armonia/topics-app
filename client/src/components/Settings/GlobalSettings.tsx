@@ -123,7 +123,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
           // titolo finisce SOTTO la status bar di iOS.
           style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 0.75rem)' }}
         >
-          <h2 id="settings-title" className="text-[15px] font-semibold text-app-text">Settings</h2>
+          <h2 id="settings-title" className="text-title font-semibold text-app-text">Settings</h2>
           {/* 44px dove c'è un dito: era 28×28, cioè sotto la soglia proprio nel
               punto in cui il gesto «esci» non ha alternative — a schermo intero
               non c'è più un velo attorno da toccare. */}
@@ -147,7 +147,7 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
                 // non devono andare a capo né stringersi, altrimenti la riga
                 // smette di scorrere e comincia a impilarsi.
                 // `min-h-11` sotto il dito = i 44px della soglia.
-                className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-[12.5px] transition-colors coarse:min-h-11 md:w-full md:px-2.5 ${
+                className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-body transition-colors coarse:min-h-11 md:w-full md:px-2.5 ${
                   section === id
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-app-text-secondary hover:bg-app-hover hover:text-app-text'

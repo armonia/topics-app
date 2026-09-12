@@ -327,7 +327,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
         // cambiasse misura con la lunghezza del nome, la fila si muoverebbe da
         // sola al primo login — e le alzate dell'arco si rimisurano su quella
         // larghezza.
-        <span className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-white">
+        <span className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-primary text-nano font-semibold text-white">
           {sigla}
         </span>
       ) : (
@@ -400,7 +400,7 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
     >
       <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">
         {children}
-        <span className="text-[10px] font-medium leading-none">{etichetta}</span>
+        <span className="text-micro font-medium leading-none">{etichetta}</span>
       </span>
     </button>
   );

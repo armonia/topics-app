@@ -4,7 +4,7 @@
  * There were four of them and four ways of drawing them: the connection pill,
  * the engine toggle, the render-mode toggle, and the co-browse text-selection
  * hint. Each carried its own hand-written
- * `absolute … rounded-full px-2 py-1 text-[11px] font-medium border
+ * `absolute … rounded-full px-2 py-1 text-mini font-medium border
  * transition-colors` string plus its own palette, so they had already drifted —
  * one of them (`bg-black/70 text-white`) didn't follow the theme at all, and it
  * was the only one that stayed dark-on-dark in light mode.
@@ -53,7 +53,7 @@ export function BrowserPaneChip({
 }: BrowserPaneChipProps) {
   const base =
     `absolute ${CORNER[corner]} flex items-center gap-1.5 px-2 py-1 rounded-full ` +
-    `text-[11px] font-medium border transition-colors ${TONE[tone]} ${className}`;
+    `text-mini font-medium border transition-colors ${TONE[tone]} ${className}`;
   if (!onClick) {
     return (
       <div

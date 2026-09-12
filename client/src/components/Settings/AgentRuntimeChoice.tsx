@@ -35,9 +35,9 @@ export function AgentRuntimeChoice({
           { value: 'jcode', label: t('runtime.jcode') },
         ]}
       />
-      <p className="text-[11px] text-app-text-muted break-words">{t('runtime.blurb')}</p>
+      <p className="text-mini text-app-text-muted break-words">{t('runtime.blurb')}</p>
       {(chosen === 'jcode' || chosen === 'topics') && !registered && (
-        <div data-testid="agent-runtime-unavailable" className="mt-1.5 flex items-center gap-2 text-[11px] text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
+        <div data-testid="agent-runtime-unavailable" className="mt-1.5 flex items-center gap-2 text-mini text-app-text-muted border border-dashed border-app-border rounded-md px-2 py-1.5">
           <AlertCircle size={12} className="flex-shrink-0" />
           <span className="flex-1 break-words">
             {chosen === 'topics'

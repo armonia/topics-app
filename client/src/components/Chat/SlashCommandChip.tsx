@@ -88,14 +88,14 @@ export function SlashCommandChip({ command, args }: { command: string; args?: st
         // titolo, dove chi se lo chiede la trova e chi no non la legge.
         <span className="mt-1 block">
           {error ? (
-            <span className="block text-[11px] text-amber-600 dark:text-amber-400">{error}</span>
+            <span className="block text-mini text-amber-600 dark:text-amber-400">{error}</span>
           ) : body === null ? (
-            <span className="block text-[11px] italic opacity-70">{tr('chat.command.readingFile')}</span>
+            <span className="block text-mini italic opacity-70">{tr('chat.command.readingFile')}</span>
           ) : (
             <pre
               data-testid="invoked-command-body"
               title={tr('cmd.currentFile', { name: command })}
-              className="tool-card-code text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-black/10 dark:bg-black/20 rounded px-2 py-1.5"
+              className="tool-card-code text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-black/10 dark:bg-black/20 rounded px-2 py-1.5"
             >
               {body}
             </pre>

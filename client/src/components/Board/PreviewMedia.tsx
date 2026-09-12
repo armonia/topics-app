@@ -65,7 +65,7 @@ function Lightbox({ url, video, onClose, su, giu, posizione }: {
       {posizione && (
         <div
           data-testid="lightbox-posizione"
-          className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-white"
+          className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-compact text-white"
         >{posizione}</div>
       )}
       <button
@@ -413,7 +413,7 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
       }}
       title={corrente}
       data-testid="preview-unrenderable"
-      className={`flex items-center gap-2 px-2.5 py-2 text-left text-xs ${
+      className={`flex items-center gap-2 px-2.5 py-2 text-left text-compact ${
         variant === 'card'
           ? 'block w-full rounded border border-app-border'
           : 'block w-full rounded border border-app-border bg-black/20'

@@ -259,7 +259,7 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
     >
       {pending > 0 && (
         <div data-testid="friends-requests" className="border-b border-app-border py-1">
-          <div className="px-3 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-app-text-muted">
+          <div className="px-3 pb-0.5 pt-1 text-micro uppercase tracking-wide text-app-text-muted">
             {tr('profile.friend.incoming')}
           </div>
           {incoming.map((p) => (
@@ -267,18 +267,18 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
               <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full">
                 {p.github?.avatarUrl
                   ? <img src={p.github.avatarUrl} alt="" className="h-full w-full object-cover" />
-                  : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-[8px] font-semibold leading-none text-app-text">
+                  : <span className="flex h-full w-full items-center justify-center bg-primary/20 text-nano font-semibold leading-none text-app-text">
                       {p.displayName.slice(0, 1).toUpperCase()}
                     </span>}
               </span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-app-text">{p.displayName}</span>
+              <span className="min-w-0 flex-1 truncate text-mini text-app-text">{p.displayName}</span>
               <button
                 type="button"
                 disabled={busy === p.id}
                 onClick={() => void answer(p.id, true)}
                 data-testid={`friend-accept-${p.id}`}
                 title={tr('profile.friend.accept')}
-                className="flex-shrink-0 rounded border border-primary px-1.5 py-0.5 text-[10.5px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                className="flex-shrink-0 rounded border border-primary px-1.5 py-0.5 text-mini text-primary hover:bg-primary/10 disabled:opacity-50"
               >
                 {tr('profile.friend.accept')}
               </button>
@@ -288,7 +288,7 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
                 onClick={() => void answer(p.id, false)}
                 data-testid={`friend-decline-${p.id}`}
                 title={tr('profile.friend.decline')}
-                className="flex-shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-app-text-tertiary hover:bg-app-hover disabled:opacity-50"
+                className="flex-shrink-0 rounded px-1.5 py-0.5 text-mini text-app-text-tertiary hover:bg-app-hover disabled:opacity-50"
               >
                 {tr('profile.friend.decline')}
               </button>
@@ -337,14 +337,14 @@ function OrgsSection({ orgs }: { orgs: OrgWithPresence[] }) {
       }
     >
       {orgs.length === 0 ? (
-        <div className="px-3 py-2 text-[11px] text-app-text-secondary">{tr('statusBar.orgs.noneHint')}</div>
+        <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('statusBar.orgs.noneHint')}</div>
       ) : only ? (
         <PresenceList people={only.people} empty={tr('statusBar.orgs.alone')} />
       ) : (
         <div className="max-h-[240px] overflow-y-auto">
           {orgs.map((o) => (
             <div key={o.id} data-testid="org-section">
-              <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide text-app-text-muted">
+              <div className="flex items-center gap-2 px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide text-app-text-muted">
                 <OrgLogo org={o} />
                 <span className="min-w-0 flex-1 truncate normal-case">{o.nome}</span>
                 <FaceStack faces={o.faces} max={ORG_MARKS_IN_CHIP} total={o.online} />
@@ -371,7 +371,7 @@ function OrgsSection({ orgs }: { orgs: OrgWithPresence[] }) {
  *  measured 4.46:1 in dark, a fail by four hundredths, so each theme steps away
  *  from the ground it sits on. */
 function OrgLogo({ org }: { org: OrgWithPresence }) {
-  const cls = 'h-3.5 w-3.5 text-[7px]';
+  const cls = 'h-3.5 w-3.5 text-nano';
   return org.logoUrl
     ? <img
         src={org.logoUrl}

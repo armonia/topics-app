@@ -163,7 +163,7 @@ export function PaneAddMenuItems({
                 questo ferma la propagazione. */}
             {item.id === 'claude-code' && (
               <span
-                className="flex items-center gap-1 text-[11px] text-app-text-muted flex-shrink-0"
+                className="flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0"
                 onClick={(e) => { e.stopPropagation(); setClaudeSkipPermissions(!claudeSkipPermissions); }}
                 role="checkbox"
                 aria-checked={claudeSkipPermissions}
@@ -397,12 +397,12 @@ export function PaneAddMenu({
         {triggerVariant === 'bar' ? (
           <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">
             <Plus size={triggerIconSize} aria-hidden="true" />
-            {triggerLabel && <span className="text-[10px] font-medium leading-none">{triggerLabel}</span>}
+            {triggerLabel && <span className="text-micro font-medium leading-none">{triggerLabel}</span>}
           </span>
         ) : (
           <>
             <Plus size={triggerIconSize} aria-hidden="true" />
-            {triggerLabel && <span className="text-[13px] font-medium">{triggerLabel}</span>}
+            {triggerLabel && <span className="text-body font-medium">{triggerLabel}</span>}
             {triggerKbd && !isMobile && (
               // `kbd-hint`: same mark as the Search button's ⌘K next door. It means
               // nothing on its own; inside `.sidebar-header` a container query hides
@@ -447,13 +447,13 @@ export function PaneAddMenu({
             aria-label="New"
             tabIndex={-1}
             onKeyDown={onPaletteKeyDown}
-            /* `text-[12px]`: il pannello e' portato su `document.body`, cioe'
+            /* `text-compact`: il pannello e' portato su `document.body`, cioe'
                FUORI dal wrapper dove App scrive `fontSize` — qualunque testo
                senza classe di dimensione ricade sui 16px di default del
                browser. Ci e' gia' cascato l'header (ESC a 16px accanto a
                lettere da 12px, misurato). Una base esplicita chiude la CLASSE
                di bug, non solo l'istanza. */
-            className={`relative w-full max-w-[300px] mx-4 ${MODAL_PANEL} py-1 text-[12px] outline-none`}
+            className={`relative w-full max-w-[300px] mx-4 ${MODAL_PANEL} py-1 text-compact outline-none`}
             onClick={(e) => e.stopPropagation()}
             data-testid="pane-add-menu"
           >

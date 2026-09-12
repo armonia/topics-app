@@ -2148,8 +2148,7 @@
       "truncating"
     ],
     "scripts/check-any.ts": [
-      "overridden",
-      "scanned"
+      "overridden"
     ],
     "scripts/check-bloat.ts": [
       "normalise"
@@ -2206,7 +2205,6 @@
       "righe",
       "rossi",
       "sano",
-      "scanned",
       "verdi"
     ],
     "scripts/check-route-latency.test.ts": [
@@ -2546,8 +2544,7 @@
       "compressa",
       "libc",
       "lsofTcpOut",
-      "mio",
-      "scanned"
+      "mio"
     ],
     "scripts/new-migration.ts": [
       "presi"

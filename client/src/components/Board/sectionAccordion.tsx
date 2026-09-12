@@ -112,7 +112,7 @@ export function SectionHeader({
       data-testid={testId}
       data-open={open ? '1' : '0'}
       disabled={disabled}
-      className={`flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading ${grow ? 'min-w-0 flex-1' : 'w-full'} ${padded ? 'py-2 text-left' : ''} disabled:hover:text-app-text-muted`}
+      className={`flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-heading ${grow ? 'min-w-0 flex-1' : 'w-full'} ${padded ? 'py-2 text-left' : ''} disabled:hover:text-app-text-muted`}
     >
       {chevron && (open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />)}
       <span className="truncate">{label}</span>

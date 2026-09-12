@@ -42,8 +42,8 @@ export function ProviderLimitNotice({ hold, usage }: {
       >
         <Clock3 size={15} aria-hidden="true" className={`shrink-0 ${waiting ? SEGNALE_ATTESA : 'text-app-text-secondary'}`} />
         <span className="min-w-0 flex-1 leading-snug">
-          <span className="block text-[12px] font-medium text-app-text">{heading}</span>
-          <span className="block text-[11px] text-app-text-secondary">{reset}</span>
+          <span className="block text-compact font-medium text-app-text">{heading}</span>
+          <span className="block text-mini text-app-text-secondary">{reset}</span>
         </span>
         <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-app-text-secondary" />
       </button>
@@ -57,7 +57,7 @@ export function ProviderLimitNotice({ hold, usage }: {
         testId="provider-limit-details"
         ariaLabel={heading}
       >
-        <div className="space-y-2 px-3 py-2 text-[12px] leading-relaxed text-app-text">
+        <div className="space-y-2 px-3 py-2 text-compact leading-relaxed text-app-text">
           <p className="font-semibold">{heading}</p>
           <p>{tr(hold?.window === 'seven_day' ? 'statusBar.providerHold.week' : 'statusBar.providerHold.fiveHours')}</p>
           <p className="text-app-text-secondary">{reset}</p>
@@ -65,7 +65,7 @@ export function ProviderLimitNotice({ hold, usage }: {
           <p className="text-app-text-secondary">{tr('statusBar.providerHold.otherChats')}</p>
         </div>
         <div className="border-t border-app-border px-1 pt-1">
-          <button type="button" role="menuitem" onClick={() => { setOpen(false); openSettings('providers'); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-app-text hover:bg-app-hover">
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); openSettings('providers'); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-compact text-app-text hover:bg-app-hover">
             <Settings size={14} aria-hidden="true" />{tr('statusBar.providerHold.manage')}
           </button>
         </div>

@@ -34,10 +34,10 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
     <div className="space-y-5">
       {/* Font Size */}
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
           <Type size={14} />
           Font Size
-          <span className="ml-auto text-[12px] text-app-text-muted font-normal">{settings.fontSize}px</span>
+          <span className="ml-auto text-compact text-app-text-muted font-normal">{settings.fontSize}px</span>
         </label>
         {/* `aria-label` esplicita: la <label> qui sopra NON avvolge l'input e non
             lo lega per `for`, quindi questo cursore non aveva NESSUN nome
@@ -56,7 +56,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
           aria-label="Font Size"
         />
-        <div className="flex justify-between text-[11px] text-app-text-muted mt-1">
+        <div className="flex justify-between text-mini text-app-text-muted mt-1">
           <span>12px</span>
           <span>15px</span>
           <span>18px</span>
@@ -69,10 +69,10 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           soglia sotto cui il tetto smette di avere senso e diventa «piena
           larghezza». */}
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
           <Type size={14} />
           {tr('appearance.chatWidth')}
-          <span className="ml-auto text-[12px] text-app-text-muted font-normal">
+          <span className="ml-auto text-compact text-app-text-muted font-normal">
             {settings.chatMaxWidth > 0 ? `${settings.chatMaxWidth}px` : tr('appearance.fullWidth')}
           </span>
         </label>
@@ -90,7 +90,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-primary"
           aria-label={tr('appearance.chatWidth.aria')}
         />
-        <div className="flex justify-between text-[11px] text-app-text-muted mt-1">
+        <div className="flex justify-between text-mini text-app-text-muted mt-1">
           <span>{tr('appearance.full')}</span>
           <span>820px</span>
           <span>1300px</span>
@@ -100,7 +100,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
       {/* Theme */}
       {onThemeChange && (
         <div>
-          <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+          <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
             {themeMode === 'light' ? <Sun size={14} /> : themeMode === 'dark' ? <Moon size={14} /> : <Monitor size={14} />}
             Theme
           </label>
@@ -113,7 +113,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
               <button
                 key={mode}
                 onClick={() => onThemeChange(mode)}
-                className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+                className={`flex-1 flex flex-col items-center gap-1.5 py-2.5 px-3 rounded-lg text-compact font-medium transition-all border ${
                   themeMode === mode
                     ? 'bg-primary/10 border-primary/30 text-primary'
                     : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
@@ -129,14 +129,14 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
 
       {/* Message Density */}
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
           {settings.messageDensity === 'compact' ? <Rows3 size={14} /> : <AlignJustify size={14} />}
           Message Density
         </label>
         <div className="flex gap-2">
           <button
             onClick={() => onChange('messageDensity', 'compact')}
-            className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+            className={`flex-1 py-2 px-3 rounded-lg text-compact font-medium transition-all border ${
               settings.messageDensity === 'compact'
                 ? 'bg-primary/10 border-primary/30 text-primary'
                 : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
@@ -151,7 +151,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           </button>
           <button
             onClick={() => onChange('messageDensity', 'comfortable')}
-            className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all border ${
+            className={`flex-1 py-2 px-3 rounded-lg text-compact font-medium transition-all border ${
               settings.messageDensity === 'comfortable'
                 ? 'bg-primary/10 border-primary/30 text-primary'
                 : 'bg-app-hover border-app-border text-app-text-secondary hover:bg-app-hover'
@@ -169,7 +169,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
 
       {/* Preview */}
       <div>
-        <label className="text-[13px] font-medium text-app-text mb-2 block">Preview</label>
+        <label className="text-body font-medium text-app-text mb-2 block">Preview</label>
         <div className="bg-app-hover rounded-lg p-3 border border-app-border">
           <div className={`${settings.messageDensity === 'compact' ? 'space-y-1' : 'space-y-2.5'}`}>
             <div className="flex justify-end">
@@ -198,14 +198,14 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           BOTH desktop shells (Electron + Tauri), hence isDesktop not isElectron. */}
       {isDesktop && (
         <div>
-          <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
             <LayoutGrid size={14} />
             Floating splits
-            <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+            <span className="ml-1 text-micro font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">
               Beta
             </span>
           </label>
-          <p className="text-[12px] text-app-text-muted mb-3">
+          <p className="text-compact text-app-text-muted mb-3">
             Detach every window split and the sidebar into rounded floating
             cards with a small gap between them, revealing the desktop
             vibrancy underneath. It makes the split layout easier to read.
@@ -227,7 +227,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           `showBoardRow`). Chi non la vuole la spegne qui — la board resta
           raggiungibile dal «+» e dalla sua tab. */}
       <div>
-        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
           <Kanban size={14} />
           Board
         </label>
@@ -269,7 +269,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           className="mt-6 w-full flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/40 px-3 py-2 text-left transition-colors hover:bg-app-hover coarse:min-h-11"
         >
           <Keyboard size={14} className="flex-shrink-0 text-app-text-secondary" />
-          <span className="text-[12.5px] text-app-text">Scorciatoie da tastiera</span>
+          <span className="text-body text-app-text">Scorciatoie da tastiera</span>
           {/* Vedi `shared/shortcuts.ts`: la chord ne accetta due, e questa è
               quella che si scrive uguale su ogni tastiera. */}
           <kbd className="kbd ml-auto">{shortcut('/')}</kbd>
@@ -341,8 +341,8 @@ function LanguageSetting({
 
   return (
     <div className="mt-6">
-      <h3 className="text-[13px] font-medium text-app-text mb-1">{tr('appearance.language')}</h3>
-      <p className="text-[12px] text-app-text-muted mb-3">
+      <h3 className="text-body font-medium text-app-text mb-1">{tr('appearance.language')}</h3>
+      <p className="text-compact text-app-text-muted mb-3">
         {tr('appearance.language.blurb')}
       </p>
       {/* Il `<select>` di sistema che stava qui era l'unico pezzo di questo
@@ -358,11 +358,11 @@ function LanguageSetting({
         className="w-[220px] max-w-full"
         options={LANGUAGE_OPTIONS}
       />
-      <p className={`mt-2 text-[11px] ${support.tone}`} data-testid="settings-language-support">
+      <p className={`mt-2 text-mini ${support.tone}`} data-testid="settings-language-support">
         {tr(support.key, support.params)}
       </p>
       {catalogueMissing && (
-        <p className="mt-1 text-[11px] text-amber-400" data-testid="settings-language-catalogue-missing">
+        <p className="mt-1 text-mini text-amber-400" data-testid="settings-language-catalogue-missing">
           {tr('appearance.language.catalogueMissing')}
         </p>
       )}

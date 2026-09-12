@@ -33,7 +33,7 @@ export function ProfileDropdown({ title, onClose, testId, children }: {
       className="mt-3 rounded-lg border border-app-border bg-app-surface shadow-lg"
     >
       <div className="flex items-center gap-2 border-b border-app-border px-3 py-2">
-        <span className="min-w-0 truncate text-[12px] font-medium text-app-text">{title}</span>
+        <span className="min-w-0 truncate text-compact font-medium text-app-text">{title}</span>
         <button
           type="button"
           onClick={onClose}

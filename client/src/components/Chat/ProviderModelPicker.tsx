@@ -176,7 +176,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls="provider-model-listbox"
-        className="inline-flex flex-shrink-0 items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
+        className="inline-flex flex-shrink-0 items-center gap-1 px-2 h-8 rounded-lg text-mini font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
         title={tr('chat.picker.title')}
       >
         {/* Qui c'era un lampo, e non diceva niente: accanto c'è già scritto
@@ -198,7 +198,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
           data-testid="model-context-badge"
           data-context-tokens={activeWindow.tokens}
           data-context-known={activeWindow.known ? 'true' : 'false'}
-          className={`text-[9px] font-semibold tracking-wide px-1 rounded flex-shrink-0 tabular-nums ${
+          className={`text-nano font-semibold tracking-wide px-1 rounded flex-shrink-0 tabular-nums ${
             activeWindow.known ? 'bg-primary/15 text-primary' : 'bg-app-hover text-app-text-muted'
           }`}
           title={activeWindow.known
@@ -253,7 +253,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={tr('chat.picker.search')}
-              className="flex-1 min-w-0 bg-transparent text-[12px] text-app-text placeholder:text-app-text-muted focus:outline-none"
+              className="flex-1 min-w-0 bg-transparent text-compact text-app-text placeholder:text-app-text-muted focus:outline-none"
             />
             {search ? (
               <button
@@ -287,10 +287,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                 retry short of reloading the page. */}
             {error && !snapshot && (
               <div className="px-3 py-6 text-center">
-                <div className="text-[11px] text-red-500 mb-2">{tr('chat.picker.loadFailed')}</div>
+                <div className="text-mini text-red-500 mb-2">{tr('chat.picker.loadFailed')}</div>
                 <button
                   onClick={() => void retry()}
-                  className="text-[11px] text-primary hover:underline"
+                  className="text-mini text-primary hover:underline"
                 >
                   {tr('chat.picker.retry')}
                 </button>
@@ -298,11 +298,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             )}
             {!error && noProvidersReady && (
               <div className="px-3 py-6 text-center">
-                <div className="text-[11px] text-app-text-muted mb-2">{tr('chat.picker.noneReady')}</div>
+                <div className="text-mini text-app-text-muted mb-2">{tr('chat.picker.noneReady')}</div>
                 {onOpenSettings && (
                   <button
                     onClick={() => { onOpenSettings(); setOpen(false); }}
-                    className="text-[11px] text-primary hover:underline"
+                    className="text-mini text-primary hover:underline"
                   >
                     {tr('chat.picker.openSettings')}
                   </button>
@@ -310,7 +310,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               </div>
             )}
             {!error && !noProvidersReady && filteredGroups.length === 0 && (
-              <div className="px-3 py-4 text-[11px] text-app-text-muted text-center">{tr('chat.picker.noMatches')}</div>
+              <div className="px-3 py-4 text-mini text-app-text-muted text-center">{tr('chat.picker.noMatches')}</div>
             )}
             {(() => {
               // Reset the row-refs array each render so removed rows don't
@@ -321,7 +321,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                 <div key={entry.name} className="py-0.5">
                   <div className="flex items-center gap-1.5 px-2.5 py-1">
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-500" />
-                    <span className="text-[11px] font-semibold text-app-text">{label}</span>
+                    <span className="text-mini font-semibold text-app-text">{label}</span>
                     {/* Il tier del provider stava qui accanto al nome. Se n'è
                         andato con l'altro badge: l'effort in forza — default del
                         provider oppure override della chat — si legge tutto in
@@ -330,7 +330,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                         significava due grafiche diverse per lo stesso valore in
                         due popover diversi. */}
                     {entry.isDefault && (
-                      <span className="ml-auto text-[11px] bg-primary/20 text-primary px-1 rounded">Default</span>
+                      <span className="ml-auto text-mini bg-primary/20 text-primary px-1 rounded">Default</span>
                     )}
                   </div>
                   {provModels.map((m) => {
@@ -354,7 +354,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                         data-active={isActive ? 'true' : undefined}
                         onMouseEnter={() => setActiveIndex(rowIdx)}
                         onClick={() => select(entry.name, m)}
-                        className={`w-full flex items-center gap-2 pl-5 pr-2.5 py-1 text-left text-[11px] transition-colors ${
+                        className={`w-full flex items-center gap-2 pl-5 pr-2.5 py-1 text-left text-mini transition-colors ${
                           isSelected
                             ? 'bg-primary/15 text-primary font-medium'
                             : isActive
@@ -373,7 +373,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                           data-testid={`model-window-${m}`}
                           data-context-tokens={win.tokens}
                           data-context-known={win.known ? 'true' : 'false'}
-                          className={`ml-auto flex-shrink-0 text-[10px] tabular-nums ${
+                          className={`ml-auto flex-shrink-0 text-micro tabular-nums ${
                             isSelected ? 'text-primary/80' : 'text-app-text-muted'
                           }`}
                           title={win.known
@@ -395,7 +395,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
 
           {/* Footer */}
           <div className="px-2.5 py-2 border-t border-app-border flex items-center justify-between gap-2">
-            <div className="text-[11px] text-app-text-muted truncate">
+            <div className="text-mini text-app-text-muted truncate">
               {override ? (
                 <button onClick={clearOverride} className="hover:text-app-text underline">{tr('chat.picker.resetDefault')}</button>
               ) : effective ? (
@@ -407,7 +407,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             {onOpenSettings && (
               <button
                 onClick={() => { onOpenSettings(); setOpen(false); }}
-                className="flex items-center gap-1 text-[11px] text-app-text-muted hover:text-app-text"
+                className="flex items-center gap-1 text-mini text-app-text-muted hover:text-app-text"
               >
                 <Settings size={10} />
                 Settings

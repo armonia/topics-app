@@ -31,7 +31,7 @@ export function DispatchEnvelopeRow({ messageId, content }: {
       data-testid="dispatch-envelope-row"
       data-message-id={messageId}
       data-open={open || undefined}
-      className="my-1 px-2 text-[11px] text-app-text-muted"
+      className="my-1 px-2 text-mini text-app-text-muted"
     >
       <div className="flex items-center justify-center gap-1.5">
         <Bot size={11} className="flex-shrink-0" />
@@ -46,7 +46,7 @@ export function DispatchEnvelopeRow({ messageId, content }: {
         </button>
       </div>
       {open && (
-        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-[11px] leading-relaxed text-app-text-secondary">
+        <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-app-inset p-2 text-mini leading-relaxed text-app-text-secondary">
           {content}
         </pre>
       )}

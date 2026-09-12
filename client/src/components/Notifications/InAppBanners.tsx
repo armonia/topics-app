@@ -81,9 +81,9 @@ export function InAppBanners() {
               onClick={() => { openBannerTarget(b.url); dismiss(b.id); }}
               className="min-w-0 flex-1 text-left"
             >
-              <div className="truncate text-[13px] font-medium text-app-text">{b.title}</div>
+              <div className="truncate text-body font-medium text-app-text">{b.title}</div>
               {b.body && (
-                <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-app-text-secondary">{b.body}</div>
+                <div className="mt-0.5 line-clamp-2 text-compact leading-snug text-app-text-secondary">{b.body}</div>
               )}
             </button>
             <button
@@ -115,7 +115,7 @@ export function InAppBanners() {
                       void runNotificationAction(taskId, a.id, boardNotificationDeps());
                       dismiss(b.id);
                     }}
-                    className="rounded-md border border-app-border px-2 py-1 text-[11.5px] font-medium text-app-text transition-colors hover:bg-app-hover"
+                    className="rounded-md border border-app-border px-2 py-1 text-compact font-medium text-app-text transition-colors hover:bg-app-hover"
                   >
                     {a.title}
                   </button>

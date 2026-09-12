@@ -80,7 +80,7 @@ export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
     // here so nothing can add a second one on top of it.
     <div
       data-testid="identity-block"
-      className="flex flex-col gap-1 text-[11px]"
+      className="flex flex-col gap-1 text-mini"
       style={{ paddingInline: ROW_INSET, paddingBottom: ROW_INSET }}
     >
       <FriendChipsRow chips={chips} />
@@ -139,7 +139,7 @@ function FriendChipsRow({ chips }: { chips: ReturnType<typeof friendChips> }) {
           <span className={`relative flex ${IDENTITY_GLYPH_BOX} flex-shrink-0 items-center justify-center`}>
             {c.avatarUrl
               ? <img src={c.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
-              : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary/20 text-[7px] font-semibold leading-none text-app-text">
+              : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary/20 text-nano font-semibold leading-none text-app-text">
                   {c.initials}
                 </span>}
             {/* THE STATE, on the face and not beside it: everybody on this row
@@ -255,7 +255,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
           {who.personale
             ? (who.avatarUrl
                 ? <img src={who.avatarUrl} alt="" className="h-full w-full rounded-full object-cover" />
-                : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary text-[7px] font-semibold leading-none text-white">{who.iniziali}</span>)
+                : <span className="flex h-full w-full items-center justify-center rounded-full bg-primary text-nano font-semibold leading-none text-white">{who.iniziali}</span>)
             : <DeviceIcon size={IDENTITY_GLYPH_INK} className="text-app-text-secondary" />}
         </span>
         {/* THE FIRST NAME. The whole name is on the tooltip, on the accessible

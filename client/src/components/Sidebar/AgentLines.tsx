@@ -35,7 +35,7 @@ export function AgentLines() {
       {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
       {awaitingInput.length > 0 && (
         <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide ${SEGNALE_ATTESA}`}>
+          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${SEGNALE_ATTESA}`}>
             {tr('statusBar.agents.awaitingHeading')}
           </div>
           {awaitingInput.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="awaiting-agent-row" />)}
@@ -49,14 +49,14 @@ export function AgentLines() {
           rule: the number on the card is the length of these rows. */}
       {finished.length > 0 && (
         <>
-          <div className={`px-3 pb-0.5 pt-1.5 text-[10px] uppercase tracking-wide ${CHIP_INK_DIM}`}>
+          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${CHIP_INK_DIM}`}>
             {tr('statusBar.agents.finishedHeading')}
           </div>
           {finished.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="finished-agent-row" tone={CHIP_INK_DIM} />)}
         </>
       )}
       {working.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
-        <div className="px-3 py-2 text-[11px] text-app-text-secondary">{tr('statusBar.agents.none')}</div>
+        <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('statusBar.agents.none')}</div>
       )}
     </div>
   );
@@ -72,7 +72,7 @@ export function AgentLines() {
 function AgentLine({ row, testId, alive = false, tone = SEGNALE_ATTESA }: { row: ActiveAgentRow; testId: string; alive?: boolean; tone?: string }) {
   const Icon = row.kind === 'terminal' ? Bot : MessagesSquare;
   return (
-    <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-[11px] text-app-text" title={row.label}>
+    <div data-testid={testId} data-kind={row.kind} className="flex items-center gap-2 px-3 py-1 text-mini text-app-text" title={row.label}>
       <Icon size={12} className={`flex-shrink-0 ${alive ? `animate-pulse ${SEGNALE_OK}` : tone}`} />
       <span className="min-w-0 flex-1 truncate">{row.label}</span>
     </div>

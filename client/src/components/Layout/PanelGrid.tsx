@@ -2869,8 +2869,8 @@ export function PanelGrid({
         <div className={`text-center transition-all duration-300 max-w-md px-6 ${emptyDragOver ? 'scale-105' : ''}`}>
           {emptyDragOver ? (
             <>
-              <div className="text-[40px] mb-3 float-icon">{'\uD83D\uDCCC'}</div>
-              <h2 className="text-[16px] font-semibold text-primary">Drop here to open</h2>
+              <div className="text-display-lg mb-3 float-icon">{'\uD83D\uDCCC'}</div>
+              <h2 className="text-title font-semibold text-primary">Drop here to open</h2>
             </>
           ) : (
             <>
@@ -2879,14 +2879,14 @@ export function PanelGrid({
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               </div>
-              <h2 className="text-[17px] font-semibold text-app-text mb-2">Welcome to Topics</h2>
-              <p className="text-[13px] text-app-text-muted leading-relaxed mb-6">
+              <h2 className="text-title font-semibold text-app-text mb-2">Welcome to Topics</h2>
+              <p className="text-body text-app-text-muted leading-relaxed mb-6">
                 {window.innerWidth < 768
                   ? 'Tap the menu button to browse topics or create a new one.'
                   : 'Select a topic to start'}
               </p>
               {window.innerWidth >= 768 && (
-                <div className="flex flex-wrap gap-3 justify-center text-[12px] text-app-text-muted">
+                <div className="flex flex-wrap gap-3 justify-center text-compact text-app-text-muted">
                   {/* `shortcut()` and not `⌘` written out: on Windows that glyph
                       names a key the keyboard does not have, and this is the FIRST
                       screen anyone sees. The binding is unchanged — the handlers
@@ -2944,9 +2944,9 @@ export function PanelGrid({
           onDrop={(e) => { e.preventDefault(); onExternalDrop(); }}
         >
           <div className="bg-surface border-2 border-dashed border-primary rounded-xl px-8 py-6 text-center shadow-lg">
-            <div className="text-[32px] mb-2">{'\uD83D\uDCCC'}</div>
-            <div className="text-[15px] font-semibold text-primary mb-1">Drop here</div>
-            <div className="text-[12px] text-app-text-muted">
+            <div className="text-display-md mb-2">{'\uD83D\uDCCC'}</div>
+            <div className="text-title font-semibold text-primary mb-1">Drop here</div>
+            <div className="text-compact text-app-text-muted">
               Move chat to this window
             </div>
           </div>

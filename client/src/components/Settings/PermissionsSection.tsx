@@ -50,22 +50,22 @@ export function PermissionsSection() {
   return (
     <div className="space-y-4" data-testid="settings-permissions">
       <div>
-        <h3 className="text-[13px] font-medium text-app-text mb-1">{tr('perms.title')}</h3>
-        <p className="text-[12px] leading-snug text-app-text-muted">
+        <h3 className="text-body font-medium text-app-text mb-1">{tr('perms.title')}</h3>
+        <p className="text-compact leading-snug text-app-text-muted">
           {tr('perms.blurb')}
         </p>
       </div>
 
       {error && (
-        <div className="text-[12px] text-red-500 bg-red-500/5 rounded px-2 py-1.5">{error}</div>
+        <div className="text-compact text-red-500 bg-red-500/5 rounded px-2 py-1.5">{error}</div>
       )}
 
       {grants === null ? (
-        <div className="flex items-center gap-2 text-[12px] text-app-text-muted">
+        <div className="flex items-center gap-2 text-compact text-app-text-muted">
           <Loader2 size={13} className="animate-spin" /> {tr('common.loading')}
         </div>
       ) : grants.length === 0 ? (
-        <div className="text-[12px] text-app-text-muted border border-dashed border-app-border rounded-md px-3 py-4 text-center">
+        <div className="text-compact text-app-text-muted border border-dashed border-app-border rounded-md px-3 py-4 text-center">
           {tr('perms.empty')}
         </div>
       ) : (
@@ -78,8 +78,8 @@ export function PermissionsSection() {
             >
               <ShieldCheck size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[12px] text-app-text">{g.pattern}</div>
-                <div className="text-[11px] text-app-text-muted">
+                <div className="truncate font-mono text-compact text-app-text">{g.pattern}</div>
+                <div className="text-mini text-app-text-muted">
                   consentito il {new Date(g.createdAt).toLocaleDateString()}
                 </div>
               </div>

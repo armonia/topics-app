@@ -122,7 +122,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
 
   if (loading && hunks.length === 0) {
     return (
-      <div className="px-3 py-1 border-b border-app-border flex items-center gap-2 text-[11px] text-app-text-muted">
+      <div className="px-3 py-1 border-b border-app-border flex items-center gap-2 text-mini text-app-text-muted">
         <Spinner size="xs" /> Cerco i blocchi…
       </div>
     );
@@ -134,16 +134,16 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
   return (
     <div className="border-b border-app-border" data-testid="hunk-actions">
       <div className="px-3 py-1 flex items-center gap-1.5">
-        <span className="text-[11px] font-medium text-app-text-tertiary uppercase tracking-wider">
+        <span className="text-mini font-medium text-app-text-tertiary uppercase tracking-wider">
           {hunks.length} blocchi
         </span>
-        <span className="text-[10px] text-app-text-muted">
+        <span className="text-micro text-app-text-muted">
           {side === 'unstaged' ? 'fuori dall’indice' : 'nell’indice'}
         </span>
         {inCorso !== null && <Spinner size="xs" />}
       </div>
 
-      {errore && <div className="px-3 pb-1 text-[11px] text-red-500">{errore}</div>}
+      {errore && <div className="px-3 pb-1 text-mini text-red-500">{errore}</div>}
 
       <div className="max-h-[140px] overflow-y-auto">
         {hunks.map(h => (
@@ -152,13 +152,13 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
             data-testid="hunk-row"
             className="flex items-center gap-1.5 px-3 py-[3px] group/hunk hover:bg-app-hover transition-colors"
           >
-            <span className="text-[10px] font-mono text-app-text-muted flex-shrink-0 tabular-nums">
+            <span className="text-micro font-mono text-app-text-muted flex-shrink-0 tabular-nums">
               :{h.oldStart}
             </span>
-            <span className="truncate text-[11px] text-app-text-body min-w-0" title={h.context}>
+            <span className="truncate text-mini text-app-text-body min-w-0" title={h.context}>
               {h.context || '-'}
             </span>
-            <span className="ml-auto text-[10px] tabular-nums flex-shrink-0 leading-none">
+            <span className="ml-auto text-micro tabular-nums flex-shrink-0 leading-none">
               {h.added > 0 && <span className="text-green-500">+{h.added}</span>}
               {h.added > 0 && h.removed > 0 && ' '}
               {h.removed > 0 && <span className="text-red-500">-{h.removed}</span>}

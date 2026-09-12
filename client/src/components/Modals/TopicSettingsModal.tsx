@@ -317,9 +317,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
-            <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
+            <h2 className="text-title font-semibold text-app-text">{topic.name} Settings</h2>
             {isGlobalOrchestrator && (
-              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-micro font-medium text-primary">
                 {tr('topic.orchestrator.badge')}
               </span>
             )}
@@ -343,20 +343,20 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {/* Name */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               Name
             </label>
             <input
               type="text"
               value={topicName}
               onChange={e => setTopicName(e.target.value)}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
             />
           </div>
 
           {/* Color */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               Color
             </label>
             <div className="flex items-center gap-2">
@@ -366,7 +366,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 onChange={e => setTopicColor(e.target.value)}
                 className="w-8 h-8 rounded border border-app-border-light cursor-pointer"
               />
-              <span className="text-[12px] text-app-text-muted">{topicColor}</span>
+              <span className="text-compact text-app-text-muted">{topicColor}</span>
             </div>
           </div>
 
@@ -375,14 +375,14 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               data-testid="global-orchestrator-settings-lock"
               className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3"
             >
-              <div className="flex items-center gap-1.5 text-[12px] font-medium text-app-text">
+              <div className="flex items-center gap-1.5 text-compact font-medium text-app-text">
                 <ShieldCheck size={14} className="text-primary" />
                 {tr('topic.orchestrator.lockTitle')}
               </div>
-              <p className="mt-1 text-[12px] leading-relaxed text-app-text-secondary">
+              <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">
                 {tr('topic.orchestrator.lockBody')}
               </p>
-              <p className="mt-1 text-[11px] text-app-text-muted">
+              <p className="mt-1 text-mini text-app-text-muted">
                 {tr('topic.orchestrator.voiceExternal')}
               </p>
             </div>
@@ -390,7 +390,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* Mute notifications (per-topic — migration 073) */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <BellOff size={14} />
                 Notifications
@@ -403,7 +403,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               onClick={() => setMuted(v => !v)}
               className="w-full flex items-center justify-between gap-3 px-3 py-2 border border-app-border-light rounded-lg bg-surface dark:bg-elevated text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             >
-              <span className="text-[12px] text-app-text-muted">
+              <span className="text-compact text-app-text-muted">
                 {muted
                   ? 'Muted: no banner and no sound at the end of a turn (it still counts in the badge).'
                   : 'On: banner and sound when an agent finishes in this topic.'}
@@ -415,13 +415,13 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           {!isGlobalOrchestrator && <>
           {/* Link Project */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <FolderOpen size={14} />
                 Link Project
               </span>
             </label>
-            <p className="text-[11px] text-app-text-muted mb-2">
+            <p className="text-mini text-app-text-muted mb-2">
               Link a local project directory to enable file explorer and git integration.
             </p>
             <div className="flex gap-2">
@@ -430,12 +430,12 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 value={projectPath}
                 onChange={e => setProjectPath(e.target.value)}
                 placeholder="/Users/you/projects/my-project"
-                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
               />
               {projectPath && (
                 <button
                   onClick={handleUnlinkProject}
-                  className="px-3 py-2 text-[13px] text-red-600 hover:bg-red-600/10 rounded-lg border border-red-600/30 transition-colors"
+                  className="px-3 py-2 text-body text-red-600 hover:bg-red-600/10 rounded-lg border border-red-600/30 transition-colors"
                 >
                   Unlink
                 </button>
@@ -447,7 +447,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 <button
                   key={p}
                   onClick={() => setProjectPath(p)}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-app-hover text-app-text-muted hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="text-mini px-2 py-0.5 rounded-full bg-app-hover text-app-text-muted hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   {p}
                 </button>
@@ -461,13 +461,13 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               invece del suo nome. Responsive: in colonna sotto i 640px, dove tre
               bottoni affiancati diventerebbero illeggibili. */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck size={14} />
                 Autonomy
               </span>
             </label>
-            <p className="text-[11px] text-app-text-muted mb-2">
+            <p className="text-mini text-app-text-muted mb-2">
               How much this chat may do on its own before stopping to ask you something.
               {!autonomy && ' You have not chosen yet: for now it does everything without asking.'}
             </p>
@@ -492,8 +492,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                         : 'border-app-border-light bg-app-hover/40 text-app-text-muted hover:text-app-text'
                     }`}
                   >
-                    <span className="block text-[12px] font-medium">{c.label}</span>
-                    <span className="block text-[11px] leading-snug mt-0.5">{c.blurb}</span>
+                    <span className="block text-compact font-medium">{c.label}</span>
+                    <span className="block text-mini leading-snug mt-0.5">{c.blurb}</span>
                   </button>
                 );
               })}
@@ -503,35 +503,35 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           {/* Phase A · TOPIC-WT-03: Worktree (read-only) */}
           {worktree && (
             <div>
-              <label className="block text-[13px] font-medium text-app-text mb-2">
+              <label className="block text-body font-medium text-app-text mb-2">
                 <span className="flex items-center gap-1.5">
                   <GitBranch size={14} />
                   Worktree
                 </span>
               </label>
-              <p className="text-[11px] text-app-text-muted mb-2">
+              <p className="text-mini text-app-text-muted mb-2">
                 Topic operations run inside this worktree's isolated branch. To unbind the topic, delete the worktree from the workspace view (the topic falls back to the project path automatically).
               </p>
-              <dl className="text-[12px] grid grid-cols-[7rem_1fr] gap-y-1 px-3 py-2 rounded-lg border border-app-border-light bg-app-hover/40">
+              <dl className="text-compact grid grid-cols-[7rem_1fr] gap-y-1 px-3 py-2 rounded-lg border border-app-border-light bg-app-hover/40">
                 <dt className="text-app-text-muted">Name</dt>
                 <dd className="text-app-text font-medium">{worktree.name}</dd>
                 {worktree.branchName && (
                   <>
                     <dt className="text-app-text-muted">Branch</dt>
-                    <dd className="text-app-text font-mono text-[11px]">{worktree.branchName}</dd>
+                    <dd className="text-app-text font-mono text-mini">{worktree.branchName}</dd>
                   </>
                 )}
                 {worktree.baseRef && (
                   <>
                     <dt className="text-app-text-muted">Base ref</dt>
-                    <dd className="text-app-text font-mono text-[11px]">{worktree.baseRef}</dd>
+                    <dd className="text-app-text font-mono text-mini">{worktree.baseRef}</dd>
                   </>
                 )}
                 <dt className="text-app-text-muted">Path</dt>
-                <dd className="text-app-text font-mono text-[11px] break-all">{worktree.absPath}</dd>
+                <dd className="text-app-text font-mono text-mini break-all">{worktree.absPath}</dd>
                 <dt className="text-app-text-muted">Status</dt>
                 <dd>
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-mini font-medium ${
                     worktree.status === 'ready' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' :
                     worktree.status === 'pending' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400' :
                     'bg-red-500/15 text-red-700 dark:text-red-400'
@@ -545,10 +545,10 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* System Prompt */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               System Prompt
             </label>
-            <p className="text-[11px] text-app-text-muted mb-2">
+            <p className="text-mini text-app-text-muted mb-2">
               Custom instructions sent at the start of every conversation in this topic.
             </p>
             <textarea
@@ -557,23 +557,23 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               placeholder="Enter a system prompt for this topic..."
               rows={4}
               readOnly={!promptLoaded}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y"
               aria-label="System prompt"
             />
           </div>
 
           {/* Context Files */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               Context Files
             </label>
-            <p className="text-[11px] text-app-text-muted mb-2">
+            <p className="text-mini text-app-text-muted mb-2">
               File paths included as context in every conversation.
             </p>
             {contextFilesList.length > 0 && (
               <ul className="space-y-1 mb-2" aria-label="Context files list">
                 {contextFilesList.map((file, i) => (
-                  <li key={i} className="flex items-center gap-2 text-[12px] text-app-text-secondary bg-app-hover rounded px-2 py-1">
+                  <li key={i} className="flex items-center gap-2 text-compact text-app-text-secondary bg-app-hover rounded px-2 py-1">
                     <span className="flex-1 truncate">{file}</span>
                     <button
                       onClick={() => setContextFilesList(prev => prev.filter((_, idx) => idx !== i))}
@@ -598,7 +598,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   }
                 }}
                 placeholder="/path/to/file.md"
-                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                 aria-label="Add context file"
               />
               <button
@@ -609,7 +609,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   }
                 }}
                 disabled={!newContextFile.trim()}
-                className="px-3 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-2 text-body bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add
               </button>
@@ -639,10 +639,10 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* Provider */}
           <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
+            <label className="block text-body font-medium text-app-text mb-2">
               Provider
             </label>
-            <p className="text-[11px] text-app-text-muted mb-2">
+            <p className="text-mini text-app-text-muted mb-2">
               Which AI provider handles conversations in this topic.
             </p>
             <Select
@@ -669,8 +669,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* Note about Context Inspector */}
           <div className="rounded-lg bg-primary/5 border border-primary/10 px-4 py-3">
-            <p className="text-[12px] text-app-text-secondary">
-              Memory and advanced context settings are also available in the <strong className="text-app-text">Context Inspector</strong> panel. Click the <span className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 rounded text-primary text-[11px] font-medium">Layers</span> button in the header to open it.
+            <p className="text-compact text-app-text-secondary">
+              Memory and advanced context settings are also available in the <strong className="text-app-text">Context Inspector</strong> panel. Click the <span className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-primary/10 rounded text-primary text-mini font-medium">Layers</span> button in the header to open it.
             </p>
           </div>
           </>}
@@ -679,18 +679,18 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-app-border">
           {saved && (
-            <span className="text-emerald-500 text-[13px] mr-auto">Saved</span>
+            <span className="text-emerald-500 text-body mr-auto">Saved</span>
           )}
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-[13px] text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
+            className="px-4 py-2 text-body text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={!isDirty}
-            className="px-4 py-2 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-body bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save
           </button>

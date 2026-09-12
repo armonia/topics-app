@@ -31,10 +31,10 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
           className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
         />
         <ListChecks size={13} className={`flex-shrink-0 ${allDone ? 'text-green-500' : 'text-app-text-secondary'}`} />
-        <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-app-text-secondary">
+        <span className="flex-shrink-0 text-mini font-medium tabular-nums text-app-text-secondary">
           {done}/{total}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-app-text-secondary">
+        <span className="min-w-0 flex-1 truncate text-compact text-app-text-secondary">
           {active ? (active.activeForm ?? active.content) : allDone ? 'Tutto completato' : 'Da fare'}
         </span>
       </button>
@@ -42,7 +42,7 @@ export function TodoStrip({ snapshot }: { snapshot: TodoSnapshot }) {
       {expanded && (
         <ul className="space-y-0.5 border-t border-app-border/50 px-2.5 py-1.5">
           {items.map((t, i) => (
-            <li key={i} className="flex items-start gap-2 text-[12px]">
+            <li key={i} className="flex items-start gap-2 text-compact">
               <span className="mt-0.5 flex-shrink-0">
                 {t.status === 'completed' ? (
                   <CircleCheck size={13} className="text-green-500" aria-hidden="true" />

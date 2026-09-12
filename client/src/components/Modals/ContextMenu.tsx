@@ -186,25 +186,25 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
 
       {subMenu === 'rename' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">{tr('ctx.renameTopic')}</div>
+          <div className="text-mini font-semibold text-app-text-muted mb-2">{tr('ctx.renameTopic')}</div>
           <input
             ref={inputRef}
             type="text"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') onClose(); }}
-            className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
+            className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-body focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
           />
           <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>
-            <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">{tr('common.save')}</button>
+            <button onClick={onClose} className="text-compact text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>
+            <button onClick={handleRename} className="text-compact bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">{tr('common.save')}</button>
           </div>
         </div>
       )}
 
       {subMenu === 'color' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">{tr('ctx.pickColour')}</div>
+          <div className="text-mini font-semibold text-app-text-muted mb-2">{tr('ctx.pickColour')}</div>
           <div className="grid grid-cols-5 gap-2">
             {COLOR_OPTIONS.map((color) => (
               <button
@@ -228,13 +228,13 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
               cioè dichiara che l'azione è reversibile, mentre il titolo in rosso
               e il bottone rosso dicono il contrario. Delle due, quella vera è la
               frase. Il colore d'allarme resta per ciò che non si può disfare. */}
-          <div className="text-[11px] font-semibold text-app-text mb-2">Archiviare il topic?</div>
-          <p className="text-[12px] text-app-text-secondary mb-3">
+          <div className="text-mini font-semibold text-app-text mb-2">Archiviare il topic?</div>
+          <p className="text-compact text-app-text-secondary mb-3">
             {tr('ctx.archive.q1')} <strong>{topic.name}</strong>{tr('ctx.archive.q2')}
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>
-            <button onClick={handleDelete} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Archivia</button>
+            <button onClick={onClose} className="text-compact text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>
+            <button onClick={handleDelete} className="text-compact bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Archivia</button>
           </div>
         </div>
       )}

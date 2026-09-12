@@ -249,7 +249,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
   /* Gli interruttori sono gli STESSI nei due posti: cambia dove atterrano e
      quanto sono alti. Un dito vuole 44px, un puntatore no, e scrivere due volte
      gli stessi bottoni li farebbe divergere alla prima modifica. */
-  const btn = isMobile ? 'px-3 h-11 text-[13px]' : 'px-1.5 py-0.5 text-[11px]';
+  const btn = isMobile ? 'px-3 h-11 text-body' : 'px-1.5 py-0.5 text-mini';
   /* Una riga di risultato e' un bersaglio: `py-1` la teneva a ~22px, cioe' meta'
      dei 44 sotto i quali un dito non centra piu' quello che vede. */
   const rowPad = isMobile ? 'py-3 min-h-11' : 'py-1';
@@ -357,7 +357,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             /* Vedi CommandPalette: 44px di bersaglio, e 16px di testo perche'
                sotto quella misura iOS zooma la pagina al primo tocco. */
             className={`flex-1 bg-transparent outline-none text-app-text-heading placeholder-app-text-faint ${
-              isMobile ? 'h-11 text-[16px]' : 'text-sm'
+              isMobile ? 'h-11 text-title' : 'text-body-lg'
             }`}
           />
           {!isMobile && modeControls}
@@ -383,13 +383,13 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             </div>
           )}
           {regexError && !loading && (
-            <div data-testid="regex-error" className="text-center text-red-400 text-xs py-4 px-3">{regexError}</div>
+            <div data-testid="regex-error" className="text-center text-red-400 text-compact py-4 px-3">{regexError}</div>
           )}
           {/* Un errore di rete NON è «nessun risultato»: dirlo uguale insegna
               che la cosa cercata non c'è, che è la bugia peggiore per una
               ricerca. */}
           {failed && !loading && !regexError && (
-            <div data-testid="file-search-error" className="text-center text-red-400 text-xs py-6 px-3">
+            <div data-testid="file-search-error" className="text-center text-red-400 text-compact py-6 px-3">
               {tr('fileSearch.failed')}
             </div>
           )}
@@ -397,18 +397,18 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
               the missing ones get named. Without this line a project that has
               nothing to show and a project that never answered look the same. */}
           {failedRoots.length > 0 && !loading && !regexError && !failed && (
-            <div data-testid="file-search-partial" className="px-3 py-2 text-[11px] text-amber-400 border-b border-app-border">
+            <div data-testid="file-search-partial" className="px-3 py-2 text-mini text-amber-400 border-b border-app-border">
               {tr('fileSearch.partialFailure', { projects: failedRoots.map((r) => basename(r)).join(', ') })}
             </div>
           )}
           {!loading && !regexError && !failed && query && results.length === 0 && (
-            <div className="text-center text-app-text-muted text-xs py-6">{tr('fileSearch.noResults')}</div>
+            <div className="text-center text-app-text-muted text-compact py-6">{tr('fileSearch.noResults')}</div>
           )}
           {!loading && (() => {
             let flatIdx = 0;
             return grouped.map((g) => (
               <div key={g.key} className="border-b border-app-border-subtle last:border-b-0">
-                <div className="px-3 py-1 text-[11px] font-medium text-app-text-secondary bg-app-inset sticky top-0 flex items-center gap-1.5">
+                <div className="px-3 py-1 text-mini font-medium text-app-text-secondary bg-app-inset sticky top-0 flex items-center gap-1.5">
                   <span className="truncate">{g.file}</span>
                   {multi && (
                     <span className="text-app-text-muted flex-shrink-0">· {basename(g.project)}</span>
@@ -424,7 +424,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
                         idx === selectedIdx ? SELECTED_SURFACE : 'hover:bg-app-hover'
                       }`}
                     >
-                      <span className="text-xs text-app-text-body font-mono truncate">{g.file}</span>
+                      <span className="text-compact text-app-text-body font-mono truncate">{g.file}</span>
                     </button>
                   );
                 })() : g.rows.map((r, i) => {
@@ -438,10 +438,10 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
                         idx === selectedIdx ? SELECTED_SURFACE : 'hover:bg-app-hover'
                       }`}
                     >
-                      <span className="text-[11px] text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
+                      <span className="text-mini text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
                         {r.lineNumber}
                       </span>
-                      <span className="text-xs text-app-text-body font-mono truncate">
+                      <span className="text-compact text-app-text-body font-mono truncate">
                         {highlightMatch((r.line ?? '').trim(), r.match ?? '')}
                       </span>
                     </button>
@@ -453,12 +453,12 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
           {/* Troncato dal SERVER (timeout del grep) o dal nostro tetto: sono due
               cose diverse e vanno dette diverse. */}
           {!loading && truncated && (
-            <div className="text-center text-amber-500 text-[11px] py-2">
+            <div className="text-center text-amber-500 text-mini py-2">
               {tr('fileSearch.truncated')}
             </div>
           )}
           {!loading && !truncated && mode === 'content' && results.length >= 100 && (
-            <div className="text-center text-app-text-muted text-[11px] py-2">{tr('fileSearch.first100')}</div>
+            <div className="text-center text-app-text-muted text-mini py-2">{tr('fileSearch.first100')}</div>
           )}
         </div>
       </div>

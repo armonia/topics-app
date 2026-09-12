@@ -629,10 +629,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
             }}
             placeholder={tr('browser.find.placeholder')}
             data-testid="browser-find-input"
-            className="flex-1 h-6 px-2 text-[12px] rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
+            className="flex-1 h-6 px-2 text-compact rounded bg-surface border border-app-border text-app-text placeholder:text-app-text-faint focus:outline-none focus:border-primary"
           />
           {findCount !== null && (
-            <span className="text-[11px] text-app-text-muted tabular-nums flex-shrink-0 min-w-[4ch] text-right" data-testid="browser-find-count">
+            <span className="text-mini text-app-text-muted tabular-nums flex-shrink-0 min-w-[4ch] text-right" data-testid="browser-find-count">
               {formatMatchCounter(findIndex, findCount)}
             </span>
           )}
@@ -1292,7 +1292,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             "Starting browser…"). Cleared by the next navigation. */}
         {browser.error && (
           <div
-            className="absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px]"
+            className="absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-compact"
             data-testid="browser-nav-error"
             role="alert"
           >
@@ -1369,13 +1369,13 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           <div className="flex items-center justify-center h-full" data-testid="browser-webrtc-error">
             <div className="text-center max-w-xs px-4">
               <AlertTriangle size={30} className="mx-auto mb-3 text-red-500" />
-              <p className="text-[13px] text-app-text-muted mb-1">{tr('browser.video.unavailable')}</p>
-              <p className="text-[11px] text-app-text-faint mb-3">{tr('browser.video.blurb')}</p>
+              <p className="text-body text-app-text-muted mb-1">{tr('browser.video.unavailable')}</p>
+              <p className="text-mini text-app-text-faint mb-3">{tr('browser.video.blurb')}</p>
               <div className="flex items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={() => browser.setRenderMode('dom')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-compact font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
                   data-testid="browser-dom-fallback"
                 >
                   <Boxes size={12} />
@@ -1384,7 +1384,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 <button
                   type="button"
                   onClick={browser.retryWebrtc}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-surface border border-border text-text rounded-md hover:bg-surface/70 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-compact font-medium bg-surface border border-border text-text rounded-md hover:bg-surface/70 transition-colors"
                   data-testid="browser-webrtc-retry"
                 >
                   <RotateCw size={12} />
@@ -1406,7 +1406,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
-              <p className="text-[12px] text-app-text-muted">{tr('browser.shared.starting')}</p>
+              <p className="text-compact text-app-text-muted">{tr('browser.shared.starting')}</p>
             </div>
           </div>
         )}
@@ -1452,14 +1452,14 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             <div className="flex flex-col items-center gap-3 bg-surface/90 px-6 py-4 rounded-lg shadow-xl border border-app-border">
               <div className="flex items-center gap-2 text-app-text">
                 <Bot className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span className="text-[14px] font-medium">
+                <span className="text-body-lg font-medium">
                   {browser.agentAction ? `L'agente: ${browser.agentAction}` : "L'agente sta controllando…"}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={browser.takeControl}
-                className="px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                className="px-3 py-1.5 text-compact font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
                 data-testid="browser-take-control-button"
               >
                 Take control

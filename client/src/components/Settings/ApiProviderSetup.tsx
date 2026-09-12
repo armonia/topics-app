@@ -17,11 +17,11 @@ export function ApiProviderSetup({ provider, expanded, onToggle, onSaved }: {
       <button type="button" onClick={onToggle} aria-expanded={expanded}
         className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left">
         {expanded ? <ChevronDown size={13} className="shrink-0 text-app-text-secondary" /> : <ChevronRight size={13} className="shrink-0 text-app-text-secondary" />}
-        <span className="flex-1 text-[12px] font-semibold text-app-text">{API_PROVIDERS[provider].label}</span>
-        <span className="text-[11px] text-app-text-secondary">{tr('ai.api.notConnected')}</span>
+        <span className="flex-1 text-compact font-semibold text-app-text">{API_PROVIDERS[provider].label}</span>
+        <span className="text-mini text-app-text-secondary">{tr('ai.api.notConnected')}</span>
       </button>
       {expanded && <div className="space-y-2 border-t border-app-border px-3 pb-3 pt-2">
-        <p className="text-[12px] text-app-text-secondary">{tr('ai.api.chat')}</p>
+        <p className="text-compact text-app-text-secondary">{tr('ai.api.chat')}</p>
         <ApiKeyForm provider={provider} replacing={false} onSaved={onSaved} />
       </div>}
     </div>
@@ -60,7 +60,7 @@ export function ApiKeyForm({ provider, replacing, onSaved }: {
 
   return (
     <form data-testid={`api-key-form-${provider}`} onSubmit={(event) => { event.preventDefault(); void submit(); }} className="space-y-1.5">
-      <label htmlFor={id} className="block text-[12px] text-app-text">
+      <label htmlFor={id} className="block text-compact text-app-text">
         {tr(replacing ? 'ai.api.replaceKey' : 'ai.api.key')} · {API_PROVIDERS[provider].label}
       </label>
       <div className="flex flex-wrap gap-2">
@@ -76,15 +76,15 @@ export function ApiKeyForm({ provider, replacing, onSaved }: {
           placeholder={API_PROVIDERS[provider].placeholder}
           aria-describedby={`${id}-hint`}
           aria-invalid={error ? true : undefined}
-          className="flex-1 min-w-0 w-full px-2 py-1.5 coarse:min-h-11 rounded-md text-base sm:text-[12px] bg-surface border border-app-border text-app-text placeholder:text-app-text-muted focus:outline-none focus:border-primary"
+          className="flex-1 min-w-0 w-full px-2 py-1.5 coarse:min-h-11 rounded-md text-title sm:text-compact bg-surface border border-app-border text-app-text placeholder:text-app-text-muted focus:outline-none focus:border-primary"
         />
-        <button type="submit" disabled={saving || !apiKey.trim()} className="px-3 py-1.5 coarse:min-h-11 rounded-md text-[12px] font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50">
+        <button type="submit" disabled={saving || !apiKey.trim()} className="px-3 py-1.5 coarse:min-h-11 rounded-md text-compact font-medium bg-primary text-white hover:bg-primary/90 transition-colors disabled:opacity-50">
           {tr(saving ? 'ai.api.connecting' : 'ai.api.connect')}
         </button>
       </div>
-      <p id={`${id}-hint`} className="text-[11px] text-app-text-muted">{tr('ai.api.storage')}</p>
-      {saved && <p role="status" className="text-[11px] text-app-text-secondary">{tr('ai.api.saved')}</p>}
-      {error && <p role="alert" className="text-[11px] text-red-500 break-words">{error}</p>}
+      <p id={`${id}-hint`} className="text-mini text-app-text-muted">{tr('ai.api.storage')}</p>
+      {saved && <p role="status" className="text-mini text-app-text-secondary">{tr('ai.api.saved')}</p>}
+      {error && <p role="alert" className="text-mini text-red-500 break-words">{error}</p>}
     </form>
   );
 }

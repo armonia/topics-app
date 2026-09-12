@@ -50,18 +50,18 @@ export function KPICard({ label, value, unit, icon: Icon, trend = 'flat', upIsGo
       </div>
       <div className="flex items-baseline gap-1 min-w-0">
         <span
-          className={`text-[18px] font-semibold truncate-tight ${missing ? 'text-app-text-muted' : 'text-app-text'}`}
+          className={`text-headline font-semibold truncate-tight ${missing ? 'text-app-text-muted' : 'text-app-text'}`}
           title={missing ? tr('kpi.noSource') : undefined}
         >
           {missing ? '-' : value}
         </span>
         {unit && !missing && (
-          <span className="text-[11px] text-app-text-muted leading-none flex-shrink-0">
+          <span className="text-mini text-app-text-muted leading-none flex-shrink-0">
             {unit}
           </span>
         )}
       </div>
-      <span className="text-[11px] text-app-text-muted leading-tight truncate" title={partialNote || undefined}>
+      <span className="text-mini text-app-text-muted leading-tight truncate" title={partialNote || undefined}>
         {label}
         {/* Un asterisco, non una frase: la card e' larga come un pollice. Il
             perche' sta nel tooltip, dove c'e' lo spazio per dirlo davvero. */}

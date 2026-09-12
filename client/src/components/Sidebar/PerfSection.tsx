@@ -58,7 +58,7 @@ function FpsSparkline({ data, sampling }: { data: FpsSample[]; sampling: string 
   if (data.length < 2) {
     return (
       <div
-        className="rounded bg-elevated flex items-center justify-center text-[10px] text-app-text-muted"
+        className="rounded bg-elevated flex items-center justify-center text-micro text-app-text-muted"
         style={{ height: SPARK_H }}
       >
         {sampling}
@@ -105,9 +105,9 @@ function PerfStat({ label, value, sub, color, title, className }: { label: strin
   // da dove viene - ed e' il dettaglio per gruppo che l'anteprima non mostra.
   return (
     <div className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded bg-elevated ${className ?? ''}`} title={title}>
-      <span className="text-[9px] uppercase tracking-wide text-app-text-muted">{label}</span>
-      <span className={`text-[11px] font-medium tabular-nums ${color ?? 'text-app-text'}`}>{value}</span>
-      {sub && <span className="text-[9px] tabular-nums text-app-text-muted">{sub}</span>}
+      <span className="text-nano uppercase tracking-wide text-app-text-muted">{label}</span>
+      <span className={`text-mini font-medium tabular-nums ${color ?? 'text-app-text'}`}>{value}</span>
+      {sub && <span className="text-nano tabular-nums text-app-text-muted">{sub}</span>}
     </div>
   );
 }
@@ -255,12 +255,12 @@ export function PerfSection() {
       {/* 1 · VA VELOCE? Gli fps sono l'unica cosa che l'utente SENTE. */}
       <div>
         <div className="flex items-center justify-between px-0.5">
-          <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+          <span className="flex items-center gap-1.5 text-mini text-app-text-muted">
             <Activity size={12} /> {tr('perf.q1')}
           </span>
           <span className="flex items-baseline gap-2 tabular-nums">
-            <span className={`text-[15px] font-semibold leading-none ${fpsColor(fps)}`}>{fps || '-'}</span>
-            <span className="text-[10px] text-app-text-muted">{tr('perf.fpsAvg', { n: avg || '-' })}</span>
+            <span className={`text-title font-semibold leading-none ${fpsColor(fps)}`}>{fps || '-'}</span>
+            <span className="text-micro text-app-text-muted">{tr('perf.fpsAvg', { n: avg || '-' })}</span>
           </span>
         </div>
         <FpsSparkline data={history} sampling={tr('perf.sampling')} />
@@ -287,7 +287,7 @@ export function PerfSection() {
             footprint.serverCpu !== null ? tr('perf.cpuServerInline', { pct: formatCpuPercent(footprint.serverCpu) }) : null,
           ].filter(Boolean).join('\n')}
         >
-          <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
+          <span className="flex items-center gap-1.5 text-mini text-app-text-muted">
             <HardDrive size={12} /> {tr('perf.q2')}
             {/* TEN PIXELS AND A TOKEN, not nine and an opacity. `opacity-60`
                 on `--text-muted` measures 2.30:1 in light and 2.52:1 in dark,
@@ -295,7 +295,7 @@ export function PerfSection() {
                 11-12px. This line and the inventory heading below were the two
                 least readable texts on a panel whose whole job is to be read.
                 `--text-faint` is the token that exists for a second rank. */}
-            <span className="text-[10px] text-app-text-faint">
+            <span className="text-micro text-app-text-faint">
               {tr('perf.procCount', { n: footprint.totalProcessCount })}
               {footprint.memPartial || footprint.cpuPartial
                 ? ` \u00b7 ${tr('perf.partialReading')}`
@@ -306,11 +306,11 @@ export function PerfSection() {
               non di una meta'. La CPU sparisce quando non e' misurata: uno «0%»
               li' sembra una misura ed e' invece l'assenza di misura. */}
           <span className="flex items-baseline gap-2">
-            <span className="tabular-nums text-[13px] font-semibold text-app-text">
+            <span className="tabular-nums text-body font-semibold text-app-text">
               {totalMemMB !== null ? formatMemoryMB(totalMemMB) : '-'}
             </span>
             {footprint.totalCpu !== null && (
-              <span className="tabular-nums text-[11px] font-medium text-app-text-muted">
+              <span className="tabular-nums text-mini font-medium text-app-text-muted">
                 {tr('perf.cpuTotal', { pct: formatCpuPercent(footprint.totalCpu) })}
               </span>
             )}
@@ -356,7 +356,7 @@ export function PerfSection() {
             same thing as the verdict under it. It spent a row of the panel's
             tightest block in order never to appear. */}
         {verdict && (
-          <div data-testid="perf-verdict" className={`px-1.5 py-0.5 text-[10px] font-medium ${verdict.color}`}>
+          <div data-testid="perf-verdict" className={`px-1.5 py-0.5 text-micro font-medium ${verdict.color}`}>
             {verdict.text}
           </div>
         )}
@@ -375,7 +375,7 @@ export function PerfSection() {
             dichiarati contro 440 nel renderer), quindi convertirlo in MB per
             poterlo sommare sarebbe inventare il numero. Vedi `featureWeight.ts`. */}
         {vociPeso.length > 0 && (
-          <div data-testid="perf-inventory" className="flex flex-col gap-0.5 px-0.5 text-[10px] text-app-text-muted">
+          <div data-testid="perf-inventory" className="flex flex-col gap-0.5 px-0.5 text-micro text-app-text-muted">
             {measuredVisibleEntries.map(v => (
               <div key={v.id} data-testid="perf-inventory-row" className="flex items-center justify-between gap-2" title={rigaVoce(v)}>
                 <span className="min-w-0 truncate">
@@ -394,7 +394,7 @@ export function PerfSection() {
                 {/* L'intestazione compare SOLO se sotto c'e' qualcosa, e dice
                     perche' quei numeri non sono in MB: senza, due colonne
                     diverse una sopra l'altra si leggono come la stessa cosa. */}
-                <div className="pt-1 text-[10px] uppercase tracking-wide text-app-text-faint">
+                <div className="pt-1 text-micro uppercase tracking-wide text-app-text-faint">
                   {tr('perf.inventory.heldHeading')}
                 </div>
                 {vociTrattenuteVisibili.map(v => (

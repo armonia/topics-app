@@ -34,7 +34,7 @@ export function ZoomControl({ zoom = 100, onZoom }: { zoom?: number; onZoom: (de
         <Minus size={12} />
       </button>
       <button type="button" onClick={() => apply('reset')} title={t('browser.dev.zoomReset')}
-        className={`px-1 h-6 text-[11px] tabular-nums ${pct !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'} hover:bg-black/5 dark:hover:bg-white/5`}>
+        className={`px-1 h-6 text-mini tabular-nums ${pct !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'} hover:bg-black/5 dark:hover:bg-white/5`}>
         {pct}%
       </button>
       <button type="button" onClick={() => apply(1)} title={t('browser.dev.zoomIn')}
@@ -85,7 +85,7 @@ export function DeviceSwitcher({
             return (
               <button key={m} type="button"
                 onClick={() => { onSet(m); setOpen(false); }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-[12px] hover:bg-app-hover ${mode === m ? 'text-primary' : 'text-app-text'}`}>
+                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-compact hover:bg-app-hover ${mode === m ? 'text-primary' : 'text-app-text'}`}>
                 <MI size={13} /> {DEVICE_LABEL[m]}
               </button>
             );
@@ -94,16 +94,16 @@ export function DeviceSwitcher({
           <div className="px-3 py-1.5 flex items-center gap-1">
             <SlidersHorizontal size={13} className="text-app-text-tertiary shrink-0" />
             <input value={cw} onChange={e => setCw(e.target.value)} placeholder="W" inputMode="numeric"
-              className="w-12 px-1 py-0.5 text-[11px] bg-surface border border-app-border-input rounded text-app-text-heading" />
-            <span className="text-app-text-faint text-[11px]">×</span>
+              className="w-12 px-1 py-0.5 text-mini bg-surface border border-app-border-input rounded text-app-text-heading" />
+            <span className="text-app-text-faint text-mini">×</span>
             <input value={ch} onChange={e => setCh(e.target.value)} placeholder="H" inputMode="numeric"
-              className="w-12 px-1 py-0.5 text-[11px] bg-surface border border-app-border-input rounded text-app-text-heading" />
+              className="w-12 px-1 py-0.5 text-mini bg-surface border border-app-border-input rounded text-app-text-heading" />
             <button type="button"
               onClick={() => {
                 const w = parseInt(cw, 10), h = parseInt(ch, 10);
                 if (w > 0 && h > 0) { onSet('custom', { width: w, height: h }); setOpen(false); }
               }}
-              className="ml-auto px-1.5 py-0.5 text-[11px] rounded bg-primary text-white hover:bg-primary/90">OK</button>
+              className="ml-auto px-1.5 py-0.5 text-mini rounded bg-primary text-white hover:bg-primary/90">OK</button>
           </div>
         </div>
       </Menu>
@@ -257,7 +257,7 @@ export function ConsoleBadge({
   const hasErr = summary.errors > 0;
   const hasWarn = !hasErr && summary.warnings > 0;
   const count = hasErr ? summary.errors : hasWarn ? summary.warnings : 0;
-  const chipBase = 'px-1.5 h-[18px] flex items-center gap-1 rounded border text-[10px] leading-none transition-colors';
+  const chipBase = 'px-1.5 h-[18px] flex items-center gap-1 rounded border text-micro leading-none transition-colors';
   return (
     <>
       <button ref={btnRef} type="button" title="Console"
@@ -265,7 +265,7 @@ export function ConsoleBadge({
         onClick={() => { setOpen(o => !o); setStuckToTail(true); }}
         className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? DANGER_TEXT : hasWarn ? WARNING_TEXT : 'text-app-text-secondary'}`}>
         <Terminal size={ICON} />
-        {count > 0 && <span className="text-[10px] font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
+        {count > 0 && <span className="text-micro font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
       </button>
       {/* Anchored React <Menu> (portal + flip/clamp + Escape/dismissal + focus-
           restore). A scrollable log panel that owns its own layout → unmanagedFocus.
@@ -285,7 +285,7 @@ export function ConsoleBadge({
                   placeholder={t('browser.dev.console.filterPlaceholder')}
                   aria-label={t('browser.dev.console.filterLabel')}
                   data-testid="browser-console-search"
-                  className="flex-1 min-w-0 bg-transparent text-[11px] text-app-text placeholder:text-app-text-faint focus:outline-none"
+                  className="flex-1 min-w-0 bg-transparent text-mini text-app-text placeholder:text-app-text-faint focus:outline-none"
                 />
               </div>
               <button
@@ -294,7 +294,7 @@ export function ConsoleBadge({
                 disabled={rows.length === 0}
                 title={t('browser.dev.console.copyVisible')}
                 data-testid="browser-console-copy"
-                className="h-6 px-1.5 flex items-center gap-1 rounded text-[11px] text-app-text-secondary hover:bg-app-hover disabled:opacity-40 disabled:hover:bg-transparent"
+                className="h-6 px-1.5 flex items-center gap-1 rounded text-mini text-app-text-secondary hover:bg-app-hover disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
                 {copied ? t('browser.dev.console.copied') : t('browser.dev.console.copy')}
@@ -334,7 +334,7 @@ export function ConsoleBadge({
             <div
               ref={bodyRef}
               onScroll={onBodyScroll}
-              className="max-h-[260px] overflow-y-auto py-1 font-mono text-[11px] leading-relaxed"
+              className="max-h-[260px] overflow-y-auto py-1 font-mono text-mini leading-relaxed"
             >
               {rows.length === 0 ? (
                 <div className="px-3 py-3 text-app-text-faint text-center">
@@ -347,7 +347,7 @@ export function ConsoleBadge({
                 type="button"
                 onClick={goToTail}
                 data-testid="browser-console-tail"
-                className="absolute right-2 bottom-2 flex items-center gap-1 px-2 h-6 rounded-full glass-surface border border-app-border text-[10px] text-app-text-secondary shadow hover:bg-app-hover"
+                className="absolute right-2 bottom-2 flex items-center gap-1 px-2 h-6 rounded-full glass-surface border border-app-border text-micro text-app-text-secondary shadow hover:bg-app-hover"
               >
                 <ArrowDown size={11} aria-hidden />
                 {t('browser.dev.console.toTail')}

@@ -145,7 +145,7 @@ export function SessionConfigPopover({
             <span
               data-testid="session-effort-badge"
               data-effort-source={effort ? 'override' : 'default'}
-              className={`w-full text-center text-[9px] uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
+              className={`w-full text-center text-nano uppercase tracking-wide px-1 py-0.5 rounded font-semibold tabular-nums ${
                 // L'override è una scelta TUA e si vede; il default del provider
                 // è un fatto, e sta smorzato. Due pesi diversi per due cose
                 // diverse, senza bisogno di leggere il pannello per distinguerle.
@@ -179,14 +179,14 @@ export function SessionConfigPopover({
           {effortSupported && onEffortChange && (
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-app-text-tertiary">
+                <span className="text-mini font-semibold uppercase tracking-wider text-app-text-tertiary">
                   Effort
                 </span>
                 {effort && (
                   <button
                     type="button"
                     onClick={() => onEffortChange(null)}
-                    className="flex items-center gap-1 text-[10px] text-app-text-muted hover:text-app-text transition-colors"
+                    className="flex items-center gap-1 text-micro text-app-text-muted hover:text-app-text transition-colors"
                     title={tr('chat.effort.reset')}
                   >
                     <RotateCcw size={10} />
@@ -220,7 +220,7 @@ export function SessionConfigPopover({
                   <span
                     key={t}
                     data-testid={`session-effort-${t}`}
-                    className={`text-[9px] uppercase tracking-wide ${
+                    className={`text-nano uppercase tracking-wide ${
                       i === sliderIndex
                         ? effort
                           ? 'text-primary font-semibold'
@@ -232,7 +232,7 @@ export function SessionConfigPopover({
                   </span>
                 ))}
               </div>
-              <div className="mt-1 text-[10px] text-app-text-muted">
+              <div className="mt-1 text-micro text-app-text-muted">
                 {effort
                   ? `Override per questa chat${defaultTier ? ` · default ${defaultTier}` : ''}`
                   : defaultTier

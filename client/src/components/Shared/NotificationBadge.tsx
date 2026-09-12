@@ -77,7 +77,7 @@ export function NotificationBadge({ count, className = '', ariaLabel, title, var
       // trim non sposta un centesimo). Le due centrature, quella nuova e quella
       // di prima come fallback, stanno nella stessa regola apposta: separate,
       // a decidere sarebbe l'ordine dentro `@layer utilities`.
-      className={`flex-shrink-0 ${tone} text-[11px] font-semibold rounded-full min-w-[16px] h-4 cap-box px-1 leading-4 tabular-nums ${className}`}
+      className={`flex-shrink-0 ${tone} text-mini font-semibold rounded-full min-w-[16px] h-4 cap-box px-1 leading-4 tabular-nums ${className}`}
       aria-label={ariaLabel ?? `${count} unread`}
       title={title}
     >

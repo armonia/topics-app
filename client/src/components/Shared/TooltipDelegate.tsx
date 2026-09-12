@@ -262,7 +262,7 @@ export function TooltipDelegate() {
       //
       // `--bg-elevated` follows the theme (light in light, dark in dark), which is
       // what a surface carrying app text needs.
-      className="pointer-events-none fixed z-[100] max-w-sm whitespace-pre-line rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-[11px] leading-snug text-app-text shadow-lg"
+      className="pointer-events-none fixed z-[100] max-w-sm whitespace-pre-line rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg"
       style={{
         top: pos?.top ?? -9999,
         left: pos?.left ?? -9999,

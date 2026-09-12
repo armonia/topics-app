@@ -189,7 +189,7 @@ export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { st
       // della card può pescarlo dal titolo o da un commento. Qui è indirizzabile.
       data-testid="dispatch-chip"
       data-state={state}
-      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${chip.cls}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-compact md:text-mini ${chip.cls}`}
       // Il buco si dichiara: uno stato di park senza `dispatch_error` è una card
       // ferma di cui NESSUNO ha scritto il motivo, e un tooltip assente si legge
       // come «non c'è niente da sapere». C'è, e non lo sappiamo.
@@ -242,7 +242,7 @@ export function QueueReasonChip({ reason }: { reason: QueueReason }) {
       data-testid="queue-reason-chip"
       data-kind={reason.kind}
       data-tone={reason.tone}
-      className={`inline-flex min-w-0 shrink items-center rounded px-1.5 py-0.5 text-xs md:text-[11px] ${QUEUE_TONE_CLS[reason.tone]}`}
+      className={`inline-flex min-w-0 shrink items-center rounded px-1.5 py-0.5 text-compact md:text-mini ${QUEUE_TONE_CLS[reason.tone]}`}
       title={title}
     >
       <span className="truncate">{head} · {detail}</span>
@@ -286,7 +286,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
     <span
       data-testid={`card-label-${label}`}
       title={why ? `${why} (${origin})` : origin}
-      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs md:text-[11px] ${cls}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-compact md:text-mini ${cls}`}
     >
       {closer && (source === 'derived' ? <Sigma className="h-3 w-3" aria-hidden /> : <Pencil className="h-3 w-3" aria-hidden />)}
       {label}
@@ -312,7 +312,7 @@ export function LabelChip({ label, source }: { label: TaskLabel; source: LabelSo
 export function ProjectTaskCounts({ counts }: { counts: ProjectCounts }) {
   if (counts.open === 0) return null;
   return (
-    <span data-testid="project-task-counts" className="flex shrink-0 items-center gap-1 tabular-nums text-[10px] leading-none text-app-text-secondary">
+    <span data-testid="project-task-counts" className="flex shrink-0 items-center gap-1 tabular-nums text-micro leading-none text-app-text-secondary">
       {counts.review > 0 && (
         <span className="flex items-center gap-0.5"><StatusIcon status="review" className="h-3 w-3" />{counts.review}</span>
       )}

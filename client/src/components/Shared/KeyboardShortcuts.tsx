@@ -32,7 +32,7 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-app-border">
-          <h3 className="text-[14px] font-semibold text-app-text">Keyboard Shortcuts</h3>
+          <h3 className="text-body-lg font-semibold text-app-text">Keyboard Shortcuts</h3>
           <button aria-label={t('shortcuts.close')} onClick={onClose} className="text-app-text-muted hover:text-app-text-secondary">
             <X size={16} />
           </button>
@@ -46,11 +46,11 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
             if (shortcuts.length === 0) return null;
             return (
               <div key={group.title}>
-                <h4 className="text-[11px] font-semibold text-app-text-muted uppercase tracking-wider mb-2">{group.title}</h4>
+                <h4 className="text-mini font-semibold text-app-text-muted uppercase tracking-wider mb-2">{group.title}</h4>
                 <div className="space-y-1.5">
                   {shortcuts.map(s => (
                     <div key={s.description} className="flex items-center justify-between gap-3">
-                      <span className="text-[12px] text-app-text-secondary">{s.description}</span>
+                      <span className="text-compact text-app-text-secondary">{s.description}</span>
                       <div className="flex items-center gap-0.5 shrink-0">
                         {s.keys.map((k, i) => <kbd key={i} className="kbd">{k}</kbd>)}
                       </div>

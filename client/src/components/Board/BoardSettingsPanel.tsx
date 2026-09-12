@@ -59,7 +59,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       <SettingsSection label={tr('board.settings.sec.global')} first>
         <GlobalSettingsSection dispatchOn={dispatchOn} onToggleDispatch={onToggleDispatch} />
         {dispatchOn && (
-          <p className="text-[11px] text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
+          <p className="text-mini text-amber-300/80">{tr('board.settings.dispatchOnActive')}</p>
         )}
       </SettingsSection>
 
@@ -87,7 +87,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         />
       </label>
       {s.dispatchPaused && (
-        <p className="text-[11px] text-amber-300/80">{tr('board.settings.pausedActive')}</p>
+        <p className="text-mini text-amber-300/80">{tr('board.settings.pausedActive')}</p>
       )}
       <div className="flex items-center justify-between gap-2">
         <span>{tr('board.settings.effort')}</span>
@@ -178,7 +178,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </div>
       </label>
       {s.dispatchUseWorktree && (s.dispatchFanOut || 1) > 1 && (
-        <p className="text-[11px] text-amber-300/80">
+        <p className="text-mini text-amber-300/80">
           {tr('board.settings.fanoutWarn', { n: s.dispatchFanOut ?? 1 })}
         </p>
       )}
@@ -188,7 +188,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           richiesto ma il progetto non è un repo git registrato»: il messaggio
           era corretto e arrivava alla persona sbagliata. */}
       {s.dispatchUseWorktree && (s as { worktreeReady?: boolean }).worktreeReady === false && (
-        <p className="text-[11px] leading-snug text-amber-300/90">
+        <p className="text-mini leading-snug text-amber-300/90">
           {tr('board.settings.notRepoWarn')}
         </p>
       )}
@@ -262,10 +262,10 @@ function DeployCommandField({ value, suggestion, onSave }: {
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
         spellCheck={false}
         placeholder={tr('board.settings.deployCommandPlaceholder')}
-        className="w-full rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
+        className="w-full rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
       {!value && suggestion && (
-        <p className="text-[10px] text-app-text-muted">
+        <p className="text-micro text-app-text-muted">
           {tr('board.settings.deployCommandSuggestion', { cmd: suggestion })}{' '}
           <button
             type="button"
@@ -297,7 +297,7 @@ function DeployCommandField({ value, suggestion, onSave }: {
 function SettingsSection({ label, first, children }: { label: string; first?: boolean; children: React.ReactNode }) {
   return (
     <div className={first ? 'space-y-2' : 'space-y-2 border-t border-app-border-subtle pt-2'}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
+      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">{label}</p>
       {children}
     </div>
   );
@@ -339,7 +339,7 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         title={tr('board.settings.checksTitle')}
       >
         <span>{tr('board.settings.checks')} <span className="text-app-text-muted">{tr('board.settings.oneCmdPerLine')}</span></span>
-        {checks.length > 0 && <span className="text-[10px] text-app-text-muted">{checks.length}/5</span>}
+        {checks.length > 0 && <span className="text-micro text-app-text-muted">{checks.length}/5</span>}
       </label>
       <textarea
         value={text}
@@ -349,9 +349,9 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         rows={Math.min(5, Math.max(2, text.split('\n').length))}
         spellCheck={false}
         placeholder={'bun run typecheck\nbun test'}
-        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
+        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
       />
-      {dirty && <p className="text-[10px] text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
+      {dirty && <p className="text-micro text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
     </div>
   );
 }

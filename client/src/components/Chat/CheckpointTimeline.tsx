@@ -50,7 +50,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
         <div className="space-y-2">
           {text.lines.map((line) => <p key={line}>{line}</p>)}
           {text.skippedPaths.length > 0 && (
-            <ul className="font-mono text-[11px] pl-3 list-disc">
+            <ul className="font-mono text-mini pl-3 list-disc">
               {text.skippedPaths.map((path) => <li key={path}>{path}</li>)}
               {text.more && <li className="list-none">{text.more}</li>}
             </ul>
@@ -87,7 +87,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
       {/* Compact bar */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-app-text-tertiary hover:bg-app-hover transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-mini text-app-text-tertiary hover:bg-app-hover transition-colors"
       >
         <Clock size={12} />
         <span>{checkpoints.length} checkpoint{checkpoints.length !== 1 ? 's' : ''}</span>
@@ -103,20 +103,20 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
             ))}
           </div>
         )}
-        <span className="ml-auto text-[11px]">{expanded ? 'Hide' : 'Show'}</span>
+        <span className="ml-auto text-mini">{expanded ? 'Hide' : 'Show'}</span>
       </button>
 
       {/* Expanded timeline */}
       {expanded && (
         <div data-testid="checkpoint-panel" className="px-3 py-2 border-t border-app-border bg-surface max-h-[200px] overflow-y-auto">
-          {error && <p className="text-red-500 text-[11px] mb-2">{error}</p>}
+          {error && <p className="text-red-500 text-mini mb-2">{error}</p>}
 
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-medium text-app-text-secondary">Checkpoints</span>
+            <span className="text-mini font-medium text-app-text-secondary">Checkpoints</span>
             <button
               onClick={handleCreate}
               data-testid="checkpoint-save"
-              className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+              className="flex items-center gap-1 text-mini text-primary hover:underline"
             >
               <Plus size={10} />
               {tr('checkpoint.save')}
@@ -124,7 +124,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
           </div>
 
           {checkpoints.length === 0 ? (
-            <p className="text-[11px] text-app-placeholder py-2 text-center">
+            <p className="text-mini text-app-placeholder py-2 text-center">
               {tr('checkpoint.empty')}
             </p>
           ) : (
@@ -144,7 +144,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
                   // una card di strumento che sta ancora comparendo non è mai
                   // «stable», da cui un clic che non parte più.
                   data-testid="checkpoint-entry"
-                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] transition-colors ${
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-mini transition-colors ${
                     hoveredIdx === cp.idx ? 'bg-app-hover' : ''
                   }`}
                   onMouseEnter={() => { setHoveredIdx(cp.idx); void fetchPlan(cp.idx); }}
@@ -153,7 +153,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cp.gitHash ? 'bg-primary' : 'bg-app-placeholder'}`} />
                   <div className="flex-1 min-w-0">
                     <div className="text-app-text truncate">{cp.description}</div>
-                    <div className="text-[11px] text-app-placeholder">
+                    <div className="text-mini text-app-placeholder">
                       {formatTimeAgo(cp.timestamp)} - {cp.messageCount} msgs
                       {cp.gitHash && <span className="ml-1 text-primary">{cp.gitHash.slice(0, 7)}</span>}
                     </div>
@@ -163,7 +163,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
                       broken. `rollbackButtonState` already chose the sentence;
                       the component only shows it. */}
                   {hoveredIdx === cp.idx && button.disabled && (
-                    <span data-testid="checkpoint-blocked-reason" className="text-[11px] text-amber-600 truncate max-w-[60%]" title={button.title}>
+                    <span data-testid="checkpoint-blocked-reason" className="text-mini text-amber-600 truncate max-w-[60%]" title={button.title}>
                       {button.title}
                     </span>
                   )}

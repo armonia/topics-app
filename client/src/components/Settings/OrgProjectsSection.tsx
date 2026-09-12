@@ -63,7 +63,7 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
 
   return (
     <div>
-      <h3 className="mb-3 text-[11px] font-medium uppercase tracking-wide text-app-text-muted">
+      <h3 className="mb-3 text-mini font-medium uppercase tracking-wide text-app-text-muted">
         {t('settings.org.projects.title')}
       </h3>
 
@@ -73,11 +73,11 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
             <div
               key={p.id}
               data-testid="org-project-row"
-              className={`flex items-center gap-2 px-3 py-2 text-[12px] ${i < visible.length - 1 ? 'border-b border-app-border' : ''}`}
+              className={`flex items-center gap-2 px-3 py-2 text-compact ${i < visible.length - 1 ? 'border-b border-app-border' : ''}`}
             >
               <Folder size={13} className="flex-shrink-0 text-app-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-app-text">{p.name}</span>
-              <span className="flex-shrink-0 text-[10px] text-app-text-muted truncate max-w-[120px]" title={p.path}>
+              <span className="flex-shrink-0 text-micro text-app-text-muted truncate max-w-[120px]" title={p.path}>
                 {p.path.split('/').slice(-2).join('/')}
               </span>
               {/* Same control the sidebar already offers on a project: a
@@ -90,12 +90,12 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
         </div>
       )}
       {!caricamento && visible.length === 0 && (
-        <p className="text-[12px] text-app-text-muted">
+        <p className="text-compact text-app-text-muted">
           {t('settings.org.projects.empty')}
         </p>
       )}
 
-      <p className="mt-2 text-[11px] text-app-text-muted">
+      <p className="mt-2 text-mini text-app-text-muted">
         {t('settings.org.projects.hint')}
       </p>
 
@@ -107,13 +107,13 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
         data-testid="org-collab-guide"
         className="mt-4 rounded-lg border border-app-border bg-app-bg-secondary px-3 py-2.5"
       >
-        <h4 className="mb-1.5 text-[11px] font-medium text-app-text">
+        <h4 className="mb-1.5 text-mini font-medium text-app-text">
           {t('settings.org.guide.title')}
         </h4>
-        <p className="text-[11px] leading-relaxed text-app-text-secondary">
+        <p className="text-mini leading-relaxed text-app-text-secondary">
           {t('settings.org.guide.browser')}
         </p>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-app-text-secondary">
+        <p className="mt-1.5 text-mini leading-relaxed text-app-text-secondary">
           {t('settings.org.guide.machine')}
         </p>
       </div>

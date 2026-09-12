@@ -624,10 +624,10 @@ export function CommandPalette({
             placeholder={scope === 'projects' ? t('palette.searchProjects') : scope === 'history' ? t('palette.searchHistory') : projectPath ? t('palette.searchWithFiles') : t('palette.search')}
             /* Il campo misurava 24px di altezza: e' il bersaglio piu' importante
                della superficie e stava sotto misura come tutti gli altri. Su
-               mobile anche `text-[16px]`, perche' sotto i 16 iOS ingrandisce la
+               mobile anche `text-title`, perche' sotto i 16 iOS ingrandisce la
                pagina al primo tocco e la pagina di ricerca parte storta. */
             className={`flex-1 bg-transparent text-app-text placeholder-app-placeholder outline-none ${
-              isMobile ? 'h-11 text-[16px]' : 'text-[14px]'
+              isMobile ? 'h-11 text-title' : 'text-body-lg'
             }`}
           />
           {/* Il suggerimento del tasto vale per chi ha un tasto. Su un telefono
@@ -644,7 +644,7 @@ export function CommandPalette({
                time. The same row as the normal palette, so the two surfaces
                cannot tell the same story in two different ways. */
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Cronologia" data-testid="palette-history">
-              <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 {t('palette.history')}
                 {recentFiltered.length > 0 && <span className="text-app-text-tertiary font-normal">{recentFiltered.length}</span>}
               </div>
@@ -657,7 +657,7 @@ export function CommandPalette({
           ) : scope === 'projects' ? (
             /* ⌘F — projects scope: one full-width list, find/jump to a project. */
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Projects">
-              <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+              <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 Projects
                 {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
               </div>
@@ -674,7 +674,7 @@ export function CommandPalette({
                   il contenitore: `flex-1` le spartirebbe a meta' lo schermo,
                   lasciando un vuoto sotto la lista corta. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'flex-1 overflow-y-auto border-r border-app-border'}`}>
-                <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   {t('palette.recentProjects')}
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>
@@ -688,11 +688,11 @@ export function CommandPalette({
                   vuota e' la colonna delle cose che si FANNO, mentre a sinistra
                   ci sono quelle che si ritrovano. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none' : 'flex-1 overflow-y-auto'}`}>
-                <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   {t('palette.create')}
                 </div>
                 {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
-                <div className="px-3 pt-2 pb-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
+                <div className="px-3 pt-2 pb-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
                   {t('palette.history')}
                   {recentFiltered.length > 0 && <span className="text-app-text-tertiary font-normal">{recentFiltered.length}</span>}
                 </div>
@@ -711,7 +711,7 @@ export function CommandPalette({
                   esiste: due colonne da 150px troncano ogni riga a nulla, quindi
                   le due sezioni si impilano e scorre il contenitore. */}
               <section className={`min-w-0 py-1 ${isMobile ? 'flex-none border-b border-app-border' : 'overflow-y-auto border-r border-app-border'}`}>
-                <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                   {t('palette.projects')}
                   {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
                 </div>
@@ -727,7 +727,7 @@ export function CommandPalette({
                     are still valid. Saying "no results" here would blame the
                     query for a failure of the server. */}
                 {searchFailed && (
-                  <div data-testid="palette-search-error" className="px-3 py-4 text-center text-red-400 text-xs">
+                  <div data-testid="palette-search-error" className="px-3 py-4 text-center text-red-400 text-compact">
                     {t('palette.searchFailed')}
                   </div>
                 )}
@@ -803,7 +803,7 @@ export function CommandPalette({
             una tastiera. Su un telefono non c'e' nessuno dei tre, e la riga
             toglie spazio proprio alla lista che deve leggersi. */}
         {!isMobile && (
-          <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-[11px] text-app-text-muted flex-shrink-0">
+          <div className="px-4 py-1.5 border-t border-app-border flex items-center gap-4 text-mini text-app-text-muted flex-shrink-0">
             <span className="flex items-center gap-1"><kbd className="kbd">↑↓</kbd> {t('palette.hint.navigate')}</span>
             <span className="flex items-center gap-1"><kbd className="kbd">↵</kbd> {t('palette.hint.open')}</span>
             <span className="flex items-center gap-1"><kbd className="kbd">esc</kbd> {t('palette.hint.close')}</span>
@@ -818,7 +818,7 @@ export function CommandPalette({
 
 function SectionHeader({ label, rightSlot }: { label: string; rightSlot?: React.ReactNode }) {
   return (
-    <div className="px-4 py-1.5 text-[11px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
+    <div className="px-4 py-1.5 text-mini font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-2">
       {label}
       {rightSlot}
     </div>
@@ -864,11 +864,11 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
         {item.icon}
       </span>
       <span className="flex-1 min-w-0 flex flex-col justify-center">
-        <span className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-medium truncate block leading-tight`}>
+        <span className={`${compact ? 'text-compact' : 'text-body'} font-medium truncate block leading-tight`}>
           {highlightTerm ? highlightQuery(item.label, highlightTerm) : item.label}
         </span>
         {item.description && (
-          <span className="text-[11px] text-app-text-muted truncate block leading-tight mt-0.5">
+          <span className="text-mini text-app-text-muted truncate block leading-tight mt-0.5">
             {item.description}
           </span>
         )}
@@ -899,7 +899,7 @@ function ActionPill({ icon, label, shortcut, onClick, testId, isMobile }: {
       onClick={onClick}
       data-testid={testId}
       className={`inline-flex items-center gap-1.5 px-2.5 font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors flex-shrink-0 whitespace-nowrap ${
-        isMobile ? 'h-11 text-[13px]' : 'py-1 text-[11px]'
+        isMobile ? 'h-11 text-body' : 'py-1 text-mini'
       }`}
       title={shortcut ? `${label} (${shortcut})` : label}
     >

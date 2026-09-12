@@ -137,7 +137,7 @@ export function McpFleetPanel() {
     >
       <div className="flex items-center gap-2">
         <Plug size={13} className="flex-shrink-0 text-app-text-muted" />
-        <span className="flex-1 text-[12.5px] font-medium text-app-text">{t('mcp.title')}</span>
+        <span className="flex-1 text-body font-medium text-app-text">{t('mcp.title')}</span>
         <button
           data-testid="mcp-fleet-refresh"
           onClick={() => { void recheck(); }}
@@ -148,17 +148,17 @@ export function McpFleetPanel() {
           // The `coarse` variant keys off the POINTER, not the screen width,
           // so on desktop the button stays as compact as it has always been
           // and only grows where there is an actual finger.
-          className="flex flex-shrink-0 items-center gap-1 rounded-md border border-app-border bg-surface px-2 py-1 text-[11px] hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
+          className="flex flex-shrink-0 items-center gap-1 rounded-md border border-app-border bg-surface px-2 py-1 text-mini hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
         >
           <RefreshCw size={11} className={refreshing ? 'animate-spin' : undefined} />
           {refreshing ? t('mcp.rechecking') : t('mcp.recheck')}
         </button>
       </div>
 
-      <p className="mt-1 break-words text-[11px] text-app-text-muted">{t('mcp.blurb')}</p>
+      <p className="mt-1 break-words text-mini text-app-text-muted">{t('mcp.blurb')}</p>
 
       {error && (
-        <div data-testid="mcp-fleet-error" className="mt-1.5 flex items-start gap-2 text-[11px] text-red-500">
+        <div data-testid="mcp-fleet-error" className="mt-1.5 flex items-start gap-2 text-mini text-red-500">
           <AlertCircle size={12} className="mt-px flex-shrink-0" />
           <span className="flex-1 break-words">{t('mcp.error')} {error}</span>
         </div>
@@ -169,20 +169,20 @@ export function McpFleetPanel() {
           shrug: off, still connecting and nothing configured are three
           different situations with three different next moves. */}
       {!error && status === null && (
-        <div className="mt-1.5 text-[11px] text-app-text-muted">{t('mcp.loading')}</div>
+        <div className="mt-1.5 text-mini text-app-text-muted">{t('mcp.loading')}</div>
       )}
       {status && !status.enabled && (
-        <div data-testid="mcp-fleet-off" className="mt-1.5 break-words text-[11px] text-app-text-muted">
+        <div data-testid="mcp-fleet-off" className="mt-1.5 break-words text-mini text-app-text-muted">
           {t('mcp.off')}
         </div>
       )}
       {status?.enabled && status.mounting && servers.length === 0 && (
-        <div data-testid="mcp-fleet-mounting" className="mt-1.5 text-[11px] text-app-text-muted">
+        <div data-testid="mcp-fleet-mounting" className="mt-1.5 text-mini text-app-text-muted">
           {t('mcp.mounting')}
         </div>
       )}
       {status?.enabled && !status.mounting && servers.length === 0 && (
-        <div data-testid="mcp-fleet-empty" className="mt-1.5 break-words text-[11px] text-app-text-muted">
+        <div data-testid="mcp-fleet-empty" className="mt-1.5 break-words text-mini text-app-text-muted">
           {t('mcp.empty')}
         </div>
       )}
@@ -209,7 +209,7 @@ export function McpFleetPanel() {
           servers" and "no servers IN THE CONFIG THIS PROCESS READ", which are
           the same sentence until you are looking at the wrong home directory. */}
       {status?.source && (
-        <p data-testid="mcp-fleet-source" className="mt-1.5 break-all text-[10.5px] text-app-text-muted">
+        <p data-testid="mcp-fleet-source" className="mt-1.5 break-all text-mini text-app-text-muted">
           {t('mcp.source', { path: status.source })}
         </p>
       )}
@@ -256,18 +256,18 @@ function McpServerRow({
       className="rounded-md border border-app-border bg-surface/60 px-2 py-1.5"
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="font-mono text-[11.5px] text-app-text">{server.name}</span>
-        <span className={`rounded border px-1 py-px text-[10px] ${STATE_TONE[server.state]}`}>
+        <span className="font-mono text-compact text-app-text">{server.name}</span>
+        <span className={`rounded border px-1 py-px text-micro ${STATE_TONE[server.state]}`}>
           {t(`mcp.state.${server.state}`)}
         </span>
         {server.transport && (
-          <span className="rounded border border-app-border px-1 py-px font-mono text-[10px] text-app-text-muted">
+          <span className="rounded border border-app-border px-1 py-px font-mono text-micro text-app-text-muted">
             {server.transport}
           </span>
         )}
-        <span className="text-[11px] text-app-text-muted">{toolsLabel}</span>
+        <span className="text-mini text-app-text-muted">{toolsLabel}</span>
         {skillCount > 0 && (
-          <span data-testid={`mcp-server-skills-${server.name}`} className="text-[11px] text-app-text-muted">
+          <span data-testid={`mcp-server-skills-${server.name}`} className="text-mini text-app-text-muted">
             · {skillCount === 1 ? t('mcp.skills.one') : t('mcp.skills.many', { n: skillCount })}
           </span>
         )}
@@ -278,7 +278,7 @@ function McpServerRow({
           Never folded away behind the expander, because a server nobody can see
           the reason for is the whole defect this panel was built to close. */}
       {server.reason && (
-        <p data-testid={`mcp-server-reason-${server.name}`} className="mt-1 break-words text-[11px] text-app-text-muted">
+        <p data-testid={`mcp-server-reason-${server.name}`} className="mt-1 break-words text-mini text-app-text-muted">
           {server.reason}
         </p>
       )}
@@ -294,7 +294,7 @@ function McpServerRow({
           onClick={onConnect}
           // `coarse:min-h-11` like every other target in this panel: the touch
           // rule keys off the POINTER, so on desktop it stays compact.
-          className="mt-1.5 flex items-center gap-1 rounded-md border border-amber-400/30 bg-surface px-2 py-1 text-[11px] text-amber-400 hover:bg-app-hover coarse:min-h-11 coarse:px-3"
+          className="mt-1.5 flex items-center gap-1 rounded-md border border-amber-400/30 bg-surface px-2 py-1 text-mini text-amber-400 hover:bg-app-hover coarse:min-h-11 coarse:px-3"
         >
           <LogIn size={11} className={connecting ? 'animate-pulse' : undefined} />
           {connecting ? t('mcp.connectWaiting') : t('mcp.connect')}
@@ -308,7 +308,7 @@ function McpServerRow({
           data-testid={`mcp-server-toggle-${server.name}`}
           onClick={onToggle}
           aria-expanded={expanded}
-          className="mt-1 flex items-center gap-1 text-[11px] text-app-text-muted hover:text-app-text"
+          className="mt-1 flex items-center gap-1 text-mini text-app-text-muted hover:text-app-text"
         >
           {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
           {expanded ? t('mcp.hideTools') : t('mcp.showTools')}
@@ -317,7 +317,7 @@ function McpServerRow({
       {canExpand && expanded && (
         <ul data-testid={`mcp-server-tools-${server.name}`} className="mt-1 space-y-px">
           {server.tools.map((tool) => (
-            <li key={tool} className="break-all font-mono text-[10.5px] text-app-text-muted">
+            <li key={tool} className="break-all font-mono text-mini text-app-text-muted">
               {tool}
             </li>
           ))}

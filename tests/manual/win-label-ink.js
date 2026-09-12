@@ -85,7 +85,7 @@
   const probe = document.createElement("div");
   probe.style.cssText = "position:fixed;left:-9999px;top:0;display:flex;align-items:center;height:28px;width:200px";
   const span = document.createElement("span");
-  span.className = "text-[13px] font-medium leading-5 truncate flex-1 min-w-0";
+  span.className = "text-body font-medium leading-5 truncate flex-1 min-w-0";
   span.setAttribute("data-testid", "sonda-etichetta");
   span.textContent = "Hxp Esempio";
   probe.appendChild(span);

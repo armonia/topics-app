@@ -60,7 +60,7 @@ export function WorktreeSection({ worktreeId, name, branchName, depth, onNewTopi
         </span>
         <span className={`${TAB_LABEL} truncate min-w-0`} data-row-name="worktree">{label}</span>
         {branchName && (
-          <span className="font-mono text-[11px] text-app-text-tertiary truncate min-w-0 flex-1" title={branchName}>
+          <span className="font-mono text-mini text-app-text-tertiary truncate min-w-0 flex-1" title={branchName}>
             {branchName}
           </span>
         )}

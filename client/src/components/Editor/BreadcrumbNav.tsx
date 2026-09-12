@@ -40,7 +40,7 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
       <button
         ref={btnRef}
         onClick={onToggle}
-        className={`text-[11px] hover:text-primary hover:underline transition-colors flex-shrink-0 ${
+        className={`text-mini hover:text-primary hover:underline transition-colors flex-shrink-0 ${
           isLast ? 'text-app-text-secondary' : 'text-app-text-muted'
         }`}
       >
@@ -49,9 +49,9 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
       <DropdownPortal open={isOpen} anchorRef={btnRef} onClose={onToggle} align="left">
         <div className="max-h-[300px] overflow-y-auto">
           {!sorted ? (
-            <div className="px-3 py-2 text-[11px] text-app-text-muted">Loading…</div>
+            <div className="px-3 py-2 text-mini text-app-text-muted">Loading…</div>
           ) : sorted.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-app-text-muted">Empty</div>
+            <div className="px-3 py-2 text-mini text-app-text-muted">Empty</div>
           ) : sorted.map(node => {
             const isCurrentChild = node.name === currentChild;
             const iconDef = node.type === 'dir' ? null : getFileIconDef(node.name);
@@ -66,7 +66,7 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
                   }
                   onToggle();
                 }}
-                className={`flex items-center gap-2 w-full px-3 py-1.5 text-[12px] text-left hover:bg-app-hover transition-colors ${
+                className={`flex items-center gap-2 w-full px-3 py-1.5 text-compact text-left hover:bg-app-hover transition-colors ${
                   isCurrentChild ? 'text-primary font-medium' : 'text-app-text-secondary'
                 }`}
               >

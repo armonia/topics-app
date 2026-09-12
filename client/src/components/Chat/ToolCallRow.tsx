@@ -52,7 +52,7 @@ export function ElapsedTimer({ since, tone, title }: { since: number; tone?: str
   if (ms < 900) return null;
   return (
     <span
-      className={`text-[10px] tabular-nums ${tone ?? 'text-app-text-muted'}`}
+      className={`text-micro tabular-nums ${tone ?? 'text-app-text-muted'}`}
       data-testid="tool-elapsed"
       title={title}
     >
@@ -277,7 +277,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
       // riga, e adesso è scritto dove vive davvero.
       data-status={status}
-      className={`text-[12px] rounded-md transition-colors ${
+      className={`text-compact rounded-md transition-colors ${
         // "In use" state must be unmissable: the active tool gets a soft
         // primary tint + hairline ring (negative margin keeps the text
         // column aligned with settled rows). Settled rows stay flat.
@@ -338,7 +338,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             {label ?? display.name}
           </span>
           {display.summary && (
-            <span className="min-w-0 flex items-baseline text-[11px] text-app-text-secondary font-mono">
+            <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono">
               <span className="flex-shrink-0">(</span>
               <span className="truncate">{display.summary}</span>
               <span className="flex-shrink-0">)</span>
@@ -358,7 +358,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             <ElapsedTimer since={toolCall.startedAt} />
           )}
           {!isRunning && !isHumanTurn && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
-            <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
+            <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-duration">
               {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
             </span>
           )}
@@ -366,7 +366,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               decisa, non il totale del turno. Prezzo se il modello è noto,
               altrimenti i token. Assente sui messaggi vecchi. */}
           {costLabel && (
-            <span className={`text-[10px] tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
+            <span className={`text-micro tabular-nums text-app-text-muted ${settledMetricClass}`} data-testid="tool-cost" title={costTitle}>
               {costLabel}
             </span>
           )}
@@ -402,7 +402,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       {toolCall.permissionOutcome?.decision === 'allow_free' && (
         <div
           data-testid={`session-freed-${toolCall.id}`}
-          className="ml-5 mb-1 flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1 text-[11px] leading-snug text-amber-600 dark:text-amber-400"
+          className="ml-5 mb-1 flex items-start gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1 text-mini leading-snug text-amber-600 dark:text-amber-400"
         >
           <ShieldOff size={11} className="mt-[3px] flex-shrink-0" />
           <span>
@@ -465,14 +465,14 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             </ErrorBoundary>
             </>
           ) : isWaiting && !sessionKey ? (
-            <div className="text-[11px] text-amber-600 bg-amber-500/10 rounded px-2 py-1">
+            <div className="text-mini text-amber-600 bg-amber-500/10 rounded px-2 py-1">
               {tr('chat.tool.noSessionContext')}
             </div>
           ) : (
             <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
           )}
           {toolCall.userResponse && status !== 'waiting_for_input' && (
-            <div className="mt-1.5 text-[11px] text-app-text-muted">
+            <div className="mt-1.5 text-mini text-app-text-muted">
               <span className="uppercase tracking-wide">Answered</span>
               <span className="ml-1 font-mono">
                 {toolCall.userResponse.kind === 'questions'
@@ -485,8 +485,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           )}
           {toolCall.error && status === 'error' && detail.type !== 'shell' && (
             <div className="mt-1.5">
-              <div className="text-[11px] uppercase tracking-wide text-red-500 mb-0.5">Error</div>
-              <pre data-testid="tool-call-error" className="text-[11px] font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-40 bg-red-500/5 rounded px-2 py-1.5">
+              <div className="text-mini uppercase tracking-wide text-red-500 mb-0.5">Error</div>
+              <pre data-testid="tool-call-error" className="text-mini font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-40 bg-red-500/5 rounded px-2 py-1.5">
                 {toolCall.error}
               </pre>
             </div>

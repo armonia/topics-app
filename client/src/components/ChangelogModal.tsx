@@ -95,8 +95,8 @@ export function ChangelogModal({
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-app-border">
           <Sparkles size={15} className="text-primary" />
-          <span className="text-[13px] font-semibold text-app-text">{tr('changelog.title')}</span>
-          <span className="text-[11px] text-app-text-muted">{tr('changelog.subtitle')}</span>
+          <span className="text-body font-semibold text-app-text">{tr('changelog.title')}</span>
+          <span className="text-mini text-app-text-muted">{tr('changelog.subtitle')}</span>
           <button
             onClick={onClose}
             className="ml-auto p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
@@ -107,13 +107,13 @@ export function ChangelogModal({
         </div>
 
         {error && (
-          <div className="flex-1 grid place-items-center text-[12px] text-app-text-muted">
+          <div className="flex-1 grid place-items-center text-compact text-app-text-muted">
             {tr('changelog.unavailable')}
           </div>
         )}
 
         {!error && !data && (
-          <div className="flex-1 grid place-items-center text-[12px] text-app-text-muted">Carico…</div>
+          <div className="flex-1 grid place-items-center text-compact text-app-text-muted">Carico…</div>
         )}
 
         {!error && data && (
@@ -132,13 +132,13 @@ export function ChangelogModal({
                       isSel ? 'bg-primary/10 text-app-text' : 'text-app-text-secondary hover:bg-app-hover'
                     }`}
                   >
-                    <span className="text-[12px] tabular-nums font-medium">v{v.version}</span>
+                    <span className="text-compact tabular-nums font-medium">v{v.version}</span>
                     {isCurrent && (
-                      <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-[8px] font-semibold leading-tight">
+                      <span className="px-1 rounded bg-emerald-500/15 text-emerald-500 text-nano font-semibold leading-tight">
                         in uso
                       </span>
                     )}
-                    <span className="ml-auto text-[9px] text-app-text-muted tabular-nums">{v.date}</span>
+                    <span className="ml-auto text-nano text-app-text-muted tabular-nums">{v.date}</span>
                   </button>
                 );
               })}
@@ -149,13 +149,13 @@ export function ChangelogModal({
               {active && (
                 <>
                   <div className="flex items-baseline gap-2 mb-3">
-                    <h2 className="text-[15px] font-semibold text-app-text tabular-nums">v{active.version}</h2>
+                    <h2 className="text-title font-semibold text-app-text tabular-nums">v{active.version}</h2>
                     {active.version === currentVersion && (
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-[9px] font-semibold">
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-nano font-semibold">
                         versione in uso
                       </span>
                     )}
-                    {active.date && <span className="text-[11px] text-app-text-muted ml-auto">{active.date}</span>}
+                    {active.date && <span className="text-mini text-app-text-muted ml-auto">{active.date}</span>}
                   </div>
 
                   {SECTIONS.map(({ key, label, Icon }) => {
@@ -165,18 +165,18 @@ export function ChangelogModal({
                       <section key={key} className="mb-4">
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <Icon size={12} className="text-app-text-muted" />
-                          <h3 className="text-[10px] uppercase tracking-wide text-app-text-muted font-semibold">{label}</h3>
+                          <h3 className="text-micro uppercase tracking-wide text-app-text-muted font-semibold">{label}</h3>
                         </div>
                         <ul className="space-y-1">
                           {items.map((e, i) => (
-                            <li key={i} className="text-[12px] text-app-text-secondary leading-relaxed flex gap-1.5">
+                            <li key={i} className="text-compact text-app-text-secondary leading-relaxed flex gap-1.5">
                               <span className="text-app-text-muted mt-[3px]">•</span>
                               <span>
                                 {e.scope && <span className="font-medium text-app-text">{e.scope}</span>}
                                 {e.scope && ' · '}
                                 {e.it}
                                 {e.breaking && (
-                                  <span className="ml-1.5 px-1 rounded bg-amber-500/15 text-amber-500 text-[8px] font-semibold uppercase">
+                                  <span className="ml-1.5 px-1 rounded bg-amber-500/15 text-amber-500 text-nano font-semibold uppercase">
                                     breaking
                                   </span>
                                 )}
@@ -193,7 +193,7 @@ export function ChangelogModal({
                     <div className="mt-2 border-t border-app-border pt-2">
                       <button
                         onClick={() => setShowInternal((s) => !s)}
-                        className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary transition-colors"
+                        className="flex items-center gap-1 text-micro uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary transition-colors"
                       >
                         <ChevronRight size={11} className={`transition-transform ${showInternal ? 'rotate-90' : ''}`} />
                         <Cog size={11} />
@@ -202,7 +202,7 @@ export function ChangelogModal({
                       {showInternal && (
                         <ul className="space-y-1 mt-1.5">
                           {active.sections.internal.map((e, i) => (
-                            <li key={i} className="text-[11px] text-app-text-muted leading-relaxed flex gap-1.5">
+                            <li key={i} className="text-mini text-app-text-muted leading-relaxed flex gap-1.5">
                               <span className="mt-[3px]">•</span>
                               <span>
                                 {e.scope && <span className="font-medium text-app-text-secondary">{e.scope}</span>}
@@ -229,7 +229,7 @@ export function ChangelogModal({
             rel="noopener"
             data-testid="changelog-full-link"
             onClick={(e) => { e.preventDefault(); openLink(CHANGELOG_URL, { external: isExternalLinkGesture(e), origin: e.target }); }}
-            className="text-[11px] text-app-text-muted hover:text-primary transition-colors"
+            className="text-mini text-app-text-muted hover:text-primary transition-colors"
           >
             {tr('changelog.full')}
           </a>

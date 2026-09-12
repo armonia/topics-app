@@ -67,7 +67,7 @@ export function SelfProfile({ open, onOpen }: {
   if (!ready) return null;
   if (!me) {
     return (
-      <p data-testid="self-profile-missing" className="text-[13px] text-app-text-muted">
+      <p data-testid="self-profile-missing" className="text-body text-app-text-muted">
         {t('profile.notFound')}
       </p>
     );
@@ -96,7 +96,7 @@ export function SelfProfile({ open, onOpen }: {
             onClick={toggle('privacy')}
             aria-expanded={open === 'privacy'}
             data-testid="profile-privacy-open"
-            className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] coarse:min-h-11 ${
+            className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-compact coarse:min-h-11 ${
               open === 'privacy'
                 ? 'border-primary bg-primary/10 text-primary'
                 : 'border-app-border text-app-text-secondary hover:bg-app-hover hover:text-app-text'

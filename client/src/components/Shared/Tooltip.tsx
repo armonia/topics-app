@@ -148,7 +148,7 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
           // `text-app-text` on top it gave nearly black text on a nearly black
           // background. Same fix, same reason as `TooltipDelegate`: the two must
           // look identical or they read as two different components.
-          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-[11px] leading-snug text-app-text shadow-lg"
+          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg border border-app-border bg-elevated px-2.5 py-1.5 text-mini leading-snug text-app-text shadow-lg"
           style={{
             top: pos?.top ?? -9999,
             left: pos?.left ?? -9999,

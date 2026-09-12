@@ -53,12 +53,12 @@ export function CliAgentsPanel() {
 
   if (error && !agents) {
     return (
-      <div className="flex items-center gap-2 text-[12px] text-red-500">
+      <div className="flex items-center gap-2 text-compact text-red-500">
         <AlertCircle size={12} className="flex-shrink-0" />
         <span className="flex-1 break-words">{error}</span>
         <button
           onClick={load}
-          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] bg-surface border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
+          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-mini bg-surface border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
         >
           <RefreshCw size={11} />
           {t('common.retry')}
@@ -69,15 +69,15 @@ export function CliAgentsPanel() {
 
   return (
     <div data-testid="cli-agents-panel">
-      <h3 className="text-[13px] font-medium text-app-text mb-1">{t('ai.local.title')}</h3>
-      <p className="text-[11px] text-app-text-muted mb-3">
+      <h3 className="text-body font-medium text-app-text mb-1">{t('ai.local.title')}</h3>
+      <p className="text-mini text-app-text-muted mb-3">
         {t('ai.local.hint')}
       </p>
       <div className="space-y-1.5">
         {agents?.map((agent) => (
           <CliAgentRow key={agent.id} agent={agent} onChanged={setAgents} />
         ))}
-        {agents === null && <div className="text-[12px] text-app-text-muted">{t('common.loading')}</div>}
+        {agents === null && <div className="text-compact text-app-text-muted">{t('common.loading')}</div>}
       </div>
     </div>
   );
@@ -130,13 +130,13 @@ function CliAgentRow({
         <span
           className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${agent.installed ? 'bg-emerald-500' : 'bg-app-text-muted/40'}`}
         />
-        <span className="text-[12px] text-app-text flex-1 truncate">{agent.name}</span>
+        <span className="text-compact text-app-text flex-1 truncate">{agent.name}</span>
         {agent.installed ? (
-          <span className="text-[10px] text-app-text-muted font-mono truncate max-w-[45%]" title={agent.path ?? ''}>
+          <span className="text-micro text-app-text-muted font-mono truncate max-w-[45%]" title={agent.path ?? ''}>
             {agent.path}
           </span>
         ) : (
-          <span className="text-[10px] text-app-text-muted">{t('ai.local.notFound')}</span>
+          <span className="text-micro text-app-text-muted">{t('ai.local.notFound')}</span>
         )}
         {!agent.installed && (
           <a
@@ -152,7 +152,7 @@ function CliAgentRow({
         <button
           data-testid="cli-agent-path-toggle"
           onClick={() => setEditing((v) => !v)}
-          className="flex-shrink-0 px-2 py-1 rounded-md text-[11px] bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
+          className="flex-shrink-0 px-2 py-1 rounded-md text-mini bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
         >
           {t(agent.manualPath ? 'ai.local.changePath' : 'ai.local.setPath')}
         </button>
@@ -163,12 +163,12 @@ function CliAgentRow({
           that is done. */}
       {!agent.installed && isCommand && (
         <div className="mt-1.5 flex items-center gap-2">
-          <code className="flex-1 text-[10px] font-mono text-app-text-muted bg-app-bg rounded px-1.5 py-1 truncate">
+          <code className="flex-1 text-micro font-mono text-app-text-muted bg-app-bg rounded px-1.5 py-1 truncate">
             {agent.install}
           </code>
           <button
             onClick={() => { void copyInstall(); }}
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-micro bg-app-bg border border-app-border hover:bg-app-hover coarse:min-h-11 coarse:px-3"
           >
             {copied ? <Check size={10} /> : <Copy size={10} />}
             {t(copied ? 'ai.local.copied' : 'ai.local.copy')}
@@ -177,7 +177,7 @@ function CliAgentRow({
       )}
 
       {agent.manualPathBroken && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-amber-500">
+        <div className="mt-1.5 flex items-center gap-1.5 text-micro text-amber-500">
           <AlertCircle size={10} className="flex-shrink-0" />
           <span className="break-all">{t('ai.local.missingPath', { path: agent.manualPath ?? '' })}</span>
         </div>
@@ -193,13 +193,13 @@ function CliAgentRow({
               onKeyDown={(e) => { if (e.key === 'Enter' && !saving) void submit(value); }}
               placeholder="/opt/homebrew/bin/codex"
               spellCheck={false}
-              className="flex-1 min-w-0 text-[11px] font-mono bg-app-bg border border-app-border rounded-md px-2 py-1 outline-none focus:border-app-accent coarse:min-h-11"
+              className="flex-1 min-w-0 text-mini font-mono bg-app-bg border border-app-border rounded-md px-2 py-1 outline-none focus:border-app-accent coarse:min-h-11"
             />
             <button
               data-testid="cli-agent-path-save"
               onClick={() => { void submit(value); }}
               disabled={saving || value.trim() === ''}
-              className="flex-shrink-0 px-2 py-1 rounded-md text-[11px] bg-app-accent text-white disabled:opacity-50 coarse:min-h-11 coarse:px-3"
+              className="flex-shrink-0 px-2 py-1 rounded-md text-mini bg-app-accent text-white disabled:opacity-50 coarse:min-h-11 coarse:px-3"
             >
               {t('common.save')}
             </button>
@@ -207,17 +207,17 @@ function CliAgentRow({
               <button
                 onClick={() => { void submit(null); }}
                 disabled={saving}
-                className="flex-shrink-0 px-2 py-1 rounded-md text-[11px] bg-app-bg border border-app-border hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
+                className="flex-shrink-0 px-2 py-1 rounded-md text-mini bg-app-bg border border-app-border hover:bg-app-hover disabled:opacity-50 coarse:min-h-11 coarse:px-3"
               >
                 {t('ai.local.clearPath')}
               </button>
             )}
           </div>
-          <p className="text-[10px] text-app-text-muted">
+          <p className="text-micro text-app-text-muted">
             {t('ai.local.pathHint', { command: `which ${agent.bin}` })}
           </p>
           {rowError && (
-            <div className="flex items-center gap-1.5 text-[10px] text-red-500" data-testid="cli-agent-path-error">
+            <div className="flex items-center gap-1.5 text-micro text-red-500" data-testid="cli-agent-path-error">
               <AlertCircle size={10} className="flex-shrink-0" />
               <span className="break-words">{rowError}</span>
             </div>

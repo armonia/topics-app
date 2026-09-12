@@ -34,7 +34,7 @@ export function ScrollToBottom({ show, newCount, onClick, bottomOffset = 0 }: Sc
       // sola freccia misurava 38×32 — abbastanza per accorgersene. Senza
       // conteggio la larghezza si fissa uguale all'altezza (`w-8 h-8`) e torna
       // un cerchio; col conteggio si allarga, ed è l'unico caso in cui deve.
-      className={`absolute left-1/2 -translate-x-1/2 z-10 h-8 bg-app-user-bubble hover:bg-app-hover text-app-text border border-app-border-light rounded-full shadow-lg flex items-center justify-center text-[12px] font-medium transition-colors duration-200 ${
+      className={`absolute left-1/2 -translate-x-1/2 z-10 h-8 bg-app-user-bubble hover:bg-app-hover text-app-text border border-app-border-light rounded-full shadow-lg flex items-center justify-center text-compact font-medium transition-colors duration-200 ${
         newCount > 0 ? 'px-3 gap-1.5' : 'w-8'
       }`}
       style={{ bottom: bottomOffset + 12 }}
@@ -61,7 +61,7 @@ export function NewMessageBanner({ show, onClick }: NewMessageBannerProps) {
   return (
     <button
       onClick={onClick}
-      className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-primary text-white text-[11px] font-medium px-3 py-1 rounded-full shadow-md hover:bg-primary-hover transition-all duration-200 animate-bounce-once"
+      className="absolute top-2 left-1/2 -translate-x-1/2 z-10 bg-primary text-white text-mini font-medium px-3 py-1 rounded-full shadow-md hover:bg-primary-hover transition-all duration-200 animate-bounce-once"
     >
       New messages ↓
     </button>
