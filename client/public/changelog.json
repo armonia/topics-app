@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.2.308",
+    "date": "2026-09-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La scala tipografica atterra davvero: 1778 misure ad-hoc diventano 12 gradini",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due classi di Tailwind portavano anche un'interlinea, e l'avevo lasciata cadere",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimettere `undefined` non e' rimettere: la chiave resta, e il file dopo ci crede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La decisione sul tetto di spesa esisteva, e viveva solo in un ramo di agosto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo scatto automatico cancellava l'evidenza che l'agente aveva scelto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il gradino `body` della scala era anche un token COLORE, e vinceva il colore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.307",
     "date": "2026-09-12",
     "sections": {
