@@ -23,9 +23,25 @@ import { currentWindowLabel, tauriInvoke } from './tauri';
 
 const savedWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
-/** Removes the global the way a test file's teardown does. */
+/**
+ * Toglie `window` e DICE se non ci e' riuscito.
+ *
+ * `delete globalThis.window` non basta ovunque: se il global arriva da un
+ * preload che lo mette sul prototipo o dietro un getter, la delete toglie una
+ * proprieta' propria che non esiste e l'eredita' risponde lo stesso. In CI e'
+ * andata cosi' — questo test passava sul Mac e falliva sul runner con
+ * `threw: null, rejectedWith: null`, cioe' `internals()` trovava ancora Tauri.
+ * Un diff del genere non dice «il codice e' sbagliato», dice «il test ha
+ * misurato un'altra cosa», ed e' la peggiore specie di rosso.
+ *
+ * `defineProperty` con `value: undefined` crea una proprieta' PROPRIA che copre
+ * qualunque cosa ci sia sotto. E la condizione viene verificata invece che
+ * sperata: se l'ambiente non la concede, il test muore qui dicendo perche'.
+ */
 function withoutWindow(body: () => void | Promise<void>): void | Promise<void> {
-  delete (globalThis as Record<string, unknown>).window;
+  Object.defineProperty(globalThis, 'window', { value: undefined, configurable: true, writable: true });
+  expect(typeof window, "l'ambiente non lascia togliere `window`: il test non puo' misurare niente")
+    .toBe('undefined');
   return body();
 }
 
