@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Coins, Gauge, MonitorCog, RefreshCw, RotateCcw, Tag } from 'lucide-react';
+import { Activity, Coins, Gauge, MonitorCog, RefreshCw, RotateCcw, Tag } from 'lucide-react';
 import { getVersion, relaunch, reloadAllWindows } from '@/lib/shell/app';
 import { isDesktop } from '@/lib/shell';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
@@ -324,19 +324,33 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
           </>
         }
       >
-        {/* WHO IS WORKING FIRST, then what it costs: the names answer the
-            question the numbers only quantify. */}
-        <AgentLines />
-        <div className="border-t border-app-border" />
-        <PerfSection />
+        {/* PERFORMANCE, ONE BRANCH: who is working, then what it costs in
+            megabytes and frames. It used to sit flat at the top of this level,
+            the one subject without a door of its own next to «usage» and
+            «machine» which both have one - the asymmetry read as a mess more
+            than the content did. Now the three branches answer the three
+            questions this level exists for: what is RUNNING, what it has
+            COST, what the MACHINE itself is doing. */}
+        <SubmenuItem
+          icon={Activity}
+          label={tr('statusBar.system.performance')}
+          testId="menu-system-performance"
+          minWidth={300}
+          className="max-h-[min(78vh,560px)] overflow-y-auto"
+        >
+          <AgentLines />
+          <div className="border-t border-app-border" />
+          <PerfSection />
+        </SubmenuItem>
+
         {/* WHAT EACH PROJECT HAS COST, in the third unit.
-            The rows above say megabytes, and one of them is now per project:
-            this says TOKENS and the dollars that have a price, for the same
-            subject. It is a level and not a column because the panel's whole
-            discipline is that two units never share one (`featureWeight.ts`),
-            and because the read behind it is a GROUP BY over the whole message
-            table - 1,2 s cold - which must not happen because a menu opened.
-            Behind its own row it costs nothing until somebody asks. */}
+            The branch above says megabytes and frames; this says TOKENS and
+            the dollars that have a price, for the same subject. It is a level
+            and not a column because the panel's whole discipline is that two
+            units never share one (`featureWeight.ts`), and because the read
+            behind it is a GROUP BY over the whole message table - 1,2 s cold -
+            which must not happen because a menu opened. Behind its own row it
+            costs nothing until somebody asks. */}
         <SubmenuItem
           icon={Coins}
           label={tr('usage.perProject')}

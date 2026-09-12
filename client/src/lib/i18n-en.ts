@@ -44,7 +44,6 @@ const EN = {
   'app.viewTimelineShort': 'timeline',
   'app.archivedShort': 'archived',
   'app.panelsGroup': 'Panels',
-  'app.settingsAll': 'All settings',
   'app.mergePanels': 'Merges every panel into one (tabs stay open)',
   'app.tileAll': 'Lays every open tab side by side in a balanced grid',
   'project.chatWaits': 'A chat in this project is waiting for your answer',
@@ -1805,6 +1804,7 @@ const EN = {
   'palette.history': 'History',
   'palette.noProject': 'No project',
   'palette.noHistory': 'Nothing in history yet',
+  'palette.seeAllHistory': 'See all history',
   'palette.searchHistory': 'Search history: closed tabs and visited pages',
   'palette.noResults': 'No results',
   'palette.searchFailed': 'Message search failed. Try again.',
@@ -1996,7 +1996,8 @@ const EN = {
   // THE ACTIVE AGENTS ROW and the level it opens: who is working, who is
   // parked on a question, and the sentence for when nobody is.
   'statusBar.agents.title': 'Active agents',
-  'statusBar.system.title': 'Agents and performance',
+  'statusBar.system.title': 'System',
+  'statusBar.system.performance': 'Performance',
   'statusBar.system.machine': 'This computer',
   'statusBar.version.title': 'Version',
   'statusBar.agents.awaitingHeading': 'Waiting for your answer',
