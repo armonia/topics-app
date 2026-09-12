@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.304 — 2026-09-12
+
+### Sotto il cofano
+- La pane ingrandita prendeva meta' della superficie, e l'altra meta' restava una banda vuota
+- La board era un rettangolo nero per chiunque non avesse la finestra a fuoco
+- Il change dell'onboarding non si archiviava perche' meta' di un requisito non la provava nessuno
+- Il confine ermetico si fidava di aver ucciso le sessioni di terminale, e non chiedeva mai conferma
+
 ## 2.2.303 — 2026-09-11
 
 ### Sotto il cofano
