@@ -143,13 +143,24 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
     const localMachine = machineBody.machines.find((machine) => machine.baseUrl === null);
     expect(localMachine, "the installation must expose its canonical local machine").toBeTruthy();
 
+    let codingModel: string | undefined;
+    await expect.poll(async () => {
+      const inventoryResponse = await request.get(
+        `${E2E_BASE}/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}`,
+      );
+      if (!inventoryResponse.ok()) return undefined;
+      const inventory = (await inventoryResponse.json()) as { models: Array<{ id: string }> };
+      codingModel = inventory.models[0]?.id;
+      return codingModel;
+    }, { message: "the installation must expose a runtime-ready coding model" }).toBeTruthy();
+
     const capabilityResponse = await request.post(`${E2E_BASE}/api/auth/agent-start-capabilities`, {
       data: {
         projectId,
         subjectType: "person",
         subjectId: person!.subjectId,
         machineId: localMachine!.id,
-        model: "gpt-5.6-luna",
+        model: codingModel,
         effort: "medium",
         maxDurationMinutes: 15,
       },

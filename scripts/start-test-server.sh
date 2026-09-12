@@ -89,7 +89,8 @@ export HOME="$DATA_DIR/.home"
 # richiede, e resta muto su tutto il resto.
 #
 # `-f` e non `-e`: se qualcuno ci ha gia' messo un link alla CLI vera, vince lui.
-mkdir -p "$HOME/.local/bin"
+# The stub represents an authenticated coding runtime, without using real credentials.
+mkdir -p "$HOME/.local/bin" "$HOME/.claude"
 if [ ! -f "$HOME/.local/bin/claude" ]; then
   cat > "$HOME/.local/bin/claude" <<'STUB'
 #!/usr/bin/env bash
@@ -120,7 +121,7 @@ if [ ! -f "$HOME/.local/bin/claude" ]; then
 # rispondere e uscire ZERO, senza entrare in nessuno dei due rami.
 for arg in "$@"; do
   case "$arg" in
-    --version|-v) printf 'claude 0.0.0-e2e-stub\n'; exit 0 ;;
+    --version|-v) printf 'claude 2.1.220-e2e-stub\n'; exit 0 ;;
   esac
 done
 
