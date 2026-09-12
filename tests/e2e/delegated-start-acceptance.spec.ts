@@ -15,6 +15,7 @@ import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { projectIdForPath } from "../../shared/board";
 import { SESSION_COOKIE } from "../../server/lib/device-auth";
+import { friendlyModelLabel } from "../../client/src/lib/modelLabel";
 import { hermetic } from "./fixtures/hermetic";
 import {
   createTopic,
@@ -132,6 +133,21 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
     const localMachine = machineBody.machines.find((machine) => machine.baseUrl === null);
     expect(localMachine, "the installation must expose its canonical local machine").toBeTruthy();
 
+    // Select from the same coding catalog the form consumes. The bench owns
+    // this list, so the fixture does not name a provider model that may be
+    // absent on another installation.
+    const capabilityInventoryResponse = await request.get(
+      `${E2E_BASE}/api/auth/agent-start-capabilities?projectId=${projectId}`,
+    );
+    expect(capabilityInventoryResponse.ok(), await capabilityInventoryResponse.text()).toBeTruthy();
+    const capabilityInventory = (await capabilityInventoryResponse.json()) as {
+      computers: Array<{ id: string; models: Array<{ id: string; label?: string }> }>;
+    };
+    const availableModel = capabilityInventory.computers
+      .find((computer) => computer.id === localMachine!.id)?.models[0];
+    expect(availableModel, "the canonical local machine must expose a coding model").toBeTruthy();
+    const availableModelLabel = availableModel!.label ?? friendlyModelLabel(availableModel!.id);
+
     // This is the fake dispatch seam for the acceptance: the production queue
     // and audit writes still happen, while the global switch prevents a turn.
     const stopped = await request.patch(`${E2E_BASE}/api/all-boards/settings`, {
@@ -174,6 +190,8 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
         await agentStart.getByRole("button", { name: "Autorizza" }).click();
         const form = agentStart.getByTestId("agent-start-form");
         await expect(form.getByRole("combobox", { name: "Computer" })).toContainText(localMachine!.name);
+        await form.getByRole("combobox", { name: "Modello" }).click();
+        await page.getByRole("option", { name: availableModelLabel, exact: true }).click();
         await form.getByRole("combobox", { name: "Impegno" }).click();
         await page.getByRole("option", { name: "medium" }).click();
         await form.getByRole("checkbox").check();
