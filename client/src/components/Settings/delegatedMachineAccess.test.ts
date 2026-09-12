@@ -33,7 +33,7 @@ describe('delegated machine browser contract', () => {
 
   test('node owner revokes the exact approved request, without a broad endpoint', () => {
     const [url, init] = revokeLocalDelegatedAuthorization('request/1');
-    expect(url).toBe('/api/nodes/delegated-requests/request%2F1');
+    expect(url).toBe('/api/nodes/delegated-requests/request%2F1/owner-revoke');
     expect(init.method).toBe('DELETE');
   });
 

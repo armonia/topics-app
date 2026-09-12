@@ -71,7 +71,7 @@ export function denyLocalDelegatedRequest(requestId: string): [string, RequestIn
 }
 
 export function revokeLocalDelegatedAuthorization(requestId: string): [string, RequestInit] {
-  return [`/api/nodes/delegated-requests/${encodeURIComponent(requestId)}`, {
+  return [`/api/nodes/delegated-requests/${encodeURIComponent(requestId)}/owner-revoke`, {
     method: 'DELETE', credentials: 'same-origin',
   }];
 }

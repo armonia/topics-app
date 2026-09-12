@@ -178,6 +178,7 @@ describe("device-auth · percorsi esenti", () => {
     expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/claim", "GET")).toBe(true);
     expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/ack", "POST")).toBe(true);
     expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1", "DELETE")).toBe(true);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/owner-revoke", "DELETE")).toBe(false);
     expect(isIdentityExemptPath("/api/nodes/delegated-requests", "GET")).toBe(false);
     expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/approve", "POST")).toBe(false);
   });

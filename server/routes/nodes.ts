@@ -334,9 +334,6 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     if (!pathname.startsWith("/api/nodes/")) return null;
 
     const confined = pathname.startsWith("/api/nodes/delegated-runs");
-    // `null` identity means loopback or an exempt path: owner by definition,
-    // the same reading every other router gives it. Only a resolved guest is
-    // turned away.
     const identity = ctx.requestIdentity?.(req) ?? null;
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
@@ -372,7 +369,6 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       broadcastToAll({ type: "auth:pair-requested", requestId, code, name: "Richiesta computer remoto", ip: null, purpose: "delegated-node" });
       return json({ requestId, claim, code, expiresInMs: expiresAt - now }, 201);
     }
-
     if (pathname === "/api/nodes/delegated-requests" && method === "GET") {
       if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
       const now = Date.now();
@@ -385,7 +381,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         FROM delegated_node_requests WHERE direction='node' ORDER BY created_at DESC`).all();
       return json({ requests });
     }
-
+    const ownerRevocation = matchRoute(pathname, "/api/nodes/delegated-requests/:id/owner-revoke");
+    if (ownerRevocation && method === "DELETE") {
+      if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
+      pathname = `/api/nodes/delegated-requests/${encodeURIComponent(ownerRevocation.id)}`;
+    }
     const delegatedRequest = matchRoute(pathname, "/api/nodes/delegated-requests/:id");
     if (delegatedRequest) {
       const row = db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='node'").get(delegatedRequest.id) as Record<string, any> | null;

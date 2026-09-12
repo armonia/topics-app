@@ -264,7 +264,24 @@ test("GUEST-21: an already-open empty node page receives, approves, and revokes 
     const owner = devices.people.find((person) => person.owner);
     expect(owner).toBeTruthy();
 
-    await page.goto(E2E_BASE, { waitUntil: 'domcontentloaded' });
+    const pairing = await request.post(`${E2E_TUNNEL_BASE}/api/auth/pair/request`, {
+      data: { name: `node-owner-${stamp}` },
+    });
+    expect(pairing.ok(), await pairing.text()).toBeTruthy();
+    const pairingBody = await pairing.json() as { requestId: string; claim: string };
+    const ownerApproval = await request.post(`${E2E_BASE}/api/auth/pair/approve`, {
+      data: { requestId: pairingBody.requestId },
+    });
+    expect(ownerApproval.ok(), await ownerApproval.text()).toBeTruthy();
+    const ownerStatus = await request.get(`${E2E_TUNNEL_BASE}/api/auth/pair/status?requestId=${pairingBody.requestId}&claim=${pairingBody.claim}`);
+    const ownerCookie = ownerStatus.headers()['set-cookie']?.split(';', 1)[0] ?? '';
+    const ownerCookieSeparator = ownerCookie.indexOf('=');
+    expect(ownerCookieSeparator).toBeGreaterThan(0);
+    await page.context().addCookies([{
+      name: ownerCookie.slice(0, ownerCookieSeparator), value: ownerCookie.slice(ownerCookieSeparator + 1),
+      url: E2E_TUNNEL_BASE,
+    }]);
+    await page.goto(E2E_TUNNEL_BASE, { waitUntil: 'domcontentloaded' });
     await openDevicesSettings(page);
     const surface = page.getByTestId('remote-node-requests');
     await expect(surface.getByTestId('remote-node-request')).toHaveCount(0);
