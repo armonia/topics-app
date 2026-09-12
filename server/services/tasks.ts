@@ -2354,16 +2354,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
-      runComputerName: r.machine_id ? (b.nodeNames.get(r.machine_id) ?? r.machine_id) : null,
-      delegatedStartCapabilityId: r.delegated_start_capability_id ?? null,
-      runInitiatorPersonId: r.run_initiator_person_id ?? null,
-      runInitiatorPersonName: r.run_initiator_person_id
-        ? (b.peopleNames.get(r.run_initiator_person_id) ?? r.run_initiator_person_id)
-        : null,
-      runInitiatorDeviceId: r.run_initiator_device_id ?? null,
-      runInitiatorDeviceName: r.run_initiator_device_id
-        ? (b.deviceNames.get(r.run_initiator_device_id) ?? r.run_initiator_device_id)
-        : null,
+      // Delegation metadata is rare. Absence means an ordinary owner run, not
+      // a UI state, so five repeated null keys on every board card carry no
+      // information. A delegated row still gets the complete audit identity.
+      ...(r.machine_id ? { runComputerName: b.nodeNames.get(r.machine_id) ?? r.machine_id } : {}),
+      ...(r.delegated_start_capability_id
+        ? { delegatedStartCapabilityId: r.delegated_start_capability_id }
+        : {}),
+      ...(r.run_initiator_person_id
+        ? {
+            runInitiatorPersonId: r.run_initiator_person_id,
+            runInitiatorPersonName: b.peopleNames.get(r.run_initiator_person_id) ?? r.run_initiator_person_id,
+          }
+        : {}),
+      ...(r.run_initiator_device_id
+        ? {
+            runInitiatorDeviceId: r.run_initiator_device_id,
+            runInitiatorDeviceName: b.deviceNames.get(r.run_initiator_device_id) ?? r.run_initiator_device_id,
+          }
+        : {}),
       // Non c'è una colonna `tasks.effort` e non serve: l'autorità è il TOPIC,
       // che è ciò che viene davvero passato allo spawn. Duplicarla su `tasks`
       // creerebbe due verità libere di divergere.

@@ -2248,6 +2248,12 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- above: left NULL it would fall outside the list-against-detail
          -- comparison, and the node chip reads it on both doors.
          machine_id = 'mac-1',
+         -- 20260912115225: immutable delegated-run audit identity. Keep these
+         -- populated so the all-columns fixture continues to exercise their
+         -- list/detail hydration instead of silently excluding nullable fields.
+         delegated_start_capability_id = 'cap-1',
+         run_initiator_person_id = 'person-1',
+         run_initiator_device_id = 'device-1',
          model_effort = 'low'
        WHERE id = ?`,
       [

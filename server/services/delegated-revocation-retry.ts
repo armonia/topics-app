@@ -5,6 +5,16 @@ export interface DelegatedRevocationRetry {
   tick(options?: { requestId?: string; force?: boolean }): Promise<{ attempted: number; pending: number }>;
 }
 
+interface PendingRevocationRow {
+  id: string;
+  direction: "origin" | "node";
+  base_url: string | null;
+  remote_request_id: string | null;
+  claim_secret: string | null;
+  capability_id: string | null;
+  authorization_id: string | null;
+}
+
 export function createDelegatedRevocationRetry(input: {
   db: Database;
   nodeClient?: Pick<NodeClient, "revokeDelegatedRequest">;
@@ -27,7 +37,7 @@ export function createDelegatedRevocationRetry(input: {
       args.push(at - backoffMs);
     }
     const rows = input.db.query(`SELECT * FROM delegated_node_requests WHERE ${clauses.join(" AND ")}`)
-      .all(...args) as Array<Record<string, any>>;
+      .all(...args) as PendingRevocationRow[];
     let attempted = 0;
     for (const row of rows) {
       attempted += 1;

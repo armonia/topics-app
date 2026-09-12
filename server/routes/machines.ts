@@ -24,11 +24,41 @@ import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from ".
 
 const NAME_MAX = 200;
 
+interface DelegatedOriginRequestRow {
+  id: string;
+  base_url: string;
+  remote_request_id: string;
+  claim_secret: string;
+  machine_id: string;
+  capability_id: string | null;
+  purpose: "catalog" | "authorization";
+  repository_key: string;
+  origin_person_id: string | null;
+  origin_device_id: string;
+  model: string;
+  effort: string;
+  max_duration_minutes: number;
+  state: string;
+  authorization_id: string | null;
+  models_json: string | null;
+  expires_at: number;
+  code: string;
+}
+
+interface AgentStartCapabilityRow {
+  recipient_kind: "person" | "device" | "org";
+  recipient_id: string;
+  repository_key: string;
+  model: string;
+  effort: string;
+  max_duration_minutes: number;
+}
+
 /** Revoke the origin half immediately and persist a node-side retry. */
 export async function revokeRemoteDelegatedCapability(ctx: AppContext, capabilityId: string): Promise<void> {
   const rows = ctx.db.query(`SELECT id,base_url,remote_request_id,claim_secret,machine_id
     FROM delegated_node_requests WHERE direction='origin' AND purpose='authorization'
-      AND capability_id=? AND state NOT IN ('revoked','denied','expired')`).all(capabilityId) as Array<Record<string, any>>;
+      AND capability_id=? AND state NOT IN ('revoked','denied','expired')`).all(capabilityId) as DelegatedOriginRequestRow[];
   if (!rows.length) return;
   const client = ctx.nodeClient ?? createNodeClient({
     fetch: (input, init) => fetch(input, init), now: () => Date.now(),
@@ -155,7 +185,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
       }
       const capability = ctx.db.query(`SELECT * FROM agent_start_capabilities
         WHERE id=? AND machine_id=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)`)
-        .get(capabilityId, machineId, Date.now()) as Record<string, any> | null;
+        .get(capabilityId, machineId, Date.now()) as AgentStartCapabilityRow | null;
       if (!capability) return json({ error: "capability not found", code: "not_found" }, 404);
       const existing = ctx.db.query(`SELECT id FROM delegated_node_requests
         WHERE direction='origin' AND capability_id=? AND state IN ('pending','approved','active') ORDER BY created_at DESC LIMIT 1`)
@@ -211,7 +241,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
     const reissue = matchRoute(pathname, "/api/machines/delegated-requests/:id/reissue");
     if (reissue && method === "POST") {
       if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
-      const row = ctx.db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='origin'").get(reissue.id) as Record<string, any> | null;
+      const row = ctx.db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='origin'").get(reissue.id) as DelegatedOriginRequestRow | null;
       if (!row) return json({ error: "request not found", code: "not_found" }, 404);
       const token = row.capability_id
         ? readDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id)
@@ -219,7 +249,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
       try {
         await nodeClient.revokeDelegatedRequest({
           baseUrl: row.base_url, requestId: row.remote_request_id, token: token ?? undefined,
-          capabilityId: row.capability_id, claim: row.claim_secret,
+          capabilityId: row.capability_id ?? undefined, claim: row.claim_secret,
         });
       } catch { /* New approval replaces the same capability atomically on the node. */ }
       if (row.capability_id) removeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id);
@@ -230,7 +260,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
           originMachineId: machineStore.upsertLocal().id,
         } : {
           purpose: "authorization",
-          capabilityId: row.capability_id,
+          capabilityId: row.capability_id!,
           subjectPersonId: row.origin_person_id,
           subjectDeviceId: row.origin_device_id,
           machineId: row.machine_id,
@@ -260,7 +290,7 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
     const delegated = matchRoute(pathname, "/api/machines/delegated-requests/:id");
     if (delegated && (method === "GET" || method === "DELETE")) {
       if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
-      const row = ctx.db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='origin'").get(delegated.id) as Record<string, any> | null;
+      const row = ctx.db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='origin'").get(delegated.id) as DelegatedOriginRequestRow | null;
       if (!row) return json({ error: "request not found", code: "not_found" }, 404);
       if (method === "DELETE") {
         const now = Date.now();
@@ -323,11 +353,12 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
             row.state = "active";
             row.expires_at = outcome.expiresAt ?? row.expires_at;
           } else if (outcome.state === "approved" && outcome.token && outcome.authorizationId) {
-            writeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id, outcome.token);
+            writeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id!, outcome.token);
+            const authorizationId = outcome.authorizationId;
             const expiresAt = outcome.expiresAt ?? row.expires_at;
             ctx.db.transaction(() => {
               ctx.db.query("UPDATE delegated_node_requests SET state='approved',authorization_id=?,models_json=?,expires_at=?,updated_at=? WHERE id=?")
-                .run(outcome.authorizationId, JSON.stringify(outcome.models ?? []), expiresAt, Date.now(), row.id);
+                .run(authorizationId, JSON.stringify(outcome.models ?? []) ?? "[]", expiresAt, Date.now(), row.id);
               ctx.db.query(`UPDATE agent_start_capabilities SET expires_at=CASE
                 WHEN expires_at IS NULL OR expires_at>? THEN ? ELSE expires_at END WHERE id=?`)
                 .run(expiresAt, expiresAt, row.capability_id);

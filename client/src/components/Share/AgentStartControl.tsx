@@ -30,7 +30,7 @@ export interface AgentStartSubject {
   name: string;
 }
 
-export interface AgentStartCapability {
+export interface AgentStartCapabilityView {
   id: string;
   subjectType: StartSubjectType;
   subjectId: string;
@@ -61,7 +61,7 @@ interface AgentStartChoice {
 }
 
 interface AgentStartInventory {
-  capabilities?: AgentStartCapability[];
+  capabilities?: AgentStartCapabilityView[];
   computers?: AgentStartChoice[];
   models?: Array<{ id: string; label?: string }>;
   recommendedModel?: string | null;
@@ -181,7 +181,7 @@ export function AgentStartControl({ projectId, subjects }: {
         machineId: computer, model, effort, maxDurationMinutes: minutes,
       }));
       if (!response.ok) throw new Error(String(response.status));
-      const body = await response.json().catch(() => null) as { capability?: AgentStartCapability } | null;
+      const body = await response.json().catch(() => null) as { capability?: AgentStartCapabilityView } | null;
       // Local capabilities are ready immediately. Remote ones enter the
       // purpose-specific owner approval flow; the browser receives a code and
       // status, never the confined credential exchanged by the servers.

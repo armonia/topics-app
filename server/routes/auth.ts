@@ -724,17 +724,25 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // different kind.
       const withLevel = <T extends { id: string }>(rows: T[], kind: "task" | "topic") =>
         rows.map((r) => ({ ...r, level: levelFor(db as never, principals, kind, r.id) ?? "read" }));
+      type SharedTaskRow = {
+        id: string;
+        project_id: string;
+        status: string;
+        dispatch_state?: string | null;
+        dispatch_error?: string | null;
+        delegated_start_capability_id?: string | null;
+      };
       const taskColumns = new Set((db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name));
       const startColumns = ["dispatch_state", "dispatch_error", "delegated_start_capability_id"]
         .filter((column) => taskColumns.has(column));
       const tasks = idTask.length
         ? withLevel(db.query(`SELECT id, text, status, project_id, preview_image${startColumns.length ? `, ${startColumns.join(", ")}` : ""}
-              FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask) as Array<{ id: string }>, "task")
+              FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask) as SharedTaskRow[], "task")
         : [];
       const topics = idTopic.length
         ? withLevel(db.query(`SELECT id, name, updated_at FROM topics WHERE id IN (${segna(idTopic.length)})`).all(...idTopic) as Array<{ id: string }>, "topic")
         : [];
-      const tasksWithStart = tasks.map((task: any) => {
+      const tasksWithStart = tasks.map((task) => {
         try {
           const liveCapability = liveAgentStartCapability(db as never, { principals, projectId: task.project_id, now });
           const boundCapability = task.delegated_start_capability_id
