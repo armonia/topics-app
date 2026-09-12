@@ -119,4 +119,24 @@ describe("publish: il cancello sono gli asset", () => {
     expect(iCheck).toBeGreaterThan(0);
     expect(iCheck).toBeLessThan(iPub);
   });
+
+  it("un solo publish compone il manifesto dopo i tre build", () => {
+    expect(WF.match(/includeUpdaterJson: false/g)?.length).toBe(1);
+    expect(WF).not.toContain("actions/upload-artifact@v4");
+    expect(WF).not.toContain("actions/download-artifact@v4");
+    expect(WF).toContain("compose-release-manifest.ts");
+    expect(WF).toContain("releases/$ID");
+    expect(WF).toContain("Accept: application/octet-stream");
+    expect(WF).toContain("gh release upload --repo \"$REPO\" \"$TAG\" \"$RUNNER_TEMP/latest.json#latest.json\" --clobber");
+    expect(WF.indexOf("compose-release-manifest.ts")).toBeLessThan(WF.indexOf("check-release-assets.ts"));
+  });
+
+  it("preflight blocca il mismatch tag/versione prima della release", () => {
+    const preflight = WF.indexOf("Reject a tag that does not match tauri.conf.json");
+    const releaseLookup = WF.indexOf("repos/$REPO/releases");
+    expect(WF).toContain("desktop-tauri/src-tauri/tauri.conf.json");
+    expect(WF).toContain("jq -r '.version // empty'");
+    expect(preflight).toBeGreaterThan(0);
+    expect(preflight).toBeLessThan(releaseLookup);
+  });
 });
