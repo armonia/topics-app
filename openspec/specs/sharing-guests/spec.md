@@ -617,6 +617,13 @@ computer's repository mapping. Only the project owner SHALL grant or revoke it.
 Neither ownership inferred from an old device pairing nor any content grant
 SHALL create this capability.
 
+The capability boundary SHALL resolve the project-store UUID and the board id
+derived from the same project path as aliases of one canonical project. Grants,
+capability reads and writes, delegated run lookup and board policy lookup SHALL
+use that single resolution without making either alias match another project.
+Capabilities already stored with either alias SHALL remain effective and
+revocable without a data migration.
+
 The capability policy SHALL fix a concrete provider model, effort and maximum
 run duration. It SHALL allow one attempt for one requested task and SHALL
 disable retries and fanout. A transport reconnect or process resume may continue
@@ -644,6 +651,13 @@ maximum, and delegated start SHALL NOT bypass a hold.
 - **WHEN** it requests a start for the task in project B
 - **THEN** the request SHALL be refused before dispatch
 - **AND** no queue, task, session or audit-start side effect SHALL be created
+
+#### Scenario: project UUID and board id name the same capability boundary
+- **GIVEN** an owner opens sharing from the project-store UUID
+- **AND** the task stores the board id derived from that project's path
+- **WHEN** the owner grants or revokes delegated start through that sharing control
+- **THEN** capability lookup for the task SHALL recognize rows stored with either project alias
+- **AND** neither alias SHALL match a task from another project
 
 #### Scenario: owner fixes the execution policy
 - **GIVEN** the project owner grants delegated start
@@ -799,6 +813,12 @@ device state rather than hard-coded project lists or duplicate account records.
 Remote account configuration and third-party sign-in SHALL NOT be presented as
 automatic prerequisites.
 
+The execution-computer inventory SHALL expose exactly the machine store's
+canonical local installation as the available local choice, alongside genuine
+remote nodes. Historical local rows SHALL remain stored for audit purposes but
+SHALL NOT be selectable, and a submitted historical local id SHALL fail closed.
+Dispatch and resume SHALL apply the same canonical-machine check.
+
 All new labels, confirmations and errors SHALL have English and Italian
 localizations and remain usable by keyboard at the supported responsive widths.
 
@@ -807,6 +827,12 @@ localizations and remain usable by keyboard at the supported responsive widths.
 - **WHEN** it configures and confirms Agent Start for a subject and computer
 - **THEN** the ordinary content level SHALL remain unchanged
 - **AND** revoking Agent Start SHALL leave that content level unchanged
+
+#### Scenario: historical local identities cannot be selected
+- **GIVEN** several historical local machine rows, the canonical local machine and a remote node
+- **WHEN** the owner opens Agent Start
+- **THEN** exactly the canonical local machine and the remote node SHALL be available
+- **AND** submitting a historical local machine id SHALL be refused without deleting or merging it
 
 #### Scenario: the guest sees only an effective Start action
 - **GIVEN** a guest card across capability, visibility and board execution-state changes

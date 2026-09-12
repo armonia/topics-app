@@ -11,6 +11,7 @@ import {
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { projectIdForPath } from "../../shared/board";
 import { availableTaskModels } from "../../shared/task-coding-models";
+import { canonicalProjectIdentity, projectAliasPlaceholders } from "../lib/project-identity";
 
 export interface AgentStartCapabilitiesRouteOpts {
   repositoryKeyOf?: (projectId: string) => Promise<string | null>;
@@ -63,9 +64,10 @@ async function repositoryKeyFor(
   if (opts.repositoryKeyOf) return opts.repositoryKeyOf(projectId);
   // Board tasks use the canonical path-derived id, while the catalogue stores
   // its own row id. Both identify the same registered project.
-  const direct = ctx.projectStore?.get(projectId) ?? null;
+  const identity = canonicalProjectIdentity(ctx.db, projectId);
+  const direct = ctx.projectStore?.get(identity.storeId) ?? null;
   const canonical = direct ?? ctx.projectStore?.list({ archived: false })
-    .find((project) => projectIdForPath(project.path) === projectId) ?? null;
+    .find((project) => projectIdForPath(project.path) === identity.boardId) ?? null;
   const path = canonical?.path;
   if (!path) return null;
   const proc = Bun.spawn(["git", "-C", path, "remote", "get-url", "origin"], {
@@ -92,20 +94,29 @@ export async function routeAgentStartCapabilities(
   if (method === "GET") {
     const projectId = url.searchParams.get("projectId") ?? "";
     if (!projectId) return json({ error: "projectId required", code: "invalid_input" }, 400);
-    const capabilities = listAgentStartCapabilities(db as never, projectId);
+    const project = canonicalProjectIdentity(db, projectId);
+    const capabilities = project.aliases.flatMap((alias) => listAgentStartCapabilities(db as never, alias))
+      .sort((a, b) => b.grantedAt - a.grantedAt);
     const repositoryKey = await repositoryKeyFor(ctx, opts, projectId);
     const machines = db.query("SELECT id, name, status, base_url FROM machines ORDER BY name")
       .all() as Array<{ id: string; name: string; status: string; base_url: string | null }>;
+    const canonicalLocalMachineId = ctx.machineStore?.upsertLocal().id
+      ?? machines.find((machine) => machine.base_url === null)?.id
+      ?? null;
     const taskModels = opts.taskModels?.()
       ?? availableTaskModels(getSnapshotManager().getSnapshot());
     let projectModel: string | null = null;
     try {
-      const row = db.query("SELECT dispatch_model FROM board_settings WHERE project_id = ?")
-        .get(projectId) as { dispatch_model: string | null } | null;
+      const row = db.query(`SELECT dispatch_model FROM board_settings
+          WHERE project_id IN (${projectAliasPlaceholders(project)})
+          ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END LIMIT 1`)
+        .get(...project.aliases, project.boardId) as { dispatch_model: string | null } | null;
       if (row?.dispatch_model && taskModels.includes(row.dispatch_model)) projectModel = row.dispatch_model;
     } catch { /* A reduced schema can still list existing capabilities. */ }
     const modelOptions = taskModels.map((id) => ({ id }));
-    const computers = machines.map((machine) => {
+    const computers = machines
+      .filter((machine) => machine.base_url !== null || machine.id === canonicalLocalMachineId)
+      .map((machine) => {
       let remoteModels: Array<{ id: string }> = [];
       let remoteCatalogVerified = false;
       if (machine.base_url !== null && repositoryKey) {
@@ -134,13 +145,13 @@ export async function routeAgentStartCapabilities(
         models: machine.base_url === null ? modelOptions : remoteModels,
       };
     });
-    const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+    const machineById = new Map(computers.map((computer) => [computer.id, computer]));
     const computerById = new Map(computers.map((computer) => [computer.id, computer]));
     const listedCapabilities = capabilities.map((capability) => {
       const machine = machineById.get(capability.machineId);
       const modelAvailability = !machine
         ? "unavailable"
-        : machine.base_url === null
+        : !machine.remote
           ? taskModels.includes(capability.model) ? "available" : "unavailable"
           : computerById.get(machine.id)?.modelSupport === "verified"
             ? computerById.get(machine.id)!.models.some((entry) => entry.id === capability.model)
@@ -188,6 +199,14 @@ export async function routeAgentStartCapabilities(
       base_url: string | null;
     } | null;
     if (!machine) return json({ error: "machine not found", code: "machine_not_found" }, 404);
+    const canonicalLocalMachineId = ctx.machineStore?.upsertLocal().id
+      ?? (db.query("SELECT id FROM machines WHERE base_url IS NULL ORDER BY id LIMIT 1")
+        .get() as { id: string } | null)?.id
+      ?? null;
+    if (machine.base_url === null && machineId !== canonicalLocalMachineId) {
+      return json({ error: "local machine is not canonical", code: "machine_not_available" }, 409);
+    }
+    const project = canonicalProjectIdentity(db, projectId);
     const repositoryKey = await repositoryKeyFor(ctx, opts, projectId);
     if (!repositoryKey) return json({ error: "project repository unresolved", code: "repository_unresolved" }, 409);
     const taskModels = opts.taskModels?.()
@@ -211,13 +230,18 @@ export async function routeAgentStartCapabilities(
     if (!allowedModels.includes(model)) {
       return json({ error: "coding model unavailable", code: "model_unavailable" }, 409);
     }
-    const replaced = listAgentStartCapabilities(db as never, projectId).find((candidate) =>
+    const replaced = project.aliases.flatMap((alias) => listAgentStartCapabilities(db as never, alias)).filter((candidate) =>
       candidate.subjectType === subjectType && candidate.subjectId === subjectId && candidate.revokedAt === null);
+    for (const candidate of replaced) {
+      revokeAgentStartCapability(db as never, {
+        capabilityId: candidate.id, projectId: candidate.projectId, revokedByPersonId: ownerPersonId, now,
+      });
+    }
     const capability = putAgentStartCapability(db as never, {
-      subjectType, subjectId, projectId, machineId, repositoryKey, model, effort,
+      subjectType, subjectId, projectId: project.boardId, machineId, repositoryKey, model, effort,
       maxDurationMinutes, grantedByPersonId: ownerPersonId, now,
     });
-    if (replaced) await opts.onCapabilityRevoked?.(replaced.id);
+    for (const candidate of replaced) await opts.onCapabilityRevoked?.(candidate.id);
     for (const deviceId of devicesForSubject(db, subjectType, subjectId)) {
       ctx.sendToDevice?.(deviceId, { type: "auth:shares-changed" });
     }
@@ -230,9 +254,13 @@ export async function routeAgentStartCapabilities(
     if (!projectId || !capabilityId) {
       return json({ error: "projectId and capabilityId required", code: "invalid_input" }, 400);
     }
-    const existing = listAgentStartCapabilities(db as never, projectId).find((candidate) => candidate.id === capabilityId);
+    const project = canonicalProjectIdentity(db, projectId);
+    const existing = project.aliases.flatMap((alias) => listAgentStartCapabilities(db as never, alias))
+      .find((candidate) => candidate.id === capabilityId);
     if (!existing) return json({ error: "capability not found", code: "not_found" }, 404);
-    if (!revokeAgentStartCapability(db as never, { capabilityId, projectId, revokedByPersonId: ownerPersonId, now })) {
+    if (!revokeAgentStartCapability(db as never, {
+      capabilityId, projectId: existing.projectId, revokedByPersonId: ownerPersonId, now,
+    })) {
       return json({ error: "capability already revoked", code: "already_revoked" }, 409);
     }
     const canceledRuns = await opts.onCapabilityRevoked?.(capabilityId) ?? 0;

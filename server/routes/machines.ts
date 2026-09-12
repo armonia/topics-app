@@ -19,7 +19,7 @@ import {
 import { SERVER_VERSION } from "../ws-capabilities";
 import { actingPersonId } from "../lib/orgs";
 import { normalizeRepositoryKey } from "../lib/delegated-agent-start";
-import { projectIdForPath } from "../../shared/board";
+import { canonicalProjectIdentity } from "../lib/project-identity";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 
 const NAME_MAX = 200;
@@ -129,8 +129,8 @@ export function createMachinesRouter(ctx: AppContext, opts: { revocations?: Dele
     return personId && ctx.db.query("SELECT 1 FROM installation_owners WHERE person_id=?").get(personId) ? personId : null;
   };
   const repositoryKeyOf = async (projectId: string): Promise<string | null> => {
-    const project = ctx.projectStore.get(projectId) ?? ctx.projectStore.list({ archived: false })
-      .find((candidate) => projectIdForPath(candidate.path) === projectId) ?? null;
+    const identity = canonicalProjectIdentity(ctx.db, projectId);
+    const project = ctx.projectStore.get(identity.storeId) ?? null;
     if (!project) return null;
     const proc = Bun.spawn(["git", "-C", project.path, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
     const output = await new Response(proc.stdout).text();

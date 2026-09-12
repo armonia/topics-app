@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Principal, SubjectKind } from "./grants-query";
 import type { AgentStartCapabilityContract } from "../../shared/agent-start-capability";
+import { canonicalProjectIdentity, projectAliasPlaceholders } from "./project-identity";
 
 export const DELEGATED_MAX_ATTEMPTS = 1 as const;
 export const DELEGATED_PARALLEL_LIMIT = 1 as const;
@@ -152,15 +153,18 @@ export function liveAgentStartCapability(db: Database, input: {
   principals: readonly Principal[];
   projectId: string;
   now?: number;
+  canonicalLocalMachineId?: string | null;
 }): AgentStartCapability | null {
   const subjects = subjectClause(input.principals);
   if (!subjects) return null;
   const now = input.now ?? Date.now();
+  const project = canonicalProjectIdentity(db, input.projectId);
   const row = db.query(`${CAPABILITY_SELECT}
-    WHERE c.project_id = ?
+    WHERE c.project_id IN (${projectAliasPlaceholders(project)})
       AND c.revoked_at IS NULL
       AND (c.expires_at IS NULL OR c.expires_at > ?)
       AND (${subjects.sql})
+      AND (? IS NULL OR m.base_url IS NOT NULL OR c.machine_id = ?)
       AND (
         m.base_url IS NULL OR EXISTS (
           SELECT 1 FROM machine_repository_authorizations a
@@ -169,12 +173,22 @@ export function liveAgentStartCapability(db: Database, input: {
              AND a.revoked_at IS NULL
         )
       )
-    ORDER BY c.granted_at DESC LIMIT 1`).get(input.projectId, now, ...subjects.args) as CapabilityRow | null;
+    ORDER BY c.granted_at DESC LIMIT 1`).get(
+      ...project.aliases, now, ...subjects.args,
+      input.canonicalLocalMachineId ?? null, input.canonicalLocalMachineId ?? null,
+    ) as CapabilityRow | null;
   return row ? mapCapability(row) : null;
 }
 
 /** The immutable policy copied onto a queued task, revalidated before every seam. */
-export function delegatedPolicyForTask(db: Database, taskId: string, now = Date.now()): DelegatedRunPolicy | null {
+export function delegatedPolicyForTask(
+  db: Database,
+  taskId: string,
+  now = Date.now(),
+  canonicalLocalMachineId: string | null = null,
+): DelegatedRunPolicy | null {
+  const taskProject = db.query("SELECT project_id FROM tasks WHERE id = ?").get(taskId) as { project_id: string } | null;
+  const project = canonicalProjectIdentity(db, taskProject?.project_id ?? "");
   const row = db.query(`
     SELECT c.*, m.name AS machine_name,
            t.run_initiator_person_id, t.run_initiator_device_id,
@@ -188,13 +202,14 @@ export function delegatedPolicyForTask(db: Database, taskId: string, now = Date.
         SELECT id FROM delegated_run_audit WHERE task_id = t.id ORDER BY id DESC LIMIT 1
       )
     WHERE t.id = ?
-      AND t.project_id = c.project_id
+      AND c.project_id IN (${projectAliasPlaceholders(project)})
       AND t.machine_id = c.machine_id
       AND c.revoked_at IS NULL
       AND (c.expires_at IS NULL OR c.expires_at > ?)
       AND (dra.deadline_at IS NULL OR dra.deadline_at > ?)
       AND m.id IS NOT NULL
       AND t.run_initiator_person_id IS d.person_id
+      AND (? IS NULL OR m.base_url IS NOT NULL OR c.machine_id = ?)
       AND (d.person_id IS NULL OR (p.id IS NOT NULL AND p.revoked_at IS NULL))
       AND (
         (c.recipient_kind = 'device' AND c.recipient_id = d.id) OR
@@ -216,7 +231,9 @@ export function delegatedPolicyForTask(db: Database, taskId: string, now = Date.
              AND a.repository_key = c.repository_key
              AND a.revoked_at IS NULL
         )
-      )`).get(taskId, now, now) as (CapabilityRow & {
+      )`).get(
+        taskId, ...project.aliases, now, now, canonicalLocalMachineId, canonicalLocalMachineId,
+      ) as (CapabilityRow & {
         run_initiator_person_id: string | null;
         run_initiator_device_id: string;
         run_deadline_at: number | null;
@@ -299,7 +316,8 @@ export function queueDelegatedRun(db: Database, input: {
   db.transaction(() => {
     const task = db.query("SELECT project_id, status, delegated_start_capability_id FROM tasks WHERE id = ?")
       .get(input.taskId) as { project_id: string; status: string; delegated_start_capability_id: string | null } | null;
-    if (!task || task.project_id !== input.capability.projectId) throw new Error("capability_project_mismatch");
+    const project = task ? canonicalProjectIdentity(db, task.project_id) : null;
+    if (!task || !project?.aliases.includes(input.capability.projectId)) throw new Error("capability_project_mismatch");
     if (task.status !== "backlog" || task.delegated_start_capability_id) throw new Error("task_not_executable");
     db.query(`UPDATE tasks SET status = 'todo', machine_id = ?, model = ?, model_effort = ?,
         delegated_start_capability_id = ?, run_initiator_person_id = ?, run_initiator_device_id = ?, updated_at = ?
@@ -313,7 +331,7 @@ export function queueDelegatedRun(db: Database, input: {
        machine_id, repository_key, model, effort, max_duration_minutes, max_attempts,
        fanout, phase, created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,1,1,'queued',?,?)`).run(
-      input.capability.id, input.taskId, input.capability.projectId, input.initiatorPersonId,
+      input.capability.id, input.taskId, task.project_id, input.initiatorPersonId,
       input.initiatorDeviceId, input.capability.machineId, input.capability.repositoryKey,
       input.capability.model, input.capability.effort, input.capability.maxDurationMinutes, now, now,
     );
@@ -326,14 +344,14 @@ export function appendDelegatedRunAudit(db: Database, input: {
   executionSessionId?: string | null;
   outcome?: string | null;
   now?: number;
-}): boolean | number {
+}, options: { canonicalLocalMachineId?: string | null } = {}): boolean | number {
   const now = input.now ?? Date.now();
   if (input.phase === "dispatch" || input.phase === "resume") {
     return db.transaction(() => {
       // This read and the write below share one SQLite transaction: revocation,
       // recipient/device changes and the audit row cannot change at the seam
       // between authorization and persistence.
-      const policy = delegatedPolicyForTask(db, input.taskId, now);
+      const policy = delegatedPolicyForTask(db, input.taskId, now, options.canonicalLocalMachineId ?? null);
       if (!policy) return false;
 
       // Node-local delegated runs already carry their immutable absolute

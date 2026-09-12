@@ -10,7 +10,7 @@ import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
 import { resolvePrincipals } from "../lib/principals";
 import { privacyPersona } from "../lib/follows";
-import { isResourceType } from "../lib/grants";
+import { isResourceType, type ResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
@@ -33,6 +33,7 @@ import {
   routeAgentStartCapabilities,
   type AgentStartCapabilitiesRouteOpts,
 } from "./agent-start-capabilities";
+import { canonicalProjectIdentity, projectAliasPlaceholders } from "../lib/project-identity";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -322,6 +323,11 @@ export interface AuthRouterOpts extends AgentStartCapabilitiesRouteOpts {}
 
 export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): RouteHandler {
   const { json, readJSON, db } = ctx as AppContext & { db: { query: (sql: string) => { all: (...a: unknown[]) => unknown[]; get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown } } };
+  const shareResource = (resourceType: ResourceType, resourceId: string) => {
+    if (resourceType !== "project") return { id: resourceId, aliases: [resourceId] as readonly string[] };
+    const project = canonicalProjectIdentity(ctx.db, resourceId);
+    return { id: project.boardId, aliases: project.aliases };
+  };
 
   const rowToDevice = (r: Record<string, unknown>): DeviceRecord => ({
     id: String(r.id),
@@ -744,17 +750,26 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         : [];
       const tasksWithStart = tasks.map((task) => {
         try {
-          const liveCapability = liveAgentStartCapability(db as never, { principals, projectId: task.project_id, now });
+          const liveCapability = liveAgentStartCapability(db as never, {
+            principals,
+            projectId: task.project_id,
+            now,
+            canonicalLocalMachineId: ctx.machineStore?.upsertLocal().id ?? null,
+          });
           const boundCapability = task.delegated_start_capability_id
-            ? listAgentStartCapabilities(db as never, task.project_id)
+            ? canonicalProjectIdentity(db, task.project_id).aliases
+              .flatMap((alias) => listAgentStartCapabilities(db as never, alias))
               .find((candidate) => candidate.id === task.delegated_start_capability_id) ?? null
             : null;
           const capability = liveCapability ?? boundCapability;
           if (!capability) return { ...task, agentStart: null };
           let executable = !!liveCapability && task.status === "backlog";
           try {
-            const settings = db.query(`SELECT dispatch_paused FROM board_settings WHERE project_id = ?`)
-              .get(task.project_id) as { dispatch_paused: number } | null;
+            const project = canonicalProjectIdentity(db, task.project_id);
+            const settings = db.query(`SELECT dispatch_paused FROM board_settings
+                WHERE project_id IN (${projectAliasPlaceholders(project)})
+                ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END LIMIT 1`)
+              .get(...project.aliases, project.boardId) as { dispatch_paused: number } | null;
             if (settings?.dispatch_paused) executable = false;
           } catch { /* Reduced schemas have no board settings; task state remains authoritative. */ }
           return {
@@ -1504,8 +1519,8 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // il modello unico serve a evitare.
       if (method === "GET") {
         const tipo = url.searchParams.get("resourceType") ?? "task";
-        const id = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
+        const resource = shareResource(tipo, url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "");
         // I soggetti stanno in `grants` e il NOME sta altrove: prima li univa
         // una JOIN su `devices`, che assumeva che ogni soggetto fosse un
         // dispositivo. Ora il nome si risolve DOPO, per tipo di soggetto —
@@ -1522,11 +1537,11 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         // the resource: that is the precedence `levelFor` applies (the
         // container is consulted only when the resource said nothing), and a
         // panel that showed both would show two levels for one access.
-        const direct = subjectsOf(db as never, tipo, id);
+        const direct = resource.aliases.flatMap((alias) => subjectsOf(db as never, tipo, alias));
         const saidDirectly = new Set(direct.map((r) => `${r.subjectType}:${r.subjectId}`));
         const righe = [
           ...direct.filter((r) => r.level !== "deny"),
-          ...subjectsViaContainer(db as never, tipo, id)
+          ...subjectsViaContainer(db as never, tipo, resource.id)
             .filter((r) => !saidDirectly.has(`${r.subjectType}:${r.subjectId}`)),
         ];
         const nameDevice = new Map(
@@ -1585,7 +1600,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
           level?: string;
         } | null;
         const tipo = body?.resourceType ?? "task";
-        const risorsa = body?.resourceId ?? body?.taskId;
+        const requestedResource = body?.resourceId ?? body?.taskId;
         if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
 
         // `deviceId` resta accettato come alias legacy per una release: il
@@ -1594,8 +1609,9 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         // con `taskId` → `resourceId`.
         const sogTipo = body?.subjectType ?? (body?.deviceId ? "device" : undefined);
         const sogId = body?.subjectId ?? body?.deviceId;
-        if (!risorsa || !sogId || !sogTipo) return json({ error: "subject_required" }, 400);
+        if (!requestedResource || !sogId || !sogTipo) return json({ error: "subject_required" }, 400);
         if (!isSubjectKind(sogTipo)) return json({ error: "unknown_subject_kind" }, 400);
+        const resource = shareResource(tipo, requestedResource);
 
         // The default level stays `read`: an older client that does not send
         // `level` keeps sharing read-only, identical to the behaviour before
@@ -1620,8 +1636,10 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
 
         // A level that changes is drop-then-put: the UNIQUE index on
         // (subject, resource) would otherwise IGNORE the second row.
-        dropGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa);
-        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, risorsa, { level, grantedAt: now });
+        for (const alias of resource.aliases) {
+          dropGrant(db as never, { kind: sogTipo, id: sogId }, tipo, alias);
+        }
+        putGrant(db as never, { kind: sogTipo, id: sogId }, tipo, resource.id, { level, grantedAt: now });
         // Senza questo, condividere qualcosa non si vedeva dall'altra parte
         // finche' l'ospite non premeva Ricarica: i dati c'erano e nessuno
         // glielo diceva. Mirato, non in broadcast — vedi `sendToDevice`.
@@ -1632,17 +1650,20 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       }
       if (method === "DELETE") {
         const tipo = url.searchParams.get("resourceType") ?? "task";
-        const risorsa = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
+        const requestedResource = url.searchParams.get("resourceId") ?? url.searchParams.get("taskId") ?? "";
         const sogTipoRaw = url.searchParams.get("subjectType") ?? (url.searchParams.get("deviceId") ? "device" : "");
         const sogId = url.searchParams.get("subjectId") ?? url.searchParams.get("deviceId") ?? "";
         if (!isResourceType(tipo)) return json({ error: "unknown_resource_type" }, 400);
         if (!isSubjectKind(sogTipoRaw)) return json({ error: "unknown_subject_kind" }, 400);
+        const resource = shareResource(tipo, requestedResource);
         // I dispositivi si prendono PRIMA di togliere la riga: dopo, se il
         // soggetto è un'organizzazione, non ci sarebbe più modo di sapere a chi
         // dirlo. Il frame va mandato comunque — proprio perché la concessione
         // non esiste più, nessun broadcast filtrato per entità arriverebbe.
         const toWarn = dispositiviDelSoggetto(db, sogTipoRaw, sogId);
-        dropGrant(db as never, { kind: sogTipoRaw, id: sogId }, tipo, risorsa);
+        for (const alias of resource.aliases) {
+          dropGrant(db as never, { kind: sogTipoRaw, id: sogId }, tipo, alias);
+        }
         for (const d of toWarn) ctx.sendToDevice?.(d, { type: "auth:shares-changed" });
         return json({ ok: true });
       }

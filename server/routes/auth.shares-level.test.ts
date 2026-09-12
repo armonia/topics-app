@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createAuthRouter } from "./auth";
 import { isGuestAllowedPath, isGuestAllowedMethod } from "../lib/grants";
+import { projectIdForPath } from "../../shared/board";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const MIGRATIONS = [
@@ -223,6 +224,30 @@ describe("GET /api/auth/shares · chi arriva dal progetto", () => {
     // The level the GATE applies, not the word in the project's row: a
     // container conveys `read` and no more.
     expect(body.shares[0].level).toBe("read");
+  });
+
+  test("a project-store UUID grant reaches its canonical board tasks", async () => {
+    const projectPath = "/tmp/project-share-alias";
+    const storeId = "11111111-1111-4111-8111-111111111111";
+    const boardId = projectIdForPath(projectPath);
+    db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
+    db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run(storeId, projectPath);
+    task(db, "alias-task", boardId);
+    const owner = createAuthRouter(creaCtx(db, { role: "owner", deviceId: "o1" }));
+
+    const shared = await call(owner, "POST", "/api/auth/shares", {
+      resourceType: "project", resourceId: storeId,
+      subjectType: "device", subjectId: "g1", level: "read",
+    });
+    expect(shared?.status).toBe(200);
+    expect(db.query("SELECT resource_id FROM grants WHERE subject_id = 'g1'").get())
+      .toEqual({ resource_id: boardId });
+
+    const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
+    const inventory = await (await call(guest, "GET", "/api/auth/shared"))!.json() as {
+      tasks: Array<{ id: string }>;
+    };
+    expect(inventory.tasks.map((entry) => entry.id)).toContain("alias-task");
   });
 
   test("una riga DIRETTA sulla scheda vince, e il soggetto compare una volta sola", async () => {

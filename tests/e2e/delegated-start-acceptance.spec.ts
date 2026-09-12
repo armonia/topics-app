@@ -125,48 +125,12 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
     );
     expect(person, "the paired guest must resolve to one person").toBeTruthy();
 
-    const shared = await request.post(`${E2E_BASE}/api/auth/shares`, {
-      data: {
-        subjectType: "person",
-        subjectId: person!.subjectId,
-        resourceType: "project",
-        resourceId: projectId,
-        level: "comment",
-      },
-    });
-    expect(shared.ok(), await shared.text()).toBeTruthy();
-
     const machineResponse = await request.get(`${E2E_BASE}/api/machines`);
     const machineBody = (await machineResponse.json()) as {
       machines: Array<{ id: string; name: string; baseUrl: string | null }>;
     };
     const localMachine = machineBody.machines.find((machine) => machine.baseUrl === null);
     expect(localMachine, "the installation must expose its canonical local machine").toBeTruthy();
-
-    let codingModel: string | undefined;
-    await expect.poll(async () => {
-      const inventoryResponse = await request.get(
-        `${E2E_BASE}/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}`,
-      );
-      if (!inventoryResponse.ok()) return undefined;
-      const inventory = (await inventoryResponse.json()) as { models: Array<{ id: string }> };
-      codingModel = inventory.models[0]?.id;
-      return codingModel;
-    }, { message: "the installation must expose a runtime-ready coding model" }).toBeTruthy();
-
-    const capabilityResponse = await request.post(`${E2E_BASE}/api/auth/agent-start-capabilities`, {
-      data: {
-        projectId,
-        subjectType: "person",
-        subjectId: person!.subjectId,
-        machineId: localMachine!.id,
-        model: codingModel,
-        effort: "medium",
-        maxDurationMinutes: 15,
-      },
-    });
-    expect(capabilityResponse.status(), await capabilityResponse.text()).toBe(201);
-    const capability = (await capabilityResponse.json()) as { capability: { id: string } };
 
     // This is the fake dispatch seam for the acceptance: the production queue
     // and audit writes still happen, while the global switch prevents a turn.
@@ -189,10 +153,35 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
           value: cookie.slice(separator + 1),
           url: E2E_TUNNEL_BASE,
         }]);
-        await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
-        await expect(page.getByTestId("guest-start")).toBeVisible({ timeout: 15_000 });
+        await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
+        await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20_000 });
       },
       scena: async (page) => {
+        await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
+        await page.keyboard.press("Meta+Comma");
+        const settings = page.getByTestId("settings-panel");
+        await expect(settings).toBeVisible({ timeout: 15_000 });
+        await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
+        const projectRow = settings.getByTestId("org-project-row").filter({ hasText: projectName });
+        await expect(projectRow).toBeVisible({ timeout: 15_000 });
+        await projectRow.getByTestId("share-control").click();
+        const sharing = page.getByTestId("share-panel");
+        await expect(sharing).toBeVisible();
+        await sharing.getByRole("button", { name: new RegExp(`^Persona ${guestName}`) }).click();
+        await expect(projectRow.getByTestId("share-control")).toContainText(/Condivisa con 1/);
+
+        const agentStart = sharing.getByTestId("agent-start-control");
+        await agentStart.getByRole("button", { name: "Autorizza" }).click();
+        const form = agentStart.getByTestId("agent-start-form");
+        await expect(form.getByRole("combobox", { name: "Computer" })).toContainText(localMachine!.name);
+        await form.getByRole("combobox", { name: "Impegno" }).click();
+        await page.getByRole("option", { name: "medium" }).click();
+        await form.getByRole("checkbox").check();
+        await form.getByRole("button", { name: "Conferma autorizzazione" }).click();
+        await expect(agentStart.getByTestId("agent-start-capabilities")).toContainText(`Persona ${guestName}`);
+        await didascalia(page, "Condividi usa il progetto registrato, la policy la board canonica");
+        await beat(page, 500);
+
         await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
         const start = page.getByTestId("guest-start");
         await expect(start).toBeVisible({ timeout: 15_000 });
@@ -204,30 +193,27 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
         await didascalia(page, "Richiesta vuota: modello e computer arrivano dalla policy");
         await beat(page, 700);
 
-        // Keep the guest page mounted: revocation feedback is a live transition,
-        // while the owner's loopback page independently verifies the board.
-        const ownerPage = await page.context().newPage();
-        await ownerPage.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
-        await openProjectBoard(ownerPage, new RegExp(projectName));
-        const card = ownerPage.locator(`[data-task-card="${taskId}"]`);
+        await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
+        await openProjectBoard(page, new RegExp(projectName));
+        const card = page.locator(`[data-task-card="${taskId}"]`);
         await expect(card).toBeVisible({ timeout: 15_000 });
         await expect(card.getByTestId("card-run-initiator")).toContainText(`Persona ${guestName}`);
         await expect(card.getByTestId("card-run-computer")).toContainText(localMachine!.name);
-        await ownerPage.close();
-
         await didascalia(page, "Il proprietario vede iniziatore e computer distinti");
-        await beat(page, 900);
+        await beat(page, 500);
 
-        const revoked = await page.request.delete(
-          `${E2E_BASE}/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(projectId)}` +
-          `&capabilityId=${encodeURIComponent(capability.capability.id)}`,
-        );
-        expect(revoked.ok(), await revoked.text()).toBeTruthy();
+        await page.keyboard.press("Meta+Comma");
+        await expect(settings).toBeVisible({ timeout: 15_000 });
+        await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
+        await projectRow.getByTestId("share-control").click();
+        await expect(sharing).toBeVisible();
+        await sharing.getByRole("button", { name: new RegExp(`Revoca Avvio agenti per Persona ${guestName}`) }).click();
+        await expect(agentStart.getByTestId("agent-start-capabilities")).toHaveCount(0);
 
-        await expect(page.getByRole("status")).toContainText(/annull|cancel/i, { timeout: 15_000 });
+        await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
         await expect(page.getByTestId("guest-start")).toHaveCount(0);
-        await didascalia(page, "La revoca annulla la coda e rimuove Avvia");
-        await beat(page, 900);
+        await didascalia(page, "La revoca dalla stessa UI rimuove Avvia");
+        await beat(page, 500);
       },
     });
 

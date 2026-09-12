@@ -2445,6 +2445,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           capability = liveAgentStartCapability(ctx.db, {
             principals: guestPrincipals,
             projectId: loaded.task.projectId,
+            canonicalLocalMachineId: ctx.machineStore?.upsertLocal().id ?? null,
           });
         } catch {
           capability = null;

@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { projectIdForPath } from "../../shared/board";
 import {
   appendDelegatedRunAudit,
   delegatedPolicyForTask,
@@ -24,6 +25,7 @@ function database(): Database {
   db.run(`CREATE TABLE orgs (id TEXT PRIMARY KEY, revoked_at INTEGER)`);
   db.run(`CREATE TABLE org_members (org_id TEXT, person_id TEXT, revoked_at INTEGER, local_blocked_at INTEGER)`);
   db.run(`CREATE TABLE machines (id TEXT PRIMARY KEY, name TEXT, base_url TEXT)`);
+  db.run(`CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)`);
   db.run(`CREATE TABLE agent_start_capabilities (
     id TEXT PRIMARY KEY, recipient_kind TEXT, recipient_id TEXT, project_id TEXT,
     machine_id TEXT, repository_key TEXT, model TEXT, effort TEXT,
@@ -97,6 +99,48 @@ describe("delegated agent start capability", () => {
     expect(liveAgentStartCapability(db, { principals: principal, projectId: "project-a", now: 101 })?.model).toBe("model-a");
     expect(liveAgentStartCapability(db, { principals: principal, projectId: "project-b", now: 101 })).toBeNull();
     expect(db.query("SELECT COUNT(*) AS n FROM delegated_run_audit").get()).toEqual({ n: 0 });
+  });
+
+  test("stored project aliases remain live only for their canonical board", () => {
+    const db = database();
+    const path = "/tmp/delegated-project-alias";
+    const storeId = "11111111-1111-4111-8111-111111111111";
+    const boardId = projectIdForPath(path);
+    db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run(storeId, path);
+    const capability = putAgentStartCapability(db, {
+      ...base, projectId: storeId, machineId: "local",
+    });
+    const principals = [{ kind: "person" as const, id: "person-a" }];
+
+    expect(liveAgentStartCapability(db, { principals, projectId: boardId, now: 101 })?.id)
+      .toBe(capability.id);
+    expect(liveAgentStartCapability(db, { principals, projectId: "project-b", now: 101 }))
+      .toBeNull();
+
+    db.query("INSERT INTO tasks VALUES ('task-alias',?,'backlog',NULL,NULL,NULL,'',NULL,NULL,NULL)").run(boardId);
+    queueDelegatedRun(db, {
+      taskId: "task-alias", capability, initiatorPersonId: "person-a", initiatorDeviceId: "device-a", now: 102,
+    });
+    expect(delegatedPolicyForTask(db, "task-alias", 103, "local")?.id).toBe(capability.id);
+  });
+
+  test("historical local machine ids fail live and resume validation", () => {
+    const db = database();
+    db.run("INSERT INTO machines VALUES ('historic-local','Historic local',NULL)");
+    const capability = putAgentStartCapability(db, { ...base, machineId: "historic-local" });
+    const principals = [{ kind: "person" as const, id: "person-a" }];
+    expect(liveAgentStartCapability(db, {
+      principals, projectId: "project-a", now: 101, canonicalLocalMachineId: "local",
+    })).toBeNull();
+
+    db.run("INSERT INTO tasks VALUES ('task-historic','project-a','backlog',NULL,NULL,NULL,'',NULL,NULL,NULL)");
+    queueDelegatedRun(db, {
+      taskId: "task-historic", capability, initiatorPersonId: "person-a", initiatorDeviceId: "device-a", now: 102,
+    });
+    expect(delegatedPolicyForTask(db, "task-historic", 103, "local")).toBeNull();
+    expect(appendDelegatedRunAudit(db, { taskId: "task-historic", phase: "resume", now: 104 }, {
+      canonicalLocalMachineId: "local",
+    })).toBe(false);
   });
 
   test("remote authority is ineffective until the computer owner authorizes the repository", () => {

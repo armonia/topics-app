@@ -20,6 +20,7 @@ function database(): Database {
   db.run("CREATE TABLE devices (id TEXT PRIMARY KEY, name TEXT, role TEXT, person_id TEXT, revoked_at INTEGER)");
   db.run("CREATE TABLE org_members (org_id TEXT, person_id TEXT, revoked_at INTEGER, local_blocked_at INTEGER)");
   db.run("CREATE TABLE machines (id TEXT PRIMARY KEY, name TEXT, base_url TEXT, status TEXT)");
+  db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
   db.run(`CREATE TABLE agent_start_capabilities (
     id TEXT PRIMARY KEY, recipient_kind TEXT, recipient_id TEXT, project_id TEXT,
     machine_id TEXT, repository_key TEXT, model TEXT, effort TEXT,
@@ -49,6 +50,7 @@ function context(db: Database, deviceId: string, role: "owner" | "guest" = "owne
     readJSON: (req: Request) => req.json(),
     requestIdentity: () => ({ role, deviceId }),
     sendToDevice: () => {},
+    machineStore: { upsertLocal: () => ({ id: "machine-a" }) },
   } as unknown as AppContext;
 }
 
@@ -143,6 +145,7 @@ describe("agent start capability routes", () => {
         cwd: directory,
       });
       const project = { id: "catalogue-row", name: "Project", slug: "project", path: directory };
+      db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run(project.id, project.path);
       const ctx = context(db, "owner-device");
       ctx.projectStore = {
         get: (id: string) => id === project.id ? project : null,
@@ -164,6 +167,68 @@ describe("agent start capability routes", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  test("project aliases share one confined capability and board settings boundary", async () => {
+    const db = database();
+    const path = "/tmp/canonical-capability-project";
+    const storeId = "11111111-1111-4111-8111-111111111111";
+    const otherStoreId = "22222222-2222-4222-8222-222222222222";
+    const boardId = projectIdForPath(path);
+    db.query("INSERT INTO projects (id, path) VALUES (?, ?), (?, ?)")
+      .run(storeId, path, otherStoreId, "/tmp/other-capability-project");
+    db.run("CREATE TABLE board_settings (project_id TEXT PRIMARY KEY, dispatch_model TEXT)");
+    db.query("INSERT INTO board_settings VALUES (?, 'model-b')").run(boardId);
+    const router = createAuthRouter(context(db, "owner-device"), {
+      repositoryKeyOf: async () => "example.test/team/repo",
+      taskModels: codingModels,
+    });
+
+    const created = await call(router, "POST", "/api/auth/agent-start-capabilities", {
+      ...policy, projectId: storeId,
+    });
+    expect(created?.status).toBe(201);
+    const capability = (await created!.json()).capability;
+    expect(capability.projectId).toBe(boardId);
+
+    db.query(`INSERT INTO agent_start_capabilities VALUES
+      ('stored-under-uuid','person','legacy',?,'machine-a','example.test/team/repo','model-a','high',30,1,1,'owner',2,NULL,NULL,NULL)`)
+      .run(storeId);
+    const viaStoreId = await call(router, "GET", `/api/auth/agent-start-capabilities?projectId=${storeId}`);
+    const inventory = await viaStoreId!.json();
+    expect(inventory.capabilities.map((item: { id: string }) => item.id).sort())
+      .toEqual([capability.id, "stored-under-uuid"].sort());
+    expect(inventory.recommendedModel).toBe("model-b");
+
+    const other = await call(router, "GET", `/api/auth/agent-start-capabilities?projectId=${otherStoreId}`);
+    expect((await other!.json()).capabilities).toEqual([]);
+    const revoked = await call(router, "DELETE",
+      `/api/auth/agent-start-capabilities?projectId=${boardId}&capabilityId=stored-under-uuid`);
+    expect(revoked?.status).toBe(200);
+  });
+
+  test("inventory exposes only the canonical local machine and rejects historical local ids", async () => {
+    const db = database();
+    db.run(`INSERT INTO machines VALUES
+      ('historic-a','Historic A',NULL,'online'),
+      ('historic-z','Historic Z',NULL,'online'),
+      ('machine-remote','Remote computer','http://node.test','online')`);
+    const router = createAuthRouter(context(db, "owner-device"), {
+      repositoryKeyOf: async () => "example.test/team/repo",
+      taskModels: codingModels,
+    });
+
+    const response = await call(router, "GET", "/api/auth/agent-start-capabilities?projectId=project-a");
+    const inventory = await response!.json();
+    expect(inventory.computers.map((item: { id: string }) => item.id).sort())
+      .toEqual(["machine-a", "machine-remote"]);
+
+    const rejected = await call(router, "POST", "/api/auth/agent-start-capabilities", {
+      ...policy, machineId: "historic-a",
+    });
+    expect(rejected?.status).toBe(409);
+    expect(await rejected!.json()).toMatchObject({ code: "machine_not_available" });
+    expect(db.query("SELECT COUNT(*) AS n FROM machines WHERE base_url IS NULL").get()).toEqual({ n: 3 });
   });
 
   test("inventory preserves coding catalog order and marks legacy and remote support honestly", async () => {

@@ -1427,12 +1427,14 @@ const taskDispatcher = createTaskDispatcher({
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
-  delegatedPolicyForTask: (taskId) => delegatedPolicyForTask(ctx.db, taskId),
+  delegatedPolicyForTask: (taskId) => delegatedPolicyForTask(ctx.db, taskId, Date.now(), ctx.machineStore.upsertLocal().id),
   isDelegatedTask: (taskId) => {
     try { return !!ctx.db.query("SELECT 1 FROM delegated_node_runs WHERE run_id = ?").get(taskId); }
     catch { return false; }
   },
-  recordDelegatedPhase: (input) => appendDelegatedRunAudit(ctx.db, input),
+  recordDelegatedPhase: (input) => appendDelegatedRunAudit(ctx.db, input, {
+    canonicalLocalMachineId: ctx.machineStore.upsertLocal().id,
+  }),
   abortTurn: abortHeadlessTurn,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
