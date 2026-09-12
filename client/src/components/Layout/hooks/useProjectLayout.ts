@@ -57,7 +57,6 @@ import {
   recordBrowserOrigin,
   drainProjectBrowserReopens,
 } from '../../../state/pane/adapters';
-import { createDraftPaneId } from '../../../state/pane/adapters/paneConfig';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
 import { buildTerminalSessionBody, normalizeTerminalAgent, TERMINAL_AGENT_LABELS } from '../../../lib/terminalAgents';
@@ -128,7 +127,9 @@ export interface UseProjectLayoutArgs {
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   claudeSkipPermissions: boolean;
   onFocusPanel: (paneId: string) => void;
-  onNewChat?: () => void;
+  /** Create a REAL chat of this project, landing in `targetGroupId` when given
+   *  (the same door the "+ new chat" of a tab bar uses). */
+  onNewChat?: (targetGroupId?: string) => void;
   // Closed-tab undo:
   pushClosedTab: (record: ClosedTabRecord) => void;
   removeClosedTab: (paneId: string) => void;
@@ -228,7 +229,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     onWSMessage,
     claudeSkipPermissions,
     onFocusPanel,
-    onNewChat: _onNewChat,
+    onNewChat,
     pushClosedTab,
     removeClosedTab,
     isSessionStreaming: _isSessionStreaming,
@@ -372,6 +373,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // 'chat' group by type-affinity and race our targeted placement. We park the
   // pane id here so orphan-sync skips it for one tick, letting reopenChatPane win.
   const pendingTargetedChatRef = useRef<{ paneId: string } | null>(null);
+  // A split asked for on the only pane of its group, waiting for the companion
+  // chat to be created (see `handleSplitGroup`). Consumed by the effect that
+  // watches the source group fill up.
+  const pendingCompanionSplitRef = useRef<{
+    sourceGroupId: string;
+    paneId: string;
+    edge: 'left' | 'right' | 'top' | 'bottom';
+    opts?: { fullRow?: boolean };
+  } | null>(null);
 
   // --- Stop streaming (closes pane locally if first-message stop) ---
   // Si toglie la pane solo se la chat è stata davvero buttata via, e a dirlo è
@@ -433,6 +443,28 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       return next;
     });
   }, [panes, focusedGroupIdRef]);
+
+  // --- The second half of a postponed self-split ---
+  // `handleSplitGroup` parks the gesture when the group holds a single pane and
+  // asks for a companion chat; the chat is created on the server, so it lands a
+  // few frames later. As soon as it has joined the group, replay the split: the
+  // group now holds two panes, so it takes the ordinary route and no cell is
+  // ever empty in between. The first chat that joins consumes the intent —
+  // whichever one it is, splitting the pane out is still what was asked for.
+  useEffect(() => {
+    const pending = pendingCompanionSplitRef.current;
+    if (!pending) return;
+    const group = groups.find(g => g.id === pending.sourceGroupId);
+    if (!group || group.paneIds.length < 2 || !group.paneIds.includes(pending.paneId)) return;
+    pendingCompanionSplitRef.current = null;
+    handleSplitGroupRef.current?.(
+      pending.sourceGroupId,
+      pending.paneId,
+      pending.sourceGroupId,
+      pending.edge,
+      pending.opts,
+    );
+  }, [groups]);
 
   // --- Sync rows/heights with groups ---
   // Restore-active-chat is owned by `useProjectChatSync` via
@@ -1323,24 +1355,30 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const fullRow = isVertical && !!opts?.fullRow;
       const columnSplit = isVertical && !fullRow;
 
-      // Self-split of a single-pane group: the original pane will move to the
-      // new group, leaving the source group empty. Auto-spawn a draft chat in
-      // the source group first so it keeps one visible pane (mirrors what
-      // PanelGrid.handleSplitPane does for standalone-pool). A fullRow move IS
-      // still meaningful for a solo group (pane moves to a new spanning row).
+      // SELF-SPLIT OF A SINGLE-PANE GROUP, and the companion it needs.
+      //
+      // The pane is about to move into the new group, which would leave the
+      // source group empty (the orphan pass then deletes it and the split is
+      // undone in the same breath). It used to keep a DRAFT chat there, copying
+      // what the standalone pool does — but a draft is a standalone creature:
+      // this window has no topic to draw for one (`ProjectWindow.renderPane`
+      // showed "Topic not found" in that cell) and nothing persists it, so the
+      // whole split collapsed back to one cell on the next reload. Inside a
+      // project a new chat is a REAL topic, the same one "+ new chat" creates.
+      //
+      // It arrives asynchronously, so the split is POSTPONED, not performed
+      // with a hole in the layout: the intent is parked and the effect below
+      // replays it once the companion has joined the group. The replay then
+      // takes the ordinary route (two panes in the group, nothing ever empty).
+      // A fullRow move IS still meaningful for a solo group (the pane moves to
+      // a new spanning row), so it keeps going without a companion.
       if (sourceGroupId === targetGroupId && !fullRow) {
         const sourceGroup = groups.find(g => g.id === sourceGroupId);
         if (sourceGroup && sourceGroup.paneIds.length <= 1) {
-          const draftId = createDraftPaneId();
-          const draftPane: Pane = { id: draftId, type: 'chat', title: tr('pane.chat.newTitle'), preview: false };
-          setPanes(prev => [...prev, draftPane]);
-          setGroups(prev =>
-            prev.map(g =>
-              g.id === sourceGroupId
-                ? { ...g, paneIds: [draftId], activePaneId: draftId }
-                : g,
-            ),
-          );
+          if (!onNewChat) return;
+          pendingCompanionSplitRef.current = { sourceGroupId, paneId, edge, opts };
+          onNewChat(sourceGroupId);
+          return;
         }
       }
 
@@ -1464,7 +1502,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       setFocusedGroupId(newGroupId);
     },
-    [panes, groups, rowsRef, groupsRef, rowHeightsRef, focusedGroupIdRef, tr],
+    [panes, groups, rowsRef, groupsRef, rowHeightsRef, focusedGroupIdRef, tr, onNewChat],
   );
 
   // Pin the latest handleSplitGroup so the early-mounted browser-split effect

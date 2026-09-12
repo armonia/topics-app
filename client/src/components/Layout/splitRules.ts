@@ -21,11 +21,11 @@
  *    left to split away from.
  *
  *  - `project` (a GroupLayout group): ALWAYS splittable (mirrors
- *    standalone-pool). When a single-pane group is split from the context
- *    menu, `handleSplitGroup` in useProjectLayout creates a fresh draft chat
- *    in the source group so it retains a visible pane; the original pane
- *    then moves to the new split group. This matches what standalone does
- *    (PanelGrid auto-spawns a draft when the pool has only one panel).
+ *    standalone-pool). When a single-pane group is split, `handleSplitGroup`
+ *    in useProjectLayout asks for a REAL chat of the project (a draft has no
+ *    topic to draw and nothing persists it, so its cell died on reload and
+ *    took the split with it) and replays the split once that chat has joined
+ *    the group; the original pane then moves to the new split group.
  *
  * Callers use the SAME predicate to (a) show/hide the menu entries, and
  * (b) guard the handlers — so an offered gesture always works and a refused
@@ -45,8 +45,9 @@ export interface SplitContext {
 export function canSplitPane(ctx: SplitContext): boolean {
   if (ctx.surface === 'standalone-solo') return ctx.groupSize > 1;
   // standalone-pool and project: always splittable. For project, a single-pane
-  // group split auto-creates a companion draft pane (useProjectLayout); for
-  // standalone-pool, PanelGrid does the same. The menu entries are always shown.
+  // group split asks for a companion CHAT and replays itself when it lands
+  // (useProjectLayout); standalone-pool spawns a draft instead, which is a
+  // creature only that surface can draw. The menu entries are always shown.
   return true;
 }
 
@@ -82,7 +83,7 @@ export interface SplitDropContext {
  * Same question as `canSplitPane`, asked from the DRAG path instead of the
  * context menu, and answered by the same rule — that identity is the point.
  * The two paths had drifted: the project surface offered "Split" in the menu
- * (which auto-spawns a draft companion, see `useProjectLayout.handleSplitGroup`)
+ * (which asks for a companion chat, see `useProjectLayout.handleSplitGroup`)
  * while `GroupLayout`'s drop handler refused the same gesture whenever the
  * source group held a single pane. A project window that opens with one pane in
  * one group is the common case, so drag-to-split was dead exactly where it was

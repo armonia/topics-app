@@ -487,9 +487,9 @@ export function GroupLayout({
     // Splittable at all? ONE predicate, the same the context menu is gated on
     // (splitRules.canDropSplit → canSplitPane). This used to be an inline
     // "source group holds a single pane → refuse", which contradicted both the
-    // menu and handleSplitGroup: the latter auto-spawns a draft companion for
-    // exactly that case, so a project opened with one pane in one group painted
-    // the edge preview and then swallowed the release.
+    // menu and handleSplitGroup: the latter opens a companion chat for exactly
+    // that case, so a project opened with one pane in one group painted the
+    // edge preview and then swallowed the release.
     if (
       !canDropSplit({
         surface: 'project',

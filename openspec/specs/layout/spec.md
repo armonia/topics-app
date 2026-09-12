@@ -2656,12 +2656,47 @@ ridisegnato. Quel bersaglio SHALL quindi non accendersi affatto.
 - **GIVEN** un progetto con un gruppo che contiene una pane
 - **WHEN** la sua scheda viene rilasciata sulla fascia di bordo destro del corpo
 - **THEN** l'albero SHALL avere due foglie sotto uno split `row`, e il gruppo
-  d'origine SHALL conservare una pane visibile (una bozza compagna)
+  d'origine SHALL conservare una pane visibile (la chat compagna di DNDSPLIT-03)
 
 #### Scenario: il gesto a tutta larghezza che non cambierebbe niente
 - **GIVEN** lo stesso progetto con un gruppo e una pane
 - **WHEN** la scheda passa sopra la striscia a tutta larghezza
 - **THEN** la striscia SHALL non accendersi, e il rilascio SHALL non cambiare l'albero
+
+### Requirement: DNDSPLIT-03 — La compagna di uno split dentro un progetto e' una chat vera, e lo split ricompare al ritorno
+
+Splittare l'unica pane di un gruppo lascerebbe vuoto il gruppo d'origine, che la
+potatura degli orfani cancella: serve una compagna che tenga la cella. La
+superficie autonoma ci mette una BOZZA, e per lei va bene — il pool e' una cella
+permanente e le bozze le sa disegnare.
+
+Dentro un progetto no, e questo e' il guasto: una bozza non ha topic, quindi la
+cella scriveva «Topic not found»; e non la persiste nessuno (le chat di un
+progetto viaggiano come `openChatTopicIds`, cioe' per topic), quindi al
+ricaricamento la cella spariva, il gruppo restava vuoto, veniva potato e lo split
+collassava a una cella sola. Lo stesso gesto, fuori dai progetti, sopravviveva:
+la divisione c'era fuori e non dentro.
+
+Dentro un progetto una chat nuova e' un TOPIC vero — quello che crea «+ nuova
+chat». La compagna SHALL essere quella stessa chat. Poiche' nasce sul server e
+arriva qualche fotogramma dopo, lo split SHALL essere RIMANDATO invece di essere
+eseguito su un buco: l'intento resta in attesa e viene rigiocato quando la
+compagna e' entrata nel gruppo, cosi' nessuna cella e' mai vuota nel frattempo.
+
+Ne segue la proprieta' che si vede: uno split fatto dentro un progetto SHALL
+essere ancora li' dopo un ricaricamento, con le stesse foglie — come quello
+fatto fuori dai progetti.
+
+#### Scenario: la cella compagna e' una chat, non un cartello di errore
+- **GIVEN** un progetto con un gruppo che contiene una pane sola
+- **WHEN** si sceglie «Dividi a destra» dal menu della sua scheda
+- **THEN** l'albero SHALL avere due foglie sotto uno split `row`, e nessuna delle
+  due SHALL mostrare «Topic not found»
+
+#### Scenario: al ritorno lo split e' ancora li'
+- **GIVEN** lo split appena fatto dentro il progetto
+- **WHEN** si ricarica l'applicazione
+- **THEN** la superficie del progetto SHALL avere di nuovo due foglie
 
 ### Requirement: LAYOUT-30 — L'aria a sinistra del nome di una riga si paga UNA VOLTA, non una per colonna riservata
 
