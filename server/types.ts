@@ -456,7 +456,13 @@ export interface AppContext {
    * filter by role must treat it as "owner": it is the same meaning loopback
    * has, and it is the previous behaviour.
    */
-  requestIdentity?: (req: Request) => { role: 'owner' | 'guest'; deviceId: string | null } | null;
+  requestIdentity?: (req: Request) => {
+    role: 'owner' | 'guest';
+    deviceId: string | null;
+    /** Present only for the immutable node-execution credential scope. */
+    delegatedAuthorizationId?: string;
+    delegatedCapabilityId?: string;
+  } | null;
   broadcastToAll: (message: OutboundMessage) => void;
   /**
    * The three frames that carry a whole `projects` row. They do NOT go through

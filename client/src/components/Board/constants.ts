@@ -407,6 +407,10 @@ export interface BoardFilters {
   person: string[];
   /** `Task.lastActorDeviceName` — the device that person used. */
   computer: string[];
+  /** `Task.runInitiatorPersonName` - who requested a delegated run. */
+  initiator: string[];
+  /** `Task.runComputerName` - where that delegated run executed. */
+  runComputer: string[];
 }
 
 /** What the ONE field owns: every axis except the project, which keeps its own

@@ -1,10 +1,10 @@
 /**
  * How THIS machine talks to a paired node (MACHINE-02, KANBAN-76, KANBAN-77).
  *
- * A node is a second Topics installation that runs a card for us. We are one
- * of its DEVICES: the pairing is the same `/api/auth/pair/*` handshake a phone
- * goes through, and the credential we keep is the device cookie the node
- * minted. There is no second identity and no shared secret on our side.
+ * A node is a second Topics installation that runs a card for us. Legacy runs
+ * use the historical device pairing. Delegated runs use a purpose-specific
+ * request/claim handshake and a credential scoped to one node authorization;
+ * it never becomes an interactive device or an installation-owner session.
  *
  * Pure on purpose: `fetch`, the clock, the wait and the machine's own name
  * come in through `deps`. The file-system side (the token file) is in the two
@@ -78,6 +78,27 @@ export interface PairWaitResult {
   name?: string;
 }
 
+export interface DelegatedAuthorizationHandshakeBody extends DelegatedNodeBinding {
+  purpose: "authorization";
+  originPersonId: string | null;
+  originDeviceId: string;
+  originMachineId: string;
+}
+export interface DelegatedCatalogHandshakeBody {
+  purpose: "catalog";
+  repositoryKey: string;
+  originMachineId: string;
+}
+export type DelegatedHandshakeBody = DelegatedAuthorizationHandshakeBody | DelegatedCatalogHandshakeBody;
+
+export interface DelegatedHandshakeState {
+  state: "pending" | "approved" | "active" | "denied" | "expired" | "revoked";
+  token?: string;
+  authorizationId?: string;
+  expiresAt?: number;
+  models?: string[];
+}
+
 export interface CreateRunBody {
   originTaskId: string;
   originUrl: string;
@@ -86,6 +107,26 @@ export interface CreateRunBody {
   model: string | null;
   effort: string | null;
 }
+
+/** Immutable authority envelope for the confined delegated-node path. */
+export interface DelegatedNodeBinding {
+  capabilityId: string;
+  subjectPersonId: string | null;
+  subjectDeviceId: string;
+  machineId: string;
+  repositoryKey: string;
+  model: string;
+  effort: string;
+  maxDurationMinutes: number;
+  maxAttempts: 1;
+  fanout: 1;
+}
+
+/** The subset needed to prove ownership of an existing node run. */
+export type NodeRunBinding = Pick<
+  DelegatedNodeBinding,
+  "capabilityId" | "subjectPersonId" | "subjectDeviceId"
+>;
 
 export interface NodeRunComment {
   id: string;
@@ -119,15 +160,27 @@ export interface NodeClient {
     /** `1` = a single non-blocking poll, `pending` comes back as-is. */
     maxPolls?: number;
   }): Promise<PairWaitResult>;
-  createRun(input: { baseUrl: string; token: string; body: CreateRunBody }): Promise<{ runId: string }>;
+  openDelegatedRequest(baseUrl: string, body: DelegatedHandshakeBody): Promise<{
+    requestId: string; claim: string; code: string; expiresInMs: number;
+  }>;
+  claimDelegatedRequest(input: { baseUrl: string; requestId: string; claim: string }): Promise<DelegatedHandshakeState>;
+  acknowledgeDelegatedRequest(input: { baseUrl: string; requestId: string; claim: string }): Promise<void>;
+  revokeDelegatedRequest(input: { baseUrl: string; requestId: string; token?: string; capabilityId?: string; claim?: string }): Promise<void>;
+  createRun(input: {
+    baseUrl: string;
+    token: string;
+    body: CreateRunBody;
+    delegation?: NodeRunBinding;
+  }): Promise<{ runId: string }>;
   readRun(input: {
     baseUrl: string;
     token: string;
     runId: string;
     sinceCommentSeq?: number;
+    delegation?: NodeRunBinding;
   }): Promise<NodeRunReport>;
-  fetchBundle(input: { baseUrl: string; token: string; runId: string }): Promise<BundleResult>;
-  cancelRun(input: { baseUrl: string; token: string; runId: string }): Promise<void>;
+  fetchBundle(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<BundleResult>;
+  cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 1500;
@@ -240,6 +293,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     ...(token ? { Cookie: `${NODE_SESSION_COOKIE}=${token}` } : {}),
     ...extra,
   });
+  const delegatedHeaders = (delegation: NodeRunBinding | undefined): Record<string, string> =>
+    delegation ? { "X-Topics-Delegated-Capability": delegation.capabilityId } : {};
 
   /** One request, with the thrown-vs-answered split applied once for everybody. */
   const call = async (url: string, init: RequestInit, what: string): Promise<Response> => {
@@ -262,7 +317,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     }
   };
 
-  const runUrl = (baseUrl: string, runId: string) => `${baseUrl}/api/nodes/runs/${encodeURIComponent(runId)}`;
+  const runUrl = (baseUrl: string, runId: string, delegated = false) =>
+    `${baseUrl}/api/nodes/${delegated ? "delegated-runs" : "runs"}/${encodeURIComponent(runId)}`;
 
   return {
     async pairRequest(baseUrl) {
@@ -313,13 +369,84 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       }
     },
 
-    async createRun({ baseUrl, token, body }) {
+    async openDelegatedRequest(baseUrl, body) {
+      const out = await callJson<Record<string, unknown>>(
+        `${baseUrl}/api/nodes/delegated-requests`,
+        { method: "POST", headers: headersFor(null, { "Content-Type": "application/json" }), body: JSON.stringify(body) },
+        "delegated request",
+      );
+      if (typeof out.requestId !== "string" || typeof out.claim !== "string" || typeof out.code !== "string") {
+        throw new NodeError("server_error", "delegated request: answer is incomplete", 200);
+      }
+      return {
+        requestId: out.requestId,
+        claim: out.claim,
+        code: out.code,
+        expiresInMs: typeof out.expiresInMs === "number" ? out.expiresInMs : DEFAULT_PAIR_TTL_MS,
+      };
+    },
+
+    async claimDelegatedRequest({ baseUrl, requestId, claim }) {
+      const res = await call(
+        `${baseUrl}/api/nodes/delegated-requests/${encodeURIComponent(requestId)}/claim?claim=${encodeURIComponent(claim)}`,
+        { method: "GET", headers: headersFor(null) },
+        "delegated claim",
+      );
+      const out = await res.json() as Record<string, unknown>;
+      const state = out.state;
+      if (!["pending", "approved", "active", "denied", "expired", "revoked"].includes(String(state))) {
+        throw new NodeError("server_error", "delegated claim: invalid state", res.status);
+      }
+      if (state !== "approved") return { state } as DelegatedHandshakeState;
+      const token = tokenFromSetCookie(res.headers);
+      const models = Array.isArray(out.models) ? out.models.filter((model): model is string => typeof model === "string") : undefined;
+      if (!token && models) return {
+        state: "approved", models,
+        expiresAt: typeof out.expiresAt === "number" ? out.expiresAt : undefined,
+      };
+      if (!token || typeof out.authorizationId !== "string") {
+        throw new NodeError("server_error", "delegated claim: approved without confined credential", res.status);
+      }
+      return {
+        state: "approved", token, authorizationId: out.authorizationId,
+        expiresAt: typeof out.expiresAt === "number" ? out.expiresAt : undefined,
+        models,
+      };
+    },
+
+    async acknowledgeDelegatedRequest({ baseUrl, requestId, claim }) {
+      await call(
+        `${baseUrl}/api/nodes/delegated-requests/${encodeURIComponent(requestId)}/ack?claim=${encodeURIComponent(claim)}`,
+        { method: "POST", headers: headersFor(null) },
+        "delegated acknowledgement",
+      );
+    },
+
+    async revokeDelegatedRequest({ baseUrl, requestId, token, capabilityId, claim }) {
+      const query = claim ? `?claim=${encodeURIComponent(claim)}` : "";
+      await call(
+        `${baseUrl}/api/nodes/delegated-requests/${encodeURIComponent(requestId)}${query}`,
+        {
+          method: "DELETE",
+          headers: headersFor(token ?? null, capabilityId ? { "X-Topics-Delegated-Capability": capabilityId } : {}),
+        },
+        "delegated revoke",
+      );
+    },
+
+    async createRun({ baseUrl, token, body, delegation }) {
+      const wireBody = delegation
+        ? { originTaskId: body.originTaskId, originUrl: body.originUrl, text: body.text, description: body.description }
+        : body;
       const out = await callJson<{ runId?: unknown }>(
-        `${baseUrl}/api/nodes/runs`,
+        `${baseUrl}/api/nodes/${delegation ? "delegated-runs" : "runs"}`,
         {
           method: "POST",
-          headers: headersFor(token, { "Content-Type": "application/json" }),
-          body: JSON.stringify(body),
+          headers: headersFor(token, {
+            "Content-Type": "application/json",
+            ...delegatedHeaders(delegation),
+          }),
+          body: JSON.stringify(wireBody),
         },
         "create run",
       );
@@ -329,11 +456,11 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       return { runId: out.runId };
     },
 
-    async readRun({ baseUrl, token, runId, sinceCommentSeq }) {
+    async readRun({ baseUrl, token, runId, sinceCommentSeq, delegation }) {
       const qs = sinceCommentSeq !== undefined ? `?sinceCommentSeq=${encodeURIComponent(String(sinceCommentSeq))}` : "";
       const out = await callJson<Partial<NodeRunReport>>(
-        `${runUrl(baseUrl, runId)}${qs}`,
-        { method: "GET", headers: headersFor(token) },
+        `${runUrl(baseUrl, runId, !!delegation)}${qs}`,
+        { method: "GET", headers: headersFor(token, delegatedHeaders(delegation)) },
         "read run",
       );
       return {
@@ -348,10 +475,13 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       };
     },
 
-    async fetchBundle({ baseUrl, token, runId }) {
+    async fetchBundle({ baseUrl, token, runId, delegation }) {
       const res = await call(
-        `${runUrl(baseUrl, runId)}/bundle`,
-        { method: "GET", headers: headersFor(token, { Accept: "application/octet-stream, application/json" }) },
+        `${runUrl(baseUrl, runId, !!delegation)}/bundle`,
+        { method: "GET", headers: headersFor(token, {
+          Accept: "application/octet-stream, application/json",
+          ...delegatedHeaders(delegation),
+        }) },
         "fetch bundle",
       );
       // "Nothing to deliver" is a JSON answer, the branch is raw bytes: the
@@ -372,8 +502,12 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
       return { empty: false, bytes };
     },
 
-    async cancelRun({ baseUrl, token, runId }) {
-      await call(runUrl(baseUrl, runId), { method: "DELETE", headers: headersFor(token) }, "cancel run");
+    async cancelRun({ baseUrl, token, runId, delegation }) {
+      await call(
+        runUrl(baseUrl, runId, !!delegation),
+        { method: "DELETE", headers: headersFor(token, delegatedHeaders(delegation)) },
+        "cancel run",
+      );
     },
   };
 }
@@ -387,6 +521,7 @@ export interface TokenFs {
   writeFileSync: (p: string, data: string, opts: { mode: number }) => void;
   mkdirSync: (p: string, opts: { recursive: true; mode: number }) => unknown;
   chmodSync: (p: string, mode: number) => void;
+  unlinkSync?: (p: string) => void;
 }
 
 const MACHINE_ID_SHAPE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -397,6 +532,14 @@ export function nodeTokenPath(stateDir: string, machineId: string): string {
   return join(stateDir, "nodes", `${machineId}.token`);
 }
 
+/** A confined pairing token never overwrites or reuses the machine owner's token. */
+export function delegatedNodeTokenPath(stateDir: string, machineId: string, capabilityId: string): string {
+  if (!MACHINE_ID_SHAPE.test(machineId) || !MACHINE_ID_SHAPE.test(capabilityId)) {
+    throw new Error("delegatedNodeTokenPath: machine and capability ids must be file names");
+  }
+  return join(stateDir, "nodes", "delegated", machineId, `${capabilityId}.token`);
+}
+
 /** `null` = never paired, or the file was tampered into a shape no cookie has. */
 export function readNodeToken(stateDir: string, machineId: string, fs: TokenFs = nodeFs): string | null {
   const f = nodeTokenPath(stateDir, machineId);
@@ -404,6 +547,22 @@ export function readNodeToken(stateDir: string, machineId: string, fs: TokenFs =
     if (!fs.existsSync(f)) return null;
     const v = fs.readFileSync(f, "utf8").trim();
     return /^[A-Za-z0-9_.-]{16,1024}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readDelegatedNodeToken(
+  stateDir: string,
+  machineId: string,
+  capabilityId: string,
+  fs: TokenFs = nodeFs,
+): string | null {
+  const file = delegatedNodeTokenPath(stateDir, machineId, capabilityId);
+  try {
+    if (!fs.existsSync(file)) return null;
+    const value = fs.readFileSync(file, "utf8").trim();
+    return /^[A-Za-z0-9_.-]{16,1024}$/.test(value) ? value : null;
   } catch {
     return null;
   }
@@ -423,4 +582,35 @@ export function writeNodeToken(stateDir: string, machineId: string, token: strin
   fs.writeFileSync(f, token + "\n", { mode: 0o600 });
   fs.chmodSync(f, 0o600);
   return f;
+}
+
+export function writeDelegatedNodeToken(
+  stateDir: string,
+  machineId: string,
+  capabilityId: string,
+  token: string,
+  fs: TokenFs = nodeFs,
+): string {
+  const file = delegatedNodeTokenPath(stateDir, machineId, capabilityId);
+  const dir = join(stateDir, "nodes", "delegated", machineId);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+  fs.writeFileSync(file, token + "\n", { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  return file;
+}
+
+export function removeDelegatedNodeToken(
+  stateDir: string,
+  machineId: string,
+  capabilityId: string,
+  fs: TokenFs = nodeFs,
+): void {
+  const file = delegatedNodeTokenPath(stateDir, machineId, capabilityId);
+  try {
+    if (fs.existsSync(file)) (fs.unlinkSync ?? nodeFs.unlinkSync)(file);
+  } catch {
+    // Revocation in the database is authoritative. A stale file contains a
+    // credential the node has already invalidated and is retried on reissue.
+  }
 }

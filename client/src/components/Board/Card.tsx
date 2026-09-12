@@ -45,6 +45,7 @@ import { fmtMs, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText 
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
+import { runInitiatorName } from './taskFilter';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -806,6 +807,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // ma aspetta lo stesso. Le due frasi non condividono una parola: vedi il
   // blocco «i due versi dell'attesa» in lib/board.ts.
   const waitingOnThis = waitingOnThisChip(task, tr);
+  const runInitiator = runInitiatorName(task);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
   // chip che non si monta MAI, con il dato giusto nel DB, giusto nella rotta e
@@ -814,7 +816,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1220,6 +1222,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-300"
             >{task.lastActorPersonName}</span>
+          )}
+          {runInitiator && (
+            <span
+              data-testid="card-run-initiator"
+              title={tr('board.card.runInitiatorTitle', { name: runInitiator })}
+              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-700 dark:text-violet-300 md:text-mini"
+            ><UserRound className="h-3 w-3 shrink-0" /> {tr('board.card.runInitiator', { name: runInitiator })}</span>
+          )}
+          {task.runComputerName && (
+            <span
+              data-testid="card-run-computer"
+              title={tr('board.card.runComputerTitle', { name: task.runComputerName })}
+              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-700 dark:text-indigo-300 md:text-mini"
+            ><Server className="h-3 w-3 shrink-0" /> {task.runComputerName}</span>
           )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
               CHIUDE la card, le altre servono a leggere la board. */}

@@ -25,6 +25,7 @@ import { readableTaskIds, levelFor, meetsLevel } from "../lib/grants-query";
 import { titoloMigliore } from "../services/task-title";
 import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
+import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
@@ -640,10 +641,9 @@ function checksLanes(): number {
  * agent", "code changes", "approval" and "publishing" are distinct actions
  * that a collaboration capability never grants implicitly.
  *
- * `/run` and `/stop` are `unsupported` DELIBERATELY: starting a card runs the
- * card's own text as a prompt for an agent inside the owner's repo, and the
- * text is exactly what a guest with `edit` can rewrite. See `GrantLevel` in
- * `grants-query.ts`.
+ * `/run` has its own result because it is checked against a separate,
+ * owner-issued capability. `/stop` remains unsupported: start does not confer
+ * lifecycle or owner powers.
  *
  * Pure and testable on its own: `idInPath` is the EXACT segment read from
  * the path (still url-encoded), so comparing against `pathname` does not
@@ -653,10 +653,11 @@ export function matchGuestTaskAction(
   pathname: string,
   idInPath: string,
   method: string,
-): "read" | "comment" | "edit" | "unsupported" {
+): "read" | "comment" | "edit" | "run" | "unsupported" {
   const base = `/api/tasks/${idInPath}`;
   if (method === "GET") return pathname === base ? "read" : "unsupported";
   if (method === "POST" && pathname === `${base}/comments`) return "comment";
+  if (method === "POST" && pathname === `${base}/run`) return "run";
   if (method === "PATCH" && pathname === base) return "edit";
   return "unsupported";
 }
@@ -2424,8 +2425,47 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // in a collaboration level.
       const guestAction = matchGuestTaskAction(pathname, idInPath!, method);
       if (guestAction === "unsupported") return json({ error: "read only", code: "guest_read_only" }, 403);
-      if (guestAction !== "read" && !meetsLevel(level, guestAction)) {
+      if (guestAction !== "read" && guestAction !== "run" && !meetsLevel(level, guestAction)) {
         return json({ error: "insufficient level", code: "guest_level_denied", need: guestAction, have: level }, 403);
+      }
+      if (guestAction === "run") {
+        const rawBody = await req.text();
+        let body: unknown = null;
+        if (rawBody.trim()) {
+          try { body = JSON.parse(rawBody); }
+          catch { return json({ error: "body must be empty", code: "guest_run_body_not_empty" }, 400); }
+        }
+        if (body !== null && (typeof body !== "object" || Array.isArray(body) || Object.keys(body as object).length !== 0)) {
+          return json({ error: "body must be empty", code: "guest_run_body_not_empty" }, 400);
+        }
+        const loaded = svc.get(idTask);
+        if (!loaded) return json({ error: "not shared", code: "not_shared" }, 403);
+        let capability;
+        try {
+          capability = liveAgentStartCapability(ctx.db, {
+            principals: guestPrincipals,
+            projectId: loaded.task.projectId,
+          });
+        } catch {
+          capability = null;
+        }
+        if (!capability) return json({ error: "agent start not authorized", code: "agent_start_denied" }, 403);
+        const personId = resolvePrincipals(ctx.db, deviceId).personId;
+        try {
+          queueDelegatedRun(ctx.db, {
+            taskId: idTask,
+            capability,
+            initiatorPersonId: personId,
+            initiatorDeviceId: deviceId,
+          });
+        } catch (error) {
+          const code = error instanceof Error ? error.message : "task_not_executable";
+          return json({ error: "task cannot be started", code }, code === "task_not_executable" ? 409 : 403);
+        }
+        const task = svc.get(idTask)!.task;
+        broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+        dispatcher?.onEnterTodo(task.projectId, task.id);
+        return json({ task, queued: true }, 202);
       }
       if (guestAction === "comment") {
         return await handleGuestComment(idTask, deviceId, req);

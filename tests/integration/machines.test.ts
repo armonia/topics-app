@@ -153,6 +153,10 @@ describe("Phase D · multi-machine", () => {
           ? { state: "pending" }
           : { state: "approved", token: TOKEN, name: "Studio PC" };
       },
+      openDelegatedRequest: async () => { throw new Error("not in this test"); },
+      claimDelegatedRequest: async () => ({ state: "expired" }),
+      acknowledgeDelegatedRequest: async () => { throw new Error("not in this test"); },
+      revokeDelegatedRequest: async () => { throw new Error("not in this test"); },
       createRun: async () => { throw new Error("not in this test"); },
       readRun: async () => { throw new Error("not in this test"); },
       fetchBundle: async () => { throw new Error("not in this test"); },
@@ -226,6 +230,10 @@ describe("Phase D · multi-machine", () => {
     ctx.nodeClient = {
       pairRequest: async () => { throw new NodeError(reasons[i++], "refused"); },
       pairWait: async () => ({ state: "expired" }),
+      openDelegatedRequest: async () => { throw new Error("not in this test"); },
+      claimDelegatedRequest: async () => ({ state: "expired" }),
+      acknowledgeDelegatedRequest: async () => { throw new Error("not in this test"); },
+      revokeDelegatedRequest: async () => { throw new Error("not in this test"); },
       createRun: async () => { throw new Error("not in this test"); },
       readRun: async () => { throw new Error("not in this test"); },
       fetchBundle: async () => { throw new Error("not in this test"); },

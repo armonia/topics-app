@@ -26,6 +26,13 @@ import { consentito } from "../lib/licenza";
 import { nomeInstallazione } from "../lib/nome-installazione";
 import { provenienzaDi } from "../lib/provenienza";
 import { subjectRejection, canReceive, livePersonMemberships } from "../lib/recipients";
+import {
+  listAgentStartCapabilities, liveAgentStartCapability,
+} from "../lib/delegated-agent-start";
+import {
+  routeAgentStartCapabilities,
+  type AgentStartCapabilitiesRouteOpts,
+} from "./agent-start-capabilities";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -311,7 +318,9 @@ function risolvePersonaPerAppaiamento(
   }
 }
 
-export function createAuthRouter(ctx: AppContext): RouteHandler {
+export interface AuthRouterOpts extends AgentStartCapabilitiesRouteOpts {}
+
+export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): RouteHandler {
   const { json, readJSON, db } = ctx as AppContext & { db: { query: (sql: string) => { all: (...a: unknown[]) => unknown[]; get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown } } };
 
   const rowToDevice = (r: Record<string, unknown>): DeviceRecord => ({
@@ -661,6 +670,11 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       return json({ ok: true });
     }
 
+    // Agent start is a project-owner capability, separate from content grants.
+    if (pathname === "/api/auth/agent-start-capabilities") {
+      return routeAgentStartCapabilities(ctx, opts, req, url, method, now);
+    }
+
     // ── Cosa ho, se sono un ospite.
     //
     // Esiste perché un ospite non può usare gli elenchi normali: `/api/topics` e
@@ -710,13 +724,71 @@ export function createAuthRouter(ctx: AppContext): RouteHandler {
       // different kind.
       const withLevel = <T extends { id: string }>(rows: T[], kind: "task" | "topic") =>
         rows.map((r) => ({ ...r, level: levelFor(db as never, principals, kind, r.id) ?? "read" }));
+      type SharedTaskRow = {
+        id: string;
+        project_id: string;
+        status: string;
+        dispatch_state?: string | null;
+        dispatch_error?: string | null;
+        delegated_start_capability_id?: string | null;
+      };
+      const taskColumns = new Set((db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).map((c) => c.name));
+      const startColumns = ["dispatch_state", "dispatch_error", "delegated_start_capability_id"]
+        .filter((column) => taskColumns.has(column));
       const tasks = idTask.length
-        ? withLevel(db.query(`SELECT id, text, status, project_id, preview_image FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask) as Array<{ id: string }>, "task")
+        ? withLevel(db.query(`SELECT id, text, status, project_id, preview_image${startColumns.length ? `, ${startColumns.join(", ")}` : ""}
+              FROM tasks WHERE id IN (${segna(idTask.length)})`).all(...idTask) as SharedTaskRow[], "task")
         : [];
       const topics = idTopic.length
         ? withLevel(db.query(`SELECT id, name, updated_at FROM topics WHERE id IN (${segna(idTopic.length)})`).all(...idTopic) as Array<{ id: string }>, "topic")
         : [];
-      return json({ tasks, topics });
+      const tasksWithStart = tasks.map((task) => {
+        try {
+          const liveCapability = liveAgentStartCapability(db as never, { principals, projectId: task.project_id, now });
+          const boundCapability = task.delegated_start_capability_id
+            ? listAgentStartCapabilities(db as never, task.project_id)
+              .find((candidate) => candidate.id === task.delegated_start_capability_id) ?? null
+            : null;
+          const capability = liveCapability ?? boundCapability;
+          if (!capability) return { ...task, agentStart: null };
+          let executable = !!liveCapability && task.status === "backlog";
+          try {
+            const settings = db.query(`SELECT dispatch_paused FROM board_settings WHERE project_id = ?`)
+              .get(task.project_id) as { dispatch_paused: number } | null;
+            if (settings?.dispatch_paused) executable = false;
+          } catch { /* Reduced schemas have no board settings; task state remains authoritative. */ }
+          return {
+            ...task,
+            agentStart: {
+              capabilityId: capability.id,
+              machineName: capability.machineName,
+              model: capability.model,
+              effort: capability.effort,
+              maxDurationMinutes: capability.maxDurationMinutes,
+              executable,
+              state: !boundCapability
+                ? null
+                : task.status === "review" || task.status === "done"
+                ? "completed"
+                : task.dispatch_error === "delegated_capability_revoked"
+                  ? "cancelled"
+                : task.dispatch_error
+                  ? "failed"
+                  : task.dispatch_state === "starting" || task.dispatch_state === "working" || task.dispatch_state === "queued"
+                    ? task.dispatch_state
+                    : task.delegated_start_capability_id && task.status === "backlog"
+                      ? "cancelled"
+                      : null,
+              error: boundCapability && task.dispatch_error !== "delegated_capability_revoked"
+                ? task.dispatch_error ?? null
+                : null,
+            },
+          };
+        } catch {
+          return { ...task, agentStart: null };
+        }
+      });
+      return json({ tasks: tasksWithStart, topics });
     }
 
     // ── Condivisione di un task con un ospite.

@@ -1,14 +1,9 @@
 /**
- * The Organization page has to say that sharing a project and letting someone RUN
- * AGENTS on it are two different things, because they are, and because confusing
- * them costs a person a whole evening.
+ * The Organization page presents content access and Agent Start as two short,
+ * ordered steps backed by live state.
  *
- * The two are not substitutes: a grant (or a remote link) hands over reading,
- * commenting and editing a project's TASKS from a browser, on any machine, with
- * nothing installed. Running agents on that work needs Topics installed on the
- * other person's computer, paired as a device, with its own checkout. Someone who
- * shares a project expecting the second thing waits for something that is never
- * going to happen, and there is no error anywhere to tell them.
+ * The execution step points to the collaborator's already connected computer;
+ * it does not introduce another account flow or imply an ownership transfer.
  *
  * WHY ON THE SOURCE AND NOT ON A RENDER. What the requirement asks for is that the
  * page SAYS it — a block of copy next to the project list, in both languages. That
@@ -30,7 +25,13 @@ const dictionaryByLanguage = {
   en: readFileSync(join(here, '..', '..', 'lib', 'i18n-en.ts'), 'utf8'),
 };
 
-const KEYS = ['settings.org.guide.title', 'settings.org.guide.browser', 'settings.org.guide.machine'];
+const KEYS = [
+  'settings.org.guide.title',
+  'settings.org.guide.accessTitle',
+  'settings.org.guide.authorizeTitle',
+  'settings.org.guide.browser',
+  'settings.org.guide.machine',
+];
 
 /** The value of one i18n key in one dictionary, or null when the key is absent. */
 function phrase(dictionary: string, key: string): string | null {
@@ -63,14 +64,13 @@ describe('the guide that names the two kinds of access', () => {
     }
   });
 
-  it('one half names the browser, the other names a second machine', () => {
-    // The distinction is the whole requirement: if both paragraphs described the
-    // same access the page would be naming one thing twice.
+  it('the second step names the collaborator computer and fixed policy', () => {
     for (const dictionary of Object.values(dictionaryByLanguage)) {
       expect((phrase(dictionary, 'settings.org.guide.browser') ?? '').toLowerCase()).toContain('browser');
       const machineText = (phrase(dictionary, 'settings.org.guide.machine') ?? '').toLowerCase();
-      expect(machineText.includes('topics')).toBe(true);
-      expect(/comput|machineText|machine/.test(machineText)).toBe(true);
+      expect(/collabor|collaborat/.test(machineText)).toBe(true);
+      expect(/comput|machine/.test(machineText)).toBe(true);
+      expect(/model|modello/.test(machineText)).toBe(true);
     }
   });
 });

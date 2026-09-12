@@ -58,6 +58,15 @@ export interface Task {
    */
   lastActorPersonName?: string | null;
   lastActorDeviceName?: string | null;
+  /** The guest who requested this run. Distinct from author and assignee. */
+  runInitiatorPersonId?: string | null;
+  runInitiatorPersonName?: string | null;
+  runInitiatorDeviceId?: string | null;
+  runInitiatorDeviceName?: string | null;
+  /** The immutable authorization copied onto the queued task. */
+  delegatedStartCapabilityId?: string | null;
+  /** Human-readable execution computer; machineId remains the stable key. */
+  runComputerName?: string | null;
   dueDate?: string;
   chatId?: string;
   createdAt: string;

@@ -15,7 +15,7 @@
 import { fuzzyScore } from '../../lib/fuzzyScore';
 import type { TaskLabel } from '../../lib/board';
 
-export type FilterGroup = 'priority' | 'closer' | 'kind' | 'assignee' | 'person' | 'computer';
+export type FilterGroup = 'priority' | 'closer' | 'kind' | 'assignee' | 'person' | 'computer' | 'initiator' | 'runComputer';
 
 export type FilterOption =
   | { group: 'priority'; value: number; label: string; title?: string }
@@ -25,7 +25,11 @@ export type FilterOption =
   /** Who actually wrote the collaborator activity — a person, not a role. */
   | { group: 'person'; value: string; label: string; title?: string }
   /** Which device that person used — separate from the person on purpose. */
-  | { group: 'computer'; value: string; label: string; title?: string };
+  | { group: 'computer'; value: string; label: string; title?: string }
+  /** Who requested a delegated run, distinct from every content author. */
+  | { group: 'initiator'; value: string; label: string; title?: string }
+  /** Where a delegated run executed, distinct from the author's device. */
+  | { group: 'runComputer'; value: string; label: string; title?: string };
 
 export interface FilterRow {
   opt: FilterOption;
@@ -35,7 +39,7 @@ export interface FilterRow {
   more: number;
 }
 
-export const FILTER_GROUP_ORDER: readonly FilterGroup[] = ['priority', 'closer', 'kind', 'assignee', 'person', 'computer'];
+export const FILTER_GROUP_ORDER: readonly FilterGroup[] = ['priority', 'closer', 'kind', 'assignee', 'person', 'computer', 'initiator', 'runComputer'];
 
 /**
  * AT REST each group shows its first two, and the caption carries `+N`.

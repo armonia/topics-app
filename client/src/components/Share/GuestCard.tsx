@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { guestMeets, type GuestLevel } from './guestLevel';
-import { MessageSquarePlus, Pencil } from 'lucide-react';
+import { Bot, LoaderCircle, MessageSquarePlus, Pencil } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { STATUS_LABEL, isProjectlessId } from '../../lib/board';
 import type { TaskStatus } from '../../../../shared/board';
+import { canGuestStart, guestStartRequest } from './guestStart';
 
 /**
  * ONE SHARED CARD, AT THE LEVEL IT WAS SHARED AT.
@@ -33,6 +34,20 @@ export interface SharedTask {
   /** What this guest may do here. Absent from an older server: `read`, the
    *  least power, which is what that server enforced anyway. */
   level?: GuestLevel;
+  dispatch_state?: string | null;
+  dispatch_error?: string | null;
+  agentStart?: {
+    capabilityId: string;
+    computerName?: string | null;
+    machineName?: string | null;
+    model: string;
+    effort: string;
+    maxDurationMinutes: number;
+    executable: boolean;
+    blockedReason?: string | null;
+    state?: 'queued' | 'starting' | 'working' | 'completed' | 'cancelled' | 'failed' | null;
+    error?: string | null;
+  } | null;
 }
 
 interface ThreadComment {
@@ -56,6 +71,8 @@ export function GuestCard({ task, onChanged }: {
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [startState, setStartState] = useState<'idle' | 'requesting' | 'queued' | 'cancelled'>('idle');
+  const [startError, setStartError] = useState<string | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
   const readThread = useCallback(async () => {
@@ -72,6 +89,13 @@ export function GuestCard({ task, onChanged }: {
   useEffect(() => { if (guestMeets(level, 'comment')) void readThread(); }, [level, readThread]);
 
   useEffect(() => { if (draft !== null) areaRef.current?.focus(); }, [draft]);
+
+  // Once this card accepted a delegated run, losing the capability on a live
+  // inventory refresh is revocation feedback, not a reason to leave "Queued"
+  // spinning forever.
+  useEffect(() => {
+    if (startState === 'queued' && !task.agentStart) setStartState('cancelled');
+  }, [startState, task.agentStart]);
 
   const send = async () => {
     const content = comment.trim();
@@ -108,6 +132,33 @@ export function GuestCard({ task, onChanged }: {
       onChanged();
     } catch { setFailed(true); } finally { setBusy(false); }
   };
+
+  const start = async () => {
+    if (!canGuestStart(task) || startState !== 'idle') return;
+    setStartState('requesting');
+    setStartError(null);
+    try {
+      // No body and no execution headers: the server resolves every policy
+      // field from the owner's capability.
+      const response = await fetch(...guestStartRequest(task.id));
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        setStartError(body.error || tr('guest.start.failed'));
+        setStartState('idle');
+        return;
+      }
+      setStartState('queued');
+      onChanged();
+    } catch {
+      setStartError(tr('guest.start.failed'));
+      setStartState('idle');
+    }
+  };
+
+  const effectiveStartState = task.agentStart?.state ?? task.dispatch_state;
+  const startFeedback = effectiveStartState === 'cancelled'
+    ? null
+    : task.agentStart?.error ?? task.dispatch_error ?? startError;
 
   return (
     <li className="rounded-lg border border-app-border px-3 py-2.5" data-testid="guest-card">
@@ -169,6 +220,40 @@ export function GuestCard({ task, onChanged }: {
             least one of them. */}
         <span data-testid="guest-level" className="ml-auto">{tr(`guest.level.${level}`)}</span>
       </div>
+
+      {(canGuestStart(task) || startState !== 'idle' || effectiveStartState || startFeedback) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-app-border pt-2" data-testid="guest-start-area">
+          {canGuestStart(task) && !effectiveStartState && startState === 'idle' && (
+            <button
+              type="button"
+              onClick={() => void start()}
+              data-testid="guest-start"
+              className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-violet-600 px-2.5 py-1 text-mini font-medium text-white outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-app-bg"
+            >
+              <Bot size={12} /> {tr('guest.start.action')}
+            </button>
+          )}
+          {(startState === 'requesting' || (!effectiveStartState && startState === 'queued') || effectiveStartState === 'queued' || effectiveStartState === 'starting' || effectiveStartState === 'working') && (
+            <p role="status" className="inline-flex items-center gap-1.5 text-mini text-app-text-secondary">
+              <LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" />
+              {effectiveStartState === 'working' ? tr('guest.start.working') : tr('guest.start.queued')}
+            </p>
+          )}
+          {(effectiveStartState === 'completed' || effectiveStartState === 'cancelled' || startState === 'cancelled') && (
+            <p role="status" className="text-mini text-app-text-secondary">
+              {effectiveStartState === 'completed' ? tr('guest.start.completed') : tr('guest.start.cancelled')}
+            </p>
+          )}
+          {(effectiveStartState === 'failed' || startFeedback) && (
+            <p role="alert" className="text-mini text-red-500">{startFeedback || tr('guest.start.failed')}</p>
+          )}
+          {task.agentStart && (
+            <span className="ml-auto text-micro text-app-text-muted">
+              {tr('guest.start.policy', { computer: task.agentStart.computerName ?? task.agentStart.machineName ?? tr('guest.start.authorizedComputer') })}
+            </span>
+          )}
+        </div>
+      )}
 
       {task.preview_image && (
         // The preview clears the gate only when it belongs to a granted task:

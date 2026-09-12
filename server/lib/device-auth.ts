@@ -205,12 +205,19 @@ export function evaluateIdentity(i: IdentityInput): IdentityResult {
 // La superficie di un OSPITE vive in `lib/grants.ts`, accanto al modello dei
 // permessi: due allowlist in due file sono due verita' che divergono.
 
-export function isIdentityExemptPath(pathname: string): boolean {
+export function isIdentityExemptPath(pathname: string, method?: string): boolean {
+  const m = method?.toUpperCase();
   return (
     pathname === "/api/auth/pair/request" ||
     // Il dispositivo in attesa DEVE poter chiedere «e' stato approvato?» prima di
     // avere una sessione: e' la risposta a questa domanda che gliela consegna.
     pathname === "/api/auth/pair/status" ||
-    pathname === "/api/auth/session"
+    pathname === "/api/auth/session" ||
+    // Purpose-specific node handshake. Method is part of the boundary because
+    // GET on the collection is an owner inbox while POST opens a request.
+    (m === "POST" && pathname === "/api/nodes/delegated-requests") ||
+    (m === "GET" && /^\/api\/nodes\/delegated-requests\/[^/]+\/claim$/.test(pathname)) ||
+    (m === "POST" && /^\/api\/nodes\/delegated-requests\/[^/]+\/ack$/.test(pathname)) ||
+    (m === "DELETE" && /^\/api\/nodes\/delegated-requests\/[^/]+$/.test(pathname))
   );
 }

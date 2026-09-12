@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Folder } from 'lucide-react';
+import { Check, Circle, Copy, Folder } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { ShareControl } from '../Share/ShareControl';
 import { type OrgProjectRow, scopeProjectsToOrg } from './orgProjects';
+import { copyText } from '../../lib/clipboard';
+import { installationInviteUrl } from './installationInvite';
+import { collaborationProgress } from './orgCollaborationProgress';
 
 /**
  * THE PROJECTS OF THE ORGANISATION: what is there, and nothing else.
@@ -46,6 +49,9 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
   const t = useT();
   const [progetti, setProgetti] = useState<OrgProjectRow[]>([]);
   const [caricamento, setCaricamento] = useState(true);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [progress, setProgress] = useState({ person: false, device: false, shared: false, start: false });
 
   useEffect(() => {
     let vivo = true;
@@ -58,6 +64,36 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
       .finally(() => { if (vivo) setCaricamento(false); });
     return () => { vivo = false; };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const projects = progetti.filter((project) => !project.incognito);
+    void Promise.all([
+      fetch('/api/auth/relay', { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+      fetch('/api/auth/devices', { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+      orgId
+        ? fetch(`/api/auth/orgs/${encodeURIComponent(orgId)}/members`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null)
+        : Promise.resolve(null),
+      Promise.all(projects.map(async (project) => {
+        const [shares, starts] = await Promise.all([
+          fetch(`/api/auth/shares?resourceType=project&resourceId=${encodeURIComponent(project.id)}`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+          fetch(`/api/auth/agent-start-capabilities?projectId=${encodeURIComponent(project.id)}`, { credentials: 'same-origin' }).then((response) => response.ok ? response.json() : null),
+        ]);
+        return { shares: shares?.shares ?? [], starts: starts?.capabilities ?? [] };
+      })),
+    ]).then(([relay, directory, members, projectAccess]) => {
+      if (!alive) return;
+      setInviteUrl(installationInviteUrl(relay));
+      setProgress(collaborationProgress({
+        orgId,
+        directoryPeople: directory?.people ?? [],
+        members: members?.members ?? [],
+        devices: directory?.devices ?? [],
+        projects: projectAccess,
+      }));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [orgId, progetti]);
 
   const visible = scopeProjectsToOrg(progetti, orgId);
 
@@ -110,12 +146,42 @@ export function OrgProjectsSection({ orgId }: { orgId: string | null }) {
         <h4 className="mb-1.5 text-mini font-medium text-app-text">
           {t('settings.org.guide.title')}
         </h4>
-        <p className="text-mini leading-relaxed text-app-text-secondary">
-          {t('settings.org.guide.browser')}
-        </p>
-        <p className="mt-1.5 text-mini leading-relaxed text-app-text-secondary">
-          {t('settings.org.guide.machine')}
-        </p>
+        <ul className="mb-2 grid grid-cols-1 gap-1 sm:grid-cols-2" data-testid="org-collab-progress">
+          {([
+            ['person', 'settings.org.guide.statePerson', 'settings.org.guide.todoPerson'],
+            ['device', 'settings.org.guide.stateDevice', 'settings.org.guide.todoDevice'],
+            ['shared', 'settings.org.guide.stateShared', 'settings.org.guide.todoShared'],
+            ['start', 'settings.org.guide.stateStart', 'settings.org.guide.todoStart'],
+          ] as const).map(([key, readyLabel, todoLabel]) => (
+            <li key={key} className="flex items-center gap-1.5 text-mini text-app-text-secondary">
+              {progress[key] ? <Check size={11} className="text-emerald-500" /> : <Circle size={11} className="text-app-text-muted" />}
+              {t(progress[key] ? readyLabel : todoLabel)}
+            </li>
+          ))}
+        </ul>
+        <ol className="space-y-2 text-mini leading-relaxed text-app-text-secondary">
+          <li className="grid grid-cols-[1.25rem_1fr] gap-1.5">
+            <span aria-hidden="true" className="font-medium text-app-text">1.</span>
+            <span><strong className="font-medium text-app-text">{t('settings.org.guide.accessTitle')}</strong> {t('settings.org.guide.browser')}</span>
+          </li>
+          <li className="grid grid-cols-[1.25rem_1fr] gap-1.5">
+            <span aria-hidden="true" className="font-medium text-app-text">2.</span>
+            <span><strong className="font-medium text-app-text">{t('settings.org.guide.authorizeTitle')}</strong> {t('settings.org.guide.machine')}</span>
+          </li>
+        </ol>
+        <p className="mt-2 text-micro leading-snug text-app-text-muted">{t('settings.org.guide.ownership')}</p>
+        {inviteUrl && (
+          <button
+            type="button"
+            onClick={() => { void copyText(inviteUrl).then(setCopied); }}
+            className="mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-md border border-app-border px-2 py-1 text-mini text-app-text-secondary hover:bg-app-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            data-testid="copy-installation-link"
+          >
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            {copied ? t('settings.org.guide.linkCopied') : t('settings.org.guide.copyLink')}
+          </button>
+        )}
+        <p className="mt-2 text-micro leading-snug text-app-text-muted">{t('settings.org.guide.pairing')}</p>
       </div>
     </div>
   );

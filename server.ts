@@ -127,10 +127,10 @@ import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { createAuthRouter, noteDeviceConnected, noteDeviceDisconnected } from "./server/routes/auth";
 import { evaluateIdentity, isIdentityExemptPath, readSessionCookie } from "./server/lib/device-auth";
-import { isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, isGuestInboundFrameAllowed, frameResource } from "./server/lib/grants";
+import { isDelegatedNodeAllowedRequest, isGuestAllowedPath, isGuestAllowedMethod, isGuestSafeFrameType, isGuestHandshakeFrame, isGuestSocketData, isGuestInboundFrameAllowed, frameResource } from "./server/lib/grants";
 import { hasGrant, holdsGrantOnTaskPreview, deviceP } from "./server/lib/grants-query";
 import { resolvePrincipals, principalsRev } from "./server/lib/principals";
-import { resolveIdentity } from "./server/lib/identity";
+import { resolveDelegatedCredential, resolveIdentity } from "./server/lib/identity";
 import { creaRelayClient } from "./server/services/relay-client";
 import { leggiRelayConfig, leggiInstallationId, leggiRelaySegreto } from "./server/services/relay-config";
 import { creaServizioLicenza, creaInterruttoreLicenza, baseUrlConcesso } from "./server/lib/licenza";
@@ -188,11 +188,13 @@ import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
-import { createMachinesRouter } from "./server/routes/machines";
+import { createMachinesRouter, revokeRemoteDelegatedCapability } from "./server/routes/machines";
 import { createNodesRouter } from "./server/routes/nodes";
 import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
-import { createNodeClient, readNodeToken } from "./server/services/node-client";
+import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
+import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
+import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { startBundleProbe } from "./server/lib/bundle-probe";
@@ -747,7 +749,13 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const usageRouter = createUsageRouter(ctx);
-const authRouter = createAuthRouter(ctx);
+const authRouter = createAuthRouter(ctx, {
+  onCapabilityRevoked: async (capabilityId) => {
+    const canceled = await taskDispatcher.revokeDelegatedCapability(capabilityId);
+    await revokeRemoteDelegatedCapability(ctx, capabilityId);
+    return canceled;
+  },
+});
 
 // ── LA LICENZA: cosa è concesso su QUESTA installazione.
 //
@@ -786,7 +794,12 @@ const billingRouter = createBillingRouter(ctx);
  * Il punto e' che l'identita' si calcola UNA volta. Ricalcolarla nelle rotte
  * significherebbe due query e — peggio — due verita' possibili sullo stesso giro.
  */
-const identityByRequest = new WeakMap<Request, { role: 'owner' | 'guest'; deviceId: string | null }>();
+const identityByRequest = new WeakMap<Request, {
+  role: 'owner' | 'guest';
+  deviceId: string | null;
+  delegatedAuthorizationId?: string;
+  delegatedCapabilityId?: string;
+}>();
 ctx.requestIdentity = (req: Request) => identityByRequest.get(req) ?? null;
 
 /**
@@ -1414,6 +1427,13 @@ const taskDispatcher = createTaskDispatcher({
   uncommittedInWorktree: (taskId) =>
     sondaLavoroNonCommittato ? sondaLavoroNonCommittato(taskId) : Promise.resolve(null),
   svc: dispatcherSvc,
+  delegatedPolicyForTask: (taskId) => delegatedPolicyForTask(ctx.db, taskId),
+  isDelegatedTask: (taskId) => {
+    try { return !!ctx.db.query("SELECT 1 FROM delegated_node_runs WHERE run_id = ?").get(taskId); }
+    catch { return false; }
+  },
+  recordDelegatedPhase: (input) => appendDelegatedRunAudit(ctx.db, input),
+  abortTurn: abortHeadlessTurn,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
@@ -1696,7 +1716,10 @@ const taskDispatcher = createTaskDispatcher({
     cancelRun: (input) => nodeClient.cancelRun(input),
     baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
     tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+    delegatedTokenOf: (machineId, capabilityId) =>
+      readDelegatedNodeToken(ctx.STATE_DIR, machineId, capabilityId),
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
+    localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
   },
@@ -2533,17 +2556,30 @@ const worktreesRouter = createWorktreesRouter(ctx, {
   // quindi la closure è valida anche se il router nasce prima.
   runGc: () => worktreeGc.runWorktreeGc(),
 });
-const machinesRouter = createMachinesRouter(ctx);
 // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE
 // goes through the board's own route so "stop the agent, then archive" has one
 // implementation: a second copy here would be the one that forgets the stop.
-const nodesRouter = createNodesRouter(ctx, {
-  deleteBoardTask: (projectId, taskId) => {
-    const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
-    return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
-  },
-  onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+const deleteDelegatedBoardTask = (projectId: string, taskId: string) => {
+  const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
+  return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
+};
+const delegatedRevocations = createDelegatedRevocationRetry({
+  db: ctx.db,
+  nodeClient,
+  deleteBoardTask: deleteDelegatedBoardTask,
+  log: (message, error) => console.error(`[delegated-revoke] ${message}`, error),
 });
+const machinesRouter = createMachinesRouter(ctx, { revocations: delegatedRevocations });
+const nodesRouter = createNodesRouter(ctx, {
+  deleteBoardTask: deleteDelegatedBoardTask,
+  revocations: delegatedRevocations,
+  onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  // The browser acceptance server intentionally has no live coding account.
+  // Give only that hermetic process one inert catalogue value so it can prove
+  // the authorization handshake without probing or invoking an LLM.
+  taskModels: process.env.TOPICS_E2E === "1" ? () => ["e2e-coding-model"] : undefined,
+});
+void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
 // and flips other machines that haven't checked in for 5 minutes to
@@ -3083,25 +3119,32 @@ const opzioniServer = {
       // `isIdentityExemptPath` perché quella elenca i percorsi che servono a
       // OTTENERE un'identità: mescolarci un'autenticazione di altra natura
       // renderebbe più difficile accorgersi della prossima esenzione di troppo.
-      const identity = (isIdentityExemptPath(pathname) || isBillingWebhookPath(pathname))
+      const identity = (isIdentityExemptPath(pathname, method) || isBillingWebhookPath(pathname))
         ? undefined
         : (() => {
             const loopback = isLocalTransport(req, peerIp, isLoopbackAddress);
+            const delegated = loopback ? null : resolveDelegatedCredential(
+              ctx.db,
+              req.headers.get("cookie"),
+              req.headers.get("x-topics-delegated-capability"),
+            );
             // UNA sola traduzione cookie→identità, condivisa con l'upgrade del
             // WebSocket e con `/api/auth/session`. Erano tre query diverse, e
             // divergevano: la strada dimenticata è sempre la meno percorsa,
             // cioè quella dove il difetto vive di più prima che si veda.
-            const io = resolveIdentity(ctx.db, req.headers.get("cookie"), loopback);
-            const device = io.device;
+            const io = delegated ? null : resolveIdentity(ctx.db, req.headers.get("cookie"), loopback);
+            const device = io?.device ?? null;
             const sessionToken = loopback ? null : readSessionCookie(req.headers.get("cookie"));
-            const r = evaluateIdentity({
-              transport: loopback ? "loopback" : "remote",
-              sessionToken,
-              device,
-              bearerToken: loopback ? null : req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null,
-              expectedDaemonToken: loopback ? null : readState()?.token ?? null,
-              now: Date.now(),
-            });
+            const r = delegated
+              ? { ok: true as const, as: "delegated" as const, deviceName: null, role: "guest" as const, deviceId: null }
+              : evaluateIdentity({
+                  transport: loopback ? "loopback" : "remote",
+                  sessionToken,
+                  device,
+                  bearerToken: loopback ? null : req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null,
+                  expectedDaemonToken: loopback ? null : readState()?.token ?? null,
+                  now: Date.now(),
+                });
             // `last_seen_at` con parsimonia: sono ~94 chiamate per boot, e una
             // scrittura per ognuna trasformerebbe l'elenco dispositivi in una
             // sorgente di I/O. Un'ora di granularita' basta a dire «visto
@@ -3125,7 +3168,17 @@ const opzioniServer = {
                   `[principals] divergenza su ${r.deviceId}: ruolo=${r.role} confinato=${princ.confined}`,
                 );
               }
-              identityByRequest.set(req, { role: r.role, deviceId: r.deviceId });
+              identityByRequest.set(req, {
+                role: r.role,
+                deviceId: r.deviceId,
+                ...(delegated ? {
+                  delegatedAuthorizationId: delegated.authorizationId,
+                  delegatedCapabilityId: delegated.capabilityId,
+                } : {}),
+              });
+              if (delegated && !isDelegatedNodeAllowedRequest(pathname, method)) {
+                return { ok: false as const, status: 403, reason: "delegated credential scope", code: "delegated_scope" };
+              }
               // ── L'OSPITE è confinato QUI, non nei singoli router.
               // Metterlo nei router significa dimenticarne uno: provato sulla
               // mia pelle mentre costruivo questo — col filtro nel solo router
@@ -4698,6 +4751,7 @@ const dispatchTimer = setInterval(() => {
   if (!dispatchReconcileHeld()) {
     taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
+  void delegatedRevocations.tick().catch((err) => console.error("[delegated-revoke] retry failed", err));
   void budgetGovernor.sampleOnce().catch((err) => console.error("[budget] sample failed", err));
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno

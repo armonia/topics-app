@@ -174,6 +174,13 @@ describe("device-auth · percorsi esenti", () => {
   it("solo i due che SERVONO a ottenere l'identità", () => {
     expect(isIdentityExemptPath("/api/auth/pair/request")).toBe(true);
     expect(isIdentityExemptPath("/api/auth/session")).toBe(true);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests", "POST")).toBe(true);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/claim", "GET")).toBe(true);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/ack", "POST")).toBe(true);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1", "DELETE")).toBe(true);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/owner-revoke", "DELETE")).toBe(false);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests", "GET")).toBe(false);
+    expect(isIdentityExemptPath("/api/nodes/delegated-requests/r1/approve", "POST")).toBe(false);
   });
 
   it("tutto il resto NO — un'esenzione di troppo è un buco", () => {
