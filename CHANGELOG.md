@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.307 — 2026-09-12
+
+### Sotto il cofano
+- Un cancello per i mock di modulo che nessuno ritira
+- Il cancello nuovo era in CI e non nella barra: la barra avrebbe detto verde dove CI va rossa
+- La riga per cui la checklist mostra i chip era proprio quella che nascondeva
+- I cancelli di lingua non guardano i file che git non traccia
+- Il banco e2e era l'unico dei tre a non misurare il carico che ha sotto
+- I rail li avevo lanciati prima di finire di scrivere i file
+- 67fc5f893 conteneva anche il guardiano dei terminali, non solo i rail
+
 ## 2.2.306 — 2026-09-12
 
 ### Sotto il cofano

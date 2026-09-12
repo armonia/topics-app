@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.2.307",
+    "date": "2026-09-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un cancello per i mock di modulo che nessuno ritira",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello nuovo era in CI e non nella barra: la barra avrebbe detto verde dove CI va rossa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga per cui la checklist mostra i chip era proprio quella che nascondeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I cancelli di lingua non guardano i file che git non traccia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco e2e era l'unico dei tre a non misurare il carico che ha sotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I rail li avevo lanciati prima di finire di scrivere i file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "67fc5f893 conteneva anche il guardiano dei terminali, non solo i rail",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.306",
     "date": "2026-09-12",
     "sections": {
