@@ -55,7 +55,11 @@ import { ROW_INSET } from '../../lib/selectionStyles';
 // not found» - measured, four reds in the same run. Only the one export this file
 // needs to lie about is overridden.
 const shell = await import('../../lib/shell');
-mock.module('../../lib/shell', () => ({ ...shell, isTauriWindows: true }));
+// Fotografato PRIMA del mock, e in un oggetto normale: e' da qui che l'afterAll
+// rimette il modulo vero, e uno spread fatto dopo rischierebbe di ricopiare il
+// finto addosso a se stesso.
+const realShell = { ...shell };
+mock.module('../../lib/shell', () => ({ ...realShell, isTauriWindows: true }));
 
 let WindowControls: ComponentType<{ visible: boolean }>;
 
@@ -71,7 +75,13 @@ beforeAll(async () => {
 // every later one. `shortcutLabel.ts` reads the same export, and its test is on
 // its way in: leaving `isTauriWindows` stuck on `true` would make that file pass
 // or fail depending on which order bun happened to pick.
-afterAll(() => { mock.restore(); });
+// `mock.restore()` da solo NON basta: ritira gli spy, non un `mock.module`.
+// Misurato il 12/09 su un'altra coppia di file — il secondo riceveva ancora il
+// modulo finto del primo. Il ritiro vero e' riscrivere il registry.
+afterAll(() => {
+  mock.module('../../lib/shell', () => realShell);
+  mock.restore();
+});
 
 const order = (html: string) =>
   (html.match(/data-testid="win-(close|minimize|maximize)"/g) || [])

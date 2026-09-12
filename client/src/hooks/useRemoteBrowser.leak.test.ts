@@ -10,7 +10,7 @@
  *
  * @covers LEAK-01
  */
-import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 
@@ -18,11 +18,24 @@ import { mount } from '../test/reactHarness';
 // hook imports `@/lib/shell/net` for the WS base URL. Registering the module
 // under that exact specifier is what lets the REAL hook be imported and driven
 // here, instead of falling back to asserting on its source text.
+// Il modulo VERO fotografato prima, e lo stub costruito SOPRA di lui: un
+// `mock.module` sostituisce il modulo intero, quindi elencare solo le tre
+// funzioni che servono qui lascerebbe `isAppLoopbackOrigin`, `installNetShim` e
+// `__resetNetShimForTests` a `undefined` per ogni file che gira dopo.
+// Il modulo vero si prende per percorso RELATIVO: `@/` e' l'alias con cui il
+// hook lo importa ed e' la chiave sotto cui va registrato il mock, ma per bun
+// non e' un percorso risolvibile — un `import('@/...')` qui muore con «Cannot
+// find module».
+const realNet = { ...(await import('../lib/shell/net')) };
 mock.module('@/lib/shell/net', () => ({
+  ...realNet,
   serverWsBase: () => 'ws://127.0.0.1:3333',
   serverHttpBase: () => 'http://127.0.0.1:3333',
-  apiUrl: (p: string) => `http://127.0.0.1:3333${p}`,
 }));
+
+// Il mock e' di PROCESSO: senza questo ritiro, ogni file successivo parlerebbe
+// con un server finto su 127.0.0.1:3333.
+afterAll(() => { mock.module('@/lib/shell/net', () => realNet); });
 
 const { useRemoteBrowser } = await import('./useRemoteBrowser');
 

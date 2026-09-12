@@ -25,6 +25,17 @@
  */
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { markBrowserViewLive, markBrowserViewDead } from './shell/nativeBrowserRoster';
+// I MODULI VERI, FOTOGRAFATI PRIMA DI SOSTITUIRLI.
+//
+// Lo spread di un namespace copia i VALORI adesso, cioe' prima che i
+// `mock.module` piu' sotto rileghino i binding: e' l'unico momento in cui questi
+// due moduli sono ancora se stessi. Si fotografa tutto il namespace e non tre
+// nomi scritti a mano, perche' un export dimenticato tornerebbe `undefined` per
+// ogni file che gira dopo — un guasto peggiore del mock che si voleva ritirare.
+import * as shellNamespace from './shell';
+import * as tauriNamespace from './shell/tauri';
+const realShell = { ...shellNamespace };
+const realTauri = { ...tauriNamespace };
 
 type Invoke = { cmd: string; args?: Record<string, unknown> };
 
@@ -106,7 +117,19 @@ afterEach(() => {
 
 // Il mock è di processo: senza questo, un file che gira dopo crederebbe di
 // essere dentro Tauri e proverebbe il contrario di quello che pensa.
-afterAll(() => { mock.restore(); });
+//
+// E `mock.restore()` DA SOLO non bastava: ritira gli spy, non un `mock.module`.
+// Misurato il 12/09 con la coppia `browserClaimHeartbeat.test.ts` →
+// `lib/shell/tauri.test.ts`: il secondo file riceveva ancora il `tauriInvoke`
+// finto di questo, quindi una chiamata che doveva essere rifiutata tornava
+// risolta. In CI e' costato tre giri rossi con un diff che sembrava accusare il
+// codice sotto test. Il ritiro vero e' riscrivere il registry con i moduli veri
+// — lo stesso modo di `updater.tauri.test.ts`.
+afterAll(() => {
+  mock.module('./shell', () => realShell);
+  mock.module('./shell/tauri', () => realTauri);
+  mock.restore();
+});
 
 describe('claimBrowserViews', () => {
   test('manda il label di QUESTA finestra e gli id delle pane vive', async () => {

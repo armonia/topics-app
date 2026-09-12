@@ -36,8 +36,15 @@ function installFakeNotification() {
   };
 }
 
+// Il modulo VERO, fotografato prima di sostituirlo. Lo stub si costruisce SOPRA
+// di lui perche' `mock.module` rimpiazza il modulo intero: elencare a mano i
+// quattro nomi che servono qui lasciava fuori `isTauriWindows`, e ogni file che
+// girava dopo lo leggeva `undefined`.
+const realShell = { ...(await import('./index')) };
+
 function mockShell(kind: 'tauri' | 'web') {
   mock.module('./index', () => ({
+    ...realShell,
     shellKind: kind,
     isTauri: kind === 'tauri',
     isDesktop: kind !== 'web',
@@ -66,10 +73,14 @@ afterEach(() => {
 
 // `mock.module` patcha il registro dei moduli per TUTTO il processo di
 // `bun test`, non solo per questo file: se si uscisse con il guscio finto
-// addosso, il file successivo che importa `lib/shell` leggerebbe il nostro
-// mock. Si esce rimettendo il valore che il modulo vero ha qui — sotto bun non
-// c'è `window`, quindi 'web'.
-afterAll(() => { mockShell('web'); });
+// addosso, il file successivo che importa `lib/shell` leggerebbe il nostro mock.
+//
+// Si esce rimettendo il MODULO VERO, non un altro stub. Prima qui c'era
+// `mockShell('web')`, e il ragionamento sembrava solido — sotto bun non c'e'
+// `window`, quindi il guscio vero dice 'web' lo stesso. Ma un mock resta un
+// mock: quello ne dichiarava quattro export su cinque, e `isTauriWindows`
+// spariva per tutti quelli dopo.
+afterAll(() => { mock.module('./index', () => realShell); });
 
 describe('primeWebNotificationPermission', () => {
   test('sotto Tauri non chiede NIENTE — è il bug dei prompt a ogni avvio', async () => {
