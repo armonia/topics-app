@@ -26,6 +26,7 @@ import { availableTaskModels } from "../../shared/task-coding-models";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
+import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -43,6 +44,8 @@ export interface NodesRouterOpts {
   onEnterTodo?: (projectId: string, taskId: string) => void;
   /** Runtime-ready coding models on this node; injectable for two-installation tests. */
   taskModels?: () => string[];
+  /** Shared server-side retry loop; tests may omit it and get the same service locally. */
+  revocations?: DelegatedRevocationRetry;
 }
 
 /**
@@ -131,6 +134,10 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
   const { db, json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll } = ctx;
   const runGit = opts.runGit ?? defaultRunGit;
   const svc = createTaskService(db);
+  const revocations = opts.revocations ?? createDelegatedRevocationRetry({
+    db,
+    deleteBoardTask: opts.deleteBoardTask,
+  });
 
   const installationOwner = (req: Request): string | null => {
     const identity = ctx.requestIdentity?.(req) ?? null;
@@ -309,27 +316,6 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     const origin = await runGit(path, ["remote", "get-url", "origin"]);
     return origin.code === 0 && normalizeRemoteUrl(origin.stdout) === binding.repositoryKey ? got : null;
   }
-  async function cancelAuthorizationRuns(authorizationId: string): Promise<boolean> {
-    const runs = db.query("SELECT run_id FROM delegated_node_runs WHERE authorization_id=? AND cancel_confirmed_at IS NULL")
-      .all(authorizationId) as Array<{ run_id: string }>;
-    let confirmed = true;
-    for (const run of runs) {
-      const task = svc.get(run.run_id)?.task;
-      if (!task) {
-        db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?").run(Date.now(), run.run_id);
-        continue;
-      }
-      try {
-        const response = await opts.deleteBoardTask(task.projectId, task.id);
-        if (!response?.ok) throw new Error(`cancel returned ${response?.status ?? "no response"}`);
-        db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?").run(Date.now(), run.run_id);
-      } catch (error) {
-        confirmed = false;
-        db.query("UPDATE delegated_node_runs SET cancel_error=? WHERE run_id=?").run(String(error), run.run_id);
-      }
-    }
-    return confirmed;
-  }
   return async function nodesRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/nodes/")) return null;
 
@@ -417,15 +403,12 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           }
         })();
         if (row.authorization_id) {
-          const confirmed = await cancelAuthorizationRuns(row.authorization_id);
-          if (!confirmed) {
-            db.query("UPDATE delegated_node_requests SET last_error='delegated_cancel_unconfirmed',updated_at=? WHERE id=?")
-              .run(Date.now(), row.id);
+          await revocations.tick({ requestId: row.id, force: true });
+          const pending = !!db.query("SELECT 1 FROM delegated_node_requests WHERE id=? AND revoke_pending=1").get(row.id);
+          if (pending) {
             broadcastToAll({ type: "auth:pair-resolved", requestId: row.id, approved: false, purpose: "delegated-node" });
             return json({ error: "delegated run cancellation is not confirmed", code: "delegated_cancel_unconfirmed", retryPending: true }, 503);
           }
-          db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=0,last_error=NULL,updated_at=? WHERE id=?")
-            .run(Date.now(), row.id);
         }
         broadcastToAll({ type: "auth:pair-resolved", requestId: row.id, approved: false, purpose: "delegated-node" });
         return json({ ok: true });

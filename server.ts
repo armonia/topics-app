@@ -194,6 +194,7 @@ import { hostname as osHostname, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
+import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { startBundleProbe } from "./server/lib/bundle-probe";
@@ -2555,21 +2556,30 @@ const worktreesRouter = createWorktreesRouter(ctx, {
   // quindi la closure è valida anche se il router nasce prima.
   runGc: () => worktreeGc.runWorktreeGc(),
 });
-const machinesRouter = createMachinesRouter(ctx);
 // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE
 // goes through the board's own route so "stop the agent, then archive" has one
 // implementation: a second copy here would be the one that forgets the stop.
+const deleteDelegatedBoardTask = (projectId: string, taskId: string) => {
+  const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
+  return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
+};
+const delegatedRevocations = createDelegatedRevocationRetry({
+  db: ctx.db,
+  nodeClient,
+  deleteBoardTask: deleteDelegatedBoardTask,
+  log: (message, error) => console.error(`[delegated-revoke] ${message}`, error),
+});
+const machinesRouter = createMachinesRouter(ctx, { revocations: delegatedRevocations });
 const nodesRouter = createNodesRouter(ctx, {
-  deleteBoardTask: (projectId, taskId) => {
-    const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
-    return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
-  },
+  deleteBoardTask: deleteDelegatedBoardTask,
+  revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
   taskModels: process.env.TOPICS_E2E === "1" ? () => ["e2e-coding-model"] : undefined,
 });
+void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
 // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
 // and flips other machines that haven't checked in for 5 minutes to
@@ -4741,6 +4751,7 @@ const dispatchTimer = setInterval(() => {
   if (!dispatchReconcileHeld()) {
     taskDispatcher.reconcile({ reason: "poll" }).catch((err) => console.error("[dispatcher] poll reconcile failed", err));
   }
+  void delegatedRevocations.tick().catch((err) => console.error("[delegated-revoke] retry failed", err));
   void budgetGovernor.sampleOnce().catch((err) => console.error("[budget] sample failed", err));
   // LA QUOTA DI CORE SI RILEGGE QUI, sullo stesso giro che fa nascere e morire
   // gli agenti — cioè l'unico momento in cui il denominatore («quanti stanno

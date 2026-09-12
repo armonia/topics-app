@@ -20,6 +20,7 @@ import { SERVER_VERSION } from "../ws-capabilities";
 import { actingPersonId } from "../lib/orgs";
 import { normalizeRepositoryKey } from "../lib/delegated-agent-start";
 import { projectIdForPath } from "../../shared/board";
+import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 
 const NAME_MAX = 200;
 
@@ -34,20 +35,12 @@ export async function revokeRemoteDelegatedCapability(ctx: AppContext, capabilit
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     version: SERVER_VERSION, hostname: osHostname(),
   });
+  const retry = createDelegatedRevocationRetry({ db: ctx.db, nodeClient: client });
   for (const row of rows) {
     ctx.db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=1,updated_at=? WHERE id=?")
       .run(Date.now(), row.id);
     removeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, capabilityId);
-    try {
-      await client.revokeDelegatedRequest({
-        baseUrl: row.base_url, requestId: row.remote_request_id, claim: row.claim_secret,
-      });
-      ctx.db.query("UPDATE delegated_node_requests SET revoke_pending=0,last_error=NULL,updated_at=? WHERE id=?")
-        .run(Date.now(), row.id);
-    } catch (err) {
-      ctx.db.query("UPDATE delegated_node_requests SET last_error=?,updated_at=? WHERE id=?")
-        .run(String(err), Date.now(), row.id);
-    }
+    await retry.tick({ requestId: row.id, force: true });
   }
 }
 
@@ -80,7 +73,7 @@ const UPSTREAM_STATUS: Record<NodeFailureReason, number> = {
   server_error: 502,
 };
 
-export function createMachinesRouter(ctx: AppContext): RouteHandler {
+export function createMachinesRouter(ctx: AppContext, opts: { revocations?: DelegatedRevocationRetry } = {}): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, machineStore, broadcastToAll } = ctx;
   const emit = (type: OutboundType, machine: unknown) =>
     broadcastToAll({ type, machine, payload_version: 1 });
@@ -92,6 +85,7 @@ export function createMachinesRouter(ctx: AppContext): RouteHandler {
     version: SERVER_VERSION,
     hostname: osHostname(),
   });
+  const revocations = opts.revocations ?? createDelegatedRevocationRetry({ db: ctx.db, nodeClient });
 
   const pendingHandshakes = new Map<string, PendingNodePairing>();
   const installationOwner = (req: Request): string | null => {
@@ -207,20 +201,7 @@ export function createMachinesRouter(ctx: AppContext): RouteHandler {
 
     if (pathname === "/api/machines/delegated-requests" && method === "GET") {
       if (!installationOwner(req)) return json({ error: "installation owner required", code: "owner_required" }, 403);
-      const retries = ctx.db.query(`SELECT id,base_url,remote_request_id,claim_secret
-        FROM delegated_node_requests WHERE direction='origin' AND revoke_pending=1`).all() as Array<Record<string, any>>;
-      for (const retry of retries) {
-        try {
-          await nodeClient.revokeDelegatedRequest({
-            baseUrl: retry.base_url, requestId: retry.remote_request_id, claim: retry.claim_secret,
-          });
-          ctx.db.query("UPDATE delegated_node_requests SET revoke_pending=0,last_error=NULL,updated_at=? WHERE id=?")
-            .run(Date.now(), retry.id);
-        } catch (err) {
-          ctx.db.query("UPDATE delegated_node_requests SET last_error=?,updated_at=? WHERE id=?")
-            .run(String(err), Date.now(), retry.id);
-        }
-      }
+      await revocations.tick();
       const requests = ctx.db.query(`SELECT id,purpose,code,state,machine_id AS machineId,capability_id AS capabilityId,
         repository_key AS repositoryKey,expires_at AS expiresAt,revoke_pending AS revokePending,last_error AS lastError
         FROM delegated_node_requests WHERE direction='origin' ORDER BY created_at DESC`).all();
@@ -282,9 +263,6 @@ export function createMachinesRouter(ctx: AppContext): RouteHandler {
       const row = ctx.db.query("SELECT * FROM delegated_node_requests WHERE id=? AND direction='origin'").get(delegated.id) as Record<string, any> | null;
       if (!row) return json({ error: "request not found", code: "not_found" }, 404);
       if (method === "DELETE") {
-        const token = row.capability_id
-          ? readDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id)
-          : null;
         const now = Date.now();
         ctx.db.transaction(() => {
           ctx.db.query("UPDATE agent_start_capabilities SET revoked_at=COALESCE(revoked_at,?),revoked_by_person_id=COALESCE(revoked_by_person_id,?) WHERE id=?")
@@ -297,19 +275,12 @@ export function createMachinesRouter(ctx: AppContext): RouteHandler {
           }
           ctx.db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=1,updated_at=? WHERE id=?").run(now, row.id);
         })();
-        try {
-          await nodeClient.revokeDelegatedRequest({
-            baseUrl: row.base_url, requestId: row.remote_request_id, token: token ?? undefined,
-            capabilityId: row.capability_id, claim: row.claim_secret,
-          });
-          ctx.db.query("UPDATE delegated_node_requests SET revoke_pending=0,last_error=NULL,updated_at=? WHERE id=?").run(Date.now(), row.id);
-          if (row.capability_id) removeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id);
-          return json({ ok: true, remoteRevoked: true });
-        } catch (err) {
-          ctx.db.query("UPDATE delegated_node_requests SET last_error=?,updated_at=? WHERE id=?").run(String(err), Date.now(), row.id);
-          if (row.capability_id) removeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id);
-          return json({ ok: true, remoteRevoked: false, retryPending: true }, 202);
-        }
+        await revocations.tick({ requestId: row.id, force: true });
+        const pending = !!ctx.db.query("SELECT 1 FROM delegated_node_requests WHERE id=? AND revoke_pending=1").get(row.id);
+        if (row.capability_id) removeDelegatedNodeToken(ctx.STATE_DIR, row.machine_id, row.capability_id);
+        return pending
+          ? json({ ok: true, remoteRevoked: false, retryPending: true }, 202)
+          : json({ ok: true, remoteRevoked: true });
       }
       if (row.state === "approved" && row.authorization_id) {
         try {
