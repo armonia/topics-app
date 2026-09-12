@@ -41,7 +41,7 @@ import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsSto
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
-import { taskMatchesFilters } from './taskFilter';
+import { runInitiatorName, taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -566,7 +566,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // `buildFilterRows`, which drops an empty group by construction).
   const persons = Array.from(new Set(tasks.map((t) => t.lastActorPersonName).filter(Boolean) as string[])).sort();
   const computers = Array.from(new Set(tasks.map((t) => t.lastActorDeviceName).filter(Boolean) as string[])).sort();
-  const initiators = Array.from(new Set(tasks.map((t) => t.runInitiatorPersonName).filter(Boolean) as string[])).sort();
+  const initiators = Array.from(new Set(tasks.map(runInitiatorName).filter(Boolean))).sort();
   const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
 
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) > 0;

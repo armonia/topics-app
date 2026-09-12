@@ -95,7 +95,7 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
       "card-blocked-by": "blockedChip",
       "card-reopened": "reopened",
       "card-waiting-on-this": "waitingOnThis",
-      "card-run-initiator": "task.runInitiatorPersonName",
+      "card-run-initiator": "runInitiator",
       "card-run-computer": "task.runComputerName",
       "card-worked-in-place": "lavoroInPlace",
       "card-moved-by-hand": "spostataAMano",

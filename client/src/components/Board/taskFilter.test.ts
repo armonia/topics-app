@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { BoardTask } from '../../lib/board';
 import type { BoardFilters } from './constants';
-import { taskMatchesFilters } from './taskFilter';
+import { runInitiatorName, taskMatchesFilters } from './taskFilter';
 
 const base = {
   priority: 3, assignedTo: 'agent', text: 'Visible task', projectId: 'project-one',
@@ -27,5 +27,16 @@ describe('delegated-run board filters', () => {
     const hidden = { ...base, id: 'hidden', runInitiatorPersonName: 'Hidden person' };
     expect(visible.filter((task) => taskMatchesFilters(task, filters))).toEqual([base]);
     expect(new Set(visible.map((task) => task.runInitiatorPersonName))).not.toContain(hidden.runInitiatorPersonName);
+  });
+
+  test('a device capability keeps a visible and filterable initiator', () => {
+    const deviceRun = {
+      ...base,
+      runInitiatorPersonName: null,
+      runInitiatorDeviceName: 'Authorized device',
+    };
+    const deviceFilters = { ...filters, initiator: ['Authorized device'] };
+    expect(runInitiatorName(deviceRun)).toBe('Authorized device');
+    expect(taskMatchesFilters(deviceRun, deviceFilters)).toBe(true);
   });
 });

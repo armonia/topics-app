@@ -495,6 +495,8 @@ export interface BoardTask {
   /** Person who requested the most recent delegated agent run. This is not the
    * assignee, last author or executing agent. */
   runInitiatorPersonName?: string | null;
+  /** Device identity used when a delegated run was granted directly to a device. */
+  runInitiatorDeviceName?: string | null;
   /** Computer selected by the owner-issued start capability for that run. */
   runComputerName?: string | null;
   /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
