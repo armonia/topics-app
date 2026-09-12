@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.304",
+    "date": "2026-09-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La pane ingrandita prendeva meta' della superficie, e l'altra meta' restava una banda vuota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La board era un rettangolo nero per chiunque non avesse la finestra a fuoco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il change dell'onboarding non si archiviava perche' meta' di un requisito non la provava nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il confine ermetico si fidava di aver ucciso le sessioni di terminale, e non chiedeva mai conferma",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.303",
     "date": "2026-09-11",
     "sections": {
