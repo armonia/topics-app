@@ -206,6 +206,7 @@ export class NativeProvider implements AIProvider {
   readonly name = "topics";
   readonly capabilities = new Set<ProviderCapability>([
     "streaming",
+    "coding-tasks",
     "tools",
     "thinking",
     "sessions",

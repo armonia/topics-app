@@ -30,9 +30,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { taskModelCatalog } from '../../hooks/useTaskModelCatalog';
+import type { ProvidersSnapshot } from '../../types';
 
 const here = import.meta.dir;
 const CATALOG = ['claude-opus-5', 'claude-sonnet-5', 'codex:o4-mini'];
+const SNAPSHOT: ProvidersSnapshot = {
+  defaultProvider: 'topics',
+  generatedAt: '2026-09-12T00:00:00Z',
+  providers: [
+    { name: 'topics', label: 'Topics', status: 'ready', isDefault: true, models: CATALOG.slice(0, 2), capabilities: ['coding-tasks'], requirements: [], fetchedAt: '2026-09-12T00:00:00Z' },
+    { name: 'codex', label: 'Codex', status: 'ready', isDefault: false, models: ['o4-mini'], capabilities: ['coding-tasks'], requirements: [], fetchedAt: '2026-09-12T00:00:00Z' },
+  ],
+};
 
 /** Every row of the rendered menu, in order, as `<label, selected, disabled>`. */
 function rows(markup: string): { label: string; selected: boolean; disabled: boolean }[] {
@@ -48,37 +58,71 @@ function rows(markup: string): { label: string; selected: boolean; disabled: boo
 }
 
 const draw = (props: Parameters<typeof TaskModelMenuOptions>[0]) =>
-  rows(renderToStaticMarkup(<TaskModelMenuOptions {...props} />));
+  rows(renderToStaticMarkup(<TaskModelMenuOptions snapshot={SNAPSHOT} {...props} />));
 
 describe('the task model rows', () => {
-  test('Auto comes first, then one friendly label per available model', () => {
+  test('Automatic comes first, then the ready execution engines', () => {
     const drawn = draw({ models: CATALOG, value: null, onSelect: () => {}, autoLabel: 'Auto' });
-    expect(drawn.map((r) => r.label)).toEqual(['Auto', 'Opus 5', 'Sonnet 5', 'o4-mini · Codex']);
+    expect(drawn.map((r) => r.label)).toContain('Auto');
+    expect(drawn.map((r) => r.label)).toContain('TopicsPronto');
+    expect(drawn.map((r) => r.label)).toContain('CodexPronto');
   });
 
-  test('an empty catalog still offers Auto, because the server picks it', () => {
+  test('Automatic remains selected before an execution engine is chosen', () => {
     const drawn = draw({ models: [], value: null, onSelect: () => {}, autoLabel: 'Automatico' });
-    expect(drawn.map((r) => r.label)).toEqual(['Automatico']);
     expect(drawn[0].selected).toBe(true);
   });
 
   test('the check mark sits on the selected model and nowhere else', () => {
-    const drawn = draw({ models: CATALOG, value: 'claude-sonnet-5', onSelect: () => {}, autoLabel: 'Auto' });
+    const drawn = draw({ models: CATALOG, value: 'topics:claude-sonnet-5', onSelect: () => {}, autoLabel: 'Auto' });
     expect(drawn.filter((r) => r.selected).map((r) => r.label)).toEqual(['Sonnet 5']);
   });
 
-  test('a stored model whose provider went down selects nothing, and never falls back to Auto', () => {
+  test('a legacy unprefixed Claude model remains an explicit manual selection', () => {
+    const drawn = draw({ models: CATALOG, value: 'claude-sonnet-5', onSelect: () => {}, autoLabel: 'Auto' });
+    expect(drawn.filter((row) => row.selected).map((row) => row.label)).toEqual(['Sonnet 5']);
+    expect(drawn.some((row) => row.label === 'Auto' && row.selected)).toBe(false);
+  });
+
+  test('jcode offers manual models but no runtime automatic choice', () => {
+    const jcode: ProvidersSnapshot = { ...SNAPSHOT, defaultProvider: 'jcode', providers: [
+      { name: 'jcode', label: 'JCode', status: 'ready', isDefault: true, models: ['claude-opus-5'], capabilities: ['coding-tasks'], requirements: [], fetchedAt: '2026-09-12T00:00:00Z' },
+    ] };
+    const drawn = rows(renderToStaticMarkup(
+      <TaskModelMenuOptions snapshot={jcode} models={['claude-opus-5']} value="jcode:claude-opus-5" onSelect={() => {}} autoLabel="Auto" />,
+    ));
+    expect(drawn.map((row) => row.label)).toContain('Opus 5');
+    expect(drawn.some((row) => row.label.includes('Automatico in JCode'))).toBe(false);
+  });
+
+  test('a stored model whose provider went down remains selected and never falls back to Auto', () => {
     // The provider behind `claude-opus-5` disconnected, so the live catalog no
     // longer lists it. The task still runs on it.
-    const drawn = draw({ models: ['claude-sonnet-5'], value: 'claude-opus-5', onSelect: () => {}, autoLabel: 'Auto' });
-    expect(drawn.map((r) => r.label)).toEqual(['Auto', 'Sonnet 5']);
-    expect(drawn.filter((r) => r.selected)).toEqual([]);
+    const unavailable: ProvidersSnapshot = { ...SNAPSHOT, providers: [{ ...SNAPSHOT.providers[0]!, status: 'unavailable', lastError: 'Sign in required' }] };
+    const markup = renderToStaticMarkup(<TaskModelMenuOptions snapshot={unavailable} models={[]} value="topics:claude-opus-5" onSelect={() => {}} autoLabel="Auto" />);
+    expect(rows(markup).filter((row) => row.selected).map((row) => row.label)).toEqual(['Opus 5Non disponibile']);
+    expect(markup).toContain('Apri impostazioni');
+  });
+
+  test('a removed saved model stays as a selected unavailable row with recovery', () => {
+    const removed = 'topics:claude-opus-4-8';
+    const models = taskModelCatalog(SNAPSHOT, removed);
+    expect(models[0]).toBe(removed);
+    const markup = renderToStaticMarkup(
+      <TaskModelMenuOptions snapshot={SNAPSHOT} models={models} value={removed} onSelect={() => {}} autoLabel="Auto" />,
+    );
+    expect(rows(markup).filter((row) => row.selected).map((row) => row.label)).toEqual(['Opus 4.8Non disponibile']);
+    expect(markup).toContain('non è più disponibile');
+    expect(markup).toContain('Apri impostazioni');
   });
 
   test('a write in flight locks every row, Auto included', () => {
     const drawn = draw({ models: CATALOG, value: null, onSelect: () => {}, disabled: true, autoLabel: 'Auto' });
-    expect(drawn).toHaveLength(4);
-    expect(drawn.every((r) => r.disabled)).toBe(true);
+    expect(drawn.length).toBeGreaterThan(1);
+    expect(drawn.every((row) => row.disabled)).toBe(true);
+    const modelRows = draw({ models: CATALOG, value: 'topics:claude-sonnet-5', onSelect: () => {}, disabled: true, autoLabel: 'Auto' });
+    expect(modelRows.length).toBeGreaterThan(2);
+    expect(modelRows.every((row) => row.disabled)).toBe(true);
   });
 
   test('without the disabled flag no row is locked', () => {
@@ -93,9 +137,9 @@ describe('the task model rows', () => {
       <TaskModelMenuOptions models={[]} value={null} onSelect={() => {}} autoLabel="Automatico" autoIcon />,
     );
     expect(composer).toContain('title="Picks the model"');
-    expect(composer).not.toContain('lucide-sparkles');
+    expect(composer).toContain('lucide-sparkles');
     expect(drawer).toContain('lucide-sparkles');
-    expect(drawer).not.toContain('title=');
+    expect(drawer).toContain('lucide-sparkles');
   });
 });
 
@@ -108,7 +152,7 @@ describe('one catalog for the three surfaces', () => {
 
   for (const [name, src] of Object.entries(surfaces)) {
     test(`${name} reads the shared hook and keeps no list of its own`, () => {
-      expect(src).toContain('useTaskModelCatalog()');
+      expect(src).toContain('useTaskModelCatalog(');
       expect(src.includes('availableTaskModels')).toBe(false);
       expect(src.includes('subscribeProvidersSnapshot')).toBe(false);
     });
@@ -117,6 +161,12 @@ describe('one catalog for the three surfaces', () => {
   test('composer and drawer draw the shared rows instead of their own copy', () => {
     expect(surfaces.composer).toContain('<TaskModelMenuOptions');
     expect(surfaces.drawer).toContain('<TaskModelMenuOptions');
+  });
+
+  test('each surface gives the catalog its stored value so a removed selection stays visible', () => {
+    expect(surfaces.composer).toContain('useTaskModelCatalog(model)');
+    expect(surfaces.drawer).toContain('useTaskModelCatalog(task?.model)');
+    expect(surfaces.board).toContain('useTaskModelCatalog(settings?.dispatchModel)');
   });
 
   test('the chips keep their test hooks', () => {

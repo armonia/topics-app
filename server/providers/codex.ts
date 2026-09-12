@@ -361,6 +361,7 @@ export class CodexProvider implements AIProvider {
   readonly name = "codex";
   readonly capabilities: Set<ProviderCapability> = new Set([
     "streaming",
+    "coding-tasks",
     "tools",
     "sessions",
     "abort",

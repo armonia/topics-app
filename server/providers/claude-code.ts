@@ -1106,6 +1106,7 @@ export class ClaudeCodeProvider implements AIProvider {
   readonly name = "claude-code";
   readonly capabilities: Set<ProviderCapability> = new Set([
     "streaming",
+    "coding-tasks",
     "tools",
     "sessions",
     "abort",

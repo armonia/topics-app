@@ -1,7 +1,7 @@
 /** @covers MP-TASK-01, MP-TASK-02 */
 import { describe, expect, test } from 'bun:test';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, taskModelMatchesSession, taskModelSelection, taskProviderForModel } from './task-coding-models';
+import { availableTaskModels, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -41,6 +41,44 @@ describe('task coding models', () => {
     expect(taskModelSelection('codex')).toEqual({ provider: 'codex' });
     expect(taskProviderForModel('gpt-5.4', snapshot([entry('codex', ['gpt-5.4'])]))).toBe('codex');
     expect(() => taskProviderForModel('gpt-5.4', snapshot([]))).toThrow('Codex is unavailable');
+  });
+  test('new values bind runtime before model while legacy values remain valid', () => {
+    expect(taskModelValue('topics', 'claude-opus-5')).toBe('topics:claude-opus-5');
+    expect(taskModelValue('codex', null)).toBe('codex:auto');
+    expect(taskModelSelection('topics:claude-opus-5')).toEqual({ provider: 'topics', model: 'claude-opus-5' });
+    expect(taskModelSelection('claude-opus-5')).toEqual({ model: 'claude-opus-5' });
+    expect(taskModelSelection('codex:auto')).toEqual({ provider: 'codex' });
+    expect(taskModelSelection('topics:auto')).toEqual({ provider: 'topics' });
+  });
+  test('execution catalog trusts server coding capability and keeps unavailable rows', () => {
+    const ready = { ...entry('topics', ['claude-opus-5', 'gpt-5.4']), label: 'Topics', capabilities: ['coding-tasks'] };
+    const unavailable = { ...entry('codex', ['gpt-5.4'], 'unavailable'), label: 'Codex', capabilities: ['coding-tasks'], lastError: 'Sign in required' };
+    const api = { ...entry('openai', ['gpt-5.4']), capabilities: ['streaming'] };
+    expect(taskExecutionOptions(snapshot([ready, unavailable, api]))).toEqual([
+      { name: 'topics', label: 'Topics', status: 'ready', models: ['claude-opus-5'], supportsAutomatic: true, reason: undefined },
+      { name: 'codex', label: 'Codex', status: 'unavailable', models: ['gpt-5.4'], supportsAutomatic: true, reason: 'Sign in required' },
+    ]);
+  });
+  test('an explicit runtime never falls back to another compatible runtime', () => {
+    const current = snapshot([
+      entry('topics', ['claude-opus-5'], 'unavailable'),
+      entry('claude-code', ['claude-opus-5']),
+    ], 'claude-code');
+    expect(() => taskProviderForModel('topics:claude-opus-5', current)).toThrow('topics is unavailable');
+    expect(taskProviderForModel('claude-code:claude-opus-5', current)).toBe('claude-code');
+    expect(taskProviderForModel('topics:auto', snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex'))).toBe('topics');
+    expect(taskProviderForModel('codex:auto', snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'topics'))).toBe('codex');
+  });
+
+  test('only task-capable ACP runtimes enter the catalog and legacy jcode routes stay valid', () => {
+    const chatOnly = { ...entry('jcode', ['claude-opus-5']), capabilities: ['streaming'] };
+    const taskCapable = { ...chatOnly, capabilities: ['streaming', 'coding-tasks'] };
+    expect(taskExecutionOptions(snapshot([chatOnly]))).toEqual([]);
+    expect(availableTaskModels(snapshot([chatOnly]))).toEqual([]);
+    expect(() => taskProviderForModel('jcode:claude-opus-5', snapshot([chatOnly]))).toThrow('jcode is unavailable');
+    expect(taskExecutionOptions(snapshot([taskCapable]))[0]?.name).toBe('jcode');
+    expect(taskExecutionOptions(snapshot([taskCapable]))[0]?.supportsAutomatic).toBe(false);
+    expect(taskProviderForModel('jcode:claude-opus-5', snapshot([taskCapable]))).toBe('jcode');
   });
   test('auto leaves the model unset while choosing only a ready coding runtime', () => {
     for (const value of [null, undefined, '', 'auto']) {

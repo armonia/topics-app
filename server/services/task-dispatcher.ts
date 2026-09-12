@@ -35,7 +35,7 @@ import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, c
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
-import { taskModelMatchesSession, taskModelSelection } from "../../shared/task-coding-models";
+import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -2196,10 +2196,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Concrete task model > concrete board model > general Auto. A legacy
       // provider alias restricts the automatic catalog, not the final model.
       // Reused topics retain their binding and never call the classifier.
-      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
-      let chosenProvider: string | undefined;
+      const requestedSelection = task.model ?? settings.model ?? undefined;
+      const requested = taskModelSelection(requestedSelection);
+      let chosenModel: string | undefined = requested.model;
+      let chosenProvider: string | undefined = requested.provider;
       if (reuseTopicId && (chosenModel || deps.topicModelSelection)
-        && !taskModelMatchesSession(chosenModel, deps.topicModelSelection?.(reuseTopicId))) {
+        && !taskModelMatchesSession(requestedSelection, deps.topicModelSelection?.(reuseTopicId))) {
         releaseAndEmit({
           taskId, requeue: false, parkState: CHIP_BLOCKED,
           reason: chosenModel
@@ -2213,7 +2215,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
       // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
       // significa pagarla uguale su un typo e su un refactor.
-      const modelIsConcrete = !!taskModelSelection(chosenModel).model;
+      const modelIsConcrete = !!requested.model;
       const reuseAutomaticEffort = settings.effort === "auto" && !!task.modelEffort && modelIsConcrete;
       let chosenEffort = reuseAutomaticEffort
         ? task.modelEffort!
@@ -2222,7 +2224,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // automatic effort falls back to medium until a paired value exists;
       // never ask a provider-only classifier to judge another model's effort.
       if (!modelIsConcrete && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task, chosenModel, { effort: settings.effort });
+        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort });
         // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
         // deve fermarsi qui — prima del worktree, prima del topic, prima
         // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
@@ -2352,7 +2354,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // terzo la sessione aveva due messaggi).
       deps.svc.bindTopic({ taskId, topicId, freshSession: !reuseTopicId });
       if (chosenModel && !reuseTopicId) {
-        deps.svc.setModel({ taskId, model: chosenModel, effort: settings.effort === "auto" ? chosenEffort : undefined });
+        deps.svc.setModel({
+          taskId,
+          model: modelIsConcrete && requestedSelection
+            ? requestedSelection
+            : chosenProvider ? taskModelValue(chosenProvider, chosenModel) : chosenModel,
+          effort: settings.effort === "auto" ? chosenEffort : undefined,
+        });
       }
 
       // DIRLO: il cambio di worktree era muto, e l'umano non sapeva dove
@@ -2587,7 +2595,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     let failure: string | null = null;
     try {
       worktreeId = await deps.createWorktree!(resolved.projectStoreId);
-      const wait = taskPlanWait(task, opts.model, true);
+      const routedModel = opts.provider && opts.model ? taskModelValue(opts.provider, opts.model) : opts.model;
+      const wait = taskPlanWait(task, routedModel, true);
       if (wait) {
         try { store.finish(attempt.id, { state: "failed", error: wait.reason }); }
         catch (err) { log(`fan-out: held attempt ${attempt.id} not recorded`, err); }
@@ -2608,7 +2617,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       });
       sessionKey = topic.sessionKey;
       store.bind(attempt.id, { topicId: topic.topicId, worktreeId, branch });
-      if (opts.model) deps.svc.setModel({ taskId: task.id, model: opts.model, effort: opts.autoEffort ? opts.effort : undefined });
+      if (opts.model) deps.svc.setModel({ taskId: task.id, model: routedModel!, effort: opts.autoEffort ? opts.effort : undefined });
       // Il tentativo 1 tiene il deep-link del task finché l'umano non sceglie:
       // `assigned_topic_id` ha una FK su topics ed è il bersaglio di "Apri la
       // chat". Alla scelta viene ri-puntato sul vincitore.
@@ -2805,20 +2814,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // UN modello per tutti i tentativi: variarlo fra tentativi renderebbe il
       // confronto un esperimento su due variabili insieme, e il fan-out serve a
       // confrontare STRADE, non provider.
-      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
-      let chosenProvider: string | undefined;
+      const requestedSelection = task.model ?? settings.model ?? undefined;
+      const requested = taskModelSelection(requestedSelection);
+      let chosenModel: string | undefined = requested.model;
+      let chosenProvider: string | undefined = requested.provider;
       // L'effort segue la stessa regola del modello: la board può fissarlo e
       // allora comanda lei; su "auto" lo sceglie il classificatore task per
       // task. È la leva più cara che abbiamo — stesso lavoro: `medium` 61,1k
       // token, `xhigh` 108,8k — quindi tenerla fissa per una board intera
       // significa pagarla uguale su un typo e su un refactor.
-      const modelIsConcrete = !!taskModelSelection(chosenModel).model;
+      const modelIsConcrete = !!requested.model;
       const reuseAutomaticEffort = settings.effort === "auto" && !!task.modelEffort && modelIsConcrete;
       let chosenEffort = reuseAutomaticEffort
         ? task.modelEffort!
         : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
       if (!modelIsConcrete && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task, chosenModel, { effort: settings.effort });
+        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort });
         // Vale a maggior ragione qui: un task pesante in fan-out sono N
         // macinate in parallelo, cioè il caso peggiore che il peso esiste per
         // evitare. Il `finally` restituisce gli slot prenotati.

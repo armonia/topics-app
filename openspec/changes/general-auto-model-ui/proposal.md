@@ -1,8 +1,16 @@
 # General Auto model presentation
 
-The user clarified that Auto should select across connected providers, while manual choices remain available. This change aligns the three task/board selectors and preserves recognizable model versions in resolved task chips. Routing and readiness are implemented in the parallel general Auto change; this patch adds no selector mode, credentials, migration, or runtime behavior.
+The user clarified that execution must be chosen before a model, and that Auto
+selects across connected, compatible execution engines. This change replaces
+the separate chat, task and board controls with one presentation and
+surface-specific adapters. It also preserves recognizable concrete models,
+runtime binding and legacy stored values without promising an execution path
+that the server cannot run.
 
-Validation: targeted model-formatting regressions, existing task/card unit tests, client typecheck, and isolated browser evidence for resolved chips and unchanged manual/assigned controls. No real provider login or model call is needed.
+Validation: targeted catalog, routing, persistence and component regressions;
+client/server type checks; and isolated browser evidence covering task creation,
+task detail, normal chat and project settings. No real provider login or model
+call is needed.
 
 ## Future account boundaries
 

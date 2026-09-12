@@ -145,6 +145,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         binaryPath: diag?.binaryPath,
         version: diag?.version,
         models,
+        capabilities: [...provider.capabilities],
         defaultModel: provider.defaultModel?.() ?? undefined,
         // Lo stato della fast mode non viene da un probe: lo dichiara la CLI
         // dentro lo stream di una sessione viva, e il provider lo tiene. Qui si
@@ -172,6 +173,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         status: "error",
         isDefault: name === defaultName,
         models: [],
+        capabilities: [...provider.capabilities],
         requirements: [],
         lastError: err instanceof Error ? err.message : String(err),
         fetchedAt: new Date().toISOString(),
@@ -252,6 +254,7 @@ export class ProviderSnapshotManager extends EventEmitter {
       status: "loading",
       isDefault: name === defaultName,
       models: [],
+      capabilities: [],
       requirements: [],
       fetchedAt: new Date().toISOString(),
     };

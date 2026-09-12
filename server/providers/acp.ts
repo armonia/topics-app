@@ -159,13 +159,7 @@ interface AcpSessionState {
 
 export class AcpProvider implements AIProvider {
   readonly name: string;
-  readonly capabilities = new Set<ProviderCapability>([
-    "streaming",
-    "tools",
-    "thinking",
-    "sessions",
-    "abort",
-  ]);
+  readonly capabilities: Set<ProviderCapability>;
   /**
    * L'agente tiene la storia per conto suo (è il senso di `session/new`), quindi
    * i blocchi di sistema vanno inlinati nel turno come per la CLI di Claude.
@@ -217,6 +211,14 @@ export class AcpProvider implements AIProvider {
   constructor(config: AcpProviderConfig) {
     this.config = config;
     this.name = config.name;
+    this.capabilities = new Set<ProviderCapability>([
+      "streaming",
+      "tools",
+      "thinking",
+      "sessions",
+      "abort",
+      ...(config.name === "jcode" ? ["coding-tasks" as const] : []),
+    ]);
   }
 
   /**

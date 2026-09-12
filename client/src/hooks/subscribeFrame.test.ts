@@ -85,3 +85,13 @@ describe('the presence announce', () => {
     expect(announceFrame).not.toContain('subscribedTopicIds');
   });
 });
+
+describe('project focus handoff', () => {
+  test('focuses the registered project before effects can reconcile', () => {
+    const start = src.indexOf('const handleProjectClick = useCallback');
+    const end = src.indexOf('handleProjectClickRef.current = handleProjectClick', start);
+    const handler = src.slice(start, end);
+    expect(handler).toContain("dispatch({ type: 'FOCUS_PANE', payload: { id: paneId } })");
+    expect(handler.indexOf("dispatch({ type: 'FOCUS_PANE'")).toBeGreaterThan(handler.indexOf('ensurePaneRegistered'));
+  });
+});

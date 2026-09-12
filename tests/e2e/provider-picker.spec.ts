@@ -76,6 +76,8 @@ test.describe.serial("Provider/Model picker", () => {
     // independent of how the row is displayed.
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
+    const runtime = popover.locator('button[data-provider]').first();
+    if (await runtime.count() > 0) await runtime.click();
     const enabledModel = popover
       .locator("button:not([disabled])[data-model]")
       .first();

@@ -9,7 +9,7 @@
  * @covers CHAT-DEF-03
  */
 import { describe, expect, test } from 'bun:test';
-import { splitModelId } from './modelLabel';
+import { friendlyModelLabel, splitModelId } from './modelLabel';
 
 describe('splitModelId', () => {
   test('un id senza modalità torna identico', () => {
@@ -38,5 +38,13 @@ describe('splitModelId', () => {
 
   test('una stringa vuota non esplode', () => {
     expect(splitModelId('')).toEqual({ name: '', longContext: false });
+  });
+});
+
+describe('friendlyModelLabel', () => {
+  test('keeps the explicit execution engine visible', () => {
+    expect(friendlyModelLabel('topics:claude-opus-5')).toBe('Opus 5 · Topics');
+    expect(friendlyModelLabel('codex:gpt-5.6-sol')).toBe('GPT-5.6-sol · Codex');
+    expect(friendlyModelLabel('claude-code:auto')).toBe('Automatic · Claude Code');
   });
 });

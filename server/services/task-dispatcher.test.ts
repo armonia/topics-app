@@ -2724,17 +2724,33 @@ describe("blocked-by + context reuse", () => {
         selections.push(selection);
         return { model: "gpt-5.6-sol", provider: "codex", effort: "low", weight: "light" };
       } });
-      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto", dispatchModel: scope === "board" ? "codex" : "claude-opus-5" });
-      const task = h.svc.create({ projectId: PID, status: "todo", text: "A bounded task", model: scope === "task" ? "codex" : null });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto", dispatchModel: scope === "board" ? "codex:auto" : "claude-opus-5" });
+      const task = h.svc.create({ projectId: PID, status: "todo", text: "A bounded task", model: scope === "task" ? "codex:auto" : null });
       await h.dispatcher.tick(PID);
       await flush();
-      expect(selections).toEqual(["codex"]);
-      expect(h.task(task.id)?.model).toBe("gpt-5.6-sol");
+      expect(selections).toEqual(["codex:auto"]);
+      expect(h.task(task.id)?.model).toBe("codex:gpt-5.6-sol");
       expect(h.topicsCreated[0]?.model).toBe("gpt-5.6-sol");
       expect(h.topicsCreated[0]?.provider).toBe("codex");
       expect(h.topicsCreated[0]?.effort).toBe("low");
     });
   }
+
+  it("Topics automatic stays constrained through classification and persisted dispatch", async () => {
+    const selections: (string | undefined)[] = [];
+    const h = harness({ pickAutoModel: async (_task, selection) => {
+      selections.push(selection);
+      return { model: "claude-opus-5", provider: "topics", effort: "high", weight: "light" };
+    } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "A Topics task", model: "topics:auto" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(selections).toEqual(["topics:auto"]);
+    expect(h.task(task.id)?.model).toBe("topics:claude-opus-5");
+    expect(h.topicsCreated[0]).toMatchObject({ provider: "topics", model: "claude-opus-5", effort: "high" });
+    h.dispatcher.shutdown();
+  });
 
   it("a fresh requeue retains the automatic effort paired with its resolved model", async () => {
     let calls = 0;
@@ -2743,7 +2759,7 @@ describe("blocked-by + context reuse", () => {
       return { model: "gpt-5.6-luna", provider: "codex", effort: "low", weight: "light" };
     } });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto" });
-    const task = h.svc.create({ projectId: PID, status: "todo", text: "Keep this economical", model: "codex" });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Keep this economical", model: "codex:auto" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.task(task.id)?.modelEffort).toBe("low");
@@ -2781,16 +2797,16 @@ describe("blocked-by + context reuse", () => {
   it("Codex automatic fanout shares one classified model and effort across fresh attempts", async () => {
     let calls = 0;
     const h = harness({ pickAutoModel: async (_task, selection) => {
-      expect(selection).toBe("codex"); calls++;
+      expect(selection).toBe("codex:auto"); calls++;
       return { model: "gpt-5.6-sol", provider: "codex", effort: "low", weight: "light" };
     } });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "auto", dispatchFanOut: 2 });
     h.svc.setGlobalCap({ auto: false, max: 5 });
-    const task = h.svc.create({ projectId: PID, status: "todo", text: "Try two approaches", model: "codex" });
+    const task = h.svc.create({ projectId: PID, status: "todo", text: "Try two approaches", model: "codex:auto" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(calls).toBe(1);
-    expect(h.task(task.id)?.model).toBe("gpt-5.6-sol");
+    expect(h.task(task.id)?.model).toBe("codex:gpt-5.6-sol");
     expect(h.topicsCreated).toHaveLength(2);
     expect(h.topicsCreated.map(t => [t.model, t.effort])).toEqual([["gpt-5.6-sol", "low"], ["gpt-5.6-sol", "low"]]);
     h.dispatcher.shutdown();

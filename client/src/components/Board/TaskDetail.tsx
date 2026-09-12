@@ -1294,7 +1294,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // "auto" selects across compatible connected providers; an explicit id pins it.
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const models = useTaskModelCatalog();
+  const models = useTaskModelCatalog(task?.model);
   // Le etichette del drawer: toggle, e una sola visibilita' per volta (accendere
   // `invisibile` spegne `visibile`, che e' cio' che fa `normalizeLabels` anche
   // lato server — qui si evita solo il viaggio con una richiesta contraddittoria).

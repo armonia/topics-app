@@ -1830,6 +1830,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
     }
     setFocusedPanelId(paneId);
+    // Publish focus before reconciliation can restore the previous mobile pane.
+    usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: paneId } });
     // Track recently-opened projects so the cmd+K palette can surface
     // projects the user has touched even when no topics live there yet.
     try {

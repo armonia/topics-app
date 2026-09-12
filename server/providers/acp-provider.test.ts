@@ -345,6 +345,11 @@ describe("diagnostica", () => {
     expect(provider.capabilities.has("history")).toBe(false);
     expect(provider.capabilities.has("sessions")).toBe(true);
   });
+
+  test("solo jcode dichiara l'esecuzione dei task di coding", () => {
+    expect(makeProvider({ name: "gemini" }).capabilities.has("coding-tasks")).toBe(false);
+    expect(makeProvider({ name: "jcode" }).capabilities.has("coding-tasks")).toBe(true);
+  });
 });
 
 /**
