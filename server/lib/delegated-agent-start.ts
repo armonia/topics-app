@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Principal, SubjectKind } from "./grants-query";
 
 export const DELEGATED_MAX_ATTEMPTS = 1 as const;
-export const DELEGATED_FANOUT = 1 as const;
+export const DELEGATED_PARALLEL_LIMIT = 1 as const;
 
 /** Git transport is not repository identity. Compare the host/path key. */
 export function normalizeRepositoryKey(raw: unknown): string | null {
@@ -40,7 +40,7 @@ export interface AgentStartCapability {
   effort: string;
   maxDurationMinutes: number;
   maxAttempts: typeof DELEGATED_MAX_ATTEMPTS;
-  fanout: typeof DELEGATED_FANOUT;
+  fanout: typeof DELEGATED_PARALLEL_LIMIT;
   grantedByPersonId: string;
   grantedAt: number;
   expiresAt: number | null;
@@ -87,7 +87,7 @@ function mapCapability(row: CapabilityRow): AgentStartCapability {
     effort: row.effort,
     maxDurationMinutes: row.max_duration_minutes,
     maxAttempts: DELEGATED_MAX_ATTEMPTS,
-    fanout: DELEGATED_FANOUT,
+    fanout: DELEGATED_PARALLEL_LIMIT,
     grantedByPersonId: row.granted_by_person_id,
     grantedAt: row.granted_at,
     expiresAt: row.expires_at,
@@ -293,7 +293,7 @@ export function delegatedPolicyForTask(db: Database, taskId: string, now = Date.
     maxDurationMinutes: node.max_duration_minutes,
     deadlineAt: node.deadline_at,
     maxAttempts: DELEGATED_MAX_ATTEMPTS,
-    fanout: DELEGATED_FANOUT,
+    fanout: DELEGATED_PARALLEL_LIMIT,
     grantedByPersonId: "",
     grantedAt: node.created_at,
     expiresAt: node.expires_at,

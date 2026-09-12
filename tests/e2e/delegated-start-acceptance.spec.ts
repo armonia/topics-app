@@ -14,6 +14,7 @@ import { execFileSync } from "child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { projectIdForPath } from "../../shared/board";
+import { SESSION_COOKIE } from "../../server/lib/device-auth";
 import { hermetic } from "./fixtures/hermetic";
 import {
   createTopic,
@@ -293,13 +294,50 @@ test("GUEST-21: an already-open empty node page receives, approves, and revokes 
 
     const authorization = surface.getByTestId('remote-node-authorization');
     await expect(authorization).toContainText('example.test/team/live-node');
+    await expect(authorization).toContainText('15 min');
+    await expect(authorization.locator('p').first()).toHaveAttribute('title', /Un altro computer.*example\.test\/team\/live-node/);
+    await expect(authorization.locator('p').nth(1)).toHaveAttribute('title', /15 min.*attivazione/i);
     await expect(surface.getByTestId('remote-node-request')).toHaveCount(0);
 
     const claimed = await request.get(`${E2E_BASE}/api/nodes/delegated-requests/${nodeRequestId}/claim?claim=${encodeURIComponent(claim)}`);
     expect(claimed.ok(), await claimed.text()).toBeTruthy();
+    const delegatedCookie = claimed.headers()['set-cookie']?.split(';', 1)[0] ?? '';
+    expect(delegatedCookie).toMatch(new RegExp(`^${SESSION_COOKIE}=`));
     const activated = await request.post(`${E2E_BASE}/api/nodes/delegated-requests/${nodeRequestId}/ack?claim=${encodeURIComponent(claim)}`);
     expect(activated.ok(), await activated.text()).toBeTruthy();
     await expect(authorization).toBeVisible();
+    await expect(authorization.locator('p').nth(1)).toHaveAttribute('title', /15 min.*scade/);
+
+    const delegatedHeaders = {
+      cookie: delegatedCookie,
+      'x-topics-delegated-capability': `cap-live-${stamp}`,
+    };
+    const created = await request.post(`${E2E_TUNNEL_BASE}/api/nodes/delegated-runs`, {
+      headers: delegatedHeaders,
+      data: {
+        originTaskId: `origin-live-${stamp}`,
+        originUrl: 'https://example.test/team/live-node.git',
+        text: 'confined remote run',
+        description: '',
+      },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    const { runId } = await created.json() as { runId: string };
+
+    for (const [method, path, data] of [
+      ['GET', '/api/auth/devices', undefined],
+      ['GET', '/api/projects', undefined],
+      ['POST', '/api/nodes/runs', { originTaskId: 'legacy', originUrl: 'https://example.test/team/live-node.git', text: 'legacy' }],
+      ['POST', `/api/tasks/${runId}/run`, undefined],
+    ] as const) {
+      const denied = await request.fetch(`${E2E_TUNNEL_BASE}${path}`, {
+        method,
+        headers: delegatedHeaders,
+        ...(data ? { data } : {}),
+      });
+      expect(denied.status(), `${method} ${path}`).toBe(403);
+      expect((await denied.json()).code, `${method} ${path} uses the global delegated scope`).toBe('delegated_scope');
+    }
 
     await authorization.getByRole('button', { name: 'Revoca' }).click();
     await expect(surface.getByTestId('remote-node-authorization')).toHaveCount(0);

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Clock3, Link2, ShieldCheck, Trash2, X } from 'lucide-react';
-import { useT } from '../../hooks/useT';
+import { useLocale, useT } from '../../hooks/useT';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { Select } from '../Shared/Select';
 import {
   approveLocalDelegatedRequest,
+  delegatedAuthorizationActor,
   delegatedRequests,
   denyLocalDelegatedRequest,
   listLocalDelegatedRequests,
@@ -20,6 +21,7 @@ interface LocalPerson { id: string; name: string; owner: boolean }
  * organisation administrator. */
 export function RemoteNodeRequests() {
   const t = useT();
+  const locale = useLocale();
   const [requests, setRequests] = useState<DelegatedMachineRequest[]>([]);
   const [projects, setProjects] = useState<LocalProject[]>([]);
   const [people, setPeople] = useState<LocalPerson[]>([]);
@@ -195,22 +197,36 @@ export function RemoteNodeRequests() {
             {t('settings.machines.remote.activeHeading')}
           </h5>
           <ul className="mt-1.5 space-y-1.5">
-            {active.map((request) => (
-              <li key={request.id} className="flex items-center gap-2 rounded-md border border-app-border bg-app-bg-secondary px-2.5 py-2" data-testid="remote-node-authorization">
-                <ShieldCheck size={12} className="shrink-0 text-emerald-500" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-mini font-medium text-app-text">{request.repositoryName ?? request.repositoryKey}</p>
-                  <p className="truncate text-micro text-app-text-muted">
-                    {request.model && friendlyModelLabel(request.model)}
-                    {request.effort && ` · ${request.effort}`}
-                    {request.state === 'approved' && ` · ${t('settings.machines.remote.activating')}`}
-                  </p>
-                </div>
-                <button type="button" disabled={busy === request.id} onClick={() => void revoke(request)} className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-mini text-red-500 hover:bg-red-500/10 disabled:opacity-50" aria-label={t('settings.machines.remote.revoke')}>
-                  <Trash2 size={11} />{t('settings.machines.remote.revoke')}
-                </button>
-              </li>
-            ))}
+            {active.map((request) => {
+                const actor = delegatedAuthorizationActor(request) ?? t('settings.machines.remote.otherComputer');
+                const repository = request.repositoryName ?? request.repositoryKey ?? '';
+                const firstLine = `${actor} · ${repository}`;
+                const expiry = request.expiresAt
+                  ? t('settings.machines.remote.expiresAt', {
+                    when: new Intl.DateTimeFormat(locale === 'it' ? 'it-IT' : 'en-GB', {
+                      dateStyle: 'short', timeStyle: 'short',
+                    }).format(new Date(request.expiresAt)),
+                  })
+                  : '';
+                const secondLine = [
+                  request.model ? friendlyModelLabel(request.model) : '',
+                  request.effort ?? '',
+                  request.maxDurationMinutes ? t('share.agentStart.minutes', { n: request.maxDurationMinutes }) : '',
+                  request.state === 'approved' ? t('settings.machines.remote.activating') : expiry,
+                ].filter(Boolean).join(' · ');
+                return (
+                  <li key={request.id} className="flex items-center gap-2 rounded-md border border-app-border bg-app-bg-secondary px-2.5 py-2" data-testid="remote-node-authorization">
+                    <ShieldCheck size={12} className="shrink-0 text-emerald-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-mini font-medium text-app-text" title={firstLine}>{firstLine}</p>
+                      <p className="truncate text-micro text-app-text-muted" title={secondLine}>{secondLine}</p>
+                    </div>
+                    <button type="button" disabled={busy === request.id} onClick={() => void revoke(request)} className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-mini text-red-500 hover:bg-red-500/10 disabled:opacity-50" aria-label={t('settings.machines.remote.revoke')}>
+                      <Trash2 size={11} />{t('settings.machines.remote.revoke')}
+                    </button>
+                  </li>
+                );
+              })}
           </ul>
         </div>
       )}

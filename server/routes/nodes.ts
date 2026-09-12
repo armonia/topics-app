@@ -309,7 +309,27 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     const origin = await runGit(path, ["remote", "get-url", "origin"]);
     return origin.code === 0 && normalizeRemoteUrl(origin.stdout) === binding.repositoryKey ? got : null;
   }
-
+  async function cancelAuthorizationRuns(authorizationId: string): Promise<boolean> {
+    const runs = db.query("SELECT run_id FROM delegated_node_runs WHERE authorization_id=? AND cancel_confirmed_at IS NULL")
+      .all(authorizationId) as Array<{ run_id: string }>;
+    let confirmed = true;
+    for (const run of runs) {
+      const task = svc.get(run.run_id)?.task;
+      if (!task) {
+        db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?").run(Date.now(), run.run_id);
+        continue;
+      }
+      try {
+        const response = await opts.deleteBoardTask(task.projectId, task.id);
+        if (!response?.ok) throw new Error(`cancel returned ${response?.status ?? "no response"}`);
+        db.query("UPDATE delegated_node_runs SET cancel_confirmed_at=?,cancel_error=NULL WHERE run_id=?").run(Date.now(), run.run_id);
+      } catch (error) {
+        confirmed = false;
+        db.query("UPDATE delegated_node_runs SET cancel_error=? WHERE run_id=?").run(String(error), run.run_id);
+      }
+    }
+    return confirmed;
+  }
   return async function nodesRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/nodes/")) return null;
 
@@ -318,7 +338,6 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     // the same reading every other router gives it. Only a resolved guest is
     // turned away.
     const identity = ctx.requestIdentity?.(req) ?? null;
-
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
       const purpose = body?.purpose === "catalog" ? "catalog" : body?.purpose === "authorization" ? "authorization" : null;
@@ -361,7 +380,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         WHERE direction='node' AND state='pending' AND expires_at <= ?`).run(now, now);
       const requests = db.query(`SELECT id,purpose,code,state,capability_id AS capabilityId,repository_key AS repositoryKey,
           origin_person_id AS originPersonId,model,effort,max_duration_minutes AS maxDurationMinutes,
-          expires_at AS expiresAt,authorization_id AS authorizationId,local_project_id AS localProjectId,local_person_id AS localPersonId
+          expires_at AS expiresAt,authorization_id AS authorizationId,local_project_id AS localProjectId,local_person_id AS localPersonId,
+          revoke_pending AS revokePending,last_error AS lastError
         FROM delegated_node_requests WHERE direction='node' ORDER BY created_at DESC`).all();
       return json({ requests });
     }
@@ -384,13 +404,29 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           return json({ error: "delegated request denied", code: "unauthorized" }, 403);
         }
         db.transaction(() => {
-          db.query("UPDATE delegated_node_requests SET state='revoked',updated_at=? WHERE id=?").run(now, row.id);
           if (row.authorization_id) {
             db.query("UPDATE delegated_node_authorizations SET revoked_at=COALESCE(revoked_at,?),revoked_by_person_id=COALESCE(revoked_by_person_id,?) WHERE id=?")
               .run(now, owner, row.authorization_id);
-            db.query("UPDATE delegated_node_runs SET revoked_at=COALESCE(revoked_at,?) WHERE authorization_id=?").run(now, row.authorization_id);
+            db.query(`UPDATE delegated_node_runs SET revoked_at=COALESCE(revoked_at,?),cancel_requested_at=COALESCE(cancel_requested_at,?)
+              WHERE authorization_id=?`).run(now, now, row.authorization_id);
+            db.query("UPDATE delegated_node_requests SET revoke_pending=1,last_error=NULL,updated_at=? WHERE id=?")
+              .run(now, row.id);
+          } else {
+            db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=0,last_error=NULL,updated_at=? WHERE id=?")
+              .run(now, row.id);
           }
         })();
+        if (row.authorization_id) {
+          const confirmed = await cancelAuthorizationRuns(row.authorization_id);
+          if (!confirmed) {
+            db.query("UPDATE delegated_node_requests SET last_error='delegated_cancel_unconfirmed',updated_at=? WHERE id=?")
+              .run(Date.now(), row.id);
+            broadcastToAll({ type: "auth:pair-resolved", requestId: row.id, approved: false, purpose: "delegated-node" });
+            return json({ error: "delegated run cancellation is not confirmed", code: "delegated_cancel_unconfirmed", retryPending: true }, 503);
+          }
+          db.query("UPDATE delegated_node_requests SET state='revoked',revoke_pending=0,last_error=NULL,updated_at=? WHERE id=?")
+            .run(Date.now(), row.id);
+        }
         broadcastToAll({ type: "auth:pair-resolved", requestId: row.id, approved: false, purpose: "delegated-node" });
         return json({ ok: true });
       }
@@ -567,7 +603,10 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
             created.id, originTaskId, project.id, binding.capabilityId, binding.authorizationId, binding.subjectPersonId,
             binding.subjectDeviceId, binding.machineId, binding.repositoryKey, binding.model,
             binding.effort, binding.maxDurationMinutes, binding.maxAttempts, binding.fanout,
-            binding.expiresAt, Date.now() + binding.maxDurationMinutes * 60_000, Date.now(),
+            binding.expiresAt, Math.min(
+              Date.now() + binding.maxDurationMinutes * 60_000,
+              binding.expiresAt ?? Number.POSITIVE_INFINITY,
+            ), Date.now(),
           );
           return created;
         })();

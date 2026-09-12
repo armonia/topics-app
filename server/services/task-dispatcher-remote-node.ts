@@ -92,6 +92,9 @@ export interface NodeSlot {
    */
   primed: boolean;
   delegation?: NodeRunBinding;
+  /** A created run whose cancellation was not confirmed must keep its exact id until retry succeeds. */
+  cancelPending?: boolean;
+  cancelReason?: "audit_binding_failed";
 }
 
 /**
@@ -373,14 +376,37 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
           log(`nodo: binding audit della corsa ${runId} fallito`, err);
         }
         if (typeof bound !== "number" || !Number.isFinite(bound)) {
+          let cancellationConfirmed = false;
           try {
             await node.cancelRun({ baseUrl, token, runId, delegation: {
               capabilityId: policy.id,
               subjectPersonId: policy.initiatorPersonId,
               subjectDeviceId: policy.initiatorDeviceId,
             } });
+            cancellationConfirmed = true;
           } catch (err) {
             log(`nodo: cancellazione della corsa non legata ${runId} fallita`, err);
+          }
+          if (!cancellationConfirmed) {
+            const slot = inFlight.get(task.id);
+            if (slot) slot.node = {
+              machineId, baseUrl, token, runId, fails: 0, seen: new Set(), primed: false,
+              delegation: {
+                capabilityId: policy.id,
+                subjectPersonId: policy.initiatorPersonId,
+                subjectDeviceId: policy.initiatorDeviceId,
+              },
+              cancelPending: true,
+              cancelReason: "audit_binding_failed",
+            };
+            try {
+              emit(svc.setDispatchState({
+                taskId: task.id,
+                state: CHIP_BLOCKED,
+                error: "delegated_cancel_unconfirmed",
+              }));
+            } catch { /* the exact run remains bound for the next retry */ }
+            return;
           }
           lastNodeRun.delete(task.id);
           host.endRun(task.id, runNo);
@@ -651,6 +677,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     for (const [taskId, slot] of [...inFlight]) {
       const node = slot.node;
       if (!node) continue;
+      if (node.cancelPending) {
+        await cancelTask(taskId);
+        continue;
+      }
       const task = svc.get(taskId)?.task;
       if (task?.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(taskId)) {
         await cancelTask(taskId);
@@ -749,7 +779,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         requeue: false,
         rollbackAttempt: true,
         parkState: CHIP_BLOCKED,
-        reason: "Delegated start authorization was revoked.",
+        reason: node.cancelReason === "audit_binding_failed"
+          ? "Remote run audit binding failed; cancellation is now confirmed."
+          : "Delegated start authorization was revoked.",
       });
       if (node.delegation) {
         try { host.recordDelegatedPhase?.({ taskId, phase: "cancelled", outcome: "capability_revoked" }); }

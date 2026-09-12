@@ -47,6 +47,7 @@ let router: RouteHandler;
 let projectId: string;
 let mainSha: string;
 let deliverySha: string;
+let failNodeBoardDelete = false;
 
 async function call(
   method: string,
@@ -147,6 +148,7 @@ beforeAll(async () => {
   const tasksRouter = createTasksRouter(ctx);
   router = createNodesRouter(ctx, {
     deleteBoardTask: (pid, taskId) => {
+      if (failNodeBoardDelete) return Promise.resolve(new Response("offline", { status: 503 }));
       const url = new URL(`http://h/api/boards/${pid}/tasks/${taskId}`);
       return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
     },
@@ -475,6 +477,69 @@ describe("nodes routes: ingress of a mirrored card", () => {
       expect(row.revoked_at).not.toBeNull();
       expect((await call("GET", `/api/nodes/delegated-runs/${runId}`, undefined, DELEGATED_HEADERS)).status).toBe(404);
     } finally {
+      ctx.requestIdentity = original;
+    }
+  });
+
+  test("node owner revocation keeps an exact cancellation retry and caps the run deadline at authorization expiry", async () => {
+    const original = ctx.requestIdentity;
+    try {
+    const capabilityId = `node-owner-revoke-${Date.now()}`;
+    const openedResponse = await call("POST", "/api/nodes/delegated-requests", {
+      purpose: "authorization",
+      capabilityId,
+      repositoryKey: "github.com/acme/widgets",
+      originPersonId: DELEGATED_PERSON,
+      originDeviceId: `device-${capabilityId}`,
+      originMachineId: `machine-${capabilityId}`,
+      model: "gpt-5",
+      effort: "medium",
+      maxDurationMinutes: 10,
+    });
+    const opened = await openedResponse.json() as { requestId: string };
+    expect((await call("POST", `/api/nodes/delegated-requests/${opened.requestId}/approve`, { projectId })).status).toBe(200);
+    const binding = ctx.db.query("SELECT authorization_id FROM delegated_node_requests WHERE id=?")
+      .get(opened.requestId) as { authorization_id: string };
+    const expiresAt = Date.now() + 5_000;
+    ctx.db.query("UPDATE delegated_node_authorizations SET expires_at=? WHERE id=?")
+      .run(expiresAt, binding.authorization_id);
+
+    ctx.requestIdentity = () => ({
+      role: "guest", deviceId: null, delegatedAuthorizationId: binding.authorization_id,
+      delegatedCapabilityId: capabilityId,
+    });
+    const headers = {
+      cookie: "topics_device=node-owner-revoke-test",
+      "x-topics-delegated-capability": capabilityId,
+    };
+    const created = await call("POST", "/api/nodes/delegated-runs", delegatedBody({
+      originTaskId: `origin-${capabilityId}`,
+    }), headers);
+    expect(created.status).toBe(201);
+    const { runId } = await created.json() as { runId: string };
+    const run = ctx.db.query("SELECT deadline_at FROM delegated_node_runs WHERE run_id=?")
+      .get(runId) as { deadline_at: number };
+    expect(run.deadline_at).toBeLessThanOrEqual(expiresAt);
+
+    ctx.requestIdentity = original;
+    failNodeBoardDelete = true;
+    const unconfirmed = await call("DELETE", `/api/nodes/delegated-requests/${opened.requestId}`);
+    expect(unconfirmed.status).toBe(503);
+    expect(await unconfirmed.json()).toMatchObject({ code: "delegated_cancel_unconfirmed", retryPending: true });
+    expect(ctx.db.query("SELECT state,revoke_pending,last_error FROM delegated_node_requests WHERE id=?").get(opened.requestId))
+      .toEqual({ state: "approved", revoke_pending: 1, last_error: "delegated_cancel_unconfirmed" });
+    expect(ctx.db.query("SELECT archived FROM tasks WHERE id=?").get(runId)).toEqual({ archived: 0 });
+
+    failNodeBoardDelete = false;
+    const confirmed = await call("DELETE", `/api/nodes/delegated-requests/${opened.requestId}`);
+    expect(confirmed.status).toBe(200);
+    expect(ctx.db.query("SELECT state,revoke_pending,last_error FROM delegated_node_requests WHERE id=?").get(opened.requestId))
+      .toEqual({ state: "revoked", revoke_pending: 0, last_error: null });
+    expect(ctx.db.query("SELECT archived FROM tasks WHERE id=?").get(runId)).toEqual({ archived: 1 });
+    expect(ctx.db.query("SELECT cancel_confirmed_at,cancel_error FROM delegated_node_runs WHERE run_id=?").get(runId))
+      .toMatchObject({ cancel_confirmed_at: expect.any(Number), cancel_error: null });
+    } finally {
+      failNodeBoardDelete = false;
       ctx.requestIdentity = original;
     }
   });

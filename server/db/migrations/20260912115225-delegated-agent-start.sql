@@ -181,6 +181,9 @@ CREATE TABLE delegated_node_runs (
   expires_at INTEGER,
   revoked_at INTEGER,
   deadline_at INTEGER NOT NULL,
+  cancel_requested_at INTEGER,
+  cancel_confirmed_at INTEGER,
+  cancel_error TEXT,
   created_at INTEGER NOT NULL
 );
 

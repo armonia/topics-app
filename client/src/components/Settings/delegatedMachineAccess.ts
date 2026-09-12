@@ -117,6 +117,11 @@ export function delegatedRequests(raw: unknown): DelegatedMachineRequest[] {
   return rows.map(delegatedRequest).filter((row): row is DelegatedMachineRequest => row !== null);
 }
 
+/** The remote actor is audit context, not the node-local approval identity. */
+export function delegatedAuthorizationActor(request: DelegatedMachineRequest): string | undefined {
+  return request.originName ?? request.subjectName ?? request.requestedBy;
+}
+
 export function delegatedRequestStatus(raw: unknown, prior: DelegatedMachineRequest): DelegatedMachineRequest {
   const request = raw && typeof raw === 'object' ? (raw as { request?: unknown }).request : null;
   return delegatedRequest(request && typeof request === 'object'

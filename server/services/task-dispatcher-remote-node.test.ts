@@ -394,6 +394,37 @@ describe("delegated remote dispatch stays inside its immutable envelope", () => 
     expect(h.task().dispatchState).toBe("blocked");
   });
 
+  it("keeps the exact run bound when post-bind cancellation is offline, then retries it", async () => {
+    const policy = delegatedPolicy();
+    let writes = 0;
+    let cancellations = 0;
+    const h = harness({
+      cancelRun: async () => {
+        cancellations += 1;
+        if (cancellations === 1) throw new Error("offline");
+      },
+    }, {
+      delegatedPolicyForTask: () => policy,
+      recordDelegatedPhase: () => (++writes === 1 ? Date.UTC(2026, 8, 6, 10, 7, 0) : false),
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = ? WHERE id = ?", [policy.id, TASK]);
+
+    await dispatch(h);
+
+    expect(h.calls).toEqual(["create", "cancel:run-1"]);
+    expect(h.dispatcher.busyIds()).toContain(TASK);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.task().dispatchError).toBe("delegated_cancel_unconfirmed");
+
+    await poll(h);
+
+    expect(h.calls).toEqual(["create", "cancel:run-1", "cancel:run-1"]);
+    expect(h.dispatcher.busyIds()).not.toContain(TASK);
+    expect(h.task().status).toBe("backlog");
+    expect(h.task().dispatchState).toBe("blocked");
+  });
+
   it("revocation cancels only the active run bound to that capability", async () => {
     const policy = delegatedPolicy();
     const h = harness({}, { delegatedPolicyForTask: () => policy });

@@ -835,6 +835,7 @@ const EN = {
   'settings.machines.remote.catalogScope': 'This approval verifies the checkout and available models. It does not authorize any execution yet.',
   'settings.machines.remote.activeHeading': 'Active authorizations',
   'settings.machines.remote.activating': 'Activating',
+  'settings.machines.remote.expiresAt': 'expires {when}',
   'settings.machines.remote.revoke': 'Revoke',
   'settings.machines.remote.revokeFailed': 'Could not revoke the authorization. Try again from this computer.',
   'chat.empty.contextTitle': 'How this chat answers',

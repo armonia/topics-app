@@ -901,6 +901,7 @@ const IT: Dict = {
   'settings.machines.remote.catalogScope': 'Questa approvazione verifica checkout e modelli disponibili. Non autorizza ancora nessuna esecuzione.',
   'settings.machines.remote.activeHeading': 'Autorizzazioni attive',
   'settings.machines.remote.activating': 'Attivazione in corso',
+  'settings.machines.remote.expiresAt': 'scade {when}',
   'settings.machines.remote.revoke': 'Revoca',
   'settings.machines.remote.revokeFailed': 'Non è stato possibile revocare l’autorizzazione. Riprova da questo computer.',
   // La riga di ritorno in cima alla chat di una sessione di board: da dove si

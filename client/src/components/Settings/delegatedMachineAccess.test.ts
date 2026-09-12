@@ -5,6 +5,7 @@ import {
   createCatalogRequest,
   createDelegatedRequest,
   delegatedRequests,
+  delegatedAuthorizationActor,
   delegatedRequestStatus,
   reissueDelegatedRequest,
   revokeLocalDelegatedAuthorization,
@@ -75,5 +76,15 @@ describe('delegated machine browser contract', () => {
       id: 'r2', state: 'active', authorizationId: 'a-node',
       localProjectId: 'checkout-node', localPersonId: 'owner-node',
     });
+  });
+
+  test('active authorization labels prefer the origin audit actor without confusing it with the local owner', () => {
+    expect(delegatedAuthorizationActor({
+      id: 'r3', capabilityId: 'c3', state: 'active',
+      originName: 'Origin coordinator', subjectName: 'Remote collaborator', requestedBy: 'Fallback',
+    })).toBe('Origin coordinator');
+    expect(delegatedAuthorizationActor({
+      id: 'r4', capabilityId: 'c4', state: 'active', subjectName: 'Remote collaborator',
+    })).toBe('Remote collaborator');
   });
 });
