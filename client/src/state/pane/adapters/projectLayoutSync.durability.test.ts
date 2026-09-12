@@ -16,6 +16,7 @@
  *
  * @covers TAB-SYNC-01, LAYOUT-02
  */
+import { TIME_SLACK_ENV, parseForcedSlack } from "../../../../../shared/test-time-slack";
 import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 
 type StorageArea = Record<string, string>;
@@ -118,6 +119,21 @@ const layout = (paneId: string) => ({
 // by seconds, not milliseconds, and a too-tight wait flakes.
 const settle = () => new Promise((r) => setTimeout(r, 2500));
 
+/**
+ * THE SLEEP WAS WIDENED AND THE TEST'S OWN CAP WAS NOT.
+ *
+ * Two `settle()` calls are 5 s of deliberate waiting, and bun's default
+ * per-test timeout is 5 s: the two tests that wait twice were failing at
+ * 5002 ms with nothing wrong. The comment above already knew the machine can
+ * lag by seconds under a fleet — it just never gave the test room to.
+ *
+ * The base is written for a quiet machine and multiplied by the factor the
+ * runner hands down (`TOPICS_TEST_TIME_SLACK`, measured once per round: see
+ * `shared/test-time-slack.ts`). Widening a cap costs nothing when the test
+ * passes — it is only ever paid on the way to a red.
+ */
+const BUDGET_MS = Math.round(15_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
+
 beforeEach(() => {
   __resetProjectSyncForTests();
   installBeacon();
@@ -139,7 +155,7 @@ describe("project channel PUT durability", () => {
     expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
     expect(fetchCalls.some((c) => c.url.includes(encodeURIComponent(KEY)))).toBe(true);
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
-  });
+  }, BUDGET_MS);
 
   test("a failing PUT (server down) is RETAINED as un-acked, not swallowed", async () => {
     installFetch(false);
@@ -147,7 +163,7 @@ describe("project channel PUT durability", () => {
     await settle();
     // Retries exhausted → value kept for a later teardown/reconnect flush.
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
-  });
+  }, BUDGET_MS);
 
   test("teardown flush beacons the un-acked repoint out synchronously", async () => {
     installFetch(false);
@@ -160,7 +176,7 @@ describe("project channel PUT durability", () => {
     expect(beaconCalls.some((c) => c.url.includes(encodeURIComponent(KEY)))).toBe(true);
     // The beacon carries the client id fallback so the server can dedupe echoes.
     expect(beaconCalls.some((c) => c.url.includes("cid="))).toBe(true);
-  });
+  }, BUDGET_MS);
 
   test("teardown flush drains a value still sitting in the debounce buffer (never hit its timer)", () => {
     installFetch(true);
@@ -181,7 +197,7 @@ describe("project channel PUT durability", () => {
     saveProjectLayout(KEY, PROJECT, layout("terminal:a6d64304"));
     await settle();
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
-  });
+  }, BUDGET_MS);
 
   /**
    * Regression for the flaky-terminal-panes card: the teardown beacon used to
@@ -209,7 +225,7 @@ describe("project channel PUT durability", () => {
     expect(beaconCalls.some((c) => c.url.includes(encodeURIComponent(KEY)) && c.url.includes("base="))).toBe(
       true,
     );
-  });
+  }, BUDGET_MS);
 
   test("a 409 (row moved on) on the teardown keepalive fallback is TERMINAL, no retry storm", async () => {
     // No sendBeacon on this pass — forces the keepalive-fetch fallback path,
@@ -235,5 +251,5 @@ describe("project channel PUT durability", () => {
     // by luck and overwrite state fresher than what this dying tab held.
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0]?.url).toContain("base=");
-  });
+  }, BUDGET_MS);
 });
