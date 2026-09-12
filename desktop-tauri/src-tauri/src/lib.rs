@@ -48,7 +48,7 @@ mod windows_repaint;
 mod boot_choice;
 mod boot_degraded;
 mod reconnect_page;
-use boot_choice::{decide_boot, BootChoice};
+use boot_choice::{BootChoice, decide_boot};
 use reconnect_page::{reconnect_page_response, set_degraded_marker};
 
 /// The DWM backdrop behind the app window on Windows 11. Compiled on EVERY
@@ -1042,6 +1042,104 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
         .unwrap_or(false)
 }
 
+/// SHAPE-AWARE probe: true only if `127.0.0.1:<port>/api/system/presence` answers
+/// with a Topics daemon's body — the JSON object carrying the numeric
+/// `openSessions` AND `workingSessions` fields. This is the exact shape the daemon
+/// emits and the shape `port-squatter.ts`/`daemon-state.ts` both key on; an
+/// unrelated process squatting the port answers `200 text/html` for that path,
+/// which has no such fields and is therefore REJECTED. The old `probe_topics_server`
+/// accepted ANY HTTP status line, which is precisely how the shell deferred to the
+/// "account-switcher" dashboard on :3333 (2026-09-12) instead of the real daemon.
+///
+/// The route is unauthenticated on loopback (no Origin header → the origin gate
+/// passes) and cheap (three indexed COUNTs), so it is safe to probe repeatedly.
+/// `tls` picks TLS-originated origination (the external :3333 server serves TLS).
+async fn probe_topics_shape(port: u16, tls: bool) -> bool {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    const REQ: &str =
+        "GET /api/system/presence HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+
+    async fn round_trip<S>(mut s: S) -> bool
+    where
+        S: AsyncReadExt + AsyncWriteExt + Unpin,
+    {
+        if s.write_all(REQ.as_bytes()).await.is_err() {
+            return false;
+        }
+        // Read up to 2 KiB: status line + headers + body. The body is a few dozen
+        // bytes of JSON, so this comfortably covers it and the shape check below
+        // parses only the part present.
+        let mut buf = [0u8; 2048];
+        let n = match s.read(&mut buf).await {
+            Ok(n) => n,
+            _ => return false,
+        };
+        if n < 5 || &buf[..5] != b"HTTP/" {
+            return false;
+        }
+        let text = String::from_utf8_lossy(&buf[..n]).to_string();
+        // Split headers from body at the first blank line, then the body.
+        let body = text.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+        match serde_json::from_str::<serde_json::Value>(body) {
+            Ok(v) if v.is_object() => {
+                v.get("openSessions").and_then(|x| x.as_i64()).is_some()
+                    && v.get("workingSessions").and_then(|x| x.as_i64()).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    let connect = TcpStream::connect(("127.0.0.1", port));
+    let stream = match tokio::time::timeout(std::time::Duration::from_millis(800), connect).await {
+        Ok(Ok(s)) => s,
+        _ => return false,
+    };
+    let fut = async {
+        if tls {
+            let connector = match native_tls::TlsConnector::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()
+            {
+                Ok(c) => tokio_native_tls::TlsConnector::from(c),
+                Err(_) => return false,
+            };
+            match connector.connect("127.0.0.1", stream).await {
+                Ok(tls_stream) => round_trip(tls_stream).await,
+                Err(_) => false,
+            }
+        } else {
+            round_trip(stream).await
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_millis(1500), fut)
+        .await
+        .unwrap_or(false)
+}
+
+/// Read the port the daemon recorded in `daemon-state.json` (its REAL bound port —
+/// the squatter-recovery case where :3333 was held by another process and the
+/// daemon fell back to an ephemeral one). Honours `TOPICS_HOME` (the daemon's
+/// `topicsHome()` default is `~/.topics`), so a dev/launchd install and a worktree
+/// install each read their own state file. Returns `None` when the file is missing,
+/// unreadable, or carries no usable port — the caller then simply does not probe
+/// an extra port.
+fn daemon_state_port() -> Option<u16> {
+    // `TOPICS_HOME` set → the daemon's own home (worktree isolation / a custom
+    // install). Unset → the daemon's default `~/.topics`.
+    let path = if let Ok(h) = std::env::var("TOPICS_HOME") {
+        std::path::PathBuf::from(h).join("daemon-state.json")
+    } else {
+        let os_home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).ok()?;
+        std::path::PathBuf::from(os_home).join(".topics").join("daemon-state.json")
+    };
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    v.get("port")?.as_u64().map(|p| p as u16).filter(|p| *p != 0)
+}
+
 /// How long a NON-document connection (XHR, SSE, WebSocket) waits for the upstream
 /// to come back before we give up on it. A `launchctl kickstart -k` of the external
 /// server is down for ~2s; holding the connection open across that gap means the
@@ -1557,19 +1655,49 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     if seen_before {
         set_degraded_marker(Some(marker.display().to_string()));
     }
-    let choice = decide_boot(seen_before, std::time::Duration::from_millis(700), |tls| {
-        probe_topics_server(DEFAULT_UPSTREAM_PORT, tls)
-    })
-    .await;
+    // SHAPE-AWARE discovery, not just "some server is here". Probe the canonical
+    // :3333 (TLS then plain) AND the port the daemon recorded in daemon-state.json
+    // (the squatter-recovery case: :3333 held by another process, daemon on an
+    // ephemeral port only the state file knows). Defer the moment a TOPICS daemon
+    // answers by shape; a squatter's HTML is rejected. Retry a few seconds before
+    // concluding (the 2026-08-13 note: a slow/restarting server must be waited
+    // for, never replaced by an empty sidecar universe).
+    let state_port = daemon_state_port();
+    let attempts: u32 = if seen_before { 60 } else { 8 };
+    let mut primary_topics = false;
+    let mut primary_tls = false;
+    let mut state_topics = false;
+    for round in 0..attempts {
+        if probe_topics_shape(DEFAULT_UPSTREAM_PORT, true).await {
+            primary_topics = true;
+            primary_tls = true;
+            break;
+        }
+        if probe_topics_shape(DEFAULT_UPSTREAM_PORT, false).await {
+            primary_topics = true;
+            primary_tls = false;
+            break;
+        }
+        if let Some(sp) = state_port {
+            if probe_topics_shape(sp, false).await {
+                state_topics = true;
+                break;
+            }
+        }
+        if round + 1 < attempts {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        }
+    }
+    let choice = decide_boot(primary_topics, primary_tls, state_topics, state_port, seen_before);
     match choice {
-        BootChoice::Defer { tls } => {
+        BootChoice::Defer { port, tls } => {
             let kind = if tls { "TLS" } else { "plain-HTTP" };
-            eprintln!("[sidecar] external {kind} server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            eprintln!("[sidecar] external {kind} Topics daemon on :{port} — deferring, no sidecar");
             // The server answered: there is nothing to explain, and leaving the
             // sentence up would offer to delete a marker that is doing its job.
             set_degraded_marker(None);
             let _ = std::fs::write(&marker, "1");
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls });
+            let _ = UPSTREAM.set(Upstream { port, tls });
             return;
         }
         // Still nothing, but this machine is KNOWN to own a real server: point at
