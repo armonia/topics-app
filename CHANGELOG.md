@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.308 — 2026-09-12
+
+### Sotto il cofano
+- La scala tipografica atterra davvero: 1778 misure ad-hoc diventano 12 gradini
+- Le due classi di Tailwind portavano anche un'interlinea, e l'avevo lasciata cadere
+- Rimettere `undefined` non e' rimettere: la chiave resta, e il file dopo ci crede
+- La decisione sul tetto di spesa esisteva, e viveva solo in un ramo di agosto
+- Lo scatto automatico cancellava l'evidenza che l'agente aveva scelto
+- Il gradino `body` della scala era anche un token COLORE, e vinceva il colore
+
 ## 2.2.307 — 2026-09-12
 
 ### Sotto il cofano
