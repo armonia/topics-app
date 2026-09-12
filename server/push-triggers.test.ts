@@ -8,19 +8,31 @@
  * isolation — no database, no network.
   * @covers PUSH-04
  */
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
 
 type PushPayload = { title: string; body: string; tag?: string; url?: string };
 const pushCalls: PushPayload[] = [];
 // In bun a module mock outlives the file that installed it, so this factory is
-// the ONLY `push-service` any later file in the same run will see. It must
-// therefore carry every export the real module has, not just the one this file
-// exercises: `routes/push.ts` imports `getVapidPublicKey`, and without it that
-// route fails to load whenever this spec is ordered first.
+// the ONLY `push-service` any later file in the same run would see. That is why
+// this file used to carry a hand-written copy of the exports it did NOT use:
+// `routes/push.ts` imports `getVapidPublicKey`, and without it that route failed
+// to load whenever this spec was ordered first.
+//
+// Copying exports was curing the symptom. The mock is now built ON TOP of the
+// real module and GIVEN BACK in `afterAll`, so nothing downstream depends on
+// this list staying complete - `initVapid` was already missing from it.
+//
+// The three names are written out rather than spread from a namespace: an
+// `import()` whose result does not land in a destructuring is opaque to knip,
+// and `check:deadcode-blindspots` refuses that.
+const { initVapid, getVapidPublicKey, sendPushToAll } = await import("./push-service");
+const realPushService = { initVapid, getVapidPublicKey, sendPushToAll };
 mock.module("./push-service", () => ({
+  ...realPushService,
   sendPushToAll: async (payload: PushPayload) => { pushCalls.push(payload); },
   getVapidPublicKey: () => "test-vapid-public-key",
 }));
+afterAll(() => { mock.module("./push-service", () => realPushService); });
 
 const { maybeSendPush, configurePushTriggers, isTopicSilenced } = await import("./push-triggers");
 import type { NotificationRecordInput } from "../shared/notification-log";

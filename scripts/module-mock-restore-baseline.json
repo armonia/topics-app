@@ -1,0 +1,9 @@
+{
+  "$schema": "module-mock-restore-baseline-v1",
+  "_why": "Debito noto al 12/09/2026. Ogni voce e' un modulo sostituito e mai restituito: ogni file che gira dopo, nello stesso processo di bun test, ne riceve il finto. Si toglie una riga alla volta, non se ne aggiungono.",
+  "files": {
+    "server/routes/topics.streaming.test.ts": ["./terminal"],
+    "server/routes/topics.control.test.ts": ["./terminal"]
+  },
+  "_note_terminal": "Questi due sostituiscono server/routes/terminal.ts — 29 export a runtime — con UNO solo (getTerminalSessionById). Restituirlo per intero vuol dire elencare 29 nomi a mano in due file (uno spread della namespace renderebbe quel modulo opaco a check:deadcode-blindspots), e il trentesimo lo dimenticherebbe chiunque. La via giusta non e' la lista: e' smettere di mockare il modulo e iniettare getTerminalSessionById da fuori, che e' lavoro di chi possiede quei due test."
+}

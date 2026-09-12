@@ -244,6 +244,15 @@ jobs:
           # semina le card su un id diverso da quello che la finestra apre, e il
           # rosso esce solo su macOS, dove `/tmp` e' un link a `/private/tmp`.
           bun run check:tmp-canonical
+          # Un `mock.module` non ritirato non resta nel suo file: `bun test` tiene
+          # tutti i file di una corsa in UN processo, e ogni file successivo
+          # importa il finto. `mock.restore()` NON lo annulla — ritira gli spy.
+          # Il 12/09 e' costato tre giri rossi con un diff che sembrava accusare
+          # il codice sotto test, e il danno peggiore non e' il rosso: e' il file
+          # dopo che resta VERDE per il motivo sbagliato, convinto di parlare col
+          # modulo vero. Statico apposta: dipendendo dall'ordine dello shard, la
+          # suite lo mostra solo con il raggruppamento sfortunato.
+          bun run check:module-mock-restore
           bun run check:spec-coverage
           # `check:untraced-tests` guarda nella direzione OPPOSTA a
           # `check:spec-coverage`: quello parte dalle spec e cerca i test, questo

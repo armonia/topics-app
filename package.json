@@ -57,6 +57,7 @@
     "check:eslint-disable": "bun run scripts/check-eslint-disable.ts",
     "check:test-skips": "bun run scripts/check-test-skips.ts",
     "check:test-globals": "bun run scripts/check-test-globals.ts",
+    "check:module-mock-restore": "bun run scripts/check-module-mock-restore.ts",
     "check:sleeps": "bun run scripts/check-e2e-sleeps.ts",
     "check:tmp-canonical": "bun run scripts/check-tmp-canonical.ts",
     "check:e2e-no-verdict": "bun run scripts/check-e2e-no-verdict.ts",
