@@ -1963,6 +1963,7 @@ previewManager = createPreviewManager({
     }
   },
   currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
+  currentPreviewImage: (taskId) => dispatcherSvc.get(taskId)?.task.previewImage ?? null,
   setOutputUrl: (taskId, url) => {
     const projectId = dispatcherSvc.get(taskId)?.task.projectId;
     if (!projectId) return;

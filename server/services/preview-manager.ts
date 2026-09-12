@@ -33,6 +33,7 @@
 
 import { join } from "path";
 import net from "net";
+import { holdsOwnEvidence } from "./preview-own-evidence";
 
 /**
  * Every note about the preview opens with this, and that is what makes them ONE
@@ -157,6 +158,8 @@ export interface PreviewManagerDeps {
   setOutputUrl(taskId: string, url: string | null): void;
   /** Path assoluto dell'anteprima; stringa blank = AZZERA (evidenza ritirata). */
   setPreviewImage(taskId: string, absPath: string): void;
+  /** The card's CURRENT preview image; absent ⇒ always overwrite, as before. */
+  currentPreviewImage?(taskId: string): string | null;
   /**
    * Toglie l'anteprima e scrive sulla CARD perché — lo stato che la nota nel
    * thread non sa aggiornare (`shared/preview-retirement.ts`). Opzionale: se
@@ -663,12 +666,22 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
 
       if (shot) {
-        try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }
-        deps.addReviewNote(taskId, {
-          content: `${PREVIEW_NOTE_PREFIX} viva e pronta su ${url}`,
-          media: [outPath],
-          replaces: PREVIEW_NOTE_SLOT,
-        });
+        // Evidence somebody chose is not replaced: `preview-own-evidence.ts`.
+        const isOwnEvidence = holdsOwnEvidence(deps.currentPreviewImage?.(taskId), explain);
+        if (isOwnEvidence) {
+          log(`[preview] not overwriting ${taskId}'s own evidence with the auto-capture`);
+          deps.addReviewNote(taskId, {
+            content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, ma la card ha già un'evidenza propria: non la sostituisco.`,
+            replaces: PREVIEW_NOTE_SLOT,
+          });
+        } else {
+          try { deps.setPreviewImage(taskId, outPath); } catch (err) { log(`[preview] setPreviewImage failed for ${taskId}`, err); }
+          deps.addReviewNote(taskId, {
+            content: `${PREVIEW_NOTE_PREFIX} viva e pronta su ${url}`,
+            media: [outPath],
+            replaces: PREVIEW_NOTE_SLOT,
+          });
+        }
       } else {
         deps.addReviewNote(taskId, {
           content: `${PREVIEW_NOTE_PREFIX} viva su ${url}, screenshot non catturato.`,

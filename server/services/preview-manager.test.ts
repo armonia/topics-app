@@ -36,6 +36,7 @@ function harness(over: Partial<PreviewManagerDeps> = {}): Harness {
     probe: async () => true,
     screenshot: async () => true,
     currentOutputUrl: () => outputUrl.v,
+    currentPreviewImage: () => h.previewImage,
     setOutputUrl: (_t, u) => { outputUrl.v = u; },
     setPreviewImage: (_t, p) => { h.previewImage = p; },
     addReviewNote: (_t, a) => { h.reviewNotes.push(a); },
@@ -670,5 +671,65 @@ describe("uno scatto DENSO ma dell'APP VUOTA non si allega", () => {
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
     expect(h.previewImage).not.toBe("");
+  });
+});
+
+describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
+  /**
+   * Reported: three review cards showed the app's own empty landing page while
+   * the agent's own comment said screenshots/video were attached. Root cause:
+   * fan-out winner selection reboots the winning worktree and re-photographs
+   * it unconditionally, and `blankShot` cannot catch a dense, fully-rendered
+   * empty state (see `image-shape.ts`). The fix is not a better blank
+   * detector, it is not overwriting a preview someone already chose.
+   */
+  it("la card ha già un'anteprima propria ⇒ l'auto-scatto non la sostituisce", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+    });
+    h.previewImage = "/media/task-attachments/screenshot-scuro.png";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).toBe("/media/task-attachments/screenshot-scuro.png");
+    expect(h.reviewNotes.at(-1)!.content).toContain("non la sostituisco");
+  });
+
+  it("una richiesta esplicita di ricattura (`explain: true`) sostituisce comunque", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+    });
+    h.previewImage = "/media/task-attachments/screenshot-scuro.png";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1", { explain: true });
+    expect(h.previewImage).not.toBe("/media/task-attachments/screenshot-scuro.png");
+    expect(h.reviewNotes.at(-1)!.media?.length).toBe(1);
+  });
+
+  it("una scheda di consegna disegnata da noi non è evidenza altrui: si sostituisce", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+    });
+    h.previewImage = "/media/task-sheets/t1.svg";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).not.toBe("/media/task-sheets/t1.svg");
+  });
+
+  it("un auto-scatto PRECEDENTE della stessa card non è evidenza altrui: si aggiorna", async () => {
+    const h = harness({
+      fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
+      screenshot: async () => true,
+      blankShot: () => false,
+    });
+    h.previewImage = "/media/task-previews/t1.png";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.reviewNotes.at(-1)!.media?.length).toBe(1);
   });
 });
