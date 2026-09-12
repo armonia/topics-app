@@ -54,7 +54,7 @@ start_parent_watchdog "$MANAGED_PARENT_PID" "$$" || exit 1
 
 BACKOFF_CUR=0
 while [ "$SHUTTING_DOWN" != 1 ]; do
-  STARTED_AT=$(date +%s)
+  STARTED_AT=$(exec 9>&-; date +%s)
   /bin/bash "$WATCH_SCRIPT" "$APP_DIR" "$SERVER_PIDFILE" "$$" 9>&- &
   WATCHER_PID=$!
   wait "$WATCHER_PID"
@@ -62,7 +62,7 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
   WATCHER_PID=""
   [ "$SHUTTING_DOWN" = 1 ] && break
 
-  LIVED=$(( $(date +%s) - STARTED_AT ))
+  LIVED=$(( $(exec 9>&-; date +%s) - STARTED_AT ))
   if [ "$LIVED" -lt "$STABLE_S" ]; then
     if [ "$BACKOFF_CUR" -lt "$BACKOFF_DELAY" ]; then
       BACKOFF_CUR="$BACKOFF_DELAY"

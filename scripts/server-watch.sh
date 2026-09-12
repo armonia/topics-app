@@ -47,7 +47,7 @@ cleanup() {
     wait "$STOP_GUARD_PID" 2>/dev/null
   fi
   release_process_lock "$WATCH_PIDFILE"
-  rm -f "$EVENT_PIPE"
+  rm -f "$EVENT_PIPE" 9>&-
   exit 0
 }
 
@@ -69,24 +69,27 @@ fi
 # SIGTERM that will not work and the SIGKILL that will only breed a twin.
 diagnose_stall() {
   local pid="$1" frames mnt
-  frames=$(sample "$pid" 1 -mayDie 2>/dev/null | awk '/com.apple.main-thread/{f=1} f' | /usr/bin/grep -oE '[a-zA-Z_$]+\$?[A-Z_]*  \(in [a-zA-Z_.]+\)' | tail -3 | tr '\n' ' ')
+  frames=$(exec 9>&-; sample "$pid" 1 -mayDie 2>/dev/null | awk '/com.apple.main-thread/{f=1} f' | /usr/bin/grep -oE '[a-zA-Z_$]+\$?[A-Z_]*  \(in [a-zA-Z_.]+\)' | tail -3 | tr '\n' ' ')
   [ -n "$frames" ] && echo "[start-prod]   main thread del server $pid fermo in: $frames"
-  mount | /usr/bin/grep -vE '^(/dev/|devfs|map |autofs)' | awk '{print $3}' | while read -r mnt; do
-    [ -d "$mnt" ] || continue
-    ( exec 9>&-; ls "$mnt" >/dev/null 2>&1 & p=$!; sleep 3; if kill -0 $p 2>/dev/null; then kill -9 $p 2>/dev/null; echo "[start-prod]   mount di rete $mnt NON RISPONDE: qualunque accesso sincrono sotto quel path blocca il server. Sblocco: umount -f $mnt (o riavvia chi lo monta)"; fi )
-  done
+  mount 9>&- | /usr/bin/grep -vE '^(/dev/|devfs|map |autofs)' 9>&- | awk '{print $3}' 9>&- | (
+    exec 9>&-
+    while read -r mnt; do
+      [ -d "$mnt" ] || continue
+      ( ls "$mnt" >/dev/null 2>&1 & p=$!; sleep 3; if kill -0 $p 2>/dev/null; then kill -9 $p 2>/dev/null; echo "[start-prod]   mount di rete $mnt NON RISPONDE: qualunque accesso sincrono sotto quel path blocca il server. Sblocco: umount -f $mnt (o riavvia chi lo monta)"; fi )
+    done
+  )
 }
 
 src_hash() {
-  (cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null \
+  (exec 9>&-; cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null \
     | sort -z | xargs -0 shasum -a 1 2>/dev/null | shasum -a 1 | cut -c1-40)
 }
-LAST_HASH=$(src_hash)
-BOOT_SEEN=$(stat -f %m "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" 2>/dev/null || echo 0)
+LAST_HASH=$(exec 9>&-; src_hash)
+BOOT_SEEN=$(exec 9>&-; stat -f %m "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" 2>/dev/null || echo 0)
 echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta ${LAST_HASH:0:8}, pid $$)"
 
-rm -f "$EVENT_PIPE"
-mkfifo "$EVENT_PIPE"
+rm -f "$EVENT_PIPE" 9>&-
+mkfifo "$EVENT_PIPE" 9>&-
 fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
   "$APP_DIR/server/" "$APP_DIR/server.ts" 9>&- > "$EVENT_PIPE" 2>/dev/null &
 FSWATCH_PID=$!
@@ -118,7 +121,7 @@ while read -r _; do
         #    meno di 20 minuti, nessun reload. Il tetto evita che una run morta
         #    a meta' spenga il reload per sempre.
         HOLD="$APP_DIR/.topics-reload-hold"
-        if [ -f "$HOLD" ] && [ $(( $(date +%s) - $(stat -f %m "$HOLD" 2>/dev/null || echo 0) )) -lt 1200 ]; then
+        if [ -f "$HOLD" ] && [ $(( $(exec 9>&-; date +%s) - $(exec 9>&-; stat -f %m "$HOLD" 2>/dev/null || echo 0) )) -lt 1200 ]; then
           if [ "${HOLD_SAID:-0}" != 1 ]; then
             echo "[start-prod] reload TRATTENUTO — $HOLD presente: un cancello sta riscrivendo i sorgenti, si riprende quando lo toglie"
             HOLD_SAID=1
@@ -133,7 +136,7 @@ while read -r _; do
         #    a second restart seconds after every boot (drain, fleet frozen:
         #    twice on 2026-09-04). The boot is stamped by daemon-state.json.
         DSTATE_BOOT="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
-        BOOT_NOW=$(stat -f %m "$DSTATE_BOOT" 2>/dev/null || echo 0)
+        BOOT_NOW=$(exec 9>&-; stat -f %m "$DSTATE_BOOT" 2>/dev/null || echo 0)
         if [ "$BOOT_NOW" != "${BOOT_SEEN:-}" ]; then
           BOOT_SEEN=$BOOT_NOW
           #    ...unless the tree has MOVED SINCE that boot. The event that wakes
@@ -145,18 +148,18 @@ while read -r _; do
           #    A file newer than the boot stamp cannot have been loaded by it:
           #    when there is one, the impronta is NOT re-read, so the normal
           #    comparison below sees the change and asks the restart.
-          _newer=$(cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -newer "$DSTATE_BOOT" 2>/dev/null | head -1)
+          _newer=$(exec 9>&-; cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -newer "$DSTATE_BOOT" 2>/dev/null | head -1)
           if [ -z "$_newer" ]; then
-            LAST_HASH=$(src_hash)
-            echo "[start-prod] server (ri)partito alle $(date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
+            LAST_HASH=$(exec 9>&-; src_hash)
+            echo "[start-prod] server (ri)partito alle $(exec 9>&-; date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
             continue
           fi
-          echo "[start-prod] server (ri)partito alle $(date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null), ma sotto server/ c'e' gia' qualcosa di piu' nuovo del boot (es. $_newer): l'impronta non si rilegge, si confronta"
+          echo "[start-prod] server (ri)partito alle $(exec 9>&-; date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null), ma sotto server/ c'e' gia' qualcosa di piu' nuovo del boot (es. $_newer): l'impronta non si rilegge, si confronta"
         fi
         # 2. L'impronta del contenuto: uguale a quella dell'ultimo avvio (o
         #    dell'ultimo reload chiesto) significa che il server gira GIA' su
         #    questo codice. ~250ms per ~900 file: niente rispetto a un riavvio.
-        NOW_HASH=$(src_hash)
+        NOW_HASH=$(exec 9>&-; src_hash)
         if [ "$NOW_HASH" = "$LAST_HASH" ]; then
           if [ "${SAME_SAID:-0}" != 1 ]; then
             echo "[start-prod] evento ignorato — il contenuto di server/ e' identico a quello in esecuzione (solo mtime)"
@@ -165,7 +168,7 @@ while read -r _; do
           continue
         fi
         SAME_SAID=0
-        SP=$(cat "$SERVER_PIDFILE" 2>/dev/null)
+        SP=$(exec 9>&-; cat "$SERVER_PIDFILE" 2>/dev/null)
         if [ -n "$SP" ] && kill -0 "$SP" 2>/dev/null; then
           # ─── Cancello di NASCITA (2026-08-26) ─────────────────────────────
           # Vivo non vuol dire pronto. Il ramo in fondo a questo blocco conclude
@@ -187,8 +190,8 @@ while read -r _; do
           # mtime del pidfile = istante di nascita: la riga 542 lo riscrive a
           # ogni rilancio, subito dopo lo spawn.
           while :; do
-            _born=$(stat -f %m "$SERVER_PIDFILE" 2>/dev/null || echo 0)
-            _age=$(( $(date +%s) - _born ))
+            _born=$(exec 9>&-; stat -f %m "$SERVER_PIDFILE" 2>/dev/null || echo 0)
+            _age=$(( $(exec 9>&-; date +%s) - _born ))
             [ "$_age" -ge "$BIRTH_GRACE_S" ] && break
             kill -0 "$SP" 2>/dev/null || break   # e' uscito da solo: niente da rinviare
             echo "[start-prod] reload RINVIATO — il server ha ${_age}s, sta ancora nascendo (soglia ${BIRTH_GRACE_S}s)"
@@ -202,9 +205,9 @@ while read -r _; do
           # schermo «No response received»). Un albero a metà non merita di
           # sostituire un server che sta lavorando: se non compila si salta il
           # giro e il prossimo salvataggio riproverà. ~30ms.
-          if ! GATE_OUT=$("$APP_DIR/scripts/server-reload-gate.sh" "$APP_DIR" 2>&1); then
+          if ! GATE_OUT=$(exec 9>&-; "$APP_DIR/scripts/server-reload-gate.sh" "$APP_DIR" 2>&1); then
             echo "[start-prod] reload SALTATO — l'albero non compila, il server vecchio resta su:"
-            echo "$GATE_OUT" | sed 's/^/[start-prod]   /'
+            echo "$GATE_OUT" 9>&- | sed 's/^/[start-prod]   /' 9>&-
             sleep 2 9>&-
             continue
           fi
@@ -230,13 +233,13 @@ while read -r _; do
           RELOAD_ASKED=0
           DSTATE="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
           if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
-            DTOKEN=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
-            DPORT=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
+            DTOKEN=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
+            DPORT=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
             if [ -n "$DTOKEN" ] && [ -n "$DPORT" ]; then
               for SCHEME in https http; do
-                RESP=$(curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
+                RESP=$(exec 9>&-; curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
                   -H "Authorization: Bearer $DTOKEN" \
-                  "$SCHEME://127.0.0.1:$DPORT/__daemon/restart-when-idle" 2>/dev/null)
+                  "$SCHEME://127.0.0.1:$DPORT/__daemon/restart-when-idle" 9>&- 2>/dev/null)
                 if [ "$RESP" = "202" ]; then
                   echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
                   RELOAD_ASKED=1
@@ -311,8 +314,8 @@ while read -r _; do
             DEFER_STALE_S=30
             deferring() {
               [ -f "$DEFER_FILE" ] || return 1
-              _m=$(stat -f %m "$DEFER_FILE" 2>/dev/null || echo 0)
-              [ $(( $(date +%s) - _m )) -lt "$DEFER_STALE_S" ]
+              _m=$(exec 9>&-; stat -f %m "$DEFER_FILE" 2>/dev/null || echo 0)
+              [ $(( $(exec 9>&-; date +%s) - _m )) -lt "$DEFER_STALE_S" ]
             }
             WAITED=0
             DEFER_SAID=0
@@ -359,13 +362,13 @@ while read -r _; do
             # era fallito (es. token letto a meta' scrittura).
             RELOAD_ASKED2=0
             if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
-              DTOKEN2=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
-              DPORT2=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
+              DTOKEN2=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
+              DPORT2=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
               if [ -n "$DTOKEN2" ] && [ -n "$DPORT2" ]; then
                 for SCHEME2 in https http; do
-                  RESP2=$(curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
+                  RESP2=$(exec 9>&-; curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
                     -H "Authorization: Bearer $DTOKEN2" \
-                    "$SCHEME2://127.0.0.1:$DPORT2/__daemon/restart-when-idle" 2>/dev/null)
+                    "$SCHEME2://127.0.0.1:$DPORT2/__daemon/restart-when-idle" 9>&- 2>/dev/null)
                   if [ "$RESP2" = "202" ]; then
                     echo "[start-prod] fallback → restart-when-idle raggiunto al secondo tentativo (aspetto i turni)"
                     RELOAD_ASKED2=1
@@ -442,16 +445,16 @@ while read -r _; do
               # davvero muto, e allora il SIGTERM e' la risposta giusta.
               RELOAD_ASKED3=0
               if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
-                for _try in $(seq 1 15); do
+                for _try in $(exec 9>&-; seq 1 15); do
                   sleep 2 9>&-
                   kill -0 "$SP" 2>/dev/null || break   # e' gia' uscito da solo
-                  DTOKEN3=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
-                  DPORT3=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
+                  DTOKEN3=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
+                  DPORT3=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
                   [ -n "$DTOKEN3" ] && [ -n "$DPORT3" ] || continue
                   for SCHEME3 in https http; do
-                    RESP3=$(curl -sk -m 3 -o /dev/null -w "%{http_code}" -X POST \
+                    RESP3=$(exec 9>&-; curl -sk -m 3 -o /dev/null -w "%{http_code}" -X POST \
                       -H "Authorization: Bearer $DTOKEN3" \
-                      "$SCHEME3://127.0.0.1:$DPORT3/__daemon/restart-when-idle" 2>/dev/null)
+                      "$SCHEME3://127.0.0.1:$DPORT3/__daemon/restart-when-idle" 9>&- 2>/dev/null)
                     if [ "$RESP3" = "202" ]; then
                       echo "[start-prod] il server stava ancora nascendo: ora risponde → riavvio quando i turni finiscono"
                       RELOAD_ASKED3=1

@@ -378,6 +378,95 @@ describe("production server watcher supervision", () => {
     expect(await successor.exited).toBe(0);
   }, 6_000);
 
+  it("keeps a detached reload helper from retaining the dead watcher's lease", async () => {
+    const fixture = makeFixture();
+    const gatePidPath = join(fixture.root, "gate.pid");
+    const helperPidPath = join(fixture.root, "gate-helper.pid");
+    writeFileSync(
+      join(fixture.root, "scripts", "server-reload-gate.sh"),
+      `#!/bin/bash
+echo $$ > "$FAKE_GATE_PIDFILE"
+sleep 30 &
+echo $! > "$FAKE_GATE_HELPER_PIDFILE"
+wait
+`,
+    );
+    chmodSync(join(fixture.root, "scripts", "server-reload-gate.sh"), 0o755);
+
+    const observedServer = Bun.spawn(["sleep", "30"]);
+    children.push(observedServer);
+    writeFileSync(fixture.serverPidfile, `${observedServer.pid}\n`);
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(fixture.serverPidfile, old, old);
+
+    const supervisor = Bun.spawn(
+      ["bash", join(fixture.root, "scripts", "server-watch-supervisor.sh"), fixture.root, fixture.serverPidfile],
+      {
+        env: {
+          ...process.env,
+          PATH: `${fixture.binDir}:${process.env.PATH ?? ""}`,
+          TOPICS_HOME: join(fixture.root, "data"),
+          TOPICS_SERVER_WATCH: "1",
+          TOPICS_SERVER_WATCH_PIDFILE: fixture.watcherPidfile,
+          TOPICS_SERVER_WATCH_SUPERVISOR_PIDFILE: fixture.supervisorPidfile,
+          TOPICS_SERVER_WATCH_BACKOFF_DELAY: "1",
+          TOPICS_SERVER_WATCH_BACKOFF_MAX: "1",
+          TOPICS_FSWATCH_STOP_GRACE_S: "1",
+          TOPICS_SERVER_WATCH_PARENT_INSPECTOR: join(fixture.binDir, "parent-inspector"),
+          TOPICS_SERVER_WATCHDOG_INTERVAL_S: "0.05",
+          FAKE_EVENT_FILE: fixture.eventFile,
+          FAKE_FSWATCH_PIDS: fixture.watchProcessIds,
+          FAKE_CURL_CALLS: fixture.curlCalls,
+          FAKE_GATE_PIDFILE: gatePidPath,
+          FAKE_GATE_HELPER_PIDFILE: helperPidPath,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    children.push(supervisor);
+
+    let gatePid = 0;
+    let helperPid = 0;
+    try {
+      await waitUntil(
+        () => existsSync(fixture.watcherPidfile) && existsSync(fixture.watchProcessIds),
+        "watcher tree did not start",
+      );
+      const firstWatcher = readPid(fixture.watcherPidfile);
+      writeFileSync(join(fixture.root, "server.ts"), "export const generation = 2;\n");
+      writeFileSync(fixture.eventFile, "changed\n");
+      await waitUntil(
+        () => existsSync(gatePidPath) && existsSync(helperPidPath),
+        "reload gate did not start its helper",
+      );
+      gatePid = readPid(gatePidPath);
+      helperPid = readPid(helperPidPath);
+
+      process.kill(firstWatcher, "SIGKILL");
+      await waitUntil(
+        () =>
+          alive(gatePid) &&
+          alive(helperPid) &&
+          existsSync(fixture.watcherPidfile) &&
+          readPid(fixture.watcherPidfile) !== firstWatcher,
+        () =>
+          `detached gate state: gate=${alive(gatePid)} helper=${alive(helperPid)} watcher=${existsSync(fixture.watcherPidfile) ? readFileSync(fixture.watcherPidfile, "utf8").trim() : "none"} first=${firstWatcher} supervisor=${supervisor.exitCode}`,
+        5_000,
+      );
+      const successorWatcher = readPid(fixture.watcherPidfile);
+      expect(alive(successorWatcher)).toBe(true);
+      expect(alive(gatePid)).toBe(true);
+      expect(alive(helperPid)).toBe(true);
+      expect(alive(observedServer.pid)).toBe(true);
+    } finally {
+      if (gatePid > 0 && alive(gatePid)) process.kill(gatePid, "SIGTERM");
+      if (helperPid > 0 && alive(helperPid)) process.kill(helperPid, "SIGTERM");
+      supervisor.kill("SIGTERM");
+      await supervisor.exited;
+    }
+  }, 8_000);
+
   it("drops inherited leases and removes the watcher tree after supervisor SIGKILL", async () => {
     const fixture = makeFixture();
     const env = {

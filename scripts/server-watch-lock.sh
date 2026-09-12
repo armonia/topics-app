@@ -15,7 +15,9 @@ acquire_process_lock() {
     return 1
   fi
 
-  platform=$(uname -s)
+  platform=$(exec 9>&-; uname -s)
+  # Only the acquisition primitive receives descriptor 9. Every later child
+  # closes it so the owner's death releases the lease immediately.
   if [ "$platform" = Darwin ] && [ -x /usr/bin/lockf ]; then
     /usr/bin/lockf -s -t 0 9
     lease_status=$?
@@ -29,7 +31,7 @@ acquire_process_lock() {
   fi
 
   if [ "$lease_status" -ne 0 ]; then
-    owner=$(cat "$pidfile" 2>/dev/null)
+    owner=$(exec 9>&-; cat "$pidfile" 2>/dev/null)
     echo "[$expected] already running${owner:+ (pid $owner)}; this instance exits"
     exec 9>&-
     return 1
@@ -51,7 +53,7 @@ process_has_parent() {
     "$TOPICS_SERVER_WATCH_PARENT_INSPECTOR" "$watched_pid" "$expected_parent" 9>&-
     return $?
   fi
-  [ "$(ps -o ppid= -p "$watched_pid" 2>/dev/null | tr -d ' ')" = "$expected_parent" ]
+  [ "$(exec 9>&-; ps -o ppid= -p "$watched_pid" 2>/dev/null | tr -d ' ')" = "$expected_parent" ]
 }
 
 start_parent_watchdog() {
@@ -84,8 +86,8 @@ stop_parent_watchdog() {
 release_process_lock() {
   local pidfile="$1"
   [ "${PROCESS_LOCK_OWNED:-0}" = 1 ] || return 0
-  if [ "$(cat "$pidfile" 2>/dev/null)" = "$PROCESS_LOCK_OWNER_PID" ]; then
-    rm -f "$pidfile"
+  if [ "$(exec 9>&-; cat "$pidfile" 2>/dev/null)" = "$PROCESS_LOCK_OWNER_PID" ]; then
+    rm -f "$pidfile" 9>&-
   fi
   exec 9>&-
   PROCESS_LOCK_OWNED=0
