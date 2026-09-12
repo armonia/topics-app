@@ -176,7 +176,17 @@ test.describe("Tetto di residenza delle pane", () => {
     // Scrivi nella prima chat…
     const firstTab = page.getByTestId(`pane-tab-${first.id}`);
     await firstTab.click({ timeout: 10000 });
-    const composer = page.locator("textarea").first();
+    // IL COMPOSER DELLA PANE VISIBILE, non il primo `textarea` del documento.
+    // Ogni pane visitata resta montata (`PaneKeepAlive`), quindi di textarea ce
+    // n'e' una per pane e `.first()` chiede all'ORDINE DEL DOM chi sia la chat
+    // attiva. Ha funzionato finche' le shell erano rese in ordine di linguetta;
+    // dal 12/09 sono rese in ordine di CHIAVE (`Layout/paneShellOrder`, che e'
+    // cio' che impedisce a un riordino di ricaricare una pane), e `.first()` ha
+    // cominciato a pescare la chat sbagliata: il rosso diceva di aver trovato la
+    // textarea del topic -4 mentre il test parlava del primo.
+    // `[data-pane-visible="1"]` e' la stessa lettura che RESIDENCY-02 usa due
+    // test piu' su, e dice quello che questo test intende davvero.
+    const composer = page.locator('[data-pane-shell][data-pane-visible="1"] textarea').first();
     await composer.waitFor({ state: "visible", timeout: 10000 });
     await composer.fill(draft);
 
@@ -190,6 +200,7 @@ test.describe("Tetto di residenza delle pane", () => {
     // questo test è la guardia che quella persistenza resti vera quando
     // smontare diventa una cosa NORMALE e non più un caso raro.
     await firstTab.click({ timeout: 10000 });
-    await expect(page.locator("textarea").first()).toHaveValue(draft, { timeout: 10000 });
+    await expect(page.locator('[data-pane-shell][data-pane-visible="1"] textarea').first())
+      .toHaveValue(draft, { timeout: 10000 });
   });
 });
