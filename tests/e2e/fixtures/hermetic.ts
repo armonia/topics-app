@@ -85,10 +85,28 @@ async function killLiveTerminalSessions(request: APIRequestContext): Promise<str
 }
 
 /**
- * How long a terminal teardown gets before it is called stuck, on a quiet
- * machine. Multiplied by the load: see the call site.
+ * How long a terminal teardown gets before it is called stuck, on a COLD
+ * machine. Multiplied by the load at the call site.
+ *
+ * WHY 15 AND NOT THE 2 IT STARTED AT. Two seconds was written from this Mac,
+ * where a PTY dies in milliseconds. On CI it was not enough: run 34675029755
+ * shard 4, «2 terminal session(s) survived the reset AND 2000ms of DELETEs»,
+ * and every file after it in that shard died — the same cascade the wait was
+ * added to stop, one budget short.
+ *
+ * The ids are DIFFERENT on every occurrence, which is what says this is the
+ * race and not one stuck process: `retireTerminalSession` drops the row and the
+ * map and sends `kill` to the bridge, but the roster read reconciles against
+ * the bridge and writes a still-living PTY back. The loop simply has to outlast
+ * the kill, and a GitHub runner is not overloaded — it is slow, which
+ * `loadavg` cannot see (so the factor there reads x1.0 and widens nothing).
+ *
+ * IT COSTS NOTHING WHEN THERE IS NOTHING TO DRAIN. The drain is only entered
+ * when the reset already left survivors, and it returns the moment the list is
+ * empty. A clean board never pays this number; only a teardown that is losing
+ * does, and there the alternative is a hundred reds.
  */
-const TERMINAL_TEARDOWN_MS = 2_000;
+const TERMINAL_TEARDOWN_MS = 15_000;
 
 /** The session ids the server still lists, i.e. whatever survived a kill. */
 async function liveTerminalSessionIds(request: APIRequestContext): Promise<string[]> {
@@ -184,8 +202,9 @@ async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
   //
   // The window follows the load like the rest of the suite (`slackMs`), because
   // the thing it is waiting for gets slower for exactly the reason the machine
-  // is loaded. It stays SHORT: this is the cost paid by every file that finds a
-  // clean board, and a session that is genuinely stuck must still be named.
+  // is loaded. But it is only ENTERED when the reset already left survivors, so
+  // a clean board pays nothing and the number can be sized for a cold machine
+  // instead of for this Mac — see `TERMINAL_TEARDOWN_MS`.
   const survivors = await liveTerminalSessionIds(request);
   if (survivors.length > 0) {
     const stubborn = await drainTerminalSessions(
