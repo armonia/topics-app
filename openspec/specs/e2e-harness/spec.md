@@ -544,3 +544,39 @@ stampato nel log di CI.
 #### Scenario: un valore forzato a mano vince
 - **GIVEN** `TOPICS_TEST_TIME_SLACK=4` è già nell'ambiente
 - **THEN** la misura non lo sovrascrive: chi ha scelto ha scelto
+
+### Requirement: E2E-GATE-12 — Il confine ermetico dà al teardown di un terminale il tempo di un round trip
+
+Una sessione di terminale è una riga in SQLite E un PTY nel ponte. Cancellare la
+riga non uccide il processo, e il `reconcile` del server riscrive in lista un
+processo vivo: il file successivo trova la sessione che ha appena rimosso.
+Uccidere davvero costa un giro fino al ponte e ritorno.
+
+Il guardiano di `hermetic.ts` SHALL riprovare il DELETE finché la lista non è
+vuota o finché non è speso un budget, invece di sparare un secondo giro e
+controllare nello stesso millisecondo. Il budget SHALL seguire il carico
+(`slackMs`), perché la cosa che aspetta rallenta esattamente per il motivo per
+cui la macchina è carica, e SHALL restare breve: lo paga ogni file che trova il
+banco pulito, e una sessione davvero incastrata va comunque nominata.
+
+MISURATO il 12/09/2026, run di CI 34669019794 shard 4: due sessioni lasciate da
+`chrome-bar-surface-inventory.spec.ts` sono sopravvissute, `dashboard.spec.ts`
+si è rifiutato di partire, e OGNI file dopo di lui in quello shard è morto a
+0 ms — oltre 100 rossi da un solo teardown lento. La stessa coppia lanciata di
+fila su una macchina da sviluppo subito dopo: 15 verdi. È una corsa, non un
+processo incastrato, e un guardiano che a una corsa non dà tempo misura la
+macchina invece del codice.
+
+MISURA: `tests/e2e/helpers/drain-terminals.test.ts`.
+
+#### Scenario: la sessione muore al terzo giro
+- **GIVEN** la lista si svuota dopo tre DELETE
+- **THEN** il drenaggio torna vuoto e smette di chiedere
+
+#### Scenario: una sessione davvero incastrata
+- **GIVEN** la lista non si svuota mai
+- **THEN** speso il budget il drenaggio torna gli id che restano, e il guardiano li nomina
+
+#### Scenario: budget a zero
+- **GIVEN** nessun margine di tempo
+- **THEN** parte comunque un giro di DELETE: mai meno di ciò che il guardiano ha sempre fatto

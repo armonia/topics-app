@@ -39,6 +39,8 @@
 
 import { request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { E2E_BASE } from "../helpers/test-server";
+import { slackMs } from "../../helpers/time-slack";
+import { drainTerminalSessions } from "../helpers/drain-terminals";
 import { closeAllBrowserContexts, waitForPaneStoreQuiet } from "../helpers/api-fixtures";
 import {
   diagnoseServerDeath,
@@ -81,6 +83,12 @@ async function killLiveTerminalSessions(request: APIRequestContext): Promise<str
   );
   return ids;
 }
+
+/**
+ * How long a terminal teardown gets before it is called stuck, on a quiet
+ * machine. Multiplied by the load: see the call site.
+ */
+const TERMINAL_TEARDOWN_MS = 2_000;
 
 /** The session ids the server still lists, i.e. whatever survived a kill. */
 async function liveTerminalSessionIds(request: APIRequestContext): Promise<string[]> {
@@ -159,17 +167,36 @@ async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
   // finds the processes still alive and writes them back. Killing first and
   // resetting second therefore leaves open the door they come back through.
   //
-  // A second round closes the ones that were merely slow. If they survive that
+  // Further rounds close the ones that were merely slow. If they survive those
   // too the file does NOT start: a red that names the ids here beats a red twelve
   // files later on a spec that has nothing to do with it.
+  //
+  // WHY IT WAITS INSTEAD OF ASKING TWICE. The first version fired the second
+  // round of DELETEs in the same millisecond as the check, which asks a process
+  // to have died in no time at all. Killing a PTY is a round trip to the bridge
+  // and back; on a machine with slack that is instant, and on a CI runner it is
+  // not. Measured on 2026-09-12, CI run 34669019794 shard 4: two sessions left
+  // by `chrome-bar-surface-inventory.spec.ts` survived, `dashboard.spec.ts`
+  // refused to start, and EVERY file after it in that shard died at 0 ms - 100+
+  // reds from one slow teardown. The same pair, run back to back on this Mac
+  // straight after: 15 green. It is a race, not a stuck process, and a guard
+  // that gives a race no time measures the machine.
+  //
+  // The window follows the load like the rest of the suite (`slackMs`), because
+  // the thing it is waiting for gets slower for exactly the reason the machine
+  // is loaded. It stays SHORT: this is the cost paid by every file that finds a
+  // clean board, and a session that is genuinely stuck must still be named.
   const survivors = await liveTerminalSessionIds(request);
   if (survivors.length > 0) {
-    await killLiveTerminalSessions(request);
-    const stubborn = await liveTerminalSessionIds(request);
+    const stubborn = await drainTerminalSessions(
+      () => liveTerminalSessionIds(request),
+      () => killLiveTerminalSessions(request),
+      slackMs(TERMINAL_TEARDOWN_MS),
+    );
     if (stubborn.length > 0) {
       throw new Error(
-        `[hermetic] ${stubborn.length} terminal session(s) survived the reset AND a second round of DELETEs: ` +
-          `${stubborn.join(", ")}\n` +
+        `[hermetic] ${stubborn.length} terminal session(s) survived the reset AND ` +
+          `${slackMs(TERMINAL_TEARDOWN_MS)}ms of DELETEs: ${stubborn.join(", ")}\n` +
           `The PTY lives in the bridge, not in SQLite: the reset deletes the row and the reconcile writes ` +
           `it back while the process is alive. The phantom tabs later files find are born here.`,
       );

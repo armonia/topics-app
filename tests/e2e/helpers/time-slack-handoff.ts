@@ -24,7 +24,7 @@
 import { cpus, loadavg } from "node:os";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../../shared/test-time-slack";
 
-export interface TimeSlackHandoff {
+export interface TimeSlackDecision {
   slack: number;
   /** The line to print. Always printed, even at x1.0 — see below. */
   note: string;
@@ -44,7 +44,7 @@ export interface TimeSlackHandoff {
 export function handDownTimeSlack(
   env: Record<string, string | undefined> = process.env,
   machine: { load: number; cores: number } = { load: loadavg()[0] ?? 0, cores: cpus().length || 1 },
-): TimeSlackHandoff {
+): TimeSlackDecision {
   const slack = timeSlack({ load: machine.load, cores: machine.cores, forced: env[TIME_SLACK_ENV] });
   env[TIME_SLACK_ENV] = String(slack);
   return { slack, note: timeSlackNote(slack, machine.load, machine.cores) };
