@@ -9,6 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
+import { pendingQuestionComment } from "../../shared/board";
 import { createTasksRouter } from "./tasks";
 import { imageShape } from "../services/image-shape";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
@@ -571,6 +572,44 @@ describe("board router (human, project-scoped)", () => {
     expect(resumed.length).toBe(1);
     const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
     expect(after.task.status).toBe("in_progress");
+  });
+
+  /**
+   * THE PIECE THE QUIET GESTURE WAS MISSING: the row did not remember it.
+   *
+   * `quiet` made the route return before reject+resume, and then vanished. The
+   * stored comment came back indistinguishable from a reply, and the reader
+   * that walks the thread - `pendingQuestionComment`, backwards, stopping at
+   * the first human word - took the annotation for the answer: the open
+   * question above it lost its buttons. Measured on a real card, 2026-09-12,
+   * card f5805e88.
+   */
+  test("a quiet note REMEMBERS it was one, and does not silence the question above", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts), { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any);
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "con domanda", status: "in_progress" }))!.json();
+
+    // The agent's question, with its options.
+    db.prepare(
+      "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, 'agent:top-z', ?, 'comment', ?)",
+    ).run("question-1", root.id, "```question\nWhich source?\n- Orders\n- Contracts\n```", "2026-09-12T00:00:00Z");
+
+    await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, { content: "annotating: I moved it myself", quiet: true });
+
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    const note = got.comments.at(-1);
+    expect(note.content).toBe("annotating: I moved it myself");
+    expect(note.quiet).toBe(true);
+    // And the reader that draws the buttons finds the question again, not null.
+    // `got` comes from `.json()`, so it is `any`: without this shape the generic
+    // falls back to its constraint and `id` stops existing for the typecheck.
+    type ThreadRow = { id: string; content: string; kind: string; author: string; quiet?: boolean | null };
+    expect(pendingQuestionComment(got.comments as ThreadRow[])?.id).toBe("question-1");
+
+    // The default is unchanged: a real answer still closes the question.
+    await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, { content: "Orders" });
+    const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(after.comments.at(-1).quiet ?? null).toBeNull();
+    expect(pendingQuestionComment(after.comments as ThreadRow[])).toBeNull();
   });
 
   test("quiet comment with media stays quiet too (attachments do not wake the agent)", async () => {

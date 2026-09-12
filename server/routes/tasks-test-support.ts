@@ -55,7 +55,9 @@ export function freshDb(): Database {
     kind TEXT NOT NULL DEFAULT 'comment',
     -- migration 20260904190855: the assistant row an agent said this in.
     message_id TEXT,
-    origin TEXT CHECK (origin IN ('interface', 'mcp', 'api', 'system'))
+    origin TEXT CHECK (origin IN ('interface', 'mcp', 'api', 'system')),
+    -- migration 20260912081500: this row is a NOTE, not a reply.
+    quiet INTEGER CHECK (quiet IN (0, 1))
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,

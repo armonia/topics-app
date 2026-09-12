@@ -1480,6 +1480,25 @@ export interface TaskComment {
    */
   origin?: TaskActionOrigin | null;
   /**
+   * THIS ROW IS A NOTE, NOT A REPLY.
+   *
+   * The writer said so: `POST /tasks/:id/comments` takes `quiet: true`, the
+   * gesture for «I am leaving a trace, I am not answering». It has always
+   * stopped the row from waking the agent; what it did NOT do was survive the
+   * write, so a reader could not tell a note from an answer afterwards.
+   *
+   * That gap cost a card on 2026-09-12: a quiet note posted under an open
+   * question took the question's option buttons away, because
+   * `pendingQuestionComment` walks backwards and stops at the first human word.
+   * The note stayed readable, the three choices stayed written, and there was
+   * no longer anything to click.
+   *
+   * Absent means NOT QUIET — everything written before the column existed, and
+   * every ordinary reply. The unknown must never read as quiet: that would
+   * revive questions a real answer had closed.
+   */
+  quiet?: boolean | null;
+  /**
    * Resolved at READ time from `author` (`guest:<deviceId>`), never stored:
    * the person's display name and the device's own name (`devices.name`, e.g.
    * "iPhone di Attilio"), so `commentAuthorLabel`'s generic 'guest' placeholder
@@ -2016,6 +2035,8 @@ export type PendingQuestionComment = {
   kind?: string | null;
   author?: string | null;
   messageId?: string | null;
+  /** Declared by the writer: a note, not an answer. See `TaskComment.quiet`. */
+  quiet?: boolean | null;
 };
 
 /**
@@ -2054,6 +2075,15 @@ export function pendingQuestionComment<T extends PendingQuestionComment>(
   for (let i = (comments?.length ?? 0) - 1; i >= 0; i--) {
     const comment = comments![i]!;
     if (!isThreadSpeech(comment)) continue;
+    // A NOTE IS NOT AN ANSWER, AND ONLY THE WRITER KNOWS WHICH IT WAS.
+    //
+    // The rule below — a human word after the question ends the scan — is the
+    // right one: someone who speaks under a question is normally answering it.
+    // But `quiet` exists to say the opposite out loud, and without this line
+    // the two gestures were indistinguishable once stored: annotating a card
+    // silently removed the buttons from the question above. Same collision the
+    // flag was introduced to end, one surface further along.
+    if (comment.quiet) continue;
     if (delivery && (comment.author !== delivery.author || comment.messageId !== delivery.messageId)) return null;
     if (parseQuestionBlock(comment.content)) return comment;
     if (comment.kind !== 'delivery'

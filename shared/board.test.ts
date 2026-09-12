@@ -893,6 +893,35 @@ describe('pendingQuestionComment: a delivery from the same message preserves its
     expect(pendingQuestionComment([{ ...question, author }, { ...delivery, author }])).toBeNull();
   });
 
+  /**
+   * MEASURED ON A REAL CARD, 2026-09-12. A subtask was moved and a QUIET note
+   * left under it to explain why. The question the system had just posted -
+   * three options, three buttons - stopped being pending in the same instant:
+   * the backward scan halted on that note. What was left was the text of the
+   * question and no way to answer it.
+   *
+   * `quiet` is the flag that exists to say "I am annotating, I am not
+   * answering", and the writer had already said it: the route used it to keep
+   * the agent asleep and then threw it away, so on re-read the row was
+   * indistinguishable from a reply. The same collision the flag was introduced
+   * to end, one surface further along.
+   */
+  test('a QUIET note is not an answer: the question stays clickable', () => {
+    const note = { ...question, author: 'user', kind: 'comment', quiet: true, content: 'I moved the subtask myself, here is why.' };
+    expect(pendingQuestionComment([question, note])).toBe(question);
+    // More than one, and above the machine's own bookkeeping too.
+    expect(pendingQuestionComment([question, { kind: 'status', content: 'backlog→review' }, note, { ...note, content: 'and a second note' }])).toBe(question);
+  });
+
+  test('without the flag a human word closes the question as it always did', () => {
+    const answer = { ...question, author: 'user', kind: 'comment', content: 'Requeue the subtasks' };
+    expect(pendingQuestionComment([question, answer])).toBeNull();
+    // `quiet: false` and absence must say the same thing: history written
+    // before the column cannot become "quiet" by omission.
+    expect(pendingQuestionComment([question, { ...answer, quiet: false }])).toBeNull();
+    expect(pendingQuestionComment([question, { ...answer, quiet: null }])).toBeNull();
+  });
+
   test('a question without the same anchor cannot be recovered', () => {
     expect(pendingQuestionComment([{ ...question, messageId: null }, delivery])).toBeNull();
     expect(pendingQuestionComment([{ ...question, messageId: 'earlier-turn' }, delivery])).toBeNull();

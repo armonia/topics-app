@@ -3660,6 +3660,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
             media: filterMedia(body?.media),
             projectId: bComments.projectId, origin: actionOrigin,
+            // THE GESTURE BELONGS ON THE ROW, not only in this handler.
+            //
+            // Until 2026-09-12 `quiet` existed solely as the early return a few
+            // lines below: the agent stayed asleep, and the stored row came out
+            // identical to a reply. A reader coming back to the thread could no
+            // longer tell them apart - and `pendingQuestionComment` stops at the
+            // first human word, so a note left under an open question took its
+            // buttons away. Card f5805e88.
+            quiet: body?.quiet === true,
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
           broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });

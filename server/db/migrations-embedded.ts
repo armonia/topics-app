@@ -161,6 +161,7 @@ import m20260909090000_task_model_effort from "./migrations/20260909090000-task-
 import m20260909123000_task_comment_origin from "./migrations/20260909123000-task-comment-origin.sql" with { type: "text" };
 import m20260909180634_grant_levels_write_scope from "./migrations/20260909180634-grant-levels-write-scope.sql" with { type: "text" };
 import m20260910000153_codex_sessions from "./migrations/20260910000153-codex-sessions.sql" with { type: "text" };
+import m20260912081500_task_comment_quiet from "./migrations/20260912081500-task-comment-quiet.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -326,4 +327,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260909123000, name: "20260909123000-task-comment-origin.sql", sql: m20260909123000_task_comment_origin },
   { version: 20260909180634, name: "20260909180634-grant-levels-write-scope.sql", sql: m20260909180634_grant_levels_write_scope },
   { version: 20260910000153, name: "20260910000153-codex-sessions.sql", sql: m20260910000153_codex_sessions },
+  { version: 20260912081500, name: "20260912081500-task-comment-quiet.sql", sql: m20260912081500_task_comment_quiet },
 ];

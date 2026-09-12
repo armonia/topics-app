@@ -366,7 +366,7 @@ export interface TaskService {
    * problem (the identical text repeated); here the text changes on every run,
    * which is exactly why they piled up.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[]; messageId?: string | null; origin?: TaskActionOrigin }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[]; messageId?: string | null; origin?: TaskActionOrigin; quiet?: boolean }): TaskComment;
   /**
    * Una interruzione, una riga.
    *
@@ -2818,7 +2818,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const guestActor = resolveGuestActor(r.author);
     return {
       id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind,
-      messageId: r.message_id ?? null, origin: r.origin ?? null,
+      messageId: r.message_id ?? null, origin: r.origin ?? null, quiet: r.quiet === 1 ? true : null,
       actorPersonName: guestActor?.personName ?? null,
       actorDeviceName: guestActor?.deviceName ?? null,
     };
@@ -2831,6 +2831,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       commentOriginColumn = columns.some((column) => column.name === "origin");
     }
     return commentOriginColumn;
+  }
+
+  /**
+   * Twin of the probe above, for the column that remembers a NOTE.
+   *
+   * Both exist because the migration runs when the database is OPENED, and a
+   * server already up when the file lands keeps serving the old shape until it
+   * reloads. Probing beats assuming: a write that names a column the file has
+   * not got yet throws, and it would throw on the ordinary path of every
+   * comment.
+   */
+  let commentQuietColumn: boolean | null = null;
+  function supportsCommentQuiet(): boolean {
+    if (commentQuietColumn === null) {
+      const columns = db.prepare("PRAGMA table_info(task_comments)").all() as Array<{ name?: string }>;
+      commentQuietColumn = columns.some((column) => column.name === "quiet");
+    }
+    return commentQuietColumn;
   }
 
   /**
@@ -3816,7 +3834,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces, messageId, origin }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces, messageId, origin, quiet }): TaskComment {
       // The kind is whitelisted, never passed through: an unknown value reads
       // as a plain comment, so a typo at a call site costs a visible row rather
       // than a hidden one. 'service' = the dispatcher's own bookkeeping, marked
@@ -3893,16 +3911,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const id = uuid();
       const ts = now();
       const recordedOrigin = origin ?? ((author === "system" || author === "dispatcher" || author === "verifier") ? "system" : null);
-      const values = [id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts, messageId ?? null];
-      if (supportsCommentOrigin()) {
-        db.prepare(
-          "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at, message_id, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).run(...values, recordedOrigin);
-      } else {
-        db.prepare(
-          "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).run(...values);
-      }
+      // Optional columns are ASSEMBLED, not branched on: `origin` alone already
+      // cost two branches, and `quiet` would have made four - four SQL strings
+      // to keep aligned by hand over a one-word difference. A column an older
+      // database has not got simply does not join the list.
+      const insertColumns = ["id", "task_id", "author", "content", "mentions", "media", "kind", "created_at", "message_id"];
+      const values: Array<string | number | null> = [id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts, messageId ?? null];
+      if (supportsCommentOrigin()) { insertColumns.push("origin"); values.push(recordedOrigin); }
+      // `quiet: false` and absence are the same thing and both stay NULL: the
+      // column says "this row is a note", never "this row is an answer", which
+      // is already what every word in the thread is by default.
+      if (supportsCommentQuiet() && quiet === true) { insertColumns.push("quiet"); values.push(1); }
+      db.prepare(
+        `INSERT INTO task_comments (${insertColumns.join(", ")}) VALUES (${insertColumns.map(() => "?").join(", ")})`,
+      ).run(...values);
       // The thread is part of the task: touch updated_at so live clients (open
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
