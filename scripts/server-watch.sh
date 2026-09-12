@@ -19,18 +19,41 @@
 set -uo pipefail
 APP_DIR="${1:?uso: server-watch.sh <APP_DIR> [<server pidfile>]}"
 SERVER_PIDFILE="${2:-/tmp/topics-server.pid}"
+MANAGED_PARENT_PID="${3:-}"
 BIRTH_GRACE_S=25
 
-WATCH_PIDFILE="/tmp/topics-server-watch.pid"
-if [ -r "$WATCH_PIDFILE" ]; then
-  _other=$(cat "$WATCH_PIDFILE" 2>/dev/null)
-  if [ -n "$_other" ] && [ "$_other" != "$$" ] && kill -0 "$_other" 2>/dev/null; then
-    echo "[server-watch] gia' in ascolto (pid $_other): questa istanza esce"
-    exit 0
+WATCH_PIDFILE="${TOPICS_SERVER_WATCH_PIDFILE:-/tmp/topics-server-watch.pid}"
+EVENT_PIPE="${TOPICS_SERVER_WATCH_EVENT_PIPE:-/tmp/topics-server-watch-events.$$}"
+FSWATCH_PID=""
+FSWATCH_WATCHDOG_PID=""
+FSWATCH_STOP_GRACE_S="${TOPICS_FSWATCH_STOP_GRACE_S:-3}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/server-watch-lock.sh"
+
+cleanup() {
+  trap - EXIT INT TERM
+  stop_parent_watchdog
+  if [ -n "$FSWATCH_WATCHDOG_PID" ]; then
+    kill -TERM "$FSWATCH_WATCHDOG_PID" 2>/dev/null
+    wait "$FSWATCH_WATCHDOG_PID" 2>/dev/null
+    FSWATCH_WATCHDOG_PID=""
   fi
-fi
-echo $$ > "$WATCH_PIDFILE"
-trap 'rm -f "$WATCH_PIDFILE"' EXIT
+  if [ -n "$FSWATCH_PID" ] && kill -0 "$FSWATCH_PID" 2>/dev/null; then
+    kill -TERM "$FSWATCH_PID" 2>/dev/null
+    ( exec 9>&-; sleep "$FSWATCH_STOP_GRACE_S"; kill -KILL "$FSWATCH_PID" 2>/dev/null ) &
+    STOP_GUARD_PID=$!
+    wait "$FSWATCH_PID" 2>/dev/null
+    kill -TERM "$STOP_GUARD_PID" 2>/dev/null
+    wait "$STOP_GUARD_PID" 2>/dev/null
+  fi
+  release_process_lock "$WATCH_PIDFILE"
+  rm -f "$EVENT_PIPE"
+  exit 0
+}
+
+acquire_process_lock "$WATCH_PIDFILE" "server-watch.sh" || exit 0
+trap cleanup EXIT INT TERM
+start_parent_watchdog "$MANAGED_PARENT_PID" "$$" || exit 1
 
 if ! command -v fswatch >/dev/null 2>&1; then
   echo "[server-watch] fswatch non trovato: hot-reload spento (brew install fswatch)"
@@ -50,7 +73,7 @@ diagnose_stall() {
   [ -n "$frames" ] && echo "[start-prod]   main thread del server $pid fermo in: $frames"
   mount | /usr/bin/grep -vE '^(/dev/|devfs|map |autofs)' | awk '{print $3}' | while read -r mnt; do
     [ -d "$mnt" ] || continue
-    ( ls "$mnt" >/dev/null 2>&1 & p=$!; sleep 3; if kill -0 $p 2>/dev/null; then kill -9 $p 2>/dev/null; echo "[start-prod]   mount di rete $mnt NON RISPONDE: qualunque accesso sincrono sotto quel path blocca il server. Sblocco: umount -f $mnt (o riavvia chi lo monta)"; fi )
+    ( exec 9>&-; ls "$mnt" >/dev/null 2>&1 & p=$!; sleep 3; if kill -0 $p 2>/dev/null; then kill -9 $p 2>/dev/null; echo "[start-prod]   mount di rete $mnt NON RISPONDE: qualunque accesso sincrono sotto quel path blocca il server. Sblocco: umount -f $mnt (o riavvia chi lo monta)"; fi )
   done
 }
 
@@ -62,9 +85,25 @@ LAST_HASH=$(src_hash)
 BOOT_SEEN=$(stat -f %m "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" 2>/dev/null || echo 0)
 echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta ${LAST_HASH:0:8}, pid $$)"
 
-    fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
-      "$APP_DIR/server/" "$APP_DIR/server.ts" 2>/dev/null \
-    | while read -r _; do
+rm -f "$EVENT_PIPE"
+mkfifo "$EVENT_PIPE"
+fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
+  "$APP_DIR/server/" "$APP_DIR/server.ts" 9>&- > "$EVENT_PIPE" 2>/dev/null &
+FSWATCH_PID=$!
+WATCH_OWNER_PID="$$"
+(
+  exec 9>&-
+  while kill -0 "$WATCH_OWNER_PID" 2>/dev/null && process_has_parent "$FSWATCH_PID" "$WATCH_OWNER_PID"; do
+    sleep "$WATCHDOG_INTERVAL_S"
+  done
+  if kill -0 "$FSWATCH_PID" 2>/dev/null; then
+    kill -TERM "$FSWATCH_PID" 2>/dev/null
+    sleep "$FSWATCH_STOP_GRACE_S"
+    kill -KILL "$FSWATCH_PID" 2>/dev/null
+  fi
+) &
+FSWATCH_WATCHDOG_PID=$!
+while read -r _; do
 
         # ── DUE GUARDIE, nate dalla tempesta del 2026-09-03 ─────────────────
         # `check:deadcode-blindspots` appende una sonda a ~400 file sotto
@@ -153,7 +192,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
             [ "$_age" -ge "$BIRTH_GRACE_S" ] && break
             kill -0 "$SP" 2>/dev/null || break   # e' uscito da solo: niente da rinviare
             echo "[start-prod] reload RINVIATO — il server ha ${_age}s, sta ancora nascendo (soglia ${BIRTH_GRACE_S}s)"
-            sleep 2
+            sleep 2 9>&-
           done
           # Cancello (2026-08-04): una modifica di più file è incoerente per
           # qualche secondo — l'import c'è, il modulo che lo soddisfa no. Far
@@ -166,7 +205,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
           if ! GATE_OUT=$("$APP_DIR/scripts/server-reload-gate.sh" "$APP_DIR" 2>&1); then
             echo "[start-prod] reload SALTATO — l'albero non compila, il server vecchio resta su:"
             echo "$GATE_OUT" | sed 's/^/[start-prod]   /'
-            sleep 2
+            sleep 2 9>&-
             continue
           fi
           # PRIMA SI CHIEDE AL SERVER, e solo se non risponde si taglia.
@@ -286,14 +325,14 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
               elif [ "$WAITED" -ge "$QWAIT" ]; then
                 break
               fi
-              sleep 2
+              sleep 2 9>&-
               WAITED=$((WAITED + 2))
             done
             if kill -0 "$SP" 2>/dev/null; then
               echo "[start-prod] ATTENZIONE: restart-when-idle accettato, ma il server $SP e' ancora vivo dopo ${WAITED}s — SIGTERM."
               kill -TERM "$SP" 2>/dev/null
               for _ in 1 2 3 4 5 6 7 8 9 10; do
-                sleep 1
+                sleep 1 9>&-
                 kill -0 "$SP" 2>/dev/null || break
               done
               if kill -0 "$SP" 2>/dev/null; then
@@ -305,7 +344,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
             # Il vecchio e' uscito: la finestra di settle serve lo stesso, perche'
             # il secondo batch di fswatch non deve colpire il server FRESCO a
             # meta' init (il perche' sta nel ramo qui sotto).
-            sleep 5
+            sleep 5 9>&-
           else
             # RAMO FALLBACK: restart-when-idle non ha risposto (server non
             # raggiungibile via HTTP, token mancante, curl assente).
@@ -350,14 +389,14 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
                 elif [ "$FWAIT" -ge 330 ]; then
                   break
                 fi
-                sleep 2
+                sleep 2 9>&-
                 FWAIT=$((FWAIT + 2))
               done
               if kill -0 "$SP" 2>/dev/null; then
                 echo "[start-prod] ATTENZIONE: restart-when-idle (2° tentativo) accettato, server $SP ancora vivo dopo ${FWAIT}s — SIGTERM."
                 kill -TERM "$SP" 2>/dev/null
                 for _ in 1 2 3 4 5 6 7 8 9 10; do
-                  sleep 1
+                  sleep 1 9>&-
                   kill -0 "$SP" 2>/dev/null || break
                 done
                 if kill -0 "$SP" 2>/dev/null; then
@@ -366,7 +405,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
                   kill -KILL "$SP" 2>/dev/null
                 fi
               fi
-              sleep 5
+              sleep 5 9>&-
             else
               # NON SI UCCIDE UN SERVER CHE NON HA ANCORA POTUTO RISPONDERE.
               #
@@ -404,7 +443,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
               RELOAD_ASKED3=0
               if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
                 for _try in $(seq 1 15); do
-                  sleep 2
+                  sleep 2 9>&-
                   kill -0 "$SP" 2>/dev/null || break   # e' gia' uscito da solo
                   DTOKEN3=$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
                   DPORT3=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
@@ -428,14 +467,14 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
                 QWAIT3=$(( QCAP_S3 + 60 ))
                 W3=0
                 while kill -0 "$SP" 2>/dev/null && [ "$W3" -lt "$QWAIT3" ]; do
-                  sleep 2
+                  sleep 2 9>&-
                   W3=$((W3 + 2))
                 done
                 if kill -0 "$SP" 2>/dev/null; then
                   echo "[start-prod] ATTENZIONE: il server $SP non e' uscito dopo ${W3}s — SIGTERM."
                   kill -TERM "$SP" 2>/dev/null
                 fi
-                sleep 5
+                sleep 5 9>&-
                 continue
               fi
               echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP): non risponde nemmeno dopo l'attesa di nascita"
@@ -448,7 +487,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
               # skipping gracefulShutdown. Sleeping here just delays the next
               # batch's reload until the new process is fully up (init is ~2-4s),
               # so every reload stays graceful.
-              sleep 10
+              sleep 10 9>&-
               # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
               #
               # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
@@ -474,7 +513,7 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
               SIGKILL_WAITED=0
               if kill -0 "$SP" 2>/dev/null; then
                 while kill -0 "$SP" 2>/dev/null && [ "$SIGKILL_WAITED" -lt "$SIGKILL_WINDOW" ]; do
-                  sleep 1
+                  sleep 1 9>&-
                   SIGKILL_WAITED=$((SIGKILL_WAITED + 1))
                 done
                 if kill -0 "$SP" 2>/dev/null; then
@@ -486,4 +525,4 @@ echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta $
             fi
           fi
         fi
-      done
+done < "$EVENT_PIPE"
