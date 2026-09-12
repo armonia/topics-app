@@ -264,4 +264,30 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
       (globalThis as { setTimeout: unknown }).setTimeout = realSetTimeout;
     }
   });
+
+  it("la chiusura tardiva di un filo sostituito non spegne quello corrente", () => {
+    const { c } = connectedClient();
+    c.avvia();
+    const oldSocket = FakeSocketRelay.aperte[0]!;
+    oldSocket.onopen?.();
+    oldSocket.confermaReady();
+
+    c.avvia();
+    const currentSocket = FakeSocketRelay.aperte[1]!;
+    currentSocket.onopen?.();
+    oldSocket.confermaReady();
+    expect(c.collegato()).toBe(false);
+    currentSocket.confermaReady();
+    expect(c.collegato()).toBe(true);
+
+    oldSocket.onopen?.();
+    expect(c.collegato()).toBe(true);
+
+    // The event still belongs to the first socket, even if it arrives after
+    // the second socket completed its handshake.
+    oldSocket.onclose?.();
+    expect(c.collegato()).toBe(true);
+    expect(currentSocket.chiusa).toBe(false);
+    c.ferma();
+  });
 });

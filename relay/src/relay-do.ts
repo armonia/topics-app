@@ -172,7 +172,7 @@ export class SessioneRelay {
 
   /** La macchina, o `null` se non è collegata. */
   private macchina(): WebSocket | undefined {
-    return this.state.getWebSockets(TAG_MACCHINA)[0];
+    return this.state.getWebSockets(TAG_MACCHINA).find((host) => host.readyState === WebSocket.OPEN);
   }
 
   /**
@@ -486,6 +486,11 @@ export class SessioneRelay {
     const chi = this.chiE(ws);
     if (!chi) return;
 
+    // The replaced socket remains tagged until the runtime delivers its close.
+    // It is no longer the current host, so none of its late messages may enter
+    // the bridge or the replacement host's sessions.
+    if ("host" in chi && this.macchina() !== ws) return;
+
     if ("host" in chi && m.t === "to-guest") {
       const dest = this.state.getWebSockets(tagSessione(m.to));
       if (dest.length > 0) {
@@ -572,6 +577,13 @@ export class SessioneRelay {
     if (!chi) return;
 
     if ("host" in chi) {
+      // Replacement closes the previous socket before accepting the new one,
+      // but the runtime can deliver that close after the new attachment. Tags
+      // survive hibernation: when another host is open, this event belongs to
+      // the replaced generation and must not disconnect its successor.
+      if (this.state.getWebSockets(TAG_MACCHINA).some(
+        (host) => host !== ws && host.readyState === WebSocket.OPEN,
+      )) return;
       // Chi stava aspettando una risposta tradotta non l'avrà: meglio dirlo
       // adesso che lasciare girare una scheda del browser fino alla scadenza.
       this.scollegaPonte();

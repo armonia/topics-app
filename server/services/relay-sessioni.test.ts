@@ -17,9 +17,10 @@
  * @covers RELAY-E2E-13
  */
 import { describe, expect, it } from "bun:test";
-import { creaProxyTubo, creaRelayClient, type ApriSocketLocale } from "./relay-client";
+import { creaProxyTubo, creaRelayClient, type ApriSocketLocale, type ProxyPipeDeps } from "./relay-client";
 import { leggiFramePayload, RELAY_PROTOCOL_VERSION, type FrameTubo } from "../../shared/relay-protocol";
 import { creaRelayFinto, SEGRETO_FINTO } from "../../shared/relay-fake";
+import { GENERE_RICHIESTA, scriviTesta } from "../../shared/relay-http";
 import { GENERE_WS, scriviTestaWs } from "../../shared/relay-ws";
 
 /** Il socket verso l'ascoltatore, ridotto a ciò che il proxy gli chiede. */
@@ -41,12 +42,17 @@ class SocketSu {
 const apriSocketLocale: ApriSocketLocale = () => new SocketSu() as unknown as WebSocket;
 
 /** Il proxy nudo, con i frame che escono leggibili uno per uno. */
-function proxy(opts: { maxSessioni?: number; riservaDevice?: number } = {}) {
+function proxy(opts: {
+  maxSessioni?: number;
+  riservaDevice?: number;
+  fetchLocale?: ProxyPipeDeps["fetchLocale"];
+} = {}) {
   SocketSu.aperti = [];
   const usciti: Array<{ sid: string; fr: FrameTubo }> = [];
   const p = creaProxyTubo({
     portaTunnel: 13999,
     apriSocketLocale,
+    ...(opts.fetchLocale !== undefined ? { fetchLocale: opts.fetchLocale } : {}),
     ...(opts.maxSessioni !== undefined ? { maxSessioni: opts.maxSessioni } : {}),
     ...(opts.riservaDevice !== undefined ? { riservaDevice: opts.riservaDevice } : {}),
     invia: (sid, payload) => {
@@ -132,6 +138,27 @@ describe("sessioni · un identificatore che torna è una sessione NUOVA", () => 
     // …e il ruolo è quello del capo che è entrato adesso, non quello di prima.
     expect(t.p.__ruolo("s1")).toBe("guest");
     expect(t.p.sessioniAperte()).toBe(1);
+  });
+
+  it("una risposta tardiva della vecchia sessione non raggiunge quella nuova", async () => {
+    let finish!: (res: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    const t = proxy({ fetchLocale: (() => pending) as unknown as typeof fetch });
+    t.p.ospiteEntrato("ponte", "device");
+    t.p.riceviFrame("ponte", {
+      f: "open", s: 1, n: 0, k: GENERE_RICHIESTA,
+      h: scriviTesta({ m: "GET", p: "/api/topics", h: [] }), fin: true,
+    });
+    expect(t.p.__inVolo("ponte")).toBe(1);
+
+    t.p.ospiteUscito("ponte");
+    t.p.ospiteEntrato("ponte", "device");
+    t.usciti.length = 0;
+    finish(new Response("risposta vecchia"));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(t.usciti).toEqual([]);
+    expect(t.p.__ruolo("ponte")).toBe("device");
   });
 });
 

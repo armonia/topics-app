@@ -49,6 +49,7 @@ let ultimaCoppia: [CapoFinto, CapoFinto] | null = null;
 
 class CapoFinto {
   peer: CapoFinto | null = null;
+  readyState: number = WebSocket.OPEN;
   /** Ciò che è ARRIVATO su questo capo, così com'è sul filo. */
   arrivati: string[] = [];
   chiusa: Chiusura | null = null;
@@ -58,6 +59,7 @@ class CapoFinto {
   }
 
   close(code = 1000, motivo = ""): void {
+    this.readyState = WebSocket.CLOSED;
     if (this.chiusa === null) this.chiusa = { code, motivo };
     if (this.peer && this.peer.chiusa === null) this.peer.chiusa = { code, motivo };
   }
@@ -491,6 +493,38 @@ describe("relay-do eseguito · un canale di SESSIONE, non un link", () => {
     const uno = await s.collega("host");
     await s.collega("host");
     expect(uno.suo.chiusa).toMatchObject({ code: 4000 });
+  });
+
+  it("la chiusura tardiva della macchina sfrattata non scollega quella nuova", async () => {
+    const s = scena();
+    const oldHost = await s.collega("host");
+    const newHost = await s.collega("host");
+    const guest = await s.collega("device");
+    const sessionId = sessioneDi(guest);
+    expect(newHost.mio.letti().at(-1)).toMatchObject({ t: "guest-joined", sessionId });
+
+    await s.parla(oldHost, { t: "to-guest", to: sessionId, payload: "dalla-vecchia" });
+    expect(guest.mio.letti().some((m) => m.t === "to-guest" && m.payload === "dalla-vecchia")).toBe(false);
+
+    // Cloudflare can deliver the evicted socket's close after it has already
+    // accepted the replacement. That close belongs to the old generation.
+    await s.oggetto.webSocketClose(oldHost.suo as unknown as WebSocket);
+    expect(guest.mio.letti().at(-1)).not.toEqual({ t: "denied", motivo: "host-offline" });
+
+    s.stato.dimentica(oldHost.suo);
+    await s.parla(guest, { t: "to-host", payload: "ancora-vivo" });
+    expect(newHost.mio.letti().at(-1)).toEqual({ t: "to-guest", to: sessionId, payload: "ancora-vivo" });
+  });
+
+  it("la macchina corrente che cade si riconosce anche se la vecchia è ancora registrata", async () => {
+    const s = scena();
+    await s.collega("host");
+    const currentHost = await s.collega("host");
+    const guest = await s.collega("device");
+
+    await s.oggetto.webSocketClose(currentHost.suo as unknown as WebSocket);
+
+    expect(guest.mio.letti().at(-1)).toEqual({ t: "denied", motivo: "host-offline" });
   });
 });
 
