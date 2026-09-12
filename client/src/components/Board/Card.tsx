@@ -1227,14 +1227,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-run-initiator"
               title={tr('board.card.runInitiatorTitle', { name: runInitiator })}
-              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-300 md:text-mini"
+              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-700 dark:text-violet-300 md:text-mini"
             ><UserRound className="h-3 w-3 shrink-0" /> {tr('board.card.runInitiator', { name: runInitiator })}</span>
           )}
           {task.runComputerName && (
             <span
               data-testid="card-run-computer"
               title={tr('board.card.runComputerTitle', { name: task.runComputerName })}
-              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-300 md:text-mini"
+              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-700 dark:text-indigo-300 md:text-mini"
             ><Server className="h-3 w-3 shrink-0" /> {task.runComputerName}</span>
           )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
