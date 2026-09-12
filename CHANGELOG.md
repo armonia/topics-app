@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.306 — 2026-09-12
+
+### Sotto il cofano
+- Il menu utente riordinato, e i cinque posti che ancora camminavano per la strada vecchia
+
 ## 2.2.305 — 2026-09-12
 
 ### Sotto il cofano
@@ -19,6 +24,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La board era un rettangolo nero per chiunque non avesse la finestra a fuoco
 - Il change dell'onboarding non si archiviava perche' meta' di un requisito non la provava nessuno
 - Il confine ermetico si fidava di aver ucciso le sessioni di terminale, e non chiedeva mai conferma
+- Il menu utente ripeteva le impostazioni e nascondeva la cronologia dietro un tasto secco
 
 ## 2.2.303 — 2026-09-11
 

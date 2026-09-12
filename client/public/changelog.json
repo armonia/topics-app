@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.306",
+    "date": "2026-09-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il menu utente riordinato, e i cinque posti che ancora camminavano per la strada vecchia",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.305",
     "date": "2026-09-12",
     "sections": {
@@ -65,6 +81,11 @@
         },
         {
           "it": "Il confine ermetico si fidava di aver ucciso le sessioni di terminale, e non chiedeva mai conferma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il menu utente ripeteva le impostazioni e nascondeva la cronologia dietro un tasto secco",
           "en": "",
           "scope": null
         }
