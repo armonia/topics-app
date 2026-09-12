@@ -736,7 +736,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
   // Provider model list for the board-default picker (settings panel). Same
   // hook the composer and the task drawer read, so the three cannot disagree.
-  const models = useTaskModelCatalog();
   // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
   // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
   // boot pending) so it survives a remount and an inactive→active board tab —
@@ -791,6 +790,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // header can always answer "does moving a task to Todo start an agent?" —
   // the exact feedback that was missing when a task sat in Todo doing nothing.
   const [settings, setSettings] = useState<BoardSettings | null>(null);
+  const models = useTaskModelCatalog(settings?.dispatchModel);
   // The START switch is GLOBAL (one for every board) — so the pill lives on
   // every header, including the global board, and clicking it IS the toggle.
   const [dispatchOn, setDispatchOn] = useState<boolean | null>(null);

@@ -21,9 +21,10 @@
  * something else on the user's behalf would be a silent change to what the
  * agent runs on.
  */
-import { Check, Sparkles } from 'lucide-react';
-import { friendlyModelLabel } from './format';
-import { POPOVER_ITEM } from '../../lib/popoverStyles';
+import { AiExecutionMenuOptions } from '../Shared/AiExecutionMenuOptions';
+import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { taskExecutionOptions, taskModelSelection, taskModelValue } from '../../../../shared/task-coding-models';
+import type { ProvidersSnapshot } from '../../types';
 
 interface Props {
   /** The live catalog, already filtered to executable coding runtimes. */
@@ -39,31 +40,33 @@ interface Props {
   autoIcon?: boolean;
   /** Optional tooltip on the Auto row (the composer explains what Auto does). */
   autoTitle?: string;
+  /** Deterministic catalog injection for render tests. Live callers omit it. */
+  snapshot?: ProvidersSnapshot;
 }
 
-export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLabel, autoIcon, autoTitle }: Props) {
+export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLabel, autoIcon, autoTitle, snapshot: snapshotOverride }: Props) {
+  void autoIcon;
+  const { snapshot: liveSnapshot } = useProvidersSnapshot();
+  const snapshot = snapshotOverride ?? liveSnapshot;
+  const selected = taskModelSelection(value);
+  const legacyProviders = selected.model && !selected.provider
+    ? taskExecutionOptions(snapshot).filter((entry) => entry.models.includes(selected.model!))
+    : [];
+  const selectedProvider = selected.provider
+    ?? legacyProviders.find((entry) => entry.name === snapshot?.defaultProvider)?.name
+    ?? legacyProviders[0]?.name
+    ?? (selected.model && models.includes(value ?? '') ? selected.model : null)
+    ?? null;
   return (
-    <>
-      <button
-        role="option" aria-selected={value === null} disabled={disabled}
-        onClick={() => onSelect(null)}
-        title={autoTitle}
-        className={`${POPOVER_ITEM} disabled:opacity-40`}
-      >
-        {autoIcon && <Sparkles className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />}
-        <span className="min-w-0 flex-1 truncate">{autoLabel}</span>
-        {value === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-      </button>
-      {models.map((m) => (
-        <button
-          key={m} role="option" aria-selected={value === m} disabled={disabled}
-          onClick={() => onSelect(m)}
-          className={`${POPOVER_ITEM} disabled:opacity-40`}
-        >
-          <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
-          {value === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-        </button>
-      ))}
-    </>
+    <AiExecutionMenuOptions
+      snapshot={snapshot}
+      surface="task"
+      value={{ provider: selectedProvider, model: selected.model ?? null }}
+      onSelect={(next) => onSelect(next.provider ? taskModelValue(next.provider, next.model) : null)}
+      automaticLabel={autoLabel}
+      automaticHint={autoTitle ?? autoLabel}
+      disabled={disabled}
+      allowRuntimeAutomatic
+    />
   );
 }

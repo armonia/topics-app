@@ -49,6 +49,8 @@ test.describe.serial("Composer — memoria del modello sulle chat nuove", () => 
 
     const popover = page.getByTestId("provider-model-popover");
     await expect(popover).toBeVisible({ timeout: 5000 });
+    const runtime = popover.locator('button[data-provider]').first();
+    if (await runtime.count() > 0) await runtime.click();
     const rows = popover.locator("button[data-model]:not([disabled])");
     if (await rows.count() === 0) {
       test.skip(true, "Nessun provider pronto con modelli in questo ambiente");

@@ -188,7 +188,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // The subscription used to be lazy here, opened only when the menu opened.
   // The shared store already collapses every consumer onto a single fetch, so
   // the laziness bought nothing and let this chip lag behind the drawer.
-  const models = useTaskModelCatalog();
+  const models = useTaskModelCatalog(model);
   // ── Intake: dove va questo testo? ────────────────────────────────────────
   // Il composer chiede alla board se il testo che stai scrivendo somiglia a un
   // lavoro già aperto. Quello che torna è una PROPOSTA e basta: finché non la

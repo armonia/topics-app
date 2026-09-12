@@ -120,6 +120,7 @@ export interface CompletionResult {
 
 export type ProviderCapability =
   | "streaming"      // supports streamChat
+  | "coding-tasks"   // can run a board task with the Topics task bridge
   | "tools"          // tool call visibility during streaming
   | "thinking"       // extended thinking / reasoning visibility
   | "sessions"       // session management (pause, resume, history)

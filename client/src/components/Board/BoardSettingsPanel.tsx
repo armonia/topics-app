@@ -13,14 +13,16 @@
  * Le RIGHE del pannello stanno un gradino piu' sotto, in `BoardSettingsSections.tsx`:
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
-import { useState } from 'react';
-import { PauseCircle } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ChevronDown, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
+import { Menu } from '../Shared/Menu';
 import { boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
-import { buildDispatchModelOptions } from './dispatchModelOptions';
+import { friendlyModelLabel } from './format';
+import { TaskModelMenuOptions } from './TaskModelMenuOptions';
 import {
   GlobalSettingsSection,
   SettingsPanelHead,
@@ -41,6 +43,9 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
   onError: (e: string) => void;
 }) {
   const tr = useT();
+  const [modelOpen, setModelOpen] = useState(false);
+  const modelButtonRef = useRef<HTMLButtonElement>(null);
+  void models;
   const patch = async (p: BoardSettingsPatch) => {
     try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
@@ -101,25 +106,38 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         </div>
       </div>
 
-      {/* `<label>` → `<div>`: da quando il controllo è il `Select` dell'app e
-          non un elemento di modulo nativo non c'è più niente da associare, e
-          una `<label>` intorno a un bottone renderebbe cliccabile — cioè
-          apribile — anche il testo della riga. */}
-      {/* The option list is `buildDispatchModelOptions` (see its docstring):
-          the stored value stays on the list even when its provider is
-          disconnected, so this picker never falls back to `Select`'s own
-          placeholder `-`, which would read as "nothing set" while
-          `dispatchModel` is still the value the dispatcher runs on. */}
       <div className="flex items-center justify-between gap-2" title={tr('board.settings.modelTitle')}>
         <span>{tr('board.settings.model')}</span>
-        <Select
-          value={s.dispatchModel || 'auto'}
-          onChange={(v) => patch({ dispatchModel: v })}
-          ariaLabel={tr('board.settings.model')}
+        <button
+          ref={modelButtonRef}
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={modelOpen}
+          data-testid="board-model-selector"
+          onClick={() => setModelOpen((open) => !open)}
+          className="flex min-w-0 max-w-[62%] items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/10"
+        >
+          <Sparkles className="h-3 w-3 shrink-0" />
+          <span className="truncate">{s.dispatchModel && s.dispatchModel !== 'auto' ? friendlyModelLabel(s.dispatchModel) : tr('board.settings.modelAuto')}</span>
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        </button>
+        <Menu
+          open={modelOpen}
+          anchorRef={modelButtonRef}
+          onClose={() => setModelOpen(false)}
           align="right"
-          className="max-w-[55%]"
-          options={buildDispatchModelOptions(models, s.dispatchModel, tr('board.settings.modelAuto'))}
-        />
+          minWidth={240}
+          role="listbox"
+          ariaLabel={tr('board.settings.model')}
+        >
+          <TaskModelMenuOptions
+            models={models}
+            value={!s.dispatchModel || s.dispatchModel === 'auto' ? null : s.dispatchModel}
+            onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); setModelOpen(false); }}
+            autoLabel={tr('board.settings.modelAuto')}
+            autoTitle={tr('board.settings.modelTitle')}
+          />
+        </Menu>
       </div>
 
       {/* Gemella della tendina in Impostazioni → Aspetto, e per «gemella» si

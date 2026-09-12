@@ -21,7 +21,13 @@ import { useMemo } from 'react';
 import { useProvidersSnapshot } from './useProvidersSnapshot';
 import { availableTaskModels } from '../../../shared/task-coding-models';
 
-export function useTaskModelCatalog(): string[] {
+export function taskModelCatalog(snapshot: Parameters<typeof availableTaskModels>[0], selected?: string | null): string[] {
+  const available = availableTaskModels(snapshot);
+  if (!selected || selected === 'auto' || available.includes(selected)) return available;
+  return [selected, ...available];
+}
+
+export function useTaskModelCatalog(selected?: string | null): string[] {
   const { snapshot } = useProvidersSnapshot();
-  return useMemo(() => availableTaskModels(snapshot), [snapshot]);
+  return useMemo(() => taskModelCatalog(snapshot, selected), [selected, snapshot]);
 }

@@ -72,7 +72,7 @@ describe('automatic host provider routing', () => {
     { name: 'codex', status: 'ready', models: models.map(m => m.slug) },
     { name: 'claude-code', status: 'ready', models: ['claude-opus-5'] },
   ] }) as ProvidersSnapshot;
-  for (const [selection, defaultProvider] of [[undefined, 'codex'], ['codex', 'claude-code']] as const) {
+  for (const [selection, defaultProvider] of [[undefined, 'codex'], ['codex', 'claude-code'], ['codex:auto', 'claude-code']] as const) {
     test(`Codex ${selection ?? 'default'} never uses Claude to classify`, async () => {
       const accessed: string[] = [];
       const options: CompletionOptions[] = [];
@@ -92,6 +92,23 @@ describe('automatic host provider routing', () => {
     });
   }
 
+  test('Topics automatic stays inside Topics even when Codex is the default', async () => {
+    const current = { defaultProvider: 'codex', providers: [
+      { name: 'topics', status: 'ready', models: ['claude-opus-5'] },
+      { name: 'codex', status: 'ready', models: models.map(model => model.slug) },
+    ] } as ProvidersSnapshot;
+    const accessed: string[] = [];
+    const plan = await pickAutomaticTaskModel({ text: 'Task' }, 'topics:auto', {
+      snapshot: current, codexModels: () => models,
+      getProvider: name => {
+        accessed.push(name);
+        return { connected: true, complete: async () => ({ content: '{"provider":"topics","model":"claude-opus-5","effort":"medium","weight":"light"}' }) } as unknown as AIProvider;
+      },
+    });
+    expect(plan).toMatchObject({ provider: 'topics', model: 'claude-opus-5' });
+    expect(accessed).toEqual(['topics']);
+  });
+
   test('missing Codex catalog never falls back across providers', async () => {
     const accessed: string[] = [];
     await expect(pickAutomaticTaskModel({ text: 'Task' }, 'codex', {
@@ -103,6 +120,18 @@ describe('automatic host provider routing', () => {
 });
 
 describe('general automatic catalog and constraints', () => {
+  test('task-capable jcode stays manual because the automatic resolver cannot execute it', async () => {
+    const current = { defaultProvider: 'jcode', providers: [
+      { name: 'jcode', status: 'ready', models: ['claude-opus-5'], capabilities: ['coding-tasks'] },
+    ] } as ProvidersSnapshot;
+    expect(automaticTaskModels(current, [])).toEqual([]);
+    await expect(pickAutomaticTaskModel({ text: 'Task' }, 'jcode:auto', {
+      snapshot: current,
+      codexModels: () => [],
+      getProvider: () => { throw new Error('must not classify'); },
+    })).rejects.toThrow('No eligible coding model');
+  });
+
   test('selected runtime remains Topics when an excluded ACP runtime shares the same model ID', async () => {
     const snapshot = { defaultProvider: 'jcode', providers: [
       { name: 'topics', status: 'ready', models: ['claude-opus-5'] },

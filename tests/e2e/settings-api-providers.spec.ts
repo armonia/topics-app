@@ -131,6 +131,7 @@ for (const device of [
         });
         const picker = page.getByTestId('provider-model-picker');
         await picker.click();
+        await page.getByTestId('provider-model-popover').locator('[data-provider="openai"]').click();
         await page.getByTestId('provider-model-popover').locator('[data-model="gpt-test"]').click();
         await expect(picker).toHaveAttribute('data-model', 'gpt-test');
         const input = page.getByRole('textbox', { name: /Campo del messaggio/ });
