@@ -114,8 +114,21 @@ describe("sanitizeRow", () => {
 describe("clearPanelGridStorage (no localStorage leak on space delete)", () => {
   // Minimal in-memory localStorage shim (bun:test has no DOM). Save/restore any
   // pre-existing global so we don't perturb sibling tests.
+  //
+  // PUTTING BACK `undefined` IS NOT PUTTING IT BACK. Under bun there is no DOM,
+  // so `prev` is undefined, and `globalThis.localStorage = prev` leaves the
+  // PROPERTY in place holding undefined. Every later file that asks
+  // `'localStorage' in globalThis` — the idiom two sibling files use to decide
+  // whether to clean up after themselves — then reads "there was one already"
+  // and keeps ITS fake. Measured on 2026-09-12: this file plus
+  // `Project/projectSidebarHeights.test.ts` plus any file after them makes the
+  // preload sentinel fire with `leaked DOM globals: localStorage`, and
+  // `bun test client/src/components` goes red on a file that touches none of
+  // this. Each of the three is green on its own, which is why
+  // `check:test-globals` (one file at a time) never saw it.
   const withStorage = (fn: (store: Map<string, string>) => void) => {
     const store = new Map<string, string>();
+    const had = 'localStorage' in globalThis;
     const prev = (globalThis as { localStorage?: Storage }).localStorage;
     (globalThis as { localStorage?: unknown }).localStorage = {
       getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
@@ -125,7 +138,12 @@ describe("clearPanelGridStorage (no localStorage leak on space delete)", () => {
       key: (i: number) => [...store.keys()][i] ?? null,
       get length() { return store.size; },
     };
-    try { fn(store); } finally { (globalThis as { localStorage?: unknown }).localStorage = prev; }
+    try {
+      fn(store);
+    } finally {
+      if (had) (globalThis as { localStorage?: unknown }).localStorage = prev;
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
   };
 
   test("removes the deleted space's suffixed key", () => {
