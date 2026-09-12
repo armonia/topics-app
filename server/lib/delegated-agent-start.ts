@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Principal, SubjectKind } from "./grants-query";
+import type { AgentStartCapabilityContract } from "../../shared/agent-start-capability";
 
 export const DELEGATED_MAX_ATTEMPTS = 1 as const;
 export const DELEGATED_PARALLEL_LIMIT = 1 as const;
@@ -28,24 +29,7 @@ export function normalizeRepositoryKey(raw: unknown): string | null {
   return host && path ? `${host.toLowerCase()}/${path.toLowerCase()}` : null;
 }
 
-export interface AgentStartCapability {
-  id: string;
-  subjectType: SubjectKind;
-  subjectId: string;
-  projectId: string;
-  machineId: string;
-  machineName: string | null;
-  repositoryKey: string;
-  model: string;
-  effort: string;
-  maxDurationMinutes: number;
-  maxAttempts: typeof DELEGATED_MAX_ATTEMPTS;
-  fanout: typeof DELEGATED_PARALLEL_LIMIT;
-  grantedByPersonId: string;
-  grantedAt: number;
-  expiresAt: number | null;
-  revokedAt: number | null;
-}
+export type AgentStartCapability = AgentStartCapabilityContract;
 
 export interface DelegatedRunPolicy extends AgentStartCapability {
   taskId: string;

@@ -21,33 +21,36 @@ import {
   revokeDelegatedRequest,
   type DelegatedMachineRequest,
 } from '../Settings/delegatedMachineAccess';
-
-type StartSubjectType = 'device' | 'person' | 'org';
+import type {
+  AgentStartCapabilityContract,
+  AgentStartSubjectType,
+} from '../../../../shared/agent-start-capability';
 
 export interface AgentStartSubject {
-  subjectType: StartSubjectType;
+  subjectType: AgentStartSubjectType;
   subjectId: string;
   name: string;
 }
 
-export interface AgentStartCapabilityView {
-  id: string;
-  subjectType: StartSubjectType;
-  subjectId: string;
+export type AgentStartCapabilityView = Pick<AgentStartCapabilityContract,
+  | 'id'
+  | 'subjectType'
+  | 'subjectId'
+  | 'machineId'
+  | 'machineName'
+  | 'repositoryKey'
+  | 'model'
+  | 'effort'
+  | 'maxDurationMinutes'
+  | 'revokedAt'
+  | 'expiresAt'
+> & {
   subjectName?: string;
   computerId?: string;
-  machineId: string;
   computerName?: string | null;
-  machineName?: string | null;
   repositoryName?: string;
-  repositoryKey: string;
-  model: string;
-  effort: string;
-  maxDurationMinutes: number;
-  revokedAt?: number | null;
-  expiresAt?: number | null;
   modelAvailability?: 'available' | 'unavailable' | 'unverified';
-}
+};
 
 interface AgentStartChoice {
   id: string;
