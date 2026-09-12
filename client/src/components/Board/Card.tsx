@@ -32,6 +32,7 @@ import { useLandingTicket } from './useLandingTicket';
 import { taskActionErrorMessage } from './taskActionError';
 import { choiceForText, taskChoices, usableQuestionOptions } from './taskChoices';
 import { taskChoiceState } from './taskChoices';
+import { checklistWindow } from './checklistWindow';
 import { showsStoppedChip } from './stoppedChip';
 import { sendBackDest, sendBackWord, taskActionWord } from './taskActionWords';
 import { useT, useLocale } from '../../hooks/useT';
@@ -663,6 +664,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // review. The fallback chip stays for the card whose children the list has
   // not handed over yet.
   const checklist = children;
+  // Which five, and how many stay folded: `checklistWindow` keeps the step
+  // that has something to say instead of the step that happens to be first.
+  const { shown: checklistShown, hidden: checklistHidden } = checklistWindow(checklist);
   // "done" that never reached main — the 19/07 loss, made visible. Il predicato
   // sta in `shared/board`: la stessa pastiglia la disegnano la banda del drawer e
   // il contatore accanto a «Pubblica», e le tre copie divergevano.
@@ -1260,14 +1264,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         </div>
       )}
       {/* The checklist: the steps, in EVERY column and not only in review.
-          Max 5 rows, the rest behind "Vedi tutti" (opens the drawer tree).
+          Max 5 rows, the rest behind "Vedi tutti" (opens the drawer tree) —
+          and WHICH five is not positional: see `checklistWindow.ts`.
           The compact done/total chip stays as the fallback for a card whose
           children have not arrived yet.
           It sits between the chips and the description: the chips say how the
           card stands, the steps what it holds, the description what it asks. */}
       {checklist.length > 0 ? (
         <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
-          {checklist.slice(0, 5).map((s) => {
+          {checklistShown.map((s) => {
             // L'unico posto in cui un sottotask si vede sulla BOARD: le colonne
             // mostrano solo le radici (`rootsOnly`), la checklist si apre sulla
             // card in Review. Ed è il momento giusto per dirlo — è lì che si
@@ -1301,12 +1306,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             </button>
             );
           })}
-          {checklist.length > 5 && (
+          {checklistHidden > 0 && (
             <button
               onClick={() => onOpen(task.id)}
               title={tr('board.card.fullChecklistTitle')}
               className="px-0.5 text-xs md:text-[11px] text-app-text-secondary hover:text-app-text"
-            >+{checklist.length - 5}… {tr('board.card.seeAll')}</button>
+            >+{checklistHidden}… {tr('board.card.seeAll')}</button>
           )}
         </div>
       ) : task.subtaskCount > 0 ? (

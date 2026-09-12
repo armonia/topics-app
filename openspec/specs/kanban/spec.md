@@ -3742,3 +3742,40 @@ sparito (compare comunque, con l'etichetta amichevole), nessun valore salvato
 #### Scenario: nessun modello salvato
 - **GIVEN** `dispatchModel` è `null`
 - **THEN** la tendina mostra solo «Auto», nessuna voce in più
+
+### Requirement: KANBAN-81 — La finestra della checklist tiene lo step che ha qualcosa da dire, non quello che capita per primo
+
+La card mostra al massimo cinque step, il resto dietro «+N… Vedi tutti». Quali
+cinque SHALL dipendere da ciò che lo step dice, non dalla sua posizione: uno
+step che porta `subtaskWork` — «nessuno la lavora», «nel turno del padre» —
+SHALL tenere il suo posto nella finestra, e uno che non ha niente da dire
+SHALL cederlo.
+
+PERCHÉ: una checklist si lavora dall'alto, quindi i primi cinque sono quelli
+già fatti, sbarrati. Con una finestra posizionale (`slice(0, 5)`) l'unico step
+ancora aperto finisce oltre la piega — cioè sparisce esattamente la riga per
+cui il chip è stato scritto. E la card è l'UNICO posto in cui un sottotask si
+vede sulla board: le colonne portano solo le radici.
+
+MISURATO il 12/09/2026 su una board viva, card `e1cdd61d`: sei step, cinque fatti,
+e il sesto — `8951cc50`, in In Progress dal 09/09 senza `dispatch_state`, senza
+agente e con zero tentativi, con `subtaskWork: unattended` già calcolato dal
+server — era il `+1` dietro la piega. Due giorni di una card che sembrava in
+lavorazione, con la frase che diceva il contrario già pronta a un clic di
+distanza.
+
+**L'ordine non cambia.** La checklist è una sequenza: riordinarla per far
+salire una riga scambierebbe una lettura sbagliata con un'altra. Si sceglie
+QUALI righe entrano, si rendono nell'ordine loro.
+
+MISURA: `client/src/components/Board/checklistWindow.test.ts` (la scelta) e
+`tests/e2e/board-checklist-window.spec.ts` (la card vera).
+
+#### Scenario: cinque step fatti e uno che nessuno lavora
+- **GIVEN** una card con sei step, i primi cinque `done` e il sesto `in_progress` con `subtaskWork: unattended`
+- **THEN** la card mostra quel sesto step, col chip «nessuno la lavora»
+- **AND** la piega dice «+1»
+
+#### Scenario: nessuno step parla
+- **GIVEN** una card con sette step e nessun `subtaskWork`
+- **THEN** la card mostra i primi cinque, e la piega dice «+2»
