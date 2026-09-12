@@ -36,11 +36,25 @@ function installFakeNotification() {
   };
 }
 
-// Il modulo VERO, fotografato prima di sostituirlo. Lo stub si costruisce SOPRA
-// di lui perche' `mock.module` rimpiazza il modulo intero: elencare a mano i
-// quattro nomi che servono qui lasciava fuori `isTauriWindows`, e ogni file che
-// girava dopo lo leggeva `undefined`.
-const realShell = { ...(await import('./index')) };
+// The REAL module, taken before it is replaced. The stub is built ON TOP of it
+// because `mock.module` swaps the whole module: naming only the four exports
+// this file lies about left `isTauriWindows` out, and every file running after
+// read it as `undefined`. Named one by one, not spread from the namespace: a
+// namespace import would make this module opaque to knip.
+const {
+  detectShell: realDetectShell,
+  shellKind: realShellKind,
+  isTauri: realIsTauri,
+  isDesktop: realIsDesktop,
+  isTauriWindows: realIsTauriWindows,
+} = await import('./index');
+const realShell = {
+  detectShell: realDetectShell,
+  shellKind: realShellKind,
+  isTauri: realIsTauri,
+  isDesktop: realIsDesktop,
+  isTauriWindows: realIsTauriWindows,
+};
 
 function mockShell(kind: 'tauri' | 'web') {
   mock.module('./index', () => ({
@@ -75,11 +89,11 @@ afterEach(() => {
 // `bun test`, non solo per questo file: se si uscisse con il guscio finto
 // addosso, il file successivo che importa `lib/shell` leggerebbe il nostro mock.
 //
-// Si esce rimettendo il MODULO VERO, non un altro stub. Prima qui c'era
-// `mockShell('web')`, e il ragionamento sembrava solido — sotto bun non c'e'
-// `window`, quindi il guscio vero dice 'web' lo stesso. Ma un mock resta un
-// mock: quello ne dichiarava quattro export su cinque, e `isTauriWindows`
-// spariva per tutti quelli dopo.
+// The way out is putting the REAL MODULE back, not another stub. This used to be
+// `mockShell('web')`, and the reasoning looked sound - there is no `window` under
+// bun, so the real shell says 'web' anyway. But a mock stays a mock: that one
+// declared four exports out of five, and `isTauriWindows` vanished for everybody
+// after it.
 afterAll(() => { mock.module('./index', () => realShell); });
 
 describe('primeWebNotificationPermission', () => {

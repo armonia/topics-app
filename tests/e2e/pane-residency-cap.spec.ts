@@ -176,16 +176,16 @@ test.describe("Tetto di residenza delle pane", () => {
     // Scrivi nella prima chat…
     const firstTab = page.getByTestId(`pane-tab-${first.id}`);
     await firstTab.click({ timeout: 10000 });
-    // IL COMPOSER DELLA PANE VISIBILE, non il primo `textarea` del documento.
-    // Ogni pane visitata resta montata (`PaneKeepAlive`), quindi di textarea ce
-    // n'e' una per pane e `.first()` chiede all'ORDINE DEL DOM chi sia la chat
-    // attiva. Ha funzionato finche' le shell erano rese in ordine di linguetta;
-    // dal 12/09 sono rese in ordine di CHIAVE (`Layout/paneShellOrder`, che e'
-    // cio' che impedisce a un riordino di ricaricare una pane), e `.first()` ha
-    // cominciato a pescare la chat sbagliata: il rosso diceva di aver trovato la
-    // textarea del topic -4 mentre il test parlava del primo.
-    // `[data-pane-visible="1"]` e' la stessa lettura che RESIDENCY-02 usa due
-    // test piu' su, e dice quello che questo test intende davvero.
+    // THE VISIBLE PANE'S COMPOSER, not the document's first `textarea`.
+    // Every visited pane stays mounted (`PaneKeepAlive`), so there is one
+    // textarea per pane and `.first()` was asking the DOM ORDER which chat is
+    // the active one. That worked while the shells were rendered in tab order;
+    // they are rendered in KEY order now (`Layout/paneShellOrder`, which is what
+    // stops a reorder from reloading a pane), and `.first()` started picking the
+    // wrong chat - the red said it had found topic -4's textarea while the test
+    // was talking about the first one. `[data-pane-visible="1"]` is the same
+    // reading RESIDENCY-02 takes two tests above, and it says what this test
+    // actually means.
     const composer = page.locator('[data-pane-shell][data-pane-visible="1"] textarea').first();
     await composer.waitFor({ state: "visible", timeout: 10000 });
     await composer.fill(draft);

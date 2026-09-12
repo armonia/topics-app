@@ -25,17 +25,26 @@
  */
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { markBrowserViewLive, markBrowserViewDead } from './shell/nativeBrowserRoster';
-// I MODULI VERI, FOTOGRAFATI PRIMA DI SOSTITUIRLI.
+// THE REAL MODULES, TAKEN BEFORE THEY ARE REPLACED.
 //
-// Lo spread di un namespace copia i VALORI adesso, cioe' prima che i
-// `mock.module` piu' sotto rileghino i binding: e' l'unico momento in cui questi
-// due moduli sono ancora se stessi. Si fotografa tutto il namespace e non tre
-// nomi scritti a mano, perche' un export dimenticato tornerebbe `undefined` per
-// ogni file che gira dopo — un guasto peggiore del mock che si voleva ritirare.
-import * as shellNamespace from './shell';
-import * as tauriNamespace from './shell/tauri';
-const realShell = { ...shellNamespace };
-const realTauri = { ...tauriNamespace };
+// A static import reads them while they are still themselves: the `mock.module`
+// calls further down rebind the registry, and from that point on there is no way
+// back to the originals.
+//
+// The exports are NAMED ONE BY ONE rather than spread from a namespace, and that
+// is not style: an `import()` whose result does not land in a destructuring is
+// OPAQUE to knip, which then calls every export of that module used, and
+// `check:deadcode-blindspots` refuses it. Naming them ALL is not pedantry either
+// - whatever is missing here comes back `undefined` for every file that runs
+// after the undo. Same shape as `updater.tauri.test.ts`.
+import { detectShell, shellKind, isTauri, isDesktop, isTauriWindows } from './shell';
+import { currentWindowLabel as realCurrentWindowLabel, tauriInvoke as realTauriInvoke, releaseNativeFocus as realReleaseNativeFocus } from './shell/tauri';
+const realShell = { detectShell, shellKind, isTauri, isDesktop, isTauriWindows };
+const realTauri = {
+  currentWindowLabel: realCurrentWindowLabel,
+  tauriInvoke: realTauriInvoke,
+  releaseNativeFocus: realReleaseNativeFocus,
+};
 
 type Invoke = { cmd: string; args?: Record<string, unknown> };
 
@@ -118,13 +127,13 @@ afterEach(() => {
 // Il mock è di processo: senza questo, un file che gira dopo crederebbe di
 // essere dentro Tauri e proverebbe il contrario di quello che pensa.
 //
-// E `mock.restore()` DA SOLO non bastava: ritira gli spy, non un `mock.module`.
-// Misurato il 12/09 con la coppia `browserClaimHeartbeat.test.ts` →
-// `lib/shell/tauri.test.ts`: il secondo file riceveva ancora il `tauriInvoke`
-// finto di questo, quindi una chiamata che doveva essere rifiutata tornava
-// risolta. In CI e' costato tre giri rossi con un diff che sembrava accusare il
-// codice sotto test. Il ritiro vero e' riscrivere il registry con i moduli veri
-// — lo stesso modo di `updater.tauri.test.ts`.
+// And `mock.restore()` ALONE was not enough: it takes back spies, not a
+// `mock.module`. Measured with the pair `browserClaimHeartbeat.test.ts` ->
+// `lib/shell/tauri.test.ts`: the second file was still being handed this one's
+// fake `tauriInvoke`, so a call that had to be REJECTED came back resolved. In
+// CI that cost three red rounds with a diff that looked like an accusation
+// against the code under test. The real undo is rewriting the registry with the
+// real modules - the same way `updater.tauri.test.ts` does it.
 afterAll(() => {
   mock.module('./shell', () => realShell);
   mock.module('./shell/tauri', () => realTauri);

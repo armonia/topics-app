@@ -24,19 +24,19 @@ import { currentWindowLabel, tauriInvoke } from './tauri';
 const savedWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
 /**
- * Toglie `window` e DICE se non ci e' riuscito.
+ * Takes `window` away, and SAYS SO when it could not.
  *
- * `delete globalThis.window` non basta ovunque: se il global arriva da un
- * preload che lo mette sul prototipo o dietro un getter, la delete toglie una
- * proprieta' propria che non esiste e l'eredita' risponde lo stesso. In CI e'
- * andata cosi' — questo test passava sul Mac e falliva sul runner con
- * `threw: null, rejectedWith: null`, cioe' `internals()` trovava ancora Tauri.
- * Un diff del genere non dice «il codice e' sbagliato», dice «il test ha
- * misurato un'altra cosa», ed e' la peggiore specie di rosso.
+ * `delete globalThis.window` is not enough everywhere: if the global comes from a
+ * preload that puts it on the prototype or behind a getter, the delete removes an
+ * own property that is not there and the inherited one answers all the same. That
+ * is what happened in CI - this file passed on the laptop and failed on the runner
+ * with `threw: null, rejectedWith: null`, meaning `internals()` still found Tauri.
+ * A diff like that does not say "the code is wrong", it says "the test measured
+ * something else", which is the worst kind of red.
  *
- * `defineProperty` con `value: undefined` crea una proprieta' PROPRIA che copre
- * qualunque cosa ci sia sotto. E la condizione viene verificata invece che
- * sperata: se l'ambiente non la concede, il test muore qui dicendo perche'.
+ * `defineProperty` with `value: undefined` creates an OWN property that covers
+ * whatever is underneath. And the condition is checked rather than hoped for: if
+ * the environment will not grant it, the test dies here saying why.
  */
 function withoutWindow(body: () => void | Promise<void>): void | Promise<void> {
   Object.defineProperty(globalThis, 'window', { value: undefined, configurable: true, writable: true });

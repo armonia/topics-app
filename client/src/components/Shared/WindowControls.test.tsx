@@ -54,11 +54,14 @@ import { ROW_INSET } from '../../lib/selectionStyles';
 // with a single key made every other importer fail with «Export named 'isTauri'
 // not found» - measured, four reds in the same run. Only the one export this file
 // needs to lie about is overridden.
-const shell = await import('../../lib/shell');
-// Fotografato PRIMA del mock, e in un oggetto normale: e' da qui che l'afterAll
-// rimette il modulo vero, e uno spread fatto dopo rischierebbe di ricopiare il
-// finto addosso a se stesso.
-const realShell = { ...shell };
+// The exports NAMED ONE BY ONE, and taken BEFORE the mock. Not a namespace
+// spread: an `import()` whose result does not land in a destructuring is OPAQUE
+// to knip, which from there on calls every export of that module used - and
+// `check:deadcode-blindspots` refuses exactly that. Naming all five is also what
+// lets the `afterAll` put the WHOLE module back: whatever is missing here would
+// come back `undefined` for every file that runs after.
+const { detectShell, shellKind, isTauri, isDesktop, isTauriWindows } = await import('../../lib/shell');
+const realShell = { detectShell, shellKind, isTauri, isDesktop, isTauriWindows };
 mock.module('../../lib/shell', () => ({ ...realShell, isTauriWindows: true }));
 
 let WindowControls: ComponentType<{ visible: boolean }>;
@@ -75,9 +78,10 @@ beforeAll(async () => {
 // every later one. `shortcutLabel.ts` reads the same export, and its test is on
 // its way in: leaving `isTauriWindows` stuck on `true` would make that file pass
 // or fail depending on which order bun happened to pick.
-// `mock.restore()` da solo NON basta: ritira gli spy, non un `mock.module`.
-// Misurato il 12/09 su un'altra coppia di file — il secondo riceveva ancora il
-// modulo finto del primo. Il ritiro vero e' riscrivere il registry.
+// `mock.restore()` ALONE is not enough: it takes back spies, not a
+// `mock.module`. Measured on another pair of files - the second one was still
+// being handed the first one's fake module. The real undo is rewriting the
+// registry with the real one.
 afterAll(() => {
   mock.module('../../lib/shell', () => realShell);
   mock.restore();

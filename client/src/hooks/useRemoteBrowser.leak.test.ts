@@ -18,23 +18,39 @@ import { mount } from '../test/reactHarness';
 // hook imports `@/lib/shell/net` for the WS base URL. Registering the module
 // under that exact specifier is what lets the REAL hook be imported and driven
 // here, instead of falling back to asserting on its source text.
-// Il modulo VERO fotografato prima, e lo stub costruito SOPRA di lui: un
-// `mock.module` sostituisce il modulo intero, quindi elencare solo le tre
-// funzioni che servono qui lascerebbe `isAppLoopbackOrigin`, `installNetShim` e
-// `__resetNetShimForTests` a `undefined` per ogni file che gira dopo.
-// Il modulo vero si prende per percorso RELATIVO: `@/` e' l'alias con cui il
-// hook lo importa ed e' la chiave sotto cui va registrato il mock, ma per bun
-// non e' un percorso risolvibile — un `import('@/...')` qui muore con «Cannot
-// find module».
-const realNet = { ...(await import('../lib/shell/net')) };
+// The REAL module taken first, and the stub built ON TOP of it: a `mock.module`
+// replaces the whole module, so naming only the two functions this file needs to
+// lie about would leave `isAppLoopbackOrigin`, `installNetShim` and
+// `__resetNetShimForTests` at `undefined` for every file that runs after.
+//
+// Named one by one rather than spread from the namespace: an `import()` whose
+// result does not land in a destructuring is opaque to knip, and
+// `check:deadcode-blindspots` refuses that.
+// Taken by RELATIVE path: `@/` is the alias the hook imports it with, and the
+// key the mock has to be registered under, but bun cannot resolve it as a path -
+// an `import('@/...')` here dies with "Cannot find module".
+const {
+  serverHttpBase: realServerHttpBase,
+  isAppLoopbackOrigin: realIsAppLoopbackOrigin,
+  serverWsBase: realServerWsBase,
+  __resetNetShimForTests: realResetNetShim,
+  installNetShim: realInstallNetShim,
+} = await import('../lib/shell/net');
+const realNet = {
+  serverHttpBase: realServerHttpBase,
+  isAppLoopbackOrigin: realIsAppLoopbackOrigin,
+  serverWsBase: realServerWsBase,
+  __resetNetShimForTests: realResetNetShim,
+  installNetShim: realInstallNetShim,
+};
 mock.module('@/lib/shell/net', () => ({
   ...realNet,
   serverWsBase: () => 'ws://127.0.0.1:3333',
   serverHttpBase: () => 'http://127.0.0.1:3333',
 }));
 
-// Il mock e' di PROCESSO: senza questo ritiro, ogni file successivo parlerebbe
-// con un server finto su 127.0.0.1:3333.
+// The mock is PROCESS-wide: without this undo, every later file would be talking
+// to a pretend server on 127.0.0.1:3333.
 afterAll(() => { mock.module('@/lib/shell/net', () => realNet); });
 
 const { useRemoteBrowser } = await import('./useRemoteBrowser');
