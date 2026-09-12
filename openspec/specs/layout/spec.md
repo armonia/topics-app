@@ -67,6 +67,13 @@ The system SHALL support splitting the panel grid horizontally and vertically, r
 - **AND** no pane is detached from the document: no page is reloaded, no loader appears, nothing is fetched again
 - **AND** the panes that were not dragged are left untouched
 
+#### Scenario: A browser pane that changes group keeps its page
+- **GIVEN** a browser pane is showing a loaded page inside a group
+- **WHEN** the user drags its tab out of that group and into another one
+- **THEN** the page is NOT reloaded: same document, same scroll, same session, and no loader is shown over it
+- **AND** the pane's own shell is still rebuilt, because it moves between two layouts — only the page is held outside them
+- **AND** panes of other types (terminal, editor) are not affected either way: a terminal reconnects to a process that never died, and an editor costs nothing to rebuild
+
 #### Scenario: Multi-row multi-column top-level grid
 - **GIVEN** the user has performed Split Down (creating 2 rows) and Split Right within one row
 - **WHEN** the grid renders

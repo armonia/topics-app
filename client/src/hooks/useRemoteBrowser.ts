@@ -197,6 +197,36 @@ const SPECIAL_KEYS = new Set([
  *   when many browser panes exist but only one is on screen. The WS stays open
  *   (so agent-active / nav state still update); only the costly frame paint pauses.
  */
+/**
+ * WHAT THE SERVER ALREADY ANSWERED ABOUT A URL, REMEMBERED ACROSS MOUNTS.
+ *
+ * The probe below starts every mount at `framable: false` and asks the server,
+ * so a pane that REMOUNTS on a page it was already framing falls back to the
+ * streaming surface for one round trip - and the streaming surface, while it
+ * connects, is a spinner. Measured on a cross-group drag
+ * (`tab-reposition-no-reload.spec.ts`, REORD-03): the frame itself survived the
+ * move, and the pane still flashed a loader over it.
+ *
+ * Keyed by URL because that is what the answer is about: whether a SITE lets
+ * itself be framed. A different URL has no entry and behaves exactly as before -
+ * which is also what keeps the "never flash the previous page's iframe" rule
+ * intact.
+ *
+ * Bounded because a long session can browse a lot of pages and nothing else
+ * would ever drop an entry; the oldest goes first, and a re-probe costs one
+ * request.
+ */
+const framableByUrl = new Map<string, boolean>();
+
+/** Whether the server already said this URL can be framed. Exported for the one
+ *  caller that has to decide BEFORE the hook's own url is populated: a pane that
+ *  just remounted knows its address from the pane store while `state.url` is
+ *  still empty, and without this it would spend that gap on the streaming
+ *  branch - which is a loader over a page that never went anywhere. */
+export function isUrlFramable(url: string): boolean {
+  return framableByUrl.get(url) ?? false;
+}
+
 export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBrowser {
   const encodedId = useMemo(() => encodeURIComponent(contextId), [contextId]);
 
@@ -1058,6 +1088,16 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
   }, [state.connectionState, fetchInfo, fetchScreenshot]);
 
+const FRAMABLE_CACHE_MAX = 256;
+function rememberFramable(url: string, framable: boolean): void {
+  framableByUrl.delete(url);
+  framableByUrl.set(url, framable);
+  if (framableByUrl.size > FRAMABLE_CACHE_MAX) {
+    const oldest = framableByUrl.keys().next();
+    if (!oldest.done) framableByUrl.delete(oldest.value);
+  }
+}
+
   // T2 — framing probe: whether the CURRENT url can be rendered as a native
   // <iframe>. Reset to false the instant the url changes (so a new page never
   // flashes the previous page's iframe), then probe http(s) URLs server-side.
@@ -1080,6 +1120,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       .then(r => (r.ok ? r.json() : { framable: false }))
       .then((d: { framable?: boolean }) => {
         if (!cancelled && mountedRef.current) {
+          rememberFramable(url, !!d.framable);
           setState(s => (s.url === url ? { ...s, framable: !!d.framable } : s));
         }
       })
@@ -1385,8 +1426,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     if (img && last && img.src !== last) img.src = last;
   });
 
+  // `framable` is answered from the cache on the FIRST render after a remount,
+  // not one render later: going through state would paint one frame on the
+  // streaming branch, and one frame of a loader is exactly the flash this is
+  // about. The probe still runs and still has the last word.
+  const framable = state.framable || (framableByUrl.get(state.url) ?? false);
+
   return useMemo(() => ({
     ...state,
+    framable,
     navigate,
     goBack,
     goForward,
@@ -1412,5 +1460,5 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     sendInput,
     dismissDownload,
     clearDownloads,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
+  }), [state, framable, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
 }

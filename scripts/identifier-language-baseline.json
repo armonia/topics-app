@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-11",
+  "generated": "2026-09-12",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -222,8 +222,7 @@
     "client/src/components/Browser/RemoteBrowserPanel.tsx": [
       "cancelled",
       "isSeedableUrl",
-      "kbdRef",
-      "useIframe"
+      "kbdRef"
     ],
     "client/src/components/Browser/SelectElementOverlay.tsx": [
       "coords",
@@ -6102,9 +6101,6 @@
       "percorso",
       "sito",
       "stato"
-    ],
-    "tests/e2e/browser-iframe-mode.spec.ts": [
-      "iframe"
     ],
     "tests/e2e/browser-login-state.spec.ts": [
       "evalA",

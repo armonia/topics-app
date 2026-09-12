@@ -4,6 +4,8 @@ import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Bo
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
+import { useHostedFrame } from './useHostedFrame';
+import { isUrlFramable } from '../../hooks/useRemoteBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { SelectElementOverlay } from './SelectElementOverlay';
@@ -1029,7 +1031,17 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // (a screenshot <img> driven by the server's headless browser), which can't
   // touch the host frame. On web a hijack only swaps this one browser tab, and
   // the sandbox (no `allow-top-navigation`) blocks it anyway.
-  const useIframe = !isTauri && !!browser.url && !browser.agentActive && browser.framable;
+  // THE URL THE PANE IS ON, not just the one the socket has confirmed. After a
+  // remount - a tab that changed group - `browser.url` is empty for a beat while
+  // the store's url is already right (`knownPaneUrl`, the same reading the chrome
+  // bridge takes two hundred lines above). Deciding on `browser.url` alone sent
+  // the pane to the streaming surface for that beat, which paints a loader; and
+  // the hosted frame, seeing `useIframe` false, let go of the page it was
+  // holding. Measured on REORD-03: the moved pane landed on `topics-dom-cobrowse`
+  // with a spinner, and its frame was already hidden.
+  const paneUrl = isRealUrl(browser.url) ? browser.url : (knownPaneUrl ?? '');
+  const paneFramable = isRealUrl(browser.url) ? browser.framable : isUrlFramable(paneUrl);
+  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && paneFramable;
   // Task 052f53ef — while a native <iframe> is showing, the server-side headless
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
@@ -1064,6 +1076,15 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     if (!useIframe) return;
     return installViewportZoomGuard();
   }, [useIframe]);
+
+  // The frame does NOT live in this subtree - see `hostedIframe`. Moving an
+  // iframe in the DOM discards its browsing context, and changing group moves
+  // the whole pane, so the page would reload every time a tab left its strip.
+  // The pane keeps the toolbar and lends the frame a rectangle; the frame stays
+  // in a layer that never moves. Declared before the early return below so the
+  // hook order is the same on every render.
+  const frameSlotRef = useRef<HTMLDivElement>(null);
+  useHostedFrame(contextId, paneUrl, frameSlotRef, useIframe, isVisible);
 
   if (useIframe) {
     return (
@@ -1111,26 +1132,14 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           downloadsRequestOpen={chromeBridge.downloadsRequestOpen}
         />
         )}
-        <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
-          <iframe
-            src={browser.url}
-            className="w-full h-full border-0"
-            title="Web page"
-            data-testid="browser-iframe"
-            // SECURITY/ISOLATION: confine the framed site to its own browsing
-            // context. WITHOUT a sandbox, a localhost app (e.g. an SPA login page)
-            // can frame-bust via `top.location = …` and navigate the ENTIRE host
-            // webview away from Topics — which is exactly what happens in the
-            // Tauri shell (the main UI is a WKWebView, not a separate native
-            // pane like Electron's WebContentsView), nuking the whole app.
-            // Omitting `allow-top-navigation*` blocks that hijack while still
-            // letting the framed app run scripts, submit its login form, keep its
-            // own origin/storage, and open OAuth popups. In-frame self-navigation
-            // (window.location) is unaffected — only top/parent navigation is denied.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
-            referrerPolicy="no-referrer-when-downgrade"
-          />
-        </div>
+        {/* The box the hosted frame is parked over. Empty on purpose: its only
+            job is to be measured. `data-browser-frame-slot` is what a test uses
+            to tie a slot to the frame covering it. */}
+        <div
+          ref={frameSlotRef}
+          data-browser-frame-slot={contextId}
+          className="flex-1 min-h-0 overflow-hidden bg-surface relative"
+        />
       </div>
     );
   }

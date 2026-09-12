@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // The HTML element. `<iframe>` is its name in the platform, in the DOM API
+  // (`HTMLIFrameElement`) and in this project's own `data-testid`
+  // ("browser-iframe"), so a variable holding one has no other honest name
+  // (2026-09-12, `components/Browser/hostedIframe.ts`).
+  "iframe",
+  "iframes",
   // The opposite of zooming a cell, and this app's own name for it: the menu
   // entry is `tab.menu.unzoom` and the control is `tab-menu-unzoom`, so the
   // word is already in the product before it is in a variable (2026-09-11,

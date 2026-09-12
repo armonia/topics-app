@@ -56,6 +56,27 @@ async function armProbe(page: Page): Promise<void> {
     const owner = (node: Element | null): string =>
       node?.closest("[data-pane-shell]")?.getAttribute("data-pane-shell") || "unattached";
 
+    // A LOADER THE USER COULD SEE, not a loader node that exists.
+    //
+    // The browser frame lives in a layer of its own now
+    // (`components/Browser/hostedIframe`) and keeps painting the live page
+    // straight through a group change. The pane underneath still rebuilds, and
+    // while it works out its URL it renders its connecting state - behind the
+    // page, covered by it, never shown. Counting that would fail a pane that
+    // flashed nothing.
+    //
+    // The check is the honest one and it is STRICTER where it matters: hit-test
+    // the middle of the loader and ask what is actually on top. If the frame ever
+    // stops covering it - the layer hidden a frame too early, the wrong rectangle,
+    // a z-index regression - the topmost element is the loader itself and this
+    // counts it. Zero-area means nothing was painted either.
+    const coveredByFrame = (el: Element): boolean => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) return true;
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!top?.closest("[data-browser-frame-layer]");
+    };
+
     // A MOVED iframe keeps its element, so this listener survives and fires
     // again on re-attach; a REMOUNTED one is a new element, counted below.
     for (const frame of Array.from(document.querySelectorAll("iframe"))) {
@@ -76,7 +97,10 @@ async function armProbe(page: Page): Promise<void> {
             ? node.getAttribute("data-pane-shell") || "unattached"
             : owner(node.parentElement);
           if (node.tagName === "IFRAME" || node.querySelector("iframe")) bucket(key).iframeMounts += 1;
-          if (node.classList.contains("animate-spin") || node.querySelector(".animate-spin")) bucket(key).spinners += 1;
+          const spinner = node.classList.contains("animate-spin")
+            ? node
+            : node.querySelector(".animate-spin");
+          if (spinner && !coveredByFrame(spinner)) bucket(key).spinners += 1;
         }
       }
     });
@@ -324,5 +348,76 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
       browserThatStayed: forPane(probe, `browser:${t2}`),
       chatThatStayed: forPane(probe, t2),
     }).toEqual({ browserThatStayed: UNDISTURBED, chatThatStayed: UNDISTURBED });
+  });
+
+  test("REORD-03: the BROWSER pane that changed group keeps its page", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
+    // The half REORD-02 deliberately leaves out. There the moved pane is allowed
+    // to be rebuilt ("React has no way to re-parent a live subtree") and only the
+    // bystanders are asserted on; here the moved pane IS the subject, because for
+    // an iframe a rebuild is not a remount, it is the page loading again and the
+    // user's scroll, form and session going with it.
+    //
+    // Browser panes ONLY, and the scope is a decision, not an omission: a
+    // terminal reconnects to a PTY that lives in another process and loses
+    // nothing, an editor costs almost nothing. Widening this to every pane type
+    // would be the scope escaping.
+    await goToApp(page);
+    await expect(page.locator(`[data-pane-id="${t1}"]`).first()).toBeVisible({ timeout: 15000 });
+    await openTwoBrowserPanes(page);
+    await mergeIntoOneGroup(page, `browser:${t1}`, `browser:${t2}`);
+    await expect
+      .poll(async () => (await cells(page)).find((c) => c.includes(`browser:${t2}`)) ?? [], { timeout: 8000 })
+      .toEqual([`browser:${t2}`, `browser:${t1}`]);
+
+    await settleBrowserFrames(page);
+    await armProbe(page);
+    await caption(page, "The browser tab leaves its group for the strip above");
+
+    const src = stripOf(page, `browser:${t1}`).locator(`[data-pane-id="browser:${t1}"]`).first();
+    const target = page.locator('[role="main"] [data-testid="panel-tab-bar"]').first()
+      .locator(`[data-pane-id="${t1}"]`).first();
+    const s = await src.boundingBox();
+    const d = await target.boundingBox();
+    if (!s || !d) throw new Error("tab without a bounding box");
+    await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(s.x + s.width / 2 + 8, s.y + s.height / 2, { steps: 4 });
+    await page.mouse.move(d.x + d.width * 0.8, d.y + d.height / 2, { steps: 14 });
+    await page.mouse.move(d.x + d.width * 0.8, d.y + d.height / 2 + 1, { steps: 2 });
+    await page.mouse.up();
+
+    await expect
+      .poll(async () => (await cells(page)).find((c) => c.includes(`browser:${t2}`)) ?? [], { timeout: 8000 })
+      .toEqual([`browser:${t2}`]);
+
+    await caption(page, "Same page, same document: the group changed, the pane did not reload");
+    const probe = await readProbe(page);
+    // `iframes` is the count in the whole document, not a delta: a rebuild leaves
+    // exactly one iframe behind too, but it is a DIFFERENT element. The counters
+    // are what tell the two apart, and the count is here because the card states
+    // the bar as "one iframe" and a reader should not have to infer it.
+    const iframes = await page.locator('[data-testid="browser-iframe"]').count();
+    const moved = forPane(probe, `browser:${t1}`);
+    // THE SHELL STILL DETACHES, AND THAT IS THE SHAPE OF THE ANSWER, not a
+    // shortfall hidden in a number. The pane really does move from one group's
+    // React tree to another, and nothing short of hosting EVERY pane outside the
+    // layout would stop that - which is the option card 0624e184 weighed and
+    // rejected, in favour of "only the browser". What option 2 owes is that the
+    // move costs the page nothing, and those are the three zeros below: the
+    // document is not reloaded, the frame is not rebuilt, no loader is painted.
+    //
+    // Pinned at exactly 1 rather than waved through: 2 would mean the pane is
+    // being remounted twice, and 0 would mean the whole-pane host landed after
+    // all and this test should be read again.
+    expect({
+      pageKept: { iframeLoads: moved.iframeLoads, iframeMounts: moved.iframeMounts, spinners: moved.spinners },
+      shellDetaches: moved.shellDetaches,
+      iframes,
+    }).toEqual({
+      pageKept: { iframeLoads: 0, iframeMounts: 0, spinners: 0 },
+      shellDetaches: 1,
+      iframes: 2,
+    });
   });
 });
