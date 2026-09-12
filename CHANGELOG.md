@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.310 — 2026-09-12
+
+### Sotto il cofano
+- Il commento quieto non se lo ricordava, e spegneva i bottoni della domanda sopra
+
 ## 2.2.309 — 2026-09-12
 
 ### Sotto il cofano
