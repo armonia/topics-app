@@ -713,12 +713,12 @@ describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
 
   it("keeps a valid SVG when the bundle-less worktree answers 503", async () => {
     let fetchCount = 0;
-    let screenshotCount = 0;
+    let shotCount = 0;
     const retirements: string[] = [];
     const h = harness({
       previewEvidenceExists: () => true,
       fetchPage: async () => { fetchCount++; return { status: 503, body: "Bundle not built yet" }; },
-      screenshot: async () => { screenshotCount++; return true; },
+      screenshot: async () => { shotCount++; return true; },
       retirePreview: (_taskId, reason) => { retirements.push(reason); },
     });
     h.previewImage = "/media/task-attachments/release-manifest-preview.svg";
@@ -727,7 +727,7 @@ describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
     expect(h.previewImage).toBe("/media/task-attachments/release-manifest-preview.svg");
     expect(h.spawned).toHaveLength(0);
     expect(fetchCount).toBe(0);
-    expect(screenshotCount).toBe(0);
+    expect(shotCount).toBe(0);
     expect(retirements).toHaveLength(0);
     expect(h.reviewNotes).toHaveLength(0);
   });
