@@ -496,7 +496,7 @@ export function readableTaskIds(
     const level = effectiveLevel(rows);
     if (level !== null && level !== "deny") projects.add(project.boardId);
   }
-  if (projects.length === 0) return direct;
+  if (projects.size === 0) return direct;
 
   let inside: Array<{ id: string }>;
   try {
