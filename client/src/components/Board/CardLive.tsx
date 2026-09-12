@@ -36,7 +36,7 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
   return (
     <span
       data-testid="card-retry-wait"
-      className="inline-flex min-w-0 items-center gap-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact md:text-mini text-amber-300 tabular-nums"
+      className="inline-flex min-w-0 items-center gap-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300 tabular-nums"
       title={retry.detail ? tr('board.card.retryTitle', { detail: retry.detail }) : retry.reason}
     >
       <span className="truncate">
@@ -69,7 +69,7 @@ export function LiveToolLine({ tool }: { tool: LiveTool }) {
   return (
     <p
       data-testid="card-live-tool"
-      className="mt-1 truncate text-compact md:text-mini tabular-nums text-app-text-muted"
+      className="mt-1 truncate text-compact leading-4 md:text-mini tabular-nums text-app-text-muted"
       title={tr('board.card.liveToolTitle', { tool: label, since })}
     >{label} · {since}</p>
   );
@@ -100,7 +100,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
         work: fmtLive(ms),
         tokens: usage.liveTokens ? tr('board.card.liveEffortTokens', { n: usage.liveTokens.toLocaleString(locale) }) : '',
       })}
-      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact md:text-mini text-sky-300 tabular-nums"
+      className="flex min-w-0 max-w-full items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-sky-400" />
       <span className="truncate">{fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>

@@ -1148,11 +1148,11 @@ export function GroupLayout({
         </div>
         {belowSlot && <LeadingSlot node={belowSlot} />}
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-app-text-muted">
-          <div className="text-body-lg">No chats open</div>
+          <div className="text-body-lg leading-5">No chats open</div>
           {onNewChatInGroup && (
             <button
               onClick={() => onNewChatInGroup('')}
-              className="px-3 py-1.5 text-compact rounded-md bg-app-surface border border-app-border hover:bg-app-hover transition-colors text-app-text"
+              className="px-3 py-1.5 text-compact leading-4 rounded-md bg-app-surface border border-app-border hover:bg-app-hover transition-colors text-app-text"
             >
               New Chat
             </button>
@@ -1337,7 +1337,7 @@ export function GroupLayout({
             );
             if (visiblePanes.length === 0) {
               return (
-                <div className="flex-1 flex items-center justify-center text-app-text-muted text-body-lg">
+                <div className="flex-1 flex items-center justify-center text-app-text-muted text-body-lg leading-5">
                   No pane selected
                 </div>
               );

@@ -1242,7 +1242,7 @@ export function ChatInput({
                       aria-label={tr('chat.attachments.removeImage')}
                       data-testid="composer-image-remove"
                       onClick={() => setPendingImages(prev => prev.filter((_, i) => i !== index))}
-                      className="tap-expand absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 coarse:w-6 coarse:h-6 flex items-center justify-center text-compact hover:bg-red-600"
+                      className="tap-expand absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 coarse:w-6 coarse:h-6 flex items-center justify-center text-compact leading-4 hover:bg-red-600"
                     ><X className="w-3 h-3" aria-hidden="true" /></button>
                   </div>
                 ))}
@@ -1264,7 +1264,7 @@ export function ChatInput({
                           aria-label={tr('chat.attachments.removeFile', { name: file.name })}
                           data-testid="composer-file-remove"
                           onClick={() => removePendingFile(index)}
-                          className="tap-expand-y ml-0.5 inline-flex items-center justify-center text-red-400 hover:text-red-500 font-bold text-compact coarse:h-6 coarse:w-6"
+                          className="tap-expand-y ml-0.5 inline-flex items-center justify-center text-red-400 hover:text-red-500 font-bold text-compact leading-4 coarse:h-6 coarse:w-6"
                         ><X className="w-3 h-3" aria-hidden="true" /></button>
                       </div>
                     )}

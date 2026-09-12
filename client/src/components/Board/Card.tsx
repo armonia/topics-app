@@ -155,7 +155,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       className={`flex ${widthCls} shrink-0 flex-col rounded-lg border border-app-border bg-white/5 ${snapCls}`}
     >
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="flex items-center gap-1.5 text-compact font-semibold uppercase tracking-wide text-app-text-heading">
+        <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
           <StatusIcon status={status} />
           {STATUS_LABEL[status]}
         </span>
@@ -167,7 +167,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
               are working in, so it is the one place where "why is nothing
               starting?" gets asked. Beside the count, never instead of it. */}
           {status === 'in_progress' && !archived && <DispatchLoadGauge onOpenSettings={onOpenSettings} />}
-          <span data-testid={`kanban-column-count-${status}`} className="rounded bg-white/10 px-1.5 text-compact text-app-text-secondary">{tasks.length}</span>
+          <span data-testid={`kanban-column-count-${status}`} className="rounded bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
         </span>
       </div>
       {/* Bottom clearance lives on the scroll body (not the outer board padding)
@@ -224,7 +224,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           <button
             onClick={() => setShown((n) => n + COLUMN_PAGE)}
             data-testid={`kanban-column-more-${status}`}
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact text-app-text-secondary hover:bg-white/5"
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5"
           >
             {tr('board.column.showMore', { n: Math.min(slice.hidden, COLUMN_PAGE), left: slice.hidden })}
           </button>
@@ -234,15 +234,15 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
             <textarea
               autoFocus value={text} onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } if (e.key === 'Escape') { setText(''); setAdding(false); } }}
-              className="w-full resize-none bg-transparent text-body-lg text-app-text outline-none" rows={2} placeholder={tr('board.column.newTaskPlaceholder')}
+              className="w-full resize-none bg-transparent text-body-lg leading-5 text-app-text outline-none" rows={2} placeholder={tr('board.column.newTaskPlaceholder')}
             />
             <div className="mt-1 flex justify-end gap-1">
-              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-compact text-app-text-secondary hover:bg-white/10">{tr('board.column.cancel')}</button>
-              <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-compact text-white hover:bg-emerald-500">{tr('board.column.add')}</button>
+              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10">{tr('board.column.cancel')}</button>
+              <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-compact leading-4 text-white hover:bg-emerald-500">{tr('board.column.add')}</button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-compact text-app-text-secondary hover:bg-white/5">
+          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5">
             <Plus className="h-3.5 w-3.5" /> {tr('board.column.add')}
           </button>
         )}
@@ -845,7 +845,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // dichiarazione in index.css invece che per quello che è successo alla
       // card. Lo spostamento batte la nascita — nascere è l'evento più debole
       // dei due, e una card che nasce non ha attraversato nessun confine.
-      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
+      className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
       {/* Eyebrow: WHICH project this card belongs to, and the door to its
           session. Nothing else.
@@ -857,7 +857,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           in every state, and this row is back to saying one thing. */}
       {showTopRow && (
         <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
-          <div className="flex min-w-0 flex-1 items-center gap-1 text-compact md:text-mini text-app-text-secondary">
+          <div className="flex min-w-0 flex-1 items-center gap-1 text-compact leading-4 md:text-mini text-app-text-secondary">
             {showProject && !unassigned && (
               <>
                 {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
@@ -977,7 +977,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {showPriority && (
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
-              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact md:text-micro ${
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-micro ${
                 task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-app-text-secondary'
               }`}
             >
@@ -1016,41 +1016,41 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-system-delivered"
               title={systemDelivered.title}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {systemDelivered.label}</span>
           )}
           {blockedChip && (
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
-              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockedChip.label}</span></span>
           )}
           {reopened && (
             <span
               data-testid="card-reopened"
               title={reopened.title}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><RotateCcw className="h-3 w-3 shrink-0" /> {reopened.label}</span>
           )}
           {waitingOnThis && (
             <span
               data-testid="card-waiting-on-this"
               title={waitingOnThis.title}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
           )}
           {task.parentTaskId && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
               title={parentTitle ? tr('board.card.openParentNamedTitle', { title: parentTitle }) : tr('board.task.openParentCardTitle')}
-              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact md:text-mini text-violet-300 hover:bg-violet-500/25"
+              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300 hover:bg-violet-500/25"
             >⤴ {parentTitle ?? tr('board.card.parent')}</button>
           )}
           {task.userCommentCount > 0 && (
             <span
               title={tr(task.userCommentCount === 1 ? 'board.card.yourMessagesOne' : 'board.card.yourMessagesMany', { n: task.userCommentCount })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-heading"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {notLanded && (
@@ -1060,7 +1060,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 commit: task.deliveryCommit?.slice(0, 8) ?? '?',
                 branch: task.deliveryBranch ? tr('board.card.notLandedBranch', { branch: task.deliveryBranch }) : '',
               })}
-              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact md:text-mini text-rose-300"
+              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300"
               // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
               // esiste, e senza il nome la card dice che c'è un problema ma non
               // dove sta il lavoro. `max-w-full` più il `flex-wrap` della riga:
@@ -1088,14 +1088,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               title={tr('board.card.reviewAgeTitle', {
                 when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '',
               })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
           {senzaCommit && (
             <span
               data-testid="card-uncommitted"
               title={tr('board.card.uncommittedTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {uncommittedCount > 0
               ? tr('board.card.uncommittedFiles', { n: uncommittedCount })
               : tr('board.card.uncommitted')}</span>
@@ -1104,21 +1104,21 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-nothing-delivered"
               title={tr('board.card.nothingDeliveredTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {tr('board.card.nothingDelivered')}</span>
           )}
           {lavoroInPlace && (
             <span
               data-testid="card-worked-in-place"
               title={tr('board.card.inPlaceTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
           )}
           {spostataAMano && (
             <span
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
                   «la vedo sgranata», e misurata lo e' davvero. A 12px il
                   viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
@@ -1136,7 +1136,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-checks-green"
               title={tr('board.card.checksGreenTitle')}
-              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact md:text-mini text-emerald-300"
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.checksGreen')}</span>
           )}
           {checksRunning && (
@@ -1147,7 +1147,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                     done: task.checksProgress.done, total: task.checksProgress.total,
                   })
                 : tr('board.card.checksRunningTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             >
               <Hourglass className="h-3 w-3 shrink-0" />
               {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
@@ -1194,22 +1194,22 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-checks-unknown"
               title={tr('board.card.checksUnknownTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact md:text-mini text-amber-300"
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-300"
             ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
           )}
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact md:text-mini text-rose-300"
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300"
             ><AlertTriangle className="h-3 w-3 shrink-0" /> {tr('board.card.checksRed')}</span>
           )}
           {task.planFirst && (
             <span
               title={tr('board.card.planTitle')}
-              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-compact md:text-mini text-violet-300"
+              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300"
             >{tr('board.card.plan')}</span>
           )}
-          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
           {/* Who actually wrote the last collaborator comment, and from
               which device — separate from `assignedTo`, which is free text
               and may name nobody real. Empty by default: most tasks have no
@@ -1218,7 +1218,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           {task.lastActorPersonName && (
             <span
               title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
-              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact md:text-mini text-sky-300"
+              className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
@@ -1231,7 +1231,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <span
               data-testid="card-conductor-closes"
               title={tr('board.card.conductorClosesTitle')}
-              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact md:text-mini text-emerald-300"
+              className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-emerald-300"
             ><ShieldCheck className="h-3 w-3 shrink-0" /> {tr('board.card.conductorCloses')}</span>
           )}
           {/* I FILE MODIFICATI NON SONO PIU' UN CHIP QUI.
@@ -1287,7 +1287,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
             >
               <StatusIcon status={s.status} />
-              <span className={`min-w-0 flex-1 truncate text-compact ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
+              <span className={`min-w-0 flex-1 truncate text-compact leading-4 ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
               {work && (work.kind === 'unattended' ? (
                 <span
                   data-testid={`card-subtask-work-${s.id}`}
@@ -1310,7 +1310,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               onClick={() => onOpen(task.id)}
               title={tr('board.card.fullChecklistTitle')}
-              className="px-0.5 text-compact md:text-mini text-app-text-secondary hover:text-app-text"
+              className="px-0.5 text-compact leading-4 md:text-mini text-app-text-secondary hover:text-app-text"
             >+{checklistHidden}… {tr('board.card.seeAll')}</button>
           )}
         </div>
@@ -1318,7 +1318,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         <div className="mt-1">
           <span
             title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
-            className="rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-heading"
+            className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
@@ -1374,7 +1374,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 <button
                   data-testid="card-human-context-toggle"
                   onClick={(e) => { e.stopPropagation(); setRichiestaAperta((v) => !v); }}
-                  className="text-compact md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+                  className="text-compact leading-4 md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
                 >
                   {richiestaAperta ? tr('board.card.commentLess') : tr('board.card.commentMore')}
                 </button>
@@ -1483,7 +1483,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              className="text-compact leading-4 md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
             >
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
@@ -1507,7 +1507,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             <button
               data-testid="card-comment-toggle"
               onClick={(e) => { e.stopPropagation(); setCommentoAperto((v) => !v); }}
-              className="text-compact md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
+              className="text-compact leading-4 md:text-micro text-app-text-muted underline-offset-2 hover:text-app-text hover:underline"
             >
               {commentoAperto ? tr('board.card.commentLess') : tr('board.card.commentMore')}
             </button>
@@ -1550,7 +1550,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
         ) : showsStoppedChip(task) ? (
           // Not on a done card: see `stoppedChip.ts`.
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact md:text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
         ) : null}
         {/* Il primo tratto del turno, quello in cui la card sembra ferma:
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
@@ -1560,7 +1560,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <span
             data-testid="card-triage"
             title={tr('board.card.triageTitle')}
-            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-compact md:text-mini text-violet-300"
+            className="shrink-0 whitespace-nowrap rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-violet-300"
           >{tr('board.card.triage')}</span>
         )}
         {/* THE WAIT BEFORE A RETRY takes the live chip's place. The turn is
@@ -1597,7 +1597,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 model: fmtModel(task.model),
               })
               : tr('board.card.modelTitle', { model: fmtModel(task.model) })}
-            className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-secondary"
+            className="max-w-full truncate rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
           >{fmtModel(task.model)}{(task.agentMs > 0 || costo > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. */}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>
         ) : null}
@@ -1608,7 +1608,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           <span
             data-testid="card-node-chip"
             title={tr('board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-secondary"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
           ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr('board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
         )}
         {/* THE GIT CHANGES, next to the model that is writing them.
@@ -1629,7 +1629,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
         {/* The last update closes the row, on the right: it is the weakest of
             the four measures and does not belong among the others. */}
         <span
-          className="ml-auto text-compact md:text-micro text-app-text-muted"
+          className="ml-auto text-compact leading-4 md:text-micro text-app-text-muted"
           title={tr('board.card.lastUpdate', { when: new Date(task.updatedAt).toLocaleString(locale) })}
         >{fmtUpdatedAt(task.updatedAt)}</span>
       </div>
@@ -1681,12 +1681,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
               placeholder={tr('board.card.steerPlaceholder')}
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact text-app-text outline-none placeholder:text-app-placeholder"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder"
             />
             <button
               disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
               title={tr('board.card.steerSendTitle')}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact text-white hover:bg-sky-500 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
             <TaskChoiceMenu
               task={task} disabled={busy} onDone={choiceDone} onError={choiceFailed}
@@ -1709,7 +1709,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
-                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-compact text-app-text hover:bg-white/20 disabled:opacity-50"
+                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20 disabled:opacity-50"
                 >{opt}</button>
               ))}
             </div>
@@ -1765,7 +1765,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               placeholder={isAgentReview
                 ? tr('board.task.replyPlaceholderShort', { sendBack: sendBackWord(sendBackDest(task), tr).label })
                 : tr('board.card.commentPlaceholder')}
-              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact text-app-text outline-none placeholder:text-app-placeholder"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder"
             />
             {/* L'INVIO SI VEDE. È la stessa azione del primo bottone qui sopra,
                 con dentro la frase appena scritta: stessa icona, e il tooltip
@@ -1782,7 +1782,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               aria-label={primaChoice
                 ? tr('board.card.replySendTitle', { action: primaChoice.label })
                 : tr('board.card.steerSendTitle')}
-              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact text-white hover:bg-sky-500 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-compact leading-4 text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
           </div>
         </div>

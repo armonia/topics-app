@@ -1397,7 +1397,7 @@ function App() {
       } as React.CSSProperties}
     >
       {/* Skip to main content link for keyboard users */}
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-body-lg">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-body-lg focus:leading-5">
         Skip to main content
       </a>
       {/* IL VELO del cassetto mobile. Sta montato SEMPRE (su mobile) e a riposo

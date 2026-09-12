@@ -193,7 +193,7 @@ export function TaskChoiceRow({ task, exclude, disabled, onDone, onError, onNeed
           disabled={disabled || running !== null}
           title={c.title}
           onClick={(e) => { e.stopPropagation(); void run(c); }}
-          className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-compact disabled:opacity-50 ${TONE_CLS[c.tone]}`}
+          className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-compact leading-4 disabled:opacity-50 ${TONE_CLS[c.tone]}`}
         >
           {/* La rotella PRENDE IL POSTO dell'icona mentre l'azione gira: se si
               aggiungesse accanto, il bottone si allargherebbe di 14px al click

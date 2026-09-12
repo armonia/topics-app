@@ -464,7 +464,7 @@ export const MessageBubble = memo(function MessageBubble({
               onClick={onRetry}
               data-testid="message-retry"
               title={tr('msg.resend')}
-              className="mt-1.5 px-3 py-1 text-compact font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
+              className="mt-1.5 px-3 py-1 text-compact leading-4 font-medium rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-colors"
             >
               ↻ {tr('common.retry')}
             </button>

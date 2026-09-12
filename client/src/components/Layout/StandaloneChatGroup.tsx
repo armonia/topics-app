@@ -858,7 +858,7 @@ export function StandaloneChatGroup({
     // which used to leave a blank cell, and NOT a group-wide bail, which used to
     // blank the whole window. The tab strip above stays live so the user can
     // close this tab or switch away. Mirrors ProjectWindow's chat fallback.
-    if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-body-lg">{tr('topic.notFound')}</div>;
+    if (!topic) return <div className="flex-1 flex items-center justify-center text-app-text-muted text-body-lg leading-5">{tr('topic.notFound')}</div>;
     const isDraft = isDraftPaneId(paneId);
     const isPinned = effectivePinnedIds.has(paneId);
     const wrappedSendMessage = isDraft

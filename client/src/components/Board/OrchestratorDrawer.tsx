@@ -67,7 +67,7 @@ export function OrchestratorDrawer({ topic, onClose, onPopOut, children }: Props
       <div className="flex shrink-0 items-center gap-2 border-b border-app-border px-3 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
           <Music4 className="h-3.5 w-3.5 shrink-0 text-primary" />
-          <span className="truncate text-compact text-app-text-heading">{topic.name}</span>
+          <span className="truncate text-compact leading-4 text-app-text-heading">{topic.name}</span>
           <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-micro text-app-text-secondary">
             {tr('topic.orchestrator.badge')}
           </span>

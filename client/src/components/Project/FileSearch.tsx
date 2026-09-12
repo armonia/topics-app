@@ -357,7 +357,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             /* Vedi CommandPalette: 44px di bersaglio, e 16px di testo perche'
                sotto quella misura iOS zooma la pagina al primo tocco. */
             className={`flex-1 bg-transparent outline-none text-app-text-heading placeholder-app-text-faint ${
-              isMobile ? 'h-11 text-title' : 'text-body-lg'
+              isMobile ? 'h-11 text-title' : 'text-body-lg leading-5'
             }`}
           />
           {!isMobile && modeControls}
@@ -383,13 +383,13 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             </div>
           )}
           {regexError && !loading && (
-            <div data-testid="regex-error" className="text-center text-red-400 text-compact py-4 px-3">{regexError}</div>
+            <div data-testid="regex-error" className="text-center text-red-400 text-compact leading-4 py-4 px-3">{regexError}</div>
           )}
           {/* Un errore di rete NON è «nessun risultato»: dirlo uguale insegna
               che la cosa cercata non c'è, che è la bugia peggiore per una
               ricerca. */}
           {failed && !loading && !regexError && (
-            <div data-testid="file-search-error" className="text-center text-red-400 text-compact py-6 px-3">
+            <div data-testid="file-search-error" className="text-center text-red-400 text-compact leading-4 py-6 px-3">
               {tr('fileSearch.failed')}
             </div>
           )}
@@ -402,7 +402,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
             </div>
           )}
           {!loading && !regexError && !failed && query && results.length === 0 && (
-            <div className="text-center text-app-text-muted text-compact py-6">{tr('fileSearch.noResults')}</div>
+            <div className="text-center text-app-text-muted text-compact leading-4 py-6">{tr('fileSearch.noResults')}</div>
           )}
           {!loading && (() => {
             let flatIdx = 0;
@@ -424,7 +424,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
                         idx === selectedIdx ? SELECTED_SURFACE : 'hover:bg-app-hover'
                       }`}
                     >
-                      <span className="text-compact text-app-text-body font-mono truncate">{g.file}</span>
+                      <span className="text-compact leading-4 text-app-text-body font-mono truncate">{g.file}</span>
                     </button>
                   );
                 })() : g.rows.map((r, i) => {
@@ -441,7 +441,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
                       <span className="text-mini text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
                         {r.lineNumber}
                       </span>
-                      <span className="text-compact text-app-text-body font-mono truncate">
+                      <span className="text-compact leading-4 text-app-text-body font-mono truncate">
                         {highlightMatch((r.line ?? '').trim(), r.match ?? '')}
                       </span>
                     </button>

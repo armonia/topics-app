@@ -126,7 +126,7 @@ function MediaImage({ path }: { path: string }) {
 
   if (error) {
     return (
-      <div data-testid="media-image-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-body-lg text-app-text-muted">
+      <div data-testid="media-image-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-body-lg leading-5 text-app-text-muted">
         <ImageOff aria-hidden className="w-4 h-4 inline-block align-[-3px] mr-1" />Image failed to load: {getFileName(path)}
       </div>
     );
@@ -186,7 +186,7 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
 
   if (error) {
     return (
-      <div data-testid="voice-player-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-body-lg text-app-text-muted">
+      <div data-testid="voice-player-error" className="inline-flex items-center gap-2 bg-app-hover dark:bg-elevated rounded-lg p-2 text-body-lg leading-5 text-app-text-muted">
         <MicOff aria-hidden className="w-4 h-4 inline-block align-[-3px] mr-1" />Voice message failed to load
       </div>
     );
@@ -305,7 +305,7 @@ function MediaAudio({ path, isVoice, isUserMessage }: { path: string; isVoice?: 
   const src = getMediaUrl(path);
   return (
     <div data-testid="media-audio" className="my-2 bg-elevated dark:bg-elevated rounded-lg p-3 border border-app-border-light">
-      <div className="flex items-center gap-2 mb-2 text-body-lg text-app-text-secondary"><Music aria-hidden className="w-4 h-4 shrink-0" />{getFileName(path)}</div>
+      <div className="flex items-center gap-2 mb-2 text-body-lg leading-5 text-app-text-secondary"><Music aria-hidden className="w-4 h-4 shrink-0" />{getFileName(path)}</div>
       <audio controls className="w-full" preload="metadata">
         <source src={src} />
         Your browser does not support audio playback.
@@ -327,8 +327,8 @@ function MediaFile({ path }: { path: string }) {
     >
       <FileIcon path={path} size={24} />
       <div className="flex-1 min-w-0">
-        <div data-testid="media-file-name" className="text-body-lg font-medium truncate">{getFileName(path)}</div>
-        <div className="text-compact text-app-text-muted uppercase">{getExtension(path)} file</div>
+        <div data-testid="media-file-name" className="text-body-lg leading-5 font-medium truncate">{getFileName(path)}</div>
+        <div className="text-compact leading-4 text-app-text-muted uppercase">{getExtension(path)} file</div>
       </div>
       <Download size={16} className="text-app-text-muted flex-shrink-0" />
     </a>
@@ -621,7 +621,7 @@ export const markdownComponents: Components = {
   },
   table: ({ children }) => (
     <div className="overflow-x-auto my-2">
-      <table className="min-w-full border-collapse border border-app-border-light text-body-lg">{children}</table>
+      <table className="min-w-full border-collapse border border-app-border-light text-body-lg leading-5">{children}</table>
     </div>
   ),
   th: ({ children }) => (
@@ -1205,7 +1205,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             // stare su una bolla blu. Su un grigio di sistema quello stesso
             // azzurro diventa una barra colorata a caso — la stessa ragione per
             // cui la selezione in quest'app non si colora.
-            <div key={i} className="border-l-3 border-app-border-light pl-2 mb-1 text-body-lg opacity-75 italic">
+            <div key={i} className="border-l-3 border-app-border-light pl-2 mb-1 text-body-lg leading-5 opacity-75 italic">
               {block.content}
             </div>
           );

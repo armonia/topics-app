@@ -109,7 +109,7 @@ export function ProjectPickerBody({
           onKeyDown={onKeyDown}
           placeholder={onCreate ? tr('picker.searchOrCreate') : tr('picker.search')}
           aria-label={onCreate ? tr('picker.searchOrCreate.aria') : tr('picker.search.aria')}
-          className="w-full rounded bg-black/5 px-2 py-1 text-compact text-app-text outline-none placeholder:text-app-placeholder dark:bg-white/5"
+          className="w-full rounded bg-black/5 px-2 py-1 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder dark:bg-white/5"
         />
       </div>
       <div className="max-h-60 overflow-y-auto">
@@ -118,7 +118,7 @@ export function ProjectPickerBody({
             role="option" aria-selected={!!autoSelected} disabled={busy}
             onClick={onPickAuto}
             title={tr('picker.auto.hint')}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-compact text-app-text-heading hover:bg-black/10 disabled:opacity-40 dark:hover:bg-white/10"
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text-heading hover:bg-black/10 disabled:opacity-40 dark:hover:bg-white/10"
           >
             <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
             <span className="min-w-0 flex-1">Automatico</span>
@@ -128,7 +128,7 @@ export function ProjectPickerBody({
         {projects === null ? (
           <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-app-text-muted" /></div>
         ) : filtered.length === 0 ? (
-          <p className="px-2.5 py-2 text-compact text-app-text-muted">{query.trim() ? tr('board.projectPicker.noMatch') : emptyLabel ?? tr('board.projectPicker.none')}</p>
+          <p className="px-2.5 py-2 text-compact leading-4 text-app-text-muted">{query.trim() ? tr('board.projectPicker.noMatch') : emptyLabel ?? tr('board.projectPicker.none')}</p>
         ) : filtered.map((p) => {
           const disabled = (isDisabled?.(p) ?? false) || busy;
           return (

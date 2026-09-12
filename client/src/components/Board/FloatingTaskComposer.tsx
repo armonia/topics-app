@@ -458,7 +458,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
         {dragOver && (
           <div
             data-testid="composer-drop-hint"
-            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-emerald-400/70 bg-app-bg/70 text-compact text-emerald-300"
+            className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border border-dashed border-emerald-400/70 bg-app-bg/70 text-compact leading-4 text-emerald-300"
           >{tr('board.composer.dropToAttach')}</div>
         )}
         <textarea
@@ -592,7 +592,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                   // L'UNICO chip che può stringersi (l'etichetta è troncabile),
                   // con un pavimento: sotto ~5.5rem resterebbero icona e chevron
                   // senza una lettera di nome, che è peggio di far scorrere la riga.
-                  className="flex min-w-[5.5rem] max-w-[13rem] items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-compact text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+                  className="flex min-w-[5.5rem] max-w-[13rem] items-center gap-1.5 rounded-md bg-black/5 px-2 py-1 text-compact leading-4 text-app-text hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
                 >
                   {autoTarget
                     ? <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />

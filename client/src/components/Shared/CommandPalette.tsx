@@ -727,7 +727,7 @@ export function CommandPalette({
                     are still valid. Saying "no results" here would blame the
                     query for a failure of the server. */}
                 {searchFailed && (
-                  <div data-testid="palette-search-error" className="px-3 py-4 text-center text-red-400 text-compact">
+                  <div data-testid="palette-search-error" className="px-3 py-4 text-center text-red-400 text-compact leading-4">
                     {t('palette.searchFailed')}
                   </div>
                 )}

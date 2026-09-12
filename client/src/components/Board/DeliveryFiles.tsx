@@ -118,7 +118,7 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
             commit: commit?.slice(0, 8) ?? '?',
           })
           : tr('board.card.gitChangesLiveTitle')}
-        className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact md:text-mini text-app-text-heading hover:bg-white/15"
+        className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading hover:bg-white/15"
       >
         <FileDiff className="h-3 w-3 shrink-0" />
         {misura
