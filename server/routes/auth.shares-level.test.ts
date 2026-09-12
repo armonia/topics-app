@@ -12,6 +12,7 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createAuthRouter } from "./auth";
 import { isGuestAllowedPath, isGuestAllowedMethod } from "../lib/grants";
+import { hasGrant } from "../lib/grants-query";
 import { projectIdForPath } from "../../shared/board";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -195,6 +196,55 @@ describe("GET /api/auth/shared · il livello viaggia con la riga", () => {
       { tasks: Array<{ level: string }> };
     expect(body.tasks[0].level).toBe("read");
   });
+
+  test("resolves local identity once and finds a bound capability through its UUID alias", async () => {
+    const projectPath = "/tmp/shared-bound-capability-alias";
+    const storeId = "33333333-3333-4333-8333-333333333333";
+    const boardId = projectIdForPath(projectPath);
+    db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
+    db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run(storeId, projectPath);
+    db.run("ALTER TABLE tasks ADD COLUMN dispatch_state TEXT");
+    db.run("ALTER TABLE tasks ADD COLUMN dispatch_error TEXT");
+    db.run("ALTER TABLE tasks ADD COLUMN delegated_start_capability_id TEXT");
+    db.run("CREATE TABLE machines (id TEXT PRIMARY KEY, name TEXT, base_url TEXT)");
+    db.run("INSERT INTO machines VALUES ('canonical-local','This computer',NULL)");
+    db.run(`CREATE TABLE agent_start_capabilities (
+      id TEXT PRIMARY KEY, recipient_kind TEXT, recipient_id TEXT, project_id TEXT,
+      machine_id TEXT, repository_key TEXT, model TEXT, effort TEXT,
+      max_duration_minutes INTEGER, max_attempts INTEGER, fanout INTEGER,
+      granted_by_person_id TEXT, granted_at INTEGER, expires_at INTEGER,
+      revoked_at INTEGER, revoked_by_person_id TEXT)`);
+    db.run(`CREATE TABLE machine_repository_authorizations (
+      machine_id TEXT, repository_key TEXT, revoked_at INTEGER)`);
+    db.run("CREATE TABLE board_settings (project_id TEXT PRIMARY KEY, dispatch_paused INTEGER)");
+    db.query(`INSERT INTO agent_start_capabilities VALUES
+      ('bound-legacy','device','g1',?,'canonical-local','example.test/team/repo',
+       'model-a','high',30,1,1,'owner',1,NULL,2,'owner')`).run(storeId);
+    for (const id of ["bound-a", "bound-b"]) {
+      task(db, id, boardId);
+      db.query("UPDATE tasks SET delegated_start_capability_id = 'bound-legacy' WHERE id = ?").run(id);
+    }
+    db.query(`INSERT INTO grants
+      (subject_type, subject_id, resource_type, resource_id, level, granted_at)
+      VALUES ('device','g1','project',?,'read',1)`).run(storeId);
+
+    let localResolutions = 0;
+    const ctx = creaCtx(db, { role: "guest", deviceId: "g1" });
+    ctx.machineStore = {
+      upsertLocal: () => {
+        localResolutions += 1;
+        return { id: "canonical-local" };
+      },
+    } as AppContext["machineStore"];
+    const guest = createAuthRouter(ctx);
+    const body = await (await call(guest, "GET", "/api/auth/shared"))!.json() as {
+      tasks: Array<{ id: string; agentStart: { capabilityId: string } | null }>;
+    };
+
+    expect(localResolutions).toBe(1);
+    expect(body.tasks).toHaveLength(2);
+    expect(body.tasks.every((entry) => entry.agentStart?.capabilityId === "bound-legacy")).toBe(true);
+  });
 });
 
 /**
@@ -248,6 +298,48 @@ describe("GET /api/auth/shares · chi arriva dal progetto", () => {
       tasks: Array<{ id: string }>;
     };
     expect(inventory.tasks.map((entry) => entry.id)).toContain("alias-task");
+  });
+
+  test("legacy UUID grants and canonical denies resolve as one project permission", async () => {
+    const projectPath = "/tmp/project-share-legacy-alias";
+    const storeId = "22222222-2222-4222-8222-222222222222";
+    const boardId = projectIdForPath(projectPath);
+    db.run("CREATE TABLE projects (id TEXT PRIMARY KEY, path TEXT NOT NULL)");
+    db.query("INSERT INTO projects (id, path) VALUES (?, ?)").run(storeId, projectPath);
+    task(db, "legacy-alias-task", boardId);
+    db.query(`INSERT INTO grants
+      (subject_type, subject_id, resource_type, resource_id, level, granted_at)
+      VALUES ('device','g1','project',?,'read',1)`)
+      .run(storeId);
+    const guestPrincipal = [{ kind: "device" as const, id: "g1" }];
+    expect(hasGrant(db, guestPrincipal, "task", "legacy-alias-task")).toBe(true);
+
+    const guest = createAuthRouter(creaCtx(db, { role: "guest", deviceId: "g1" }));
+    const owner = createAuthRouter(creaCtx(db, { role: "owner", deviceId: "o1" }));
+    const visible = await (await call(guest, "GET", "/api/auth/shared"))!.json() as {
+      tasks: Array<{ id: string }>;
+    };
+    expect(visible.tasks.map((entry) => entry.id)).toContain("legacy-alias-task");
+
+    const listed = await (await call(
+      owner, "GET", `/api/auth/shares?resourceType=project&resourceId=${storeId}`,
+    ))!.json() as { shares: Array<{ subjectId: string }> };
+    expect(listed.shares.map((entry) => entry.subjectId)).toEqual(["g1"]);
+
+    db.query(`INSERT INTO grants
+      (subject_type, subject_id, resource_type, resource_id, level, granted_at)
+      VALUES ('device','g1','project',?,'deny',2)`)
+      .run(boardId);
+    expect(hasGrant(db, guestPrincipal, "task", "legacy-alias-task")).toBe(false);
+    const denied = await (await call(guest, "GET", "/api/auth/shared"))!.json() as {
+      tasks: Array<{ id: string }>;
+    };
+    expect(denied.tasks.map((entry) => entry.id)).not.toContain("legacy-alias-task");
+
+    const ownerAfterDeny = await (await call(
+      owner, "GET", `/api/auth/shares?resourceType=project&resourceId=${boardId}`,
+    ))!.json() as { shares: Array<{ subjectId: string }> };
+    expect(ownerAfterDeny.shares).toEqual([]);
   });
 
   test("una riga DIRETTA sulla scheda vince, e il soggetto compare una volta sola", async () => {

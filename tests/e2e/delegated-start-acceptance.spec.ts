@@ -182,38 +182,47 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
         await didascalia(page, "Condividi usa il progetto registrato, la policy la board canonica");
         await beat(page, 500);
 
-        await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
-        const start = page.getByTestId("guest-start");
-        await expect(start).toBeVisible({ timeout: 15_000 });
-        await didascalia(page, "L'ospite può avviare solo sul computer autorizzato");
-        await beat(page, 700);
+        // Keep the guest mounted on the tunnel while the owner works in the
+        // original page. This proves the revocation travels over WS; a fresh
+        // navigation followed by count(0) could pass before the guest list had
+        // loaded at all.
+        const guestPage = await page.context().newPage();
+        try {
+          await guestPage.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
+          const start = guestPage.getByTestId("guest-start");
+          await expect(start).toBeVisible({ timeout: 15_000 });
+          await didascalia(guestPage, "L'ospite può avviare solo sul computer autorizzato");
+          await beat(guestPage, 700);
 
-        await start.click();
-        await expect(page.getByRole("status")).toContainText(/coda/i);
-        await didascalia(page, "Richiesta vuota: modello e computer arrivano dalla policy");
-        await beat(page, 700);
+          await start.click();
+          await expect(guestPage.getByRole("status")).toContainText(/coda/i);
+          await didascalia(guestPage, "Richiesta vuota: modello e computer arrivano dalla policy");
+          await beat(guestPage, 700);
 
-        await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
-        await openProjectBoard(page, new RegExp(projectName));
-        const card = page.locator(`[data-task-card="${taskId}"]`);
-        await expect(card).toBeVisible({ timeout: 15_000 });
-        await expect(card.getByTestId("card-run-initiator")).toContainText(`Persona ${guestName}`);
-        await expect(card.getByTestId("card-run-computer")).toContainText(localMachine!.name);
-        await didascalia(page, "Il proprietario vede iniziatore e computer distinti");
-        await beat(page, 500);
+          await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
+          await openProjectBoard(page, new RegExp(projectName));
+          const card = page.locator(`[data-task-card="${taskId}"]`);
+          await expect(card).toBeVisible({ timeout: 15_000 });
+          await expect(card.getByTestId("card-run-initiator")).toContainText(`Persona ${guestName}`);
+          await expect(card.getByTestId("card-run-computer")).toContainText(localMachine!.name);
+          await didascalia(page, "Il proprietario vede iniziatore e computer distinti");
+          await beat(page, 500);
 
-        await page.keyboard.press("Meta+Comma");
-        await expect(settings).toBeVisible({ timeout: 15_000 });
-        await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
-        await projectRow.getByTestId("share-control").click();
-        await expect(sharing).toBeVisible();
-        await sharing.getByRole("button", { name: new RegExp(`Revoca Avvio agenti per Persona ${guestName}`) }).click();
-        await expect(agentStart.getByTestId("agent-start-capabilities")).toHaveCount(0);
+          await page.keyboard.press("Meta+Comma");
+          await expect(settings).toBeVisible({ timeout: 15_000 });
+          await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
+          await projectRow.getByTestId("share-control").click();
+          await expect(sharing).toBeVisible();
+          await sharing.getByRole("button", { name: new RegExp(`Revoca Avvio agenti per Persona ${guestName}`) }).click();
+          await expect(agentStart.getByTestId("agent-start-capabilities")).toHaveCount(0);
 
-        await page.goto(E2E_TUNNEL_BASE, { waitUntil: "domcontentloaded" });
-        await expect(page.getByTestId("guest-start")).toHaveCount(0);
-        await didascalia(page, "La revoca dalla stessa UI rimuove Avvia");
-        await beat(page, 500);
+          await expect(guestPage.getByRole("status")).toContainText(/annull/i, { timeout: 15_000 });
+          await expect(guestPage.getByTestId("guest-start")).toHaveCount(0);
+          await didascalia(guestPage, "La revoca dalla stessa UI rimuove Avvia");
+          await beat(guestPage, 500);
+        } finally {
+          await guestPage.close();
+        }
       },
     });
 

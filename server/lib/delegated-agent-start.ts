@@ -1,7 +1,11 @@
 import type { Database } from "bun:sqlite";
 import type { Principal, SubjectKind } from "./grants-query";
 import type { AgentStartCapabilityContract } from "../../shared/agent-start-capability";
-import { canonicalProjectIdentity, projectAliasPlaceholders } from "./project-identity";
+import {
+  canonicalProjectIdentity,
+  projectAliasPlaceholders,
+  type CanonicalProjectIdentity,
+} from "./project-identity";
 
 export const DELEGATED_MAX_ATTEMPTS = 1 as const;
 export const DELEGATED_PARALLEL_LIMIT = 1 as const;
@@ -154,11 +158,12 @@ export function liveAgentStartCapability(db: Database, input: {
   projectId: string;
   now?: number;
   canonicalLocalMachineId?: string | null;
+  projectIdentity?: CanonicalProjectIdentity;
 }): AgentStartCapability | null {
   const subjects = subjectClause(input.principals);
   if (!subjects) return null;
   const now = input.now ?? Date.now();
-  const project = canonicalProjectIdentity(db, input.projectId);
+  const project = input.projectIdentity ?? canonicalProjectIdentity(db, input.projectId);
   const row = db.query(`${CAPABILITY_SELECT}
     WHERE c.project_id IN (${projectAliasPlaceholders(project)})
       AND c.revoked_at IS NULL
@@ -273,7 +278,10 @@ export function delegatedPolicyForTask(
        AND a.effort = n.effort
        AND a.max_duration_minutes = n.max_duration_minutes
        AND a.max_attempts = n.max_attempts
-       AND a.fanout = n.fanout`).get(taskId, now, now, now) as {
+       AND a.fanout = n.fanout
+       AND (? IS NULL OR n.machine_id = ?)`).get(
+         taskId, now, now, now, canonicalLocalMachineId, canonicalLocalMachineId,
+       ) as {
         capability_id: string; project_id: string; subject_person_id: string | null;
         subject_device_id: string; machine_id: string; machine_name: string | null;
         repository_key: string; model: string; effort: string; max_duration_minutes: number;

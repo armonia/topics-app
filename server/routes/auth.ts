@@ -33,7 +33,11 @@ import {
   routeAgentStartCapabilities,
   type AgentStartCapabilitiesRouteOpts,
 } from "./agent-start-capabilities";
-import { canonicalProjectIdentity, projectAliasPlaceholders } from "../lib/project-identity";
+import {
+  canonicalProjectIdentity,
+  createProjectIdentityResolver,
+  projectAliasPlaceholders,
+} from "../lib/project-identity";
 
 /**
  * Appaiamento e sessioni per dispositivo.
@@ -707,13 +711,14 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // soggetto che il cancello onorava e l'inventario non vedeva. La chat era
       // leggibile per id e invisibile nell'unico elenco che un ospite ha.
       const principals = resolvePrincipals(db as never, subj).list;
+      const resolveProject = createProjectIdentityResolver(db as never);
       // The TASKS go through `readableTaskIds`, not `grantedByType`: a card
       // inside a shared project has no grant row of its own, so it was
       // openable by id and absent from the only list a guest has - the same
       // "I shared it with you" / "I see nothing" divergence GUEST-06 was
       // written against, in a second place. Chats have no container.
       const { topic: idTopic } = grantedByType(db as never, principals);
-      const idTask = readableTaskIds(db as never, principals);
+      const idTask = readableTaskIds(db as never, principals, resolveProject);
       const segna = (n: number) => Array(n).fill("?").join(",");
       // THE LEVEL TRAVELS WITH THE ROW, and this is the only door that can
       // carry it. A guest's whole application is built from this answer: with
@@ -729,7 +734,10 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // load-bearing - it is there because a `null` would be a lie of a
       // different kind.
       const withLevel = <T extends { id: string }>(rows: T[], kind: "task" | "topic") =>
-        rows.map((r) => ({ ...r, level: levelFor(db as never, principals, kind, r.id) ?? "read" }));
+        rows.map((r) => ({
+          ...r,
+          level: levelFor(db as never, principals, kind, r.id, resolveProject) ?? "read",
+        }));
       type SharedTaskRow = {
         id: string;
         project_id: string;
@@ -748,16 +756,23 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       const topics = idTopic.length
         ? withLevel(db.query(`SELECT id, name, updated_at FROM topics WHERE id IN (${segna(idTopic.length)})`).all(...idTopic) as Array<{ id: string }>, "topic")
         : [];
+      // `upsertLocal` is a write. Resolve it once for this response, rather
+      // than once per card in the inventory.
+      const canonicalLocalMachineId = tasks.length > 0
+        ? ctx.machineStore?.upsertLocal().id ?? null
+        : null;
       const tasksWithStart = tasks.map((task) => {
         try {
+          const project = resolveProject(task.project_id);
           const liveCapability = liveAgentStartCapability(db as never, {
             principals,
             projectId: task.project_id,
             now,
-            canonicalLocalMachineId: ctx.machineStore?.upsertLocal().id ?? null,
+            canonicalLocalMachineId,
+            projectIdentity: project,
           });
           const boundCapability = task.delegated_start_capability_id
-            ? canonicalProjectIdentity(db, task.project_id).aliases
+            ? project.aliases
               .flatMap((alias) => listAgentStartCapabilities(db as never, alias))
               .find((candidate) => candidate.id === task.delegated_start_capability_id) ?? null
             : null;
@@ -765,7 +780,6 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
           if (!capability) return { ...task, agentStart: null };
           let executable = !!liveCapability && task.status === "backlog";
           try {
-            const project = canonicalProjectIdentity(db, task.project_id);
             const settings = db.query(`SELECT dispatch_paused FROM board_settings
                 WHERE project_id IN (${projectAliasPlaceholders(project)})
                 ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END LIMIT 1`)
@@ -1537,7 +1551,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         // the resource: that is the precedence `levelFor` applies (the
         // container is consulted only when the resource said nothing), and a
         // panel that showed both would show two levels for one access.
-        const direct = resource.aliases.flatMap((alias) => subjectsOf(db as never, tipo, alias));
+        const direct = subjectsOf(db as never, tipo, resource.id);
         const saidDirectly = new Set(direct.map((r) => `${r.subjectType}:${r.subjectId}`));
         const righe = [
           ...direct.filter((r) => r.level !== "deny"),

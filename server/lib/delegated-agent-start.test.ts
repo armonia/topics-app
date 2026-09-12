@@ -138,6 +138,29 @@ describe("delegated agent start capability", () => {
       taskId: "task-historic", capability, initiatorPersonId: "person-a", initiatorDeviceId: "device-a", now: 102,
     });
     expect(delegatedPolicyForTask(db, "task-historic", 103, "local")).toBeNull();
+
+    // The destination-side fallback is subject to the same canonical-local
+    // boundary. A durable node envelope tied to an old local row must not
+    // restore authority after the primary capability check rejects it.
+    db.query(`INSERT INTO delegated_node_authorizations
+      (id, capability_id, credential_hash, subject_person_id, subject_device_id,
+       machine_id, repository_key, model, effort, max_duration_minutes,
+       max_attempts, fanout, authorized_by_person_id, authorized_at, expires_at)
+      VALUES ('node-auth',?,'hash','person-a','device-a','historic-local',
+              ?,?,?,30,1,1,'owner',100,1000)`)
+      .run(capability.id, base.repositoryKey, base.model, base.effort);
+    db.query(`INSERT INTO delegated_node_runs
+      (run_id, origin_task_id, project_id, capability_id, authorization_id,
+       subject_person_id, subject_device_id, machine_id, repository_key, model,
+       effort, max_duration_minutes, max_attempts, fanout, expires_at,
+       deadline_at, created_at)
+      VALUES ('task-historic','origin-task','project-a',?,'node-auth','person-a',
+              'device-a','historic-local',?,?,?,30,1,1,1000,900,100)`)
+      .run(capability.id, base.repositoryKey, base.model, base.effort);
+    db.query("UPDATE agent_start_capabilities SET revoked_at = 102 WHERE id = ?").run(capability.id);
+    expect(delegatedPolicyForTask(db, "task-historic", 103, "local")).toBeNull();
+    expect(delegatedPolicyForTask(db, "task-historic", 103, "historic-local")?.machineId)
+      .toBe("historic-local");
     expect(appendDelegatedRunAudit(db, { taskId: "task-historic", phase: "resume", now: 104 }, {
       canonicalLocalMachineId: "local",
     })).toBe(false);
