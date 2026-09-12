@@ -21,7 +21,31 @@
  * AN EXPLICIT RECAPTURE STILL WINS. `explain` means a human asked for the shot
  * again, and asking is the whole point: the guard steps aside.
  */
-import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
+import { existsSync, statSync } from "fs";
+import { isAutoCapturedPreview, isDeliverySheetPath, isPreviewablePath } from "../../shared/media-kind";
+
+export type PreviewEvidenceExists = (path: string) => boolean;
+
+/** A durable preview must be a regular, non-empty file, not just a path. */
+function defaultPreviewEvidenceExists(path: string): boolean {
+  if (!existsSync(path)) return false;
+  try {
+    const stats = statSync(path);
+    return stats.isFile() && stats.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** True when the card points at independent, durable evidence we can keep. */
+export function isDurablePreviewEvidence(
+  current: string | null | undefined,
+  exists: PreviewEvidenceExists = defaultPreviewEvidenceExists,
+): boolean {
+  const path = (current ?? "").trim();
+  if (!path || isDeliverySheetPath(path) || isAutoCapturedPreview(path)) return false;
+  return isPreviewablePath(path) && exists(path);
+}
 
 /**
  * Does the card already hold evidence the auto-capture must not replace?
@@ -29,8 +53,11 @@ import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-k
  * `current` absent ⇒ false: nothing to protect, and that is also the old
  * behaviour for a deps object that does not implement the lookup at all.
  */
-export function holdsOwnEvidence(current: string | null | undefined, explain: boolean): boolean {
+export function holdsOwnEvidence(
+  current: string | null | undefined,
+  explain: boolean,
+  exists: PreviewEvidenceExists = defaultPreviewEvidenceExists,
+): boolean {
   if (explain) return false;
-  if (!current) return false;
-  return !isDeliverySheetPath(current) && !isAutoCapturedPreview(current);
+  return isDurablePreviewEvidence(current, exists);
 }

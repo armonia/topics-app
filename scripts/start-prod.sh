@@ -105,6 +105,7 @@ SERVER_PIDFILE="/tmp/topics-server.pid"
 # bypasses server.ts gracefulShutdown and orphans the PTY bridge + claude
 # children, the exact failure this script set out to avoid).
 SHUTTING_DOWN=0
+WATCH_SUPERVISOR_PID=""
 cleanup() {
   # Drop the traps FIRST so the `exit` below doesn't re-enter cleanup through
   # the EXIT trap, and flag the loop to stop.
@@ -114,6 +115,8 @@ cleanup() {
   # SIGTERM the server child so server.ts gracefulShutdown runs (clean bridge
   # disconnect) rather than the child being orphaned.
   [ -n "$SERVER_PID" ] && kill -TERM "$SERVER_PID" 2>/dev/null
+  [ -n "$WATCH_SUPERVISOR_PID" ] && kill -TERM "$WATCH_SUPERVISOR_PID" 2>/dev/null
+  [ -n "$WATCH_SUPERVISOR_PID" ] && wait "$WATCH_SUPERVISOR_PID" 2>/dev/null
   # Kill our background watchers. NOTE: killing a watcher subshell does NOT reap
   # its `fswatch` grandchild, so we also pkill those by pattern.
   jobs -p | xargs -r kill 2>/dev/null
@@ -137,6 +140,34 @@ for _p in $(pgrep -f 'topics-app/scripts/start-prod.sh' 2>/dev/null); do
 done
 pkill -f 'fswatch.*client/src' 2>/dev/null
 pkill -f 'fswatch.*[ /]server/' 2>/dev/null
+
+# A SIGKILL can orphan either layer of the server-watch tree. PID files let the
+# next supervisor remove only processes whose command still names the expected
+# script, avoiding a signal to an unrelated process after PID reuse.
+stop_orphaned_watch_process() {
+  local pidfile="$1" expected="$2" pid command
+  [ -r "$pidfile" ] || return 0
+  pid=$(cat "$pidfile" 2>/dev/null)
+  [ -n "$pid" ] || return 0
+  command=$(ps -o command= -p "$pid" 2>/dev/null)
+  case "$command" in
+    *"$expected"*)
+      kill -TERM "$pid" 2>/dev/null
+      for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.1
+      done
+      ;;
+    *)
+      rm -f "$pidfile"
+      ;;
+  esac
+}
+
+WATCH_SUPERVISOR_PIDFILE="${TOPICS_SERVER_WATCH_SUPERVISOR_PIDFILE:-/tmp/topics-server-watch-supervisor.pid}"
+WATCH_PIDFILE="${TOPICS_SERVER_WATCH_PIDFILE:-/tmp/topics-server-watch.pid}"
+stop_orphaned_watch_process "$WATCH_SUPERVISOR_PIDFILE" "server-watch-supervisor.sh"
+stop_orphaned_watch_process "$WATCH_PIDFILE" "server-watch.sh"
 
 # Client bundle: /public is a DEPLOY ARTIFACT, not a boot product (2026-07-13).
 # The old unconditional `npx vite build` here rebuilt the client from the LIVE
@@ -209,9 +240,11 @@ fi
 BIRTH_GRACE_S=25
 
 if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
-  # Il ciclo vive in `scripts/server-watch.sh`: un processo che si puo'
-  # fermare e rilanciare da solo, senza toccare il server (vedi la sua testa).
-  "$APP_DIR/scripts/server-watch.sh" "$APP_DIR" "$SERVER_PIDFILE" &
+  # The watcher has a separate supervisor because the server can stay healthy
+  # after either server-watch.sh or fswatch exits. The wrapper reports every
+  # exit and restarts with bounded backoff while this process remains alive.
+  /bin/bash "$APP_DIR/scripts/server-watch-supervisor.sh" "$APP_DIR" "$SERVER_PIDFILE" "$$" &
+  WATCH_SUPERVISOR_PID=$!
 fi
 
 # Restart-on-CRASH loop. An UNEXPECTED server exit drops us out of `wait` and we

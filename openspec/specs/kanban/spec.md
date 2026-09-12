@@ -1884,6 +1884,32 @@ essere lasciata una NOTA col MOTIVO.
 - **GIVEN** nessun modo di produrre l'evidenza
 - **THEN** SHALL essere lasciata una nota col motivo, non una foto finta
 
+### Requirement: KANBAN-83 - Un allegato durevole valido precede la fotografia automatica
+
+Un allegato scelto dall'agente o da una persona SHALL essere considerato
+evidenza durevole quando il file esiste, è leggibile come immagine o video
+ammesso, e non appartiene alla cartella delle fotografie automatiche. Un
+diagramma SVG, uno screenshot validato, una clip video o un altro media già
+ammesso SHALL restare indipendente dalla pagina viva del worktree.
+
+Quando una consegna ha già un'evidenza durevole valida, la preparazione
+automatica SHALL conservarla e NON SHALL avviare un server soltanto per
+fotografare la pagina. Un errore o un 503 della pagina automatica NON SHALL
+ritirare un allegato indipendente dalla pagina.
+
+Un allegato mancante, illeggibile, non ammesso o già ritirato NON SHALL
+costituire un bypass. Una ricattura esplicita da parte di una persona SHALL
+potere sostituire l'evidenza; una fotografia automatica stantia o segnaposto
+SHALL restare ritirabile con il motivo corretto sulla card.
+
+#### Scenario: diagramma durevole e worktree senza bundle
+- **GIVEN** la card ha un diagramma SVG valido e il worktree non ha un bundle
+- **THEN** SHALL essere conservato il diagramma, NON SHALL essere avviato un server e un 503 automatico NON SHALL cancellarlo
+
+#### Scenario: allegato non valido
+- **GIVEN** la card ha un path mancante o non ammesso
+- **THEN** SHALL restare attivo il percorso automatico e nessun bypass SHALL essere concesso
+
 ### Requirement: KANBAN-42 — Una card approvata la riapre una PERSONA, e la board lo dice
 
 Una card che esce da CHIUSO SHALL portare un segno che dichiara CHI l'ha riaperta

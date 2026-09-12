@@ -19,6 +19,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { assetVerdict, manifestVerdict, UPDATER_PLATFORMS } from "./check-release-assets";
+import { composeManifest } from "./compose-release-manifest";
 
 /** The real manifest of 2.2.259, reduced to its keys: this is what "whole" is. */
 const WHOLE = JSON.stringify({
@@ -35,6 +36,45 @@ const TRUNCATED_256 = JSON.stringify({
 });
 
 describe("the manifest is read, not just counted", () => {
+  test("release assets compose into one complete version with preserved metadata", () => {
+    const release = { tag_name: "tauri-v2.2.310", body: "new notes", assets: [
+      ...["_universal.app.tar.gz", "_x64-setup.exe", "_x64_en-US.msi", "_amd64.deb", ".x86_64.rpm"].map((suffix) => ({
+        name: `Topics_2.2.310${suffix}`, browser_download_url: `https://github.test/download/untagged-id/Topics_2.2.310${suffix}`,
+      })),
+    ] };
+    const signatures = Object.fromEntries(release.assets.map((asset) => [`${asset.name}.sig`, "signature"]));
+    const composed = composeManifest(release, "tauri-v2.2.310", signatures, {
+      version: "2.2.310", notes: "old notes", pub_date: "2026-09-12T00:00:00.000Z",
+    });
+    expect(composed.version).toBe("2.2.310");
+    expect(Object.keys(composed.platforms)).toHaveLength(10);
+    expect(composed.notes).toBe("old notes");
+    expect(composed.pub_date).toBe("2026-09-12T00:00:00.000Z");
+    expect(composed.platforms["windows-x86_64"].url).toContain("/download/tauri-v2.2.310/");
+    expect(composed.platforms["windows-x86_64"].url).toContain("_x64_en-US.msi");
+    expect(composed.platforms["windows-x86_64-nsis"].url).toContain("_x64-setup.exe");
+  });
+
+  test("composition rejects missing signatures and a version mismatch", () => {
+    const release = { assets: [{ name: "Topics_2.2.310_universal.app.tar.gz", browser_download_url: "https://x" }] };
+    expect(() => composeManifest(release, "tauri-v2.2.311", { "Topics_2.2.310_universal.app.tar.gz.sig": "s" }, { version: "2.2.310" })).toThrow("Existing manifest");
+    expect(() => composeManifest(release, "tauri-v2.2.310", {})).toThrow("Missing signature");
+  });
+
+  test("composition rejects ambiguous assets instead of choosing a URL", () => {
+    const release = { assets: [
+      { name: "Topics_2.2.310_universal.app.tar.gz", browser_download_url: "https://x/one" },
+      { name: "Topics_2.2.309_universal.app.tar.gz", browser_download_url: "https://x/two" },
+    ] };
+    expect(() => composeManifest(release, "tauri-v2.2.310", {
+      "Topics_2.2.310_universal.app.tar.gz.sig": "s", "Topics_2.2.309_universal.app.tar.gz.sig": "s",
+    })).toThrow("Conflicting release assets");
+  });
+
+  test("composition rejects a release tag that does not match", () => {
+    expect(() => composeManifest({ tag_name: "tauri-v2.2.309", assets: [] }, "tauri-v2.2.310", {})).toThrow("Release tag");
+  });
+
   test("a whole manifest passes and says how many platforms it covers", () => {
     const v = manifestVerdict(WHOLE);
     expect(v.ok).toBe(true);
