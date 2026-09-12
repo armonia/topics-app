@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.309 — 2026-09-12
+
+### Sotto il cofano
+- Lo split dentro un progetto spariva al ricarico: la compagna era una bozza
+- Il sonno del test era stato allargato, il suo tetto no
+- Su Windows il pannello elencava tasti che non esistono
+- Il runner di CI non e' CARICO, e' lento: il fattore da solo non bastava
+- Il drenaggio dei terminali aveva la fretta di questo Mac, non il tempo di un runner
+
 ## 2.2.308 — 2026-09-12
 
 ### Sotto il cofano

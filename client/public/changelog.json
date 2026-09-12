@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.309",
+    "date": "2026-09-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo split dentro un progetto spariva al ricarico: la compagna era una bozza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il sonno del test era stato allargato, il suo tetto no",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Su Windows il pannello elencava tasti che non esistono",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il runner di CI non e' CARICO, e' lento: il fattore da solo non bastava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il drenaggio dei terminali aveva la fretta di questo Mac, non il tempo di un runner",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.308",
     "date": "2026-09-12",
     "sections": {
