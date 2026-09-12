@@ -299,6 +299,10 @@
           "scope": "relay"
         },
         {
+          "text": "repositioning a tab no longer reloads the pane",
+          "scope": "layout"
+        },
+        {
           "text": "make provider limits readable and actionable",
           "scope": "ui"
         },

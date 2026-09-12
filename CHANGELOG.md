@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.305 — 2026-09-12
+
+### Sotto il cofano
+- La pane browser che cambia gruppo non ricarica piu' la pagina
+- Un errore sollevato dentro un timer uccideva il file di test successivo
+- RESIDENCY-03 chiedeva al DOM chi fosse la chat attiva, e da ieri il DOM non lo sa piu'
+- Il mio test toglieva `window` in un modo che in CI non lo toglieva
+- `mock.restore()` non ritira un `mock.module`, e quattro file ci contavano
+- I miei commenti di stanotte in italiano, e uno spread che rendeva tre moduli ciechi
+
 ## 2.2.304 — 2026-09-12
 
 ### Sotto il cofano
@@ -144,6 +154,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · keep the wait visible when the drawer opens
 - **board** · show each delivery attachment once
 - **relay** · give the lint-gate fixture the module kind its config needs
+- **layout** · repositioning a tab no longer reloads the pane
 - **ui** · make provider limits readable and actionable
 - **dispatcher** · scope plan holds to Claude task providers
 - **board** · keep acknowledged task comments visible
@@ -208,6 +219,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - record senior quality review and validation evidence
 - record conversation and performance validation
 - **chrome** · nomi e commenti in inglese nel cancello CHROME-13
+- **layout** · English names in the reposition spec
+- **relay** · the lint gate fixture can actually run eslint
 - **settings** · keep provider setup inline and separate tools
 - remove private project name from performance review
 - **tasks** · align model selection identifiers

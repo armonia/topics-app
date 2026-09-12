@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.2.305",
+    "date": "2026-09-12",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La pane browser che cambia gruppo non ricarica piu' la pagina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un errore sollevato dentro un timer uccideva il file di test successivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "RESIDENCY-03 chiedeva al DOM chi fosse la chat attiva, e da ieri il DOM non lo sa piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il mio test toglieva `window` in un modo che in CI non lo toglieva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`mock.restore()` non ritira un `mock.module`, e quattro file ci contavano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I miei commenti di stanotte in italiano, e uno spread che rendeva tre moduli ciechi",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.304",
     "date": "2026-09-12",
     "sections": {
@@ -647,6 +688,12 @@
           "breaking": false
         },
         {
+          "it": "repositioning a tab no longer reloads the pane",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
           "it": "make provider limits readable and actionable",
           "en": "",
           "scope": "ui",
@@ -1008,6 +1055,18 @@
           "it": "nomi e commenti in inglese nel cancello CHROME-13",
           "en": "",
           "scope": "chrome",
+          "breaking": false
+        },
+        {
+          "it": "English names in the reposition spec",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "the lint gate fixture can actually run eslint",
+          "en": "",
+          "scope": "relay",
           "breaking": false
         },
         {
