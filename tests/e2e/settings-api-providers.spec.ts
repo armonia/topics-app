@@ -96,8 +96,10 @@ async function mockProviders(page: Page, providers: ProviderSnapshotEntry[] = [e
 async function openProviders(page: Page) {
   await page.goto('/');
   await openProfileMenu(page);
+  // One click, not two: the row opens the panel straight away since 4763a62b.
+  // It used to unfold a level holding a copy of the panel's own section list,
+  // and this helper had to walk through its «all» door to get here.
   await page.getByTestId('topics-menu-settings').click();
-  await page.getByTestId('topics-menu-settings-all').click();
   const panel = page.getByTestId('settings-panel');
   await expect(panel).toBeVisible();
   await panel.locator('nav').getByRole('button', { name: 'Providers AI', exact: true }).click();

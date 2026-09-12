@@ -61,8 +61,9 @@ async function apriImpostazioni(page: Page) {
   // By testid, not by the word: the row is one component shared with the
   // desktop's user-card menu (`TopicsMenuItems`) and its label goes through
   // the dictionary, so under it-IT it reads «Impostazioni». allow-italian: quoted label
+  // One click since 4763a62b: the row opens the panel instead of unfolding a
+  // level that held a copy of the panel's own section list.
   await page.getByTestId("topics-menu-settings").click();
-  await page.getByTestId("topics-menu-settings-all").click();
   const pannello = page.getByTestId("settings-panel");
   await expect(pannello).toBeVisible({ timeout: 10_000 });
   await expect

@@ -46,7 +46,13 @@ export async function openProfileMenu(page: Page): Promise<void> {
  * The panel is a LEVEL now, not an accordion under the row (STATUSLINE-05):
  * the row it hangs off is the same one, and it also carries the agents at
  * work: «who is running» and «what it costs» were two rows for one question.
- * So the wait is on the level, which is where the numbers are.
+ *
+ * AND SINCE 4763a62b IT IS ONE BRANCH DEEPER. That level holds three doors -
+ * what is RUNNING, what it has COST, what the MACHINE is doing - and the
+ * numbers this helper is after live behind the first, `menu-system-performance`.
+ * Before that card the running names and the megabytes sat flat at the top of
+ * the level, the only subject without a door of its own next to «usage» and
+ * «machine», which both had one.
  *
  * `connection-status` did NOT come along: that testid stayed OUTSIDE, on the
  * dot of the user card, because half the suite uses it to know the app is up
@@ -58,7 +64,12 @@ export async function openPerfPanel(page: Page): Promise<void> {
   const button = page.locator('[data-testid="menu-system-status"]');
   await expect(button).toBeVisible({ timeout: 15_000 });
   await button.click();
-  await expect(page.getByTestId("menu-system-status-menu")).toBeVisible({ timeout: 15_000 });
+  const status = page.getByTestId("menu-system-status-menu");
+  await expect(status).toBeVisible({ timeout: 15_000 });
+  const performance = status.getByTestId("menu-system-performance");
+  await expect(performance).toBeVisible({ timeout: 15_000 });
+  await performance.click();
+  await expect(page.getByTestId("menu-system-performance-menu")).toBeVisible({ timeout: 15_000 });
   // AND THE POINTER LEAVES, which a level opened by a CLICK survives: it is
   // pinned until something explicit closes it. `TooltipDelegate` strips the
   // `title` of whatever sits under the pointer, so a spec reading those titles

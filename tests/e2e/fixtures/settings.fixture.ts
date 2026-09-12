@@ -15,12 +15,11 @@ export class SettingsPage {
    */
   async openSettings() {
     await openProfileMenu(this.page);
-    // Two steps since the settings row became a LEVEL of its own
-    // (STATUSLINE-05): the level lists the sections, so «take me to the
-    // providers» is one gesture instead of a hunt inside the panel. The last
-    // row of it is the plain door, which is what this fixture wants.
+    // One step again. The row was a LEVEL for a while (STATUSLINE-05), listing
+    // the sections so «take me to the providers» was one gesture; 4763a62b took
+    // that copy out - it repeated the panel's own navigation - so the row is
+    // the plain door this fixture always wanted.
     await this.page.getByTestId("topics-menu-settings").click();
-    await this.page.getByTestId("topics-menu-settings-all").click();
     await this.panel.waitFor({ state: "visible", timeout: 10_000 });
   }
 

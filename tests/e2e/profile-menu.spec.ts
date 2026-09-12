@@ -158,26 +158,24 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await expect(page.getByTestId("identity-me-profile")).toBeFocused();
   });
 
-  test("le impostazioni portano dritto alla sezione, senza cercarla nel pannello", async ({ page }) => {
+  test("la riga delle impostazioni apre il pannello, e non ne ricopia l'elenco", async ({ page }) => {
     await goToApp(page);
     const menu = await openProfileMenu(page);
 
-    // The row is a LEVEL now: the sections are in it, and each one is a door
-    // that lands on that page of the panel. Opening the panel and then hunting
-    // for the row was two searches for one intention.
+    // THE ROW DOES THE ONE THING ITS LABEL PROMISES. It used to open a level
+    // holding a copy of `SETTINGS_SECTIONS`, so the same names were read twice
+    // - once in the menu, once inside the panel - for one destination. Card
+    // 4763a62b called that a repetition of the panel's own navigation and took
+    // the copy out: the panel is where a section is picked, because that list
+    // already lives there.
+    //
+    // So what this test pins is the ABSENCE of the second copy, not just the
+    // click: a level growing back here would be the defect returning.
     await menu.getByTestId("topics-menu-settings").click();
-    const level = page.getByTestId("topics-menu-settings-menu");
-    await expect(level).toBeVisible({ timeout: 10_000 });
-    await level.getByTestId("topics-menu-settings-providers").click();
+    await expect(page.getByTestId("topics-menu-settings-menu")).toHaveCount(0);
 
     const panel = page.getByTestId("settings-panel");
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    // The section it landed on is the one that was asked for: the rail marks
-    // the current page with `aria-current`, which is the panel's own answer to
-    // "where am I" and not a class name this spec would be guessing at.
-    const current = panel.locator('[aria-current="page"]');
-    await expect(current).toHaveCount(1);
-    await expect(current).toContainText(/Provider/i);
   });
 
   test("il pulsante mostra quanti agenti stanno lavorando, ed è il numero della lista", async ({ page, request }) => {
@@ -210,7 +208,17 @@ test.describe("il menu utente apre i livelli di lato", () => {
     const row = menu.getByTestId("menu-system-status");
     await expect(row).toBeVisible();
     await row.click();
-    const level = page.getByTestId("menu-system-status-menu");
+    const status = page.getByTestId("menu-system-status-menu");
+    await expect(status).toBeVisible({ timeout: 10_000 });
+
+    // THE NAMES ARE ONE BRANCH DEEPER THAN THEY USED TO BE. Who is working and
+    // what it costs sat flat at the top of this level, the only subject without
+    // a door of its own beside usage and machine, which both had one. Card
+    // 4763a62b branched it, so the three doors now answer the three questions
+    // the level exists for: what is RUNNING, what it has COST, what the MACHINE
+    // is doing.
+    await status.getByTestId("menu-system-performance").click();
+    const level = page.getByTestId("menu-system-performance-menu");
     await expect(level).toBeVisible({ timeout: 10_000 });
 
     const rows = level.getByTestId("active-agent-row");
