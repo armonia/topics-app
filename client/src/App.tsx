@@ -822,6 +822,16 @@ function App() {
   // firing a window event so the action needs no prop-threading through every
   // menu host. Shell-resolved: Electron IPC dialog OR Tauri dialog plugin; no-op
   // (null) on web. Previously read electronAPI directly → dead under Tauri.
+  // ONE OPENER, so a history row answers the same click whether it fires from
+  // the palette or from the user card's quick history dropdown: both host the
+  // same list (`buildHistoryRows`), and a second hand-written copy of "how a
+  // page reopens" is exactly the kind of pair that drifts apart.
+  const openHistoryUrl = useCallback((url: string) => {
+    const contextId = newBrowserContextId();
+    seedBrowserPaneInitialUrl(`browser:${contextId}`, url);
+    openBrowserPane(contextId);
+  }, [openBrowserPane]);
+
   const handleOpenProjectPicker = useCallback(async () => {
     // Guard the native dialog: a rejected/cancelled call must not bubble up as
     // an unhandled promise rejection. (Toast isn't reachable here — this
@@ -1915,6 +1925,8 @@ function App() {
               onOpenHistory: () => { setSearchScope('history'); setShowSearch(true); },
               onOpenSettings: () => { setShowSettings(true); },
               onOpenChangelog: (version) => setShowChangelogFromMenu(version),
+              onReopenClosedTab: handleReopenClosedTab,
+              onOpenHistoryUrl: openHistoryUrl,
             }}
           />
         </ErrorBoundary>
@@ -2210,6 +2222,8 @@ function App() {
             splitLayoutAvailable={splitLayoutAvailable}
             onOpenHistory={() => { setSearchScope('history'); setShowSearch(true); setShowTopicsMenu(false); }}
             onOpenSettings={() => { setShowSettings(true); setShowTopicsMenu(false); }}
+            onReopenClosedTab={handleReopenClosedTab}
+            onOpenHistoryUrl={openHistoryUrl}
             onClose={() => setShowTopicsMenu(false)}
           />
           {/* THE STATE SITS AT THE BOTTOM, under the commands: above the things
@@ -2362,17 +2376,7 @@ function App() {
             }}
             closedTabs={closedTabs}
             onReopenClosedTab={handleReopenClosedTab}
-            // A history row that is a PAGE opens in a brand new browser pane.
-            // The seed for the URL goes in BEFORE the open: the pane captures
-            // its `initialUrl` at mount, once and only once (see
-            // `seedBrowserPaneInitialUrl`), so writing it afterwards would
-            // mean a blank tab sitting next to a click that had promised a
-            // page.
-            onOpenHistoryUrl={(url) => {
-              const contextId = newBrowserContextId();
-              seedBrowserPaneInitialUrl(`browser:${contextId}`, url);
-              openBrowserPane(contextId);
-            }}
+            onOpenHistoryUrl={openHistoryUrl}
           />
         </Suspense>
       )}
