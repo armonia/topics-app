@@ -306,7 +306,7 @@ export function PerfSection() {
               non di una meta'. La CPU sparisce quando non e' misurata: uno «0%»
               li' sembra una misura ed e' invece l'assenza di misura. */}
           <span className="flex items-baseline gap-2">
-            <span className="tabular-nums text-body font-semibold text-app-text">
+            <span className="tabular-nums text-prose font-semibold text-app-text">
               {totalMemMB !== null ? formatMemoryMB(totalMemMB) : '-'}
             </span>
             {footprint.totalCpu !== null && (

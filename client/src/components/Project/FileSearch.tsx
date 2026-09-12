@@ -249,7 +249,7 @@ export function FileSearch({ projectPaths, mode, onModeChange, onOpenFile, onClo
   /* Gli interruttori sono gli STESSI nei due posti: cambia dove atterrano e
      quanto sono alti. Un dito vuole 44px, un puntatore no, e scrivere due volte
      gli stessi bottoni li farebbe divergere alla prima modifica. */
-  const btn = isMobile ? 'px-3 h-11 text-body' : 'px-1.5 py-0.5 text-mini';
+  const btn = isMobile ? 'px-3 h-11 text-prose' : 'px-1.5 py-0.5 text-mini';
   /* Una riga di risultato e' un bersaglio: `py-1` la teneva a ~22px, cioe' meta'
      dei 44 sotto i quali un dito non centra piu' quello che vede. */
   const rowPad = isMobile ? 'py-3 min-h-11' : 'py-1';

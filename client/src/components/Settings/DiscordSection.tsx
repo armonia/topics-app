@@ -75,7 +75,7 @@ function Anteprima({ activity, vuoto, appName, nomeIgnoto }: { activity: Discord
       {/* L'iniziale del nome VERO. La «T» fissa di prima faceva credere che
           Discord non stesse onorando l'immagine, mentre era solo questo
           quadratino disegnato da noi. */}
-      <div className="mt-0.5 h-8 w-8 flex-shrink-0 rounded bg-primary/15 text-center text-body font-semibold leading-8 text-primary">
+      <div className="mt-0.5 h-8 w-8 flex-shrink-0 rounded bg-primary/15 text-center text-prose font-semibold leading-8 text-primary">
         {(appName ?? '?').slice(0, 1).toUpperCase()}
       </div>
       <div className="min-w-0">
@@ -153,7 +153,7 @@ export function DiscordSection() {
         {/* L'interruttore */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="text-body text-app-text">{t('discord.toggle')}</div>
+            <div className="text-prose text-app-text">{t('discord.toggle')}</div>
             <div className="mt-0.5 flex items-center gap-1.5">
               <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${COLORE[stato]}`} aria-hidden="true" />
               <span className="text-mini text-app-text-muted" data-testid="discord-state">

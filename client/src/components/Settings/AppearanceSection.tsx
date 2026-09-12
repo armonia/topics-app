@@ -34,7 +34,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
     <div className="space-y-5">
       {/* Font Size */}
       <div>
-        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-2">
           <Type size={14} />
           Font Size
           <span className="ml-auto text-compact text-app-text-muted font-normal">{settings.fontSize}px</span>
@@ -69,7 +69,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           soglia sotto cui il tetto smette di avere senso e diventa «piena
           larghezza». */}
       <div>
-        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-2">
           <Type size={14} />
           {tr('appearance.chatWidth')}
           <span className="ml-auto text-compact text-app-text-muted font-normal">
@@ -100,7 +100,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
       {/* Theme */}
       {onThemeChange && (
         <div>
-          <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
+          <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-2">
             {themeMode === 'light' ? <Sun size={14} /> : themeMode === 'dark' ? <Moon size={14} /> : <Monitor size={14} />}
             Theme
           </label>
@@ -129,7 +129,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
 
       {/* Message Density */}
       <div>
-        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-2">
+        <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-2">
           {settings.messageDensity === 'compact' ? <Rows3 size={14} /> : <AlignJustify size={14} />}
           Message Density
         </label>
@@ -169,7 +169,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
 
       {/* Preview */}
       <div>
-        <label className="text-body font-medium text-app-text mb-2 block">Preview</label>
+        <label className="text-prose font-medium text-app-text mb-2 block">Preview</label>
         <div className="bg-app-hover rounded-lg p-3 border border-app-border">
           <div className={`${settings.messageDensity === 'compact' ? 'space-y-1' : 'space-y-2.5'}`}>
             <div className="flex justify-end">
@@ -198,7 +198,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           BOTH desktop shells (Electron + Tauri), hence isDesktop not isElectron. */}
       {isDesktop && (
         <div>
-          <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
+          <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-1">
             <LayoutGrid size={14} />
             Floating splits
             <span className="ml-1 text-micro font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">
@@ -227,7 +227,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           `showBoardRow`). Chi non la vuole la spegne qui — la board resta
           raggiungibile dal «+» e dalla sua tab. */}
       <div>
-        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
+        <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-1">
           <Kanban size={14} />
           Board
         </label>
@@ -269,7 +269,7 @@ export function AppearanceSection({ settings, themeMode, onThemeChange, onChange
           className="mt-6 w-full flex items-center gap-2 rounded-lg border border-app-border bg-app-hover/40 px-3 py-2 text-left transition-colors hover:bg-app-hover coarse:min-h-11"
         >
           <Keyboard size={14} className="flex-shrink-0 text-app-text-secondary" />
-          <span className="text-body text-app-text">Scorciatoie da tastiera</span>
+          <span className="text-prose text-app-text">Scorciatoie da tastiera</span>
           {/* Vedi `shared/shortcuts.ts`: la chord ne accetta due, e questa è
               quella che si scrive uguale su ogni tastiera. */}
           <kbd className="kbd ml-auto">{shortcut('/')}</kbd>
@@ -341,7 +341,7 @@ function LanguageSetting({
 
   return (
     <div className="mt-6">
-      <h3 className="text-body font-medium text-app-text mb-1">{tr('appearance.language')}</h3>
+      <h3 className="text-prose font-medium text-app-text mb-1">{tr('appearance.language')}</h3>
       <p className="text-compact text-app-text-muted mb-3">
         {tr('appearance.language.blurb')}
       </p>

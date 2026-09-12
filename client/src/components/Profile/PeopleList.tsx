@@ -57,7 +57,7 @@ export function PeopleList({ people, emptyText, testId }: {
             >
               <PersonAvatar github={p.github} size={36} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-body text-app-text">
+                <span className="block truncate text-prose text-app-text">
                   {p.github?.name || p.displayName}
                 </span>
                 <span className="block truncate text-mini text-app-text-muted">

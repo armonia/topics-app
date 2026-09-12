@@ -2880,7 +2880,7 @@ export function PanelGrid({
                 </svg>
               </div>
               <h2 className="text-title font-semibold text-app-text mb-2">Welcome to Topics</h2>
-              <p className="text-body text-app-text-muted leading-relaxed mb-6">
+              <p className="text-prose text-app-text-muted leading-relaxed mb-6">
                 {window.innerWidth < 768
                   ? 'Tap the menu button to browse topics or create a new one.'
                   : 'Select a topic to start'}

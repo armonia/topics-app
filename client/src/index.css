@@ -316,7 +316,14 @@
   --text-micro: 10px;    /* dense metadata: timestamps, path fragments, hints */
   --text-mini: 11px;     /* THE default of this UI: rows, labels, menus, chips */
   --text-compact: 12px;  /* buttons, inputs, secondary body */
-  --text-body: 13px;     /* body: message text, descriptions, dialog prose */
+  /* `prose` and not `body`: this file already owns a COLOUR token called
+   * `--text-body` (the one `.text-app-text-body` paints with), declared later
+   * and therefore winning. `font-size: var(--text-body)` then received a colour,
+   * the declaration was dropped, and 228 places silently fell back to the
+   * inherited size - 12px where 13 was meant. Nothing catches that: the class
+   * exists, the build is clean, and only a test asserting the computed size
+   * says anything. The two namespaces are the same namespace. */
+  --text-prose: 13px;    /* body: message text, descriptions, dialog prose */
   --text-body-lg: 14px;  /* body when a surface has room: modals, empty states */
   --text-title: 16px;    /* the title of a panel, a modal, a card */
   --text-headline: 20px; /* the heading of a whole page or an empty state */

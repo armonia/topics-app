@@ -52,7 +52,7 @@ export function PlanSurface({ content }: { content: string }) {
         {options.length > 0 && (
           <ul className="mt-3 space-y-1 border-t border-violet-500/20 pt-3" data-testid="plan-surface-options">
             {options.map((opt, i) => (
-              <li key={i} className="flex items-start gap-2 text-body text-app-text">
+              <li key={i} className="flex items-start gap-2 text-prose text-app-text">
                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-violet-300/70" />
                 <span className="min-w-0 break-words">{opt}</span>
               </li>

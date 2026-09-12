@@ -35,7 +35,7 @@ export function PushEnrollPrompt() {
       <div className="flex items-start gap-2">
         <BellRing size={14} className="mt-0.5 shrink-0 text-app-text-secondary" />
         <div className="min-w-0 flex-1">
-          <div className="text-body font-medium text-app-text">{tr('push.prompt.title')}</div>
+          <div className="text-prose font-medium text-app-text">{tr('push.prompt.title')}</div>
           <p className="mt-0.5 text-compact leading-snug text-app-text-secondary">
             {tr('push.prompt.blurb')}
           </p>

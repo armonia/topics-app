@@ -95,7 +95,7 @@ export function ChangelogModal({
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-12 shrink-0 border-b border-app-border">
           <Sparkles size={15} className="text-primary" />
-          <span className="text-body font-semibold text-app-text">{tr('changelog.title')}</span>
+          <span className="text-prose font-semibold text-app-text">{tr('changelog.title')}</span>
           <span className="text-mini text-app-text-muted">{tr('changelog.subtitle')}</span>
           <button
             onClick={onClose}

@@ -236,7 +236,7 @@ export function ContextInspector({ topic, isOpen, onClose, onUpdateTopic, onMess
           >
             <ChevronLeft size={14} />
           </button>
-          <span className="text-body font-medium text-app-text truncate">
+          <span className="text-prose font-medium text-app-text truncate">
             OpenClaw Memory Tree
           </span>
           <div className="flex-1" />

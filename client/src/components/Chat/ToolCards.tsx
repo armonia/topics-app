@@ -411,7 +411,7 @@ export function PlanCard({ text }: { text: string }) {
       <div className="text-mini uppercase tracking-wide text-app-text-muted">Piano proposto</div>
       <div
         data-testid="plan-card-body"
-        className="prose prose-sm max-w-none text-compact text-app-text bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto prose-p:my-0.5 prose-headings:my-1 prose-headings:text-body prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1 prose-code:text-mini"
+        className="prose prose-sm max-w-none text-compact text-app-text bg-app-hover/40 rounded px-2 py-1.5 max-h-72 overflow-auto prose-p:my-0.5 prose-headings:my-1 prose-headings:text-prose prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1 prose-code:text-mini"
       >
         <ChatMarkdown components={PLAN_MARKDOWN_COMPONENTS}>{text}</ChatMarkdown>
       </div>

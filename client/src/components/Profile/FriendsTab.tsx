@@ -55,7 +55,7 @@ export function FriendsTab() {
         className="flex min-w-0 flex-1 items-center gap-3 text-left coarse:min-h-11"
       >
         <PersonAvatar github={p.github} size={32} />
-        <span className="min-w-0 flex-1 truncate text-body text-app-text">{p.displayName}</span>
+        <span className="min-w-0 flex-1 truncate text-prose text-app-text">{p.displayName}</span>
       </button>
       {actions.map((a) => (
         <button

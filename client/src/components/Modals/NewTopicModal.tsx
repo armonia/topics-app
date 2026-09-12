@@ -238,7 +238,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
         <div className="p-5 space-y-4">
           {/* Topic name */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-1.5">
+            <label className="block text-prose font-medium text-app-text mb-1.5">
               Topic Name
             </label>
             <input
@@ -252,14 +252,14 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
               }}
               placeholder="Enter topic name..."
               disabled={submitting}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors disabled:opacity-60"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-prose bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors disabled:opacity-60"
             />
           </div>
 
           {/* Templates */}
           {showTemplates && (
             <div>
-              <label className="block text-body font-medium text-app-text mb-2">
+              <label className="block text-prose font-medium text-app-text mb-2">
                 Or start from a template
               </label>
               <div className="grid grid-cols-2 gap-2">
@@ -275,7 +275,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <TopicIcon name={template.icon} size={16} color={template.color} />
-                      <span className="text-body font-medium text-app-text">{template.name}</span>
+                      <span className="text-prose font-medium text-app-text">{template.name}</span>
                     </div>
                     <p className="text-mini text-app-text-muted">{template.description}</p>
                   </button>
@@ -290,7 +290,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <TopicIcon name={selectedTemplate.icon} size={16} color={selectedTemplate.color} />
-                  <span className="text-body font-medium text-app-text">
+                  <span className="text-prose font-medium text-app-text">
                     {selectedTemplate.name} Template
                   </span>
                 </div>
@@ -308,7 +308,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
           {/* Phase A · Worktree picker (conditional on a known Project) */}
           {showPicker && (
             <div className="border-t border-app-border-light pt-4">
-              <label className="block text-body font-medium text-app-text mb-2">
+              <label className="block text-prose font-medium text-app-text mb-2">
                 Working tree for this topic
               </label>
               <p className="text-mini text-app-text-muted mb-2">
@@ -442,7 +442,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
 
           {/* Phase C · TOPIC-IM-01: optional one-shot initial message */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-1.5">
+            <label className="block text-prose font-medium text-app-text mb-1.5">
               Initial message <span className="text-app-text-muted font-normal">(optional)</span>
             </label>
             <p className="text-mini text-app-text-muted mb-2">
@@ -455,7 +455,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
               rows={3}
               maxLength={8000}
               disabled={submitting}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y disabled:opacity-60"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-prose bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y disabled:opacity-60"
             />
           </div>
 
@@ -472,14 +472,14 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
           <button
             onClick={onClose}
             disabled={submitting}
-            className="px-4 py-2 text-body text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-prose text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={handleCreate}
             disabled={(!name.trim() && !selectedTemplate) || submitting}
-            className="inline-flex items-center gap-2 px-4 py-2 text-body bg-primary text-white rounded-lg hover:bg-primary-hover disabled:bg-app-disabled disabled:text-app-text-muted transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 text-prose bg-primary text-white rounded-lg hover:bg-primary-hover disabled:bg-app-disabled disabled:text-app-text-muted transition-colors"
           >
             {submitting && <Loader2 size={13} className="animate-spin" />}
             {submitting && wtMode === 'create-new' ? 'Setting up worktree…' : 'Create Topic'}

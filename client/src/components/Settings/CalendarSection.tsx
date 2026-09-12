@@ -101,7 +101,7 @@ export function CalendarSection() {
           inert until there is something to switch on. */}
       <div className="flex items-start justify-between gap-3 border-b border-app-border py-2">
         <div className={`min-w-0 flex-1${configured ? '' : ' opacity-50'}`}>
-          <div className="text-body text-app-text">{t('calendar.sync')}</div>
+          <div className="text-prose text-app-text">{t('calendar.sync')}</div>
           <div className="mt-0.5 text-mini text-app-text-muted">
             {configured ? t('calendar.sync.configured') : t('calendar.sync.needsUrl')}
           </div>

@@ -418,12 +418,12 @@ export function IdentitySection({ onOrgChange }: {
   // I due elenchi. `tolti` esiste per un gesto solo: cancellare davvero.
   const { presenti, tolti } = splitMembri(membri);
   const soloTu = presenti.length <= 1;
-  const campo = 'w-full rounded border border-app-border bg-app-bg px-2 py-1 text-body text-app-text outline-none focus:border-primary';
+  const campo = 'w-full rounded border border-app-border bg-app-bg px-2 py-1 text-prose text-app-text outline-none focus:border-primary';
 
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-body font-semibold text-app-text">{t('identity.title')}</h3>
+        <h3 className="text-prose font-semibold text-app-text">{t('identity.title')}</h3>
         <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">
           {/* A chi è solo non si spiega un concetto che non gli serve ancora:
               gli si dice a cosa servirà, in una riga. */}
@@ -567,7 +567,7 @@ export function IdentitySection({ onOrgChange }: {
                   className="min-w-0 flex-1 text-left coarse:min-h-11"
                   title={t('identity.editPerson')}
                 >
-                  <span className="block truncate text-body text-app-text">{m.name}</span>
+                  <span className="block truncate text-prose text-app-text">{m.name}</span>
                   {m.email && <span className="block truncate text-mini text-app-text-muted">{m.email}</span>}
                 </button>
                 {/* THE NAME EDITS, THE ICON OPENS. Two different verbs need two
@@ -634,7 +634,7 @@ export function IdentitySection({ onOrgChange }: {
         ) : nuovo === null ? (
           <button
             onClick={() => { setNuovo({ nome: '', email: '' }); setRifiuto(null); }}
-            className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-body text-app-text-secondary hover:bg-app-hover coarse:min-h-11"
+            className="flex w-full items-center gap-2 border-t border-app-border px-3 py-2 text-left text-prose text-app-text-secondary hover:bg-app-hover coarse:min-h-11"
           >
             <Plus size={13} className="flex-shrink-0 text-app-text-tertiary" />
             {t('identity.addPerson')}

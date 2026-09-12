@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
  *
  * Prima ogni pannello scriveva il suo vuoto a mano, con stili che divergevano
  * anche DENTRO lo stesso file (CommandPalette rendeva "No projects" con
- * `px-4 py-8 text-center text-body` e "Nessun risultato" di colonna con
+ * `px-4 py-8 text-center text-prose` e "Nessun risultato" di colonna con
  * `px-3 py-2 text-mini italic`). Le due misure NON sono un errore da
  * appiattire: sono due cose diverse, e restano due `variant`.
  *
@@ -43,7 +43,7 @@ export function EmptyState({ icon, title, hint, action, variant = 'panel', class
   return (
     <div data-testid="empty-state" data-variant="panel" className={`flex flex-col items-center justify-center gap-1 px-4 py-8 text-center ${className}`}>
       {icon && <div className="text-app-text-muted opacity-40 mb-1">{icon}</div>}
-      <p className="text-body text-app-text-muted">{title}</p>
+      <p className="text-prose text-app-text-muted">{title}</p>
       {hint && <p className="text-compact text-app-text-tertiary max-w-xs">{hint}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>

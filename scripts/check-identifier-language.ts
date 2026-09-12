@@ -92,6 +92,10 @@ export const PROJECT_WORDS = new Set([
   // participle the dictionary does not carry, next to `emitted`, `supplied` and
   // `verified`; the other gates in this folder already count files with it.
   "tailwind", "scanned",
+  // `colliding`: the present participle, same case as `scanned` above — the
+  // dictionary carries the verb and not this form. It names the typography
+  // gate's rule about two `--text-*` namespaces landing on one name.
+  "colliding",
   // The steps under a card. It is an Italian dictionary word (a loanword), and
   // it is also what this project calls the thing everywhere: `subtaskCount`'s
   // UI, `Card.tsx`'s `const checklist = children`, the `checklist_frozen` queue

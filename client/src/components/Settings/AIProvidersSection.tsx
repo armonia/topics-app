@@ -191,7 +191,7 @@ export function AIProvidersSection() {
   return (
     <div className="space-y-6" data-testid="ai-providers-settings">
       <div className="space-y-3">
-        <h3 className="flex items-center gap-2 text-body font-medium text-app-text">
+        <h3 className="flex items-center gap-2 text-prose font-medium text-app-text">
           <Cpu size={14} />
           {tr('ai.api.title')}
         </h3>
@@ -229,7 +229,7 @@ export function AIProvidersSection() {
       </div>
 
       {entries.some((entry) => !isApiProvider(entry.name)) && <div className="border-t border-app-border pt-3 space-y-2">
-        <h3 className="text-body font-medium text-app-text">{tr('ai.agents.title')}</h3>
+        <h3 className="text-prose font-medium text-app-text">{tr('ai.agents.title')}</h3>
         <p className="text-mini text-app-text-secondary">{tr('ai.agents.hint')}</p>
         {entries.filter((entry) => !isApiProvider(entry.name)).map(renderProvider)}
       </div>}
@@ -249,7 +249,7 @@ export function AIProvidersSection() {
         <p className="text-mini text-app-text-muted">{tr('ai.advanced.hint')}</p>
         {advanced && <div id="ai-providers-advanced" data-testid="ai-providers-advanced" className="mt-3 space-y-4">
           {settings && <div className="space-y-3 rounded-lg border border-app-border px-3 py-3">
-            <h3 className="text-body font-medium text-app-text">{tr('ai.execution.title')}</h3>
+            <h3 className="text-prose font-medium text-app-text">{tr('ai.execution.title')}</h3>
             <AgentRuntimeChoice
               settings={settings}
               saving={saving}

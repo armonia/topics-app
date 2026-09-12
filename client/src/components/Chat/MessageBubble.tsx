@@ -406,7 +406,7 @@ export const MessageBubble = memo(function MessageBubble({
             // erano turni riusciti bordati di giallo senza una parola che
             // dicesse perché. Il verdetto ora è una riga sua, in cima al
             // contenuto (`TurnErrorBanner` in MessageContent).
-            className={`text-body leading-relaxed overflow-hidden ${
+            className={`text-prose leading-relaxed overflow-hidden ${
               msg.role === 'user'
                 // Grigio di sistema, non il blu del marchio: in quest'app il
                 // blu è l'accento delle azioni e del caricamento, e un

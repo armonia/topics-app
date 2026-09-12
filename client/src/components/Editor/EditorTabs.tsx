@@ -232,7 +232,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
   if (tabs.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-app-text-tertiary text-body">
+      <div className="flex items-center justify-center h-full text-app-text-tertiary text-prose">
         <div className="text-center">
           <File size={32} className="mx-auto mb-2 opacity-30" />
           <p>Select a file to view its content</p>
@@ -313,7 +313,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
           // lo scriveva sul file vero. Stesso pattern del gemello FilePane.tsx:174.
           <div className="flex items-center justify-center h-full px-6">
             <div className="text-center max-w-md">
-              <p className="text-body text-red-500 mb-1">{activeTab.loadError}</p>
+              <p className="text-prose text-red-500 mb-1">{activeTab.loadError}</p>
               <p className="text-compact text-app-text-tertiary mb-3">
                 {t('editor.loadFailed')}
               </p>

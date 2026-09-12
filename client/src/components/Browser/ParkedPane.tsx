@@ -40,7 +40,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
             «acceso» e stava sopra la riga che dice che non c'è nessuno in
             ascolto — il glifo diceva il contrario del testo. */}
         <Unplug size={28} className="mx-auto mb-3 text-app-text-tertiary" aria-hidden />
-        <div className="text-body font-medium text-app-text">{message}</div>
+        <div className="text-prose font-medium text-app-text">{message}</div>
         {hint && <div className="mt-1.5 text-compact text-app-text-muted leading-snug">{hint}</div>}
         <div className="mt-1.5 text-mini text-app-text-tertiary">
           {tr('parked.checkedAt', { when: hhmm(checkedAt) })}

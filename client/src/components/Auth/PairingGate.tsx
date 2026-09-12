@@ -225,13 +225,13 @@ export function PairingGate({ session }: { session: SessionState }) {
               towards something unnamed. Here the name is there, and it is the
               one a person would use saying it out loud. */}
           {installazione && (
-            <p className="mt-1 text-body font-medium text-app-text">{installazione}</p>
+            <p className="mt-1 text-prose font-medium text-app-text">{installazione}</p>
           )}
-          <p className="mt-2 text-body leading-relaxed text-app-text-secondary">{spiegazione}</p>
+          <p className="mt-2 text-prose leading-relaxed text-app-text-secondary">{spiegazione}</p>
 
           {error && !denied && (
             <div className="mt-6 rounded-lg border border-app-border bg-surface px-4 py-3">
-              <p className="text-body text-app-text-secondary">
+              <p className="text-prose text-app-text-secondary">
                 {t(chiaveFrase(error))}
               </p>
               {/* The retry is already running: saying so makes the wait a wait
@@ -240,7 +240,7 @@ export function PairingGate({ session }: { session: SessionState }) {
               <p className="mt-1 text-compact text-app-text-muted">{t('pair.retrying')}</p>
               <button
                 onClick={() => { attemptsRef.current = 0; setOraRiprova((n) => n + 1); }}
-                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-body text-app-text hover:bg-surface"
+                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-prose text-app-text hover:bg-surface"
               >
                 {t('pair.retry')}
               </button>
@@ -249,10 +249,10 @@ export function PairingGate({ session }: { session: SessionState }) {
 
           {denied && (
             <div className="mt-6">
-              <p className="text-body text-app-text-secondary">{t('pair.denied')}</p>
+              <p className="text-prose text-app-text-secondary">{t('pair.denied')}</p>
               <button
                 onClick={() => { setDenied(false); setCode(null); void refreshSession(); }}
-                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-body text-app-text hover:bg-surface"
+                className="mt-3 rounded-lg border border-app-border px-4 py-2 text-prose text-app-text hover:bg-surface"
               >
                 {t('pair.retry')}
               </button>
@@ -267,7 +267,7 @@ export function PairingGate({ session }: { session: SessionState }) {
               >
                 {code}
               </div>
-              <p className="mt-4 text-body leading-relaxed text-app-text-secondary">
+              <p className="mt-4 text-prose leading-relaxed text-app-text-secondary">
                 {t('pair.codeHint')}
                 <br />
                 {t('pair.checkThenTap')} <span className="text-app-text">{t('pair.approve')}</span>.
@@ -280,7 +280,7 @@ export function PairingGate({ session }: { session: SessionState }) {
           )}
 
           {!code && !error && !denied && (
-            <div className="mt-8 text-body text-app-text-muted">{t('pair.preparing')}</div>
+            <div className="mt-8 text-prose text-app-text-muted">{t('pair.preparing')}</div>
           )}
 
           {/* THE STATE, always, at the bottom. A dot telling whether the machine

@@ -116,7 +116,7 @@ export function PairingApproval() {
         <div key={r.id} className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
           <div className="flex items-center gap-2">
             <Smartphone size={14} className="text-app-text-secondary" />
-            <span className="text-body font-medium text-app-text">{r.name} chiede accesso</span>
+            <span className="text-prose font-medium text-app-text">{r.name} chiede accesso</span>
           </div>
           {/* WHERE FROM, in words, with the address behind it.
 

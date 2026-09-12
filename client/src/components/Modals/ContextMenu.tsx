@@ -193,7 +193,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, isPinned
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') onClose(); }}
-            className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-body focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
+            className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-prose focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
           />
           <div className="flex justify-end gap-2 mt-2">
             <button onClick={onClose} className="text-compact text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">{tr('common.cancel')}</button>

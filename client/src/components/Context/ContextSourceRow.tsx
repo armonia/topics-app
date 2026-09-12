@@ -74,7 +74,7 @@ export function ContextSourceRow({ source, onToggle, onEdit, onBrowseMemory }: C
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
-        <span className="text-body leading-none flex-shrink-0">{icon}</span>
+        <span className="text-prose leading-none flex-shrink-0">{icon}</span>
         <span className="text-compact text-app-text truncate flex-1 min-w-0">{source.label}</span>
 
         {/* Token count */}

@@ -864,7 +864,7 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
         {item.icon}
       </span>
       <span className="flex-1 min-w-0 flex flex-col justify-center">
-        <span className={`${compact ? 'text-compact' : 'text-body'} font-medium truncate block leading-tight`}>
+        <span className={`${compact ? 'text-compact' : 'text-prose'} font-medium truncate block leading-tight`}>
           {highlightTerm ? highlightQuery(item.label, highlightTerm) : item.label}
         </span>
         {item.description && (
@@ -899,7 +899,7 @@ function ActionPill({ icon, label, shortcut, onClick, testId, isMobile }: {
       onClick={onClick}
       data-testid={testId}
       className={`inline-flex items-center gap-1.5 px-2.5 font-medium text-app-text-muted hover:text-app-text hover:bg-app-hover rounded-md transition-colors flex-shrink-0 whitespace-nowrap ${
-        isMobile ? 'h-11 text-body' : 'py-1 text-mini'
+        isMobile ? 'h-11 text-prose' : 'py-1 text-mini'
       }`}
       title={shortcut ? `${label} (${shortcut})` : label}
     >

@@ -1385,7 +1385,7 @@ export function ChatInput({
                 aria-label={tr('chat.composer.inputAria', { name: topic.name })}
                 aria-describedby="chat-input-hint"
                 placeholder={awaitingAnswer ? tr('chat.answerPlaceholder') : replyingTo ? tr('chat.composer.placeholderReply') : topic.projectPath ? tr('chat.composer.placeholderProject') : tr('chat.composer.placeholder')}
-                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-title' : 'text-body'}`}
+                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-title' : 'text-prose'}`}
                 style={{ minHeight: '32px', maxHeight: '140px' }}
                 rows={1}
                 disabled={uploading}

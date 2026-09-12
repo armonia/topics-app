@@ -87,7 +87,7 @@ export function CostProbePanel({ probe }: { probe: SessionCostProbe | null }) {
         data-testid="cost-probe-product"
         data-context={probe.contextTokens}
         data-calls={probe.toolCalls}
-        className="flex items-baseline gap-1.5 text-body tabular-nums text-app-text"
+        className="flex items-baseline gap-1.5 text-prose tabular-nums text-app-text"
       >
         <span className="font-semibold">{formatTokens(probe.contextTokens)}</span>
         <span className="text-app-text-muted">×</span>

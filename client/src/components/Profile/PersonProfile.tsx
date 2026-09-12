@@ -76,7 +76,7 @@ export function PersonProfile({ personId, onBack }: { personId: string; onBack: 
       </button>
 
       {missing === personId && (
-        <p data-testid="person-profile-missing" className="text-body text-app-text-muted">
+        <p data-testid="person-profile-missing" className="text-prose text-app-text-muted">
           {t('profile.notFound')}
         </p>
       )}

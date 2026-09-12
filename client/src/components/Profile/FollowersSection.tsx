@@ -92,7 +92,7 @@ export function FollowersSection({ initialTab = 'friends' }: { initialTab?: Tab 
             aria-selected={tab === id}
             onClick={chooseTab(id)}
             data-testid={`followers-tab-${id}`}
-            className={`rounded-md px-3 py-1.5 text-body coarse:min-h-11 ${
+            className={`rounded-md px-3 py-1.5 text-prose coarse:min-h-11 ${
               tab === id
                 ? 'bg-primary/10 font-medium text-primary'
                 : 'text-app-text-secondary hover:bg-app-hover hover:text-app-text'

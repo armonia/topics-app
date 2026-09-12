@@ -50,7 +50,7 @@ export function PermissionsSection() {
   return (
     <div className="space-y-4" data-testid="settings-permissions">
       <div>
-        <h3 className="text-body font-medium text-app-text mb-1">{tr('perms.title')}</h3>
+        <h3 className="text-prose font-medium text-app-text mb-1">{tr('perms.title')}</h3>
         <p className="text-compact leading-snug text-app-text-muted">
           {tr('perms.blurb')}
         </p>

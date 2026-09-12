@@ -343,20 +343,20 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {/* Name */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               Name
             </label>
             <input
               type="text"
               value={topicName}
               onChange={e => setTopicName(e.target.value)}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-prose bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
             />
           </div>
 
           {/* Color */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               Color
             </label>
             <div className="flex items-center gap-2">
@@ -390,7 +390,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* Mute notifications (per-topic — migration 073) */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <BellOff size={14} />
                 Notifications
@@ -415,7 +415,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           {!isGlobalOrchestrator && <>
           {/* Link Project */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <FolderOpen size={14} />
                 Link Project
@@ -430,12 +430,12 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                 value={projectPath}
                 onChange={e => setProjectPath(e.target.value)}
                 placeholder="/Users/you/projects/my-project"
-                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-prose bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
               />
               {projectPath && (
                 <button
                   onClick={handleUnlinkProject}
-                  className="px-3 py-2 text-body text-red-600 hover:bg-red-600/10 rounded-lg border border-red-600/30 transition-colors"
+                  className="px-3 py-2 text-prose text-red-600 hover:bg-red-600/10 rounded-lg border border-red-600/30 transition-colors"
                 >
                   Unlink
                 </button>
@@ -461,7 +461,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               invece del suo nome. Responsive: in colonna sotto i 640px, dove tre
               bottoni affiancati diventerebbero illeggibili. */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck size={14} />
                 Autonomy
@@ -503,7 +503,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           {/* Phase A · TOPIC-WT-03: Worktree (read-only) */}
           {worktree && (
             <div>
-              <label className="block text-body font-medium text-app-text mb-2">
+              <label className="block text-prose font-medium text-app-text mb-2">
                 <span className="flex items-center gap-1.5">
                   <GitBranch size={14} />
                   Worktree
@@ -545,7 +545,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* System Prompt */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               System Prompt
             </label>
             <p className="text-mini text-app-text-muted mb-2">
@@ -557,14 +557,14 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
               placeholder="Enter a system prompt for this topic..."
               rows={4}
               readOnly={!promptLoaded}
-              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y"
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-prose bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-y"
               aria-label="System prompt"
             />
           </div>
 
           {/* Context Files */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               Context Files
             </label>
             <p className="text-mini text-app-text-muted mb-2">
@@ -598,7 +598,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   }
                 }}
                 placeholder="/path/to/file.md"
-                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-body bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-prose bg-surface dark:bg-elevated text-app-text placeholder-app-placeholder focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                 aria-label="Add context file"
               />
               <button
@@ -609,7 +609,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
                   }
                 }}
                 disabled={!newContextFile.trim()}
-                className="px-3 py-2 text-body bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-2 text-prose bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add
               </button>
@@ -639,7 +639,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
           {/* Provider */}
           <div>
-            <label className="block text-body font-medium text-app-text mb-2">
+            <label className="block text-prose font-medium text-app-text mb-2">
               Provider
             </label>
             <p className="text-mini text-app-text-muted mb-2">
@@ -679,18 +679,18 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-app-border">
           {saved && (
-            <span className="text-emerald-500 text-body mr-auto">Saved</span>
+            <span className="text-emerald-500 text-prose mr-auto">Saved</span>
           )}
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-body text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
+            className="px-4 py-2 text-prose text-app-text-secondary hover:bg-app-hover rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={!isDirty}
-            className="px-4 py-2 text-body bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 text-prose bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save
           </button>

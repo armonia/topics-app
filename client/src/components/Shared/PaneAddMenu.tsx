@@ -402,7 +402,7 @@ export function PaneAddMenu({
         ) : (
           <>
             <Plus size={triggerIconSize} aria-hidden="true" />
-            {triggerLabel && <span className="text-body font-medium">{triggerLabel}</span>}
+            {triggerLabel && <span className="text-prose font-medium">{triggerLabel}</span>}
             {triggerKbd && !isMobile && (
               // `kbd-hint`: same mark as the Search button's ⌘K next door. It means
               // nothing on its own; inside `.sidebar-header` a container query hides

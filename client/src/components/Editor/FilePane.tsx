@@ -197,7 +197,7 @@ export function FilePane({ filePath, projectPath, diff, diffProjectPath, onPin }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-2 text-body">
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-prose">
         <p className="text-red-500">{error}</p>
         <button
           onClick={() => { setLoading(true); setError(null); filesApi.content(filePath).then(t => { setContent(t); setOriginalContent(t); setLoading(false); }).catch((e: unknown) => { setError(errorMessage(e)); setLoading(false); }); }}

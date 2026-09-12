@@ -181,7 +181,7 @@ function MutedProjects({ settings, onChange }: NotificationsSectionProps) {
   return (
     <div className="space-y-2" data-testid="settings-muted-projects">
       <div>
-        <h3 className="text-body font-medium text-app-text mb-1">{tr('notif.muted.title')}</h3>
+        <h3 className="text-prose font-medium text-app-text mb-1">{tr('notif.muted.title')}</h3>
         <p className="text-compact leading-snug text-app-text-muted">
           {tr('notif.muted.blurb')}
         </p>
@@ -248,7 +248,7 @@ function PushDevices() {
   return (
     <div className="space-y-3" data-testid="settings-push-devices">
       <div>
-        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
+        <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-1">
           <Smartphone size={14} />
           {tr('notif.push.title')}
         </label>
@@ -378,7 +378,7 @@ export function NotificationsSection({ settings, onChange }: NotificationsSectio
   return (
     <div className="space-y-5">
       <div>
-        <label className="flex items-center gap-2 text-body font-medium text-app-text mb-1">
+        <label className="flex items-center gap-2 text-prose font-medium text-app-text mb-1">
           <Bell size={14} />
           Topic completion notifications
         </label>

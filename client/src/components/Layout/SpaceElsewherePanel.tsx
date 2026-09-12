@@ -42,7 +42,7 @@ export function SpaceElsewherePanel({ spaceId, windowLabel }: Props) {
       data-testid="space-elsewhere"
     >
       <AppWindow size={22} className="text-app-text-tertiary" aria-hidden="true" />
-      <div className="text-body text-app-text">
+      <div className="text-prose text-app-text">
         <b>{name}</b> {tr('space.elsewhere')}
       </div>
       <div className="max-w-[380px] text-compact text-app-text-secondary">

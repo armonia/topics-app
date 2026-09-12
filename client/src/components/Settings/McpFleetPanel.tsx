@@ -137,7 +137,7 @@ export function McpFleetPanel() {
     >
       <div className="flex items-center gap-2">
         <Plug size={13} className="flex-shrink-0 text-app-text-muted" />
-        <span className="flex-1 text-body font-medium text-app-text">{t('mcp.title')}</span>
+        <span className="flex-1 text-prose font-medium text-app-text">{t('mcp.title')}</span>
         <button
           data-testid="mcp-fleet-refresh"
           onClick={() => { void recheck(); }}

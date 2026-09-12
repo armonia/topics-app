@@ -78,7 +78,7 @@ function Switch({ on, onToggle, label, help, testId, disabled }: {
         </span>
       </button>
       <div className="min-w-0">
-        <div className="text-body text-app-text">{label}</div>
+        <div className="text-prose text-app-text">{label}</div>
         <p className="text-compact leading-snug text-app-text-muted">{help}</p>
       </div>
     </li>

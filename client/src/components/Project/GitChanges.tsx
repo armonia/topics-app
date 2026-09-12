@@ -1615,7 +1615,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </div>
           </>
         ) : (
-          <div className="flex items-center justify-center h-full text-app-text-tertiary text-body">
+          <div className="flex items-center justify-center h-full text-app-text-tertiary text-prose">
             <div className="text-center">
               <GitBranch size={32} className="mx-auto mb-2 opacity-30" />
               <p>{tr('git.selectFile')}</p>

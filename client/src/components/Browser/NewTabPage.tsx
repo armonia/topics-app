@@ -86,7 +86,7 @@ export function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }
               spellCheck={false}
               autoComplete="off"
               data-testid="browser-new-tab-input"
-              className="w-full h-11 pl-10 pr-4 rounded-full bg-app-input border border-app-border-input text-body text-app-text placeholder:text-app-placeholder shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
+              className="w-full h-11 pl-10 pr-4 rounded-full bg-app-input border border-app-border-input text-prose text-app-text placeholder:text-app-placeholder shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
             />
           </form>
 

@@ -81,7 +81,7 @@ export function InAppBanners() {
               onClick={() => { openBannerTarget(b.url); dismiss(b.id); }}
               className="min-w-0 flex-1 text-left"
             >
-              <div className="truncate text-body font-medium text-app-text">{b.title}</div>
+              <div className="truncate text-prose font-medium text-app-text">{b.title}</div>
               {b.body && (
                 <div className="mt-0.5 line-clamp-2 text-compact leading-snug text-app-text-secondary">{b.body}</div>
               )}

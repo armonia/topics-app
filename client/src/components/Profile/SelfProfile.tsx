@@ -67,7 +67,7 @@ export function SelfProfile({ open, onOpen }: {
   if (!ready) return null;
   if (!me) {
     return (
-      <p data-testid="self-profile-missing" className="text-body text-app-text-muted">
+      <p data-testid="self-profile-missing" className="text-prose text-app-text-muted">
         {t('profile.notFound')}
       </p>
     );

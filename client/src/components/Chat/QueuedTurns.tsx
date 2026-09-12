@@ -169,7 +169,7 @@ function QueuedBubble({
       <div
         data-testid="queued-bubble"
         data-queued-id={turn.id}
-        className="relative max-w-[85%] min-w-0 px-3 py-2 rounded-2xl border border-dashed border-app-border bg-app-user-bubble/60 text-body leading-relaxed text-app-text-secondary"
+        className="relative max-w-[85%] min-w-0 px-3 py-2 rounded-2xl border border-dashed border-app-border bg-app-user-bubble/60 text-prose leading-relaxed text-app-text-secondary"
         title={editing ? undefined : t('chat.queue.waitingTitle')}
       >
         {editing ? (
@@ -186,7 +186,7 @@ function QueuedBubble({
               else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
             }}
             rows={1}
-            className="w-full resize-none bg-transparent text-body leading-relaxed text-app-text outline-none"
+            className="w-full resize-none bg-transparent text-prose leading-relaxed text-app-text outline-none"
           />
         ) : (
           <button

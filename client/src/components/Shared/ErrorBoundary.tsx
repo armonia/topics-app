@@ -97,7 +97,7 @@ export class ErrorBoundary extends Component<Props, State> {
           )}
           <button
             onClick={chunkError ? reloadForNewBundle : this.handleReset}
-            className="px-4 py-2 text-body font-medium bg-primary text-white rounded-lg hover:opacity-90 transition-opacity"
+            className="px-4 py-2 text-prose font-medium bg-primary text-white rounded-lg hover:opacity-90 transition-opacity"
           >
             {chunkError ? tr('crash.staleBundle.action') : tr('crash.generic.action')}
           </button>

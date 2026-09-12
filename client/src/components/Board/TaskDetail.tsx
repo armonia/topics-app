@@ -3045,7 +3045,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   const imgs = imagesFromClipboard(e.clipboardData);
                   if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
                 }}
-                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-title' : 'text-body'}`}
+                className={`${COMPOSER_TEXTAREA} ${isMobile ? 'text-title' : 'text-prose'}`}
                 style={{ minHeight: 32, maxHeight: 140 }}
               />
               <DictationButton
@@ -3588,7 +3588,7 @@ export function CommentBody({ content, questionActions, historicalQuestion = fal
           <div className={`pl-5 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{q.question}</ChatMarkdown>{options}</div>
         </details>
       ) : <div className="rounded border border-app-border bg-white/[0.02] px-2.5 py-2">
-        <div className={`text-body leading-snug text-app-text ${COMPACT_MD_CLS}`}>
+        <div className={`text-prose leading-snug text-app-text ${COMPACT_MD_CLS}`}>
           <ChatMarkdown components={{}}>{q.question}</ChatMarkdown>
         </div>
         {questionActions ?? options}

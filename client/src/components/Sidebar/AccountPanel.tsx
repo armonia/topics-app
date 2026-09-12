@@ -120,7 +120,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
               {who.iniziali || '?'}
             </span>}
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-body font-medium text-app-text">{who.nome}</span>
+          <span className="truncate text-prose font-medium text-app-text">{who.nome}</span>
           {/* The second line is the ACCOUNT where the word means something, and
               the device where it does not: never both, and never a blank. */}
           {speaksOfAccounts

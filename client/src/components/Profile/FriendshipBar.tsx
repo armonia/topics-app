@@ -56,7 +56,7 @@ export function FriendshipBar({ personId, initial }: { personId: string; initial
   return (
     <div data-testid="friendship-bar" data-state={state} className="flex flex-wrap items-center gap-2">
       {noteKey && (
-        <span data-testid="friendship-note" className="text-body text-app-text-secondary">
+        <span data-testid="friendship-note" className="text-prose text-app-text-secondary">
           {t(noteKey)}
         </span>
       )}
@@ -67,7 +67,7 @@ export function FriendshipBar({ personId, initial }: { personId: string; initial
           disabled={busy}
           onClick={() => void run(b.action)}
           data-testid={b.testId}
-          className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-body font-medium disabled:opacity-60 coarse:min-h-11 ${
+          className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-prose font-medium disabled:opacity-60 coarse:min-h-11 ${
             b.tone === 'primary'
               ? 'border-primary bg-primary/10 text-primary hover:bg-primary/20'
               : 'border-app-border text-app-text hover:bg-app-hover'

@@ -43,7 +43,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
       <div className="flex items-center justify-between px-4 py-2 border-b border-app-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <BarChart3 size={14} className="text-app-text-muted" />
-          <span className="text-body font-semibold text-app-text">Dashboard</span>
+          <span className="text-prose font-semibold text-app-text">Dashboard</span>
         </div>
         <div className="flex items-center gap-1.5">
           {/* The refresh glyph keeps its box when it is not spinning. Mounting

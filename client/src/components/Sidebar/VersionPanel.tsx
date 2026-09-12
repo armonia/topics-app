@@ -101,7 +101,7 @@ export function VersionPanel({
     <div data-testid="version-panel" className="space-y-3">
       {/* Identity */}
       <div className="flex items-baseline justify-between">
-        <span className="text-body font-semibold text-app-text">Topics</span>
+        <span className="text-prose font-semibold text-app-text">Topics</span>
         <span className="flex items-center gap-1.5">
           <span className="text-compact tabular-nums text-app-text-secondary">v{appVersion}</span>
           {isDev && (

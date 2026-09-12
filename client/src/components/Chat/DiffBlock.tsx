@@ -90,7 +90,7 @@ export const DiffBlock = memo(forwardRef<DiffBlockHandle, DiffBlockProps>(functi
   const replaceLines = edit.replaceText.split('\n');
 
   return (
-    <div className="my-2 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-body">
+    <div className="my-2 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-prose">
       {/* File path header */}
       <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-400">

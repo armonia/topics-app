@@ -500,10 +500,10 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
           trabocca spesso, ed è lo stesso difetto di prima, solo visibile. */}
       <pre
         {...(wordWrap ? {} : { tabIndex: 0 })}
-        className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-body leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`}
+        className={`bg-app-code-bg text-gray-100 ${isLong && collapsed ? '' : 'rounded-b-md'} p-2.5 text-prose leading-[1.5] ${wordWrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'}`}
         style={{ margin: 0 }}
       >
-        <code className="text-body">
+        <code className="text-prose">
           {showLineNumbers ? (
             <table className="border-collapse w-full">
               <tbody>
@@ -616,8 +616,8 @@ export const markdownComponents: Components = {
   },
   code: ({ children, className }) => {
     const isBlock = className?.includes('language-');
-    if (isBlock) return <code className="text-body">{children}</code>;
-    return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-body font-mono">{children}</code>;
+    if (isBlock) return <code className="text-prose">{children}</code>;
+    return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-prose font-mono">{children}</code>;
   },
   table: ({ children }) => (
     <div className="overflow-x-auto my-2">

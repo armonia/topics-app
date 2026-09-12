@@ -59,7 +59,7 @@ export function MediaViewer({ filePath, mediaType, filename }: { filePath: strin
         {/* Image */}
         <div className="flex-1 overflow-auto flex items-center justify-center bg-[repeating-conic-gradient(#80808015_0%_25%,transparent_0%_50%)] bg-[length:16px_16px]">
           {imageError ? (
-            <p className="text-body text-app-text-muted">Unable to load image</p>
+            <p className="text-prose text-app-text-muted">Unable to load image</p>
           ) : (
             <img
               src={mediaUrl}
@@ -94,7 +94,7 @@ export function MediaViewer({ filePath, mediaType, filename }: { filePath: strin
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 h-full">
         <div className="text-display-xl opacity-30">&#9835;</div>
-        <span className="text-body text-app-text-muted">{filename}</span>
+        <span className="text-prose text-app-text-muted">{filename}</span>
         <audio src={mediaUrl} controls preload="metadata" className="w-[320px] max-w-full" />
         <a href={mediaUrl} download={filename} className="text-compact text-primary hover:underline flex items-center gap-1">
           <Download size={12} /> Download

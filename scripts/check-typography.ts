@@ -82,6 +82,46 @@ export function parseScale(css: string): Step[] {
   return out;
 }
 
+/**
+ * A STEP NAME IS ALSO A COLOUR TOKEN NAME, AND THE FILE HAS BOTH.
+ *
+ * `--text-*` is one namespace, and this stylesheet uses it twice: for the type
+ * scale in `@theme`, and for the text COLOURS (`--text-heading`,
+ * `--text-muted`, ...) that `.text-app-text-*` paints with. Name a step after
+ * one of those and the later declaration wins: `font-size: var(--text-body)`
+ * receives a colour, the browser drops the declaration, and the class does
+ * NOTHING — the element silently falls back to the inherited size.
+ *
+ * Measured on 2026-09-12: `--text-body: 13px` collided with the colour token of
+ * the same name. 156 places rendered at 12px instead of 13, the build was
+ * clean, the class existed in the compiled sheet, and the only thing that said
+ * anything was one e2e assertion on a computed font-size. Renamed to `prose`.
+ *
+ * Nothing else can catch this: a collision is legal CSS.
+ */
+export function collidingSteps(css: string, steps: Step[]): Problem[] {
+  const start = css.indexOf("@theme");
+  let end = start;
+  if (start >= 0) {
+    let depth = 0;
+    for (let i = css.indexOf("{", start); i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+    }
+  }
+  const outside = start < 0 ? css : css.slice(0, start) + css.slice(end);
+  const taken = new Set<string>();
+  for (const m of outside.matchAll(/^\s*--text-([a-z0-9-]+)\s*:/gm)) taken.add(m[1]!);
+  return steps
+    .filter((s) => taken.has(s.name))
+    .map((s) => ({
+      file: THEME_FILE,
+      line: 0,
+      found: `--text-${s.name}`,
+      why: "this name is already a text COLOUR token in the same file: the later declaration wins and `font-size` silently does nothing",
+    }));
+}
+
 /** A step is a size only if it is a whole number of pixels, at or above the floor. */
 export function badSteps(steps: Step[]): Problem[] {
   const out: Problem[] = [];
@@ -133,7 +173,8 @@ function trackedSources(): string[] {
 }
 
 if (import.meta.main) {
-  const scale = parseScale(readFileSync(resolve(ROOT, THEME_FILE), "utf8"));
+  const themeCss = readFileSync(resolve(ROOT, THEME_FILE), "utf8");
+  const scale = parseScale(themeCss);
 
   if (process.argv.includes("--self-test")) {
     const fakeScale: Step[] = [{ name: "mini", value: "11px" }, { name: "body", value: "13px" }];
@@ -152,7 +193,7 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const problems = badSteps(scale);
+  const problems = [...badSteps(scale), ...collidingSteps(themeCss, scale)];
   let scanned = 0;
   for (const f of trackedSources()) {
     scanned++;

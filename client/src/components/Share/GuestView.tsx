@@ -93,10 +93,10 @@ export function GuestView({ deviceName }: { deviceName: string }) {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-5">
-        {stato === 'carico' && <p className="text-body text-app-text-muted">{tr('guest.loading')}</p>}
+        {stato === 'carico' && <p className="text-prose text-app-text-muted">{tr('guest.loading')}</p>}
 
         {stato === 'errore' && (
-          <p className="text-body text-app-text-secondary">
+          <p className="text-prose text-app-text-secondary">
             {tr('guest.error')}
           </p>
         )}
@@ -105,7 +105,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
           // Un elenco vuoto senza spiegazione si legge come «rotto». Qui si dice
           // che è normale, e di chi è la mossa successiva.
           <div className="rounded-xl border border-app-border bg-app-hover/30 px-4 py-5 text-center">
-            <p className="text-body text-app-text">{tr('guest.empty.title')}</p>
+            <p className="text-prose text-app-text">{tr('guest.empty.title')}</p>
             <p className="mt-1 text-compact text-app-text-secondary">
               {tr('guest.empty.blurb')}
             </p>
@@ -132,7 +132,7 @@ export function GuestView({ deviceName }: { deviceName: string }) {
             </h2>
             <ul className="space-y-1.5" data-testid="guest-chats">
               {chats.map((c) => (
-                <li key={c.id} className="rounded-lg border border-app-border px-3 py-2.5 text-body text-app-text">
+                <li key={c.id} className="rounded-lg border border-app-border px-3 py-2.5 text-prose text-app-text">
                   {c.name}
                 </li>
               ))}

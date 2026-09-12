@@ -1369,7 +1369,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           <div className="flex items-center justify-center h-full" data-testid="browser-webrtc-error">
             <div className="text-center max-w-xs px-4">
               <AlertTriangle size={30} className="mx-auto mb-3 text-red-500" />
-              <p className="text-body text-app-text-muted mb-1">{tr('browser.video.unavailable')}</p>
+              <p className="text-prose text-app-text-muted mb-1">{tr('browser.video.unavailable')}</p>
               <p className="text-mini text-app-text-faint mb-3">{tr('browser.video.blurb')}</p>
               <div className="flex items-center justify-center gap-2">
                 <button

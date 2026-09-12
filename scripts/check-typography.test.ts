@@ -12,7 +12,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseScale, badSteps, findOffScale, type Step } from "./check-typography";
+import { parseScale, badSteps, findOffScale, type Step, collidingSteps } from "./check-typography";
 
 const SCALE: Step[] = [
   { name: "nano", value: "9px" },
@@ -66,5 +66,28 @@ describe("check:typography", () => {
     expect(steps.length).toBeGreaterThanOrEqual(8);
     expect(badSteps(steps)).toEqual([]);
     expect(steps.map((s) => s.name)).toContain("mini");
+  });
+});
+
+describe("collidingSteps", () => {
+  const SCALE: Step[] = [{ name: "prose", value: "13px" }, { name: "mini", value: "11px" }];
+
+  test("catches a step whose name is already a text colour in the same file", () => {
+    // The real shape: the scale declares it inside `@theme`, and the palette
+    // declares it again further down, where it wins.
+    const css = "@theme {\n  --text-prose: 13px;\n  --text-mini: 11px;\n}\n:root {\n  --text-prose: #bbbec5;\n}\n";
+    const found = collidingSteps(css, SCALE);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.found).toBe("--text-prose");
+  });
+
+  test("says nothing when the two namespaces do not overlap", () => {
+    const css = "@theme {\n  --text-prose: 13px;\n  --text-mini: 11px;\n}\n:root {\n  --text-heading: #ccced4;\n}\n";
+    expect(collidingSteps(css, SCALE)).toEqual([]);
+  });
+
+  test("does not accuse a step of colliding with its own declaration", () => {
+    const css = "@theme {\n  --text-prose: 13px;\n  --text-mini: 11px;\n}\n";
+    expect(collidingSteps(css, SCALE)).toEqual([]);
   });
 });

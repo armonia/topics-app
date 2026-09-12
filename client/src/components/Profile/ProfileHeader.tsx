@@ -70,7 +70,7 @@ function Counter({ n, label, onClick, testId }: {
       onClick={onClick}
       disabled={!onClick}
       data-testid={testId}
-      className="inline-flex items-baseline gap-1 rounded px-1 py-0.5 text-body text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:pointer-events-none coarse:min-h-11"
+      className="inline-flex items-baseline gap-1 rounded px-1 py-0.5 text-prose text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:pointer-events-none coarse:min-h-11"
     >
       <span className="font-semibold text-app-text tabular-nums">{compactNum(n)}</span>
       {label}
@@ -178,7 +178,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
                 onClick={() => void toggleFollow()}
                 data-testid="profile-follow"
                 aria-pressed={persona.viewerFollows}
-                className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-body font-medium coarse:min-h-11 ${
+                className={`flex-shrink-0 rounded-md border px-3 py-1.5 text-prose font-medium coarse:min-h-11 ${
                   persona.viewerFollows
                     ? 'border-app-border text-app-text hover:bg-app-hover'
                     : 'border-primary bg-primary/10 text-primary hover:bg-primary/20'
@@ -191,7 +191,7 @@ export function ProfileHeader({ persona, onChanged, onOpenFollowers, onOpenFollo
           </div>
         </div>
 
-        {g?.bio && <p className="text-body leading-snug text-app-text-secondary">{g.bio}</p>}
+        {g?.bio && <p className="text-prose leading-snug text-app-text-secondary">{g.bio}</p>}
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {g?.company && <Meta icon={Building2}>{g.company}</Meta>}

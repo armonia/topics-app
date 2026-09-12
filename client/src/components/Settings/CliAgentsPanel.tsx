@@ -69,7 +69,7 @@ export function CliAgentsPanel() {
 
   return (
     <div data-testid="cli-agents-panel">
-      <h3 className="text-body font-medium text-app-text mb-1">{t('ai.local.title')}</h3>
+      <h3 className="text-prose font-medium text-app-text mb-1">{t('ai.local.title')}</h3>
       <p className="text-mini text-app-text-muted mb-3">
         {t('ai.local.hint')}
       </p>

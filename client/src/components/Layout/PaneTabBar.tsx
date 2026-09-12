@@ -1933,7 +1933,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   }}
                   placeholder={tr('tab.newName')}
                   maxLength={120}
-                  className="flex-1 min-w-0 bg-app-input border border-app-border rounded px-2 py-1 text-body md:text-compact text-app-text focus:outline-none focus:border-primary"
+                  className="flex-1 min-w-0 bg-app-input border border-app-border rounded px-2 py-1 text-prose md:text-compact text-app-text focus:outline-none focus:border-primary"
                 />
                 <button
                   onClick={() => submitRename(ctxMenu.paneId, renameDraft)}

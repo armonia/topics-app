@@ -107,7 +107,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           del corpo della chat (13px), non del chrome del log: è la cosa su cui
           si decide. */}
       <div className="space-y-1">
-        <div className="font-mono text-body leading-snug text-app-text break-all">{request.toolName}</div>
+        <div className="font-mono text-prose leading-snug text-app-text break-all">{request.toolName}</div>
         {summary && (
           <div className="font-mono text-compact leading-snug text-app-text-muted break-all" data-testid="tool-permission-detail">
             {summary}
@@ -130,7 +130,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
               title={tr(PERMISSION_HINT_KEY[choice])}
               data-testid={`tool-permission-${choice}-${toolCallId}`}
               className={
-                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-body font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ' +
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-prose font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ' +
                 (isDeny
                   ? 'text-app-text-secondary hover:bg-app-hover'
                   : choice === 'allow'
@@ -166,7 +166,7 @@ export function ToolPermissionRow({ request, outcome, onDecide, toolCallId }: Pr
           data-testid={`tool-permission-allow_free-${toolCallId}`}
           className={
             'flex w-full items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-1.5 ' +
-            'text-body font-medium text-amber-600 dark:text-amber-400 transition-colors ' +
+            'text-prose font-medium text-amber-600 dark:text-amber-400 transition-colors ' +
             'hover:bg-amber-500/15 disabled:opacity-40 disabled:cursor-not-allowed'
           }
         >

@@ -996,7 +996,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               aria-label={label}
               data-testid="terminal-key"
               onPointerDown={(e) => { e.preventDefault(); sendToTerminal(data); }}
-              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-[3px] rounded bg-white/10 text-white text-mini font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-body ${wide ? 'px-3 coarse:px-4' : ''}`}
+              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-[3px] rounded bg-white/10 text-white text-mini font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-prose ${wide ? 'px-3 coarse:px-4' : ''}`}
             >
               {label}
             </button>
@@ -1052,7 +1052,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <pre
             data-testid="terminal-text"
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 px-[1px] overflow-hidden whitespace-pre text-body leading-[17px] text-app-text-muted"
+            className="pointer-events-none absolute inset-x-0 bottom-0 px-[1px] overflow-hidden whitespace-pre text-prose leading-[17px] text-app-text-muted"
             style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}
           >{scrollbackSeed}</pre>
         )}

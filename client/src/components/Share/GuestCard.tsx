@@ -120,7 +120,7 @@ export function GuestCard({ task, onChanged }: {
             aria-label={tr('guest.editText')}
             data-testid="guest-edit-text"
             rows={3}
-            className="w-full resize-y rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-body leading-snug text-app-text outline-none focus:border-primary"
+            className="w-full resize-y rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-prose leading-snug text-app-text outline-none focus:border-primary"
           />
           <div className="flex gap-1.5">
             <button
@@ -142,7 +142,7 @@ export function GuestCard({ task, onChanged }: {
         </div>
       ) : (
         <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1 text-body leading-snug text-app-text">{task.text}</div>
+          <div className="min-w-0 flex-1 text-prose leading-snug text-app-text">{task.text}</div>
           {guestMeets(level, 'edit') && (
             <button
               onClick={() => setDraft(task.text)}

@@ -1364,7 +1364,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   if (error && files.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2">
-        <p className="text-red-500 text-body">{error}</p>
+        <p className="text-red-500 text-prose">{error}</p>
         <button onClick={loadFiles} className="text-compact text-primary hover:underline">Retry</button>
       </div>
     );

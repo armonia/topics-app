@@ -353,7 +353,7 @@ export function DevicesSection() {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-body font-semibold text-app-text">{t('devices.title')}</h3>
+        <h3 className="text-prose font-semibold text-app-text">{t('devices.title')}</h3>
         <p className="mt-1 text-compact leading-relaxed text-app-text-secondary">
           {t('devices.blurb')}
         </p>
@@ -389,7 +389,7 @@ export function DevicesSection() {
             <Monitor size={14} className="flex-shrink-0 text-app-text-secondary" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <span className="truncate text-body text-app-text">{computer.name}</span>
+                <span className="truncate text-prose text-app-text">{computer.name}</span>
                 {computer.current && (
                   <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-micro text-primary">
                     {t('devices.youAreHere')}
@@ -434,7 +434,7 @@ export function DevicesSection() {
                     }}
                     onBlur={() => void salvaNome()}
                     aria-label={t('devices.newNameFor', { nome: d.name })}
-                    className="w-full rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-body text-app-text outline-none focus:border-primary"
+                    className="w-full rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-prose text-app-text outline-none focus:border-primary"
                   />
                 ) : (
                   <button
@@ -442,7 +442,7 @@ export function DevicesSection() {
                     className="group flex max-w-full items-center gap-1 text-left coarse:min-h-11"
                     title={t('devices.rename')}
                   >
-                    <span className="truncate text-body text-app-text">{d.name}</span>
+                    <span className="truncate text-prose text-app-text">{d.name}</span>
                     {d.current && (
                       <span className="flex-shrink-0 rounded bg-primary/10 px-1.5 py-px text-micro text-primary">
                         {t('devices.youAreHere')}
@@ -587,7 +587,7 @@ export function DevicesSection() {
                 onChange={(e) => setNodeAddress(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void startPairing(); }}
                 placeholder={t('settings.machines.pair.addressPlaceholder')}
-                className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-body text-app-text outline-none focus:border-primary coarse:min-h-11"
+                className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-2 py-1 text-prose text-app-text outline-none focus:border-primary coarse:min-h-11"
               />
               <button
                 onClick={() => void startPairing()}
