@@ -913,3 +913,84 @@ esattamente quella che deve ricaricarsi.
 #### Scenario: la chat aperta durante il buco
 - **GIVEN** una chat aperta mentre la connessione era giu'
 - **THEN** alla ri-apertura SHALL essere la sua storia a essere ricaricata
+
+### Requirement: RUNTIME-21: Il watcher del server resta sorvegliato
+
+Quando `TOPICS_SERVER_WATCH=1`, il supervisore di produzione SHALL mantenere
+una sola istanza di `server-watch.sh` per macchina. Se il watcher termina mentre
+il server continua a servire, SHALL essere rilanciato senza richiedere il
+riavvio del supervisore o del server.
+
+L'acquisizione di unicita' SHALL essere atomica anche fra due avvii concorrenti.
+Il pidfile da solo NON SHALL provare ownership: un PID vivo ma appartenente a un
+processo estraneo SHALL essere ignorato senza ricevere segnali. L'ownership SHALL
+derivare da una lease del kernel mantenuta dalla shell sul proprio descrittore;
+il file della lease NON SHALL essere rimosso durante il cleanup. La morte della
+shell SHALL rilasciare la lease anche se avviene prima della scrittura del
+pidfile, senza alcun secondo lock o protocollo ricorsivo di recupero.
+
+Ogni uscita del watcher SHALL essere visibile nel log con il tempo del prossimo
+tentativo. I tentativi consecutivi troppo brevi SHALL usare un backoff
+esponenziale con tetto, cosi' un watcher che fallisce subito non produce un loop
+stretto. Dopo una permanenza stabile il backoff SHALL ripartire dal minimo.
+
+Terminare `fswatch` SHALL far terminare il watcher e attivare lo stesso
+ripristino. Terminare il supervisore SHALL invece fermare e raccogliere sia il
+watcher sia i suoi figli, senza lasciarli orfani. Il cleanup SHALL avere una
+grazia limitata; dopo il termine SHALL forzare solo i propri figli che ignorano
+`SIGTERM`, mai il server osservato o un processo estraneo. I figli longevi SHALL
+chiudere il descrittore della lease prima di partire. Quando un parent gestito
+muore con `SIGKILL`, un watchdog senza lease SHALL verificare PID e parent PID,
+poi fermare l'albero rimasto orfano.
+
+Il supervisore del watcher SHALL poter essere avviato separatamente contro il
+pidfile di un server gia' vivo. Questo bootstrap SHALL essere idempotente e NON
+SHALL inviare alcun segnale al server: serve ad adottare la supervisione senza
+riavviare `start-prod.sh` o interrompere i turni in corso.
+
+Con `TOPICS_SERVER_WATCH` diverso da `1` nessun processo di watch SHALL essere
+avviato. Un evento che cambia solo il tempo del file, senza cambiare il
+contenuto, SHALL restare ignorato dal watcher ripristinato. Il cancello di
+compilazione, il debounce e la richiesta di riavvio graceful SHALL conservare
+il comportamento gia' specificato.
+
+#### Scenario: il watcher termina ma il server resta vivo
+- **GIVEN** il watch attivo e un server che risponde
+- **WHEN** termina solo `server-watch.sh`
+- **THEN** una nuova singola istanza SHALL partire con backoff
+- **AND** il server SHALL continuare a rispondere durante il ripristino
+
+#### Scenario: termina il processo che osserva il filesystem
+- **GIVEN** il watch attivo e una sola istanza del watcher
+- **WHEN** termina il suo processo `fswatch`
+- **THEN** il watcher SHALL terminare e il supervisore SHALL ricreare entrambi
+
+#### Scenario: il watch e' disattivato
+- **GIVEN** `TOPICS_SERVER_WATCH` diverso da `1`
+- **THEN** il supervisore SHALL avviare solo il server
+
+#### Scenario: bootstrap su un server gia' vivo
+- **GIVEN** il server e' vivo ma il supervisore del watcher non esiste
+- **WHEN** il supervisore viene avviato contro il pidfile esistente
+- **THEN** SHALL avviare una sola istanza del watcher senza segnalare il server
+- **AND** un secondo avvio SHALL lasciare intatto il pidfile del primo
+
+#### Scenario: due bootstrap concorrenti
+- **GIVEN** nessun supervisore del watcher e due avvii simultanei
+- **THEN** uno solo SHALL acquisire il lock e creare il watcher
+- **AND** l'altro SHALL uscire senza rimuovere il lock del vincitore
+
+#### Scenario: un pidfile appartiene a un processo estraneo
+- **GIVEN** un lock stantio che nomina un PID vivo di un altro processo
+- **WHEN** parte il supervisore del watcher
+- **THEN** SHALL recuperare il lock senza inviare segnali al processo estraneo
+
+#### Scenario: un figlio ignora il termine
+- **GIVEN** un watcher o un `fswatch` figlio che ignora `SIGTERM`
+- **WHEN** il suo proprietario termina
+- **THEN** SHALL forzare solo quel figlio dopo la grazia e raccoglierlo
+
+#### Scenario: cambia solo il tempo del file
+- **GIVEN** il watcher ripristinato e contenuto dei sorgenti invariato
+- **WHEN** arriva un evento del filesystem
+- **THEN** NON SHALL essere richiesto alcun riavvio del server
