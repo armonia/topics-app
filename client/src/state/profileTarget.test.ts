@@ -61,6 +61,11 @@ describe('paginaProfiloChiesta', () => {
     apriProfilo('followers', 1_100);
     expect(paginaProfiloChiesta(1_110)).toBe('followers');
   });
+
+  test('organization management targets the dedicated identity page', () => {
+    apriProfilo('organization', 1_000);
+    expect(requestedProfile(1_010)).toEqual({ pagina: 'organization', personId: null });
+  });
 });
 
 describe('opening somebody else', () => {

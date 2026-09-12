@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { dimenticaPaginaProfilo, EVENTO_PAGINA_PROFILO, requestedProfile, type PageProfile, type ProfileRequest } from '@/state/profileTarget';
 import { PersonProfile } from './PersonProfile';
 import { SelfProfile, type ProfilePanel } from './SelfProfile';
+import { OrganizationPage } from '../Settings/IdentityPages';
 
 /**
  * The "Profile" pane: ONE page about a person, and nothing else.
@@ -52,12 +53,14 @@ export function ProfilePane() {
   // not a prop because the pane outlives every gesture that changes it.
   const [personId, setPersonId] = useState<string | null>(() => requested?.personId ?? null);
   const [panel, setPanel] = useState<ProfilePanel>(() => panelFor(requested?.pagina));
+  const [page, setPage] = useState<PageProfile>(() => requested?.pagina ?? 'profile');
 
   useEffect(() => {
     const go = (e: Event) => {
       const chiesta = (e as CustomEvent<ProfileRequest>).detail;
       if (!chiesta?.pagina) return;
       setPersonId(chiesta.personId ?? null);
+      setPage(chiesta.pagina);
       setPanel(panelFor(chiesta.pagina));
       dimenticaPaginaProfilo();
     };
@@ -82,7 +85,9 @@ export function ProfilePane() {
           render it twice in the same app: two `identity-block` in the DOM, and
           every measurement that looks for one becomes ambiguous. */}
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 md:px-5">
-        {personId !== null ? (
+        {page === 'organization' ? (
+          <OrganizationPage />
+        ) : personId !== null ? (
           <PersonProfile personId={personId} onBack={() => setPersonId(null)} />
         ) : (
           <SelfProfile open={panel} onOpen={setPanel} />

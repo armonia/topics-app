@@ -152,7 +152,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   machine_id TEXT REFERENCES machines(id) ON DELETE SET NULL,
   -- 20260909090000: the automatic effort paired with the concrete task model.
   -- It survives a fresh requeue after the agent topic has been released.
-  model_effort TEXT
+  model_effort TEXT,
+  -- 20260912115225: immutable delegated-start authorization and initiator.
+  delegated_start_capability_id TEXT,
+  run_initiator_person_id TEXT,
+  run_initiator_device_id TEXT
 )`;
 
 /**

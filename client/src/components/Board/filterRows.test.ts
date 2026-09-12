@@ -21,7 +21,16 @@ const OPTS: FilterOption[] = [
   { group: 'assignee', value: 'nova', label: 'nova' },
   { group: 'person', value: 'Guest One', label: 'Guest One' },
   { group: 'computer', value: 'Guest laptop', label: 'Guest laptop' },
+  { group: 'initiator', value: 'Run starter', label: 'Run starter' },
+  { group: 'runComputer', value: 'Build node', label: 'Build node' },
 ];
+
+/** @covers GUEST-19 */
+test('delegated-run identities have their own filter groups', () => {
+  const rows = buildFilterRows(OPTS, '');
+  expect(rows.find((row) => row.opt.group === 'initiator')?.opt.value).toBe('Run starter');
+  expect(rows.find((row) => row.opt.group === 'runComputer')?.opt.value).toBe('Build node');
+});
 
 describe('buildFilterRows', () => {
   test('at rest it shows the catalogue, capped, with the rest counted', () => {

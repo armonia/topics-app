@@ -9,13 +9,16 @@
  * born at `0600`, and the three walls (host refused, certificate, no network)
  * have three different names. The rest: every authenticated call carries the
  * cookie, and an empty bundle is told apart from bytes.
+ *
+ * @covers GUEST-17
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, statSync, readFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  createNodeClient, NodeError, readNodeToken, writeNodeToken, nodeTokenPath, tokenFromSetCookie,
+  createNodeClient, NodeError, readDelegatedNodeToken, readNodeToken, writeDelegatedNodeToken,
+  writeNodeToken, nodeTokenPath, tokenFromSetCookie,
   normalizeNodeBaseUrl, type FetchLike, type NodeFailureReason,
 } from "./node-client";
 
@@ -162,6 +165,19 @@ describe("node-client · token file", () => {
     }
   });
 
+  test("a confined token has its own capability-scoped file", () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "node-token-"));
+    try {
+      const file = writeDelegatedNodeToken(stateDir, "machine-1", "capability-1", TOKEN);
+      expect(file).toBe(join(stateDir, "nodes", "delegated", "machine-1", "capability-1.token"));
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(readDelegatedNodeToken(stateDir, "machine-1", "capability-1")).toBe(TOKEN);
+      expect(readNodeToken(stateDir, "machine-1")).toBeNull();
+    } finally {
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   test("un id che non e' un nome di file viene rifiutato, e un file manomesso legge null", () => {
     expect(() => nodeTokenPath("/state", "../etc/passwd")).toThrow();
     expect(() => nodeTokenPath("/state", "a/b")).toThrow();
@@ -249,6 +265,47 @@ describe("node-client · corse", () => {
       expect(headerOf(call, "user-agent")).toBe("Topics/9.9.9 (this-machine)");
     }
     expect(JSON.parse(String(calls[0].init.body))).toEqual(body);
+  });
+
+  test("la corsa delegata usa il percorso confinato senza inviare la policy dichiarata dal chiamante", async () => {
+    const delegation = {
+      capabilityId: "cap-1",
+      subjectPersonId: "person-1",
+      subjectDeviceId: "device-1",
+      machineId: "machine-1",
+      repositoryKey: "github.com/acme/widgets",
+      model: "gpt-5",
+      effort: "high",
+      maxDurationMinutes: 12,
+      maxAttempts: 1 as const,
+      fanout: 1 as const,
+    };
+    const { fetch, calls } = fakeFetch([
+      jsonResponse({ runId: "run-confined" }),
+      jsonResponse({ status: "working", comments: [] }),
+      jsonResponse({ empty: true }),
+      jsonResponse({ ok: true }),
+    ]);
+    const c = client(fetch);
+    const proof = { capabilityId: delegation.capabilityId, subjectPersonId: delegation.subjectPersonId, subjectDeviceId: delegation.subjectDeviceId };
+    await c.createRun({ baseUrl: BASE, token: TOKEN, body: { ...body, model: delegation.model, effort: delegation.effort }, delegation: proof });
+    await c.readRun({ baseUrl: BASE, token: TOKEN, runId: "run-confined", delegation: proof });
+    await c.fetchBundle({ baseUrl: BASE, token: TOKEN, runId: "run-confined", delegation: proof });
+    await c.cancelRun({ baseUrl: BASE, token: TOKEN, runId: "run-confined", delegation: proof });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      `${BASE}/api/nodes/delegated-runs`,
+      `${BASE}/api/nodes/delegated-runs/run-confined`,
+      `${BASE}/api/nodes/delegated-runs/run-confined/bundle`,
+      `${BASE}/api/nodes/delegated-runs/run-confined`,
+    ]);
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({
+      originTaskId: body.originTaskId,
+      originUrl: body.originUrl,
+      text: body.text,
+      description: body.description,
+    });
+    expect(calls.every((call) => headerOf(call, "x-topics-delegated-capability") === "cap-1")).toBe(true);
   });
 
   test("fetchBundle distingue {empty:true} dai byte del bundle", async () => {

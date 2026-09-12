@@ -41,6 +41,7 @@ import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsSto
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
+import { taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
 import { FilterTokenField } from './FilterTokenField';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -555,7 +556,7 @@ interface FilterPanelProps {
  *  "let the agent decide" makes no sense, so it's dropped. */
 function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
   const tr = useT();
-  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [] });
+  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
   // Built from `lastActorPersonName`/`lastActorDeviceName` — the same
@@ -565,8 +566,10 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   // `buildFilterRows`, which drops an empty group by construction).
   const persons = Array.from(new Set(tasks.map((t) => t.lastActorPersonName).filter(Boolean) as string[])).sort();
   const computers = Array.from(new Set(tasks.map((t) => t.lastActorDeviceName).filter(Boolean) as string[])).sort();
+  const initiators = Array.from(new Set(tasks.map((t) => t.runInitiatorPersonName).filter(Boolean) as string[])).sort();
+  const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + (filters.text ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) > 0;
 
   // The shell of every filter control lives in `constants.ts`: the search box
   // here, the labels chip below, the token field and the project picker all
@@ -585,11 +588,13 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           keeps its own picker (it already has a search box and an inline chip
           strip), and the reset keeps its own button. */}
       <FilterTokenField
-        value={{ priority: filters.priority, assignedTo: filters.assignedTo, text: filters.text, labels: filters.labels, person: filters.person, computer: filters.computer }}
+        value={{ priority: filters.priority, assignedTo: filters.assignedTo, text: filters.text, labels: filters.labels, person: filters.person, computer: filters.computer, initiator: filters.initiator, runComputer: filters.runComputer }}
         onChange={(next) => onFiltersChange({ ...filters, ...next })}
         assignees={assignees}
         persons={persons}
         computers={computers}
+        initiators={initiators}
+        runComputers={runComputers}
       />
 
       {/* Reset — only when something is active */}
@@ -807,8 +812,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // non ce l'ha, e senza il default `filters.labels.length` esploderebbe al
       // primo render su ogni board già usata.
       const parsed = stored ? JSON.parse(stored) : null;
-      return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], ...(parsed ?? {}) };
-    } catch { return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [] }; }
+      return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], ...(parsed ?? {}) };
+    } catch { return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] }; }
   });
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ }
@@ -1134,23 +1139,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const orderScope: OrderScope = mode === 'all' ? 'cross-project' : 'board';
 
   const byStatus = useMemo(() => {
-    const visible = tasks.filter((t) => {
-      // Apply filters: all active conditions must match (AND logic).
-      if (filters.priority.length > 0 && !filters.priority.includes(t.priority)) return false;
-      if (filters.assignedTo.length > 0 && !filters.assignedTo.includes(t.assignedTo || '')) return false;
-      // AND with `person`, exactly like every other axis on this row: "person X
-      // AND computer Y" narrows twice, it does not offer a choice between them.
-      if (filters.person.length > 0 && !filters.person.includes(t.lastActorPersonName || '')) return false;
-      if (filters.computer.length > 0 && !filters.computer.includes(t.lastActorDeviceName || '')) return false;
-      if (filters.text && !t.text.toLowerCase().includes(filters.text.toLowerCase())) return false;
-      if (filters.projectId.length > 0 && !filters.projectId.includes(t.projectId)) return false;
-      // AND, come gli altri: «bugfix E visibile» è una lista sola, non due.
-      if (filters.labels.length > 0) {
-        const on = new Set(t.labels.map((l) => l.label));
-        if (!filters.labels.every((l) => on.has(l))) return false;
-      }
-      return true;
-    });
+    const visible = tasks.filter((task) => taskMatchesFilters(task, filters));
     return groupByStatus(visible, orderScope);
   }, [tasks, filters, orderScope]);
 

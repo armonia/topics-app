@@ -9,6 +9,7 @@ import { describe, expect, it } from "bun:test";
 import {
   isGuestAllowedPath, isGuestSafeFrameType, frameResource, isResourceType, RESOURCE_TYPES,
   isGuestSocketData, isGuestAllowedMethod, isGuestHandshakeFrame, isGuestInboundFrameAllowed,
+  isDelegatedNodeAllowedRequest,
 } from "./grants";
 import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 import { chatWsInboundSchema } from "../schemas/chat-ws-inbound";
@@ -50,6 +51,9 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/messages/abc",
       "/api/auth/session",
       "/api/auth/logout",
+      "/api/nodes/delegated-runs",
+      "/api/nodes/delegated-runs/run-1",
+      "/api/nodes/delegated-runs/run-1/bundle",
       "/media/anteprima.png",
       "/ws",
     ]) {
@@ -70,6 +74,9 @@ describe("grants · la superficie HTTP di un ospite", () => {
       "/api/files/read",
       "/api/browser/navigate",
       "/api/auth/devices",
+      "/api/nodes/runs",
+      "/api/nodes/runs/run-1",
+      "/api/nodes/delegated-runs/run-1/extra",
       // NOT a guest's route, and this line is a REGRESSION guard: it was
       // briefly listed as allowed so a `manage` level could re-share from
       // inside. The GET branch there has no level check, and the gate matches
@@ -283,11 +290,35 @@ describe("grants · un ospite legge, e ora può anche le DUE scritture concesse"
     expect(isGuestAllowedMethod("/api/tasks/abc/comments", "POST")).toBe(true);
   });
 
-  it("avvio e stop NON passano nemmeno la strada: nessun livello dispaccia un agente", () => {
+  it("start passes only to its separate capability gate; stop remains closed", () => {
     // The card's text becomes the prompt of an agent running in a worktree of
     // the OWNER's repo, and that text is what `edit` lets a guest rewrite.
-    expect(isGuestAllowedMethod("/api/tasks/abc/run", "POST")).toBe(false);
+    expect(isGuestAllowedMethod("/api/tasks/abc/run", "POST")).toBe(true);
     expect(isGuestAllowedMethod("/api/tasks/abc/stop", "POST")).toBe(false);
+  });
+
+  it("limits a node credential to exact delegated create/read/bundle/cancel forms", () => {
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs", "POST")).toBe(true);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs", "GET")).toBe(false);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs/run-1", "GET")).toBe(true);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs/run-1", "DELETE")).toBe(true);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs/run-1", "POST")).toBe(false);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs/run-1", "HEAD")).toBe(false);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs/run-1/bundle", "GET")).toBe(true);
+    expect(isGuestAllowedMethod("/api/nodes/delegated-runs/run-1/bundle", "DELETE")).toBe(false);
+    expect(isDelegatedNodeAllowedRequest("/api/nodes/delegated-runs", "POST")).toBe(true);
+    expect(isDelegatedNodeAllowedRequest("/api/nodes/delegated-runs/run-1", "DELETE")).toBe(true);
+    for (const [path, method] of [
+      ["/api/auth/devices", "GET"],
+      ["/api/auth/identity", "PATCH"],
+      ["/api/tasks/shared", "GET"],
+      ["/api/tasks/shared/run", "POST"],
+      ["/api/nodes/runs", "POST"],
+      ["/api/nodes/runs/run-1", "DELETE"],
+      ["/api/nodes/delegated-runs/run-1/bundle", "DELETE"],
+    ] as const) {
+      expect(`${method} ${path}:${isDelegatedNodeAllowedRequest(path, method)}`).toBe(`${method} ${path}:false`);
+    }
   });
 
   it("tutto il resto resta fuori: PUT/DELETE su un task, e ogni scrittura su topic/messaggi", () => {

@@ -458,9 +458,10 @@ not start anything and it does not manage sharing.
 
 Starting or stopping a run SHALL NOT be a level of this scale. The card's text
 becomes the prompt of an agent running in a worktree of the OWNER's repository,
-with the autonomy the board decided and with no rate limit or spend cap, and
-that text is exactly what `edit` lets a guest rewrite: a level that granted
-both would let a guest choose what an owner's agent does. Deciding who else is
+under the board's holds and post-usage spending policy, and that text is exactly
+what `edit` lets a guest rewrite: a level that granted both would let a guest
+choose what an owner's agent does. The spending policy reports usage after it
+happens and SHALL NOT be represented as a hard maximum. Deciding who else is
 granted on a resource SHALL likewise NOT be a level: it stays an owner action
 (see `GUEST-10`).
 
@@ -486,7 +487,7 @@ share can be set to.
 - **THEN** the server SHALL answer 403 `guest_level_denied`
 
 #### Scenario: no level starts or stops a run
-- **GIVEN** a guest holding the highest level on a task
+- **GIVEN** a guest holding the highest content level on a task and no separate start capability
 - **WHEN** it calls `POST /api/tasks/:id/run` or `POST /api/tasks/:id/stop`
 - **THEN** the server SHALL answer 403, and the task SHALL NOT be dispatched
 
@@ -606,6 +607,268 @@ product: the two sides of one permission said opposite things.
 - **WHEN** the guest comments and rewrites the text
 - **THEN** the comment SHALL appear in the card's thread
 - **AND** the card read back from the owner's port SHALL carry the new text
+
+### Requirement: GUEST-13 - Delegated agent start is a separate, owner-issued capability
+
+The ordinary `read`, `comment`, `edit` and `deny` grant scale SHALL remain the
+only scale for content access. Agent start SHALL be represented by a separate
+capability bound to one subject, one project, one execution computer and that
+computer's repository mapping. Only the project owner SHALL grant or revoke it.
+Neither ownership inferred from an old device pairing nor any content grant
+SHALL create this capability.
+
+The capability policy SHALL fix a concrete provider model, effort and maximum
+run duration. It SHALL allow one attempt for one requested task and SHALL
+disable retries and fanout. A transport reconnect or process resume may continue
+the same bound attempt, but SHALL NOT create another attempt or worker.
+
+The board's existing holds and limits SHALL continue to apply. At every policy
+dimension the effective value SHALL be the stricter of the board policy and the
+capability policy. In particular, the post-usage spending cap SHALL remain a
+post-usage signal rather than being presented or enforced as a guaranteed hard
+maximum, and delegated start SHALL NOT bypass a hold.
+
+#### Scenario: edit does not imply start
+- **GIVEN** a guest holding `edit` on a visible task and no live start capability
+- **WHEN** it requests an agent start
+- **THEN** the request SHALL be refused and no queue, task, session or audit-start side effect SHALL be created
+
+#### Scenario: start does not imply content or owner powers
+- **GIVEN** a guest holding a live start capability and only `read` on a task
+- **THEN** it MAY request the confined start
+- **AND** it SHALL NOT edit or stop the task, approve review, land, publish, deploy or manage shares
+
+#### Scenario: a capability for one project cannot start another
+- **GIVEN** a guest holding a live start capability for project A
+- **AND** a visible task in project B
+- **WHEN** it requests a start for the task in project B
+- **THEN** the request SHALL be refused before dispatch
+- **AND** no queue, task, session or audit-start side effect SHALL be created
+
+#### Scenario: owner fixes the execution policy
+- **GIVEN** the project owner grants delegated start
+- **THEN** the stored policy SHALL identify the subject, project, computer, repository mapping, concrete model, effort, maximum duration, one attempt and no fanout
+- **AND** only that owner MAY change or revoke it
+
+#### Scenario: the narrowest policy wins
+- **GIVEN** a board policy and capability policy with different limits
+- **WHEN** the delegated run is dispatched
+- **THEN** every dispatcher seam SHALL receive the stricter effective model, effort, duration, attempt and fanout policy
+- **AND** an active board hold SHALL still prevent dispatch
+
+### Requirement: GUEST-14 - A guest start request selects no execution authority
+
+The guest start surface SHALL be `POST /api/tasks/:id/run` with an empty body.
+The server SHALL resolve the authenticated person and device, task visibility,
+task project, live capability, execution computer, repository mapping, model,
+effort and maximum duration. The caller SHALL NOT supply or override any of
+them. A supplied body field, including `model`, `effort`, `machine`, prompt or
+status, SHALL make the request fail before mutation.
+
+Starting SHALL only enqueue the existing task through its bound policy. It SHALL
+NOT allow the guest to replace task text or status, create another task, inspect
+owner-only execution controls, or access review, land, publish, deploy or share
+routes. Lifecycle status changes made internally by the accepted run are not a
+guest-authored status edit.
+
+#### Scenario: the empty request starts the visible task
+- **GIVEN** a visible task in the capability's project, a live capability and an executable effective board state
+- **WHEN** the authenticated guest posts an empty body to `/api/tasks/:id/run`
+- **THEN** exactly one attempt SHALL be queued with the capability's effective policy
+
+#### Scenario: caller-selected execution fields are rejected
+- **GIVEN** an otherwise valid guest start request
+- **WHEN** its body contains `model`, `effort`, `machine`, prompt, status or any other field
+- **THEN** the server SHALL reject the whole request before any mutation
+
+#### Scenario: visibility is checked before capability
+- **GIVEN** a live capability for the task's project but no grant that makes the task visible
+- **WHEN** the guest requests a start
+- **THEN** the response SHALL reveal no task or project detail and no side effect SHALL occur
+
+### Requirement: GUEST-15 - Delegated policy remains authoritative through queue, dispatch and resume
+
+Every queued or active delegated run SHALL retain the identity of the capability
+that authorized it. The queue, local and remote dispatch seams, and every resume
+SHALL revalidate that the capability is live and still matches the initiating
+subject and device, task, project, computer and repository. A resume SHALL keep
+the same execution session and single attempt.
+
+Revocation SHALL immediately block new starts. It SHALL remove queued work and
+cancel active work authorized by that capability, then publish the resulting
+task state to connected clients. It SHALL NOT cancel owner work or delegated
+work authorized by another capability, even for the same project or computer.
+
+#### Scenario: revocation removes a queued delegated run
+- **GIVEN** a delegated run still in the queue
+- **WHEN** its owner revokes the authorizing capability
+- **THEN** that queue entry SHALL be removed and its task SHALL receive the appropriate non-running state
+- **AND** an observing guest SHALL receive the update live
+
+#### Scenario: revocation cancels the matching active run only
+- **GIVEN** one active run bound to the revoked capability and other active runs not bound to it
+- **WHEN** the capability is revoked
+- **THEN** the matching execution SHALL be cancelled and the other executions SHALL continue
+- **AND** connected owner and guest views SHALL receive the updated result live
+
+#### Scenario: resume cannot revive revoked authority
+- **GIVEN** a delegated run awaiting dispatch or resume
+- **WHEN** its capability has expired, been revoked or no longer matches its bindings
+- **THEN** dispatch or resume SHALL fail closed without creating a new attempt or worker
+
+### Requirement: GUEST-16 - Delegated execution has a durable, unambiguous audit trail
+
+The audit record for a delegated start SHALL persist the capability grant and
+revocation identity, task and project, initiating person and device, executing
+session, computer, repository mapping and the effective model, effort, maximum
+duration, attempt and fanout policy. Queue, dispatch, resume, cancellation and
+terminal outcome SHALL append or update records without losing those bindings.
+Reloading the database SHALL preserve the complete trail.
+
+Initiator, assignee, last author and executor are different roles and SHALL NOT
+be inferred from one another. Audit and activity data SHALL expose only records
+whose task is visible to the requesting principal.
+
+#### Scenario: audit survives reload
+- **GIVEN** a delegated run that reached a terminal outcome
+- **WHEN** the server reloads its persisted data
+- **THEN** the owner SHALL still see its capability, task, initiating person and device, execution session, computer, repository and effective policy
+
+#### Scenario: identities remain distinct
+- **GIVEN** a task whose assignee, last author, initiating person and executor differ
+- **WHEN** its activity is hydrated
+- **THEN** each role SHALL retain its own value and label
+
+### Requirement: GUEST-17 - A remote computer requires project and computer-owner authority
+
+Delegated execution on a remote node SHALL require both the project owner's
+start capability and the computer owner's explicit authorization for the local
+repository resolved from its Git origin. Repository path text supplied by the
+caller SHALL NOT establish this authorization. A legacy pairing that retains an
+`OWNER` token SHALL continue to serve legitimate computer-owner operations but
+SHALL NOT authorize an arbitrary collaborator run.
+
+New execution associations SHALL use a confined person and device identity and
+a confined node path. For create, read, cancel and bundle operations that path
+SHALL validate the caller, project, capability-bound run mapping, node and
+repository before acting. Existing identities SHALL NOT be migrated in a way
+that silently widens their authority.
+
+The confined node exchange SHALL expose only the mapped run's necessary input
+and output. It SHALL NOT forward other projects, comments, local paths,
+credentials or configuration. This is application-level authorization; the UI,
+API and documentation SHALL NOT claim filesystem or operating-system sandboxing
+that the runtime does not provide.
+
+#### Scenario: an unrelated run id is denied on the node
+- **GIVEN** a confined delegated node identity authorized for one mapped run
+- **WHEN** it creates, reads, cancels or bundles a different run id
+- **THEN** the node SHALL deny the operation without revealing that run
+
+#### Scenario: repository mismatch fails before task creation
+- **GIVEN** a requested computer whose origin-resolved repository does not match the capability mapping
+- **WHEN** delegated dispatch is attempted
+- **THEN** it SHALL be denied before a remote task, session or bundle is created
+
+#### Scenario: identity mismatch fails before task creation
+- **GIVEN** a node caller whose person or device does not match the capability-bound run
+- **WHEN** delegated dispatch is attempted
+- **THEN** it SHALL be denied before a remote task, session or bundle is created
+
+#### Scenario: the legitimate computer owner keeps existing controls
+- **GIVEN** an authenticated computer owner using the existing owner node path
+- **WHEN** it performs an operation already reserved to that owner
+- **THEN** that operation SHALL continue to work without granting the collaborator the same authority
+
+### Requirement: GUEST-18 - Owners and guests see delegated start as its own workflow
+
+The project's existing `ShareControl` SHALL present Agent Start separately from
+the content access level. It SHALL explain the subject, project, computer,
+repository identity, model, effort and maximum duration, require an explicit
+project-owner confirmation, and offer revocation. Changing or revoking ordinary
+read, comment, edit or deny rows SHALL keep their established behavior.
+
+The guest card and guest view SHALL show Start only when the effective task is
+visible, the capability is live and the board says the task is executable. The
+action SHALL be keyboard-operable and SHALL show useful live queued, result and
+error states. It SHALL not expose execution selectors.
+
+The existing organisation-project guide SHALL provide the two steps, access the
+project and authorize this computer. It SHALL reuse current people, project and
+device state rather than hard-coded project lists or duplicate account records.
+Remote account configuration and third-party sign-in SHALL NOT be presented as
+automatic prerequisites.
+
+All new labels, confirmations and errors SHALL have English and Italian
+localizations and remain usable by keyboard at the supported responsive widths.
+
+#### Scenario: the owner grants and revokes start separately
+- **GIVEN** an owner viewing a project's sharing control
+- **WHEN** it configures and confirms Agent Start for a subject and computer
+- **THEN** the ordinary content level SHALL remain unchanged
+- **AND** revoking Agent Start SHALL leave that content level unchanged
+
+#### Scenario: the guest sees only an effective Start action
+- **GIVEN** a guest card across capability, visibility and board execution-state changes
+- **THEN** Start SHALL appear only while all three gates pass
+- **AND** activation SHALL show queued, result or actionable error feedback from live updates
+
+#### Scenario: onboarding uses the existing two-step guide
+- **GIVEN** a collaborator preparing an authorized computer
+- **THEN** the guide SHALL first establish project access and then computer authorization
+- **AND** it SHALL NOT create a static project list, duplicate account or automatic third-party sign-in requirement
+
+### Requirement: GUEST-19 - Kanban activity can filter delegated starts without leaking tasks
+
+The existing activity and Kanban filter systems SHALL add distinct values for
+who initiated a run and which computer executed it. These values SHALL not
+replace or reuse last-author, assignee or executor fields. Filter tokens SHALL
+combine with every existing token using AND semantics and SHALL be computed only
+from tasks visible to the requesting principal.
+
+#### Scenario: combined filters use AND over visible tasks
+- **GIVEN** visible and hidden tasks with overlapping initiator, computer and existing filter values
+- **WHEN** a guest combines initiator, computer and an existing filter token
+- **THEN** only visible tasks matching every token SHALL remain
+- **AND** filter suggestions and counts SHALL reveal nothing derived only from hidden tasks
+
+### Requirement: GUEST-21 - Remote approvals stay live and revocable on an open node page
+
+The node owner's existing device page SHALL receive delegated request state
+changes while it is open, including when its first read returned no requests.
+Updates SHALL use a purpose-scoped event or a lightweight visible-page poll
+that always rearms and tears down with the page. Project and person lookup data
+SHALL be loaded only when an approval needs it, not on every state refresh.
+
+The same page SHALL list active delegated authorizations and let the node owner
+revoke one independently. A delegated request event SHALL NOT enter the legacy
+interactive-device pairing approval flow.
+
+#### Scenario: an empty open page receives a request
+- **GIVEN** the node owner's device page is already open and its request list is empty
+- **WHEN** an origin creates a delegated request
+- **THEN** the request SHALL appear without a reload
+- **AND** approving it SHALL update the origin request state live
+
+#### Scenario: the node owner revokes active authority
+- **GIVEN** an active delegated authorization listed on the node owner's page
+- **WHEN** the node owner revokes it
+- **THEN** that authorization SHALL stop authorizing new delegated operations
+- **AND** the list SHALL update without exposing its credential
+
+### Requirement: GUEST-20 - Delegated-start acceptance is hermetic and durable
+
+Automated delegated-start tests SHALL use fake dispatcher and node seams and
+SHALL NOT call a language model. The acceptance flow SHALL run in an isolated
+environment and cover owner grant, guest Start, owner visibility of initiator
+and computer, and owner revocation. Because the flow crosses multiple visible
+states, its review evidence SHALL be a durable video no longer than 20 seconds.
+
+#### Scenario: the complete flow is reviewable without external services
+- **GIVEN** an isolated owner, guest, project, computer and repository fixture
+- **WHEN** the owner grants, the guest starts, the owner observes the identities and then revokes
+- **THEN** the flow SHALL complete without a language-model or live-account call
+- **AND** the durable review video SHALL show the meaningful state transitions
 
 ### Requirement: GUEST-10 — The sharing route is not part of a guest's surface
 

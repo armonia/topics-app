@@ -79,6 +79,24 @@ export function isResourceType(v: unknown): v is ResourceType {
  * closed to guests until somebody decides otherwise here.
  */
 const GUEST_TOPIC_SUBROUTES = /^\/api\/topics\/[^/]+\/messages$/;
+const DELEGATED_RUN_COLLECTION = "/api/nodes/delegated-runs";
+const DELEGATED_RUN_ITEM = /^\/api\/nodes\/delegated-runs\/[^/]+$/;
+const DELEGATED_RUN_BUNDLE = /^\/api\/nodes\/delegated-runs\/[^/]+\/bundle$/;
+
+function isDelegatedRunPath(pathname: string): boolean {
+  return pathname === DELEGATED_RUN_COLLECTION
+    || DELEGATED_RUN_ITEM.test(pathname)
+    || DELEGATED_RUN_BUNDLE.test(pathname);
+}
+
+/** Complete immutable scope for the node-only credential. */
+export function isDelegatedNodeAllowedRequest(pathname: string, method: string): boolean {
+  const m = method.toUpperCase();
+  if (pathname === DELEGATED_RUN_COLLECTION) return m === "POST";
+  if (DELEGATED_RUN_ITEM.test(pathname)) return m === "GET" || m === "DELETE";
+  if (DELEGATED_RUN_BUNDLE.test(pathname)) return m === "GET";
+  return false;
+}
 
 export function isGuestAllowedPath(pathname: string): boolean {
   return (
@@ -105,6 +123,10 @@ export function isGuestAllowedPath(pathname: string): boolean {
     pathname === '/api/auth/shared' ||
     pathname === '/api/auth/session' ||
     pathname === '/api/auth/logout' ||
+    // The node execution credential is classified as a guest so the global
+    // gate remains fail-closed. These are its only four operations; notably,
+    // the legacy `/api/nodes/runs` tree is not opened here.
+    isDelegatedRunPath(pathname) ||
     // `/api/auth/shares` IS NOT HERE, and its absence is the fix for a hole
     // this very allowlist opened. While a `manage` level existed, the path was
     // listed so a guest holding it could re-share that one resource, with the
@@ -137,25 +159,23 @@ export function isGuestAllowedPath(pathname: string): boolean {
  * modo per un ospite di andarsene è che qualcun altro lo revochi.
  */
 /**
- * TWO writes, and no others: a comment, and the task's own text. This gate
- * does not decide WHETHER a guest may do it - that lives in the granted level,
- * inside the tasks router (`matchGuestTaskAction` + `levelFor`) - it is the
- * road that makes those two routes reachable AT ALL. Everything else stays
- * read-only for a guest, as before: starting or stopping a run, retitle,
- * label, move, merge, land, publish, deploy, sharing and deletion do not pass
- * through here at any level.
+ * Two CONTENT writes, plus the separate delegated-start route. This gate only
+ * opens the road. Content levels are checked by `levelFor`; `/run` instead
+ * requires its own owner-issued capability in the tasks router. Stop, retitle,
+ * label, move, merge, land, publish, deploy, sharing and deletion remain shut.
  *
- * `/run` and `/stop` ARE NOT HERE: a guest that can edit the card's text and
- * then start it hands its own text to an agent running in the owner's repo.
- * See `GrantLevel` in `grants-query.ts` for the whole reasoning.
+ * `/run` is reachable only so the separate capability gate can decide it. It
+ * is not a content level and `/stop` remains closed.
  */
 const GUEST_WRITE_ROUTES = [
   /^\/api\/tasks\/[^/]+$/, // PATCH - the task's text (needs at least `edit`)
   /^\/api\/tasks\/[^/]+\/comments$/, // POST - a comment (needs at least `comment`)
+  /^\/api\/tasks\/[^/]+\/run$/, // POST - separate owner-issued start capability
 ];
 
 export function isGuestAllowedMethod(pathname: string, method: string): boolean {
   const m = method.toUpperCase();
+  if (isDelegatedRunPath(pathname)) return isDelegatedNodeAllowedRequest(pathname, m);
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return true;
   if (pathname === '/api/auth/logout') return true;
   if ((m === 'POST' || m === 'PATCH') && GUEST_WRITE_ROUTES.some((r) => r.test(pathname))) return true;

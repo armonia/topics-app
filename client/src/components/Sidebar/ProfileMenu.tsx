@@ -55,7 +55,6 @@ import type { LabelIdentity } from './identityLabel';
 import type { LocalFacts } from './AccountPanel';
 import type { WorkSignal } from './workSignals';
 import { apriProfilo } from '@/state/profileTarget';
-import { openSettings } from '@/lib/openSettings';
 import { useT } from '@/hooks/useT';
 
 /** A glyph component, taken as a prop: which device you are on was decided by
@@ -185,7 +184,7 @@ export function ProfileMenu({
 
         <div className="border-t border-app-border" />
         <FriendsSection friends={friends} onClose={onClose} />
-        <OrgsSection orgs={orgs} />
+        <OrgsSection orgs={orgs} onClose={onClose} />
 
         <div className="border-t border-app-border" />
         <TopicsMenuItems
@@ -318,7 +317,7 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
  * AND IT IS THERE AT ZERO, because "what is an organisation, and how do I end
  * up in one" is a question only somebody in none can have.
  */
-function OrgsSection({ orgs }: { orgs: OrgWithPresence[] }) {
+function OrgsSection({ orgs, onClose }: { orgs: OrgWithPresence[]; onClose: () => void }) {
   const tr = useT();
   const people = mergePeople(orgs.map((o) => o.people));
   const online = people.filter((p) => p.presente).length;
@@ -358,7 +357,7 @@ function OrgsSection({ orgs }: { orgs: OrgWithPresence[] }) {
         </div>
       )}
       <div className="border-t border-app-border py-1">
-        <MenuAction onClick={() => openSettings('organization')} testId="org-open-manage">
+        <MenuAction onClick={() => { onClose(); apriProfilo('organization'); }} testId="org-open-manage">
           {only ? tr('statusBar.orgs.manageOne') : tr('statusBar.orgs.manageAll')}
         </MenuAction>
       </div>

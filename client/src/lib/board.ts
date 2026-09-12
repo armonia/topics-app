@@ -492,6 +492,11 @@ export interface BoardTask {
    */
   lastActorPersonName?: string | null;
   lastActorDeviceName?: string | null;
+  /** Person who requested the most recent delegated agent run. This is not the
+   * assignee, last author or executing agent. */
+  runInitiatorPersonName?: string | null;
+  /** Computer selected by the owner-issued start capability for that run. */
+  runComputerName?: string | null;
   /** ON THE WIRE: it arrives only when it has a value (absent = never happened). */
   dueDate?: string;
   createdAt: string;

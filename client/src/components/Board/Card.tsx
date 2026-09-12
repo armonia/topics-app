@@ -814,7 +814,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // `card-meta-row-completeness.test.ts` confronta questa riga con i chip
   // davvero disegnati sotto, così la prossima dimenticanza è un rosso e non
   // un'ora di indagine.
-  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !!(blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || task.lastActorPersonName || task.runInitiatorPersonName || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1220,6 +1220,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
               title={task.lastActorDeviceName ? `${task.lastActorPersonName} (${task.lastActorDeviceName})` : task.lastActorPersonName}
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-300"
             >{task.lastActorPersonName}</span>
+          )}
+          {task.runInitiatorPersonName && (
+            <span
+              data-testid="card-run-initiator"
+              title={tr('board.card.runInitiatorTitle', { name: task.runInitiatorPersonName })}
+              className="flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-compact leading-4 text-violet-300 md:text-mini"
+            ><UserRound className="h-3 w-3 shrink-0" /> {tr('board.card.runInitiator', { name: task.runInitiatorPersonName })}</span>
+          )}
+          {task.runComputerName && (
+            <span
+              data-testid="card-run-computer"
+              title={tr('board.card.runComputerTitle', { name: task.runComputerName })}
+              className="flex items-center gap-1 rounded bg-indigo-500/15 px-1.5 py-0.5 text-compact leading-4 text-indigo-300 md:text-mini"
+            ><Server className="h-3 w-3 shrink-0" /> {task.runComputerName}</span>
           )}
           {/* Le etichette in coda alla riga: quelle di visibilità dicono CHI
               CHIUDE la card, le altre servono a leggere la board. */}

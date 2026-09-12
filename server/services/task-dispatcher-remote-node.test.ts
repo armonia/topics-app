@@ -24,6 +24,9 @@
  *
  * @covers KANBAN-76
  * @covers KANBAN-77
+ * @covers GUEST-13
+ * @covers GUEST-15
+ * @covers GUEST-17
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -31,7 +34,8 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { NODE_DEAD_POLLS } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
-import type { NodeRunReport } from "./node-client";
+import type { NodeRunBinding, NodeRunReport } from "./node-client";
+import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
@@ -94,19 +98,20 @@ interface NodeFakeOptions {
   paired?: boolean;
   createRun?: () => Promise<{ runId: string }>;
   readRun?: (runId: string) => Promise<NodeRunReport>;
+  cancelRun?: (runId: string) => Promise<void>;
   bundle?: Uint8Array | null;
   planted?: { planted: boolean; commit: string | null; reason: string | null };
 }
 
 function nodeFake(o: NodeFakeOptions = {}) {
   const calls: string[] = [];
-  const created: { body: unknown }[] = [];
+  const created: { body: unknown; token: string; delegation?: NodeRunBinding }[] = [];
   const plantedWith: { branch: string; baseSha: string | null; bundleBytes: number | null }[] = [];
   let nextRun = 0;
   const node: NonNullable<DispatcherDeps["node"]> = {
-    createRun: async ({ body }) => {
+    createRun: async ({ body, token, delegation }) => {
       calls.push("create");
-      created.push({ body });
+      created.push({ body, token, delegation });
       if (o.createRun) return o.createRun();
       nextRun += 1;
       return { runId: `run-${nextRun}` };
@@ -119,9 +124,13 @@ function nodeFake(o: NodeFakeOptions = {}) {
       calls.push("bundle");
       return o.bundle && o.bundle.length > 0 ? { empty: false as const, bytes: o.bundle } : { empty: true as const };
     },
-    cancelRun: async ({ runId }) => { calls.push(`cancel:${runId}`); },
+    cancelRun: async ({ runId }) => {
+      calls.push(`cancel:${runId}`);
+      if (o.cancelRun) await o.cancelRun(runId);
+    },
     baseUrlOf: () => (o.paired === false ? null : BASE_URL),
     tokenOf: () => (o.paired === false ? null : TOKEN),
+    delegatedTokenOf: () => (o.paired === false ? null : "tok-confined"),
     nameOf: () => "Portatile",
     localMachineId: () => "questa-macchina",
     originUrlOf: async () => "git@github.com:acme/alpha.git",
@@ -131,6 +140,32 @@ function nodeFake(o: NodeFakeOptions = {}) {
     },
   };
   return { node, calls, created, plantedWith };
+}
+
+function delegatedPolicy(overrides: Partial<DelegatedRunPolicy> = {}): DelegatedRunPolicy {
+  return {
+    id: "capability-confined",
+    subjectType: "person",
+    subjectId: "person-confined",
+    projectId: PID,
+    machineId: MACHINE,
+    machineName: "Portatile",
+    repositoryKey: "github.com/acme/alpha",
+    model: "gpt-5",
+    effort: "medium",
+    maxDurationMinutes: 7,
+    maxAttempts: 1,
+    fanout: 1,
+    grantedByPersonId: "person-owner",
+    grantedAt: Date.UTC(2026, 8, 6, 9, 0, 0),
+    expiresAt: null,
+    revokedAt: null,
+    taskId: TASK,
+    initiatorPersonId: "person-confined",
+    initiatorDeviceId: "device-confined",
+    ...overrides,
+    deadlineAt: overrides.deadlineAt ?? null,
+  };
 }
 
 function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Partial<DispatcherDeps> = {}) {
@@ -154,6 +189,10 @@ function harness(nodeOverrides: NodeFakeOptions = {}, depOverrides: Partial<Disp
     createWorktree: async () => { worktrees.push(`wt-${worktrees.length + 1}`); return `wt-${worktrees.length}`; },
     deleteWorktree: async () => {},
     runTurn: (sessionKey) => { turns.push(sessionKey); return Promise.resolve<TurnEndInfo | void>(undefined); },
+    recordDelegatedPhase: () => {
+      const policy = depOverrides.delegatedPolicyForTask?.(TASK);
+      return policy?.deadlineAt ?? now + (policy?.maxDurationMinutes ?? 7) * 60_000;
+    },
     broadcast: () => {},
     node: fake.node,
     now: () => now,
@@ -277,6 +316,192 @@ describe("la card parte sul nodo, non qui", () => {
     expect(h.calls).toEqual([]);
     expect(h.task().status).toBe("todo");
     expect(h.task().dispatchError).toBe("node_unreachable");
+  });
+});
+
+describe("delegated remote dispatch stays inside its immutable envelope", () => {
+  it("applies the stricter effort and duration with one attempt and no fanout", async () => {
+    const policy = delegatedPolicy();
+    const h = harness({}, { delegatedPolicyForTask: () => policy });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = ? WHERE id = ?", [policy.id, TASK]);
+    h.svc.updateBoardSettings(PID, {
+      dispatchEffort: "high",
+      dispatchTimeoutMin: 30,
+      dispatchFanOut: 4,
+    });
+
+    await dispatch(h);
+
+    expect(h.calls.filter((call) => call === "create")).toHaveLength(1);
+    expect(h.created[0].token).toBe("tok-confined");
+    expect(h.created[0].body).toMatchObject({
+      model: "gpt-5",
+      effort: "medium",
+    });
+    expect(h.created[0].delegation).toEqual({
+      capabilityId: policy.id,
+      subjectPersonId: policy.initiatorPersonId,
+      subjectDeviceId: policy.initiatorDeviceId,
+    });
+    expect(h.task().dispatchAttempts).toBe(1);
+  });
+
+  it("fails closed before node creation when the live capability disappears", async () => {
+    const h = harness({}, { delegatedPolicyForTask: () => null, isDelegatedTask: () => true });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(h.calls).toEqual([]);
+    expect(h.task().status).toBe("todo");
+    expect(h.task().dispatchAttempts).toBe(0);
+    expect(h.task().dispatchError).toBe("delegated_capability_invalid");
+  });
+
+  it("does not create a remote run when verified begin throws or updates zero rows", async () => {
+    for (const recordDelegatedPhase of [
+      () => { throw new Error("disk full"); },
+      () => false,
+    ]) {
+      const policy = delegatedPolicy();
+      const h = harness({}, { delegatedPolicyForTask: () => policy, recordDelegatedPhase });
+      h.seed();
+      h.db.run("UPDATE tasks SET delegated_start_capability_id = ? WHERE id = ?", [policy.id, TASK]);
+
+      await dispatch(h);
+
+      expect(h.calls).toEqual([]);
+      expect(h.task().status).toBe("backlog");
+      expect(h.task().dispatchState).toBe("blocked");
+    }
+  });
+
+  it("cancels only the just-created remote run when its audit binding fails", async () => {
+    const policy = delegatedPolicy();
+    let writes = 0;
+    const h = harness({}, {
+      delegatedPolicyForTask: () => policy,
+      recordDelegatedPhase: () => (++writes === 1 ? Date.UTC(2026, 8, 6, 10, 7, 0) : false),
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = ? WHERE id = ?", [policy.id, TASK]);
+
+    await dispatch(h);
+
+    expect(h.calls).toEqual(["create", "cancel:run-1"]);
+    expect(h.task().status).toBe("backlog");
+    expect(h.task().dispatchState).toBe("blocked");
+  });
+
+  it("revocation cancels only the active run bound to that capability", async () => {
+    const policy = delegatedPolicy();
+    const h = harness({}, { delegatedPolicyForTask: () => policy });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = ? WHERE id = ?", [policy.id, TASK]);
+    await dispatch(h);
+
+    const canceled = await h.dispatcher.revokeDelegatedCapability(policy.id);
+
+    expect(canceled).toBe(1);
+    expect(h.calls.filter((call) => call.startsWith("cancel:"))).toEqual(["cancel:run-1"]);
+    expect(h.task().dispatchState).toBe("blocked");
+    expect(h.task().dispatchError).toContain("revoked");
+  });
+
+  it("does not claim a remote run stopped when cancellation is unreachable", async () => {
+    const policy = delegatedPolicy();
+    const h = harness({ cancelRun: async () => { throw new Error("offline"); } }, {
+      delegatedPolicyForTask: () => policy,
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET delegated_start_capability_id = ? WHERE id = ?", [policy.id, TASK]);
+    await dispatch(h);
+
+    const canceled = await h.dispatcher.revokeDelegatedCapability(policy.id);
+
+    expect(canceled).toBe(0);
+    expect(h.dispatcher.busyIds()).toContain(TASK);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.task().dispatchError).toBe("delegated_cancel_unconfirmed");
+  });
+});
+
+describe("delegated local dispatch revalidates at the turn seam", () => {
+  it("parks before runTurn when begin persistence throws or updates zero rows", async () => {
+    for (const recordDelegatedPhase of [
+      () => { throw new Error("write failed"); },
+      () => false,
+    ]) {
+      let turnCalls = 0;
+      const policy = delegatedPolicy({ machineId: "questa-macchina" });
+      const h = harness({}, {
+        delegatedPolicyForTask: () => policy,
+        recordDelegatedPhase,
+        abortTurn: async () => {},
+        runTurn: async () => { turnCalls += 1; },
+      });
+      h.db.run("INSERT INTO machines (id) VALUES ('questa-macchina')");
+      h.seed();
+      h.db.run(
+        "UPDATE tasks SET machine_id = 'questa-macchina', delegated_start_capability_id = ? WHERE id = ?",
+        [policy.id, TASK],
+      );
+
+      await dispatch(h);
+
+      expect(turnCalls).toBe(0);
+      expect(h.task().status).toBe("backlog");
+      // A boot/reconcile after the failed persistence cannot recreate a fresh
+      // duration or start the card from its stale delegated marker.
+      await h.dispatcher.reconcile({ reason: "boot" });
+      await flush();
+      expect(turnCalls).toBe(0);
+    }
+  });
+
+  it("resume with no persisted deadline runs no turn", async () => {
+    let turnCalls = 0;
+    const policy = delegatedPolicy({ machineId: "questa-macchina", deadlineAt: null });
+    const h = harness({}, {
+      delegatedPolicyForTask: () => policy,
+      recordDelegatedPhase: () => false,
+      abortTurn: async () => {},
+      runTurn: async () => { turnCalls += 1; },
+    });
+    h.db.run("INSERT INTO machines (id) VALUES ('questa-macchina')");
+    h.seed();
+    h.db.run("INSERT INTO topics (id) VALUES ('resume-topic')");
+    h.db.run(`UPDATE tasks SET status = 'in_progress', assigned_topic_id = 'resume-topic',
+      machine_id = 'questa-macchina', delegated_start_capability_id = ? WHERE id = ?`, [policy.id, TASK]);
+
+    await h.dispatcher.resume(TASK, "continue");
+
+    expect(turnCalls).toBe(0);
+    expect(h.task().status).toBe("backlog");
+  });
+
+  it("an absolute deadline that expires before runTurn denies the turn", async () => {
+    let turnCalls = 0;
+    const policy = delegatedPolicy({
+      machineId: "questa-macchina",
+      deadlineAt: Date.UTC(2026, 8, 6, 10, 0, 0) - 1,
+    });
+    const h = harness({}, {
+      delegatedPolicyForTask: () => policy,
+      abortTurn: async () => {},
+      runTurn: async () => { turnCalls += 1; },
+    });
+    h.db.run("INSERT INTO machines (id) VALUES ('questa-macchina')");
+    h.seed();
+    h.db.run(
+      "UPDATE tasks SET machine_id = 'questa-macchina', delegated_start_capability_id = ? WHERE id = ?",
+      [policy.id, TASK],
+    );
+
+    await dispatch(h);
+
+    expect(turnCalls).toBe(0);
   });
 });
 

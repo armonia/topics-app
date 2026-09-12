@@ -4,7 +4,7 @@
  * `matchGuestTaskAction`), and no level reaches a run, a stop, or any other
  * owner-only route (retitle, land, publish, ...).
  *
- * @covers GUEST-09, GUEST-11
+ * @covers GUEST-09, GUEST-11, GUEST-13, GUEST-14
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -32,6 +32,27 @@ function withGrants(db: Database): void {
   for (const m of MIGRATIONS) db.run(readFileSync(join(ROOT, "server/db/migrations", m), "utf8"));
 }
 
+function withAgentStart(db: Database): void {
+  db.run("ALTER TABLE machines ADD COLUMN name TEXT");
+  db.run("ALTER TABLE machines ADD COLUMN base_url TEXT");
+  db.run(`CREATE TABLE agent_start_capabilities (
+    id TEXT PRIMARY KEY, recipient_kind TEXT, recipient_id TEXT, project_id TEXT,
+    machine_id TEXT, repository_key TEXT, model TEXT, effort TEXT,
+    max_duration_minutes INTEGER, max_attempts INTEGER, fanout INTEGER,
+    granted_by_person_id TEXT, granted_at INTEGER, expires_at INTEGER,
+    revoked_at INTEGER, revoked_by_person_id TEXT)`);
+  db.run(`CREATE TABLE machine_repository_authorizations (
+    id TEXT PRIMARY KEY, machine_id TEXT, repository_key TEXT,
+    authorized_by_person_id TEXT, authorized_at INTEGER, revoked_at INTEGER,
+    revoked_by_person_id TEXT)`);
+  db.run(`CREATE TABLE delegated_run_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT, task_id TEXT,
+    project_id TEXT, initiator_person_id TEXT, initiator_device_id TEXT,
+    execution_session_id TEXT, machine_id TEXT, repository_key TEXT, model TEXT,
+    effort TEXT, max_duration_minutes INTEGER, max_attempts INTEGER, fanout INTEGER,
+    phase TEXT, outcome TEXT, created_at INTEGER, updated_at INTEGER)`);
+}
+
 function guestCtx(db: Database, broadcasts: unknown[], deviceId: string) {
   const base = makeCtx(db, broadcasts);
   return { ...base, requestIdentity: () => ({ role: "guest" as const, deviceId }) } as unknown as AppContext;
@@ -46,8 +67,8 @@ describe("matchGuestTaskAction - the two guest writes, and nothing else", () => 
     expect(matchGuestTaskAction("/api/tasks/t1/comments", "t1", "POST")).toBe("comment");
     expect(matchGuestTaskAction("/api/tasks/t1", "t1", "PATCH")).toBe("edit");
   });
-  test("run and stop are unsupported: no level on this scale dispatches an agent", () => {
-    expect(matchGuestTaskAction("/api/tasks/t1/run", "t1", "POST")).toBe("unsupported");
+  test("run uses a separate capability while stop remains unsupported", () => {
+    expect(matchGuestTaskAction("/api/tasks/t1/run", "t1", "POST")).toBe("run");
     expect(matchGuestTaskAction("/api/tasks/t1/stop", "t1", "POST")).toBe("unsupported");
   });
   test("everything else on this router is unsupported for a guest, at any level", () => {
@@ -99,10 +120,44 @@ describe("a guest with a level on a shared task", () => {
     for (const route of ["run", "stop"]) {
       const denied = (await call(guest, "POST", `/api/tasks/${taskId}/${route}`))!;
       expect(denied.status).toBe(403);
-      expect((await denied.json()).code).toBe("guest_read_only");
+      expect((await denied.json()).code).toBe(route === "run" ? "agent_start_denied" : "guest_read_only");
     }
     // And nothing was dispatched: the card is still where the edit left it.
     expect(db.query("SELECT status FROM tasks WHERE id = ?").get(taskId)).toMatchObject({ status: "backlog" });
+  });
+
+  test("a guest cannot select model, effort, machine, prompt or status", async () => {
+    putGrant(db, { kind: "device", id: "g1" }, "task", taskId, { level: "read", grantedAt: Date.now() });
+    const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"));
+    for (const field of ["model", "effort", "machine", "prompt", "status"]) {
+      const denied = (await call(guest, "POST", `/api/tasks/${taskId}/run`, { [field]: "chosen" }))!;
+      expect(denied.status, field).toBe(400);
+      expect((await denied.json()).code).toBe("guest_run_body_not_empty");
+    }
+    expect(db.query("SELECT status FROM tasks WHERE id = ?").get(taskId)).toMatchObject({ status: "backlog" });
+  });
+
+  test("an empty request queues exactly one attempt with the owner policy", async () => {
+    withAgentStart(db);
+    db.run("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('person-a','Guest',1,'local',1,1)");
+    db.run("INSERT INTO devices (id, name, token_hash, created_at, role, person_id) VALUES ('g1','Guest device','hash',1,'guest','person-a')");
+    db.run("INSERT INTO machines (id, name, base_url) VALUES ('local','This computer',NULL)");
+    putGrant(db, { kind: "person", id: "person-a" }, "task", taskId, { level: "read", grantedAt: 1 });
+    db.run(`INSERT INTO agent_start_capabilities
+      VALUES ('cap-a','person','person-a',?,'local','example.test/team/repo','model-a','high',30,1,1,'owner',1,NULL,NULL,NULL)`,
+      [(db.query("SELECT project_id FROM tasks WHERE id = ?").get(taskId) as { project_id: string }).project_id]);
+    let queued = 0;
+    const dispatcher = { onEnterTodo: () => { queued++; } } as any;
+    const guest = createTasksRouter(guestCtx(db, broadcasts, "g1"), dispatcher);
+    const accepted = (await call(guest, "POST", `/api/tasks/${taskId}/run`))!;
+    expect(accepted.status).toBe(202);
+    expect(queued).toBe(1);
+    expect(db.query("SELECT status, delegated_start_capability_id, model, model_effort FROM tasks WHERE id = ?").get(taskId))
+      .toEqual({ status: "todo", delegated_start_capability_id: "cap-a", model: "model-a", model_effort: "high" });
+    expect(db.query("SELECT COUNT(*) AS n FROM delegated_run_audit WHERE task_id = ?").get(taskId)).toEqual({ n: 1 });
+    const duplicate = (await call(guest, "POST", `/api/tasks/${taskId}/run`))!;
+    expect(duplicate.status).toBe(409);
+    expect(queued).toBe(1);
   });
 
   test("`edit` still cannot reach an owner-only route", async () => {

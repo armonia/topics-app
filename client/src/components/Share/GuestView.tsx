@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { MessageSquare, LayoutGrid, RefreshCw } from 'lucide-react';
 import { MODAL_LAYER } from '../../lib/modalStyles';
 import { GuestCard, type SharedTask } from './GuestCard';
 import { guestMeets, type GuestLevel } from './guestLevel';
+import { subscribeFrames } from '../../lib/wsFrameBus';
 
 /**
  * Cosa vede un OSPITE quando apre Topics.
@@ -32,6 +34,10 @@ interface SharedChat {
 
 export function GuestView({ deviceName }: { deviceName: string }) {
   const tr = useT();
+  // The owner application normally owns the tab's single socket, but it is not
+  // mounted for a guest. Open that same live channel here so the frame bus can
+  // surface revocations and queue transitions without a manual reload.
+  useWebSocket();
   const [tasks, setTasks] = useState<SharedTask[]>([]);
   const [chats, setChats] = useState<SharedChat[]>([]);
   const [stato, setStato] = useState<'carico' | 'pronto' | 'errore'>('carico');
@@ -68,6 +74,10 @@ export function GuestView({ deviceName }: { deviceName: string }) {
       window.removeEventListener('topics:auth-pair-resolved', onChange);
     };
   }, [carica]);
+
+  useEffect(() => subscribeFrames(() => { void carica(); }, {
+    types: ['task:created', 'task:updated', 'task:deleted', 'auth:shares-changed'],
+  }), [carica]);
 
   const vuoto = stato === 'pronto' && tasks.length === 0 && chats.length === 0;
   const readOnlyThroughout = !tasks.some((t) => guestMeets(t.level ?? 'read', 'comment'));

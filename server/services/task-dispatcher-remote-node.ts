@@ -20,7 +20,8 @@
  */
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
-import type { BundleResult, CreateRunBody, NodeRunReport } from "./node-client";
+import type { BundleResult, CreateRunBody, NodeRunBinding, NodeRunReport } from "./node-client";
+import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 
@@ -38,14 +39,21 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
  * lane be tested without a repository.
  */
 export interface NodeDeps {
-  createRun: (input: { baseUrl: string; token: string; body: CreateRunBody }) => Promise<{ runId: string }>;
-  readRun: (input: { baseUrl: string; token: string; runId: string }) => Promise<NodeRunReport>;
-  fetchBundle: (input: { baseUrl: string; token: string; runId: string }) => Promise<BundleResult>;
-  cancelRun: (input: { baseUrl: string; token: string; runId: string }) => Promise<void>;
+  createRun: (input: {
+    baseUrl: string;
+    token: string;
+    body: CreateRunBody;
+    delegation?: NodeRunBinding;
+  }) => Promise<{ runId: string }>;
+  readRun: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<NodeRunReport>;
+  fetchBundle: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<BundleResult>;
+  cancelRun: (input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }) => Promise<void>;
   /** Where that machine answers, `null` when it is not a paired node. */
   baseUrlOf: (machineId: string) => string | null;
   /** The device token this machine holds for it, `null` when never paired. */
   tokenOf: (machineId: string) => string | null;
+  /** A confined device token, distinct from the legacy owner pairing token. */
+  delegatedTokenOf?: (machineId: string, capabilityId: string) => string | null;
   /** Its name, for the notes a person reads. `null` falls back to the id. */
   nameOf: (machineId: string) => string | null;
   /**
@@ -83,6 +91,7 @@ export interface NodeSlot {
    * note, and mirroring that back onto the card it came from is noise.
    */
   primed: boolean;
+  delegation?: NodeRunBinding;
 }
 
 /**
@@ -155,6 +164,13 @@ export interface RemoteNodeHost {
     opts?: { announce?: boolean },
   ) => Task;
   deferWait: (taskId: string, reason: string, minutes?: number) => Task;
+  delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
+  recordDelegatedPhase?: (input: {
+    taskId: string;
+    phase: "dispatch" | "cancelled" | "completed" | "failed";
+    executionSessionId?: string | null;
+    outcome?: string | null;
+  }) => boolean | number;
 }
 
 export interface RemoteNodeLane {
@@ -167,7 +183,7 @@ export interface RemoteNodeLane {
    * of every LOCAL card by a microtask - long enough for a caller that has just
    * awaited `tick` to see no turn at all.
    */
-  remoteLaunch(taskId: string, settings: { effort: string; model?: string }): Promise<void> | null;
+  remoteLaunch(taskId: string, settings: { effort: string; model?: string; timeoutMin: number }): Promise<void> | null;
   /** How the liveness sweep must judge this slot. `local` = not a remote slot. */
   sweepVerdict(slot: RemoteRunSlot): "local" | "wait" | "bury";
   /** The burial of a remote run, in place of the local turn accounting. */
@@ -179,6 +195,9 @@ export interface RemoteNodeLane {
    * `false` tried and failed, `null` not this lane's card.
    */
   queueAfterRestart(task: Task): boolean | null;
+  /** Cancel one confined remote run without touching another slot. */
+  /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
+  cancelTask(taskId: string): Promise<boolean | null>;
 }
 
 export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
@@ -250,13 +269,21 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   async function launchOnNode(
     task: Task,
-    settings: { effort: string; model?: string },
+    settings: { effort: string; model?: string; timeoutMin: number },
   ): Promise<void> {
     const node = host.client!;
     const machineId = task.machineId!;
     const name = nodeName(machineId);
     const baseUrl = node.baseUrlOf(machineId);
-    const token = node.tokenOf(machineId);
+    const capabilityId = task.delegatedStartCapabilityId ?? null;
+    const policy = capabilityId ? host.delegatedPolicyForTask?.(task.id) ?? null : null;
+    if (capabilityId && (!policy || policy.id !== capabilityId || policy.machineId !== machineId)) {
+      parkNodeCard(task, "Delegated start authorization is no longer valid.");
+      return;
+    }
+    const token = policy
+      ? node.delegatedTokenOf?.(machineId, policy.id) ?? null
+      : node.tokenOf(machineId);
     if (!baseUrl || !token) {
       deferForSilentNode(
         task,
@@ -275,6 +302,18 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return;
     }
+    if (policy) {
+      let begun: boolean | number = false;
+      try {
+        begun = host.recordDelegatedPhase?.({ taskId: task.id, phase: "dispatch" }) ?? false;
+      } catch (err) {
+        log(`nodo: begin delegato per ${task.id} non persistito`, err);
+      }
+      if (typeof begun !== "number" || !Number.isFinite(begun)) {
+        parkNodeCard(task, "Delegated dispatch authorization could not be persisted.");
+        return;
+      }
+    }
     const runNo = host.beginRun(task.id, "");
     try {
       // THE OLD RUN DIES BEFORE A NEW ONE IS BORN. A run this board buried may
@@ -282,32 +321,82 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // deliveries and two branches (KANBAN-77).
       const previous = lastNodeRun.get(task.id);
       if (previous) {
-        try { await node.cancelRun({ baseUrl, token, runId: previous }); }
+        try { await node.cancelRun({
+          baseUrl, token, runId: previous,
+          delegation: policy ? {
+            capabilityId: policy.id,
+            subjectPersonId: policy.initiatorPersonId,
+            subjectDeviceId: policy.initiatorDeviceId,
+          } : undefined,
+        }); }
         catch (err) { log(`nodo: la corsa ${previous} non si è cancellata`, err); }
         lastNodeRun.delete(task.id);
       }
       const { runId } = await node.createRun({
         baseUrl,
         token,
+        ...(policy ? { delegation: {
+          capabilityId: policy.id,
+          subjectPersonId: policy.initiatorPersonId,
+          subjectDeviceId: policy.initiatorDeviceId,
+        } } : {}),
         body: {
           originTaskId: task.id,
           originUrl,
           text: task.text,
           description: task.description ?? "",
-          model: task.model ?? settings.model ?? null,
-          effort: settings.effort && settings.effort !== "auto" ? settings.effort : null,
+          model: policy?.model ?? task.model ?? settings.model ?? null,
+          effort: policy ? settings.effort : (settings.effort && settings.effort !== "auto" ? settings.effort : null),
         },
       });
       lastNodeRun.set(task.id, runId);
       if (!host.ownsRun(task.id, runNo)) {
         // Superseded while the node was answering: the run we just created has
         // no owner here, and leaving it alive is the two-deliveries defect.
-        try { await node.cancelRun({ baseUrl, token, runId }); } catch { /* best-effort */ }
+        try { await node.cancelRun({ baseUrl, token, runId, delegation: policy ? {
+          capabilityId: policy.id,
+          subjectPersonId: policy.initiatorPersonId,
+          subjectDeviceId: policy.initiatorDeviceId,
+        } : undefined }); } catch { /* best-effort */ }
         return;
       }
       host.bindRunSession(task.id, runNo, nodeSessionKey(machineId, runId));
+      if (policy) {
+        let bound: boolean | number = false;
+        try {
+          bound = host.recordDelegatedPhase?.({
+            taskId: task.id,
+            phase: "dispatch",
+            executionSessionId: nodeSessionKey(machineId, runId),
+          }) ?? false;
+        } catch (err) {
+          log(`nodo: binding audit della corsa ${runId} fallito`, err);
+        }
+        if (typeof bound !== "number" || !Number.isFinite(bound)) {
+          try {
+            await node.cancelRun({ baseUrl, token, runId, delegation: {
+              capabilityId: policy.id,
+              subjectPersonId: policy.initiatorPersonId,
+              subjectDeviceId: policy.initiatorDeviceId,
+            } });
+          } catch (err) {
+            log(`nodo: cancellazione della corsa non legata ${runId} fallita`, err);
+          }
+          lastNodeRun.delete(task.id);
+          host.endRun(task.id, runNo);
+          parkNodeCard(task, "Remote run started but its delegated audit binding failed; it was cancelled.");
+          return;
+        }
+      }
       const slot = inFlight.get(task.id);
-      if (slot) slot.node = { machineId, baseUrl, token, runId, fails: 0, seen: new Set(), primed: false };
+      if (slot) slot.node = {
+        machineId, baseUrl, token, runId, fails: 0, seen: new Set(), primed: false,
+        ...(policy ? { delegation: {
+          capabilityId: policy.id,
+          subjectPersonId: policy.initiatorPersonId,
+          subjectDeviceId: policy.initiatorDeviceId,
+        } } : {}),
+      };
       emit(svc.setDispatchState({ taskId: task.id, state: CHIP_WORKING }));
       try {
         svc.addComment({
@@ -343,7 +432,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   function remoteLaunch(
     taskId: string,
-    settings: { effort: string; model?: string },
+    settings: { effort: string; model?: string; timeoutMin: number },
   ): Promise<void> | null {
     const claimedTask = svc.get(taskId)?.task;
     const localMachine = (() => { try { return host.client?.localMachineId?.() ?? null; } catch { return null; } })();
@@ -487,7 +576,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       let bundle: Uint8Array | null = null;
       let fetchFailed: string | null = null;
       try {
-        const got: BundleResult = await client.fetchBundle({ baseUrl: node.baseUrl, token: node.token, runId: node.runId });
+        const got: BundleResult = await client.fetchBundle({
+          baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation,
+        });
         bundle = got.empty ? null : got.bytes;
       } catch (err) {
         fetchFailed = `il bundle non è arrivato dal nodo «${name}»`;
@@ -530,6 +621,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       : "Il lavoro è sul nodo, non qui: sistema quello che manca e rimanda indietro la card per farla riconsegnare.";
     try {
       const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove });
+      if (node.delegation) {
+        try { host.recordDelegatedPhase?.({ taskId, phase: "completed", outcome: "review" }); }
+        catch { /* audit never blocks delivery */ }
+      }
       emit(delivered);
       // Same edge the local system delivery emits: without it the review-ready
       // notification never fires for a card that never passed through the route.
@@ -556,9 +651,16 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     for (const [taskId, slot] of [...inFlight]) {
       const node = slot.node;
       if (!node) continue;
+      const task = svc.get(taskId)?.task;
+      if (task?.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(taskId)) {
+        await cancelTask(taskId);
+        continue;
+      }
       let report: NodeRunReport;
       try {
-        report = await client.readRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId });
+        report = await client.readRun({
+          baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation,
+        });
       } catch (err) {
         node.fails++;
         log(`nodo: giro fallito per ${taskId} (${node.fails}/${NODE_DEAD_POLLS})`, err);
@@ -586,6 +688,21 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    */
   function queueAfterRestart(task: Task): boolean | null {
     if (!task.machineId || !host.client) return null;
+    if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
+      try {
+        releaseAndEmit({
+          taskId: task.id,
+          requeue: false,
+          rollbackAttempt: true,
+          parkState: CHIP_BLOCKED,
+          reason: "Delegated start authorization is no longer valid.",
+        });
+        return true;
+      } catch (err) {
+        log(`node: revoked delegated card ${task.id} was not stopped after restart`, err);
+        return false;
+      }
+    }
     try {
       svc.claimInterruption({
         taskId: task.id,
@@ -601,5 +718,48 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     }
   }
 
-  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart };
+  async function cancelTask(taskId: string): Promise<boolean | null> {
+    const slot = inFlight.get(taskId);
+    const node = slot?.node;
+    const client = host.client;
+    if (!slot || !node || !client) return null;
+    try {
+      await client.cancelRun({
+        baseUrl: node.baseUrl,
+        token: node.token,
+        runId: node.runId,
+        delegation: node.delegation,
+      });
+    } catch (err) {
+      log(`node: delegated run ${node.runId} cancellation failed`, err);
+      try {
+        emit(svc.setDispatchState({
+          taskId,
+          state: CHIP_BLOCKED,
+          error: "delegated_cancel_unconfirmed",
+        }));
+      } catch { /* the persisted authority is still closed */ }
+      return false;
+    }
+    inFlight.delete(taskId);
+    lastNodeRun.delete(taskId);
+    try {
+      releaseAndEmit({
+        taskId,
+        requeue: false,
+        rollbackAttempt: true,
+        parkState: CHIP_BLOCKED,
+        reason: "Delegated start authorization was revoked.",
+      });
+      if (node.delegation) {
+        try { host.recordDelegatedPhase?.({ taskId, phase: "cancelled", outcome: "capability_revoked" }); }
+        catch { /* audit never opens authority */ }
+      }
+    } catch (err) {
+      log(`node: delegated card ${taskId} was not released after cancellation`, err);
+    }
+    return true;
+  }
+
+  return { remoteLaunch, sweepVerdict, buryRun, poll, queueAfterRestart, cancelTask };
 }

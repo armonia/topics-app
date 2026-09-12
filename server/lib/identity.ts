@@ -49,6 +49,39 @@ export interface ResolvedIdentity {
   personId: string | null;
 }
 
+export interface DelegatedCredentialIdentity {
+  authorizationId: string;
+  capabilityId: string;
+}
+
+/**
+ * A node credential is deliberately not a device session. The caller must
+ * name the capability it intends to exercise and the hash must identify that
+ * one live authorization. This prevents a cookie from being promoted through
+ * people/devices and prevents an ambiguous "first grant for this device"
+ * lookup when the same origin has more than one capability.
+ */
+export function resolveDelegatedCredential(
+  db: Db,
+  cookieHeader: string | null,
+  capabilityId: string | null,
+  now = Date.now(),
+): DelegatedCredentialIdentity | null {
+  const token = readSessionCookie(cookieHeader);
+  if (!token || !capabilityId) return null;
+  try {
+    const row = db.query(`SELECT id, capability_id
+        FROM delegated_node_authorizations
+        WHERE credential_hash = ? AND capability_id = ?
+          AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`)
+      .get(hashToken(token), capabilityId, now) as { id: string; capability_id: string } | undefined;
+    return row ? { authorizationId: row.id, capabilityId: row.capability_id } : null;
+  } catch {
+    // During a pre-migration boot the delegated scope is absent, never open.
+    return null;
+  }
+}
+
 const LOCALE: ResolvedIdentity = {
   locale: true, device: null, principals: [], confined: false, personId: null,
 };

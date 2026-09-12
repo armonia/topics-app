@@ -1713,6 +1713,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
      * pays no read at all.
      */
     nodeNames: Map<string, string>;
+    peopleNames: Map<string, string>;
+    deviceNames: Map<string, string>;
     autoDispatch: boolean;
     heavy: boolean;
     /**
@@ -2059,6 +2061,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       previewImages: previewImagesFor(ids),
       queue: null,
       nodeNames: new Map(),
+      peopleNames: new Map(),
+      deviceNames: new Map(),
       autoDispatch: false,
       heavy: false,
       queueReadable: true,
@@ -2137,6 +2141,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "SELECT id, name FROM machines WHERE id IN (SELECT value FROM json_each(?))",
           ).all(idParam(machineIds)) as Array<{ id: string; name: string }>) b.nodeNames.set(m.id, m.name);
         } catch { /* no `machines` table: the chip says the id, which still points at something */ }
+      }
+      const personIds = [...new Set(rows.map((r) => r.run_initiator_person_id).filter(Boolean) as string[])];
+      if (personIds.length) {
+        try {
+          for (const p of db.query("SELECT id, display_name FROM people WHERE id IN (SELECT value FROM json_each(?))")
+            .all(idParam(personIds)) as Array<{ id: string; display_name: string }>) b.peopleNames.set(p.id, p.display_name);
+        } catch { /* Reduced task harnesses do not model collaborator identities. */ }
+      }
+      const deviceIds = [...new Set(rows.map((r) => r.run_initiator_device_id).filter(Boolean) as string[])];
+      if (deviceIds.length) {
+        try {
+          for (const d of db.query("SELECT id, name FROM devices WHERE id IN (SELECT value FROM json_each(?))")
+            .all(idParam(deviceIds)) as Array<{ id: string; name: string }>) b.deviceNames.set(d.id, d.name);
+        } catch { /* Reduced task harnesses do not model collaborator identities. */ }
       }
       const inCoda = rows.filter((r) => r.status === "todo" && !r.parent_task_id);
       if (inCoda.length) b.queue = rankQueue(b.nowIso);
@@ -2336,6 +2354,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
+      runComputerName: r.machine_id ? (b.nodeNames.get(r.machine_id) ?? r.machine_id) : null,
+      delegatedStartCapabilityId: r.delegated_start_capability_id ?? null,
+      runInitiatorPersonId: r.run_initiator_person_id ?? null,
+      runInitiatorPersonName: r.run_initiator_person_id
+        ? (b.peopleNames.get(r.run_initiator_person_id) ?? r.run_initiator_person_id)
+        : null,
+      runInitiatorDeviceId: r.run_initiator_device_id ?? null,
+      runInitiatorDeviceName: r.run_initiator_device_id
+        ? (b.deviceNames.get(r.run_initiator_device_id) ?? r.run_initiator_device_id)
+        : null,
       // Non c'è una colonna `tasks.effort` e non serve: l'autorità è il TOPIC,
       // che è ciò che viene davvero passato allo spawn. Duplicarla su `tasks`
       // creerebbe due verità libere di divergere.

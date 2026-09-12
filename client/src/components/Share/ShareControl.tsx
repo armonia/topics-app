@@ -7,6 +7,7 @@ import { copyText } from '../../lib/clipboard';
 import { Menu } from '../Shared/Menu';
 import { useToast } from '../Shared/Toast';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '../../lib/popoverStyles';
+import { AgentStartControl } from './AgentStartControl';
 
 /**
  * Il gesto: dare a un ospite una scheda, o una chat.
@@ -314,11 +315,11 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
         anchorRef={ancoraRef}
         onClose={() => setAperto(false)}
         align="right"
-        minWidth={280}
+        minWidth={resourceType === 'project' ? 360 : 280}
         unmanagedFocus
         ariaLabel={t(KEY_TITLE[resourceType])}
         testId="share-panel"
-        className="w-[280px]"
+        className={resourceType === 'project' ? 'w-[min(360px,calc(100vw-16px))]' : 'w-[280px]'}
       >
         <>
           {errore && <p className="mb-2 px-2.5 text-mini text-red-500">{errore}</p>}
@@ -421,6 +422,15 @@ export function ShareControl({ resourceType, resourceId, deepLink }: {
                 </li>
               ))}
             </ul>
+          )}
+
+          {resourceType === 'project' && (
+            <AgentStartControl
+              projectId={resourceId}
+              subjects={shares.map((share) => ({
+                subjectType: share.subjectType, subjectId: share.subjectId, name: share.name,
+              }))}
+            />
           )}
 
           {/* ── FUORI RETE. Compare solo se il relay c'è: un bottone che non può

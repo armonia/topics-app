@@ -3,6 +3,7 @@ import { Smartphone, Trash2, Check, X as XIcon, Pencil, Monitor, Server } from '
 import { useT, useLocale } from '../../hooks/useT';
 import { chiaveErroreAuth } from '../../lib/authErrors';
 import { reloadMachines } from '../../state/machinesStore';
+import { RemoteNodeRequests } from './RemoteNodeRequests';
 
 /**
  * I dispositivi autorizzati, e il gesto per toglierne uno.
@@ -561,6 +562,8 @@ export function DevicesSection() {
           </ul>
         </div>
       )}
+
+      <RemoteNodeRequests />
 
       {/* ADD A NODE: a second machine that can run this board's cards
           (MACHINE-02). It sits with the devices because that is what it is: the

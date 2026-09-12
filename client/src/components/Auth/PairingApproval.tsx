@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Smartphone } from 'lucide-react';
+import { guestPairingPeople, pairingApprovalBody, type PairingIdentity, type PairingPerson } from './pairingPerson';
 
 /**
  * Il cartello che compare sulla macchina GIÀ fidata quando un dispositivo nuovo
@@ -36,9 +37,10 @@ interface Richiesta {
 export function PairingApproval() {
   const tr = useT();
   const [richieste, setRichieste] = useState<Richiesta[]>([]);
+  const [people, setPeople] = useState<PairingPerson[]>([]);
   const [inCorso, setInCorso] = useState<string | null>(null);
   /** Chi sta scrivendo il nome di un'altra persona, e cosa ha scritto. */
-  const [altrui, setAltrui] = useState<{ id: string; nome: string } | null>(null);
+  const [altrui, setAltrui] = useState<{ id: string; personId: string; create: boolean; name: string } | null>(null);
 
   useEffect(() => {
     // Stato iniziale: una richiesta può essere arrivata mentre questa finestra
@@ -47,9 +49,14 @@ export function PairingApproval() {
       .then((r) => (r.ok ? r.json() : { requests: [] }))
       .then((b: { requests?: Richiesta[] }) => setRichieste(b.requests ?? []))
       .catch(() => { /* nessuna identità o rete giù: niente da mostrare */ });
+    void fetch('/api/auth/devices', { credentials: 'same-origin' })
+      .then((response) => (response.ok ? response.json() : { people: [] }))
+      .then((body: { people?: PairingPerson[] }) => setPeople(guestPairingPeople(body.people ?? [])))
+      .catch(() => setPeople([]));
 
     const onRequested = (e: Event) => {
-      const d = (e as CustomEvent).detail as Richiesta;
+      const d = (e as CustomEvent).detail as Richiesta & { purpose?: string };
+      if (d.purpose === 'delegated-node') return;
       setRichieste((prev) => (prev.some((r) => r.id === d.id) ? prev : [...prev, d]));
     };
     const onResolved = (e: Event) => {
@@ -82,7 +89,7 @@ export function PairingApproval() {
   const rispondi = async (
     id: string,
     approva: boolean,
-    chi?: { personName: string } | { mio: true },
+    chi?: PairingIdentity,
   ) => {
     setInCorso(id);
     try {
@@ -91,11 +98,7 @@ export function PairingApproval() {
       // contraddire il modello — si potrebbe dire «proprietario» di un
       // dispositivo attribuito a un estraneo, e allora quale delle due frasi
       // sarebbe quella vera?
-      const corpo = !approva
-        ? { requestId: id }
-        : chi && 'personName' in chi
-          ? { requestId: id, personName: chi.personName }
-          : { requestId: id };
+      const corpo = !approva || !chi ? { requestId: id } : pairingApprovalBody(id, chi);
       await fetch(`/api/auth/pair/${approva ? 'approve' : 'deny'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,7 +119,7 @@ export function PairingApproval() {
         <div key={r.id} className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
           <div className="flex items-center gap-2">
             <Smartphone size={14} className="text-app-text-secondary" />
-            <span className="text-prose font-medium text-app-text">{r.name} chiede accesso</span>
+            <span className="text-prose font-medium text-app-text">{tr('pair.requestsAccess', { name: r.name })}</span>
           </div>
           {/* WHERE FROM, in words, with the address behind it.
 
@@ -157,11 +160,11 @@ export function PairingApproval() {
               onClick={() => void rispondi(r.id, false)}
               className="flex-1 rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
             >
-              Nega
+              {tr('pair.deny')}
             </button>
             <button
               disabled={inCorso === r.id}
-              onClick={() => void rispondi(r.id, true, { mio: true })}
+              onClick={() => void rispondi(r.id, true, { mine: true })}
               className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-compact font-medium text-white hover:opacity-90 disabled:opacity-50"
               data-testid="pair-approve-owner"
             >
@@ -173,35 +176,53 @@ export function PairingApproval() {
               at null and a missing `r.id` the comparison is true and the line
               below dereferences it. Check the object first, then the id. */}
           {altrui && altrui.id === r.id ? (
-            <div className="mt-2 flex gap-1.5">
-              <input
-                autoFocus
-                value={altrui.nome}
-                onChange={(e) => setAltrui({ id: r.id, nome: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && altrui.nome.trim()) {
-                    void rispondi(r.id, true, { personName: altrui.nome });
+            <div className="mt-2 space-y-1.5">
+              {altrui.create ? (
+                <input
+                  autoFocus
+                  value={altrui.name}
+                  onChange={(event) => setAltrui({ ...altrui, name: event.target.value })}
+                  onKeyDown={(event) => { if (event.key === 'Escape') setAltrui(null); }}
+                  placeholder={tr('pair.newPersonName')}
+                  aria-label={tr('pair.personName')}
+                  className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
+                />
+              ) : (
+                <select
+                  autoFocus
+                  value={altrui.personId}
+                  onChange={(event) => setAltrui({ ...altrui, personId: event.target.value })}
+                  aria-label={tr('pair.choosePerson')}
+                  className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
+                >
+                  {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+              )}
+              <div className="flex flex-wrap justify-between gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAltrui({ ...altrui, create: !altrui.create, name: '' })}
+                  className="rounded px-2 py-1 text-mini text-app-text-secondary hover:bg-app-bg"
+                >
+                  {altrui.create ? tr('pair.chooseExisting') : tr('pair.createPerson')}
+                </button>
+                <button
+                  disabled={inCorso === r.id || (altrui.create ? !altrui.name.trim() : !altrui.personId)}
+                  onClick={() => {
+                    void rispondi(r.id, true, altrui.create ? { personName: altrui.name } : { personId: altrui.personId });
                     setAltrui(null);
-                  }
-                  if (e.key === 'Escape') setAltrui(null);
-                }}
-                placeholder={tr('pair.whose')}
-                aria-label={tr('pair.personName')}
-                className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
-              />
-              <button
-                disabled={inCorso === r.id || !altrui.nome.trim()}
-                onClick={() => { void rispondi(r.id, true, { personName: altrui.nome }); setAltrui(null); }}
-                className="flex-shrink-0 rounded-lg border border-app-border px-2.5 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
-                data-testid="pair-approve-guest"
-              >
-                Autorizza
-              </button>
+                  }}
+                  className="rounded-lg border border-app-border px-2.5 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
+                  data-testid="pair-approve-guest"
+                >
+                  {tr('pair.approve')}
+                </button>
+              </div>
             </div>
           ) : (
             <button
               disabled={inCorso === r.id}
-              onClick={() => setAltrui({ id: r.id, nome: '' })}
+              onClick={() => setAltrui({ id: r.id, personId: people[0]?.id ?? '', create: people.length === 0, name: '' })}
               className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
             >
               {tr('pair.someoneElse')}

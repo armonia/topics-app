@@ -58,6 +58,8 @@ import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../..
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
+import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
+import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
@@ -483,6 +485,19 @@ export interface DispatcherDeps {
    * Its shape and its whole behaviour live in `task-dispatcher-remote-node.ts`.
    */
   node?: NodeDeps;
+  /** Live delegated authority. A marked task fails closed when this is absent. */
+  delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
+  /** Node-local bindings stay delegated even after expiry makes their live policy disappear. */
+  isDelegatedTask?: (taskId: string) => boolean;
+  /** Persist a delegated phase. Dispatch/resume return the absolute persisted deadline. */
+  recordDelegatedPhase?: (input: {
+    taskId: string;
+    phase: "dispatch" | "resume" | "cancelled" | "completed" | "failed";
+    executionSessionId?: string | null;
+    outcome?: string | null;
+  }) => boolean | number;
+  /** Stops a live local turn when its authorizing capability is revoked. */
+  abortTurn?: (sessionKey: string) => Promise<void>;
 }
 
 export interface TaskDispatcher {
@@ -578,6 +593,8 @@ export interface TaskDispatcher {
    * moment only cards hold.
    */
   undrain(reason: string): void;
+  /** Cancel only queued or active work bound to one revoked capability. */
+  revokeDelegatedCapability(capabilityId: string): Promise<number>;
 }
 
 /**
@@ -917,6 +934,46 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { return deps.svc.getBoardSettings(projectId).dispatchRetryBackoffS * 1000; } catch { return 60_000; }
   }
 
+  /** `undefined` is an ordinary owner run; `null` is a marked run that failed closed. */
+  function delegatedPolicy(task: Task): DelegatedRunPolicy | null | undefined {
+    const policy = deps.delegatedPolicyForTask?.(task.id) ?? null;
+    if (policy) {
+      if (task.delegatedStartCapabilityId && policy.id !== task.delegatedStartCapabilityId) return null;
+      return policy;
+    }
+    const boundOnNode = (() => {
+      try { return deps.isDelegatedTask?.(task.id) === true; } catch { return true; }
+    })();
+    return task.delegatedStartCapabilityId || boundOnNode ? null : undefined;
+  }
+
+  function attemptCap(task: Task): number {
+    return delegatedPolicy(task) ? 1 : retryCap(task.projectId);
+  }
+
+  function recordDelegated(taskId: string, phase: Parameters<NonNullable<DispatcherDeps["recordDelegatedPhase"]>>[0]["phase"], input: {
+    executionSessionId?: string | null;
+    outcome?: string | null;
+  } = {}): void {
+    try { deps.recordDelegatedPhase?.({ taskId, phase, ...input }); } catch { /* audit never opens authority */ }
+  }
+
+  function beginDelegated(
+    task: Task,
+    phase: "dispatch" | "resume",
+    executionSessionId?: string,
+  ): number | undefined {
+    const policy = delegatedPolicy(task);
+    if (policy === undefined) return undefined;
+    if (policy === null) throw new Error("delegated_authority_invalid");
+    if (!deps.recordDelegatedPhase) throw new Error("delegated_begin_unavailable");
+    const deadlineAt = deps.recordDelegatedPhase({ taskId: task.id, phase, executionSessionId });
+    if (typeof deadlineAt !== "number" || !Number.isFinite(deadlineAt)) {
+      throw new Error("delegated_begin_not_persisted");
+    }
+    return deadlineAt;
+  }
+
   const livenessGraceMs = deps.livenessGraceMs ?? 60_000;
 
   // Pending debounced launches, keyed by taskId (the grace window).
@@ -1201,6 +1258,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const remote = createRemoteNodeLane({
     client: deps.node, svc: deps.svc, broadcast: deps.broadcast, captureDelivery: deps.captureDelivery,
     log, emit, inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit, deferWait,
+    delegatedPolicyForTask: deps.delegatedPolicyForTask,
+    recordDelegatedPhase: deps.recordDelegatedPhase,
   });
   let nextRunId = 1;
   /**
@@ -2130,7 +2189,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- ${VERSION_BUMP_RULE}`,
         ...(checks.length
           ? [
-              `- PRE-REVIEW CHECKS: on delivery the server runs, by itself, in your worktree, ${checks.length === 1 ? "this command" : "these commands"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. If one is red the review is REFUSED and the output comes back to you: run them yourself first, so you do not lose a round on it.`,
+              `- PRE-REVIEW CHECKS: run the targeted tests for the code you changed. On delivery the board runs ${checks.length === 1 ? "this declared gate" : "these declared gates"} in your worktree — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. If one fails, review is refused and its output comes back to you.`,
             ]
           : []),
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
@@ -2153,12 +2212,52 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
+    const beforeLaunch = deps.svc.get(taskId)?.task;
+    if (!beforeLaunch) return;
+    const delegated = delegatedPolicy(beforeLaunch);
+    if (delegated === null) {
+      releaseAndEmit({
+        taskId,
+        requeue: false,
+        rollbackAttempt: true,
+        parkState: CHIP_BLOCKED,
+        reason: "Delegated start authorization is no longer valid.",
+      });
+      return;
+    }
+    if (delegated) settings = effectiveDelegatedSettings(settings, delegated);
     // THE REMOTE LANE COMES FIRST, and nothing under it may run for a card that
     // names a node: no worktree, no topic, no turn (KANBAN-76). The decision is
     // synchronous: an `await` here would postpone the slot of every LOCAL card
     // by one microtask, and `tick` launches without waiting for it.
     const remoteRun = remote.remoteLaunch(taskId, settings);
     if (remoteRun) { await remoteRun; return; }
+    if (delegated && !deps.abortTurn) {
+      releaseAndEmit({
+        taskId,
+        requeue: false,
+        rollbackAttempt: true,
+        parkState: CHIP_BLOCKED,
+        reason: "Delegated duration enforcement is unavailable.",
+      });
+      return;
+    }
+    let delegatedDeadlineAt: number | undefined;
+    if (delegated) {
+      try {
+        delegatedDeadlineAt = beginDelegated(beforeLaunch, "dispatch");
+      } catch (err) {
+        log(`delegated begin failed for task ${taskId}`, err);
+        releaseAndEmit({
+          taskId,
+          requeue: false,
+          rollbackAttempt: true,
+          parkState: CHIP_BLOCKED,
+          reason: "Delegated dispatch authorization could not be persisted.",
+        });
+        return;
+      }
+    }
     const runId = beginRun(taskId, "");
     let worktreeId: string | undefined;
     // LO STORICO DEL TENTATIVO. `task_attempts` esisteva con diciannove colonne
@@ -2301,6 +2400,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             mcpPolicy: settings.mcp === "inherit" ? undefined : "bridge-only",
           });
       bindRunSession(taskId, runId, sessionKey);
+      if (delegated) delegatedDeadlineAt = beginDelegated(task, "dispatch", sessionKey);
 
       // Il tentativo nasce QUI e non prima: adesso ci sono il topic, il ramo e
       // il modello davvero scelto (il classificatore ha gia' parlato), cioe' le
@@ -2406,7 +2506,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // Kickoff = the ONE turn that needs the full context envelope (grounds
         // the fresh session in the project). A reused-blocker topic also gets
         // full — it's a new task, worth re-grounding.
-        turnEnd = (await deps.runTurn(sessionKey, kickoff, { timeoutMs, idleMs, contextMode: "full" })) || undefined;
+        turnEnd = (await runWithDelegatedDeadline({
+          resolvePolicy: () => delegatedPolicy(task),
+          sessionKey,
+          persistedDeadlineAt: delegatedDeadlineAt,
+          clock,
+          abortTurn: deps.abortTurn,
+          run: () => deps.runTurn(sessionKey, kickoff, { timeoutMs, idleMs, contextMode: "full" }),
+        })) || undefined;
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
         turnEnd = classifyTurnError(err);
@@ -2436,6 +2543,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         : null;
       if (!ownsRun(taskId, runId)) return;
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      if (delegated) {
+        const after = deps.svc.get(taskId)?.task;
+        if (after?.status === "review" || after?.status === "done") {
+          recordDelegated(taskId, "completed", { outcome: after.status });
+        } else if (after?.status === "backlog") {
+          recordDelegated(taskId, "failed", { outcome: turnEnd?.cause ?? turnEnd?.end ?? "stopped" });
+        }
+      }
       // La fotografia dell'esito, con lo stesso significato che ha nel fan-out:
       // com'e' finito QUESTO turno, non come sta il disco adesso. `cancelled`
       // dal timeout non e' `delivered`: e' il caso che ha aperto tutto questo —
@@ -2494,7 +2609,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // requeue — mirror onTurnEnd so a flaky setup can't strand a task in todo.
       try {
         const failTask = deps.svc.get(taskId)?.task;
-        const cap = failTask ? retryCap(failTask.projectId) : DEFAULT_RETRY_CAP;
+        const cap = failTask ? attemptCap(failTask) : DEFAULT_RETRY_CAP;
         const exhausted = (failTask?.dispatchAttempts ?? cap) >= cap;
         releaseAndEmit({
           taskId,
@@ -2701,7 +2816,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Mandare l'umano a scegliere fra tre vuoti sarebbe peggio del silenzio.
       await reapAttempts(taskId, { keepSelected: false });
       const cur = deps.svc.get(taskId)?.task;
-      const cap = cur ? retryCap(cur.projectId) : DEFAULT_RETRY_CAP;
+      const cap = cur ? attemptCap(cur) : DEFAULT_RETRY_CAP;
       // Un riavvio del server non è colpa dell'agent: non consuma un tentativo
       // (stessa regola del recupero orfani del lancio singolo).
       const exhausted = !opts?.orphaned && (cur?.dispatchAttempts ?? cap) >= cap;
@@ -2886,7 +3001,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       try {
         const failTask = deps.svc.get(taskId)?.task;
-        const cap = failTask ? retryCap(failTask.projectId) : DEFAULT_RETRY_CAP;
+        const cap = failTask ? attemptCap(failTask) : DEFAULT_RETRY_CAP;
         const exhausted = (failTask?.dispatchAttempts ?? cap) >= cap;
         releaseAndEmit({
           taskId,
@@ -3123,7 +3238,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // from scratch — a fresh restart re-plans, re-creates the step checklist
       // and burns the whole retry budget on any task bigger than one timeout.
       if (cur.assignedTopicId && shouldResume(end)) {
-        const cap = retryCap(cur.projectId);
+        const cap = attemptCap(cur);
         const backoff = backoffMs(cur.projectId);
         let bumped: Task | null = null;
         // Uno stop premuto dall'UMANO non è un fallimento dell'agent e non gli
@@ -3457,6 +3572,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // resume: una voce che resta nel registro senza timer è peggio del guasto
     // che il registro cura — quella card non verrebbe recuperata MAI più.
     if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
+    const policy = delegatedPolicy(t);
+    if (policy === null) {
+      clearSlotWait(taskId, false);
+      await cancelDelegatedTask(t, "delegated_authority_invalid");
+      return;
+    }
     if (inFlight.has(taskId)) {
       // Turn still live (winding down): buffer, onTurnEnd delivers it.
       //
@@ -3541,11 +3662,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // ancora pendente su questo task (il suo messaggio, non il suo timer).
     clearSlotWait(taskId, true);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+    let delegatedDeadlineAt: number | undefined;
+    if (policy) {
+      try {
+        delegatedDeadlineAt = beginDelegated(t, "resume", sessionKey);
+      } catch (err) {
+        log(`delegated resume begin failed for task ${taskId}`, err);
+        await cancelDelegatedTask(t, "delegated_begin_not_persisted");
+        return;
+      }
+    }
     const runId = beginRun(taskId, sessionKey);
     try {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      if (policy) timeoutMin = Math.min(timeoutMin, policy.maxDurationMinutes);
       let idleMin = 5;
       try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
@@ -3560,18 +3692,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // resume UMANO non passa di qui: quello lo ha scritto una persona, e non
       // si riassume la voce di chi guarda.
       const content = opts?.continuation
-        ? claimNudge(t.id, buildContinueNudge(t, retryCap(t.projectId)))
+        ? claimNudge(t.id, buildContinueNudge(t, attemptCap(t)))
         : buildResume(t, humanMessage);
       // Resume (human answer) or continuation (post-timeout nudge): the session
       // already carries the full envelope from kickoff — re-injecting CLAUDE.md
       // & co. only compounds cache write/read. Lean = role prompt + cwd only.
       let turnEnd: TurnEndInfo | undefined;
       try {
-        turnEnd = (await deps.runTurn(sessionKey, content, {
-          timeoutMs: Math.max(1, timeoutMin) * 60_000,
-          idleMs: Math.max(1, idleMin) * 60_000,
-          contextMode: "lean",
-          ...(opts?.continuation ? {} : { dispatchedFor: opts?.commentIds ?? [] }),
+        turnEnd = (await runWithDelegatedDeadline({
+          resolvePolicy: () => delegatedPolicy(t),
+          sessionKey,
+          persistedDeadlineAt: delegatedDeadlineAt,
+          clock,
+          abortTurn: deps.abortTurn,
+          run: () => deps.runTurn(sessionKey, content, {
+            timeoutMs: Math.max(1, timeoutMin) * 60_000,
+            idleMs: Math.max(1, idleMin) * 60_000,
+            contextMode: "lean",
+            ...(opts?.continuation ? {} : { dispatchedFor: opts?.commentIds ?? [] }),
+          }),
         })) || undefined;
       }
       catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
@@ -3580,6 +3719,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      if (policy) {
+        const after = deps.svc.get(taskId)?.task;
+        if (after?.status === "review" || after?.status === "done") {
+          recordDelegated(taskId, "completed", { outcome: after.status });
+        } else if (after?.status === "backlog") {
+          recordDelegated(taskId, "failed", { outcome: turnEnd?.cause ?? turnEnd?.end ?? "stopped" });
+        }
+      }
     } finally {
       endRun(taskId, runId);
     }
@@ -3593,16 +3740,32 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   async function reattachTask(taskId: string): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    const policy = delegatedPolicy(t);
+    if (policy === null) {
+      await cancelDelegatedTask(t, "delegated_authority_invalid");
+      return;
+    }
     if (inFlight.has(taskId)) return;
     // Nessun tetto qui, di proposito: il reattach ADOTTA un turno che sta già
     // girando nel broker. Rifiutarlo non risparmierebbe niente — lo lascerebbe
     // orfano, a bruciare token senza nessuno che ne raccolga il risultato.
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+    let delegatedDeadlineAt: number | undefined;
+    if (policy) {
+      try {
+        delegatedDeadlineAt = beginDelegated(t, "resume", sessionKey);
+      } catch (err) {
+        log(`delegated reattach begin failed for task ${taskId}`, err);
+        await cancelDelegatedTask(t, "delegated_begin_not_persisted");
+        return;
+      }
+    }
     const runId = beginRun(taskId, sessionKey);
     try {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      if (policy) timeoutMin = Math.min(timeoutMin, policy.maxDurationMinutes);
       let idleMin = 5;
       try { idleMin = deps.svc.getBoardSettings(t.projectId).dispatchIdleMin; } catch { /* default */ }
       const t0 = Date.now();
@@ -3610,9 +3773,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       let turnEnd: TurnEndInfo | undefined;
       try {
-        turnEnd = (await deps.reattach!(sessionKey, {
-          timeoutMs: Math.max(1, timeoutMin) * 60_000,
-          idleMs: Math.max(1, idleMin) * 60_000,
+        turnEnd = (await runWithDelegatedDeadline({
+          resolvePolicy: () => delegatedPolicy(t),
+          sessionKey,
+          persistedDeadlineAt: delegatedDeadlineAt,
+          clock,
+          abortTurn: deps.abortTurn,
+          run: () => deps.reattach!(sessionKey, {
+            timeoutMs: Math.max(1, timeoutMin) * 60_000,
+            idleMs: Math.max(1, idleMin) * 60_000,
+          }),
         })) || undefined;
       }
       catch (err) { log(`reattach turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
@@ -4042,6 +4212,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
     for (const [idx, t] of todos.entries()) {
       if (inFlight.has(t.id)) continue;
+      const delegated = delegatedPolicy(t);
+      if (delegated === null) {
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: null, error: "delegated_capability_invalid" })); }
+        catch { /* fail closed even if the explanatory chip cannot be written */ }
+        continue;
+      }
       // PER-CARD SPEND BRAKE, and only when a cap is set. Not a `break`: this
       // card does not start, the others have nothing to do with it (the per-card
       // cap is its own). The line in the thread is written once per episode and
@@ -4153,7 +4329,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Un task che riusa il contesto del blocker vive nella chat DI QUELLO:
       // non si può fan-outtare una conversazione sola in N tentativi. Vince il
       // riuso (è una scelta esplicita dell'umano sul task), il fan-out cede.
-      const taskFanOut = t.reuseBlockerContext && t.blockedByTaskId ? 1 : fanOut;
+      const taskFanOut = delegated ? 1 : (t.reuseBlockerContext && t.blockedByTaskId ? 1 : fanOut);
       // N agenti = N slot. `claim` conta le RIGHE in_progress (una, per un
       // fan-out), quindi la prenotazione va fatta qui: il claim passa solo se
       // restano almeno N posti liberi.
@@ -4208,7 +4384,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const claimed = deps.svc.claim({
         taskId: t.id,
         cap: claimCap,
-        maxAttempts: settings.dispatchRetryCap,
+        maxAttempts: delegated ? 1 : settings.dispatchRetryCap,
         scope: capScope,
         machineIdle: forced ? true : loadGate?.ok,
       });
@@ -4263,13 +4439,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           });
         } catch { /* best-effort note */ }
       }
-      const launchSettings = {
+      let launchSettings = {
         timeoutMin: settings.dispatchTimeoutMin,
         idleMin: settings.dispatchIdleMin,
         effort: settings.dispatchEffort,
         mcp: settings.dispatchMcp,
         model: settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined,
       };
+      if (delegated) launchSettings = effectiveDelegatedSettings(launchSettings, delegated);
       // Fire the launch; do NOT await (one board can fill multiple slots).
       if (taskFanOut > 1 && resolved.projectStoreId) {
         if (taskFanOut < wantFanOut) {
@@ -4848,6 +5025,59 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
+  async function cancelDelegatedTask(task: Task, outcome: string): Promise<boolean> {
+      clearGrace(task.id);
+      clearRetryWait(task.id);
+      clearSlotWait(task.id, false);
+      const remoteCancellation = await remote.cancelTask(task.id);
+      if (remoteCancellation === true) {
+        recordDelegated(task.id, "cancelled", { outcome });
+        return true;
+      }
+      if (remoteCancellation === false) return false;
+      const slot = inFlight.get(task.id);
+      if (slot) {
+        inFlight.delete(task.id);
+        endLiveTurn(task.id);
+        if (slot.sessionKey && deps.abortTurn) {
+          try { await deps.abortTurn(slot.sessionKey); } catch { /* release still closes authority */ }
+        }
+      } else if (task.assignedTopicId && deps.abortTurn) {
+        try { await deps.abortTurn(`topic:${task.assignedTopicId.slice(0, 8)}`); } catch { /* release still closes authority */ }
+      }
+      if (task.status === "todo") {
+        try { emit(deps.svc.setDispatchState({ taskId: task.id, state: null, error: "delegated_capability_revoked" })); }
+        catch { /* task may have moved */ }
+        recordDelegated(task.id, "cancelled", { outcome });
+        return true;
+      }
+      if (task.status === "in_progress") {
+        try {
+          releaseAndEmit({
+            taskId: task.id,
+            requeue: false,
+            rollbackAttempt: true,
+            parkState: CHIP_BLOCKED,
+            reason: "Delegated start authorization was revoked.",
+          });
+        } catch { /* task may have moved */ }
+        recordDelegated(task.id, "cancelled", { outcome });
+        return true;
+      }
+      return false;
+  }
+
+  async function revokeDelegatedCapability(capabilityId: string): Promise<number> {
+    let tasks: Task[] = [];
+    try { tasks = deps.svc.list({ scope: "all" }); } catch { return 0; }
+    let canceled = 0;
+    for (const task of tasks) {
+      if (task.delegatedStartCapabilityId !== capabilityId) continue;
+      if (await cancelDelegatedTask(task, "capability_revoked")) canceled++;
+    }
+    return canceled;
+  }
+
   function shutdown(): void {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
@@ -4903,7 +5133,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   return {
-    tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted, shutdown, nightStatus,
+    tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
+    revokeDelegatedCapability, shutdown, nightStatus,
     isInFlight: (id) => inFlight.has(id),
     // THE REMOTE LANE DOES NOT SPEND THIS MACHINE'S CAP (KANBAN-76): a card
     // running on a node costs no process, no worktree and no CPU here, and the

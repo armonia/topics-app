@@ -16,7 +16,7 @@ import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveIdentity, confinamentoDerivato } from "./identity";
+import { resolveIdentity, resolveDelegatedCredential, confinamentoDerivato } from "./identity";
 import { hashToken, buildSessionCookie } from "./device-auth";
 import { TASKS_DDL } from "../db/test-schema";
 
@@ -109,6 +109,35 @@ describe("identità · da remoto", () => {
     const io = resolveIdentity(db, cookie("t9"), false);
     expect(io.confined).toBe(true);
     expect(io.principals.map((p) => p.kind)).toContain("person");
+  });
+});
+
+describe("identità · credenziale nodo delegata", () => {
+  function delegatedDb(): Database {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE delegated_node_authorizations (
+      id TEXT PRIMARY KEY, capability_id TEXT, credential_hash TEXT,
+      expires_at INTEGER, revoked_at INTEGER)`);
+    return db;
+  }
+
+  it("binds the cookie to one explicit live capability without a device session", () => {
+    const db = delegatedDb();
+    db.query("INSERT INTO delegated_node_authorizations VALUES (?,?,?,?,NULL)")
+      .run("auth-a", "cap-a", hashToken("node-secret"), 2_000);
+    expect(resolveDelegatedCredential(db, cookie("node-secret"), "cap-a", 1_000))
+      .toEqual({ authorizationId: "auth-a", capabilityId: "cap-a" });
+    expect(resolveDelegatedCredential(db, cookie("node-secret"), "cap-b", 1_000)).toBeNull();
+    expect(resolveDelegatedCredential(db, cookie("wrong"), "cap-a", 1_000)).toBeNull();
+  });
+
+  it("fails closed after expiry or revocation", () => {
+    const db = delegatedDb();
+    db.query("INSERT INTO delegated_node_authorizations VALUES (?,?,?,?,NULL)")
+      .run("auth-a", "cap-a", hashToken("node-secret"), 2_000);
+    expect(resolveDelegatedCredential(db, cookie("node-secret"), "cap-a", 2_000)).toBeNull();
+    db.query("UPDATE delegated_node_authorizations SET expires_at=NULL, revoked_at=1 WHERE id='auth-a'").run();
+    expect(resolveDelegatedCredential(db, cookie("node-secret"), "cap-a", 1_000)).toBeNull();
   });
 });
 
