@@ -4,6 +4,7 @@
  * Partial: formatted code inside tool bodies.
  */
 import { expect, test } from "@playwright/test";
+import { slackMs } from "../helpers/time-slack";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
@@ -164,7 +165,12 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await openTopic(page, new RegExp(fresh.name));
 
       const split = page.locator('[data-testid="message-token-split"]').last();
-      await expect(split).toBeVisible({ timeout: 15_000 });
+      // SETUP, not the object: the claim below is what the two figures SAY, and
+      // this only waits for the row to exist after `goToApp` + `openTopic`. It
+      // is written for a quiet machine and follows the load — measured on CI on
+      // 2026-09-12, the same wait took 16,5 s on the first attempt and 2,0 s on
+      // the retry of the SAME run, i.e. the window was describing the runner.
+      await expect(split).toBeVisible({ timeout: slackMs(15_000) });
       // 900k riletti; nuovi = 30k freschi + 60k scritti + 10k a un'ora = 100k.
       // Le scritture stanno coi nuovi: erano token freschi, pagati DI PIÙ per
       // essere memorizzati — contarle come cache spaccerebbe per risparmio un
@@ -217,7 +223,10 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await openTopic(page, new RegExp(fresh.name));
 
       const assistant = page.locator('[data-testid="message-content-assistant"]').last();
-      await assistant.waitFor({ state: "visible", timeout: 10_000 });
+      // SETUP, like the one above: the object is the strip that must NOT be
+      // there. Failed at 11,3 s on a 10 s budget in a CI run whose local twin
+      // took 0,7 s.
+      await assistant.waitFor({ state: "visible", timeout: slackMs(10_000) });
 
       // Nessuna striscia. Agganciata alla RIGA del messaggio e non al suo
       // contenuto: dentro `message-content-assistant` la striscia non c'è più

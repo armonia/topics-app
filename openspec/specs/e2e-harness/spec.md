@@ -505,3 +505,42 @@ percorso temporaneo usato come semplice file non ha nessun difetto.
 #### Scenario: un file che non indirizza nessuna board
 - **GIVEN** un file con `/tmp/` letterale che non nomina nessuno dei due
 - **THEN** il cancello SHALL uscire verde
+
+### Requirement: E2E-GATE-11 — Il banco e2e misura il carico dove è vero, e lo passa giù come fanno gli altri due
+
+Il runner e2e SHALL decidere UNA volta per tutta la corsa il fattore
+`TOPICS_TEST_TIME_SLACK` e scriverlo nell'ambiente prima che parta il primo
+worker, com'è già per gli shard unit (`scripts/test-unit-shards.ts`) e per i
+check di pre-review della board (`server/services/review-checks.ts`). Il
+fattore SHALL essere STAMPATO sempre, anche a x1.0.
+
+**Dove si misura.** Alla FINE di `globalSetup`, non all'inizio del processo: a
+quel punto il giro ha già installato, costruito, scaricato Chromium, avviato il
+server di test e seminato: la media a un minuto descrive finalmente la macchina
+su cui le spec stanno per girare. Misurare all'avvio è ciò che rendeva la leva
+inutile — un runner appena nato legge ~0, il fattore esce 1, e la toppa sembra
+messa senza accendersi mai.
+
+**Cosa segue il fattore e cosa no.** Le attese di SETUP — quelle che reggerebbero
+anche a tempo infinito, perché non sono l'oggetto dell'asserzione — SHALL
+passare per `slackMs()`. Le attese che SONO l'oggetto del test NON devono
+seguirlo: allargarle perde la capacità di vedere un blocco su una macchina
+scarica.
+
+MISURATO il 12/09/2026: `tool-call-ui.spec.ts` rosso in due run di CI su cinque,
+con il test rosso che CAMBIA fra un giro e l'altro dentro lo stesso file. I
+tempi dicono lentezza, non logica — `:139` 16,5 s al primo tentativo e 2,0 s al
+retry dello STESSO run, contro 1,1 s in locale sullo stesso bundle — e i due
+budget scaduti (`timeout: 15_000` e `timeout: 10_000`) erano entrambi attese di
+setup dopo `goToApp` + `openTopic`.
+
+MISURA: `tests/unit/e2e-runner-hands-down-time-slack.test.ts`, e il numero
+stampato nel log di CI.
+
+#### Scenario: il fattore arriva ai worker
+- **GIVEN** `globalSetup` ha deciso il fattore
+- **THEN** `TOPICS_TEST_TIME_SLACK` è scritto nell'ambiente del processo runner, da cui i worker vengono forkati
+
+#### Scenario: un valore forzato a mano vince
+- **GIVEN** `TOPICS_TEST_TIME_SLACK=4` è già nell'ambiente
+- **THEN** la misura non lo sovrascrive: chi ha scelto ha scelto

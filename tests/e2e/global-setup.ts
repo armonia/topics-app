@@ -22,6 +22,7 @@ import {
   publicDirForPort,
   testServerEnv,
 } from "./helpers/test-server";
+import { handDownTimeSlack } from "./helpers/time-slack-handoff";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
 import {
   IS_WINDOWS,
@@ -755,6 +756,10 @@ async function seedBaselineData() {
       (err as Error).message
     );
   }
+
+  // The time factor for this whole run, measured HERE at the end of setup and
+  // written into the env the workers are forked with: see `time-slack-handoff.ts`.
+  console.log(`[global-setup] ${handDownTimeSlack().note}`);
 }
 
 // Cleanup on crash/interrupt — kill test server + Chromium processes
