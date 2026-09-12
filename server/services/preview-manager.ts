@@ -33,7 +33,7 @@
 
 import { join } from "path";
 import net from "net";
-import { holdsOwnEvidence } from "./preview-own-evidence";
+import { holdsOwnEvidence, isDurablePreviewEvidence } from "./preview-own-evidence";
 
 /**
  * Every note about the preview opens with this, and that is what makes them ONE
@@ -160,6 +160,7 @@ export interface PreviewManagerDeps {
   setPreviewImage(taskId: string, absPath: string): void;
   /** The card's CURRENT preview image; absent ⇒ always overwrite, as before. */
   currentPreviewImage?(taskId: string): string | null;
+  previewEvidenceExists?(path: string): boolean;
   /**
    * Toglie l'anteprima e scrive sulla CARD perché — lo stato che la nota nel
    * thread non sa aggiornare (`shared/preview-retirement.ts`). Opzionale: se
@@ -519,6 +520,8 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   async function prepareForReview(taskId: string, opts?: PrepareOptions): Promise<void> {
     const explain = opts?.explain === true;
     try {
+      const existing = deps.currentPreviewImage?.(taskId);
+      if (!explain && isDurablePreviewEvidence(existing, deps.previewEvidenceExists)) { log(`[preview] preserving durable evidence for ${taskId}; live capture not needed`); return; }
       const cur = deps.currentOutputUrl(taskId);
 
       // If the agent already left a LIVE local server (its own run_script dev
@@ -667,7 +670,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
       if (shot) {
         // Evidence somebody chose is not replaced: `preview-own-evidence.ts`.
-        const isOwnEvidence = holdsOwnEvidence(deps.currentPreviewImage?.(taskId), explain);
+        const isOwnEvidence = holdsOwnEvidence(deps.currentPreviewImage?.(taskId), explain, deps.previewEvidenceExists);
         if (isOwnEvidence) {
           log(`[preview] not overwriting ${taskId}'s own evidence with the auto-capture`);
           deps.addReviewNote(taskId, {

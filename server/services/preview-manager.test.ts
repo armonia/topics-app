@@ -37,6 +37,7 @@ function harness(over: Partial<PreviewManagerDeps> = {}): Harness {
     screenshot: async () => true,
     currentOutputUrl: () => outputUrl.v,
     currentPreviewImage: () => h.previewImage,
+    previewEvidenceExists: () => true,
     setOutputUrl: (_t, u) => { outputUrl.v = u; },
     setPreviewImage: (_t, p) => { h.previewImage = p; },
     addReviewNote: (_t, a) => { h.reviewNotes.push(a); },
@@ -674,6 +675,7 @@ describe("uno scatto DENSO ma dell'APP VUOTA non si allega", () => {
   });
 });
 
+/** @covers KANBAN-83 */
 describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
   /**
    * Reported: three review cards showed the app's own empty landing page while
@@ -683,7 +685,7 @@ describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
    * empty state (see `image-shape.ts`). The fix is not a better blank
    * detector, it is not overwriting a preview someone already chose.
    */
-  it("la card ha già un'anteprima propria ⇒ l'auto-scatto non la sostituisce", async () => {
+  it("preserves valid durable evidence without starting live capture", async () => {
     const h = harness({
       fetchPage: async () => ({ status: 200, body: "<div id=root></div>" }),
       screenshot: async () => true,
@@ -693,7 +695,41 @@ describe("l'auto-scatto non scavalca l'evidenza propria della card", () => {
     const pm = createPreviewManager(h.deps);
     await pm.prepareForReview("t1");
     expect(h.previewImage).toBe("/media/task-attachments/screenshot-scuro.png");
-    expect(h.reviewNotes.at(-1)!.content).toContain("non la sostituisco");
+    expect(h.spawned).toHaveLength(0);
+    expect(h.reviewNotes).toHaveLength(0);
+  });
+
+  it("does not bypass capture for missing durable evidence", async () => {
+    const h = harness({
+      previewEvidenceExists: () => false,
+      fetchPage: async () => ({ status: 503, body: "Bundle not built yet" }),
+      retirePreview: () => {},
+    });
+    h.previewImage = "/media/task-attachments/missing.svg";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.spawned).toHaveLength(1);
+  });
+
+  it("keeps a valid SVG when the bundle-less worktree answers 503", async () => {
+    let fetchCount = 0;
+    let screenshotCount = 0;
+    const retirements: string[] = [];
+    const h = harness({
+      previewEvidenceExists: () => true,
+      fetchPage: async () => { fetchCount++; return { status: 503, body: "Bundle not built yet" }; },
+      screenshot: async () => { screenshotCount++; return true; },
+      retirePreview: (_taskId, reason) => { retirements.push(reason); },
+    });
+    h.previewImage = "/media/task-attachments/release-manifest-preview.svg";
+    const pm = createPreviewManager(h.deps);
+    await pm.prepareForReview("t1");
+    expect(h.previewImage).toBe("/media/task-attachments/release-manifest-preview.svg");
+    expect(h.spawned).toHaveLength(0);
+    expect(fetchCount).toBe(0);
+    expect(screenshotCount).toBe(0);
+    expect(retirements).toHaveLength(0);
+    expect(h.reviewNotes).toHaveLength(0);
   });
 
   it("una richiesta esplicita di ricattura (`explain: true`) sostituisce comunque", async () => {
