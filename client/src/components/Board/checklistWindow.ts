@@ -1,16 +1,16 @@
 /**
  * THE ROW THE PREVIEW EXISTS FOR IS THE ONE IT HID.
  *
- * A card's checklist shows at most five steps, the rest behind "+N… Vedi
- * tutti". The window was `slice(0, 5)`: the first five in order. A checklist is
- * worked top-down, so the first five are the DONE ones, struck through — and
- * the step that is actually open falls past the fold.
+ * A card's checklist shows at most five steps, the rest behind the fold. The
+ * window was `slice(0, 5)`: the first five in order. A checklist is worked
+ * top-down, so the first five are the DONE ones, struck through — and the step
+ * that is actually open falls past the fold.
  *
- * That is the opposite of what the window is for. `Card.tsx` says it next to
- * the chip it draws on those rows: «uno step "in corso" che non sta lavorando
- * nessuno è esattamente ciò che tiene aperto il task». The card is the only
- * place on the board a subtask is ever seen (the columns carry roots only), so
- * a step nobody is working is visible there or nowhere.
+ * That is the opposite of what the window is for. `Card.tsx` says as much next
+ * to the chip it draws on those rows: a step in progress that nobody is working
+ * is exactly what holds the task open. And the card is the only place on the
+ * board a subtask is ever seen (the columns carry roots only), so a step nobody
+ * is working is visible there or nowhere.
  *
  * MEASURED on 2026-09-12 on a live board, card e1cdd61d: six steps, five done,
  * and the sixth — `8951cc50`, sitting in In Progress since 09/09 with no

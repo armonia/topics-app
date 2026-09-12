@@ -86,6 +86,12 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // The steps under a card. It is an Italian dictionary word (a loanword), and
+  // it is also what this project calls the thing everywhere: `subtaskCount`'s
+  // UI, `Card.tsx`'s `const checklist = children`, the `checklist_frozen` queue
+  // reason. A variable holding those rows has no other honest name
+  // (2026-09-12, `components/Board/checklistWindow.ts`).
+  "checklist",
   // The HTML element. `<iframe>` is its name in the platform, in the DOM API
   // (`HTMLIFrameElement`) and in this project's own `data-testid`
   // ("browser-iframe"), so a variable holding one has no other honest name

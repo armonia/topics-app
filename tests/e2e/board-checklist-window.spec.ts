@@ -32,7 +32,7 @@ const BASE = E2E_BASE;
 const PROJECT_PATH = `${canonicalTmpRoot()}/e2e-checkwin-${Date.now()}`;
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
-const EPICA = "Rifare la scheda prodotto";
+const PARENT = "Rifare la scheda prodotto";
 const LIVE_STEP = "Verificare il flusso completo e consegnare";
 
 let projectTopicId: string | null = null;
@@ -109,20 +109,20 @@ test.describe("Checklist della card · quali cinque step", () => {
     // step: no bound topic, no dispatch chip, and a column that is not
     // `in_progress`. The step itself is the ambiguous shape — in progress,
     // never dispatched.
-    const epica = await createTask(request, { text: EPICA });
-    await patch(request, epica.id, { status: "review" });
+    const parent = await createTask(request, { text: PARENT });
+    await patch(request, parent.id, { status: "review" });
 
     for (let i = 1; i <= 5; i++) {
-      const done = await createTask(request, { text: `Passo chiuso ${i}`, parentTaskId: epica.id });
+      const done = await createTask(request, { text: `Passo chiuso ${i}`, parentTaskId: parent.id });
       await patch(request, done.id, { status: "done" });
     }
-    const live = await createTask(request, { text: LIVE_STEP, parentTaskId: epica.id });
+    const live = await createTask(request, { text: LIVE_STEP, parentTaskId: parent.id });
     await patch(request, live.id, { status: "in_progress" });
 
     await page.goto("/");
     await openProjectBoard(page);
 
-    const card = page.locator(`[data-task-card="${epica.id}"]`);
+    const card = page.locator(`[data-task-card="${parent.id}"]`);
     await expect(card).toBeVisible({ timeout: 10000 });
 
     // The sixth step, last in the checklist, is on the card — with its chip.

@@ -48,7 +48,6 @@
     ],
     "client/src/components/Board/Card.tsx": [
       "attesa",
-      "checklist",
       "contesto",
       "costo",
       "evidenza",
