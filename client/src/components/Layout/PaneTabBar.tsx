@@ -1699,7 +1699,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 closable={!nonClosablePaneIds?.has(pane.id)}
                 topicId={pane.type === 'chat' ? pane.topicId : undefined}
                 onStop={onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
-                before={pane.type === 'browser' ? <BrowserTabMenuButton paneId={pane.id} /> : undefined}
+                before={pane.type === 'browser' ? (
+                  <>
+                    {/* THE CUE AGAIN, AS A COMMAND. At rest you see it in the
+                        quiet rail; the moment you hover to press it, that rail
+                        goes `pointer-events: none` by design (signals give way
+                        to commands, index.css `.row-trail`), so the version you
+                        can actually click has to be HERE - same glyph, same
+                        place, the way the close ring already takes over from
+                        the notification badge. Measured: Playwright reported
+                        the ring intercepting every click aimed at the cue. */}
+                    <BrowserTabDownloadsCue paneId={pane.id} inRail />
+                    <BrowserTabMenuButton paneId={pane.id} />
+                  </>
+                ) : undefined}
               />
             )}
           </div>

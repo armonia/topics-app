@@ -470,14 +470,19 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       // 1. THE FILE ANNOUNCES ITSELF AND OPENS NOTHING. The cue lights up in
       //    the tab's quiet rail; the page stays uncovered and live. No address
       //    row over the page, and no old strip at the foot of the pane either.
-      const cue = page.getByTestId("browser-tab-downloads-cue");
-      await expect(cue).toBeVisible({ timeout: 5000 });
+      // AT REST it is the inert signal in the quiet rail; the pressable twin
+      // lives in the command rail, which only exists under the pointer (the two
+      // rails take turns by design: `index.css`, `.row-trail`).
+      const signal = page.getByTestId("browser-tab-downloads-signal");
+      await expect(signal).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
       await expect(page.locator('[data-testid="browser-url-input"]'), "no row over the page").toHaveCount(0);
       await expect(page.getByTestId("browser-tab-sheet"), "a download does not open the sheet").toHaveCount(0);
 
       // 2. THE CLICK ON THE CUE IS WHAT OPENS, with the sheet already on its
       //    Downloads section - and without taking the address caret.
+      await page.locator('[data-pane-id^="browser:"]').first().hover();
+      const cue = page.getByTestId("browser-tab-downloads-cue");
       await cue.click();
       await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
@@ -499,6 +504,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       //    goes too: at rest the rail is back the way it was.
       await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
       await expect(cue).toHaveCount(0);
+      await expect(signal).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

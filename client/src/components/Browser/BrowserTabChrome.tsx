@@ -134,8 +134,26 @@ export function BrowserTabConsoleCue({ paneId, onFill }: { paneId: string; onFil
  * pulses once, unless the OS says no animations) and a click on it opens the
  * sheet with the Downloads section already down. `downloadsStarted` only drives
  * the appearing and the pulse; the tally is the number of files held.
+ *
+ * IT IS DRAWN TWICE, and that is the tab's own idiom rather than a duplicate.
+ * The quiet rail and the command rail TAKE TURNS: hover a tab and `.row-trail`
+ * goes `opacity: 0; pointer-events: none` while `.row-actions` lights up
+ * (`index.css`). So a cue that is only a signal cannot be clicked - the very
+ * gesture that reaches for it is the one that switches its rail off. Measured:
+ * Playwright reported the close ring intercepting every click aimed at it. The
+ * copy in the quiet rail is therefore inert (`disabled`, out of the tab order)
+ * and the copy in the command rail is the button, in the same spot - exactly
+ * how the close ring already takes over from the notification badge.
  */
-export function BrowserTabDownloadsCue({ paneId, onFill }: { paneId: string; onFill?: boolean }) {
+export function BrowserTabDownloadsCue({ paneId, onFill, inRail }: {
+  paneId: string;
+  onFill?: boolean;
+  /** Drawn inside the tab's COMMAND rail rather than its quiet one. Same glyph,
+   *  same spot: the two rails take turns (`index.css`, `.row-trail` goes
+   *  `pointer-events: none` on hover), so the pressable copy lives here and the
+   *  one you read at rest lives there. */
+  inRail?: boolean;
+}) {
   const chrome = useBrowserPaneChrome(paneId);
   const t = useT();
   const n = chrome?.downloads ?? 0;
@@ -164,20 +182,19 @@ export function BrowserTabDownloadsCue({ paneId, onFill }: { paneId: string; onF
       onClick={(e) => { swallow(e); openDownloads?.(); }}
       onPointerDown={swallow}
       onDoubleClick={swallow}
-      disabled={!openDownloads}
-      // `relative z-10` IS THE WHOLE REASON IT CAN BE PRESSED. The tab's command
-      // rail (`.row-actions`, the close ring and friends) is an ABSOLUTE box on
-      // the same right edge, painted on hover - and hovering is what you do to
-      // reach this cue, so the ring landed on top of it and swallowed the
-      // click. Measured: Playwright reported the ring's span intercepting
-      // pointer events over a cue it could see. The console cue never hit this
-      // because it is a span nobody clicks.
-      className={`relative z-10 flex items-center gap-0.5 tabular-nums text-micro font-medium rounded-sm px-0.5 -mx-0.5 disabled:cursor-default ${
-        onFill ? 'text-white' : 'text-app-text-faint/80 hover:text-app-text'
+      // In the quiet rail it is a SIGNAL and nothing else - that rail stops
+      // taking pointer events the instant you hover it, so a live handler there
+      // would only ever be a promise the CSS breaks.
+      disabled={!inRail || !openDownloads}
+      tabIndex={inRail ? undefined : -1}
+      className={`flex items-center gap-0.5 tabular-nums text-micro font-medium rounded-sm disabled:cursor-default ${
+        inRail
+          ? 'w-4 h-4 justify-center text-app-text-secondary hover:text-app-text hover:bg-app-hover'
+          : `px-0.5 -mx-0.5 ${onFill ? 'text-white' : 'text-app-text-faint/80'}`
       } ${fresh && !prefersReducedMotion() ? 'animate-pulse' : ''}`}
       title={label}
       aria-label={label}
-      data-testid="browser-tab-downloads-cue"
+      data-testid={inRail ? 'browser-tab-downloads-cue' : 'browser-tab-downloads-signal'}
       data-fresh={fresh || undefined}
     >
       <Download size={11} />
