@@ -2,18 +2,21 @@ import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import type { ProvidersSnapshot } from "../../shared/types";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
 /**
- * Slice 6 verification — picker keyboard nav.
+ * Slice 6 verification: picker keyboard nav.
  *
- * The picker must be navigable with the keyboard alone:
- *   ↓/↑ move the highlight, Enter selects, Esc closes.
- * The highlight is exposed via the `data-active="true"` attribute on the
- * focused model row.
+ * The picker must be navigable with the keyboard alone. Since the shared
+ * execution-first selector (task 05807e8e, MP-TASK-07) it has two levels:
+ * the first lists Automatic and the execution engines, Enter on an engine
+ * replaces the panel with that engine's models, and Enter on a model selects
+ * it. ↓/↑ move the real DOM focus between rows (the roving focus of the shared
+ * `Menu`), so the highlight is `document.activeElement`, not an attribute.
  *
  * @covers CHAT-DEF-03
  */
@@ -52,52 +55,74 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await picker.click();
 
-    // Need at least 2 enabled model rows to test ArrowDown selection.
-    const popover = page.locator('[data-popover="provider-model-picker"]');
+    const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
-    const enabledRows = popover.locator('button:not([disabled])[data-row-index]');
+
+    // Focus has to STAY in the popover. This was the real fault behind this
+    // test's "flaky" reputation: when the pane became active it gave the focus
+    // to the composer 50 ms later, taking it back from the picker's freshly
+    // focused search field of the time (measured: field at 25 ms, textarea at
+    // 29 ms). The arrows then landed in the textarea and keyboard navigation
+    // did nothing. The shared `Menu` focuses its panel once it is placed, so
+    // the panel is what must hold the focus here. Asserting it fails the
+    // cause, not the symptom.
+    await expect(popover).toBeFocused();
+
+    // First level: the first ArrowDown lands on the first row (Automatic).
+    // Had the composer stolen the focus, the key would have gone there.
+    await page.keyboard.press("ArrowDown");
+    await expect(popover.locator("[data-ai-selector-auto]")).toBeFocused();
+
+    // Walk down to the engine the isolated test server makes ready (its
+    // `claude` stub, scripts/start-test-server.sh). The list also shows the
+    // unavailable engines, in the server's order, so the number of steps is
+    // read from the rendered rows instead of being hard-coded.
+    const runtime = popover.locator('button[data-provider="claude-code"]');
+    await expect(runtime).toBeVisible();
+    const runtimeIndex = await popover
+      .locator("button:not([disabled])")
+      .evaluateAll((rows) => rows.findIndex((row) => row.getAttribute("data-provider") === "claude-code"));
+    for (let step = 0; step < runtimeIndex; step++) await page.keyboard.press("ArrowDown");
+    await expect(runtime).toBeFocused();
+
+    // Enter opens the engine: the panel is replaced and the focus moves to the
+    // back row of the new level, so the arrows keep working after the swap.
+    await page.keyboard.press("Enter");
+    await expect(popover.getByTestId("ai-selector-back")).toBeFocused();
+
+    // Need at least 2 enabled model rows to test ArrowDown selection.
+    const enabledRows = popover.locator("button:not([disabled])[data-model]");
     const enabledCount = await enabledRows.count();
     if (enabledCount < 2) {
-      test.skip(true, `Need ≥ 2 ready models in env; got ${enabledCount}`);
+      test.skip(true, `Need ≥ 2 ready claude-code models in env; got ${enabledCount}`);
     }
 
-    // Il fuoco deve RESTARE nel popover. Era qui il guasto vero dietro la fama di
-    // "flaky" di questo test: la pane, quando diventa attiva, dava il fuoco al
-    // composer 50 ms dopo — e se lo riprendeva da sotto al campo di ricerca appena
-    // autofocussato (misurato: input a 25 ms, textarea a 29 ms). Le frecce
-    // finivano nella textarea e la navigazione da tastiera non funzionava.
-    // Asserirlo qui fa fallire la causa, non il sintomo.
-    await expect(popover.locator("input")).toBeFocused();
+    // The model identity is read from `data-model`, never from the row text:
+    // the button shows a label meant for the eyes (the `[1m]` mode split into
+    // a badge) while the row carries the raw CLI id.
+    const firstModel = await enabledRows.nth(0).getAttribute("data-model");
 
-    // First row gets highlighted on open.
-    const firstActive = page.locator('[data-popover="provider-model-picker"] [data-active="true"]');
-    await firstActive.waitFor({ state: "visible", timeout: 5_000 });
-    // L'identita' del modello si legge da `data-model`, non dal testo della riga.
-    // Prima si confrontava il testo della riga col testo del bottone, e reggeva
-    // solo perche' i due COINCIDEVANO per caso: il bottone mostra un'etichetta
-    // per gli occhi (la modalita' `[1m]` staccata in un badge), la riga l'id
-    // grezzo della CLI. Al primo cambio di come si SCRIVE il modello il test
-    // diventava rosso senza che nulla si fosse rotto.
-    const firstActiveModel = await firstActive.getAttribute("data-model");
-
-    // Pressing ArrowDown should move the highlight to the second model.
+    // Back row, then first model, then second model.
     await page.keyboard.press("ArrowDown");
-    const secondActive = page.locator('[data-popover="provider-model-picker"] [data-active="true"]');
-    await expect(secondActive).toBeVisible();
-    const secondActiveModel = await secondActive.getAttribute("data-model");
+    await expect(enabledRows.nth(0)).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    const secondRow = enabledRows.nth(1);
+    await expect(secondRow).toBeFocused();
+    const secondActiveModel = await secondRow.getAttribute("data-model");
     expect(secondActiveModel).toBeTruthy();
-    expect(secondActiveModel).not.toBe(firstActiveModel);
+    expect(secondActiveModel).not.toBe(firstModel);
 
-    // Enter selects the highlighted row → picker closes and topic is patched.
+    // Enter selects the focused row: picker closes and topic is patched.
     await page.keyboard.press("Enter");
-    await expect(page.locator('[data-popover="provider-model-picker"]')).toHaveCount(0, { timeout: 5_000 });
+    await expect(popover).toHaveCount(0, { timeout: 5_000 });
 
     // The picker button now reflects the model the keyboard chose.
     await expect(picker).toHaveAttribute("data-model", secondActiveModel!, { timeout: 5_000 });
 
-    // Server-side persistence — the topic record carries the same model.
+    // Server-side persistence: the topic record carries the same engine and model.
     const all = await request.get("/api/topics");
     const data = await all.json();
+    expect(data.topics[topicId].provider).toBe("claude-code");
     expect(data.topics[topicId].model).toBe(secondActiveModel);
   });
 
@@ -115,9 +140,10 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await picker.click();
 
-    await expect(page.locator('[data-popover="provider-model-picker"]')).toBeVisible();
+    const popover = page.getByTestId("provider-model-popover");
+    await expect(popover).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.locator('[data-popover="provider-model-picker"]')).toHaveCount(0, { timeout: 5_000 });
+    await expect(popover).toHaveCount(0, { timeout: 5_000 });
 
     // Topic untouched — the server response omits the field when it's null.
     const all = await request.get("/api/topics");
@@ -142,19 +168,29 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     const picker = page.getByTestId("provider-model-picker");
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await picker.click();
-    const popover = page.locator('[data-popover="provider-model-picker"]');
+    const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
 
-    // Se claude-code non è pronto in questo ambiente non c'è niente da asserire
-    // — si salta, come fa il test di navigazione.
-    if ((await popover.getByText("Claude Code", { exact: true }).count()) === 0) {
-      test.skip(true, "claude-code non pronto in questo ambiente");
+    // With claude-code not ready there is nothing to assert, so the test skips
+    // like the navigation one. Readiness is read from the snapshot the picker
+    // renders: since the execution-first selector (task 05807e8e) the popover
+    // lists unavailable engines too, so a visible "Claude Code" row no longer
+    // means the engine is ready.
+    const snapshot = (await (await request.get("/api/providers/snapshot")).json()) as ProvidersSnapshot;
+    const claudeCode = snapshot.providers.find((entry) => entry.name === "claude-code");
+    if (claudeCode?.status !== "ready") {
+      test.skip(true, "claude-code not ready in this environment");
     }
     // Niente effort nel picker: né sulla riga del gruppo…
     await expect(popover.getByTestId("effort-tier-claude-code")).toHaveCount(0);
-    // …ma la pill "Default" sulla stessa riga resta: diceva un'altra cosa (quale
-    // provider è il default) e non se n'è andata insieme al badge.
-    await expect(popover.getByText("Default", { exact: true })).toBeVisible();
+    // ...but the picker still says which provider is the default: that was a
+    // different fact and it did not leave together with the tier badge. Task
+    // 05807e8e moved it from a "Default" pill on the provider group to the hint
+    // of the Automatic row, which is where the shared selector keeps it.
+    await expect(popover.locator("[data-ai-selector-auto]")).toHaveAttribute(
+      "title",
+      `Default: ${claudeCode?.label ?? "claude-code"}`,
+    );
 
     await page.keyboard.press("Escape");
     await expect(popover).toHaveCount(0, { timeout: 5_000 });
