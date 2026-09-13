@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.314",
+    "date": "2026-09-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "browser-della-topic approvata, tab-is-the-chrome in archivio senza farla",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.313",
     "date": "2026-09-13",
     "sections": {

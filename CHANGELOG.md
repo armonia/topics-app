@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.314 — 2026-09-13
+
+### Sotto il cofano
+- browser-della-topic approvata, tab-is-the-chrome in archivio senza farla
+
 ## 2.2.313 — 2026-09-13
 
 ### Sotto il cofano
