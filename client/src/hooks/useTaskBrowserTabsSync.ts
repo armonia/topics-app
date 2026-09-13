@@ -36,6 +36,7 @@ import {
   taskIdFromKey,
 } from '../state/taskBrowserTabs';
 import { forgetTaskLayout } from '../state/taskBrowserLayout';
+import { applyTopicWindowFrame, resyncTopicWindowsFromServer } from '../state/topicBrowserWindow';
 import { getTabId } from '../state/pane/middleware/syncCrossTab';
 
 export function useTaskBrowserTabsSync(
@@ -66,6 +67,10 @@ export function useTaskBrowserTabsSync(
       // server rebroadcasts it here. Drop our own echo so a stale broadcast can't
       // revert a newer local edit (the PUT stamps X-Client-Id → sourceClientId).
       if (msg.type === 'ui-state:updated') {
+        // Same bridge, other store: the per-topic browser window
+        // (`topic-browser:<topicId>`) drops its own echo inside
+        // `applyTopicWindowFrame`, which also tells us the key was its own.
+        if (applyTopicWindowFrame(msg)) return;
         const taskId = taskIdFromKey(msg.key);
         if (!taskId) return;
         if (msg.sourceClientId && msg.sourceClientId === getTabId()) return;
@@ -79,6 +84,7 @@ export function useTaskBrowserTabsSync(
       // snapshot si passa lo stesso, così un server vecchio che le manda ancora
       // le fa applicare direttamente, senza GET.
       if (msg.type === 'ui-state:init') {
+        void resyncTopicWindowsFromServer(msg.data);
         void resyncTaskTabsFromServer(msg.data);
         return;
       }
