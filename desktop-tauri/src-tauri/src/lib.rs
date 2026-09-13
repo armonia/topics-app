@@ -5378,7 +5378,9 @@ fn browser_animate_bounds(
 /// bare `addSubview:`: re-adding a view to the superview it already has is
 /// documented as a move, but only the explicit ordering pair says WHERE it
 /// lands.
-// ENGINES: wkwebview only - WebView2 and webkitgtk stack their children by their own rules; no-op there until a window needs it.
+// ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised with addSubview:positioned:above:.
+// ENGINES-GAP: webview2 - the floating window ships on macOS first, and raising one WebView2 child over another has not been probed on Windows; the command answers Ok and moves nothing.
+// ENGINES-GAP: webkitgtk - same: the GtkFixed stacking of two child webviews has not been probed on Linux; the command answers Ok and moves nothing.
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {
