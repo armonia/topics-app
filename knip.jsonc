@@ -68,6 +68,7 @@
         // command - but its publishing rules live next to it in
         // `build-client-publish.ts`, which its test does import.
         "scripts/build-client.ts!",
+        "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
         "scripts/typecheck-*.ts!",
         // I banchi: uno per asse, si lanciano a mano (`bun run bench` li chiama
         // tutti, ma ognuno vive anche da solo) e nessuno li importa, quindi per

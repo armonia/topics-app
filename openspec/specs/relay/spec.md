@@ -422,6 +422,12 @@ Ogni sessione SHALL portare il proprio RUOLO dalla nascita, e la fine di una
 sessione SHALL CHIUDERE davvero il socket che le stava sopra. Una sessione che
 se ne va lasciando il socket aperto è una risorsa che nessuno reclama più.
 
+La sostituzione SHALL essere legata alla generazione del filo. La chiusura
+tardiva della macchina sostituita SHALL NOT scollegare la macchina già
+riagganciata né dichiararla spenta agli ospiti. Allo stesso modo, una risposta
+asincrona appartenente a una sessione finita SHALL NOT raggiungere la nuova
+sessione che riusa lo stesso identificatore.
+
 #### Scenario: tetto raggiunto
 - **GIVEN** il numero massimo di sessioni già in piedi
 - **THEN** una sessione del proprietario SHALL comunque poter entrare nella riserva
@@ -429,3 +435,13 @@ se ne va lasciando il socket aperto è una risorsa che nessuno reclama più.
 #### Scenario: sessione chiusa
 - **GIVEN** una sessione che termina
 - **THEN** il socket verso l'ascoltatore SHALL risultare chiuso
+
+#### Scenario: chiusura tardiva dopo la sostituzione
+- **GIVEN** una nuova macchina già agganciata allo stesso punto d'incontro
+- **WHEN** arriva la chiusura della macchina che è stata sostituita
+- **THEN** la nuova macchina e le sue sessioni SHALL restare collegate
+
+#### Scenario: risposta tardiva con identificatore riusato
+- **GIVEN** una sessione finita e una nuova sessione con lo stesso identificatore
+- **WHEN** termina una risposta asincrona iniziata dalla sessione precedente
+- **THEN** nessun suo frame SHALL essere consegnato alla sessione nuova

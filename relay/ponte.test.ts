@@ -35,6 +35,7 @@ import { GENERE_RISPOSTA, scriviTesta } from "../shared/relay-http";
 class SocketFinta {
   inviati: string[] = [];
   chiusa = false;
+  readyState: number = WebSocket.OPEN;
   /**
    * LANCIA dopo la chiusura, come fa il runtime vero.
    *
@@ -49,7 +50,7 @@ class SocketFinta {
     if (this.chiusa) throw new TypeError("Can't call WebSocket send() after close().");
     this.inviati.push(d);
   }
-  close(): void { this.chiusa = true; }
+  close(): void { this.chiusa = true; this.readyState = WebSocket.CLOSED; }
 }
 
 /** Lo stato del Durable Object, ridotto a ciò che il relay usa: i TAG sono

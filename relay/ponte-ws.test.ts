@@ -44,8 +44,9 @@ import {
 /** La socket della macchina, vista dal Durable Object. */
 class SocketRelay {
   inviati: string[] = [];
+  readyState: number = WebSocket.OPEN;
   send(d: string): void { this.inviati.push(d); }
-  close(): void { /* il filo col relay qui non serve chiuderlo */ }
+  close(): void { this.readyState = WebSocket.CLOSED; }
 }
 
 /**

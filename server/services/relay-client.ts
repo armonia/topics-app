@@ -358,8 +358,8 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
    * ascoltando, ed è l'unico caso. Passa da `deps.invia` diretto, così questo
    * cancello resta senza eccezioni.
    */
-  const manda = (sid: string, fr: FrameTubo) => {
-    if (!sessioni.has(sid)) return;
+  const manda = (sid: string, sess: SessionGuest, fr: FrameTubo) => {
+    if (sessioni.get(sid) !== sess) return;
     deps.invia(sid, scriviFrame(fr));
   };
 
@@ -401,7 +401,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
    * primo pezzo: una risposta piccola diventa UN frame invece di due, e su un
    * Durable Object che si paga a messaggio la differenza non è estetica.
    */
-  function openExit(sid: string, sOut: number, testa: string) {
+  function openExit(sid: string, sess: SessionGuest, sOut: number, testa: string) {
     let n = 0;
     let aperto = false;
     let pendente: string | null = null;
@@ -410,11 +410,11 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     const emetti = (d: string, fin: boolean) => {
       if (!aperto) {
         aperto = true;
-        manda(sid, { f: "open", s: sOut, n: 0, k: GENERE_RISPOSTA, h: testa, e: "b", d, ...(fin ? { fin: true } : {}) });
+        manda(sid, sess, { f: "open", s: sOut, n: 0, k: GENERE_RISPOSTA, h: testa, e: "b", d, ...(fin ? { fin: true } : {}) });
         return;
       }
       n += 1;
-      manda(sid, { f: "data", s: sOut, n, e: "b", d, ...(fin ? { fin: true } : {}) });
+      manda(sid, sess, { f: "data", s: sOut, n, e: "b", d, ...(fin ? { fin: true } : {}) });
     };
 
     return {
@@ -431,7 +431,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
         // uno stream che non arriva mai.
         if (!aperto) {
           aperto = true;
-          manda(sid, { f: "open", s: sOut, n: 0, k: GENERE_RISPOSTA, h: testa, fin: true });
+          manda(sid, sess, { f: "open", s: sOut, n: 0, k: GENERE_RISPOSTA, h: testa, fin: true });
         }
       },
       /** Il corpo si è rotto a metà. Se non è ancora uscito niente si apre lo
@@ -442,9 +442,9 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
         finito = true;
         if (!aperto) {
           aperto = true;
-          manda(sid, { f: "open", s: sOut, n: 0, k: GENERE_RISPOSTA, h: testa });
+          manda(sid, sess, { f: "open", s: sOut, n: 0, k: GENERE_RISPOSTA, h: testa });
         }
-        manda(sid, { f: "reset", s: sOut, motivo });
+        manda(sid, sess, { f: "reset", s: sOut, motivo });
       },
     };
   }
@@ -452,7 +452,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
   /** Una risposta corta, tutta insieme: i rifiuti dichiarati. */
   function rispondiSubito(sid: string, sess: SessionGuest, re: number, stato: number, errore: string) {
     const corpo = new TextEncoder().encode(JSON.stringify({ error: errore }));
-    const u = openExit(sid, sess.prossimo(), scriviTesta({
+    const u = openExit(sid, sess, sess.prossimo(), scriviTesta({
       re, s: stato, h: [["content-type", "application/json"]],
     }));
     for (const p of dividiBinario(corpo, max)) u.pezzo(p);
@@ -464,7 +464,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     testaGrezza: string | undefined, corpo: string | Uint8Array | undefined,
   ): Promise<void> {
     const t = leggiTestaRichiesta(testaGrezza);
-    if (!t) { manda(sid, { f: "reset", s, motivo: "bad-frame" }); return; }
+    if (!t) { manda(sid, sess, { f: "reset", s, motivo: "bad-frame" }); return; }
 
     if (deps.portaTunnel === null) {
       // Dichiarato, non inventato: senza l'ascoltatore dedicato non esiste
@@ -481,7 +481,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     // sua rete.
     if (!url) { rispondiSubito(sid, sess, s, 400, "bad-path"); return; }
 
-    if (sess.inVolo.size >= maxInVolo) { manda(sid, { f: "reset", s, motivo: "too-many-streams" }); return; }
+    if (sess.inVolo.size >= maxInVolo) { manda(sid, sess, { f: "reset", s, motivo: "too-many-streams" }); return; }
 
     const ferma = new AbortController();
     sess.inVolo.set(s, ferma);
@@ -511,7 +511,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
       }
       for (const c of res.headers.getSetCookie?.() ?? []) coppie.push(["set-cookie", c]);
 
-      const u = openExit(sid, sess.prossimo(), scriviTesta({
+      const u = openExit(sid, sess, sess.prossimo(), scriviTesta({
         re: s, s: res.status, h: intestazioniRisposta(coppie),
       }));
 
@@ -564,7 +564,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     for (const fr of componiStream({
       s: sess.prossimo(), k: GENERE_WS_CHIUSO,
       h: scriviTestaWs({ w: sIn }), dati: scriviChiusuraWs(c), max,
-    })) manda(sid, fr);
+    })) manda(sid, sess, fr);
   }
 
   /**
@@ -598,7 +598,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     // rifiutare l'apertura. Un tetto che si consuma non è un tetto, è una
     // scadenza.
     sk.canale.chiudi("aborted");
-    if (opts.avvisa !== false) manda(sid, { f: "reset", s: sk.sIn, motivo: "aborted" });
+    if (opts.avvisa !== false) manda(sid, sess, { f: "reset", s: sk.sIn, motivo: "aborted" });
     // Un codice di chiusura si può dire solo su una stretta di mano FINITA.
     // `close(c)` su un socket ancora in apertura non manda nessun codice: per
     // protocollo fa cadere la connessione, e l'altro capo legge 1006 — cioè
@@ -626,7 +626,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
   /** Un messaggio dell'ospite verso il socket vero, e il credito che torna
    *  indietro. Il credito si restituisce solo DOPO la consegna: prima sarebbe
    *  una promessa su qualcosa che non è ancora successo. */
-  function versoAlto(sid: string, sk: SocketProxy, d: string | Uint8Array, byte: number): boolean {
+  function versoAlto(sid: string, sess: SessionGuest, sk: SocketProxy, d: string | Uint8Array, byte: number): boolean {
     try {
       // Il tipo del DOM vuole `string | ArrayBufferLike | Blob`; un
       // `Uint8Array` è una vista, ed è ciò che `send` accetta davvero.
@@ -634,13 +634,13 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     } catch {
       return false;
     }
-    manda(sid, ricaricaPer(sk.sIn, byte));
+    manda(sid, sess, ricaricaPer(sk.sIn, byte));
     return true;
   }
 
   function apriSocket(sid: string, sess: SessionGuest, sIn: number, testaGrezza: string | undefined) {
     const scarta = (motivo: MotivoStream) => {
-      manda(sid, { f: "reset", s: sIn, motivo });
+      manda(sid, sess, { f: "reset", s: sIn, motivo });
       sess.rias.dimentica(sIn);
     };
 
@@ -651,7 +651,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
     const sOut = sess.prossimo();
     const canale = creaCapoCanale({
       s: sOut,
-      invia: (fr) => manda(sid, fr),
+      invia: (fr) => manda(sid, sess, fr),
       max,
       ...(deps.credito !== undefined ? { credito: deps.credito } : {}),
       ...(deps.arretratoMax !== undefined ? { arretratoMax: deps.arretratoMax } : {}),
@@ -715,7 +715,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
       canale.apri(GENERE_WS_APERTO, scriviTestaWs({
         re: sIn, s: WS_APERTO, ...(scelto !== undefined ? { sp: scelto } : {}),
       }));
-      for (const q of sk.coda.splice(0)) versoAlto(sid, sk, q.d, q.byte);
+      for (const q of sk.coda.splice(0)) versoAlto(sid, sess, sk, q.d, q.byte);
     };
 
     su.onmessage = (ev) => {
@@ -757,7 +757,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
   function chiusuraDallOspite(sid: string, sess: SessionGuest, s: number, testa: string | undefined, corpo: string | Uint8Array) {
     const t = leggiTestaWsChiuso(testa);
     const c = leggiChiusuraWs(corpo);
-    if (!t || !c) { manda(sid, { f: "reset", s, motivo: "bad-frame" }); return; }
+    if (!t || !c) { manda(sid, sess, { f: "reset", s, motivo: "bad-frame" }); return; }
     const sk = sess.socket.get(t.w);
     // Un socket già morto non è un errore: i due capi possono chiudere nello
     // stesso istante e nessuno dei due ha sbagliato.
@@ -855,7 +855,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
           if (e.k === GENERE_WS_CHIUSO) { chiusuraDallOspite(sid, sess, e.s, e.h, e.dati); return; }
           // Un genere che non si conosce chiude QUELLO stream invece di far
           // cadere la sessione: è il punto di estensione del tubo.
-          if (e.k !== GENERE_RICHIESTA) { manda(sid, { f: "reset", s: e.s, motivo: "bad-frame" }); return; }
+          if (e.k !== GENERE_RICHIESTA) { manda(sid, sess, { f: "reset", s: e.s, motivo: "bad-frame" }); return; }
           void serveRequest(sid, sess, e.s, e.h, e.dati);
           return;
         case "aperto":
@@ -866,21 +866,21 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
           if (e.canale) {
             if (e.k === GENERE_WS) { apriSocket(sid, sess, e.s, e.h); return; }
             sess.rias.dimentica(e.s);
-            manda(sid, { f: "reset", s: e.s, motivo: "bad-frame" });
+            manda(sid, sess, { f: "reset", s: e.s, motivo: "bad-frame" });
             return;
           }
           if (e.k !== GENERE_RICHIESTA) {
             sess.rias.dimentica(e.s);
-            manda(sid, { f: "reset", s: e.s, motivo: "bad-frame" });
+            manda(sid, sess, { f: "reset", s: e.s, motivo: "bad-frame" });
           }
           return;
         case "messaggio": {
           const sk = sess.socket.get(e.s);
-          if (!sk || sk.finito) { manda(sid, { f: "reset", s: e.s, motivo: "bad-frame" }); return; }
+          if (!sk || sk.finito) { manda(sid, sess, { f: "reset", s: e.s, motivo: "bad-frame" }); return; }
           // Il credito NON torna finché il messaggio non è stato consegnato:
           // è così che la stretta di mano ancora in corso stringe da sola la
           // finestra dell'ospite, senza nessun tetto scritto a parte.
-          if (sk.su_aperto) versoAlto(sid, sk, e.dati, e.byte);
+          if (sk.su_aperto) versoAlto(sid, sess, sk, e.dati, e.byte);
           else sk.coda.push({ d: e.dati, byte: e.byte });
           return;
         }
@@ -896,7 +896,7 @@ export function creaProxyTubo(deps: ProxyPipeDeps) {
           fermaVolo(sess, e.s);
           const sk = sess.socket.get(e.s);
           if (sk) chiudiSocket(sid, sess, sk, { avvisa: false });
-          manda(sid, { f: "reset", s: e.s, motivo: e.motivo });
+          manda(sid, sess, { f: "reset", s: e.s, motivo: e.motivo });
           return;
         }
         case "chiuso": {
@@ -1015,7 +1015,7 @@ export function creaRelayClient(deps: RelayDeps) {
     log,
   });
 
-  async function gestisci(m: MessaggioRelay): Promise<void> {
+  async function gestisci(m: MessaggioRelay, source: WebSocket): Promise<void> {
     // ── THE CONFIRMATION, and why it is the first line of this handler.
     //
     // `onopen` says the THREAD is open; this says somebody on the far side
@@ -1064,7 +1064,9 @@ export function creaRelayClient(deps: RelayDeps) {
     const payload = esito
       ? await sigilla(esito.chiave, JSON.stringify(risposta))
       : JSON.stringify(risposta);
-    ws?.send(JSON.stringify({ t: "to-guest", to: m.to, payload } satisfies MessaggioRelay));
+    if (ws === source) {
+      source.send(JSON.stringify({ t: "to-guest", to: m.to, payload } satisfies MessaggioRelay));
+    }
   }
 
   function collega(): void {
@@ -1080,6 +1082,7 @@ export function creaRelayClient(deps: RelayDeps) {
     ws = s;
 
     s.onopen = () => {
+      if (ws !== s) return;
       tentativo = 0;
       confermato = false;
       // The thread is open, but we do not yet know whether anyone is on the
@@ -1109,11 +1112,16 @@ export function creaRelayClient(deps: RelayDeps) {
     };
 
     s.onmessage = (e) => {
+      if (ws !== s) return;
       const m = leggiMessaggio((() => { try { return JSON.parse(String(e.data)); } catch { return null; } })());
-      if (m) void gestisci(m);
+      if (m) void gestisci(m, s);
     };
 
     const riprova = () => {
+      // A close can arrive after a new thread has already been accepted and
+      // confirmed. Only the current thread owns the client's global state and
+      // the sessions created on top of it.
+      if (ws !== s) return;
       ws = null;
       // The thread is over: its confirmation wait has nothing left to watch,
       // and leaving it armed would close the NEXT thread when it fires.
