@@ -949,6 +949,29 @@ const ATTESE = [1_000, 2_000, 5_000, 15_000, 60_000];
  */
 const WAIT_CONFIRMATION_MS = 10_000;
 
+/**
+ * ── THE HEARTBEAT, and why it is counted in BEATS and not in seconds.
+ *
+ * The confirmation above only watches the first instant of a thread. What took
+ * remote access down on 2026-09-13 happens later: the relay is deployed, the
+ * Durable Object on the far side is replaced, and this thread stays open
+ * towards nobody. No close arrives, `readyState` stays 1, and the phone keeps
+ * getting `host-offline` until somebody restarts the machine by hand.
+ *
+ * So the thread is asked a question at intervals, and the deadline for the
+ * answer is measured in TICKS THAT ACTUALLY RAN, not on the wall clock. Under
+ * load, the board and a dozen agents keep the event loop busy and the timer
+ * fires late: a fixed number of seconds would expire on a healthy relay
+ * precisely when the machine is working hardest. Ticks cannot: when the loop
+ * is starved they do not accumulate, so the deadline stretches with the load
+ * by construction.
+ */
+const HEARTBEAT_TICK_MS = 1_000;
+/** How many beats between one question and the next. */
+const PING_EVERY_TICKS = 20;
+/** How many beats of silence make a thread dead. */
+const PONG_DEADLINE_TICKS = 10;
+
 export function creaRelayClient(deps: RelayDeps) {
   const now = deps.now ?? (() => Date.now());
   const log = deps.log ?? (() => {});
@@ -975,6 +998,22 @@ export function creaRelayClient(deps: RelayDeps) {
   let timerConfirmation: ReturnType<typeof setTimeout> | null = null;
   let fermato = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** The beat of the current thread, cleared when the thread ends. */
+  let heartbeat: ReturnType<typeof setTimeout> | null = null;
+  /** Beats since the last question was asked, or since the last answer. */
+  let beats = 0;
+  /** A question is out and its answer has not come back yet. */
+  let asking = false;
+  /**
+   * The far side has answered at least one question since this process started.
+   *
+   * Without this the fix would break what it is meant to save: a relay
+   * deployed BEFORE this version knows nothing about the heartbeat, so it
+   * would never answer, and every machine would tear down a perfectly working
+   * thread every thirty seconds, forever. Silence only becomes evidence once
+   * the far side has proved it knows how to speak.
+   */
+  let farSideAnswers = false;
 
   /**
    * Serve una richiesta di un ospite.
@@ -1015,6 +1054,55 @@ export function creaRelayClient(deps: RelayDeps) {
     log,
   });
 
+  function stopHeartbeat(): void {
+    if (heartbeat) { clearTimeout(heartbeat); heartbeat = null; }
+    beats = 0;
+    asking = false;
+  }
+
+  /** Start beating on a thread the relay has just confirmed. Before the
+   *  confirmation there is nothing to watch: that first instant already has
+   *  its own wait. */
+  function startHeartbeat(s: WebSocket): void {
+    stopHeartbeat();
+    const arm = (): void => {
+      const t = setTimeout(tick, HEARTBEAT_TICK_MS);
+      // Asking whether the relay is alive must not keep the process alive.
+      (t as unknown as { unref?: () => void }).unref?.();
+      heartbeat = t;
+    };
+    const tick = (): void => {
+      if (ws !== s || fermato) return;
+      beats += 1;
+      if (asking) {
+        if (beats >= PONG_DEADLINE_TICKS) {
+          if (!farSideAnswers) {
+            // A meeting point that has never answered is an OLDER meeting
+            // point, not a dead one. The beat stops here for this thread and
+            // starts again on the next, so the day the relay is deployed the
+            // machine picks the heartbeat back up on its own.
+            log(`[relay] il punto d'incontro non risponde al battito: per ora lascio stare`);
+            return;
+          }
+          log(`[relay] battito senza risposta: rifaccio il filo`);
+          try { s.close(); } catch { /* already closed: `onclose` handles it */ }
+          return;
+        }
+      } else if (beats >= PING_EVERY_TICKS) {
+        beats = 0;
+        asking = true;
+        try {
+          s.send(JSON.stringify({ t: "ping" } satisfies MessaggioRelay));
+        } catch {
+          try { s.close(); } catch { /* already closed */ }
+          return;
+        }
+      }
+      arm();
+    };
+    arm();
+  }
+
   async function gestisci(m: MessaggioRelay, source: WebSocket): Promise<void> {
     // ── THE CONFIRMATION, and why it is the first line of this handler.
     //
@@ -1027,6 +1115,13 @@ export function creaRelayClient(deps: RelayDeps) {
         confermato = true;
         log(`[relay] collegato a ${deps.baseUrl}`);
       }
+      if (ws === source) startHeartbeat(source);
+      return;
+    }
+    // The far side is still the one holding this thread, and now we know it
+    // can say so: from here on its silence means something.
+    if (m.t === "pong") {
+      if (ws === source) { farSideAnswers = true; asking = false; beats = 0; }
       return;
     }
     // Un capo si è agganciato. Il relay lo dice PRIMA di girare qualunque suo
@@ -1126,6 +1221,8 @@ export function creaRelayClient(deps: RelayDeps) {
       // The thread is over: its confirmation wait has nothing left to watch,
       // and leaving it armed would close the NEXT thread when it fires.
       if (timerConfirmation) { clearTimeout(timerConfirmation); timerConfirmation = null; }
+      // The beat belonged to this thread too: the next one starts its own.
+      stopHeartbeat();
       confermato = false;
       // Le sessioni ospiti vivevano su QUESTO filo: alla riconnessione il relay
       // ne assegna di nuove, e tenere le vecchie vorrebbe dire leggere corpi
@@ -1147,6 +1244,7 @@ export function creaRelayClient(deps: RelayDeps) {
       fermato = true;
       if (timer) clearTimeout(timer);
       if (timerConfirmation) { clearTimeout(timerConfirmation); timerConfirmation = null; }
+      stopHeartbeat();
       proxy.chiudiTutto();
       try { ws?.close(); } catch { /* già chiusa */ }
       ws = null;

@@ -516,6 +516,23 @@ describe("relay-do eseguito · un canale di SESSIONE, non un link", () => {
     expect(newHost.mio.letti().at(-1)).toEqual({ t: "to-guest", to: sessionId, payload: "ancora-vivo" });
   });
 
+  it("al battito della macchina corrente risponde, e a quello della sfrattata no", async () => {
+    // A deploy replaces this object and the machine's thread is left open
+    // towards nobody: no close arrives, so the only thing that can tell the
+    // difference is a question with an answer. The evicted socket asking the
+    // same question must get silence, which is what makes it rebuild.
+    const s = scena();
+    const oldHost = await s.collega("host");
+    const newHost = await s.collega("host");
+
+    await s.parla(newHost, { t: "ping" });
+    expect(newHost.mio.letti().at(-1)).toEqual({ t: "pong" });
+
+    const prima = oldHost.mio.letti().length;
+    await s.parla(oldHost, { t: "ping" });
+    expect(oldHost.mio.letti()).toHaveLength(prima);
+  });
+
   it("la macchina corrente che cade si riconosce anche se la vecchia è ancora registrata", async () => {
     const s = scena();
     await s.collega("host");

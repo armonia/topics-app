@@ -45,6 +45,27 @@ export interface RecordInstall {
   token: string;
 }
 
+/**
+ * "Are you still there?", asked on the thread itself.
+ *
+ * A dead meeting point does not always close the socket: when the Durable
+ * Object is replaced by a deploy, the thread stays open towards nobody and no
+ * close ever arrives. The only question whose silence proves it is one that
+ * travels on that very thread and expects an answer back.
+ *
+ * Empty on purpose: it carries nothing, so there is nothing in it a relay
+ * could be tempted to read.
+ */
+export interface Ping {
+  t: "ping";
+}
+
+/** The answer to a `ping`, and the only proof that the far side is still the
+ *  one holding this thread. */
+export interface Pong {
+  t: "pong";
+}
+
 /** «Questa busta va all'ospite `to`.» */
 export interface BustaVersoOspite {
   t: "to-guest";
@@ -127,9 +148,9 @@ export interface Rifiutato {
   motivo: "bad-version" | "bad-token" | "unknown-installation" | "expired" | "revoked" | "host-offline";
 }
 
-export type FromMachine = RecordInstall | BustaVersoOspite;
+export type FromMachine = RecordInstall | BustaVersoOspite | Ping;
 export type FromGuest = OpenSessionGuest | BustaVersoMacchina;
-export type DaRelay = Accolto | ChangedGuest | Rifiutato | BustaVersoOspite | BustaVersoMacchina;
+export type DaRelay = Accolto | ChangedGuest | Rifiutato | Pong | BustaVersoOspite | BustaVersoMacchina;
 export type MessaggioRelay = FromMachine | FromGuest | DaRelay;
 
 /**
@@ -204,6 +225,12 @@ export function leggiMessaggio(raw: unknown): MessaggioRelay | null {
       }
       return { t, sessionId: m.sessionId as string };
     }
+    // The heartbeat carries nothing, so there is nothing to validate: a `ping`
+    // with fields on it is still a `ping`, and dropping the extras is how this
+    // side stays deaf to anything nobody agreed on.
+    case "ping":
+    case "pong":
+      return { t };
     case "denied":
       return typeof m.motivo === "string" && MOTIVI.has(m.motivo)
         ? { t, motivo: m.motivo as Rifiutato["motivo"] }

@@ -496,6 +496,16 @@ export class SessioneRelay {
     // the bridge or the replacement host's sessions.
     if ("host" in chi && this.macchina() !== ws) return;
 
+    // ── "ARE YOU STILL THERE?", and the silence that answers it.
+    //
+    // A deploy replaces this object, and the thread the machine holds does not
+    // always get a close: it stays open towards nobody, and from over there it
+    // looks healthy. The answer costs one frame and it is what tells the two
+    // apart. It is deliberately BELOW the check above: a socket that is no
+    // longer the current host gets no answer, which is exactly the truth it
+    // needs to hear in order to rebuild its thread.
+    if (m.t === "ping") { SessioneRelay.dilloA(ws, { t: "pong" }); return; }
+
     if ("host" in chi && m.t === "to-guest") {
       const dest = this.state.getWebSockets(tagSessione(m.to));
       if (dest.length > 0) {

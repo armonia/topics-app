@@ -291,3 +291,128 @@ describe("relay client · «collegato» vuol dire che il relay ci ha PRESI IN CA
     c.ferma();
   });
 });
+
+/**
+ * ── THE THREAD THAT STAYS OPEN TOWARDS NOBODY ───────────────────────────────
+ *
+ * Measured on 2026-09-13: the relay is deployed at 13:52 and ten probes out of
+ * ten come back "this installation is not connected", while on the machine the
+ * client keeps saying `connected: true`. The Durable Object had been replaced,
+ * and the socket that used to reach it never got a close: `onclose` cannot
+ * start a reconnection nobody triggers.
+ *
+ * A mute socket is the shape of that failure, and it is the only shape a test
+ * of this has: nothing closes, nothing errors, nothing answers.
+ */
+class MuteSocketRelay extends FakeSocketRelay {
+  /** From here on the far side stops answering, without closing anything. */
+  muto = false;
+  rispondiAlPing(): void {
+    if (this.muto) return;
+    const ping = this.inviati.filter((r) => r.includes('"ping"')).length;
+    if (ping > this.eco) { this.eco += 1; this.onmessage?.({ data: JSON.stringify({ t: "pong" }) }); }
+  }
+  private eco = 0;
+}
+
+/** Fires the captured one-second timers in order: time is moved, not awaited. */
+function beat(coda: Array<() => void>, quanti: number): void {
+  for (let i = 0; i < quanti; i += 1) {
+    const fn = coda.shift();
+    if (!fn) throw new Error("nessun timer armato");
+    fn();
+  }
+}
+
+describe("relay client · un filo che non risponde piu' non e' un filo", () => {
+  function withFakeTimers(corpo: (coda: Array<() => void>) => void): void {
+    const realSetTimeout = globalThis.setTimeout;
+    const coda: Array<() => void> = [];
+    (globalThis as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number) => {
+      // The beat and the first retry both measure one second: both are moved
+      // by hand here, in the order they were armed.
+      if (ms === 1_000) { coda.push(fn); return { unref() {} }; }
+      return realSetTimeout(fn, ms);
+    }) as typeof setTimeout;
+    try { corpo(coda); } finally {
+      (globalThis as { setTimeout: unknown }).setTimeout = realSetTimeout;
+    }
+  }
+
+  it("dopo la scadenza chiude, si ricollega, e «collegato» torna vero solo con la conferma", () => {
+    withFakeTimers((coda) => {
+      FakeSocketRelay.aperte = [];
+      const c = creaRelayClient({
+        baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
+        trovaLink: () => null,
+        serviRisorsa: async () => ({ status: 200, body: {} }),
+        segnaApertura: () => {},
+        now: () => ORA,
+        log: () => {},
+        apriSocket: (() => new MuteSocketRelay()) as never,
+      });
+      c.avvia();
+      const s = FakeSocketRelay.aperte[0] as MuteSocketRelay;
+      s.onopen?.();
+      s.confermaReady();
+
+      // First round trip: the far side proves it knows how to answer.
+      beat(coda, 20);
+      s.rispondiAlPing();
+      expect(s.inviati.filter((r) => r.includes('"ping"'))).toHaveLength(1);
+      expect(s.chiusa).toBe(false);
+
+      // Now the meeting point is replaced and stops answering, without ever
+      // closing the socket. The question goes out and nothing comes back.
+      s.muto = true;
+      beat(coda, 20);
+      expect(s.inviati.filter((r) => r.includes('"ping"'))).toHaveLength(2);
+
+      // Nine beats of silence are still silence, not a verdict.
+      beat(coda, 9);
+      expect(s.chiusa).toBe(false);
+      beat(coda, 1);
+      expect(s.chiusa).toBe(true);
+      expect(c.collegato()).toBe(false);
+
+      // The close restarts the loop with the backoff already in use.
+      beat(coda, 1);
+      const replacement = FakeSocketRelay.aperte[1] as MuteSocketRelay;
+      expect(replacement).toBeDefined();
+      replacement.onopen?.();
+      // Open is not attached: only the confirmation says so.
+      expect(c.collegato()).toBe(false);
+      replacement.confermaReady();
+      expect(c.collegato()).toBe(true);
+      c.ferma();
+    });
+  });
+
+  it("un punto d'incontro che non ha MAI risposto non viene buttato giu'", () => {
+    // The relay is deployed separately from the machine: a version that does
+    // not know the heartbeat must not be torn down every thirty seconds by a
+    // client that does.
+    withFakeTimers((coda) => {
+      FakeSocketRelay.aperte = [];
+      const c = creaRelayClient({
+        baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
+        trovaLink: () => null,
+        serviRisorsa: async () => ({ status: 200, body: {} }),
+        segnaApertura: () => {},
+        now: () => ORA,
+        log: () => {},
+        apriSocket: (() => new MuteSocketRelay()) as never,
+      });
+      c.avvia();
+      const s = FakeSocketRelay.aperte[0] as MuteSocketRelay;
+      s.onopen?.();
+      s.confermaReady();
+      s.muto = true;
+      beat(coda, 30);
+      expect(s.chiusa).toBe(false);
+      expect(c.collegato()).toBe(true);
+      expect(coda).toHaveLength(0); // the beat gave up instead of insisting
+      c.ferma();
+    });
+  });
+});
