@@ -19,6 +19,11 @@
 import { TIME_SLACK_ENV, parseForcedSlack } from "../../../../../shared/test-time-slack";
 import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
 
+// One factor for the whole file: the caps AND the waits. A cap that grows
+// while the wait it protects stays fixed still flakes, because under load it
+// is the backoff chain that runs late, not the assertion.
+const SLACK = parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1;
+
 type StorageArea = Record<string, string>;
 function installFakeWindow(): void {
   const store: StorageArea = Object.create(null);
@@ -117,7 +122,7 @@ const layout = (paneId: string) => ({
 // naive "debounce plus a bit" because under a busy fleet (many agents'
 // test:unit shards sharing the machine) the event loop can lag the clock
 // by seconds, not milliseconds, and a too-tight wait flakes.
-const settle = () => new Promise((r) => setTimeout(r, 2500));
+const settle = () => new Promise((r) => setTimeout(r, Math.round(2500 * SLACK)));
 
 /**
  * THE SLEEP WAS WIDENED AND THE TEST'S OWN CAP WAS NOT.
@@ -132,7 +137,7 @@ const settle = () => new Promise((r) => setTimeout(r, 2500));
  * `shared/test-time-slack.ts`). Widening a cap costs nothing when the test
  * passes — it is only ever paid on the way to a red.
  */
-const BUDGET_MS = Math.round(15_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
+const BUDGET_MS = Math.round(15_000 * SLACK);
 
 beforeEach(() => {
   __resetProjectSyncForTests();
@@ -214,7 +219,7 @@ describe("project channel PUT durability", () => {
   // Wide margin for the same reason as `settle()`: under a busy fleet the
   // event loop can lag seconds behind the clock, and this one has to outlast
   // the whole backoff chain, not just the debounce.
-  const settleRetryChain = () => new Promise((r) => setTimeout(r, 9000));
+  const settleRetryChain = () => new Promise((r) => setTimeout(r, Math.round(9000 * SLACK)));
 
   test("teardown flush carries a compare-and-swap base=, like syncServer.ts's channel", async () => {
     installFetch(false); // stays un-acked, so flushAllPending has something to beacon
