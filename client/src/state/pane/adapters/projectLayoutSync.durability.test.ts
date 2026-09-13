@@ -120,6 +120,37 @@ const layout = (paneId: string) => ({
 const settle = () => new Promise((r) => setTimeout(r, 2500));
 
 /**
+ * WAITING FOR THE CONDITION BEATS WAITING FOR THE CLOCK.
+ *
+ * These tests used to sleep a fixed 2.5 s (and 9 s for the retry chain) and
+ * then assert. On a busy fleet the timers themselves lag, so the sleep was
+ * both too long on a quiet machine and too short on a loaded one: the three
+ * tests that wait for the retry chain went red under load with nothing wrong
+ * (card 289391a3, two rounds in a row). Polling the state the test is
+ * actually about ends the moment it is true, and only spends the budget when
+ * it never becomes true, which is the red we do want.
+ */
+async function waitFor(ready: () => boolean, budgetMs: number = BUDGET_MS): Promise<void> {
+  const deadline = Date.now() + budgetMs * 0.8;
+  while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+}
+
+/**
+ * The un-acked key appears when the write gives up, but a straggler retry can
+ * still be in flight behind it: a test that swaps the fetch mock and then
+ * COUNTS calls has to wait for the chain to go quiet, not just for the key.
+ * Quiet = one whole backoff hop (~800 ms at its longest) with no new call.
+ */
+async function waitForQuietFetch(budgetMs: number = BUDGET_MS): Promise<void> {
+  const deadline = Date.now() + budgetMs * 0.8;
+  let seen = -1;
+  while (seen !== fetchCalls.length && Date.now() < deadline) {
+    seen = fetchCalls.length;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+/**
  * THE SLEEP WAS WIDENED AND THE TEST'S OWN CAP WAS NOT.
  *
  * Two `settle()` calls are 5 s of deliberate waiting, and bun's default
@@ -151,7 +182,7 @@ describe("project channel PUT durability", () => {
   test("a successful debounced PUT lands and leaves nothing un-acked", async () => {
     installFetch(true);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await settle();
+    await waitFor(() => fetchCalls.length >= 1);
     expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
     expect(fetchCalls.some((c) => c.url.includes(encodeURIComponent(KEY)))).toBe(true);
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
@@ -160,7 +191,7 @@ describe("project channel PUT durability", () => {
   test("a failing PUT (server down) is RETAINED as un-acked, not swallowed", async () => {
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await settle();
+    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
     // Retries exhausted → value kept for a later teardown/reconnect flush.
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
   }, BUDGET_MS);
@@ -168,7 +199,7 @@ describe("project channel PUT durability", () => {
   test("teardown flush beacons the un-acked repoint out synchronously", async () => {
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await settle();
+    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
     // pagehide-equivalent: everything not durable must beacon out NOW.
     __flushAllProjectSyncForTests();
@@ -190,12 +221,12 @@ describe("project channel PUT durability", () => {
   test("a later successful PUT clears the un-acked entry (no perpetual re-send)", async () => {
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await settle();
+    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
     // Server comes back; a new save with a DIFFERENT value succeeds.
     installFetch(true);
     saveProjectLayout(KEY, PROJECT, layout("terminal:a6d64304"));
-    await settle();
+    await waitFor(() => !__getUnackedProjectSyncKeys().includes(KEY));
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
   }, BUDGET_MS);
 
@@ -207,19 +238,16 @@ describe("project channel PUT durability", () => {
    * carries `?base=` — same guard `syncServer.ts` already has for
    * pane-store-v2 — so the server can 409 a late write instead of applying it.
    */
-  // The retry chain backs off up to base*2^2 ≈ 800ms (±20%) on its last hop —
-  // longer than one `settle()` — so these two tests wait it fully OUT before
-  // swapping mocks, or a straggler retry from the FIRST failing write lands on
-  // the SECOND mock and pollutes its call count.
-  // Wide margin for the same reason as `settle()`: under a busy fleet the
-  // event loop can lag seconds behind the clock, and this one has to outlast
-  // the whole backoff chain, not just the debounce.
-  const settleRetryChain = () => new Promise((r) => setTimeout(r, 9000));
+  // The retry chain backs off up to base*2^2 ~ 800ms (+/-20%) on its last hop,
+  // so these two tests wait it fully OUT before swapping mocks, or a straggler
+  // retry from the FIRST failing write lands on the SECOND mock and pollutes
+  // its call count. The key landing in the un-acked set IS that chain having
+  // given up, so `waitFor` on it is the exact end of the wait.
 
   test("teardown flush carries a compare-and-swap base=, like syncServer.ts's channel", async () => {
     installFetch(false); // stays un-acked, so flushAllPending has something to beacon
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await settleRetryChain();
+    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
     __flushAllProjectSyncForTests();
     expect(beaconCalls.some((c) => c.url.includes(encodeURIComponent(KEY)) && c.url.includes("base="))).toBe(
@@ -233,7 +261,8 @@ describe("project channel PUT durability", () => {
     (globalThis as unknown as { navigator: unknown }).navigator = {};
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await settleRetryChain();
+    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
+    await waitForQuietFetch();
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
 
     fetchCalls = [];
