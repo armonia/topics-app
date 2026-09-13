@@ -9,7 +9,7 @@
  *
  * @covers GUEST-20
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -67,13 +67,30 @@ async function openProjectBoard(page: Page, projectName: RegExp): Promise<void> 
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
 }
 
-async function openDevicesSettings(page: Page): Promise<void> {
+/**
+ * Open Settings with the keyboard shortcut, only once the app can hear it.
+ *
+ * The Cmd+, listener is registered by an effect inside `App`, and `App` mounts
+ * well after `domcontentloaded`: `main.tsx` holds the first render until the
+ * chunks of the panes on screen are warm (`paneChunksWarm`, capped). A press
+ * sent right after `goto` lands on a page with no listener and is simply lost,
+ * so the panel never appears. Measured on
+ * GUEST-20 over 8 runs: the press opened Settings every time the sidebar was
+ * already mounted and never when it was not. The sidebar is the condition to
+ * wait for, and the press is retried because opening Settings is idempotent.
+ */
+async function openSettingsPanel(page: Page): Promise<Locator> {
   await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 20_000 });
   const panel = page.getByTestId('settings-panel');
   await expect(async () => {
     await page.keyboard.press('Meta+Comma');
     await expect(panel).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
+  return panel;
+}
+
+async function openDevicesSettings(page: Page): Promise<void> {
+  const panel = await openSettingsPanel(page);
   await panel.getByRole('button', { name: 'Dispositivi', exact: true }).click();
   await expect(panel.getByTestId('remote-node-requests')).toBeVisible();
 }
@@ -174,9 +191,7 @@ test("GUEST-20: owner grant, guest Start, local identity, and revoke stay hermet
       },
       scena: async (page) => {
         await page.goto(E2E_BASE, { waitUntil: "domcontentloaded" });
-        await page.keyboard.press("Meta+Comma");
-        const settings = page.getByTestId("settings-panel");
-        await expect(settings).toBeVisible({ timeout: 15_000 });
+        const settings = await openSettingsPanel(page);
         await settings.locator("nav button", { hasText: /^Organizzazione$/ }).click();
         const projectRow = settings.getByTestId("org-project-row").filter({ hasText: projectName });
         await expect(projectRow).toBeVisible({ timeout: 15_000 });
