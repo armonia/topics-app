@@ -43,6 +43,7 @@ import { bumpUnreadCount } from "../lib/unread-count";
 import { createSubagentWatcher } from "../lib/subagent-watch";
 import { computeTopicChanges } from "../lib/topic-changes";
 import { archiveTopicFully } from "../services/archive-topic";
+import { purgeTopicBrowserState } from "../services/topic-browser-teardown";
 import { dropTurnCheckpoints } from "../services/turn-checkpoints";
 import { clearRetirement, recordRetirement } from "../services/retirement";
 import { parkTopicSession } from "../lib/session-parking";
@@ -325,12 +326,22 @@ function mutateAllUiState(
 /** Archive/delete: strip the topic from every ui_state record + tombstone it.
  *  Esportata perché `archiveTopicFully` (services/archive-topic.ts) la riceve
  *  iniettata: il servizio non può importare da `routes/` senza invertire gli
- *  strati, ma questo è il passo 3 dell'archiviazione e deve restare uno solo. */
+ *  strati, ma questo è il passo 3 dell'archiviazione e deve restare uno solo.
+ *
+ *  Two different gestures, one door. The shared records are REWRITTEN without
+ *  the topic; the row the topic OWNS — `topic-browser:<topicId>`, its browser
+ *  window — is deleted, because there is nothing in it to rewrite and a
+ *  per-topic row that survives its topic grows forever
+ *  (`services/topic-browser-teardown.ts`). The delete runs first: if the
+ *  rewrite throws, the caller turns it into a 500 and retries the whole purge,
+ *  and dropping the row is idempotent. */
 export function purgeTopicFromUiState(
   db: import("bun:sqlite").Database,
   broadcastToAll: (msg: any) => void,
   topicId: string,
+  destroyContext?: (contextId: string) => Promise<void> | void,
 ): { ok: true } | { ok: false; error: string } {
+  purgeTopicBrowserState({ db, broadcastToAll, destroyContext }, [topicId]);
   return mutateAllUiState(db, broadcastToAll, "purgeTopicFromUiState", topicId, removeTopicFromUiStateValue);
 }
 
@@ -1695,7 +1706,8 @@ export function createTopicsRouter(
           // i due percorsi non possono più divergere (services/archive-topic.ts).
           const res = archiveTopicFully({
             getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
-            purgeFromUiState: (id) => purgeTopicFromUiState(ctx.db, broadcastToAll, id),
+            purgeFromUiState: (id) =>
+              purgeTopicFromUiState(ctx.db, broadcastToAll, id, (c) => browserService?.destroyContext(c)),
             parkClaudeSession: parkTopicSession,
             recordRetirement: (id, at) => recordRetirement(ctx.db, "topic", id, at, "archive"),
             cancelPendingAsk: cancelAsk,
@@ -1779,7 +1791,9 @@ export function createTopicsRouter(
           // sessioni rimaste vive su chat chiuse portavano tutte la data di
           // un'archiviazione di progetto in blocco.
           parkTopicSession(topic.sessionKey);
-          const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, topic.id);
+          const purgeResult = purgeTopicFromUiState(ctx.db, broadcastToAll, topic.id, (c) =>
+            browserService?.destroyContext(c),
+          );
           if (!purgeResult.ok) {
             purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
           }

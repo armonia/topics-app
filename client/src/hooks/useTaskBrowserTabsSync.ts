@@ -36,7 +36,7 @@ import {
   taskIdFromKey,
 } from '../state/taskBrowserTabs';
 import { forgetTaskLayout } from '../state/taskBrowserLayout';
-import { applyTopicWindowFrame, reloadTopicWindowsFromServer } from '../state/topicBrowserWindow';
+import { applyTopicWindowFrame, forgetTopicWindow, reloadTopicWindowsFromServer } from '../state/topicBrowserWindow';
 import { getTabId } from '../state/pane/middleware/syncCrossTab';
 
 export function useTaskBrowserTabsSync(
@@ -99,6 +99,14 @@ export function useTaskBrowserTabsSync(
           forgetTaskTabs(id);
           forgetTaskLayout(id);
         }
+        return;
+      }
+      // Same story one level up: archiving a TOPIC deletes its
+      // `topic-browser:<topicId>` row (services/topic-browser-teardown.ts).
+      // Without this the debounced PUT of an open window writes the key back a
+      // second later, and the row outlives the topic forever.
+      if (msg.type === 'topic:archived') {
+        forgetTopicWindow(msg.topic?.id);
         return;
       }
     });

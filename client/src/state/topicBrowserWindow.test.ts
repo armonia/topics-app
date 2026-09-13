@@ -29,6 +29,7 @@ import {
   subscribeTopicWindows,
   topicBrowserWindow,
   __resetTopicWindows,
+  type TopicBrowserWindowState,
 } from './topicBrowserWindow';
 import { getTabId } from './pane/middleware/syncCrossTab';
 
@@ -193,6 +194,54 @@ describe('sanitizeTopicBrowserWindow (round trip on an untrusted payload)', () =
   test('a full state survives JSON round trip unchanged', () => {
     const built = setWidth(move(setMode(promoteToTab(open(open(EMPTY_TOPIC_BROWSER_WINDOW, sheet('a')), sheet('b')), 'a'), 'exp'), { right: 12, bottom: 8 }), 640);
     expect(sanitizeTopicBrowserWindow(JSON.parse(JSON.stringify(built)))).toEqual(built);
+  });
+
+  /**
+   * THE PROPERTY, and it is the one that was broken: every state the reducer
+   * can PRODUCE must be a fixpoint of `sanitize(serialize(s))`. It is not a
+   * refinement of the test above, it is the store's contract with the wire:
+   * `applyRemote` compares the serialized values, so a state that sanitizes to
+   * something else is silently replaced by that something else on the first
+   * frame that comes back from the server.
+   *
+   * The sequences are generated (deterministic LCG, so a red run repeats), and
+   * the empty window is IN them: `setMode(empty, 'min')` used to give
+   * `{mode:'min', tabs:[]}`, which sanitizes to 'hidden'.
+   */
+  test('every state the reducer can produce is a fixpoint of sanitize', () => {
+    let seed = 1;
+    const rand = (n: number) => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
+    const states: TopicBrowserWindowState[] = [EMPTY_TOPIC_BROWSER_WINDOW, setMode(EMPTY_TOPIC_BROWSER_WINDOW, 'min')];
+    for (let run = 0; run < 200; run++) {
+      let s = EMPTY_TOPIC_BROWSER_WINDOW;
+      for (let step = 0; step < 8; step++) {
+        const id = `c-${rand(4)}`;
+        switch (rand(8)) {
+          case 0: s = open(s, sheet(id)); break;
+          case 1: s = activate(s, id); break;
+          case 2: s = close(s, id); break;
+          case 3: s = setMode(s, (['min', 'exp', 'hidden'] as const)[rand(3)]); break;
+          case 4: s = move(s, { right: rand(2000) - 500, bottom: rand(2000) - 500 }); break;
+          case 5: s = setWidth(s, rand(3) === 0 ? null : rand(2000)); break;
+          case 6: s = promoteToTab(s, id); break;
+          default: s = returnFromTab(s, sheet(id)); break;
+        }
+        states.push(s);
+      }
+    }
+    for (const s of states) {
+      expect(sanitizeTopicBrowserWindow(JSON.parse(JSON.stringify(s)))).toEqual(s);
+    }
+  });
+
+  /** The symptom the property protects, end to end: what the server gives back
+   *  must not close a window this client has open. */
+  test('a window does not close itself on the round trip through the server', () => {
+    const persisted = setMode(open(EMPTY_TOPIC_BROWSER_WINDOW, sheet('a')), 'exp');
+    const fromServer = sanitizeTopicBrowserWindow(JSON.parse(JSON.stringify(persisted)));
+    expect(fromServer?.mode).toBe('exp');
+    // And an empty window is never asked to be visible in the first place.
+    expect(setMode(EMPTY_TOPIC_BROWSER_WINDOW, 'min').mode).toBe('hidden');
   });
 
   test('junk is dropped: bad sheets, duplicates, unknown mode, out-of-range width', () => {

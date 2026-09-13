@@ -152,9 +152,23 @@ export function close(state: TopicBrowserWindowState, contextId: string): TopicB
   return { ...state, tabs, activeContextId, mode: tabs.length ? state.mode : 'hidden' };
 }
 
+/**
+ * Change the mode. A window with NO sheets stays 'hidden' whatever is asked:
+ * there is nothing to show, and `close` already lands there when the last sheet
+ * goes.
+ *
+ * The rule is here and not only in `sanitize` because the two have to agree.
+ * While they did not, `setMode(state, 'min')` on an empty window produced
+ * `{mode:'min', tabs:[]}`, a state that does not survive its own round trip:
+ * the PUT went out, the record came back from the server rewritten 'hidden',
+ * and `applyRemote` (which compares the serialized values) adopted it. So an
+ * open window closed itself at every reconnection, and the other devices got it
+ * already closed. Reachable states must be fixpoints of `sanitize`.
+ */
 export function setMode(state: TopicBrowserWindowState, mode: TopicBrowserMode): TopicBrowserWindowState {
-  if (state.mode === mode) return state;
-  return { ...state, mode };
+  const next: TopicBrowserMode = state.tabs.length ? mode : 'hidden';
+  if (state.mode === next) return state;
+  return { ...state, mode: next };
 }
 
 /** Move the minimized window. The position is an ANCHOR to the bottom-right
@@ -402,10 +416,15 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
   if (changed) notify();
 }
 
-/** Forget everything this client remembers about a topic's window — called when
- *  the topic is deleted, because the server has dropped its ui-state row. The
- *  pending write timer goes first: that debounced PUT is the only thing that
- *  can resurrect the key. */
+/**
+ * Forget everything this client remembers about a topic's window. Called on
+ * `topic:archived` (useTaskBrowserTabsSync), because archiving a topic deletes
+ * its ui-state row server-side: `purgeTopicBrowserState`, reached through the
+ * purge step of `archiveTopicFully`.
+ *
+ * The pending write timer goes FIRST: that debounced PUT is the only thing left
+ * on this machine that can resurrect a key the server has just dropped.
+ */
 export function forgetTopicWindow(topicId: string): void {
   if (!topicId) return;
   const key = keyFor(topicId);
