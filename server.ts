@@ -4430,10 +4430,11 @@ try {
   server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
 } catch (err) {
   if (PORT > 0 && bindPort !== 0) {
+    const bindError = err instanceof Error ? err.message : String(err);
     // TOCTOU: the port we thought was free is held. Retry on a kernel-assigned
     // ephemeral port. This is the only case where the daemon would otherwise die.
     console.warn(
-      `[Daemon] bind failed on port ${bindPort} (${err?.message ?? err}) — ` +
+      `[Daemon] bind failed on port ${bindPort} (${bindError}) — ` +
       `retrying on an ephemeral port.`
     );
     server = Bun.serve<WSData>({ ...opzioniServer, port: 0, fetch: fetchCompresso });

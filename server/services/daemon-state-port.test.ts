@@ -82,7 +82,7 @@ describe("probeTopicsOnPort (fetch iniettato)", () => {
         status,
         text: async () => body,
       };
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
   it("classifica 'nostro' quando la forma e' la nostra", async () => {
     const r = await probeTopicsOnPort(3333, fake(NOSTRA));
@@ -115,16 +115,16 @@ describe("probeTopicsOnPort (fetch iniettato)", () => {
     await probeTopicsOnPort(4567, (async (u: string) => {
       visti.push(u);
       return { ok: true, status: 200, text: async () => NOSTRA };
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
     expect(visti).toEqual([`http://127.0.0.1:4567${PROBE_ROUTE}`]);
   });
 });
 
 // ── chooseListenPort ─────────────────────────────────────────────────────────
 describe("chooseListenPort", () => {
-  const ourFetch = (async () => ({ ok: true, status: 200, text: async () => NOSTRA })) as typeof fetch;
-  const squatterFetch = (async () => ({ ok: true, status: 200, text: async () => HTML })) as typeof fetch;
-  const nobodyFetch = (async () => { throw new Error("ECONNREFUSED"); }) as typeof fetch;
+  const ourFetch = (async () => ({ ok: true, status: 200, text: async () => NOSTRA })) as unknown as typeof fetch;
+  const squatterFetch = (async () => ({ ok: true, status: 200, text: async () => HTML })) as unknown as typeof fetch;
+  const nobodyFetch = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch;
 
   it("tiene la porta quando e' la nostra (idempotenza del riavvio)", async () => {
     expect(await chooseListenPort(3333, ourFetch)).toBe(3333);
@@ -187,6 +187,7 @@ describe("end-to-end contro un server locale reale", () => {
 
   it("rileva l'estraneo e decide di cadere su una porta effimera", async () => {
     const p = squatter.port;
+    if (!p) throw new Error("squatter did not bind a port");
     expect(p).toBeGreaterThan(0);
     expect(await portIsHeld(p, 800)).toBe(true);
 
@@ -204,10 +205,12 @@ describe("end-to-end contro un server locale reale", () => {
       fetch: () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
     });
     try {
-      const r = await probeTopicsOnPort(s2.port);
+      const p = s2.port;
+      if (!p) throw new Error("test server did not bind a port");
+      const r = await probeTopicsOnPort(p);
       expect(r.ourServer).toBe(false);
       expect(r.squatted).toBe(true);
-      expect(await chooseListenPort(s2.port)).toBe(0);
+      expect(await chooseListenPort(p)).toBe(0);
     } finally {
       s2.stop(true);
     }
