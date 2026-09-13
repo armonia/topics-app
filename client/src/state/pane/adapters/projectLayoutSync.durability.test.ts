@@ -136,18 +136,23 @@ async function waitFor(ready: () => boolean, budgetMs: number = BUDGET_MS): Prom
 }
 
 /**
- * The un-acked key appears when the write gives up, but a straggler retry can
- * still be in flight behind it: a test that swaps the fetch mock and then
- * COUNTS calls has to wait for the chain to go quiet, not just for the key.
- * Quiet = one whole backoff hop (~800 ms at its longest) with no new call.
+ * The retry chain is FOUR fetch calls: the first PUT plus `MAX_RETRIES` (3 in
+ * projectLayoutSync.ts). The un-acked key is NOT the signal that the chain gave
+ * up: `flushSync` puts the key in the set BEFORE the first PUT, so waiting for
+ * the key returns after one attempt out of four, and a test asserting there is
+ * blind to a value dropped once the retries run out. The end of the chain is
+ * the fourth call; the extra tick lets the last attempt's rejection settle, so
+ * the give-up branch has run before anyone looks.
+ *
+ * Every failing-server test waits here, all of them: a test that leaves early
+ * leaves its chain alive, and the stragglers land in the NEXT test's
+ * `fetchCalls`, where they make `>= 4` true too soon.
  */
-async function waitForQuietFetch(budgetMs: number = BUDGET_MS): Promise<void> {
-  const deadline = Date.now() + budgetMs * 0.8;
-  let seen = -1;
-  while (seen !== fetchCalls.length && Date.now() < deadline) {
-    seen = fetchCalls.length;
-    await new Promise((r) => setTimeout(r, 1000));
-  }
+const PUT_ATTEMPTS = 4; // MAX_RETRIES + 1 in projectLayoutSync.ts
+
+async function waitForRetryChainExhausted(): Promise<void> {
+  await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS);
+  await new Promise((r) => setTimeout(r, 0));
 }
 
 /**
@@ -191,7 +196,7 @@ describe("project channel PUT durability", () => {
   test("a failing PUT (server down) is RETAINED as un-acked, not swallowed", async () => {
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
+    await waitForRetryChainExhausted();
     // Retries exhausted → value kept for a later teardown/reconnect flush.
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
   }, BUDGET_MS);
@@ -199,7 +204,7 @@ describe("project channel PUT durability", () => {
   test("teardown flush beacons the un-acked repoint out synchronously", async () => {
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
+    await waitForRetryChainExhausted();
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
     // pagehide-equivalent: everything not durable must beacon out NOW.
     __flushAllProjectSyncForTests();
@@ -221,13 +226,16 @@ describe("project channel PUT durability", () => {
   test("a later successful PUT clears the un-acked entry (no perpetual re-send)", async () => {
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
+    await waitForRetryChainExhausted();
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
     // Server comes back; a new save with a DIFFERENT value succeeds.
     installFetch(true);
     saveProjectLayout(KEY, PROJECT, layout("terminal:a6d64304"));
     await waitFor(() => !__getUnackedProjectSyncKeys().includes(KEY));
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
+    // The NEW value is what cleared it: a late attempt carrying the old one
+    // would clear the key just the same and prove nothing about this save.
+    expect(fetchCalls.some((c) => c.body.includes("a6d64304"))).toBe(true);
   }, BUDGET_MS);
 
   /**
@@ -241,13 +249,14 @@ describe("project channel PUT durability", () => {
   // The retry chain backs off up to base*2^2 ~ 800ms (+/-20%) on its last hop,
   // so these two tests wait it fully OUT before swapping mocks, or a straggler
   // retry from the FIRST failing write lands on the SECOND mock and pollutes
-  // its call count. The key landing in the un-acked set IS that chain having
-  // given up, so `waitFor` on it is the exact end of the wait.
+  // its call count. The key enters the un-acked set already in `flushSync`,
+  // before the first PUT, so it says nothing about the chain: its end is the
+  // fourth call to fetch (`waitForRetryChainExhausted`).
 
   test("teardown flush carries a compare-and-swap base=, like syncServer.ts's channel", async () => {
     installFetch(false); // stays un-acked, so flushAllPending has something to beacon
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
+    await waitForRetryChainExhausted();
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
     __flushAllProjectSyncForTests();
     expect(beaconCalls.some((c) => c.url.includes(encodeURIComponent(KEY)) && c.url.includes("base="))).toBe(
@@ -261,8 +270,7 @@ describe("project channel PUT durability", () => {
     (globalThis as unknown as { navigator: unknown }).navigator = {};
     installFetch(false);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await waitFor(() => __getUnackedProjectSyncKeys().includes(KEY));
-    await waitForQuietFetch();
+    await waitForRetryChainExhausted();
     expect(__getUnackedProjectSyncKeys()).toContain(KEY);
 
     fetchCalls = [];
