@@ -8,7 +8,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
   MIN_WINDOW_SIZE,
-  EXP_WIDTH_BOUNDS,
+  EXPANDED_WIDTH_BOUNDS,
   open,
   activate,
   close,
@@ -23,7 +23,7 @@ import {
   applyRemoteTopicWindow,
   applyRemoteTopicWindowInit,
   applyTopicWindowFrame,
-  resyncTopicWindowsFromServer,
+  reloadTopicWindowsFromServer,
   getTopicWindow,
   forgetTopicWindow,
   subscribeTopicWindows,
@@ -35,7 +35,7 @@ import { getTabId } from './pane/middleware/syncCrossTab';
 const sheet = (contextId: string, url = `https://${contextId}.test`) => ({ contextId, url, title: contextId.toUpperCase() });
 
 let seq = 0;
-const uniq = (tag: string) => `topic-${tag}-${seq++}`;
+const uniqueId = (tag: string) => `topic-${tag}-${seq++}`;
 
 describe('open', () => {
   test('appends sheets in order, activates the last, and wakes a hidden window', () => {
@@ -77,7 +77,7 @@ describe('activate / close', () => {
     expect(activate(two, 'ghost')).toBe(two);
   });
 
-  test('closing the active sheet focuses the neighbour that slides in', () => {
+  test('closing the active sheet focuses the neighbor that slides in', () => {
     const s = close(activate(two, 'a'), 'a');
     expect(s.tabs.map((t) => t.contextId)).toEqual(['b']);
     expect(s.activeContextId).toBe('b');
@@ -107,9 +107,9 @@ describe('setMode / move / setWidth', () => {
 
   test('setWidth clamps, and null restores the default', () => {
     const s = setWidth(EMPTY_TOPIC_BROWSER_WINDOW, 10_000);
-    expect(s.expWidth).toBe(EXP_WIDTH_BOUNDS.max);
-    expect(setWidth(s, 10).expWidth).toBe(EXP_WIDTH_BOUNDS.min);
-    expect(setWidth(s, null).expWidth).toBeNull();
+    expect(s.expandedWidth).toBe(EXPANDED_WIDTH_BOUNDS.max);
+    expect(setWidth(s, 10).expandedWidth).toBe(EXPANDED_WIDTH_BOUNDS.min);
+    expect(setWidth(s, null).expandedWidth).toBeNull();
   });
 });
 
@@ -199,7 +199,7 @@ describe('sanitizeTopicBrowserWindow (round trip on an untrusted payload)', () =
     const s = sanitizeTopicBrowserWindow({
       mode: 'giant',
       minPos: { right: 'x', bottom: 3 },
-      expWidth: 99_999,
+      expandedWidth: 99_999,
       tabs: [
         { contextId: 'a', url: 'https://a.test', title: 'A', openedBy: 'link' },
         { contextId: 'a', url: 'dup' },
@@ -215,7 +215,7 @@ describe('sanitizeTopicBrowserWindow (round trip on an untrusted payload)', () =
     expect(s!.tabs[0].openedBy).toBe('link');
     expect(s!.mode).toBe('hidden');
     expect(s!.minPos).toBeNull();
-    expect(s!.expWidth).toBe(EXP_WIDTH_BOUNDS.max);
+    expect(s!.expandedWidth).toBe(EXPANDED_WIDTH_BOUNDS.max);
     // 'a' is a sheet of the window, so it cannot ALSO be claimed as promoted.
     expect(s!.promoted).toEqual(['b']);
     // A dangling active ctx falls back to the first sheet.
@@ -245,10 +245,10 @@ describe('topicIdFromKey', () => {
 describe('inbound ui-state (the store re-reads what it writes)', () => {
   afterEach(() => { __resetTopicWindows(); });
 
-  const record = (ctx: string) => ({ mode: 'min', tabs: [{ contextId: ctx, url: 'u', title: 'T', openedBy: 'user' }], activeContextId: ctx, promoted: [], minPos: null, expWidth: null });
+  const record = (ctx: string) => ({ mode: 'min', tabs: [{ contextId: ctx, url: 'u', title: 'T', openedBy: 'user' }], activeContextId: ctx, promoted: [], minPos: null, expandedWidth: null });
 
   test('ui-state:updated for another client is applied and notifies', () => {
-    const tid = uniq('updated');
+    const tid = uniqueId('updated');
     let notified = 0;
     const unsub = subscribeTopicWindows(() => { notified++; });
     const handled = applyTopicWindowFrame({ key: `topic-browser:${tid}`, value: record('c-1'), sourceClientId: 'another-client' });
@@ -259,7 +259,7 @@ describe('inbound ui-state (the store re-reads what it writes)', () => {
   });
 
   test('OUR OWN echo is dropped: the frame is ours, the cache does not move', () => {
-    const tid = uniq('echo');
+    const tid = uniqueId('echo');
     applyTopicWindowFrame({ key: `topic-browser:${tid}`, value: record('c-1'), sourceClientId: 'another-client' });
     const handled = applyTopicWindowFrame({ key: `topic-browser:${tid}`, value: record('c-2'), sourceClientId: getTabId() });
     expect(handled).toBe(true); // the key IS ours: the bridge must stop routing it
@@ -271,7 +271,7 @@ describe('inbound ui-state (the store re-reads what it writes)', () => {
   });
 
   test('an identical value does not notify, and junk leaves the cache alone', () => {
-    const tid = uniq('idem');
+    const tid = uniqueId('idem');
     applyRemoteTopicWindow(tid, record('c-1'));
     let notified = 0;
     const unsub = subscribeTopicWindows(() => { notified++; });
@@ -283,7 +283,7 @@ describe('inbound ui-state (the store re-reads what it writes)', () => {
   });
 
   test('ui-state:init applies only the topic-browser keys of the snapshot', () => {
-    const tid = uniq('init');
+    const tid = uniqueId('init');
     const applied = applyRemoteTopicWindowInit({
       [`topic-browser:${tid}`]: record('c-9'),
       'pane-store-v2': { panes: {} },
@@ -325,7 +325,7 @@ describe('persistence (ui-state PUT/GET)', () => {
   const settle = () => new Promise((r) => setTimeout(r, 1000));
 
   test('a mutation persists the whole record under topic-browser:<topicId>, stamped with the client id', async () => {
-    const tid = uniq('put');
+    const tid = uniqueId('put');
     topicBrowserWindow.open(tid, sheet('a'));
     topicBrowserWindow.setMode(tid, 'exp');
     await settle();
@@ -337,17 +337,17 @@ describe('persistence (ui-state PUT/GET)', () => {
   });
 
   test('the lazy GET hydrates a topic once, sanitized', async () => {
-    const tid = uniq('get');
-    served.set(`topic-browser:${tid}`, { mode: 'exp', tabs: [{ contextId: 'c-1', url: 'u', title: 'T' }], activeContextId: 'c-1', expWidth: 640 });
+    const tid = uniqueId('get');
+    served.set(`topic-browser:${tid}`, { mode: 'exp', tabs: [{ contextId: 'c-1', url: 'u', title: 'T' }], activeContextId: 'c-1', expandedWidth: 640 });
     await topicBrowserWindow.ensureLoaded(tid);
     await topicBrowserWindow.ensureLoaded(tid);
     expect(fetched.filter((k) => k === `topic-browser:${tid}`)).toHaveLength(1);
     expect(getTopicWindow(tid).mode).toBe('exp');
-    expect(getTopicWindow(tid).expWidth).toBe(640);
+    expect(getTopicWindow(tid).expandedWidth).toBe(640);
   });
 
   test('a queued local write wins over an inbound frame (LWW: the un-flushed edit is newer)', async () => {
-    const tid = uniq('pending');
+    const tid = uniqueId('pending');
     topicBrowserWindow.open(tid, sheet('local'));
     applyRemoteTopicWindow(tid, { mode: 'min', tabs: [{ contextId: 'remote', url: 'u', title: 'T' }], activeContextId: 'remote' });
     expect(getTopicWindow(tid).tabs.map((t) => t.contextId)).toEqual(['local']);
@@ -355,16 +355,16 @@ describe('persistence (ui-state PUT/GET)', () => {
   });
 
   test('resync re-GETs only the topics in cache and applies what it missed', async () => {
-    const tid = uniq('resync');
+    const tid = uniqueId('resync');
     applyRemoteTopicWindow(tid, { mode: 'min', tabs: [{ contextId: 'c-1', url: 'u', title: 'T' }], activeContextId: 'c-1' });
     served.set(`topic-browser:${tid}`, { mode: 'hidden', tabs: [], activeContextId: null });
-    await resyncTopicWindowsFromServer({});
+    await reloadTopicWindowsFromServer({});
     expect(fetched).toContain(`topic-browser:${tid}`);
     expect(getTopicWindow(tid).tabs).toHaveLength(0);
   });
 
   test('forget drops the cache AND the queued PUT, so the key cannot resurrect', async () => {
-    const tid = uniq('forget');
+    const tid = uniqueId('forget');
     topicBrowserWindow.open(tid, sheet('a'));
     forgetTopicWindow(tid);
     await settle();

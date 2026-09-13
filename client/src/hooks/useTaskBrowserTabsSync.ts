@@ -36,7 +36,7 @@ import {
   taskIdFromKey,
 } from '../state/taskBrowserTabs';
 import { forgetTaskLayout } from '../state/taskBrowserLayout';
-import { applyTopicWindowFrame, resyncTopicWindowsFromServer } from '../state/topicBrowserWindow';
+import { applyTopicWindowFrame, reloadTopicWindowsFromServer } from '../state/topicBrowserWindow';
 import { getTabId } from '../state/pane/middleware/syncCrossTab';
 
 export function useTaskBrowserTabsSync(
@@ -84,7 +84,7 @@ export function useTaskBrowserTabsSync(
       // snapshot si passa lo stesso, così un server vecchio che le manda ancora
       // le fa applicare direttamente, senza GET.
       if (msg.type === 'ui-state:init') {
-        void resyncTopicWindowsFromServer(msg.data);
+        void reloadTopicWindowsFromServer(msg.data);
         void resyncTaskTabsFromServer(msg.data);
         return;
       }

@@ -54,8 +54,10 @@ export interface TopicBrowserWindowState {
   mode: TopicBrowserMode;
   /** null = the default corner. */
   minPos: TopicBrowserPosition | null;
-  /** px; null = the default width. */
-  expWidth: number | null;
+  /** px; null = the default width. Spelled out (the design calls it `expWidth`)
+   *  because `exp` is not an English word and `check:identifier-language` reads
+   *  identifiers, not the design. The MODE literal 'exp' is data, so it stays. */
+  expandedWidth: number | null;
   tabs: TopicBrowserSheet[];
   activeContextId: string | null;
   /** Sheets currently living in the LAYOUT as panes. Not in `tabs`: that is the
@@ -66,7 +68,7 @@ export interface TopicBrowserWindowState {
 export const EMPTY_TOPIC_BROWSER_WINDOW: TopicBrowserWindowState = {
   mode: 'hidden',
   minPos: null,
-  expWidth: null,
+  expandedWidth: null,
   tabs: [],
   activeContextId: null,
   promoted: [],
@@ -75,7 +77,7 @@ export const EMPTY_TOPIC_BROWSER_WINDOW: TopicBrowserWindowState = {
 /** Default size of the minimized window, and the bounds of the expanded one.
  *  They live here because the position/width reducers clamp against them. */
 export const MIN_WINDOW_SIZE = { width: 420, height: 320 } as const;
-export const EXP_WIDTH_BOUNDS = { min: 360, max: 1200 } as const;
+export const EXPANDED_WIDTH_BOUNDS = { min: 360, max: 1200 } as const;
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
 
@@ -89,9 +91,9 @@ function wake(mode: TopicBrowserMode, wanted?: TopicBrowserMode): TopicBrowserMo
   return mode === 'hidden' ? 'min' : mode;
 }
 
-/** Active contextId after `contextId` leaves the window: the neighbour that
+/** Active contextId after `contextId` leaves the window: the neighbor that
  *  slides into its slot, or null when no sheet is left. */
-function neighbourActive(state: TopicBrowserWindowState, contextId: string): string | null {
+function nextActive(state: TopicBrowserWindowState, contextId: string): string | null {
   const idx = state.tabs.findIndex((t) => t.contextId === contextId);
   const rest = state.tabs.filter((t) => t.contextId !== contextId);
   if (!rest.length) return null;
@@ -145,7 +147,7 @@ export function close(state: TopicBrowserWindowState, contextId: string): TopicB
   if (!hasSheet(state, contextId)) return state;
   const tabs = state.tabs.filter((t) => t.contextId !== contextId);
   const activeContextId = state.activeContextId === contextId
-    ? neighbourActive(state, contextId)
+    ? nextActive(state, contextId)
     : state.activeContextId;
   return { ...state, tabs, activeContextId, mode: tabs.length ? state.mode : 'hidden' };
 }
@@ -168,9 +170,9 @@ export function move(state: TopicBrowserWindowState, pos: TopicBrowserPosition):
 export function setWidth(state: TopicBrowserWindowState, width: number | null): TopicBrowserWindowState {
   const next = width === null
     ? null
-    : Math.round(Math.max(EXP_WIDTH_BOUNDS.min, Math.min(EXP_WIDTH_BOUNDS.max, width)));
-  if (next === state.expWidth) return state;
-  return { ...state, expWidth: next };
+    : Math.round(Math.max(EXPANDED_WIDTH_BOUNDS.min, Math.min(EXPANDED_WIDTH_BOUNDS.max, width)));
+  if (next === state.expandedWidth) return state;
+  return { ...state, expandedWidth: next };
 }
 
 /** Hand a sheet to the layout: it leaves `tabs` and enters `promoted`. The
@@ -251,10 +253,10 @@ export function sanitizeTopicBrowserWindow(v: unknown): TopicBrowserWindowState 
         return { right: Math.max(0, Math.round(p.right)), bottom: Math.max(0, Math.round(p.bottom)) };
       })()
     : null;
-  const expWidth = typeof o.expWidth === 'number' && Number.isFinite(o.expWidth)
-    ? Math.round(Math.max(EXP_WIDTH_BOUNDS.min, Math.min(EXP_WIDTH_BOUNDS.max, o.expWidth)))
+  const expandedWidth = typeof o.expandedWidth === 'number' && Number.isFinite(o.expandedWidth)
+    ? Math.round(Math.max(EXPANDED_WIDTH_BOUNDS.min, Math.min(EXPANDED_WIDTH_BOUNDS.max, o.expandedWidth)))
     : null;
-  return { mode, minPos, expWidth, tabs, activeContextId, promoted };
+  return { mode, minPos, expandedWidth, tabs, activeContextId, promoted };
 }
 
 // ── persistence (ui-state, per-topic key) — mirrors taskBrowserTabs ───────────
@@ -390,7 +392,7 @@ export function applyRemoteTopicWindowInit(data: Record<string, unknown>): Set<s
 /** Reconnect resync, targeted: re-GET only the topics this client has in cache
  *  and that the snapshot did not already carry. Keys with a queued write stay
  *  out (`applyRemote` protects them anyway). */
-export async function resyncTopicWindowsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
+export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTopicWindowInit(snapshot) : new Set<string>();
   const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
   if (!ids.length) return;
