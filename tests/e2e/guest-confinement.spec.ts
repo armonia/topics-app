@@ -533,14 +533,17 @@ test.describe("Confinamento dell'ospite · le chat, condivise come lo fa l'inter
 
     // And starting a run stays out at the TOP of the scale: it is the
     // dangerous half of the pair "rewrite the text, then have it executed".
-    // Refused by the GATE (`guest_read_only`), not by a check inside the
-    // router, so there is no branch left to forget.
-    for (const action of ["run", "stop"]) {
+    // Since the delegated start (GUEST-13, task 7657f201) the gate opens
+    // `/run` so a SEPARATE owner-issued capability can decide it: with `edit`
+    // and no capability the refusal is `agent_start_denied`, which names the
+    // missing capability and not a missing route. `/stop` is still shut by
+    // the gate at every level (`guest_read_only`).
+    for (const [action, code] of [["run", "agent_start_denied"], ["stop", "guest_read_only"]]) {
       const r = await request.post(`${E2E_TUNNEL_BASE}/api/tasks/${taskId}/${action}`, {
         headers: daOspite(cookie),
       });
       expect(r.status(), `${action} is granted at no level`).toBe(403);
-      expect((await r.json()).code).toBe("guest_read_only");
+      expect((await r.json()).code, `${action} is refused by the right check`).toBe(code);
     }
 
     // Nothing was dispatched: the refusal did not leave a half-started run.
