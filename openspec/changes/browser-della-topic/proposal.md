@@ -1,9 +1,24 @@
 # Proposal: browser-della-topic
 
-> Bozza del 2026-09-13, scritta sulle scelte consigliate del prototipo
-> (<https://claude.ai/code/artifact/615183e6-5ff9-499f-bedb-3ba3374b6b9b>).
-> Le cinque decisioni aperte sono in fondo al design, ognuna con la risposta
-> presa qui: se ne cambi una, cambia il paragrafo indicato e basta.
+> Bozza del 2026-09-13, **non approvata**: niente codice finché
+> `openspec/changes/browser-della-topic/.openspec.yaml` non dice `status: approved`.
+
+## Da decidere
+
+Browser della topic: 5 scelte prima del codice. Prototipo: https://claude.ai/code/artifact/615183e6-5ff9-499f-bedb-3ba3374b6b9b
+
+1. La finestrella mostra la pagina viva (o: un fotogramma aggiornato a ogni cambio pagina)
+2. Col foglio della tab aperto la pagina resta ferma (o: la finestra si allunga e la pagina scende)
+3. Da espanso la larghezza si trascina dal bordo ed è ricordata per topic (o: fissa a metà)
+4. Un sito aperto dall'agente arriva nella finestrella, layout intatto (o: si apre espanso se guardi la chat)
+5. La barra elenca le schede della topic, quelle del progetto dal + (o: tutte le schede dell'app)
+
+Compreso, senza scelta: sotto 768 px niente finestra; le pillole diventano un'icona nella tab; in condivisione il viewport lo decide chi usa la pagina.
+Non verificato: una pagina viva sopra un'altra pane browser nativa. È il primo task, prima di qualunque componente.
+Col sì: tab-is-the-chrome si archivia senza farla, le fasi 4 e 6 di agent-inline-browser passano qui. Costo: una pagina viva in più per topic aperta.
+«ok» = tutte le consigliate · «ok ma 2 no» = cambio la 2.
+
+Se arriva un «no», il requisito da cambiare sta nella colonna «Dove cambiarla» della tabella in fondo a `design.md`: si cambia lì e nel delta spec, non solo qui.
 
 ## Why
 

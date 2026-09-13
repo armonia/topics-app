@@ -170,9 +170,9 @@ finestra è (`hidden` diventa `min`). Il layout non cambia mai per un'apertura
 che l'utente non ha fatto con le sue mani. `/browser` espande perché è una
 richiesta esplicita di guardare.
 
-## Decisioni prese in questa bozza
+## Decisioni proposte, in attesa del sì (blocco `## Da decidere` in cima a proposal.md)
 
-| # | Domanda | Presa | Alternativa scartata | Dove cambiarla |
+| # | Domanda | Consigliata | Alternativa | Dove cambiarla |
 |---|---|---|---|---|
 | 1 | La finestrella mostra… | la pagina viva della scheda attiva | un fotogramma aggiornato al cambio pagina | `TOPIC-BROWSER-01` |
 | 2 | Col foglio aperto la pagina… | resta un fermo immagine | la finestra si allunga e la pagina scende | `TOPIC-BROWSER-02` |
