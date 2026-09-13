@@ -84,8 +84,27 @@ src_hash() {
   (exec 9>&-; cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null \
     | sort -z | xargs -0 shasum -a 1 2>/dev/null | shasum -a 1 | cut -c1-40)
 }
+
+# Every age check below is arithmetic on an mtime, so the mtime must be a bare
+# number on both stat dialects. GNU stat (the Linux CI runner) reads `-f` as its
+# file-system flag and `%m` as a missing file: it prints a multi-line report of
+# the volume, exits 1, and `|| echo 0` appends to that report instead of
+# replacing it. Under `set -u` the arithmetic then dies on the report's first
+# word ("File: unbound variable"), the watcher exits, and its successor hashes
+# a tree that already contains the edit, so the reload is lost without a trace.
+# The dialect is probed, not inferred from uname: a Mac with GNU coreutils
+# first in PATH has a GNU stat too. BSD stat rejects `-c` without printing.
+if (exec 9>&-; stat -c %Y / >/dev/null 2>&1); then
+  file_mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
+else
+  file_mtime() { stat -f %m "$1" 2>/dev/null || echo 0; }
+fi
+# Log label only. GNU date reads `-r` as a reference FILE, BSD date has no `-d`,
+# so the first form that fails prints nothing and the other one answers.
+epoch_clock() { date -d "@$1" +%H:%M:%S 2>/dev/null || date -r "$1" +%H:%M:%S 2>/dev/null; }
+
 LAST_HASH=$(exec 9>&-; src_hash)
-BOOT_SEEN=$(exec 9>&-; stat -f %m "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" 2>/dev/null || echo 0)
+BOOT_SEEN=$(exec 9>&-; file_mtime "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json")
 echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta ${LAST_HASH:0:8}, pid $$)"
 
 rm -f "$EVENT_PIPE" 9>&-
@@ -121,7 +140,7 @@ while read -r _; do
         #    meno di 20 minuti, nessun reload. Il tetto evita che una run morta
         #    a meta' spenga il reload per sempre.
         HOLD="$APP_DIR/.topics-reload-hold"
-        if [ -f "$HOLD" ] && [ $(( $(exec 9>&-; date +%s) - $(exec 9>&-; stat -f %m "$HOLD" 2>/dev/null || echo 0) )) -lt 1200 ]; then
+        if [ -f "$HOLD" ] && [ $(( $(exec 9>&-; date +%s) - $(exec 9>&-; file_mtime "$HOLD") )) -lt 1200 ]; then
           if [ "${HOLD_SAID:-0}" != 1 ]; then
             echo "[start-prod] reload TRATTENUTO — $HOLD presente: un cancello sta riscrivendo i sorgenti, si riprende quando lo toglie"
             HOLD_SAID=1
@@ -136,7 +155,7 @@ while read -r _; do
         #    a second restart seconds after every boot (drain, fleet frozen:
         #    twice on 2026-09-04). The boot is stamped by daemon-state.json.
         DSTATE_BOOT="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
-        BOOT_NOW=$(exec 9>&-; stat -f %m "$DSTATE_BOOT" 2>/dev/null || echo 0)
+        BOOT_NOW=$(exec 9>&-; file_mtime "$DSTATE_BOOT")
         if [ "$BOOT_NOW" != "${BOOT_SEEN:-}" ]; then
           BOOT_SEEN=$BOOT_NOW
           #    ...unless the tree has MOVED SINCE that boot. The event that wakes
@@ -151,10 +170,10 @@ while read -r _; do
           _newer=$(exec 9>&-; cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -newer "$DSTATE_BOOT" 2>/dev/null | head -1)
           if [ -z "$_newer" ]; then
             LAST_HASH=$(exec 9>&-; src_hash)
-            echo "[start-prod] server (ri)partito alle $(exec 9>&-; date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
+            echo "[start-prod] server (ri)partito alle $(exec 9>&-; epoch_clock "$BOOT_NOW"): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
             continue
           fi
-          echo "[start-prod] server (ri)partito alle $(exec 9>&-; date -r "$BOOT_NOW" +%H:%M:%S 2>/dev/null), ma sotto server/ c'e' gia' qualcosa di piu' nuovo del boot (es. $_newer): l'impronta non si rilegge, si confronta"
+          echo "[start-prod] server (ri)partito alle $(exec 9>&-; epoch_clock "$BOOT_NOW"), ma sotto server/ c'e' gia' qualcosa di piu' nuovo del boot (es. $_newer): l'impronta non si rilegge, si confronta"
         fi
         # 2. L'impronta del contenuto: uguale a quella dell'ultimo avvio (o
         #    dell'ultimo reload chiesto) significa che il server gira GIA' su
@@ -190,7 +209,7 @@ while read -r _; do
           # mtime del pidfile = istante di nascita: la riga 542 lo riscrive a
           # ogni rilancio, subito dopo lo spawn.
           while :; do
-            _born=$(exec 9>&-; stat -f %m "$SERVER_PIDFILE" 2>/dev/null || echo 0)
+            _born=$(exec 9>&-; file_mtime "$SERVER_PIDFILE")
             _age=$(( $(exec 9>&-; date +%s) - _born ))
             [ "$_age" -ge "$BIRTH_GRACE_S" ] && break
             kill -0 "$SP" 2>/dev/null || break   # e' uscito da solo: niente da rinviare
@@ -314,7 +333,7 @@ while read -r _; do
             DEFER_STALE_S=30
             deferring() {
               [ -f "$DEFER_FILE" ] || return 1
-              _m=$(exec 9>&-; stat -f %m "$DEFER_FILE" 2>/dev/null || echo 0)
+              _m=$(exec 9>&-; file_mtime "$DEFER_FILE")
               [ $(( $(exec 9>&-; date +%s) - _m )) -lt "$DEFER_STALE_S" ]
             }
             WAITED=0
