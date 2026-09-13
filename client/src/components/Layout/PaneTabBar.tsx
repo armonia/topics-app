@@ -52,8 +52,8 @@ import {
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
-import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
-import { BrowserTabAddress } from './BrowserTabAddress';
+import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue, BrowserTabDownloadsCue } from '../Browser/BrowserTabChrome';
+import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
@@ -639,7 +639,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     const config = getPaneConfig(pane.type);
     // A BROWSER TAB WRITES THE PAGE TITLE, whether it is the active one or not.
     // The address is not on the label any more: it is on the hover card and in
-    // the dropdown the tab opens under itself (`BrowserTabAddress`), so the tab
+    // the sheet the tab opens under itself (`BrowserTabSheet`), so the tab
     // you are working in says what page it is like every other tab in the bar.
     // The rule (and the why) lives in `lib/browserTabLabel`; here we only hand
     // it the pane's state.
@@ -1437,10 +1437,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
-              // CLICK THE LABEL AND THE ADDRESS DROPS DOWN (BrowserTabAddress).
-              // Only on the tab you are already looking at: the first click on
-              // another tab still means "bring me there". The label itself is
-              // never replaced - the panel opens under the tab.
+              // CLICK THE LABEL AND THE TAB SHEET DROPS DOWN
+              // (`BrowserTabSheet`). Only on the tab you are already looking
+              // at: the first click on another tab still means "bring me
+              // there". The label itself is never replaced - the sheet opens
+              // under the tab, with the address selected at the top of it.
               onClick={pane.type === 'browser' && isFullyActive
                 ? (e) => {
                   const edit = getBrowserPaneChrome(pane.id)?.commands.editAddress;
@@ -1466,7 +1467,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 // passa da `sessionKeyForPaneId` invece di indovinare.
                 pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
-            >{pane.type === 'browser' ? <BrowserTabAddress paneId={pane.id} label={label} /> : label}</span>
+            >{pane.type === 'browser' ? <BrowserTabSheet paneId={pane.id} label={label} /> : label}</span>
             {/* Project tabs intentionally do NOT show git status numbers (changed
                 files / ahead-behind / running processes) — the sidebar project row
                 dropped them (cryptic numbers) and the two surfaces must read the
@@ -1564,6 +1565,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 find is not a notification. The count and the console itself
                 are one click away, in the menu. */}
             {pane.type === 'browser' && <BrowserTabConsoleCue paneId={pane.id} onFill={onFill} />}
+            {/* Its twin: a file landed in this pane. Same rail, same reason —
+                and this one is a BUTTON, because the list it announces is one
+                click away in the sheet. A download never opens that sheet by
+                itself: it would freeze the page to report something nobody
+                asked about at that instant. */}
+            {pane.type === 'browser' && <BrowserTabDownloadsCue paneId={pane.id} onFill={onFill} />}
             {/* Quiet cue: this chat is backed by the cloud (OpenClaw) provider —
                 a cloud session, not a local one. Muted, like the browser cue. */}
             {pane.type === 'chat' && pane.topicId && topics[pane.topicId]?.provider === 'openclaw' && (

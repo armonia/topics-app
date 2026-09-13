@@ -13,32 +13,22 @@
  *    the reload button IN ITS PLACE. Reload is the single most used browser
  *    command and it now costs no width at all: at rest the slot shows where you
  *    are, under the pointer it shows what you want to do to it.
- *  - `BrowserTabMenuButton`: the three dots, and behind them everything else.
- *    It carries the console-error count as a badge, because an error nobody
- *    surfaces is an error nobody fixes: that was the whole point of the console
- *    badge living in the toolbar, and it must not be lost by hiding the toolbar.
+ *  - `BrowserTabMenuButton`: the three dots, which OPEN THE TAB SHEET
+ *    (`BrowserTabSheet`) where everything else lives in plain sight. They carry
+ *    the console-error count as a badge, because an error nobody surfaces is an
+ *    error nobody fixes.
  *
  * Both read the pane's live state from `state/browserPaneChrome`, which the
  * panel publishes. Both degrade to nothing when the panel has not mounted yet
  * (a restored tab whose pane is still cold): the tab keeps its favicon slot,
- * and the menu only offers what the pane actually published.
+ * and the dots stay away until there is something behind them.
  */
-import { useCallback, useRef, useState } from 'react';
-import {
-  ArrowLeft, ArrowRight, RotateCw, MoreVertical, ExternalLink, Copy, Check,
-  Code2, Terminal, Download, Trash2, Minus, Plus, MonitorSmartphone, Pencil, AlertCircle,
-  CornerUpLeft,
-  Monitor, Smartphone, Tablet, Maximize,
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { RotateCw, MoreVertical, AlertCircle, Download } from 'lucide-react';
 import { BrowserFavicon } from './BrowserFavicon';
-import { Menu } from '../Shared/Menu';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
-// Per-platform, not written out: on Windows there is no ⌘ and no ⌥.
-import { shortcut } from '../../lib/shortcutLabel';
-import type { DeviceMode } from './browserDevTypes';
-import { POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import { prettyUrl } from '../../lib/browserNavUrl';
-import { copyText } from '../../lib/clipboard';
+import { DANGER_TEXT } from '../../lib/popoverStyles';
+import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useT } from '../../hooks/useT';
 
 /** Stop the tab underneath from also handling the gesture. A click on the
@@ -130,286 +120,116 @@ export function BrowserTabConsoleCue({ paneId, onFill }: { paneId: string; onFil
   );
 }
 
-/** One icon in the menu's leading command row. */
-function RowButton({
-  icon, label, onClick, disabled, testId,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  testId?: string;
-}) {
+/**
+ * The quiet cue that says "a file landed here", twin of the console one and
+ * sitting right beside it.
+ *
+ * A DOWNLOAD MUST NOT OPEN ANYTHING BY ITSELF. The sheet covers the page and
+ * freezes it, so a file arriving while you read would take the page away from
+ * you to tell you about something you did not ask for at that instant. Before
+ * the sheet existed the same event brought a 40px row back over the page, which
+ * was the same interruption with a bigger footprint.
+ *
+ * So the announcement is PASSIVE and the opening is yours: the cue appears (and
+ * pulses once, unless the OS says no animations) and a click on it opens the
+ * sheet with the Downloads section already down. `downloadsStarted` only drives
+ * the appearing and the pulse; the tally is the number of files held.
+ */
+export function BrowserTabDownloadsCue({ paneId, onFill }: { paneId: string; onFill?: boolean }) {
+  const chrome = useBrowserPaneChrome(paneId);
+  const t = useT();
+  const n = chrome?.downloads ?? 0;
+  const started = chrome?.downloadsStarted ?? 0;
+  const openDownloads = chrome?.commands.openDownloads;
+
+  // The pulse is tied to the LAST START, not to the count: dismissing one entry
+  // of three lowers the tally and must not look like a new file arriving.
+  const [seenStarted, setSeenStarted] = useState(started);
+  const [fresh, setFresh] = useState(false);
+  if (started !== seenStarted) {
+    setSeenStarted(started);
+    setFresh(started > seenStarted);
+  }
+  useEffect(() => {
+    if (!fresh) return;
+    const timer = setTimeout(() => setFresh(false), 1600);
+    return () => clearTimeout(timer);
+  }, [fresh]);
+
+  if (n <= 0) return null;
+  const label = t('browser.tab.downloadsCue', { n: String(n) });
   return (
     <button
       type="button"
-      onClick={onClick}
-      disabled={disabled || !onClick}
+      onClick={(e) => { swallow(e); openDownloads?.(); }}
+      onPointerDown={swallow}
+      onDoubleClick={swallow}
+      disabled={!openDownloads}
+      className={`flex items-center gap-0.5 tabular-nums text-micro font-medium rounded-sm px-0.5 -mx-0.5 disabled:cursor-default ${
+        onFill ? 'text-white' : 'text-app-text-faint/80 hover:text-app-text'
+      } ${fresh && !prefersReducedMotion() ? 'animate-pulse' : ''}`}
       title={label}
       aria-label={label}
-      data-testid={testId}
-      className="w-7 h-7 flex items-center justify-center rounded-md text-app-text-secondary hover:bg-app-hover hover:text-app-text disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+      data-testid="browser-tab-downloads-cue"
+      data-fresh={fresh || undefined}
     >
-      {icon}
+      <Download size={11} />
+      {n > 1 && n}
     </button>
   );
 }
 
-const DEVICE_GLYPH: Record<DeviceMode, typeof Monitor> = {
-  desktop: Monitor, mobile: Smartphone, tablet: Tablet, auto: Maximize, custom: Maximize,
-};
-
 /**
- * The three dots, and the menu behind them.
+ * The three dots: the third door to the tab sheet.
  *
- * VISIBILITY. At rest the dots are invisible: on a 150px tab three permanent
- * dots would be three permanent pixels stolen from the address. They appear on
- * hover, on focus, while the menu is open, and STAY when the page has console
- * errors, because that badge is a notification and a notification you have to
- * hover to see is not one.
+ * VISIBILITY. At rest they are invisible: on a 150px tab three permanent dots
+ * would be three permanent pixels stolen from the label. They appear on hover,
+ * on focus, and STAY when the page has console errors, because that badge is a
+ * notification and a notification you have to hover to see is not one.
  */
 export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
   const chrome = useBrowserPaneChrome(paneId);
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-
-  const c = chrome?.commands;
   const errors = chrome?.consoleErrors ?? 0;
-  const warnings = chrome?.consoleWarnings ?? 0;
-  const downloads = chrome?.downloads ?? 0;
+  const editAddress = chrome?.commands.editAddress;
 
-  const run = useCallback((fn?: () => void) => () => { setOpen(false); fn?.(); }, []);
+  // THE DOTS ARE NOT A MENU ANY MORE, they are the third way into the ONE
+  // surface. A menu here would be a second place to look for the same commands,
+  // which is exactly what `TOPIC-BROWSER-02` forbids: the sheet holds them in
+  // plain sight, and this button asks for it the same way a click on the tab
+  // and Cmd+L do - all three bump `addressEditRequest`, which the sheet (drawn
+  // from the tab's label, a few pixels to the left) answers.
+  const openSheet = useCallback((e: React.MouseEvent) => {
+    swallow(e);
+    editAddress?.();
+  }, [editAddress]);
 
-  // COPY WHAT THE MENU SHOWS, and say so only when it happened.
-  //
-  // Two defects in four lines, and they were both invisible from here. The
-  // clipboard got the RAW url while the line eleven pixels above showed
-  // `prettyUrl` of it: on a local file that meant the menu read
-  // `file:///Users/…/b.pdf` and the paste read
-  // `tauri://localhost/api/media?path=%2FUsers%2F…`. And the failure branch was
-  // an empty function, so outside a secure context (LAN over http, some
-  // webviews) nothing was copied and nothing was said either - `copyText` is
-  // the one door that answers with a boolean instead of throwing.
-  const address = chrome ? prettyUrl(chrome.url) : '';
-  const copyAddress = useCallback(() => {
-    if (!address) return;
-    void copyText(address).then((ok) => {
-      if (!ok) return;
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  }, [address]);
-
-  if (!chrome) return null;
-
-  const DeviceGlyph = DEVICE_GLYPH[chrome.deviceMode] ?? Monitor;
+  if (!chrome || !editAddress) return null;
 
   return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={(e) => { swallow(e); setOpen((o) => !o); }}
-        onPointerDown={swallow}
-        onDoubleClick={swallow}
-        className={`relative w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-opacity ${
-          open || errors > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
-        }`}
-        title={t('browser.tab.menu')}
-        aria-label={t('browser.tab.menu')}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-testid="browser-tab-menu"
-        data-console-errors={errors || undefined}
-      >
-        <MoreVertical size={13} />
-        {errors > 0 && (
-          // The badge sits ON the dots, like an app icon's: it says "there is
-          // something in here", which is precisely what a menu notification is.
-          <span
-            className="absolute -top-0.5 -right-0.5 min-w-[8px] h-[8px] rounded-full bg-red-600 dark:bg-red-500 ring-1 ring-app-bg"
-            aria-hidden
-          />
-        )}
-      </button>
-
-      <Menu
-        open={open}
-        anchorRef={btnRef}
-        onClose={() => setOpen(false)}
-        align="right"
-        minWidth={232}
-        testId="browser-tab-menu-panel"
-        ariaLabel={t('browser.tab.menu')}
-      >
-        {/* WHERE YOU ARE, in full. The tab truncates the address; the menu is
-            the one surface with room to show it whole. */}
-        {address && (
-          <div className="px-3 pt-2 pb-1.5 flex items-start gap-2">
-            <BrowserFavicon url={chrome.url} faviconUrl={chrome.faviconUrl} size={14} className="mt-[1px]" />
-            <span className="flex-1 min-w-0 text-mini leading-snug text-app-text break-all line-clamp-2" data-testid="browser-tab-menu-address">
-              {address}
-            </span>
-          </div>
-        )}
-
-        {/* THE COMMAND ROW. Back / forward / reload / open-external are icons in
-            a row and not four menu lines: they are the frequent ones, and four
-            lines of text for four arrows is how a menu becomes a wall. */}
-        <div className="px-2 pb-1.5 flex items-center gap-1">
-          <RowButton
-            icon={<ArrowLeft size={14} />}
-            label={t('browser.tab.back')}
-            onClick={c?.back && chrome.canGoBack ? run(c.back) : undefined}
-            disabled={!chrome.canGoBack}
-            testId="browser-tab-back"
-          />
-          <RowButton
-            icon={<ArrowRight size={14} />}
-            label={t('browser.tab.forward')}
-            onClick={c?.forward && chrome.canGoForward ? run(c.forward) : undefined}
-            disabled={!chrome.canGoForward}
-            testId="browser-tab-forward"
-          />
-          <RowButton
-            icon={<RotateCw size={14} className={chrome.loading ? 'animate-spin' : ''} />}
-            label={t('browser.tab.reload')}
-            onClick={run(c?.reload)}
-          />
-          <div className="flex-1" />
-          <RowButton
-            icon={copied ? <Check size={14} className="text-green-600 dark:text-green-400" /> : <Copy size={14} />}
-            label={copied ? t('browser.tab.copied') : t('browser.tab.copyAddress')}
-            onClick={chrome.url ? copyAddress : undefined}
-            testId="browser-tab-copy-url"
-          />
-          <RowButton
-            icon={<ExternalLink size={14} />}
-            label={t('browser.openSystem')}
-            onClick={c?.openExternal ? run(c.openExternal) : undefined}
-          />
-        </div>
-
-        <div className={POPOVER_DIVIDER} />
-
-        {c?.backToSpawner && (
-          <button type="button" className={POPOVER_ITEM} onClick={run(c.backToSpawner)} data-testid="browser-tab-spawner">
-            <CornerUpLeft size={13} className="shrink-0 text-app-text-tertiary" />
-            <span className="flex-1 text-left">{t('browser.spawner.title')}</span>
-          </button>
-        )}
-
-        {c?.editAddress && (
-          <button type="button" className={POPOVER_ITEM} onClick={run(c.editAddress)} data-testid="browser-tab-edit-address">
-            <Pencil size={13} className="shrink-0 text-app-text-tertiary" />
-            <span className="flex-1 text-left">{t('browser.tab.editAddress')}</span>
-            <span className="text-app-text-faint tabular-nums">{shortcut('L')}</span>
-          </button>
-        )}
-
-        {/* THE CONSOLE, WITH ITS TALLY. This is the notification the task asks
-            for: the count travels from the page to the badge on the dots, and
-            here it says what it is made of. */}
-        {c?.openConsole && (
-          <button type="button" className={POPOVER_ITEM} onClick={run(c.openConsole)} data-testid="browser-tab-console">
-            <Terminal size={13} className="shrink-0 text-app-text-tertiary" />
-            <span className="flex-1 text-left">{t('browser.tab.console')}</span>
-            {errors > 0 && <span className={`tabular-nums ${DANGER_TEXT}`}>{errors}</span>}
-            {warnings > 0 && <span className={`tabular-nums ${WARNING_TEXT}`}>{warnings}</span>}
-          </button>
-        )}
-
-        {c?.openDownloads && downloads > 0 && (
-          <button type="button" className={POPOVER_ITEM} onClick={run(c.openDownloads)} data-testid="browser-tab-downloads">
-            <Download size={13} className="shrink-0 text-app-text-tertiary" />
-            <span className="flex-1 text-left">{t('browser.tab.downloads')}</span>
-            <span className="text-app-text-faint tabular-nums">{downloads}</span>
-          </button>
-        )}
-
-        {c?.toggleDevTools && (
-          <button type="button" className={POPOVER_ITEM} onClick={run(c.toggleDevTools)} data-testid="browser-tab-devtools">
-            <Code2 size={13} className="shrink-0 text-app-text-tertiary" />
-            <span className="flex-1 text-left">DevTools</span>
-            <span className="text-app-text-faint tabular-nums">{shortcut('I', { alt: true })}</span>
-          </button>
-        )}
-
-        {/* ZOOM stays a ROW, not three menu lines: it is the one control here
-            you use twice in a row, and a menu that closes between the two
-            presses would make you reopen it to finish the thought. */}
-        {c?.setZoom && (
-          <>
-            <div className={POPOVER_DIVIDER} />
-            <div className="px-3 py-1 flex items-center gap-2" data-testid="browser-tab-zoom">
-              <span className="flex-1 text-compact text-app-text">{t('browser.tab.zoom')}</span>
-              <div className="flex items-center rounded-md border border-app-border-input overflow-hidden">
-                <button type="button" onClick={() => c.setZoom?.(-1)} title={t('browser.dev.zoomOut')}
-                  className="w-6 h-6 flex items-center justify-center hover:bg-app-hover text-app-text-secondary">
-                  <Minus size={12} />
-                </button>
-                <button type="button" onClick={() => c.setZoom?.('reset')} title={t('browser.dev.zoomReset')}
-                  className={`px-1.5 h-6 text-mini tabular-nums hover:bg-app-hover ${Math.round(chrome.zoom) !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'}`}>
-                  {Math.round(chrome.zoom)}%
-                </button>
-                <button type="button" onClick={() => c.setZoom?.(1)} title={t('browser.dev.zoomIn')}
-                  className="w-6 h-6 flex items-center justify-center hover:bg-app-hover text-app-text-secondary">
-                  <Plus size={12} />
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* DEVICE, as a segmented row for the same reason as zoom: four presets
-            are four taps of comparison, not four decisions. */}
-        {c?.setDevice && (
-          <div className="px-3 py-1 flex items-center gap-2" data-testid="browser-tab-device">
-            <span className="flex-1 text-compact text-app-text flex items-center gap-1.5">
-              <DeviceGlyph size={13} className="text-app-text-tertiary" />
-              {t('browser.tab.device')}
-            </span>
-            <div className="flex items-center rounded-md border border-app-border-input overflow-hidden">
-              {(['desktop', 'mobile', 'tablet', 'auto'] as DeviceMode[]).map((m) => {
-                const G = DEVICE_GLYPH[m];
-                const on = chrome.deviceMode === m;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => c.setDevice?.(m)}
-                    title={t('browser.dev.device', { name: m })}
-                    aria-pressed={on}
-                    className={`w-6 h-6 flex items-center justify-center hover:bg-app-hover ${on ? 'text-primary bg-app-hover' : 'text-app-text-secondary'}`}
-                  >
-                    <G size={12} />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {(c?.toggleShare || c?.forgetSite) && <div className={POPOVER_DIVIDER} />}
-
-        {c?.toggleShare && (
-          <button type="button" className={POPOVER_ITEM} onClick={run(c.toggleShare)} data-testid="browser-tab-share">
-            <MonitorSmartphone size={13} className={`shrink-0 ${chrome.shared ? 'text-green-600 dark:text-green-400' : 'text-app-text-tertiary'}`} />
-            <span className="flex-1 text-left">
-              {chrome.shared ? t('browser.tab.session.shared') : t('browser.tab.session.native')}
-            </span>
-          </button>
-        )}
-
-        {c?.forgetSite && (
-          <button type="button" className={POPOVER_ITEM_DANGER} onClick={run(c.forgetSite)} data-testid="browser-tab-forget-site">
-            <Trash2 size={13} className="shrink-0" />
-            {t('browser.forget.label')}
-          </button>
-        )}
-      </Menu>
-    </>
+    <button
+      type="button"
+      onClick={openSheet}
+      onPointerDown={swallow}
+      onDoubleClick={swallow}
+      className={`relative w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-opacity ${
+        errors > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+      }`}
+      title={t('browser.tab.menu')}
+      aria-label={t('browser.tab.menu')}
+      aria-haspopup="dialog"
+      data-testid="browser-tab-menu"
+      data-console-errors={errors || undefined}
+    >
+      <MoreVertical size={13} />
+      {errors > 0 && (
+        // The badge sits ON the dots, like an app icon's: it says "there is
+        // something in here", which is precisely what it is.
+        <span
+          className="absolute -top-0.5 -right-0.5 min-w-[8px] h-[8px] rounded-full bg-red-600 dark:bg-red-500 ring-1 ring-app-bg"
+          aria-hidden
+        />
+      )}
+    </button>
   );
 }

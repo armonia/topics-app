@@ -1,4 +1,3 @@
-import { BrowserToolbar } from './BrowserToolbar';
 import { createPortal } from 'react-dom';
 import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive, Bot } from 'lucide-react';
 import { lazy, Suspense } from 'react';
@@ -285,8 +284,8 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
 
 /**
  * Shared spawner-aware back-button wiring. Both panel inner-components
- * (streaming + native) call this to derive the BrowserToolbar's
- * `onBackToSpawner` + `spawnerLabel` props from the registry, layout focus
+ * (streaming + native) call this to derive the sheet's
+ * `backToSpawner` command from the registry, layout focus
  * callback, and topics map. Returns `undefined` when no back button should
  * render — either because no spawner was recorded, the layout did not pass
  * a focus callback, or the spawner topic no longer exists.
@@ -314,16 +313,17 @@ function useBackToSpawner(
 /**
  * Tauri native browser pane. Mirrors the Electron native path: a real child
  * WKWebView (driven by useTauriBrowser → browser_* Rust commands) composited
- * over the React layout via the shared NativeBrowserPlaceholder, now with the
- * FULL BrowserToolbar — back/forward/reload, favicon, address bar, per-topic
- * history dropdown, zoom, find-in-page and back-to-spawner, plus the Chrome
- * keyboard shortcuts. Real WKWebView history (browser_back/forward/reload) + a
- * live state poll in useTauriBrowser (url/title/favicon/loading off the page's
- * own readyState) keep the chrome in sync with IN-PAGE navigation too. DevTools,
- * quick-console (poll-drained CONSOLE_PROXY buffer), zoom and device/UA emulation
- * (browser_set_user_agent + letterbox + reload) are all wired to their WKWebView
- * bridges now; BrowserToolbar still self-hides any control whose handler is
- * absent, so there are never dead buttons.
+ * over the React layout via the shared NativeBrowserPlaceholder.
+ *
+ * IT DRAWS NO CHROME OF ITS OWN. Back/forward/reload, address, history, zoom,
+ * device, console, downloads, session and forget-site are published into
+ * `state/browserPaneChrome` and drawn by the TAB, in its sheet; find-in-page is
+ * the one strip left here, because it is a mode of the page and not a command
+ * about it. Real WKWebView history (browser_back/forward/reload) + a live state
+ * poll in useTauriBrowser (url/title/favicon/loading off the page's own
+ * readyState) keep that published state in sync with IN-PAGE navigation too.
+ * Every command is optional in the snapshot, so the sheet shows only what this
+ * path actually wired and there are never dead buttons.
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const tr = useT();
@@ -390,9 +390,15 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     toggleDevTools: () => { void browser.toggleDevTools(); },
     clearConsole: browser.clearConsole,
     setZoom: (d: number | 'reset') => { void browser.setZoom(d); },
-    setDevice: (m: DeviceMode) => browser.setDevice(m),
+    setDevice: (m: DeviceMode, custom?: { width: number; height: number }) => browser.setDevice(m, custom),
     toggleShare: onToggleShare,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
+    getNavEntries: browser.getNavEntries,
+    goToNavIndex: (i: number) => { void browser.goToNavIndex(i); },
+    // The sheet covers the page: it says so itself instead of waiting for the
+    // occlusion watcher to measure it (see `BrowserTabSheet`).
+    freeze: browser.freeze,
+    thaw: browser.thaw,
   }), [browser, canForget, onToggleShare, backToSpawner]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
   // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
@@ -407,7 +413,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
-    // `browser.url` is still `about:blank`. See `showChrome`.
+    // `browser.url` is still `about:blank`. See `urlToShow` in the bridge.
     knownUrl: knownPaneUrl,
     faviconUrl: browser.faviconUrl,
     loading: browser.loading,
@@ -419,6 +425,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     zoom: browser.zoom,
     deviceMode: browser.deviceMode,
     shared: !!shared,
+    shareMode,
+    history,
+    consoleEntries: browser.consoleEntries,
+    downloadsMenu: downloads,
     commands: chromeCommands,
   });
   const focusUrlBar = chromeBridge.focusAddress;
@@ -463,13 +473,12 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // immediately (audit 2026-07-11: opening a browser tab focused NOTHING —
   // activeElement stayed on the "+" trigger). Re-arms when the pane becomes
   // visible again while still empty; a pane with a page loaded keeps focus
-  // wherever the user put it. The 50ms defer lets BrowserToolbar register
-  // its focus fn (onRegisterFocus) after first paint.
+  // wherever the user put it. The 50ms defer lets the tab's sheet mount its
+  // input after first paint.
   //
   // AND "EMPTY" IS ABOUT THE PANE, NOT ABOUT THIS INSTANT. A RESTORED pane is
   // `about:blank` for a few instants, so the live url alone called it fresh and
-  // revealed the address row — and `revealed` is sticky, so the row the tab had
-  // replaced came back and stayed. Same distinction `showChrome` makes below.
+  // opened the sheet over a page that was merely catching up.
   // Measured 2026-08-26 under `--workers=4`: one reveal, from here, with
   // `storeHasSpoken` true and `knownUrl` set. Not a race: the wrong question.
   //
@@ -571,47 +580,6 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
 
   return (
     <div className="flex flex-col h-full min-h-0" data-testid="browser-native-panel" data-browser-pane={contextId}>
-      {/* The address row exists only while it has a job to do: see
-          `useBrowserChromeBridge`. On a loaded page the tab says all of this,
-          and the pane keeps the 40px. */}
-      {chromeBridge.showChrome && (
-      <BrowserToolbar
-        url={browser.url}
-        onUrlChange={browser.navigate}
-        onBack={browser.goBack}
-        onForward={browser.goForward}
-        onRefresh={browser.reload}
-        canGoBack={browser.canGoBack ?? true}
-        canGoForward={browser.canGoForward ?? true}
-        getNavEntries={browser.getNavEntries}
-        onGoToNavIndex={browser.goToNavIndex}
-        loading={browser.loading}
-        history={history}
-        faviconUrl={browser.faviconUrl}
-        onRegisterFocus={chromeBridge.registerFocus}
-        onToggleDevTools={browser.toggleDevTools}
-        onBackToSpawner={backToSpawner?.onBackToSpawner}
-        spawnerLabel={backToSpawner?.spawnerLabel}
-        agentActive={browser.agentActive}
-        agentAction={browser.agentAction}
-        onZoom={browser.setZoom}
-        zoom={browser.zoom}
-        deviceMode={browser.deviceMode}
-        onSetDevice={browser.setDevice}
-        consoleEntries={browser.consoleEntries}
-        consoleSummary={browser.consoleSummary}
-        onClearConsole={browser.clearConsole}
-        downloads={downloads}
-        downloadsRequestOpen={chromeBridge.downloadsRequestOpen}
-        consoleOpen={chromeBridge.consoleOpen}
-        onConsoleOpenChange={chromeBridge.setConsoleOpen}
-        onDismiss={chromeBridge.hideChrome}
-        shared={shared}
-        shareMode={shareMode}
-        onToggleShare={onToggleShare}
-        onForgetSite={siteHostOf(browser.url) ? () => setForgetOpen(true) : undefined}
-      />
-      )}
       {findOpen && (
         <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
           <input
@@ -807,7 +775,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
-    // `browser.url` is still `about:blank`. See `showChrome`.
+    // `browser.url` is still `about:blank`. See `urlToShow` in the bridge.
     knownUrl: knownPaneUrl,
     loading: browser.loading,
     canGoBack: true,
@@ -815,6 +783,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     downloads: streamDownloads.items.length,
     downloadsStarted: streamDownloads.startedCount,
     shared: !!shared,
+    shareMode,
+    history,
+    downloadsMenu: streamDownloads,
     commands: sharedCommands,
   });
   const focusUrlBar = chromeBridge.focusAddress;
@@ -1102,36 +1073,6 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       // specs stub `/api/browsers/*`, get no `framable` key back, and so take
       // the streaming path, which had the anchor.
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="browser-pane" data-browser-pane={contextId}>
-        {/* SAME CONDITION AS THE OTHER TWO PATHS: the row goes away once the tab
-            carries the address. This path did not gate on `showChrome`, so on a
-            framable site the trade the tab was selling held on two thirds of
-            the app. */}
-        {chromeBridge.showChrome && (
-        <BrowserToolbar
-          url={browser.url}
-          onUrlChange={browser.navigate}
-          onBack={browser.goBack}
-          onForward={browser.goForward}
-          onRefresh={browser.reload}
-          canGoBack={true}
-          canGoForward={true}
-          loading={browser.loading}
-          history={history}
-          onBackToSpawner={backToSpawner?.onBackToSpawner}
-          spawnerLabel={backToSpawner?.spawnerLabel}
-          agentActive={browser.agentActive}
-          agentAction={browser.agentAction}
-          downloads={streamDownloads}
-          shared={shared}
-          shareMode={shareMode}
-          onToggleShare={onToggleShare}
-          // The three hooks the other two paths already passed: a hidden row
-          // needs a way in (`onRegisterFocus`) and a way out (`onDismiss`).
-          onRegisterFocus={chromeBridge.registerFocus}
-          onDismiss={chromeBridge.hideChrome}
-          downloadsRequestOpen={chromeBridge.downloadsRequestOpen}
-        />
-        )}
         {/* The box the hosted frame is parked over. Empty on purpose: its only
             job is to be measured. `data-browser-frame-slot` is what a test uses
             to tie a slot to the frame covering it. */}
@@ -1195,33 +1136,6 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         }
         .animate-ripple { animation: ripple 0.5s ease-out forwards; }
       `}</style>
-
-      {/* Toolbar. Revealed on demand only: see `useBrowserChromeBridge`. */}
-      {chromeBridge.showChrome && (
-      <BrowserToolbar
-        url={browser.url}
-        onUrlChange={browser.navigate}
-        onBack={browser.goBack}
-        onForward={browser.goForward}
-        onRefresh={browser.reload}
-        canGoBack={true}
-        canGoForward={true}
-        loading={browser.loading}
-        history={history}
-        onRegisterFocus={chromeBridge.registerFocus}
-        onBackToSpawner={backToSpawner?.onBackToSpawner}
-        spawnerLabel={backToSpawner?.spawnerLabel}
-        agentActive={browser.agentActive}
-        agentAction={browser.agentAction}
-        downloads={streamDownloads}
-        downloadsRequestOpen={chromeBridge.downloadsRequestOpen}
-        onDismiss={chromeBridge.hideChrome}
-        shared={shared}
-        shareMode={shareMode}
-        onToggleShare={onToggleShare}
-        onForgetSite={siteHostOf(browser.url) ? () => setForgetOpen(true) : undefined}
-      />
-      )}
 
       {/* Content — screenshot viewer. containerRef wires a debounced
           ResizeObserver → the server viewport tracks this element's real size
