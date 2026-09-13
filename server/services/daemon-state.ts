@@ -302,12 +302,12 @@ export function uptimeMsSince(startedAt: string): number {
 // header of `server/lib/port-squatter.ts`).
 
 /** The port is contested and it is NOT a stranger holding it: do not fall back. */
-export class PortOccupiedError extends Error {
+export class PortTakenError extends Error {
   readonly port: number;
   readonly outcome: EsitoPorta;
   constructor(port: number, outcome: EsitoPorta, message: string) {
     super(message);
-    this.name = "PortOccupiedError";
+    this.name = "PortTakenError";
     this.port = port;
     this.outcome = outcome;
   }
@@ -316,8 +316,8 @@ export class PortOccupiedError extends Error {
 /**
  * Is this bind failure "somebody already holds the port"?
  *
- * Bun does not surface `err.code` for a failed `Bun.serve`: the message is
- * `Failed to start server. Is port 3333 in use?`. Node-style errors do carry
+ * Bun does not surface `err.code` when the listener fails to start: what it
+ * throws reads `Failed to start server. Is port 3333 in use?`. Node errors carry
  * `EADDRINUSE`, so both shapes are accepted. Any OTHER failure (a bad TLS
  * certificate, for instance) must keep propagating: falling back to an
  * ephemeral port would hide a broken configuration behind a moved daemon.
@@ -345,7 +345,7 @@ export interface ListenOutcome<T> {
  * tries HTTPS and then HTTP: production is TLS on some machines and plain on
  * others, and a single-scheme probe is blind on the other half of them.
  *
- * Throws `PortOccupiedError` when the port is contested by Topics itself or by
+ * Throws `PortTakenError` when the port is contested by Topics itself or by
  * something the probe could not identify; the caller turns that into a non-zero
  * exit. Only a CONFIRMED stranger earns the ephemeral fallback.
  */
@@ -365,12 +365,12 @@ export async function listenWithSquatterFallback<T>(
     if (outcome.stato === "estraneo") {
       return { listener: bind(0), movedToEphemeral: true, probed: outcome };
     }
-    throw new PortOccupiedError(configured, outcome, portOccupiedMessage(configured, outcome));
+    throw new PortTakenError(configured, outcome, portTakenMessage(configured, outcome));
   }
 }
 
 /** The line a person reads when the daemon refuses to start. */
-export function portOccupiedMessage(port: number, outcome: EsitoPorta): string {
+export function portTakenMessage(port: number, outcome: EsitoPorta): string {
   switch (outcome.stato) {
     case "nostro":
       return `port ${port} is already served by another Topics daemon. ` +

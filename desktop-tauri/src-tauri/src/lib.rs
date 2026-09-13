@@ -1662,12 +1662,20 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // answers by shape; a squatter's HTML is rejected. Retry a few seconds before
     // concluding (the 2026-08-13 note: a slow/restarting server must be waited
     // for, never replaced by an empty sidecar universe).
-    let state_port = daemon_state_port();
     let attempts: u32 = if seen_before { 60 } else { 8 };
     let mut primary_topics = false;
     let mut primary_tls = false;
     let mut state_topics = false;
+    let mut state_tls = false;
+    // THE STATE PORT IS RE-READ EVERY ROUND, and it has to be: the whole reason
+    // this loop lasts 42 seconds is that the server may be RESTARTING, and a
+    // restart is exactly when the daemon writes a new port into daemon-state.json
+    // (four restarts on four different ports in one night, 2026-09-13). Reading it
+    // once before the loop meant probing a dead port for the full 42s and then
+    // spawning a sidecar next to a server that had been up for forty of them.
+    let mut state_port = daemon_state_port();
     for round in 0..attempts {
+        state_port = daemon_state_port();
         if probe_topics_shape(DEFAULT_UPSTREAM_PORT, true).await {
             primary_topics = true;
             primary_tls = true;
@@ -1678,10 +1686,22 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             primary_tls = false;
             break;
         }
+        // TLS FIRST HERE TOO. The daemon on its ephemeral port is the same daemon:
+        // on a machine configured with certificates it serves TLS there as well, so
+        // a plain-HTTP-only probe misses it and the shell spawns an empty sidecar
+        // while the real data answers, in HTTPS, one port away.
         if let Some(sp) = state_port {
-            if probe_topics_shape(sp, false).await {
-                state_topics = true;
-                break;
+            if sp != 0 && sp != DEFAULT_UPSTREAM_PORT {
+                if probe_topics_shape(sp, true).await {
+                    state_topics = true;
+                    state_tls = true;
+                    break;
+                }
+                if probe_topics_shape(sp, false).await {
+                    state_topics = true;
+                    state_tls = false;
+                    break;
+                }
             }
         }
         if round + 1 < attempts {
@@ -1708,6 +1728,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         primary_topics,
         primary_tls,
         state_topics,
+        state_tls,
         state_port,
         seen_before,
         primary_foreign,
@@ -12406,7 +12427,7 @@ mod contaminated_marker_cold_boot_tests {
             let any_status = probe_topics_server(port, false).await;
             assert!(!shape, "foreign HTML must FAIL the Topics shape probe");
             assert!(any_status, "foreign HTML must be ACTIVE (non-Topics)");
-            let choice = decide_boot(false, false, false, Some(3333), true, any_status);
+            let choice = decide_boot(false, false, false, false, Some(3333), true, any_status);
             assert_eq!(
                 choice,
                 BootChoice::SpawnSidecar,
@@ -12421,7 +12442,7 @@ mod contaminated_marker_cold_boot_tests {
             let dead = free_port();
             let any_status = probe_topics_server(dead, false).await;
             assert!(!any_status, "a down server must not be seen as active");
-            let choice = decide_boot(false, false, false, Some(3333), true, any_status);
+            let choice = decide_boot(false, false, false, false, Some(3333), true, any_status);
             assert_eq!(
                 choice,
                 BootChoice::WaitForKnownServer,
@@ -12440,7 +12461,7 @@ mod contaminated_marker_cold_boot_tests {
             let foreign = probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await
                 || probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await;
             assert!(foreign, "precondition: a foreign process IS answering on :3333");
-            let choice = decide_boot(false, false, false, Some(3333), true, foreign);
+            let choice = decide_boot(false, false, false, false, Some(3333), true, foreign);
             assert_eq!(
                 choice,
                 BootChoice::SpawnSidecar,

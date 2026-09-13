@@ -22,8 +22,8 @@ import { describe, it, expect } from "bun:test";
 import {
   isAddressInUse,
   listenWithSquatterFallback,
-  portOccupiedMessage,
-  PortOccupiedError,
+  portTakenMessage,
+  PortTakenError,
 } from "./daemon-state";
 import { sondaPorta, sondaRealeDeps, type EsitoPorta, type SondaPortaDeps } from "../lib/port-squatter";
 
@@ -111,7 +111,7 @@ describe("listenWithSquatterFallback", () => {
     const probe = probeOverFakeNetwork({ https: OURS, http: null });
     await expect(
       listenWithSquatterFallback(3333, bindThatRefuses(3333, tried), probe),
-    ).rejects.toThrow(PortOccupiedError);
+    ).rejects.toThrow(PortTakenError);
     expect(tried).toEqual([3333]); // never bound anything else
   });
 
@@ -132,7 +132,7 @@ describe("listenWithSquatterFallback", () => {
       const tried: number[] = [];
       await expect(
         listenWithSquatterFallback(3333, bindThatRefuses(3333, tried), probeSaying(outcome)),
-      ).rejects.toThrow(PortOccupiedError);
+      ).rejects.toThrow(PortTakenError);
       expect(tried).toEqual([3333]);
     }
   });
@@ -176,10 +176,10 @@ describe("listenWithSquatterFallback", () => {
   });
 });
 
-describe("portOccupiedMessage", () => {
+describe("portTakenMessage", () => {
   it("names the real reason for each outcome", () => {
-    expect(portOccupiedMessage(3333, { stato: "nostro" })).toContain("another Topics daemon");
-    expect(portOccupiedMessage(3333, { stato: "silenzio" })).toContain("nobody answers");
-    expect(portOccupiedMessage(3333, { stato: "ignoto", perche: "timeout" })).toContain("timeout");
+    expect(portTakenMessage(3333, { stato: "nostro" })).toContain("another Topics daemon");
+    expect(portTakenMessage(3333, { stato: "silenzio" })).toContain("nobody answers");
+    expect(portTakenMessage(3333, { stato: "ignoto", perche: "timeout" })).toContain("timeout");
   });
 });

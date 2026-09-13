@@ -21,7 +21,7 @@ import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
-  listenWithSquatterFallback, PortOccupiedError,
+  listenWithSquatterFallback, PortTakenError,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -4424,7 +4424,7 @@ try {
     );
   }
 } catch (err) {
-  if (err instanceof PortOccupiedError) {
+  if (err instanceof PortTakenError) {
     console.error(`[Daemon] ${err.message}`);
     process.exit(1);
   }
