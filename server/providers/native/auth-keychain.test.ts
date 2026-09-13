@@ -27,6 +27,7 @@ let item: Record<string, unknown> | null;
 let shadows: Array<{ acct: string; doc: Record<string, unknown> }>;
 const ITEM_ACCOUNT = "someone";
 const ORIGINAL_USER = process.env.USER;
+const ORIGINAL_LOGIN_NAME = process.env.LOGNAME;
 
 function fakeSecurity(cmd: string, args: string[]): KeychainRunResult {
   calls.push([cmd, ...args]);
@@ -72,6 +73,7 @@ describe("the Keychain candidate", () => {
   afterEach(() => {
     setKeychainRunnerForTests(null);
     if (ORIGINAL_USER === undefined) delete process.env.USER; else process.env.USER = ORIGINAL_USER;
+    if (ORIGINAL_LOGIN_NAME === undefined) delete process.env.LOGNAME; else process.env.LOGNAME = ORIGINAL_LOGIN_NAME;
     if (HOME_VERA === undefined) delete process.env.HOME; else process.env.HOME = HOME_VERA;
     if (FLAG_VERA === undefined) delete process.env.TOPICS_CREDENTIALS_KEYCHAIN; else process.env.TOPICS_CREDENTIALS_KEYCHAIN = FLAG_VERA;
     try { rmSync(homeDir, { recursive: true, force: true }); } catch { /* scratch */ }
@@ -153,6 +155,13 @@ describe("the Keychain candidate", () => {
       expect(add[add.indexOf("-a") + 1]).toBe(ITEM_ACCOUNT);
       expect((item as { claudeAiOauth: Record<string, unknown> }).claudeAiOauth.accessToken).toBe("renewed");
       expect((shadows[0]!.doc.claudeAiOauth as Record<string, unknown>).accessToken).toBe("");
+    });
+
+    test("with USER unset (`env -i`), LOGNAME still names the login user's item", () => {
+      shadows = [blank()];
+      delete process.env.USER;
+      process.env.LOGNAME = ITEM_ACCOUNT;
+      expect(readKeychainCredentials()?.accessToken).toBe("kc-live");
     });
 
     test("with no login-user item, the service-only lookup still finds a usable one", () => {

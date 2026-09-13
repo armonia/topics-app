@@ -170,8 +170,17 @@ function keychainEnabled(): boolean {
 // `invalid_grant`, and the jcode mirror synced nothing. So the login user's
 // item is asked for first, and an item without a usable pair never shadows one
 // that has it.
+// Not `os.userInfo()` alone: under Bun, with USER unset (`env -i`), it answers
+// "unknown" instead of reading the user database, and that is exactly how the
+// blank item got its account (Claude Code 2.1.269, a Bun binary, launched with
+// `env -i` by a test agent). A lookup under "unknown" would find that item again.
 function loginUser(): string {
-  try { return process.env.USER || userInfo().username; } catch { return ""; }
+  const fromEnv = process.env.USER || process.env.LOGNAME;
+  if (fromEnv) return fromEnv;
+  try {
+    const name = userInfo().username;
+    return name && name !== "unknown" ? name : "";
+  } catch { return ""; }
 }
 
 /** `-a` values to try, most specific first; `null` means "any account". */
