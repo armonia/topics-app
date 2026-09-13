@@ -1,218 +1,185 @@
 /**
- * Port-identity + fallback — the daemon-side half of the squatter-recovery
- * fix. The daemon is the single owner of the machine's Topics data; it must
- * come UP even when the preferred port (default 3333) is held by an unrelated
- * process. This file proves:
+ * Binding the port when somebody else may hold it — the daemon-side half of
+ * the squatter fix (card `1e078aee`).
  *
- *   * `isTopicsPresenceBody` — recognises OUR response shape and rejects HTML,
- *     JSON of other servers, wrong types, and empty bodies.
- *   * `probeTopicsOnPort` — classifies "our server / squatter / nobody" from
- *     an injected fetch, and treats a network error as "nobody" (conservative:
- *     safe to try binding).
- *   * `chooseListenPort` — keeps the configured port when it's ours or empty,
- *     and returns 0 (ephemeral) when a squatter holds it; returns 0 when
- *     configured is 0.
- *   * `pickEphemeralPort` — returns a real, non-privileged, actually-free port.
- *   * `portIsHeld` — true for a port we're holding, false for a free one.
+ * WHAT THIS PROVES, and why each case is here:
  *
- * No network in the pure tests: `fetchFn` is injected. The real-fetch tests
- * spin up a local Bun server so the classification is exercised end-to-end.
+ *   * nobody holds the port  → we bind the CONFIGURED port and never probe.
+ *     This is the common case, and the earlier version got it wrong by asking
+ *     first: on a TLS build a plain-HTTP probe times out and the daemon walked
+ *     away from 3333 while nothing was wrong with it.
+ *   * a stranger answers     → ephemeral port, so the daemon always comes up.
+ *   * TOPICS answers, over TLS → we EXIT. A second daemon on the same data
+ *     directory is exactly what `reusePort: false` defends against, and
+ *     quietly moving to another port would defeat it.
+ *   * the probe cannot tell  → we EXIT. Guessing produces a second, empty
+ *     universe while the real data lives elsewhere.
+ *   * the bind failed for another reason → the error propagates untouched.
  *
  * @covers RUNTIME-16
  */
-import { describe, it, expect, afterAll } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import {
-  isTopicsPresenceBody,
-  probeTopicsOnPort,
-  chooseListenPort,
-  pickEphemeralPort,
-  portIsHeld,
-  PROBE_ROUTE,
-  type PortProbeResult,
+  isAddressInUse,
+  listenWithSquatterFallback,
+  portOccupiedMessage,
+  PortOccupiedError,
 } from "./daemon-state";
+import { sondaPorta, sondaRealeDeps, type EsitoPorta, type SondaPortaDeps } from "../lib/port-squatter";
 
-const NOSTRA = JSON.stringify({
+const OURS = JSON.stringify({
   openSessions: 19,
   workingSessions: 3,
   activeTasks: 0,
   focusProject: "topics-app",
 });
-const HTML = "<!doctype html><html lang=\"en\"><head><title>Van Damme-o-Matic</title></head><body></body></html>";
-const OTHER_JSON = '{"status":"ok","openSessions":19}'; // one field, wrong second
+const HTML = "<!doctype html><html lang=\"en\"><head><title>account switcher</title></head><body></body></html>";
 
-// ── isTopicsPresenceBody ─────────────────────────────────────────────────────
-describe("isTopicsPresenceBody", () => {
-  it("riconosce la nostra forma", () => {
-    expect(isTopicsPresenceBody(NOSTRA)).toBe(true);
+const inUse = () => Object.assign(new Error("Failed to start server. Is port 3333 in use?"), {});
+
+/** A bind that fails on the configured port and succeeds on 0, recording calls. */
+function bindThatRefuses(port: number, tried: number[]) {
+  return (p: number) => {
+    tried.push(p);
+    if (p === port) throw inUse();
+    return { port: 51234 } as const;
+  };
+}
+
+const probeSaying = (outcome: EsitoPorta) => async () => outcome;
+
+// A probe built on the REAL sondaPorta, with only the two I/O dependencies
+// faked: it is the production code path that decides who answers, including
+// the HTTPS-then-HTTP order.
+function probeOverFakeNetwork(answers: Record<string, string | null>) {
+  const deps: SondaPortaDeps = {
+    chiedi: async (url) => {
+      const scheme = url.startsWith("https") ? "https" : "http";
+      const body = answers[scheme];
+      return body === null || body === undefined ? null : { ok: true, corpo: body };
+    },
+    chiOccupa: () => ({ pid: 4242, comando: "dashboard.mjs" }),
+    pidNostro: 1,
+  };
+  return (port: number) => sondaPorta(port, deps);
+}
+
+describe("isAddressInUse", () => {
+  it("recognises the Bun wording and the POSIX code", () => {
+    expect(isAddressInUse(inUse())).toBe(true);
+    expect(isAddressInUse(Object.assign(new Error("listen failed"), { code: "EADDRINUSE" }))).toBe(true);
+    expect(isAddressInUse(new Error("address already in use"))).toBe(true);
   });
 
-  it("rifiuta l'HTML di un altro progetto", () => {
-    expect(isTopicsPresenceBody(HTML)).toBe(false);
-  });
-
-  it("rifiuta JSON di un altro server", () => {
-    expect(isTopicsPresenceBody(OTHER_JSON)).toBe(false);
-    expect(isTopicsPresenceBody('{"status":"ok"}')).toBe(false);
-  });
-
-  it("rifiuta tipi sbagliati", () => {
-    expect(isTopicsPresenceBody('{"openSessions":"tre","workingSessions":1}')).toBe(false);
-    expect(isTopicsPresenceBody('{"openSessions":19}')).toBe(false); // un solo campo
-  });
-
-  it("rifiuta il vuoto e il non-JSON", () => {
-    expect(isTopicsPresenceBody("")).toBe(false);
-    expect(isTopicsPresenceBody("non-JSON")).toBe(false);
-  });
-
-  it("rifiuta null e un oggetto nullo", () => {
-    expect(isTopicsPresenceBody("null")).toBe(false);
-    expect(isTopicsPresenceBody("{}")).toBe(false);
-  });
-});
-
-// ── probeTopicsOnPort ────────────────────────────────────────────────────────
-describe("probeTopicsOnPort (fetch iniettato)", () => {
-  const fake = (body: string | null, err?: Error, status = 200) =>
-    (async () => {
-      if (err) throw err;
-      if (body === null) return null;
-      return {
-        ok: status >= 200 && status < 300,
-        status,
-        text: async () => body,
-      };
-    }) as unknown as typeof fetch;
-
-  it("classifica 'nostro' quando la forma e' la nostra", async () => {
-    const r = await probeTopicsOnPort(3333, fake(NOSTRA));
-    expect(r).toEqual<PortProbeResult>({ ourServer: true, squatted: false, nobody: false });
-  });
-
-  it("classifica 'estraneo' quando risponde 200 ma con HTML", async () => {
-    // E' ESATTAMENTE il caso Van Damme-o-Matic: 200 + text/html per ogni path.
-    const r = await probeTopicsOnPort(3333, fake(HTML));
-    expect(r).toEqual<PortProbeResult>({ ourServer: false, squatted: true, nobody: false });
-  });
-
-  it("classifica 'estraneo' anche con 404 (c'è qualcuno, non siamo noi)", async () => {
-    const r = await probeTopicsOnPort(3333, fake("Not Found", undefined, 404));
-    expect(r).toEqual<PortProbeResult>({ ourServer: false, squatted: true, nobody: false });
-  });
-
-  it("classifica 'nessuno' quando la fetch rifiuta", async () => {
-    const r = await probeTopicsOnPort(3333, fake(null));
-    expect(r).toEqual<PortProbeResult>({ ourServer: false, squatted: false, nobody: true });
-  });
-
-  it("classifica 'nessuno' quando la fetch ESPLODE (ECONNREFUSED)", async () => {
-    const r = await probeTopicsOnPort(3333, fake(null, new Error("ECONNREFUSED")));
-    expect(r).toEqual<PortProbeResult>({ ourServer: false, squatted: false, nobody: true });
-  });
-
-  it("usa la rotta della forma (ROTTA_SONDA) e 127.0.0.1, in HTTP semplice", async () => {
-    const visti: string[] = [];
-    await probeTopicsOnPort(4567, (async (u: string) => {
-      visti.push(u);
-      return { ok: true, status: 200, text: async () => NOSTRA };
-    }) as unknown as typeof fetch);
-    expect(visti).toEqual([`http://127.0.0.1:4567${PROBE_ROUTE}`]);
+  it("does not swallow an unrelated failure", () => {
+    expect(isAddressInUse(new Error("tls: certificate file not found"))).toBe(false);
+    expect(isAddressInUse(null)).toBe(false);
   });
 });
 
-// ── chooseListenPort ─────────────────────────────────────────────────────────
-describe("chooseListenPort", () => {
-  const ourFetch = (async () => ({ ok: true, status: 200, text: async () => NOSTRA })) as unknown as typeof fetch;
-  const squatterFetch = (async () => ({ ok: true, status: 200, text: async () => HTML })) as unknown as typeof fetch;
-  const nobodyFetch = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch;
-
-  it("tiene la porta quando e' la nostra (idempotenza del riavvio)", async () => {
-    expect(await chooseListenPort(3333, ourFetch)).toBe(3333);
+describe("listenWithSquatterFallback", () => {
+  it("binds the configured port and never probes when it is free", async () => {
+    const tried: number[] = [];
+    let probed = false;
+    const out = await listenWithSquatterFallback(
+      3333,
+      (p) => { tried.push(p); return { port: p } as const; },
+      async () => { probed = true; return { stato: "silenzio" }; },
+    );
+    expect(tried).toEqual([3333]);
+    expect(probed).toBe(false);
+    expect(out.movedToEphemeral).toBe(false);
+    expect(out.listener.port).toBe(3333);
   });
 
-  it("cade su 0 (effimera) quando la porta e' di un estraneo", async () => {
-    expect(await chooseListenPort(3333, squatterFetch)).toBe(0);
+  it("falls back to an ephemeral port when a confirmed stranger answers", async () => {
+    const tried: number[] = [];
+    const out = await listenWithSquatterFallback(
+      3333,
+      bindThatRefuses(3333, tried),
+      probeSaying({ stato: "estraneo", pid: 4242, comando: "dashboard.mjs" }),
+    );
+    expect(tried).toEqual([3333, 0]);
+    expect(out.movedToEphemeral).toBe(true);
+    expect(out.probed?.stato).toBe("estraneo");
   });
 
-  it("tiene la porta quando non risponde nessuno", async () => {
-    expect(await chooseListenPort(3333, nobodyFetch)).toBe(3333);
+  it("refuses to start when another Topics answers, even over TLS only", async () => {
+    const tried: number[] = [];
+    // The stranger case of production on this machine reversed: HTTPS answers
+    // with our presence shape, plain HTTP never gets a turn.
+    const probe = probeOverFakeNetwork({ https: OURS, http: null });
+    await expect(
+      listenWithSquatterFallback(3333, bindThatRefuses(3333, tried), probe),
+    ).rejects.toThrow(PortOccupiedError);
+    expect(tried).toEqual([3333]); // never bound anything else
   });
 
-  it("restituisce 0 se la configurata e' gia' 0 (isolamento worktree)", async () => {
-    expect(await chooseListenPort(0, ourFetch)).toBe(0);
-    expect(await chooseListenPort(0, squatterFetch)).toBe(0);
+  it("falls back when the HTML of a foreign dashboard answers over plain HTTP", async () => {
+    const tried: number[] = [];
+    const probe = probeOverFakeNetwork({ https: null, http: HTML });
+    const out = await listenWithSquatterFallback(3333, bindThatRefuses(3333, tried), probe);
+    expect(tried).toEqual([3333, 0]);
+    expect(out.movedToEphemeral).toBe(true);
   });
 
-  it("tratta 0/valori non positivi come 'già effimera'", async () => {
-    expect(await chooseListenPort(-1, ourFetch)).toBe(0);
-  });
-});
-
-// ── pickEphemeralPort + portIsHeld (rete locale reale) ────────────────────────
-describe("pickEphemeralPort + portIsHeld (rete locale reale)", () => {
-  it("restituisce una porta non-privilegiata, libera e riutilizzabile", async () => {
-    const p = pickEphemeralPort();
-    expect(p).toBeGreaterThanOrEqual(1024);
-    expect(p).toBeLessThanOrEqual(65535);
-    // La porta che abbiamo appena rilasciato DEVE essere di nuovo libera.
-    expect(await portIsHeld(p, 800)).toBe(false);
-  });
-
-  it("portIsHeld dice 'sì' quando qualcuno ascolta, 'no' quando no", async () => {
-    const s = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
-    const held = s.port;
-    expect(held).toBeGreaterThan(0);
-    try {
-      expect(await portIsHeld(held, 800)).toBe(true);
-    } finally {
-      s.stop(true);
+  it("refuses to start when the probe cannot tell who is there", async () => {
+    for (const outcome of [
+      { stato: "silenzio" } as const,
+      { stato: "ignoto", perche: "timeout" } as const,
+      { stato: "nostro" } as const,
+    ]) {
+      const tried: number[] = [];
+      await expect(
+        listenWithSquatterFallback(3333, bindThatRefuses(3333, tried), probeSaying(outcome)),
+      ).rejects.toThrow(PortOccupiedError);
+      expect(tried).toEqual([3333]);
     }
   });
 
-  it("portIsHeld rifiuta porte non positive", async () => {
-    expect(await portIsHeld(0, 800)).toBe(false);
-    expect(await portIsHeld(-5, 800)).toBe(false);
-  });
-});
-
-// ── end-to-end: un server locale che NON e' Topics viene rilevato ─────────────
-describe("end-to-end contro un server locale reale", () => {
-  // Un "squatter" minimale: risponde 200 con HTML a ogni path, proprio come
-  // Van Damme-o-Matic.
-  const squatter = Bun.serve({
-    hostname: "127.0.0.1", port: 0,
-    fetch: () => new Response(HTML, { status: 200, headers: { "content-type": "text/html" } }),
-  });
-  afterAll(() => { squatter.stop(true); });
-
-  it("rileva l'estraneo e decide di cadere su una porta effimera", async () => {
-    const p = squatter.port;
-    if (!p) throw new Error("squatter did not bind a port");
-    expect(p).toBeGreaterThan(0);
-    expect(await portIsHeld(p, 800)).toBe(true);
-
-    const r = await probeTopicsOnPort(p); // fetch reale, nessuna iniezione
-    expect(r).toEqual<PortProbeResult>({ ourServer: false, squatted: true, nobody: false });
-
-    // E la decisione finale: 0 = "legati su una porta effimera".
-    expect(await chooseListenPort(p)).toBe(0);
+  it("lets an unrelated bind failure through untouched", async () => {
+    const boom = new Error("tls: certificate file not found");
+    await expect(
+      listenWithSquatterFallback(3333, () => { throw boom; }, probeSaying({ stato: "estraneo", pid: 1, comando: null })),
+    ).rejects.toThrow("certificate file not found");
   });
 
-  it("non confonde un server che NON parla presenza con Topics", async () => {
-    // Un server che risponde 200 con JSON ma senza i due campi numerici.
-    const s2 = Bun.serve({
+  it("treats a non-positive configured port as already ephemeral", async () => {
+    const tried: number[] = [];
+    const out = await listenWithSquatterFallback(0, (p) => { tried.push(p); return { port: 40000 } as const; });
+    expect(tried).toEqual([0]);
+    expect(out.movedToEphemeral).toBe(false);
+  });
+
+  it("survives a real foreign server on a real port", async () => {
+    const squatter = Bun.serve({
       hostname: "127.0.0.1", port: 0,
-      fetch: () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      fetch: () => new Response(HTML, { status: 200, headers: { "content-type": "text/html" } }),
     });
     try {
-      const p = s2.port;
-      if (!p) throw new Error("test server did not bind a port");
-      const r = await probeTopicsOnPort(p);
-      expect(r.ourServer).toBe(false);
-      expect(r.squatted).toBe(true);
-      expect(await chooseListenPort(p)).toBe(0);
+      const held = squatter.port;
+      if (!held) throw new Error("the test squatter did not bind a port");
+      const tried: number[] = [];
+      // The probe is the real one (real fetch, real `lsof`); only "our pid" is
+      // faked, because here the foreign server runs inside the test process
+      // and would otherwise be recognised as ourselves.
+      const out = await listenWithSquatterFallback(
+        held,
+        bindThatRefuses(held, tried),
+        (port) => sondaPorta(port, sondaRealeDeps(-1)),
+      );
+      expect(tried).toEqual([held, 0]);
+      expect(out.movedToEphemeral).toBe(true);
     } finally {
-      s2.stop(true);
+      squatter.stop(true);
     }
+  });
+});
+
+describe("portOccupiedMessage", () => {
+  it("names the real reason for each outcome", () => {
+    expect(portOccupiedMessage(3333, { stato: "nostro" })).toContain("another Topics daemon");
+    expect(portOccupiedMessage(3333, { stato: "silenzio" })).toContain("nobody answers");
+    expect(portOccupiedMessage(3333, { stato: "ignoto", perche: "timeout" })).toContain("timeout");
   });
 });

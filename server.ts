@@ -21,7 +21,7 @@ import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
-  chooseListenPort,
+  listenWithSquatterFallback, PortOccupiedError,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -2933,25 +2933,8 @@ function isRemotePeer(req: Request, srv: { requestIP(req: Request): { address: s
   return !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
 }
 
-// ─── Port selection (squatter recovery) ─────────────────────────────────────
-// Before binding, ask the configured port "who are you?". If a non-Topics
-// process (e.g. the account-switcher / Van Damme-o-Matic dashboard) squats it,
-// fall back to an ephemeral port (0) so the daemon ALWAYS comes up. The state
-// file (written after Bun.serve) records the REAL port, so the desktop
-// discovers it correctly. If the port is stolen between probe and bind
-// (TOCTOU), the try/catch below retries on port 0 (fully kernel-assigned).
-let bindPort = await chooseListenPort(PORT);
-if (bindPort === 0 && PORT > 0) {
-  // chooseListenPort returned 0 → a non-Topics process holds PORT.
-  // Let Bun pick a kernel-assigned ephemeral port (port 0 in opzioniServer).
-  console.warn(
-    `[Daemon] port ${PORT} is held by a non-Topics process — binding an ephemeral port instead. ` +
-    `The state file will record the real port so the desktop can find us.`
-  );
-}
-
 const opzioniServer = {
-  port: bindPort,
+  port: PORT,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
   // default) it owns BOTH the IPv6 and the IPv4-mapped families on PORT, so
   // Topics occupies localhost on every resolution path — important on a DEV box
@@ -4418,30 +4401,41 @@ function withHttpLog(
 
 const fetchCompresso = withHttpLog(withJsonCompression(opzioniServer.fetch));
 
-// ─── Bind with TOCTOU guard ─────────────────────────────────────────────────
-// If `chooseListenPort` decided PORT was free (nobody answered) but a process
-// bound it in the meantime — or if the probe misread a squatter — `Bun.serve`
-// throws `Failed to start server. Is port <N> in use?`. Catch that and retry on
-// port 0 (fully kernel-assigned ephemeral). The state file records the real
-// port either way, so the desktop discovers us correctly. We never kill the
-// squatter: it belongs to someone else.
+// ─── Bind, then ask who is there ────────────────────────────────────────────
+// The bind is the question: the kernel answers EADDRINUSE or it does not. Only
+// then does the probe run, and only a CONFIRMED foreign process moves us to an
+// ephemeral port; Topics on the other end, or an answer nobody could read,
+// stops the boot instead of opening a second universe on another port.
+// See `listenWithSquatterFallback` in server/services/daemon-state.ts.
 let server: Server<WSData>;
 try {
-  server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
-} catch (err) {
-  if (PORT > 0 && bindPort !== 0) {
-    const bindError = err instanceof Error ? err.message : String(err);
-    // TOCTOU: the port we thought was free is held. Retry on a kernel-assigned
-    // ephemeral port. This is the only case where the daemon would otherwise die.
+  const attempt = await listenWithSquatterFallback(
+    PORT,
+    (port) => Bun.serve<WSData>({ ...opzioniServer, port, fetch: fetchCompresso }),
+  );
+  server = attempt.listener;
+  if (attempt.movedToEphemeral) {
+    const holder = attempt.probed?.stato === "estraneo"
+      ? `pid ${attempt.probed.pid ?? "?"}${attempt.probed.comando ? ` (${attempt.probed.comando})` : ""}`
+      : "a foreign process";
     console.warn(
-      `[Daemon] bind failed on port ${bindPort} (${bindError}) — ` +
-      `retrying on an ephemeral port.`
+      `[Daemon] port ${PORT} is held by ${holder}: listening on ${server.port} instead. ` +
+      `The state file records the real port so the desktop can find us.`
     );
-    server = Bun.serve<WSData>({ ...opzioniServer, port: 0, fetch: fetchCompresso });
-  } else {
-    throw err;
   }
+} catch (err) {
+  if (err instanceof PortOccupiedError) {
+    console.error(`[Daemon] ${err.message}`);
+    process.exit(1);
+  }
+  throw err;
 }
+
+// THE REAL PORT IS THE ONE THE CHILDREN MUST USE. `PORT` in the environment is
+// what the MCP child (server/providers/claude-code.ts) and the hooks build
+// their base URL from; if we moved, that value now points at the squatter.
+// Overwrite it BEFORE anything spawns.
+process.env.PORT = String(server.port ?? PORT);
 
 // Da qui in poi un file locale si può MOSTRARE senza che nessuno navighi su
 // `file://`: l'agente chiede il file, la pane va su `/api/media` di questo
