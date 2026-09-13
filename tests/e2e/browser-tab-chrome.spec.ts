@@ -113,6 +113,33 @@ async function mountPane(page: Page, topicId: string, url: string): Promise<void
 
 const tabDelBrowser = (page: Page) => page.locator('[data-pane-id^="browser:"]').first();
 
+/**
+ * THE NEGATIVE THAT CAN STILL FAIL.
+ *
+ * "No address row above the page" used to be written as
+ * `browser-url-input → count 0`, and since `BrowserToolbar` was deleted that
+ * testid exists nowhere: the assertion passes over any app, including one that
+ * grew a new strip tomorrow under another name. HERO-R-003, in one line.
+ *
+ * So it is measured as GEOMETRY instead, which is what the requirement is
+ * actually about: the pane's page area starts at the pane's own top edge. A
+ * chrome strip of any name, any testid, pushes it down and this goes red. The
+ * find bar is the one admitted exception and it is a MODE - it exists only
+ * while you are searching - so a scene that is not searching must not see it.
+ */
+async function nienteRigaSopraLaPagina(page: Page, motivo: string): Promise<void> {
+  const pane = page.locator('[data-browser-pane]').first();
+  const gap = await pane.evaluate((el) => {
+    // The page area is the last flex child: the screenshot viewer, the frame
+    // slot or the native placeholder, depending on the render path.
+    const area = el.querySelector('[data-browser-frame-slot], [data-native-browser-slot]')
+      ?? el.lastElementChild;
+    if (!area) return -1;
+    return area.getBoundingClientRect().top - el.getBoundingClientRect().top;
+  });
+  expect(gap, motivo).toBeLessThanOrEqual(1);
+}
+
 test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the menu", () => {
   // The prologue waits for the server to launch a headless Chromium and load a
   // page in it: the default per-file ceiling is not for this family.
@@ -262,7 +289,9 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // needed.
     await tabDelBrowser(page).hover();
     await page.getByTestId("browser-tab-menu").click();
-    await expect(page.getByTestId("browser-tab-menu-address")).toBeVisible();
+    // The address is the top of the sheet, and on a restored pane it has to be
+    // the address the STORE knows: `browser.url` is still `about:blank` here.
+    await expect(page.getByTestId("browser-tab-address-input")).toHaveValue(`${origin}/rapporto`);
     // The console-error cue does NOT belong here: it depends on the page
     // having loaded and logged something, not on where the address is read.
     // On a pane that has just been restored those errors have not happened yet
@@ -452,7 +481,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // (b) The click on the tab you are ALREADY in opens the dropdown, seeded
     //     with the address, and the label is still there underneath.
     await tab.getByTestId("pane-tab-label").click();
-    const dropdown = page.getByTestId("browser-address-dropdown");
+    const dropdown = page.getByTestId("browser-tab-sheet");
     await expect(dropdown, "the dropdown opens under the tab").toBeVisible({ timeout: 10_000 });
     await expect(tab, "the label is not replaced by the field").toContainText(label);
     const editor = page.getByTestId("browser-tab-address-input");
@@ -616,7 +645,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
           //    it, seeded with the address, and the label goes on naming the
           //    page: it is never replaced by the field.
           await tab.getByTestId("pane-tab-label").click();
-          const dropdown = page.getByTestId("browser-address-dropdown");
+          const dropdown = page.getByTestId("browser-tab-sheet");
           await expect(dropdown).toBeVisible({ timeout: 15_000 });
           await expect(page.getByTestId("browser-tab-address-input")).toHaveValue(`${origin}/rapporto`);
           await expect(tab, "the label is not replaced by the field").toContainText(/Rapporto/);
@@ -676,13 +705,13 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // Park the focus somewhere else, so the browser tab is the one you are NOT in.
     await dashboardTab.click();
     await expect(browserTab).toHaveAttribute("data-active", "false", { timeout: 15_000 });
-    await expect(page.getByTestId("browser-address-dropdown")).toHaveCount(0);
+    await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0);
 
     // The first click brings you there, and only that.
     await browserTab.getByTestId("pane-tab-label").click();
     await expect(browserTab).toHaveAttribute("data-active", "true", { timeout: 15_000 });
     await expect(
-      page.getByTestId("browser-address-dropdown"),
+      page.getByTestId("browser-tab-sheet"),
       "reaching a tab must not open its address",
     ).toHaveCount(0);
 
@@ -696,7 +725,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // up. Measured: one run in two red here without it, green on retry.
     await expect(page.locator(`[data-browser-pane="${ctx}"]`)).toBeVisible({ timeout: 30_000 });
     await browserTab.getByTestId("pane-tab-label").click();
-    await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 15_000 });
   });
 
   /**
@@ -733,7 +762,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // In the app's language: the e2e project runs `it-IT`, and a fresh settings
     // row follows the browser locale.
     await expect(tab).toContainText(/New tab|Nuova scheda/, { timeout: 30_000 });
-    await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 30_000 });
     // The pane's ONLY address field is the one in the dropdown.
     await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
@@ -783,8 +812,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
 
     await tabDelBrowser(page).hover();
     await page.getByTestId("browser-tab-menu").click();
-    const address = page.getByTestId("browser-tab-menu-address");
-    await expect(address).toHaveText(`file://${file}`, { timeout: 60_000 });
+    const address = page.getByTestId("browser-tab-address-input");
+    await expect(address).toHaveValue(`file://${file}`, { timeout: 60_000 });
 
     await page.getByTestId("browser-tab-copy-url").click();
     await expect
@@ -792,5 +821,78 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       .toEqual([`file://${file}`]);
 
     removeTmpDir(mediaDir);
+  });
+
+  /**
+   * TOPIC-BROWSER-02 — UNA SOLA SUPERFICIE, E SI APRE IN UN FOGLIO.
+   *
+   * La chrome di una scheda stava in quattro posti: la riga sopra la pagina, il
+   * menu dei tre puntini, il portale dell'indirizzo, e la tab. Il requisito
+   * dice che ne resta UNA, e il modo di falsificarlo e' chiedere a ogni comando
+   * di essere raggiungibile senza aprire nient'altro: se domani uno tornasse
+   * dietro una tendina, questo scenario lo trova perche' cerca i comandi DENTRO
+   * il foglio, non nel documento.
+   */
+  test("TOPIC-BROWSER-02: un clic sulla tab da' l'indirizzo pronto, e i comandi sono li' senza un secondo menu", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-02" });
+    const origin = site!.origin;
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-TOPICBROWSER02-${Date.now()}`);
+    topicId = topic.id;
+    const host = new URL(origin).host;
+    const label = new RegExp(host.replace(/\./g, "\\."));
+
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await mountPane(page, topic.id, `${origin}/rapporto`);
+    const tab = tabDelBrowser(page);
+    await expect(tab).toContainText(label, { timeout: 60_000 });
+    await nienteRigaSopraLaPagina(page, "a riposo la pagina parte dal bordo della pane");
+
+    // 1. IL CLIC SULLA TAB APRE IL FOGLIO, con l'indirizzo a fuoco E
+    //    SELEZIONATO: e' la prima cosa che il requisito chiede, e «a fuoco» da
+    //    solo non basta - senza la selezione riscrivere l'indirizzo costa una
+    //    combinazione di tasti in piu' ogni volta.
+    await tab.getByTestId("pane-tab-label").click();
+    const foglio = page.getByTestId("browser-tab-sheet");
+    await expect(foglio).toBeVisible({ timeout: 10_000 });
+    const campo = page.getByTestId("browser-tab-address-input");
+    await expect(campo).toBeFocused();
+    const selezionato = await campo.evaluate((el) => {
+      const i = el as HTMLInputElement;
+      return i.value.length > 0 && i.selectionStart === 0 && i.selectionEnd === i.value.length;
+    });
+    expect(selezionato, "il testo dell'indirizzo e' tutto selezionato").toBe(true);
+
+    // 2. I COMANDI SONO NEL FOGLIO, non dietro un altro menu. Cercati come
+    //    discendenti del foglio: un comando che tornasse in una tendina
+    //    portata fuori non sarebbe qui dentro.
+    await expect(foglio.getByTestId("browser-tab-back")).toBeVisible();
+    await expect(foglio.getByTestId("browser-tab-forward")).toBeVisible();
+    await expect(foglio.getByTestId("browser-tab-zoom")).toBeVisible();
+    await expect(foglio.getByTestId("browser-tab-device")).toBeVisible();
+    // ...e nessuna delle superfici che il requisito cancella.
+    await expect(page.getByTestId("browser-tab-menu-panel"), "niente menu a tendina").toHaveCount(0);
+    await nienteRigaSopraLaPagina(page, "il foglio non spinge giu' la pagina");
+
+    // 3. ESC NON NAVIGA. L'indirizzo modificato e non confermato si butta via:
+    //    la scheda resta dov'era.
+    await campo.fill(`${origin}/seconda-pagina`);
+    await campo.press("Escape");
+    await expect(foglio).toHaveCount(0);
+    await expect(tab, "la scheda e' rimasta sulla pagina di prima").toContainText(/rapporto/);
+    await expect(tab).not.toContainText(/seconda-pagina/);
+
+    // 4. LA CONSOLE SI APRE DAL FOGLIO E NON FA COMPARIRE NESSUNA RIGA. E' lo
+    //    scenario «nessuna riga dell'indirizzo, mai»: la console era uno dei
+    //    due eventi che la riportavano sopra la pagina.
+    await tab.getByTestId("pane-tab-label").click();
+    await expect(foglio).toBeVisible({ timeout: 10_000 });
+    const console = foglio.getByTestId("browser-tab-console");
+    if (await console.count()) {
+      await console.click();
+      await expect(page.getByTestId("browser-console-panel")).toBeVisible({ timeout: 10_000 });
+      await nienteRigaSopraLaPagina(page, "aprire la console non riporta la riga");
+    }
   });
 });

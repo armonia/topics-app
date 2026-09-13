@@ -443,7 +443,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("menu Download: la voce compare nella toolbar, si apre da sé, si toglie e si svuota [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+  test("Download: la spia compare nella tab, il clic apre il foglio, e nessuna riga sopra la pagina [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -467,28 +467,39 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
         state: "completed",
       });
 
-      // 1. Il download si annuncia da solo: bottone nella toolbar + menu aperto
-      //    (la vecchia striscia in fondo alla pane non c'è più).
-      const button = page.locator('[data-testid="browser-downloads-button"]');
-      await expect(button).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-testid="browser-download-strip"]')).toHaveCount(0);
-      const menu = page.locator('[data-testid="browser-downloads-menu"]');
+      // 1. IL FILE SI ANNUNCIA, E NON APRE NIENTE. La spia compare nella
+      //    corsia silenziosa della tab; la pagina resta scoperta e viva.
+      //    Nessuna riga dell'indirizzo sopra la pagina, e nemmeno la vecchia
+      //    striscia in fondo alla pane.
+      const cue = page.getByTestId("browser-tab-downloads-cue");
+      await expect(cue).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
+      await expect(page.locator('[data-testid="browser-url-input"]'), "nessuna riga sopra la pagina").toHaveCount(0);
+      await expect(page.getByTestId("browser-tab-sheet"), "un download non apre il foglio").toHaveCount(0);
+
+      // 2. IL CLIC SULLA SPIA E' CIO' CHE APRE, col foglio gia' sulla sezione
+      //    Download - e senza prendersi il caret dell'indirizzo.
+      await cue.click();
+      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
+      const menu = page.getByTestId("browser-downloads-menu");
       await expect(menu).toBeVisible({ timeout: 5000 });
       const link = menu.locator('[data-testid="browser-download-item"]');
       await expect(link).toContainText("report.pdf");
       await expect(link).toHaveAttribute("href", "/media/browser/downloads/report.pdf");
       await expect(menu.locator('[data-testid="browser-download-entry"]')).toHaveText(/4 KB/);
 
-      // 2. È CHIUDIBILE — il reclamo originale. Esc lo chiude, il bottone lo riapre.
+      // 3. E' CHIUDIBILE - il reclamo originale. Esc lo chiude, il bottone
+      //    dentro il foglio lo riapre.
       await page.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
-      await button.click();
+      await page.getByTestId("browser-tab-downloads").click();
       await expect(menu).toBeVisible();
 
-      // 3. La voce si toglie a mano, e con l'ultima sparisce anche il bottone
-      //    (a riposo la toolbar torna com'era).
+      // 4. La voce si toglie a mano, e con l'ultima sparisce anche la spia
+      //    nella tab: a riposo la corsia torna com'era.
       await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
-      await expect(button).toHaveCount(0);
+      await expect(cue).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

@@ -76,7 +76,7 @@ async function openTabAddressEditor(page: import("@playwright/test").Page): Prom
   const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
   await expect(tab).toBeVisible({ timeout: 10_000 });
   await tab.getByTestId("pane-tab-label").click();
-  await expect(page.getByTestId("browser-address-dropdown")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("browser-tab-address-input")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
 }
@@ -316,16 +316,20 @@ test.describe("RemoteBrowserPanel", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
       // The controls live on the tab (BROWSER-CHROME-INLINE-01): reload under
-      // the pointer, the rest behind the dots, the address in a dropdown the
-      // tab opens under itself.
+      // the pointer, and everything else in the ONE sheet the tab opens under
+      // itself - the dots are a door to it, not a menu of their own.
       const longWait = { timeout: 10_000 };
       const tab = page.locator('[data-testid^="pane-tab-browser:"]').first();
       await expect(tab).toBeVisible(longWait);
       await tab.hover();
       await expect(tab.getByTestId("browser-tab-reload")).toBeVisible(longWait);
       await page.getByTestId("browser-tab-menu").first().click();
-      await expect(page.getByTestId("browser-tab-edit-address")).toBeVisible(longWait);
+      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible(longWait);
+      // The address is IN the sheet, focused: there is no "edit address" entry
+      // to reach it any more, because reaching it is what opening does.
+      await expect(page.getByTestId("browser-tab-address-input")).toBeFocused();
       await page.keyboard.press("Escape");
+      await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0);
       await expect(page.locator('[data-testid="browser-url-input"]'), "no row under the tab").toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

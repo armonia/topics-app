@@ -342,12 +342,6 @@ export class BrowserProcessPage {
   get browserSectionButton() {
     return this.page.getByRole("button", { name: "sezione Browser" });
   }
-
-  get urlInput() {
-    // Stable testid — the visible placeholder is localized ("Cerca o inserisci
-    // un indirizzo"), so match the data-testid the toolbar input always carries.
-    return this.page.locator('[data-testid="browser-url-input"]');
-  }
 }
 
 // Export mock data for direct use in tests
