@@ -356,7 +356,7 @@ describe("relay client · un filo che non risponde piu' non e' un filo", () => {
       s.onopen?.();
       s.confermaReady();
 
-      // First round trip: the far side proves it knows how to answer.
+      // First round trip: the question gets its answer and the thread stays.
       beat(coda, 20);
       s.rispondiAlPing();
       expect(s.inviati.filter((r) => r.includes('"ping"'))).toHaveLength(1);
@@ -388,31 +388,201 @@ describe("relay client · un filo che non risponde piu' non e' un filo", () => {
     });
   });
 
-  it("un punto d'incontro che non ha MAI risposto non viene buttato giu'", () => {
-    // The relay is deployed separately from the machine: a version that does
-    // not know the heartbeat must not be torn down every thirty seconds by a
-    // client that does.
-    withFakeTimers((coda) => {
-      FakeSocketRelay.aperte = [];
-      const c = creaRelayClient({
-        baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
-        trovaLink: () => null,
-        serviRisorsa: async () => ({ status: 200, body: {} }),
-        segnaApertura: () => {},
-        now: () => ORA,
-        log: () => {},
-        apriSocket: (() => new MuteSocketRelay()) as never,
-      });
+  it("un relay che al battito risponde `denied bad-version` non viene buttato giu', e resta sorvegliato", () => {
+    // Every relay deployed before the heartbeat answers a `ping` it does not
+    // know with `denied bad-version` and keeps the thread open. That is the
+    // relay in production on the day this client lands: it must neither be
+    // torn down every thirty seconds nor be left unwatched.
+    withVirtualClock((clock) => {
+      const { c, sockets } = clientOn(() => "denied", clock);
       c.avvia();
-      const s = FakeSocketRelay.aperte[0] as MuteSocketRelay;
-      s.onopen?.();
-      s.confermaReady();
-      s.muto = true;
-      beat(coda, 30);
+      clock.advance(300_000);
+
+      expect(sockets()).toHaveLength(1);
+      const s = sockets()[0]!;
       expect(s.chiusa).toBe(false);
       expect(c.collegato()).toBe(true);
-      expect(coda).toHaveLength(0); // the beat gave up instead of insisting
+      // One question every twenty beats, all three hundred of them.
+      expect(s.pings()).toBe(15);
+      // Still watched: the beat is armed, and it is what closes the thread
+      // the moment this relay goes quiet (next test).
+      expect(clock.pending()).toBe(1);
+      c.ferma();
+    });
+  });
+
+  it("…e se poi tace senza chiudere, come al deploy del 13/09, il filo si chiude entro la scadenza e si rifa'", () => {
+    // The deploy that introduces the heartbeat: the old relay has been
+    // answering `denied`, then the Durable Object is replaced and the thread
+    // stays open towards nobody. Nothing closes, nothing errors.
+    withVirtualClock((clock) => {
+      const { c, sockets, lines } = clientOn((n) => (n === 0 ? "denied" : "pong"), clock);
+      c.avvia();
+      clock.advance(60_000);
+      const first = sockets()[0]!;
+      expect(first.pings()).toBe(3);
+
+      first.answer = "mute";
+      const mutedAt = clock.now();
+      clock.advance(29_999);
+      expect(first.chiusa).toBe(false);
+      clock.advance(1);
+      expect(first.chiusa).toBe(true);
+      // At most one question interval plus the deadline: 20 + 10 beats.
+      expect(first.closedAt! - mutedAt).toBeLessThanOrEqual(30_000);
+      expect(lines).toContain("[relay] battito senza risposta: rifaccio il filo");
+      expect(c.collegato()).toBe(false);
+
+      // The denied answers were answers: the backoff starts again from one second.
+      clock.advance(1_000);
+      expect(sockets()).toHaveLength(2);
+      expect(sockets()[1]!.openedAt - first.closedAt!).toBe(1_000);
+      expect(c.collegato()).toBe(true);
+      c.ferma();
+    });
+  });
+
+  it("il backoff cresce su fili che si aprono, confermano e poi tacciono, e riparte solo da una risposta al battito", () => {
+    // A thread that opens and confirms has not proved anything yet: a replaced
+    // meeting point does both and then goes silent. Resetting the backoff on
+    // `onopen` or on `ready` pins the wait at one second and turns a dead relay
+    // into a reconnection loop that throws away every guest session each time.
+    withVirtualClock((clock) => {
+      const { c, sockets } = clientOn((n) => (n < 5 ? "mute" : "pong"), clock);
+      c.avvia();
+      // Five silent threads (30 s each) and the waits between them, then a
+      // healthy sixth that answers two questions.
+      clock.advance(30_000 * 5 + (1_000 + 2_000 + 5_000 + 15_000 + 60_000) + 45_000);
+
+      const all = sockets();
+      expect(all).toHaveLength(6);
+      const waits = all.slice(1).map((s, i) => s.openedAt - all[i]!.closedAt!);
+      expect(waits).toEqual([1_000, 2_000, 5_000, 15_000, 60_000]);
+
+      const healthy = all[5]!;
+      expect(healthy.closedAt).toBeNull();
+      expect(healthy.pings()).toBe(2);
+
+      // The far side drops a thread that had answered: the next one is tried
+      // after the shortest wait again.
+      healthy.dropByRelay();
+      clock.advance(1_000);
+      expect(sockets()).toHaveLength(7);
+      expect(sockets()[6]!.openedAt - healthy.closedAt!).toBe(1_000);
       c.ferma();
     });
   });
 });
+
+/**
+ * A clock that moves only when told to.
+ *
+ * The heartbeat tests above move one kind of one-second timer by hand. These
+ * need the ORDER of several different waits (the beat, the confirmation, the
+ * backoff), so every timer armed while the clock is installed goes through
+ * here, and `clearTimeout` really clears it.
+ */
+interface VirtualClock {
+  now(): number;
+  /** Timers armed and not yet fired or cleared. */
+  pending(): number;
+  /** Fires, in order, every timer due within `ms`. */
+  advance(ms: number): void;
+}
+
+function withVirtualClock(body: (clock: VirtualClock) => void): void {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  let now = 0;
+  let nextId = 0;
+  const timers = new Map<number, { at: number; fn: () => void }>();
+  (globalThis as { setTimeout: unknown }).setTimeout = (fn: () => void, ms = 0) => {
+    nextId += 1;
+    timers.set(nextId, { at: now + ms, fn });
+    return { id: nextId, unref() {} };
+  };
+  (globalThis as { clearTimeout: unknown }).clearTimeout = (handle: unknown) => {
+    if (handle && typeof handle === "object" && "id" in handle) timers.delete((handle as { id: number }).id);
+  };
+  const clock: VirtualClock = {
+    now: () => now,
+    pending: () => timers.size,
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        // Earliest first; on a tie the one armed first, which is Map order.
+        let due: [number, { at: number; fn: () => void }] | null = null;
+        for (const entry of timers) {
+          if (entry[1].at <= end && (due === null || entry[1].at < due[1].at)) due = entry;
+        }
+        if (due === null) break;
+        timers.delete(due[0]);
+        now = due[1].at;
+        due[1].fn();
+      }
+      now = end;
+    },
+  };
+  try { body(clock); } finally {
+    (globalThis as { setTimeout: unknown }).setTimeout = realSetTimeout;
+    (globalThis as { clearTimeout: unknown }).clearTimeout = realClearTimeout;
+  }
+}
+
+/**
+ * How a relay really answers the beat.
+ *  - `pong`: a relay with the heartbeat.
+ *  - `denied`: every relay deployed before it, which answers a message it does
+ *    not know with `denied bad-version` and keeps the thread open.
+ *  - `mute`: a thread left open towards nobody, the 2026-09-13 deploy.
+ */
+type BeatAnswer = "pong" | "denied" | "mute";
+
+/** A relay thread that opens and confirms on its own, and answers the beat as
+ *  the relay version it plays. */
+class ScriptedRelaySocket extends FakeSocketRelay {
+  readonly openedAt: number;
+  closedAt: number | null = null;
+  constructor(public answer: BeatAnswer, private readonly clockNow: () => number) {
+    super();
+    this.openedAt = clockNow();
+    // Deferred: the client assigns the handlers after the socket is built.
+    setTimeout(() => { this.onopen?.(); this.confermaReady(); }, 0);
+  }
+  pings(): number {
+    return this.inviati.filter((r) => (JSON.parse(r) as { t?: string }).t === "ping").length;
+  }
+  override send(d: string): void {
+    super.send(d);
+    if ((JSON.parse(d) as { t?: string }).t !== "ping" || this.answer === "mute") return;
+    const reply = this.answer === "pong" ? { t: "pong" } : { t: "denied", motivo: "bad-version" };
+    this.onmessage?.({ data: JSON.stringify(reply) });
+  }
+  override close(): void {
+    this.closedAt ??= this.clockNow();
+    super.close();
+  }
+  /** The far side closes the thread: the client did not ask for it. */
+  dropByRelay(): void {
+    this.closedAt ??= this.clockNow();
+    this.readyState = 3;
+    this.onclose?.();
+  }
+}
+
+/** A client whose `n`-th thread plays `answerFor(n)`. */
+function clientOn(answerFor: (n: number) => BeatAnswer, clock: VirtualClock) {
+  FakeSocketRelay.aperte = [];
+  const lines: string[] = [];
+  let opened = 0;
+  const c = creaRelayClient({
+    baseUrl: "https://relay.esempio.test", relayId: "i1", segreto: SEGRETO_FINTO,
+    trovaLink: () => null,
+    serviRisorsa: async () => ({ status: 200, body: {} }),
+    segnaApertura: () => {},
+    now: () => ORA,
+    log: (m: string) => { lines.push(m); },
+    apriSocket: (() => new ScriptedRelaySocket(answerFor(opened++), clock.now)) as never,
+  });
+  return { c, lines, sockets: () => FakeSocketRelay.aperte as ScriptedRelaySocket[] };
+}

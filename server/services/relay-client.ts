@@ -24,7 +24,7 @@ import { apri, sigilla } from "../../shared/relay-crypto";
 import {
   leggiMessaggio, leggiFramePayload, scriviFrame,
   componiStream, creaContatoreStream, creaRiassemblatore, creaCapoCanale, dividiBinario, ricaricaPer,
-  RELAY_PROTOCOL_VERSION, TUBO_BYTE_PER_FRAME,
+  PING_FRAME, RELAY_PROTOCOL_VERSION, TUBO_BYTE_PER_FRAME,
   type FrameTubo, type MessaggioRelay, type MotivoStream, type RuoloSessione,
 } from "../../shared/relay-protocol";
 import {
@@ -1002,18 +1002,8 @@ export function creaRelayClient(deps: RelayDeps) {
   let heartbeat: ReturnType<typeof setTimeout> | null = null;
   /** Beats since the last question was asked, or since the last answer. */
   let beats = 0;
-  /** A question is out and its answer has not come back yet. */
+  /** A question is out and nothing has come back on this thread since. */
   let asking = false;
-  /**
-   * The far side has answered at least one question since this process started.
-   *
-   * Without this the fix would break what it is meant to save: a relay
-   * deployed BEFORE this version knows nothing about the heartbeat, so it
-   * would never answer, and every machine would tear down a perfectly working
-   * thread every thirty seconds, forever. Silence only becomes evidence once
-   * the far side has proved it knows how to speak.
-   */
-  let farSideAnswers = false;
 
   /**
    * Serve una richiesta di un ospite.
@@ -1075,15 +1065,11 @@ export function creaRelayClient(deps: RelayDeps) {
       if (ws !== s || fermato) return;
       beats += 1;
       if (asking) {
+        // Only silence closes. There is no "this relay is too old to answer"
+        // exemption: every relay deployed since the first one (ffed59ad5)
+        // answers a `ping` it does not know with `denied bad-version`, and that
+        // answer is proof of life like any other (see `s.onmessage`).
         if (beats >= PONG_DEADLINE_TICKS) {
-          if (!farSideAnswers) {
-            // A meeting point that has never answered is an OLDER meeting
-            // point, not a dead one. The beat stops here for this thread and
-            // starts again on the next, so the day the relay is deployed the
-            // machine picks the heartbeat back up on its own.
-            log(`[relay] il punto d'incontro non risponde al battito: per ora lascio stare`);
-            return;
-          }
           log(`[relay] battito senza risposta: rifaccio il filo`);
           try { s.close(); } catch { /* already closed: `onclose` handles it */ }
           return;
@@ -1092,7 +1078,7 @@ export function creaRelayClient(deps: RelayDeps) {
         beats = 0;
         asking = true;
         try {
-          s.send(JSON.stringify({ t: "ping" } satisfies MessaggioRelay));
+          s.send(PING_FRAME);
         } catch {
           try { s.close(); } catch { /* already closed */ }
           return;
@@ -1118,12 +1104,9 @@ export function creaRelayClient(deps: RelayDeps) {
       if (ws === source) startHeartbeat(source);
       return;
     }
-    // The far side is still the one holding this thread, and now we know it
-    // can say so: from here on its silence means something.
-    if (m.t === "pong") {
-      if (ws === source) { farSideAnswers = true; asking = false; beats = 0; }
-      return;
-    }
+    // The answer to the beat has already done its job in `s.onmessage`, where
+    // every frame counts as one: there is nothing left to do here.
+    if (m.t === "pong") return;
     // Un capo si è agganciato. Il relay lo dice PRIMA di girare qualunque suo
     // frame — è la stessa socket, quindi l'ordine è garantito — e questa è la
     // sola occasione in cui si sa da quale porta è entrato.
@@ -1178,7 +1161,10 @@ export function creaRelayClient(deps: RelayDeps) {
 
     s.onopen = () => {
       if (ws !== s) return;
-      tentativo = 0;
+      // The backoff is NOT reset here, nor on `ready`: both happen on every
+      // thread, including the ones a replaced meeting point accepts and then
+      // leaves silent, and resetting on them pins the wait at one second
+      // forever. Only an answer to a beat resets it (`s.onmessage`).
       confermato = false;
       // The thread is open, but we do not yet know whether anyone is on the
       // far side. If `ready` never comes, this closes it: `onclose` restarts
@@ -1208,6 +1194,21 @@ export function creaRelayClient(deps: RelayDeps) {
 
     s.onmessage = (e) => {
       if (ws !== s) return;
+      // ── PROOF OF LIFE is per THREAD, and ANY frame is one.
+      //
+      // The question is "is anyone still holding this thread?", not "does the
+      // far side know the heartbeat?". A `pong` from a current relay, a
+      // `denied bad-version` from one deployed before the heartbeat existed,
+      // guest traffic: all of them travelled on this thread from somebody who
+      // is there. Counting only `pong`, and remembering per PROCESS that the
+      // relay once knew how to answer, made the client tear down a working
+      // thread every thirty seconds after a relay rollback, and stop watching
+      // for good on a relay that had never answered: exactly where the
+      // 2026-09-13 zombie comes back.
+      //
+      // The backoff is reset here and only here: a thread that answered a
+      // question worked, so the next failure starts from the shortest wait.
+      if (asking) { asking = false; beats = 0; tentativo = 0; }
       const m = leggiMessaggio((() => { try { return JSON.parse(String(e.data)); } catch { return null; } })());
       if (m) void gestisci(m, s);
     };
