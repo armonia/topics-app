@@ -146,7 +146,7 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * (`TOPICS_REAL_API_TESTS=1`) and skips by default: that skip is the honest
  * shape of "this test costs money and can fail for the account's sake".
  */
-const BASELINE = 26;
+const BASELINE = 25;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;
