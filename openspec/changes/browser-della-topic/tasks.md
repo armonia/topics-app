@@ -44,23 +44,35 @@ video `.webm` degli spec, non resoconti.
       minimizzata: deve diventare rosso.
 
 ## Tornata 3: la tab è la chrome
-- [ ] Foglio della tab in `BrowserTabChrome`: indirizzo a fuoco e selezionato,
+- [x] Foglio della tab (`BrowserTabSheet.tsx`): indirizzo a fuoco e selezionato,
       navigazione, suggerimenti, poi le sezioni. Si apre da clic sulla tab
-      attiva, dai tre puntini e da ⌘L.
-- [ ] Fermo immagine della pagina mentre il foglio è aperto (`freeze()` al
-      montaggio, `thaw()` alla chiusura). Invio naviga e chiude, Esc e clic
-      fuori chiudono.
-- [ ] Le voci di `browser-tab-menu-panel` passano al foglio con i loro testid;
-      «Apri come tab» in finestra, «Riporta nella chat» in tab.
-- [ ] `DownloadsMenu` e console ancorati al foglio, non alla riga.
-- [ ] Cancellare `BrowserToolbar.tsx`, i suoi tre render in
-      `RemoteBrowserPanel`, `browser-tab-menu`, `browser-address-dropdown`, e
-      `showChrome`/`revealed`/`hideChrome`/`revealAddress` da
-      `useBrowserChromeBridge`. `check:deadcode` verde senza eccezioni nuove.
-- [ ] E2E (`TOPIC-BROWSER-02`): testo selezionato al clic, comandi visibili
-      senza secondo menu, nessuna riga dopo console o download sui tre rami, Esc
-      che non naviga. Aggiornare `browser-tab-chrome.spec.ts` (INLINE-01 e i
-      casi del menu) invece di duplicarlo.
+      attiva, dai tre puntini e da ⌘L. Sta nel sottoalbero React della tab ma è
+      portato sul `body`: un antenato trasformato della striscia rende `fixed`
+      relativo a lui, e il pannello finiva a y=-3 (vedi la nota nel delta).
+- [x] Fermo immagine della pagina mentre il foglio è aperto (`freeze()` al
+      montaggio, `thaw()` alla chiusura e allo smontaggio). Invio naviga e
+      chiude, Esc e clic fuori chiudono.
+- [x] Le voci di `browser-tab-menu-panel` passano al foglio con i loro testid.
+      `custom` (viewport W×H) viveva solo nel `DeviceSwitcher` della toolbar:
+      è il quinto segmento della riga dispositivo, coi due numeri sotto.
+      Manca «Apri come tab» / «Riporta nella chat»: dipendono dalla finestra
+      (Tornata 2), che non esiste ancora.
+- [x] `DownloadsMenu` e console ancorati al foglio, non alla riga. Un download
+      che parte NON apre il foglio (congelerebbe la pagina per una cosa non
+      chiesta): accende una spia nella tab, e il clic sulla spia apre il foglio
+      sui Download. La spia è disegnata due volte perché corsia dei segnali e
+      corsia dei comandi si danno il cambio (`.row-trail` → `pointer-events:
+      none` all'hover).
+- [x] Cancellati `BrowserToolbar.tsx` e i suoi tre render, `BrowserTabAddress`,
+      `AgentActivityPill`, `ZoomControl`, `DeviceSwitcher`, e
+      `showChrome`/`revealed`/`hideChrome`/`revealAddress`/`registerFocus`.
+      `check:deadcode` verde senza eccezioni nuove.
+- [x] E2E (`TOPIC-BROWSER-02`) in `browser-tab-chrome.spec.ts`, aggiornato e non
+      duplicato. La negazione «nessuna riga» è geometrica
+      (`expectNoRowAboveThePage`) e non un testid morto: `browser-url-input` non
+      esiste più, quindi asserirlo a zero sarebbe verde su qualunque app.
+      Zoom e dispositivo non si asseriscono: sono capacità del ramo nativo,
+      irraggiungibili da Chromium. `check:e2e-touched` 52/52.
 
 ## Tornata 4: niente sopra la pagina
 - [ ] Icona di tipo nella tab (connessione persa, condivisa, Chromium), assente

@@ -188,6 +188,36 @@ avviata (rrweb ViewportResize), non solo quello iniziale.
 
 ## MODIFIED Requirements
 
+### Requirement: BROWSER-CHAT-02 — Live pane transport: push frames, input latency, degradation and recovery
+
+The system SHALL stream the remote browser pane over a per-context WebSocket
+(`/ws/browser/:id`), driving the pane's rendered surface, and SHALL degrade and recover
+without stranding the pane. Numeric ceilings are read from
+`tests/e2e/perf-baseline.json` (`browser_ws_streaming`), not hard-coded here.
+
+Un download che PARTE SHALL annunciarsi in una spia dentro la tab, nella corsia dei
+segnali; NON SHALL aprire da sé nessuna superficie sopra la pagina. Un clic sulla spia
+SHALL aprire il foglio della tab con la sezione Download già aperta. Alla rimozione
+dell'ultima voce la spia SHALL sparire.
+
+> Cosa cambia e perché. La versione precedente diceva «il bottone compare nella
+> TOOLBAR e il menu si apre da sé», e quella barra non esiste più
+> (`TOPIC-BROWSER-02`). Il foglio non è il suo erede per questo: copre la pagina e
+> la congela, quindi un file che arriva mentre leggi fermerebbe la lettura per
+> riferire una cosa che in quell'istante nessuno ha chiesto. Resta vero il
+> reclamo originale che aveva prodotto lo scenario — un download non deve essere
+> muto — e resta vero il suo seguito: la lista è chiudibile e riapribile.
+
+#### Scenario: A download announces itself in the tab and is dismissible
+- **GIVEN** a connected pane
+- **WHEN** the server pushes a completed download
+- **THEN** a downloads cue appears in the tab, no address row appears over the page, and the tab sheet does not open by itself
+- **WHEN** the user clicks that cue
+- **THEN** the sheet opens with the downloads list already open, the address field is not focused, and the entry names the file, links to its href and shows its size
+- **WHEN** the user presses Escape the list closes, and clicking the downloads row in the sheet reopens it
+- **WHEN** the user dismisses the last entry, the cue disappears from the tab
+
+
 ### Requirement: LINK-TAB-02 — Where the link-opened tab lands
 
 The system SHALL place a link-opened tab beside the browser strip the user is already
