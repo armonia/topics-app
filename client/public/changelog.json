@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.313",
+    "date": "2026-09-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il sì si chiede con un blocco di dieci righe, e tre change finite vanno in archivio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.312",
     "date": "2026-09-13",
     "sections": {
