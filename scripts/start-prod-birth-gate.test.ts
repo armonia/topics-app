@@ -87,7 +87,11 @@ describe("il cancello sta davvero negli script (start-prod.sh + server-watch.sh)
   });
 
   it("misura l'eta dal mtime del pidfile", () => {
-    expect(watchSrc).toContain('stat -f %m "$SERVER_PIDFILE"');
+    expect(watchSrc).toContain('_born=$(exec 9>&-; file_mtime "$SERVER_PIDFILE")');
+    // The helper must read the MODIFICATION time in both stat dialects: BSD on
+    // the production Mac, GNU on the Linux CI runner that runs the watcher test.
+    expect(watchSrc).toContain('file_mtime() { stat -f %m "$1"');
+    expect(watchSrc).toContain('file_mtime() { stat -c %Y "$1"');
   });
 
   it("il cancello sta PRIMA del SIGTERM dell'attesa di nascita", () => {
