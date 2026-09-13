@@ -17,7 +17,7 @@
 import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, deleteTask, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
@@ -130,6 +130,15 @@ test.describe("Apri nel workspace", () => {
 
   test.beforeEach(async ({ page }) => {
     await resetPaneStore(page.request, []);
+    // The project's INNER layout (`topics-project-panes-<hash>`) is a separate
+    // key that `resetPaneStore` does not touch, and every test here reuses the
+    // same PROJECT_PATH. When the board pane a test opened reaches the server
+    // before its page closes (the 500 ms layout debounce, which the CI runner
+    // wins and this Mac usually loses), the next test hydrates with that board
+    // already mounted: WSOPEN-02 finds no Board entry in the "+" menu (kanban
+    // is a per-group singleton) and WSOPEN-03 sees two `kanban-board`. The
+    // retry passed only because a new worker picks a new PROJECT_PATH.
+    await resetProjectPanes(page.request, PROJECT_PATH);
     await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
   });
 
