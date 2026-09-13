@@ -13,6 +13,8 @@ import { installNetShim } from './lib/shell/net';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
 import { SessionRoot } from './components/Share/SessionRoot';
+import { warmGuestView } from './components/Share/guestViewLazy';
+import { getSession } from './lib/auth/session';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 
 // Shim di rete: sotto Tauri riscrive le fetch relative verso l'origine del data
@@ -88,7 +90,13 @@ const root = createRoot(container);
 // a reload owes the reader; past the cap the app renders anyway and the
 // suspense boundaries report what is missing. See `lib/firstFrameGate`.
 const gateStartedAt = performance.now();
-void awaitWithCap(paneChunksWarm(), FIRST_FRAME_WARM_CAP_MS).then((outcome) => {
+// A returning guest mounts the guest screen on the first render (the session
+// store starts from the cached pairing), so its chunk joins the same gate.
+const cachedSession = getSession();
+const guestScreenWarm = cachedSession.status === 'paired' && cachedSession.role === 'guest'
+  ? warmGuestView()
+  : Promise.resolve();
+void awaitWithCap(Promise.all([paneChunksWarm(), guestScreenWarm]), FIRST_FRAME_WARM_CAP_MS).then((outcome) => {
   // The gate's own cost, written down where a probe can read it back — it used
   // to be thrown away, and from the outside a change to the warm set was
   // indistinguishable from noise in the rest of the boot. See `firstFrameGate`.
