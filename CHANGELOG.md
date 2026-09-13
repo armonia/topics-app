@@ -2,6 +2,54 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.311 — 2026-09-13
+
+### Novità
+- **ai** · choose execution before compatible models
+
+### Correzioni
+- supervise production server watcher
+- keep watcher lease owner-only
+- **relay** · isolate replacement connection generations
+- **chat** · la finestra di contesto torna su ogni riga del picker
+- **e2e** · i tre flaky del 13/09 erano una corsa col mount e un layout ereditato
+
+### Prestazioni
+- **bundle** · vista ospite e menu del picker escono dal chunk d'ingresso
+- **bundle** · la vista ospite resta calda per chi torna da ospite
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-12 [skip ci]
+- Serialize updater manifest release upload
+- Preserve durable task preview evidence
+- Cover bundle-less durable preview regression
+- keep project focus regression behavioral
+- L'avvio delegato ora richiede due consensi confinati
+- La revoca delegata resta verificabile fino all'arresto
+- La revoca owner resta autenticata sul tunnel
+- Le revoche pendenti ripartono senza la UI
+- I metadati delegati rispettano i gate della board
+- La capability ha un solo contratto condiviso
+- L'attore della run resta visibile anche per dispositivo
+- I chip delegati restano leggibili nei due temi
+- Il test locale usa il catalogo coding effettivo
+- Residuo non committato, messo al sicuro dalla potatura
+- Resolve canonical project grants and preserve live revocation
+- Select an available model through the authorization form
+- Use set cardinality for readable project grants
+- Align the project catalog parameter with repository naming
+- mark in-memory project paths
+- Declare the release manifest command as an entry point
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-13 [skip ci]
+- Una voce vuota nel Keychain non oscura più quella viva
+- Sotto Bun senza USER l'utente di login non è «unknown»
+- Il relay confronta readyState con 1, non con WebSocket.OPEN
+- GUEST-09: /run di un ospite ora lo rifiuta la capability, non il cancello
+- Il watcher del server leggeva gli mtime solo in dialetto BSD, e su Linux perdeva il reload
+- picker-keyboard-nav: segue il selettore a due livelli della card 05807e8e
+- tool-call-ui: i locator stanno dentro la pane del topic, non su tutta la pagina
+- Il cricchetto degli skip scende a 25
+
 ## 2.2.310 — 2026-09-12
 
 ### Sotto il cofano

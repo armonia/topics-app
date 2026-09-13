@@ -1,5 +1,221 @@
 [
   {
+    "version": "2.2.311",
+    "date": "2026-09-13",
+    "sections": {
+      "new": [
+        {
+          "it": "choose execution before compatible models",
+          "en": "",
+          "scope": "ai",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "supervise production server watcher",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keep watcher lease owner-only",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "isolate replacement connection generations",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "la finestra di contesto torna su ogni riga del picker",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "i tre flaky del 13/09 erano una corsa col mount e un layout ereditato",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ],
+      "perf": [
+        {
+          "it": "vista ospite e menu del picker escono dal chunk d'ingresso",
+          "en": "",
+          "scope": "bundle",
+          "breaking": false
+        },
+        {
+          "it": "la vista ospite resta calda per chi torna da ospite",
+          "en": "",
+          "scope": "bundle",
+          "breaking": false
+        }
+      ],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-12 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Serialize updater manifest release upload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preserve durable task preview evidence",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cover bundle-less durable preview regression",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "keep project focus regression behavioral",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "L'avvio delegato ora richiede due consensi confinati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La revoca delegata resta verificabile fino all'arresto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La revoca owner resta autenticata sul tunnel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le revoche pendenti ripartono senza la UI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I metadati delegati rispettano i gate della board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La capability ha un solo contratto condiviso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attore della run resta visibile anche per dispositivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I chip delegati restano leggibili nei due temi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test locale usa il catalogo coding effettivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Residuo non committato, messo al sicuro dalla potatura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Resolve canonical project grants and preserve live revocation",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Select an available model through the authorization form",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Use set cardinality for readable project grants",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Align the project catalog parameter with repository naming",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "mark in-memory project paths",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Declare the release manifest command as an entry point",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-13 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Una voce vuota nel Keychain non oscura più quella viva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto Bun senza USER l'utente di login non è «unknown»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il relay confronta readyState con 1, non con WebSocket.OPEN",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "GUEST-09: /run di un ospite ora lo rifiuta la capability, non il cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il watcher del server leggeva gli mtime solo in dialetto BSD, e su Linux perdeva il reload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "picker-keyboard-nav: segue il selettore a due livelli della card 05807e8e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tool-call-ui: i locator stanno dentro la pane del topic, non su tutta la pagina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cricchetto degli skip scende a 25",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.310",
     "date": "2026-09-12",
     "sections": {

@@ -1,5 +1,49 @@
 [
   {
+    "version": "2.2.311",
+    "date": "2026-09-13",
+    "sections": {
+      "new": [
+        {
+          "text": "choose execution before compatible models",
+          "scope": "ai"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "supervise production server watcher",
+          "scope": null
+        },
+        {
+          "text": "keep watcher lease owner-only",
+          "scope": null
+        },
+        {
+          "text": "isolate replacement connection generations",
+          "scope": "relay"
+        },
+        {
+          "text": "la finestra di contesto torna su ogni riga del picker",
+          "scope": "chat"
+        },
+        {
+          "text": "i tre flaky del 13/09 erano una corsa col mount e un layout ereditato",
+          "scope": "e2e"
+        }
+      ],
+      "perf": [
+        {
+          "text": "vista ospite e menu del picker escono dal chunk d'ingresso",
+          "scope": "bundle"
+        },
+        {
+          "text": "la vista ospite resta calda per chi torna da ospite",
+          "scope": "bundle"
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.302",
     "date": "2026-09-11",
     "sections": {
