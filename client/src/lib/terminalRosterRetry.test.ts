@@ -22,13 +22,35 @@
  *      reads the envelope to recognise itself and the caller reads it again to
  *      build the sentence for the toast.
  */
-import { describe, expect, test, afterEach } from 'bun:test';
+import { describe, expect, test, afterEach, beforeEach } from 'bun:test';
 import { fetchWhileRosterWarms, SHORT_ROSTER_RETRIES } from './terminalRosterRetry';
 import { STANDALONE_NO_PTY_CODE, TERMINAL_ROSTER_WARMING_CODE } from '../../../shared/terminal-messages';
-import { slackMs } from '../../../tests/helpers/time-slack';
 
 const realFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = realFetch; });
+const realSetTimeout = globalThis.setTimeout;
+
+/**
+ * Every wait the retry asks for, in the order it asked. No test in this file
+ * waits on a real clock: the recorder grants each wait at once, so a loaded
+ * machine can neither turn these tests red nor need a wider window for them,
+ * and the duration contract below is a sum of what the code ASKED FOR, which
+ * no load factor can stretch.
+ */
+let asked: number[] = [];
+beforeEach(() => {
+  asked = [];
+  globalThis.setTimeout = ((fn: (...a: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    asked.push(ms ?? 0);
+    return realSetTimeout(fn, 0, ...args);
+  }) as unknown as typeof globalThis.setTimeout;
+});
+// Put back in `afterEach`, not at the end of a test body: an `expect` that
+// throws first would otherwise leave the fake clock to every file after this
+// one in the same shard.
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  globalThis.setTimeout = realSetTimeout;
+});
 
 function warming(): Response {
   return new Response(JSON.stringify({ error: 'still reconciling', code: TERMINAL_ROSTER_WARMING_CODE }), {
@@ -56,7 +78,7 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     expect(res.status).toBe(200);
     // Three requests: two refused, one answered. The caller was told once.
     expect(calls.length).toBe(3);
-  }, slackMs(15_000));
+  });
 
   test('a 404 is a verdict: returned on the first try, never retried', async () => {
     const calls = stubFetch([() => new Response('{"error":"Terminal session not found"}', { status: 404 })]);
@@ -101,17 +123,22 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     expect(res.status).toBe(503);
     // First attempt + 2 retries. Without a cap this call would never return.
     expect(calls.length).toBe(3);
-  }, slackMs(15_000));
+  });
 
   test('the short ladder fits inside the restart overlay net (15s), the long one would not', async () => {
     // 300 + 600 + 1200 + 2400 = 4500ms of waiting for SHORT_ROSTER_RETRIES=4.
     // Asserted as a duration because the constant alone does not say whether it
-    // still fits after someone tunes the backoff shape.
+    // still fits after someone tunes the backoff shape. The duration is the sum
+    // of the waits the retry asked for, not a wall clock: the overlay's 15s is a
+    // constant in production (`terminalReload.ts`), so the bar here is the same
+    // hand-written 15_000 on every machine, loaded or not.
     const calls = stubFetch([warming]);
-    const started = Date.now();
     await fetchWhileRosterWarms('/api/terminal/sessions/x/reload', { method: 'POST' }, SHORT_ROSTER_RETRIES);
-    const elapsed = Date.now() - started;
     expect(calls.length).toBe(SHORT_ROSTER_RETRIES + 1);
-    expect(elapsed).toBeLessThan(slackMs(15_000));
-  }, slackMs(20_000));
+    // One wait between each pair of requests. Without this a fake clock that
+    // intercepted nothing would sum to 0 and pass.
+    expect(asked.length).toBe(SHORT_ROSTER_RETRIES);
+    const waited = asked.reduce((sum, ms) => sum + ms, 0);
+    expect(waited).toBeLessThan(15_000);
+  });
 });
