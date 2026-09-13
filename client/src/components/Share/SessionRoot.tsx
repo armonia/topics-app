@@ -1,7 +1,24 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { getSession, refreshSession, subscribeSession, type SessionState } from '@/lib/auth/session';
+import { MODAL_LAYER } from '@/lib/modalStyles';
 import { PairingGate } from '../Auth/PairingGate';
-import { GuestView } from './GuestView';
+
+// THE GUEST SCREEN IS A CHUNK OF ITS OWN. It replaces the whole app for a
+// guest, so an owner never draws a pixel of it, and it is never in anybody's
+// first frame: while the session is still `loading` this root mounts the app.
+// As a static import it sat in the eager entry with `GuestCard` and
+// `guestStart` behind it (measured 2026-09-13: 9.2 KB raw of the entry chunk,
+// 2.2 KB of it added by the delegated agent start), parsed on every boot of
+// every owner window. A guest now pays one small request after the session
+// answers; the owner pays nothing.
+//
+// Destructured on purpose, not `.then(m => ...)`: knip reads a bare `import()`
+// as opaque and every export of the module would count as used
+// (`check:deadcode-blindspots`).
+const GuestView = lazy(async () => {
+  const { GuestView: Component } = await import('./GuestView');
+  return { default: Component };
+});
 
 /**
  * Chi entra decide COSA si monta, non cosa si vede.
@@ -47,5 +64,12 @@ export function SessionRoot({ children }: { children: React.ReactNode }) {
   // Sbagliare da questa parte si vede e si corregge (qualcuno vede meno di
   // quanto dovrebbe, e lo dice); sbagliare dall'altra non si vede affatto.
   if (session.role === 'owner') return <>{children}</>;
-  return <GuestView deviceName={session.name} />;
+  // The placeholder is the guest screen's own empty surface, not `null`: the
+  // app has just been unmounted, and a bare page for the length of one request
+  // would read as a crash before the list arrives.
+  return (
+    <Suspense fallback={<div className={`fixed inset-0 ${MODAL_LAYER} bg-app-bg`} />}>
+      <GuestView deviceName={session.name} />
+    </Suspense>
+  );
 }

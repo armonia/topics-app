@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { Suspense, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Menu } from '../Shared/Menu';
-import { AiExecutionMenuOptions } from '../Shared/AiExecutionMenuOptions';
+import { AiExecutionMenuOptions, aiExecutionMenuReady, loadAiExecutionMenu } from '../Shared/aiExecutionMenuLazy';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
@@ -36,13 +36,27 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
   const activeWindow = useMemo(() => contextWindowFor(activeModelId), [activeModelId]);
   const matchesProv = (entry: (typeof entries)[number]) => entry.name === effective?.provider;
   const effectiveProviderLabel = entries.find(matchesProv)?.label ?? effective?.provider;
+  const prefetchMenu = () => { loadAiExecutionMenu().catch(() => {}); };
+  // The menu body is a chunk of its own (see `aiExecutionMenuLazy`). Opening
+  // waits for it, so the panel is placed and focused with its rows already in
+  // it. A chunk that fails to load leaves the chip closed: the stale-bundle
+  // toast is what speaks then, and the next click tries again.
+  const toggle = () => {
+    if (open || aiExecutionMenuReady()) {
+      setOpen((current) => !current);
+      return;
+    }
+    loadAiExecutionMenu().then(() => setOpen(true), () => {});
+  };
 
   return (
     <>
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggle}
+        onPointerEnter={prefetchMenu}
+        onFocus={prefetchMenu}
         data-testid="provider-model-picker"
         data-model={activeModelId ?? undefined}
         aria-haspopup="listbox"
@@ -78,21 +92,23 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
         testId="provider-model-popover"
         ariaLabel={tr('chat.picker.title')}
       >
-        <AiExecutionMenuOptions
-          snapshot={snapshot}
-          surface="chat"
-          value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
-          onSelect={(selection) => {
-            onChange(selection.provider && selection.model
-              ? { provider: selection.provider, model: selection.model }
-              : null);
-          }}
-          automaticLabel={tr('chat.picker.resetDefault')}
-          automaticHint={effectiveProviderLabel
-            ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
-            : tr('chat.picker.noneConfigured')}
-          onClose={() => setOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <AiExecutionMenuOptions
+            snapshot={snapshot}
+            surface="chat"
+            value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
+            onSelect={(selection) => {
+              onChange(selection.provider && selection.model
+                ? { provider: selection.provider, model: selection.model }
+                : null);
+            }}
+            automaticLabel={tr('chat.picker.resetDefault')}
+            automaticHint={effectiveProviderLabel
+              ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
+              : tr('chat.picker.noneConfigured')}
+            onClose={() => setOpen(false)}
+          />
+        </Suspense>
       </Menu>
     </>
   );
