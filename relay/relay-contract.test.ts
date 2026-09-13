@@ -67,6 +67,15 @@ describe("relay · l'ibernazione è obbligatoria", () => {
     // solo sotto carico basso — cioè quando nessuno sta guardando.
     expect(CODICE).toContain("getTags");
   });
+
+  it("il battito lo risponde il runtime con `setWebSocketAutoResponse`", () => {
+    // Like `acceptWebSocket`, a ping answered in `webSocketMessage` works
+    // exactly the same: it just wakes the hibernated object on every beat of
+    // every installation. Nothing at runtime shows it; this line does.
+    // `relay-do.run.test.ts` checks the same thing executed, against a stand-in.
+    // A CALL, not the name: the name alone is also in the `Stato` declaration.
+    expect(CODICE).toMatch(/\.setWebSocketAutoResponse\(\s*new WebSocketRequestResponsePair\(\s*PING_FRAME,\s*PONG_FRAME\s*\)/);
+  });
 });
 
 describe("relay · il co-browse a pixel non entra qui", () => {

@@ -60,11 +60,23 @@ export interface Ping {
   t: "ping";
 }
 
-/** The answer to a `ping`, and the only proof that the far side is still the
- *  one holding this thread. */
+/** The answer to a `ping`. Any frame on the thread proves somebody holds it
+ *  (`relay-client.ts`); this is the one a current relay sends on purpose. */
 export interface Pong {
   t: "pong";
 }
+
+/**
+ * The beat and its answer, as the exact bytes on the wire.
+ *
+ * Bytes and not just shapes because the relay answers the beat with
+ * `setWebSocketAutoResponse` (`relay/src/relay-do.ts`), and the runtime matches
+ * the request BYTE FOR BYTE: `{"t": "ping"}` with a space is a different
+ * string, reaches the object, and wakes it. Written once here, sent by the
+ * machine and registered by the relay, the two cannot drift apart.
+ */
+export const PING_FRAME = JSON.stringify({ t: "ping" } satisfies Ping);
+export const PONG_FRAME = JSON.stringify({ t: "pong" } satisfies Pong);
 
 /** «Questa busta va all'ospite `to`.» */
 export interface BustaVersoOspite {

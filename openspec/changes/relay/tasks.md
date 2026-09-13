@@ -67,8 +67,11 @@ sapere se il disegno regge prima di aprire un conto.
   TAG — l'unico stato che sopravvive allo sfratto dalla memoria.
   `new_sqlite_classes` nella migration, che è anche ciò che lo tiene sul piano
   GRATUITO.
-- [ ] 3.3 `setWebSocketAutoResponse()` per i ping, che così non si pagano.
-  Serve quando ci sarà traffico vero da mantenere vivo.
+- [x] 3.3 `setWebSocketAutoResponse()` per i ping, che così non si pagano.
+  Il battito della macchina (`PING_FRAME`, ogni 20 s) lo risponde il runtime
+  senza svegliare l'oggetto; `webSocketMessage` resta come ripiego. Da provare
+  su un deploy vero: se una socket orfana di un deploy ricevesse comunque il
+  pong, il battito non vedrebbe più il filo morto del 13/09.
 - [x] 3.4 Il co-browse a pixel NON passa di qui, e c'è un test di contratto —
   `relay/relay-contract.test.ts` — che copre anche l'ibernazione e RELAY-04.
   Testuale, perché entrambi i difetti sono invisibili a runtime: cambia solo la

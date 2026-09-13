@@ -41,7 +41,7 @@
  * quindi non passa nemmeno di qui.
  */
 import {
-  leggiMessaggio, RELAY_PROTOCOL_VERSION,
+  leggiMessaggio, PING_FRAME, PONG_FRAME, RELAY_PROTOCOL_VERSION,
   type MessaggioRelay, type Rifiutato, type RuoloSessione,
 } from "../../shared/relay-protocol";
 import {
@@ -126,10 +126,30 @@ const tagRuolo = (r: RuoloSessione) => `r:${r}`;
 interface Stato {
   acceptWebSocket(ws: WebSocket, tags?: string[]): void;
   getWebSockets(tag?: string): WebSocket[];
+  setWebSocketAutoResponse(pair: WebSocketRequestResponsePair): void;
 }
 
 export class SessioneRelay {
-  constructor(private state: Stato) {}
+  constructor(private state: Stato) {
+    // ── THE BEAT IS ANSWERED BY THE RUNTIME, NOT BY THIS OBJECT (RELAY-02).
+    //
+    // A `ping` handled in `webSocketMessage` wakes a hibernated object on every
+    // beat of every installation: an idle installation would never stay idle.
+    // The auto-response is matched by the runtime, byte for byte, and answered
+    // without waking anything. The `ping` branch in `webSocketMessage` stays as
+    // the fallback for a ping that is not exactly these bytes.
+    //
+    // What that costs, said here rather than discovered:
+    //  - The runtime does not read tags, so it answers EVERY accepted socket. A
+    //    replaced host gets the pong too; what makes it rebuild is the 4000
+    //    close it gets in `fetch`, not silence.
+    //  - A bridge socket whose application traffic is exactly these bytes gets
+    //    the pong back instead of delivering them.
+    //  - Not verified on a real deploy: if a thread orphaned by a deploy were
+    //    still answered here, the machine's heartbeat could no longer tell it
+    //    from a live one.
+    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING_FRAME, PONG_FRAME));
+  }
 
   /**
    * Il capo ospite del PONTE, uno per istanza.
@@ -496,15 +516,16 @@ export class SessioneRelay {
     // the bridge or the replacement host's sessions.
     if ("host" in chi && this.macchina() !== ws) return;
 
-    // ── "ARE YOU STILL THERE?", and the silence that answers it.
+    // ── "ARE YOU STILL THERE?", when the runtime did not answer it already.
     //
     // A deploy replaces this object, and the thread the machine holds does not
     // always get a close: it stays open towards nobody, and from over there it
-    // looks healthy. The answer costs one frame and it is what tells the two
-    // apart. It is deliberately BELOW the check above: a socket that is no
-    // longer the current host gets no answer, which is exactly the truth it
-    // needs to hear in order to rebuild its thread.
-    if (m.t === "ping") { SessioneRelay.dilloA(ws, { t: "pong" }); return; }
+    // looks healthy. The exact bytes of the beat never reach this method (the
+    // auto-response in the constructor answers them); this is the same answer
+    // for a ping spelled differently. It is BELOW the check above, so a socket
+    // that is no longer the current host gets no answer here, and it is only
+    // for the machine, the one side the protocol lets ask (`FromMachine`).
+    if ("host" in chi && m.t === "ping") { SessioneRelay.dilloA(ws, { t: "pong" }); return; }
 
     if ("host" in chi && m.t === "to-guest") {
       const dest = this.state.getWebSockets(tagSessione(m.to));
