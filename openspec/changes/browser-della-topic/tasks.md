@@ -11,15 +11,25 @@ video `.webm` degli spec, non resoconti.
       delle due vince e se l'ordine cambia a un nuovo `set_bounds`. Se la vista
       nuova non sta sopra, aggiungere il comando di innalzamento accanto a
       `browser_set_bounds` (`lib.rs:5196`).
-      → Ordine di creazione: chi nasce dopo sta sopra, `set_bounds` non
-      riordina. Aggiunto `browser_raise`; prova in `tools/wkzprobe z`.
+      → Su WKWebView, ordine di creazione: chi nasce dopo sta sopra,
+      `set_bounds` non riordina. Aggiunto `browser_raise`, che fa solo
+      `addSubview:positioned:` (un `removeFromSuperview` prima toglieva la
+      tastiera alla pagina, corretto in revisione). Prova in `tools/wkzprobe z`,
+      su wry nudo e non in Tauri dev: la parità col guscio è letta nel sorgente,
+      e il comando del guscio non è ancora mai stato invocato. WebView2 e
+      WebKitGTK restano aperti: task in tornata 2.
 - [x] **Trascinare dal vivo o da fermo.** Segnaposto in un `div` fisso mosso a
       mano con `browser_set_bounds` in rAF. Misura: ritardo fra cursore e bordo
       della vista in un video a 60 fps. Entro un frame → dal vivo, altrimenti
       fermo immagine col cancello di `nativeViewDragGate.ts`. Scrivere la scelta
       nel design.
-      → Da fermo: giro IPC p95 6-17 ms e p50 dei frame 17 ms sul pavimento wry
-      (`tools/wkzprobe drag`), cioè un frame o due di ritardo in coda.
+      → Da fermo, per prudenza. Il video a 60 fps è stato sostituito da
+      `tools/wkzprobe drag`, che misura il giro IPC su wry nudo compreso il
+      ritorno (quindi un tetto dell'andata, non lo scollamento a schermo). A
+      480 px/s: p95 6-17 ms = 3-8 px, entro circa un frame; esce dal criterio
+      solo la coda max, 21-34 ms = 10-16 px, 1-2 frame. La scelta è dedotta dalla
+      coda e dal balbettio già pagato con la sidebar, non dimostrata (design,
+      §Trascinare).
 
 ## Tornata 1: lo stato della finestra (puro)
 - [ ] `client/src/state/topicBrowserWindow.ts`: reducer `open`, `activate`,
@@ -41,7 +51,29 @@ video `.webm` degli spec, non resoconti.
       `data-native-browser-slot`.
 - [ ] `browser_raise` sulla vista della finestra all'apertura, a ogni cambio di
       stato e quando nasce un'altra vista nativa (una tab nuova, un cambio di
-      topic): senza, la vista creata dopo la copre.
+      topic): senza, la vista creata dopo la copre. Prima di collegarlo:
+      `cd tools/wkzprobe && cargo run --release -- z` esce 0 con
+      `first-responder-survives-the-raise=true` (verdetto aggiunto in revisione,
+      non ancora eseguito; falsificarlo rimettendo `removeFromSuperview` in
+      `raise_role`, deve uscire 1), e un `invoke('browser_raise')` nel guscio di
+      sviluppo con una pane browser sopra la finestra.
+- [ ] **`browser_raise` fuori da WKWebView.** Oggi su WebView2 e WebKitGTK
+      risponde Ok e non sposta niente, quindi la finestra resta coperta dalla
+      prima vista nativa nata dopo di lei. Su WebView2 il buco è letto nel
+      sorgente di wry 0.55.1 (HWND figlio nato con `HWND_TOP`, `set_bounds` con
+      `SWP_NOZORDER`), su WebKitGTK non è sondato (`GtkFixed.put` accoda).
+      WebView2: `SetWindowPos` sull'HWND contenitore
+      (`controller().ParentWindow()`) con `HWND_TOP` e
+      `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`, provato sul PC Windows con un
+      equivalente di `wkzprobe z` (stesse attese, compresa la pagina che
+      sopravvive e la tastiera che resta). WebKitGTK: sonda su Linux per capire
+      se togliere e rimettere la vista nel `GtkFixed` conserva pagina e fuoco.
+      Un motore che resta senza innalzamento va scritto qui come buco aperto,
+      con la sua conseguenza a schermo: limitare la finestra a macOS è una
+      scelta di scope che la change approvata non contiene, e passa da un sì.
+      A buco chiuso, togliere la sua riga da `PINNED_GAPS` in
+      `tests/unit/browser-platform-parity.test.ts` e il suo `ENGINES-GAP` in
+      `lib.rs`.
 - [ ] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [ ] Sotto 768 px la finestra non monta.
 - [ ] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
