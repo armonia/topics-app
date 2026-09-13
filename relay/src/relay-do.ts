@@ -52,6 +52,11 @@ import {
 /** I tag identificano una socket DOPO l'ibernazione: sono l'unico stato che
  *  sopravvive allo sfratto dalla memoria. */
 const TAG_MACCHINA = "host";
+// The literal, not `WebSocket.OPEN`: the tests run on Bun's WebSocket and the
+// relay on workerd's, and a constant missing from the runtime would make every
+// open host look closed, turning remote access off entirely. `relay-client.ts`
+// compares against 1 for the same reason.
+const SOCKET_OPEN = 1;
 
 /**
  * Il tag dei socket del PONTE, e quello che porta il loro nome.
@@ -172,7 +177,7 @@ export class SessioneRelay {
 
   /** La macchina, o `null` se non è collegata. */
   private macchina(): WebSocket | undefined {
-    return this.state.getWebSockets(TAG_MACCHINA).find((host) => host.readyState === WebSocket.OPEN);
+    return this.state.getWebSockets(TAG_MACCHINA).find((host) => host.readyState === SOCKET_OPEN);
   }
 
   /**
@@ -582,7 +587,7 @@ export class SessioneRelay {
       // survive hibernation: when another host is open, this event belongs to
       // the replaced generation and must not disconnect its successor.
       if (this.state.getWebSockets(TAG_MACCHINA).some(
-        (host) => host !== ws && host.readyState === WebSocket.OPEN,
+        (host) => host !== ws && host.readyState === SOCKET_OPEN,
       )) return;
       // Chi stava aspettando una risposta tradotta non l'avrà: meglio dirlo
       // adesso che lasciare girare una scheda del browser fino alla scadenza.
