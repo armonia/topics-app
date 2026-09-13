@@ -284,13 +284,23 @@ export function topicIdFromKey(key: string): string | null {
   return typeof key === 'string' && key.startsWith(KEY_PREFIX) ? key.slice(KEY_PREFIX.length) : null;
 }
 
-async function uiGet<T>(key: string): Promise<T | null> {
+/**
+ * Read one row. Two different "nothing"s, kept apart on purpose:
+ *   - `null`: the server answered and holds NO row for the key (it answers a
+ *     missing row with a literal `null` body): the window was deleted, e.g. its
+ *     topic was archived.
+ *   - `undefined`: the read FAILED (network down, an error status, a body
+ *     that does not parse). Nothing is known, so nothing may be dropped on
+ *     its account.
+ */
+async function uiGet<T>(key: string): Promise<T | null | undefined> {
   try {
     const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: topic-browser keys, not pane state
-    if (!r.ok) return null;
-    const d = await r.json().catch(() => null);
+    if (!r.ok) return undefined;
+    const d = await r.json().catch(() => undefined);
+    if (d === undefined) return undefined;
     return (d?.value ?? null) as T | null;
-  } catch { return null; }
+  } catch { return undefined; }
 }
 
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -405,14 +415,29 @@ export function applyRemoteTopicWindowInit(data: Record<string, unknown>): Set<s
 
 /** Reconnect resync, targeted: re-GET only the topics this client has in cache
  *  and that the snapshot did not already carry. Keys with a queued write stay
- *  out (`applyRemote` protects them anyway). */
+ *  out (`applyRemote` protects them anyway).
+ *
+ *  A row the server no longer has is a DELETION, not a no-op: a client that was
+ *  offline while the topic got archived never saw the `topic:archived` frame,
+ *  and skipping the `null` left its stale window in cache for good (unarchiving
+ *  the topic later does not forget it, and must not). A write queued in the
+ *  meantime still wins, exactly as it does over a value; a read that FAILED
+ *  (`undefined`) changes nothing. */
 export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTopicWindowInit(snapshot) : new Set<string>();
   const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
   if (!ids.length) return;
   const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
-  ids.forEach((id, i) => { if (values[i] != null && applyRemote(id, values[i])) changed = true; });
+  ids.forEach((id, i) => {
+    const value = values[i];
+    if (value === undefined) return;
+    if (value === null) {
+      if (!writeTimers.has(keyFor(id)) && cache.delete(id)) changed = true;
+      return;
+    }
+    if (applyRemote(id, value)) changed = true;
+  });
   if (changed) notify();
 }
 

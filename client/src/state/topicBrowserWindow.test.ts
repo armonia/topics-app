@@ -347,11 +347,15 @@ describe('persistence (ui-state PUT/GET)', () => {
   let puts: { key: string; clientId: string | null; body: unknown }[];
   let served: Map<string, unknown>;
   let fetched: string[];
+  /** Runs inside a GET, before it answers: lets a test land a local write
+   *  while a read is in flight, or make the read fail. */
+  let onGet: (() => Response | undefined) | null;
 
   beforeEach(() => {
     puts = [];
     fetched = [];
     served = new Map();
+    onGet = null;
     (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init?: RequestInit): Promise<Response> => {
       const key = decodeURIComponent(String(url).replace('/api/ui-state/', ''));
       if (init?.method === 'PUT') {
@@ -360,6 +364,8 @@ describe('persistence (ui-state PUT/GET)', () => {
         return new Response('{}', { status: 200 });
       }
       fetched.push(key);
+      const answer = onGet?.();
+      if (answer) return answer;
       const value = served.get(key);
       return new Response(JSON.stringify(value === undefined ? null : { value }), {
         status: 200, headers: { 'Content-Type': 'application/json' },
@@ -410,6 +416,40 @@ describe('persistence (ui-state PUT/GET)', () => {
     await reloadTopicWindowsFromServer({});
     expect(fetched).toContain(`topic-browser:${tid}`);
     expect(getTopicWindow(tid).tabs).toHaveLength(0);
+  });
+
+  /**
+   * A client offline while its topic got archived never sees `topic:archived`:
+   * the resync reading the row as GONE is the only thing left that drops that
+   * window.
+   */
+  test('resync drops a window whose row the server no longer has', async () => {
+    const tid = uniqueId('gone');
+    applyRemoteTopicWindow(tid, { mode: 'min', tabs: [{ contextId: 'c-1', url: 'u', title: 'T' }], activeContextId: 'c-1' });
+    let notified = 0;
+    const unsub = subscribeTopicWindows(() => { notified++; });
+    await reloadTopicWindowsFromServer({}); // nothing served: the server answers `null`
+    unsub();
+    expect(fetched).toContain(`topic-browser:${tid}`);
+    expect(getTopicWindow(tid)).toEqual(EMPTY_TOPIC_BROWSER_WINDOW);
+    expect(notified).toBe(1);
+  });
+
+  test('a resync read that FAILS drops nothing', async () => {
+    const tid = uniqueId('failed-read');
+    applyRemoteTopicWindow(tid, { mode: 'min', tabs: [{ contextId: 'c-1', url: 'u', title: 'T' }], activeContextId: 'c-1' });
+    onGet = () => new Response('boom', { status: 503 });
+    await reloadTopicWindowsFromServer({});
+    expect(getTopicWindow(tid).tabs.map((t) => t.contextId)).toEqual(['c-1']);
+  });
+
+  test('a local write queued while the resync read was in flight beats the vanished row', async () => {
+    const tid = uniqueId('gone-but-written');
+    applyRemoteTopicWindow(tid, { mode: 'min', tabs: [{ contextId: 'c-1', url: 'u', title: 'T' }], activeContextId: 'c-1' });
+    onGet = () => { topicBrowserWindow.open(tid, sheet('c-2')); return undefined; };
+    await reloadTopicWindowsFromServer({});
+    expect(getTopicWindow(tid).tabs.map((t) => t.contextId)).toEqual(['c-1', 'c-2']);
+    await settle();
   });
 
   test('forget drops the cache AND the queued PUT, so the key cannot resurrect', async () => {
