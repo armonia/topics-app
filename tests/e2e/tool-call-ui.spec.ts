@@ -3,7 +3,7 @@
  *
  * Partial: formatted code inside tool bodies.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { slackMs } from "../helpers/time-slack";
 
 /**
@@ -28,6 +28,25 @@ import { slackMs } from "../helpers/time-slack";
  * slow, it is broken, and this file must still be able to say so.
  */
 const RENDER = slackMs(30_000);
+
+/**
+ * THE PANE OF ONE TOPIC, not "the last message on the page".
+ *
+ * The tests that open a second topic start from a workspace holding the topic
+ * of this describe (`resetPaneStore` in `beforeEach`). That tab is the active
+ * one when the page loads, so it gets visited, and a visited pane keeps its
+ * shell mounted, hidden, after the click on the second topic (`PaneKeepAlive`).
+ * The shells are ordered by pane key, not by tab (`paneShellOrder.ts`,
+ * e23014e43), and a chat pane key is the topic UUID: a page-wide `.last()`
+ * resolves inside whichever topic id sorts last. When the hidden topic's
+ * history had landed before the click (a slow runner) and its id sorted after
+ * the fresh one, the locator picked the hidden message: `element is not
+ * visible` for thirty seconds on the CI runs of 12/09 and 13/09, while the
+ * screenshot showed the right message on screen.
+ */
+function topicPane(page: Page, topicId: string) {
+  return page.locator(`[data-pane-shell="${topicId}"]`);
+}
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
@@ -187,7 +206,9 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await page.keyboard.press("Escape");
       await openTopic(page, new RegExp(fresh.name));
 
-      const split = page.locator('[data-testid="message-token-split"]').last();
+      // Scoped to this topic's pane: see topicPane.
+      const pane = topicPane(page, fresh.id);
+      const split = pane.locator('[data-testid="message-token-split"]');
       // SETUP, not the object: the claim below is what the two figures SAY, and
       // this only waits for the row to exist after `goToApp` + `openTopic`.
       // See RENDER for the budget and the measurement behind it.
@@ -203,7 +224,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       // vorrebbe dire niente: Playwright considera visibile anche un elemento a
       // opacity 0, quindi senza queste due misure la suite resterebbe verde con
       // la striscia invisibile o spezzata su due righe.
-      const bubble = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+      const bubble = pane.locator('[data-testid="chat-message"][data-role="assistant"]');
       const row = bubble.locator('[data-testid="message-meta-row"]');
       const opacity = () => row.evaluate((el) => getComputedStyle(el).opacity);
       expect(Number(await opacity())).toBeLessThan(0.5);
@@ -243,7 +264,9 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await page.keyboard.press("Escape");
       await openTopic(page, new RegExp(fresh.name));
 
-      const assistant = page.locator('[data-testid="message-content-assistant"]').last();
+      // Scoped to this topic's pane: see topicPane.
+      const pane = topicPane(page, fresh.id);
+      const assistant = pane.locator('[data-testid="message-content-assistant"]');
       // SETUP, like the one above: the object is the strip that must NOT be
       // there. See RENDER.
       await assistant.waitFor({ state: "visible", timeout: RENDER });
@@ -252,7 +275,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       // contenuto: dentro `message-content-assistant` la striscia non c'è più
       // per costruzione, quindi questo conteggio sarebbe passato SEMPRE — un
       // guardiano che non può fallire non è un guardiano.
-      const bubble = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+      const bubble = pane.locator('[data-testid="chat-message"][data-role="assistant"]');
       await expect(bubble).toBeVisible();
       await expect(bubble.locator('[data-testid="message-meta-footer"]')).toHaveCount(0);
       // L'ora invece c'è: la riga di servizio esiste, è la striscia a mancare.
