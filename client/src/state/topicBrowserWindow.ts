@@ -28,6 +28,7 @@
  */
 
 import { getTabId } from './pane/middleware/syncCrossTab';
+import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -275,14 +276,8 @@ export function sanitizeTopicBrowserWindow(v: unknown): TopicBrowserWindowState 
 
 // ── persistence (ui-state, per-topic key) — mirrors taskBrowserTabs ───────────
 
-const KEY_PREFIX = 'topic-browser:';
-const keyFor = (topicId: string) => `${KEY_PREFIX}${topicId}`;
-
-/** Extract the topicId from a `topic-browser:<topicId>` ui-state key (or null
- *  when the key is not one). Lets the WS bridge route broadcasts. */
-export function topicIdFromKey(key: string): string | null {
-  return typeof key === 'string' && key.startsWith(KEY_PREFIX) ? key.slice(KEY_PREFIX.length) : null;
-}
+// The key (and `topicIdFromKey`) live in `topicBrowserKey.ts`: the WS bridge
+// needs them without loading this module.
 
 /**
  * Read one row. Two different "nothing"s, kept apart on purpose:
@@ -443,7 +438,8 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
 
 /**
  * Forget everything this client remembers about a topic's window. Called on
- * `topic:archived` (useTaskBrowserTabsSync), because archiving a topic deletes
+ * `topic:archived` with `archived: true` (useTaskBrowserTabsSync; the same frame
+ * with `archived: false` deletes nothing), because archiving a topic deletes
  * its ui-state row server-side: `purgeTopicBrowserState`, reached through the
  * purge step of `archiveTopicFully`.
  *

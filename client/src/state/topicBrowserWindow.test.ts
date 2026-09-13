@@ -19,7 +19,6 @@ import {
   returnFromTab,
   resolveMinRect,
   sanitizeTopicBrowserWindow,
-  topicIdFromKey,
   applyRemoteTopicWindow,
   applyRemoteTopicWindowInit,
   applyTopicWindowFrame,
@@ -31,6 +30,7 @@ import {
   __resetTopicWindows,
   type TopicBrowserWindowState,
 } from './topicBrowserWindow';
+import { topicIdFromKey } from './topicBrowserKey';
 import { getTabId } from './pane/middleware/syncCrossTab';
 
 const sheet = (contextId: string, url = `https://${contextId}.test`) => ({ contextId, url, title: contextId.toUpperCase() });
