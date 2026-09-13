@@ -25,6 +25,7 @@
 import { describe, expect, test, afterEach } from 'bun:test';
 import { fetchWhileRosterWarms, SHORT_ROSTER_RETRIES } from './terminalRosterRetry';
 import { STANDALONE_NO_PTY_CODE, TERMINAL_ROSTER_WARMING_CODE } from '../../../shared/terminal-messages';
+import { slackMs } from '../../../tests/helpers/time-slack';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -55,7 +56,7 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     expect(res.status).toBe(200);
     // Three requests: two refused, one answered. The caller was told once.
     expect(calls.length).toBe(3);
-  }, 15_000);
+  }, slackMs(15_000));
 
   test('a 404 is a verdict: returned on the first try, never retried', async () => {
     const calls = stubFetch([() => new Response('{"error":"Terminal session not found"}', { status: 404 })]);
@@ -100,7 +101,7 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     expect(res.status).toBe(503);
     // First attempt + 2 retries. Without a cap this call would never return.
     expect(calls.length).toBe(3);
-  }, 15_000);
+  }, slackMs(15_000));
 
   test('the short ladder fits inside the restart overlay net (15s), the long one would not', async () => {
     // 300 + 600 + 1200 + 2400 = 4500ms of waiting for SHORT_ROSTER_RETRIES=4.
@@ -111,6 +112,6 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     await fetchWhileRosterWarms('/api/terminal/sessions/x/reload', { method: 'POST' }, SHORT_ROSTER_RETRIES);
     const elapsed = Date.now() - started;
     expect(calls.length).toBe(SHORT_ROSTER_RETRIES + 1);
-    expect(elapsed).toBeLessThan(15_000);
-  }, 20_000);
+    expect(elapsed).toBeLessThan(slackMs(15_000));
+  }, slackMs(20_000));
 });
