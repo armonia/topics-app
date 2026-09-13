@@ -38,6 +38,8 @@ Nessuna modifica a `pane-store-v2`, ai suoi reducer/middleware, né ai fork esis
       rappresentazione inline viva, round-trip sanitize, eco del proprio client scartata.
 
 ## Phase 4 — Card inline in chat
+
+> **Sostituita** da `browser-della-topic` (approvata il 13/09): la superficie per l'umano è la finestra della topic, non una card nel messaggio. Non implementare questa fase.
 - [ ] `toolDetail.ts`: `open_browser_pane` (e i `browser_*` con ctx inline) →
       `{type:'browser', contextId, url, title}`.
 - [ ] `ToolCards.tsx`: `BrowserCard` — collassata = riga (favicon/titolo/host/n° passi/
@@ -52,6 +54,8 @@ Nessuna modifica a `pane-store-v2`, ai suoi reducer/middleware, né ai fork esis
 - [ ] Pulizia dei file alla rimozione della sessione + a GC del topic.
 
 ## Phase 6 — Sidebar
+
+> **Sostituita** da `browser-della-topic` (approvata il 13/09): la superficie per l'umano è la finestra della topic, non righe annidate in sidebar. Non implementare questa fase.
 - [ ] Righe annidate sotto il topic per le sessioni inline (vive e sospese), riusando
       `depth`/`nested` di `TopicItem`; click = promuovi/foca; menu = Chiudi.
 - [ ] Una sessione `promoted` NON produce una seconda riga (vince quella del pane store).
