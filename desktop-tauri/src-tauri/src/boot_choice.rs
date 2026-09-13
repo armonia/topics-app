@@ -55,6 +55,12 @@ pub(crate) enum BootChoice {
 ///     an ephemeral port only the state file knows.
 ///   * `seen_before` — the external-server marker: this machine has owned a real
 ///     server here before, so a missing daemon means "wait", not "fork empty".
+///   * `primary_foreign` — a FOREIGN (non-Topics) process is actively answering on
+///     `:3333`. It is only meaningful when NO Topics daemon answered (otherwise we
+///     would already have deferred), and it means the "wait for my known server"
+///     marker is stale (a squatter — not our server — owns :3333), so the marker is
+///     invalidated and the sidecar spawns instead of the app hanging on a foreign
+///     dashboard (the 2026-09-12 account-switcher case).
 ///
 /// Decision order, most-to-least trusted:
 ///   1. A Topics daemon on the daemon-state port → defer to THAT port (plain
@@ -68,6 +74,7 @@ pub(crate) fn decide_boot(
     state_topics: bool,
     state_port: Option<u16>,
     seen_before: bool,
+    primary_foreign: bool,
 ) -> BootChoice {
     // A daemon recorded in daemon-state.json, confirmed by shape on that port, is
     // the one we want — even if :3333 is squatted (the 2026-09-12 case). A state
@@ -84,7 +91,14 @@ pub(crate) fn decide_boot(
     if primary_topics {
         return BootChoice::Defer { port: 3333, tls: primary_tls };
     }
-    if seen_before {
+    // No Topics daemon answered. The marker says this machine owns a real server,
+    // so the 2026-08-13 invariant holds: WAIT for it, never fork an empty
+    // universe. EXCEPT when a FOREIGN process is actively serving :3333 (the
+    // 2026-09-12 account-switcher squatter, or a marker the old "any 200 = up"
+    // probe wrote when it mistook that squatter for Topics): the real server is
+    // NOT coming back on :3333, so waiting there hangs the app on a foreign
+    // dashboard forever. A live foreign presence invalidates the marker → spawn.
+    if seen_before && !primary_foreign {
         BootChoice::WaitForKnownServer
     } else {
         BootChoice::SpawnSidecar
@@ -102,14 +116,14 @@ mod tests {
     /// failure the user hit ("connection error" against an HTML dashboard on :3333).
     #[test]
     fn squatted_3333_defers_to_the_daemon_real_port() {
-        let choice = decide_boot(false, true, true, Some(55655), true);
+        let choice = decide_boot(false, true, true, Some(55655), true, false);
         assert_eq!(choice, BootChoice::Defer { port: 55655, tls: false });
     }
 
     /// The normal case: a Topics daemon on :3333 via TLS → defer to :3333 + TLS.
     #[test]
     fn a_topics_daemon_on_3333_defers_with_tls() {
-        let choice = decide_boot(true, true, false, None, false);
+        let choice = decide_boot(true, true, false, None, false, false);
         assert_eq!(choice, BootChoice::Defer { port: 3333, tls: true });
     }
 
@@ -117,7 +131,7 @@ mod tests {
     /// probed TLS first, then plain, and deferred with the matching mode).
     #[test]
     fn a_plain_dev_server_on_3333_defers_without_tls() {
-        let choice = decide_boot(true, false, false, None, false);
+        let choice = decide_boot(true, false, false, None, false, false);
         assert_eq!(choice, BootChoice::Defer { port: 3333, tls: false });
     }
 
@@ -125,7 +139,7 @@ mod tests {
     /// port the daemon recorded as its real one).
     #[test]
     fn state_port_wins_over_primary() {
-        let choice = decide_boot(true, true, true, Some(40000), false);
+        let choice = decide_boot(true, true, true, Some(40000), false, false);
         assert_eq!(choice, BootChoice::Defer { port: 40000, tls: false });
     }
 
@@ -133,15 +147,18 @@ mod tests {
     /// sidecar (never defer to an HTML dashboard).
     #[test]
     fn squatter_on_3333_virgin_spawns_sidecar() {
-        let choice = decide_boot(false, true, false, None, false);
+        let choice = decide_boot(false, true, false, None, false, false);
         assert_eq!(choice, BootChoice::SpawnSidecar);
     }
 
-    /// A squatter on :3333 and NO daemon, but the marker says this machine owns a
-    /// real server → wait for it (the 2026-08-13 rule still stands).
+    /// Companion to `contaminated_marker_does_not_wait_on_a_foreign_squatter`:
+    /// NO foreign process on :3333 (a genuine server that is merely DOWN —
+    /// connection refused), stale state, marker present → the 2026-08-13 invariant
+    /// STILL holds: wait for the known server, never fork an empty universe. This
+    /// is the case we must NOT break while fixing the contaminated-marker case.
     #[test]
-    fn squatter_on_3333_marker_waits() {
-        let choice = decide_boot(false, true, false, None, true);
+    fn server_down_with_marker_still_waits() {
+        let choice = decide_boot(false, true, false, Some(3333), true, false);
         assert_eq!(choice, BootChoice::WaitForKnownServer);
     }
 
@@ -149,7 +166,7 @@ mod tests {
     /// beats a stale marker.
     #[test]
     fn a_live_daemon_beats_a_stale_marker() {
-        let choice = decide_boot(true, true, false, None, true);
+        let choice = decide_boot(true, true, false, None, true, false);
         assert_eq!(choice, BootChoice::Defer { port: 3333, tls: true });
     }
 
@@ -157,7 +174,20 @@ mod tests {
     /// produce a Defer to :0, and the rule falls through to the other outcomes.
     #[test]
     fn a_zero_state_port_is_not_deferred_to() {
-        let choice = decide_boot(false, true, true, Some(0), false);
+        let choice = decide_boot(false, true, true, Some(0), false, false);
+        assert_eq!(choice, BootChoice::SpawnSidecar);
+    }
+
+    /// THE 2026-09-12 CONTAMINATED-MARKER GUARD. The old "any 200 = up" probe
+    /// mistook the foreign account-switcher dashboard on :3333 for Topics and
+    /// wrote the external-server marker. Now: stale daemon-state (port 3333, dead
+    /// pid) + that squatter still answering on :3333 + the marker present + NO
+    /// Topics daemon anywhere. Waiting for the "known server" would hang the app
+    /// on a foreign dashboard forever — so a live foreign presence INVALIDATES
+    /// the marker and the sidecar spawns.
+    #[test]
+    fn contaminated_marker_does_not_wait_on_a_foreign_squatter() {
+        let choice = decide_boot(false, true, false, Some(3333), true, true);
         assert_eq!(choice, BootChoice::SpawnSidecar);
     }
 }

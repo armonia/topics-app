@@ -1688,7 +1688,30 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             tokio::time::sleep(std::time::Duration::from_millis(700)).await;
         }
     }
-    let choice = decide_boot(primary_topics, primary_tls, state_topics, state_port, seen_before);
+    // The marker (seen_before) means "wait for my known server, don't fork empty"
+    // — the 2026-08-13 invariant. But a FOREIGN process actively answering on the
+    // canonical :3333 invalidates it: that is the 2026-09-12 account-switcher
+    // squatter (or a marker the old "any 200 = up" probe wrote when it mistook that
+    // squatter for Topics). If we wait for the "known server" we hang on a foreign
+    // dashboard forever, because the real server is NOT coming back on :3333 — a
+    // foreign process already owns it. A live foreign presence → spawn. A merely
+    // DOWN server (nothing answering on :3333) does NOT set this, so the invariant
+    // still holds and we wait. Only evaluated when no Topics daemon answered (the
+    // defer branches win first), so it never masks a real daemon.
+    let primary_foreign = if !primary_topics && !state_topics {
+        probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await
+            || probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await
+    } else {
+        false
+    };
+    let choice = decide_boot(
+        primary_topics,
+        primary_tls,
+        state_topics,
+        state_port,
+        seen_before,
+        primary_foreign,
+    );
     match choice {
         BootChoice::Defer { port, tls } => {
             let kind = if tls { "TLS" } else { "plain-HTTP" };
@@ -12319,6 +12342,111 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
         let mon = (0.0, 0.0, 1000.0, 800.0);
         assert!(!rect_intersects_any((-500.0, 0.0, 500.0, 400.0), &[mon]));
         assert!(rect_intersects_any((-499.0, 0.0, 500.0, 400.0), &[mon]));
+    }
+}
+
+#[cfg(test)]
+mod contaminated_marker_cold_boot_tests {
+    //! The 2026-09-12 contaminated-marker regression, verified by driving the REAL
+    //! probe functions against a real local foreign HTTP server (no dependency on
+    //! the live account-switcher), plus the companion invariant (a merely-DOWN
+    //! server must still wait, not fork empty).
+
+    use super::{
+        decide_boot, probe_topics_server, probe_topics_shape, BootChoice, DEFAULT_UPSTREAM_PORT,
+    };
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    }
+
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// A FOREIGN process that answers 200 text/html for every path.
+    fn start_foreign_squatter(port: u16) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            let listener = std::net::TcpListener::bind(("127.0.0.1", port)).expect("bind squatter");
+            loop {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        let _ = s.set_read_timeout(Some(Duration::from_millis(200)));
+                        let mut buf = [0u8; 512];
+                        let _ = s.read(&mut buf);
+                        let _ = s.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                             <html><body>foreign dashboard</body></html>",
+                        );
+                    }
+                    Err(_) => return,
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn foreign_squatter_with_stale_marker_spawns_not_hangs() {
+        rt().block_on(async {
+            let port = free_port();
+            let _h = start_foreign_squatter(port);
+            for _ in 0..50 {
+                if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let shape = probe_topics_shape(port, false).await;
+            let any_status = probe_topics_server(port, false).await;
+            assert!(!shape, "foreign HTML must FAIL the Topics shape probe");
+            assert!(any_status, "foreign HTML must be ACTIVE (non-Topics)");
+            let choice = decide_boot(false, false, false, Some(3333), true, any_status);
+            assert_eq!(
+                choice,
+                BootChoice::SpawnSidecar,
+                "contaminated marker + foreign squatter must SPAWN, not hang"
+            );
+        });
+    }
+
+    #[test]
+    fn down_server_with_stale_marker_still_waits() {
+        rt().block_on(async {
+            let dead = free_port();
+            let any_status = probe_topics_server(dead, false).await;
+            assert!(!any_status, "a down server must not be seen as active");
+            let choice = decide_boot(false, false, false, Some(3333), true, any_status);
+            assert_eq!(
+                choice,
+                BootChoice::WaitForKnownServer,
+                "a merely-DOWN known server must still be waited on"
+            );
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn contaminated_marker_on_3333_spawns_not_hangs() {
+        rt().block_on(async {
+            let shape = probe_topics_shape(DEFAULT_UPSTREAM_PORT, false).await;
+            let shape_tls = probe_topics_shape(DEFAULT_UPSTREAM_PORT, true).await;
+            assert!(!shape && !shape_tls, "precondition: :3333 is NOT Topics by shape");
+            let foreign = probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await
+                || probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await;
+            assert!(foreign, "precondition: a foreign process IS answering on :3333");
+            let choice = decide_boot(false, false, false, Some(3333), true, foreign);
+            assert_eq!(
+                choice,
+                BootChoice::SpawnSidecar,
+                "the live contaminated marker must SPAWN, not hang on the squatter"
+            );
+        });
     }
 }
 
