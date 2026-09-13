@@ -127,7 +127,7 @@ const tabDelBrowser = (page: Page) => page.locator('[data-pane-id^="browser:"]')
  * find bar is the one admitted exception and it is a MODE - it exists only
  * while you are searching - so a scene that is not searching must not see it.
  */
-async function nienteRigaSopraLaPagina(page: Page, motivo: string): Promise<void> {
+async function expectNoRowAboveThePage(page: Page, why: string): Promise<void> {
   const pane = page.locator('[data-browser-pane]').first();
   const gap = await pane.evaluate((el) => {
     // The page area is the last flex child: the screenshot viewer, the frame
@@ -137,7 +137,7 @@ async function nienteRigaSopraLaPagina(page: Page, motivo: string): Promise<void
     if (!area) return -1;
     return area.getBoundingClientRect().top - el.getBoundingClientRect().top;
   });
-  expect(gap, motivo).toBeLessThanOrEqual(1);
+  expect(gap, why).toBeLessThanOrEqual(1);
 }
 
 test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the menu", () => {
@@ -824,16 +824,22 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
   });
 
   /**
-   * TOPIC-BROWSER-02 — UNA SOLA SUPERFICIE, E SI APRE IN UN FOGLIO.
+   * TOPIC-BROWSER-02 — ONE SURFACE, AND IT OPENS AS A SHEET.
    *
-   * La chrome di una scheda stava in quattro posti: la riga sopra la pagina, il
-   * menu dei tre puntini, il portale dell'indirizzo, e la tab. Il requisito
-   * dice che ne resta UNA, e il modo di falsificarlo e' chiedere a ogni comando
-   * di essere raggiungibile senza aprire nient'altro: se domani uno tornasse
-   * dietro una tendina, questo scenario lo trova perche' cerca i comandi DENTRO
-   * il foglio, non nel documento.
+   * A tab's chrome used to live in four places: the row above the page, the
+   * three-dots menu, the address portal, and the tab. The requirement says ONE
+   * is left, and the way to falsify it is to demand that every command be
+   * reachable without opening anything else: the commands are looked for INSIDE
+   * the sheet, so one that went back behind a dropdown tomorrow would not be
+   * found here.
+   *
+   * ZOOM AND DEVICE ARE NOT ASSERTED, and that is a fact about the environment
+   * and not an omission. They are native-pane capabilities (`useTauriBrowser`
+   * publishes `setZoom`/`setDevice`); a pane running in Chromium never wires
+   * them, so the sheet correctly does not draw rows for commands that do not
+   * exist. Demanding them here would measure the harness, not the product.
    */
-  test("TOPIC-BROWSER-02: un clic sulla tab da' l'indirizzo pronto, e i comandi sono li' senza un secondo menu", async ({ page, request }) => {
+  test("TOPIC-BROWSER-02: one click on the tab gives the address ready, with the commands in plain sight", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-02" });
     const origin = site!.origin;
     await resetPaneStore(request, []);
@@ -847,52 +853,50 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await mountPane(page, topic.id, `${origin}/rapporto`);
     const tab = tabDelBrowser(page);
     await expect(tab).toContainText(label, { timeout: 60_000 });
-    await nienteRigaSopraLaPagina(page, "a riposo la pagina parte dal bordo della pane");
+    await expectNoRowAboveThePage(page, "at rest the page starts at the pane's own edge");
 
-    // 1. IL CLIC SULLA TAB APRE IL FOGLIO, con l'indirizzo a fuoco E
-    //    SELEZIONATO: e' la prima cosa che il requisito chiede, e «a fuoco» da
-    //    solo non basta - senza la selezione riscrivere l'indirizzo costa una
-    //    combinazione di tasti in piu' ogni volta.
+    // 1. THE CLICK ON THE TAB OPENS THE SHEET, address focused AND SELECTED.
+    //    "Focused" alone is not the requirement: without the selection,
+    //    rewriting the address costs an extra keystroke every single time.
     await tab.getByTestId("pane-tab-label").click();
-    const foglio = page.getByTestId("browser-tab-sheet");
-    await expect(foglio).toBeVisible({ timeout: 10_000 });
-    const campo = page.getByTestId("browser-tab-address-input");
-    await expect(campo).toBeFocused();
-    const selezionato = await campo.evaluate((el) => {
+    const sheet = page.getByTestId("browser-tab-sheet");
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    const address = page.getByTestId("browser-tab-address-input");
+    await expect(address).toBeFocused();
+    const allSelected = await address.evaluate((el) => {
       const i = el as HTMLInputElement;
       return i.value.length > 0 && i.selectionStart === 0 && i.selectionEnd === i.value.length;
     });
-    expect(selezionato, "il testo dell'indirizzo e' tutto selezionato").toBe(true);
+    expect(allSelected, "the whole address is selected").toBe(true);
 
-    // 2. I COMANDI SONO NEL FOGLIO, non dietro un altro menu. Cercati come
-    //    discendenti del foglio: un comando che tornasse in una tendina
-    //    portata fuori non sarebbe qui dentro.
-    await expect(foglio.getByTestId("browser-tab-back")).toBeVisible();
-    await expect(foglio.getByTestId("browser-tab-forward")).toBeVisible();
-    await expect(foglio.getByTestId("browser-tab-zoom")).toBeVisible();
-    await expect(foglio.getByTestId("browser-tab-device")).toBeVisible();
-    // ...e nessuna delle superfici che il requisito cancella.
-    await expect(page.getByTestId("browser-tab-menu-panel"), "niente menu a tendina").toHaveCount(0);
-    await nienteRigaSopraLaPagina(page, "il foglio non spinge giu' la pagina");
+    // 2. THE COMMANDS ARE IN THE SHEET, not behind another menu. Looked for as
+    //    DESCENDANTS of it: a command that went back into a portalled dropdown
+    //    would not be inside this subtree.
+    await expect(sheet.getByTestId("browser-tab-back")).toBeVisible();
+    await expect(sheet.getByTestId("browser-tab-forward")).toBeVisible();
+    await expect(sheet.getByTestId("browser-tab-copy-url")).toBeVisible();
+    // ...and none of the surfaces the requirement deletes.
+    await expect(page.getByTestId("browser-tab-menu-panel"), "no dropdown menu").toHaveCount(0);
+    await expectNoRowAboveThePage(page, "the sheet does not push the page down");
 
-    // 3. ESC NON NAVIGA. L'indirizzo modificato e non confermato si butta via:
-    //    la scheda resta dov'era.
-    await campo.fill(`${origin}/seconda-pagina`);
-    await campo.press("Escape");
-    await expect(foglio).toHaveCount(0);
-    await expect(tab, "la scheda e' rimasta sulla pagina di prima").toContainText(/rapporto/);
+    // 3. ESC DOES NOT NAVIGATE. An edited, unconfirmed address is thrown away:
+    //    the tab stays where it was.
+    await address.fill(`${origin}/seconda-pagina`);
+    await address.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(tab, "the tab stayed on the page it was on").toContainText(/rapporto/);
     await expect(tab).not.toContainText(/seconda-pagina/);
 
-    // 4. LA CONSOLE SI APRE DAL FOGLIO E NON FA COMPARIRE NESSUNA RIGA. E' lo
-    //    scenario «nessuna riga dell'indirizzo, mai»: la console era uno dei
-    //    due eventi che la riportavano sopra la pagina.
+    // 4. THE CONSOLE OPENS FROM THE SHEET AND BRINGS NO ROW BACK. This is the
+    //    "no address row, ever" scenario: the console was one of the two events
+    //    that used to put the row back over the page.
     await tab.getByTestId("pane-tab-label").click();
-    await expect(foglio).toBeVisible({ timeout: 10_000 });
-    const console = foglio.getByTestId("browser-tab-console");
-    if (await console.count()) {
-      await console.click();
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    const consoleRow = sheet.getByTestId("browser-tab-console");
+    if (await consoleRow.count()) {
+      await consoleRow.click();
       await expect(page.getByTestId("browser-console-panel")).toBeVisible({ timeout: 10_000 });
-      await nienteRigaSopraLaPagina(page, "aprire la console non riporta la riga");
+      await expectNoRowAboveThePage(page, "opening the console brings no row back");
     }
   });
 });

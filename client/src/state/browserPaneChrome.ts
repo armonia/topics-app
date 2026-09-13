@@ -24,7 +24,7 @@
  *     "no entry yet", never a crash: the tab falls back to the persisted URL.
  */
 import { useSyncExternalStore } from 'react';
-import type { BrowserConsoleEntry, DeviceMode, NavHistoryEntry } from '../components/Browser/browserDevTypes';
+import type { BrowserConsoleEntry, DeviceMode } from '../components/Browser/browserDevTypes';
 import type { DownloadsMenuProps } from '../components/Browser/DownloadsMenu';
 import type { ShareMode } from '../lib/sharedAuto';
 
@@ -55,9 +55,6 @@ export interface BrowserPaneCommands {
   setDevice?: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
   toggleShare?: () => void;
   forgetSite?: () => void;
-  /** The real back/forward list, for the sheet's navigation history. */
-  getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
-  goToNavIndex?: (index: number) => void;
   /**
    * Park the page behind a pixel still while the sheet covers it, and bring it
    * back when the sheet closes.
@@ -108,10 +105,9 @@ export interface BrowserPaneChrome {
    *  appearing and the one-shot pulse of the tab's downloads cue, and nothing
    *  else: a file that arrives never opens a surface by itself. */
   downloadsStarted: number;
-  /** Grows every time the pane asks the tab to open its SHEET (Cmd+L, a click
-   *  on the tab you are already in, a blank pane that wants an address). The
-   *  tab compares it with the last value it acted on. The three dots open the
-   *  same sheet without going through here: they are already in the tab. */
+  /** Grows every time the sheet is asked for WITH THE CARET: Cmd+L, a click on
+   *  the tab you are already in, the three dots, a blank pane that wants an
+   *  address. The tab compares it with the last value it acted on. */
   addressEditRequest: number;
   /** Grows every time something asks for the sheet OPENED ON ITS DOWNLOADS
    *  (today: the tab's downloads cue). Separate from `addressEditRequest`

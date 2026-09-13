@@ -72,8 +72,27 @@ della tab**: un pannello che nasce dalla tab e contiene, in quest'ordine,
 l'indirizzo in un campo già a fuoco e con il testo selezionato, i comandi di
 navigazione, i suggerimenti, e tutti i comandi della scheda disposti in chiaro
 (strumenti, zoom, dispositivo, sessione, dimentica sito, e lo spostamento tra
-finestra e tab). Il foglio NON SHALL essere un portale fuori dal contenitore della
-tab.
+finestra e tab).
+
+Il foglio SHALL vivere nel sottoalbero React della sua tab e SHALL sparire quando
+quella tab sparisce. Il nodo DOM che lo ospita NON è vincolato: il vincolo è la
+VITA del pannello, non il suo indirizzo nell'albero.
+
+> Precisazione del 13/09, dopo una misura. La prima stesura diceva «il foglio NON
+> SHALL essere un portale fuori dal contenitore della tab», e quella frase
+> descriveva il rimedio invece del male. Il male era il vecchio
+> `browser-address-dropdown`: un pannello che SOPRAVVIVEVA al proprio ancoraggio,
+> perché una pane si chiude, cambia gruppo o torna tab mentre il suo pannello è
+> aperto. Stare nel sottoalbero della tab è ciò che lo cura.
+>
+> Ma il nodo DOM non può stare lì: la striscia delle tab ha un antenato
+> TRASFORMATO, e un antenato trasformato diventa il blocco contenitore di ogni
+> `position: fixed` dentro di sé. Misurato sull'E2E di `BROWSER-CHROME-INLINE-01`:
+> col pannello posato a `top: 8` il suo bordo superiore stava a **y = -3**,
+> contro una tab il cui bordo inferiore è a 34 — un'altezza di striscia sopra il
+> punto in cui era stato messo, cioè fuori dallo schermo. `createPortal` sul
+> `body` tiene la vita React (muore con la tab) e restituisce al `fixed` la
+> finestra come riferimento.
 
 Mentre il foglio copre la pagina, la pagina SHALL essere un fermo immagine. Invio
 SHALL navigare e chiudere; Esc e un clic fuori SHALL chiudere senza navigare. Alla

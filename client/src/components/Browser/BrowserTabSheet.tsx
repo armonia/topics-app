@@ -16,13 +16,20 @@
  * everything the pane can do, in the order you reach for it: where you are,
  * how to move, where you have been, and then the tools.
  *
- * WHY IT IS NOT A PORTAL, which is what the address dropdown did. A popover
- * portalled out of a container that can close dies on its first click, and the
- * tab is exactly such a container: a pane can be closed, moved to another
- * group, or re-tabbed while its sheet is open. `position: fixed` escapes the
- * `overflow-hidden` of the tab and of the strip on its own - it is only clipped
- * by a TRANSFORMED ancestor, and the tab bar has none - so the sheet stays in
- * the tab's own React subtree and dies with it, which is the correct lifetime.
+ * WHERE IT IS DRAWN, AND WHY BOTH HALVES OF THE ANSWER MATTER.
+ *
+ * It stays in the TAB'S REACT SUBTREE: a pane can be closed, moved to another
+ * group or re-tabbed while its sheet is open, and living in the tab means the
+ * sheet dies with it instead of outliving its own anchor.
+ *
+ * But it is PORTALLED INTO THE BODY, because `position: fixed` is not enough.
+ * A fixed element is viewport-relative only while no ancestor is transformed;
+ * with one, that ancestor becomes the containing block and `top: 8` stops
+ * meaning "8px from the top of the window". Measured on the E2E of
+ * `BROWSER-CHROME-INLINE-01`: the panel landed at y = -3 against a tab whose
+ * bottom edge is at 34, i.e. one tab-bar's worth above where it was placed -
+ * the panel's coordinates were being read against a transformed ancestor of the
+ * strip. `createPortal` keeps the React lifetime and fixes the frame.
  *
  * `POPOVER_SURFACE` is not a style choice: it carries `glass-surface`, the
  * class `OVERLAY_SELECTOR` matches (`lib/shell/browserOcclusion`), and that
@@ -32,6 +39,7 @@
  * while the sheet knows it is covering the page from the first frame.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRight, RotateCw, ExternalLink, Copy, Check, Clock, Compass,
   Code2, Trash2, Minus, Plus, MonitorSmartphone, CornerUpLeft,
@@ -310,7 +318,7 @@ export function BrowserTabSheet({ paneId, label }: { paneId: string; label: stri
   return (
     <>
       <span ref={anchorRef}>{label}</span>
-      {open && chrome && (
+      {open && chrome && typeof document !== 'undefined' && createPortal(
         <div
           ref={panelRef}
           data-testid="browser-tab-sheet"
@@ -605,7 +613,8 @@ export function BrowserTabSheet({ paneId, label }: { paneId: string; label: stri
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

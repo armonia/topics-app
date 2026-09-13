@@ -393,8 +393,6 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     setDevice: (m: DeviceMode, custom?: { width: number; height: number }) => browser.setDevice(m, custom),
     toggleShare: onToggleShare,
     forgetSite: canForget ? () => setForgetOpen(true) : undefined,
-    getNavEntries: browser.getNavEntries,
-    goToNavIndex: (i: number) => { void browser.goToNavIndex(i); },
     // The sheet covers the page: it says so itself instead of waiting for the
     // occlusion watcher to measure it (see `BrowserTabSheet`).
     freeze: browser.freeze,

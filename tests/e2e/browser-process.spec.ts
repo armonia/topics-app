@@ -326,7 +326,7 @@ test.describe("RemoteBrowserPanel", () => {
       await page.getByTestId("browser-tab-menu").first().click();
       await expect(page.getByTestId("browser-tab-sheet")).toBeVisible(longWait);
       // The address is IN the sheet, focused: there is no "edit address" entry
-      // to reach it any more, because reaching it is what opening does.
+      // any more, because reaching it is what opening the sheet does.
       await expect(page.getByTestId("browser-tab-address-input")).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0);

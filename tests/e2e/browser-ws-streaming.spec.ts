@@ -443,7 +443,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("Download: la spia compare nella tab, il clic apre il foglio, e nessuna riga sopra la pagina [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+  test("Download: the cue appears in the tab, the click opens the sheet, and no row over the page [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -467,18 +467,17 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
         state: "completed",
       });
 
-      // 1. IL FILE SI ANNUNCIA, E NON APRE NIENTE. La spia compare nella
-      //    corsia silenziosa della tab; la pagina resta scoperta e viva.
-      //    Nessuna riga dell'indirizzo sopra la pagina, e nemmeno la vecchia
-      //    striscia in fondo alla pane.
+      // 1. THE FILE ANNOUNCES ITSELF AND OPENS NOTHING. The cue lights up in
+      //    the tab's quiet rail; the page stays uncovered and live. No address
+      //    row over the page, and no old strip at the foot of the pane either.
       const cue = page.getByTestId("browser-tab-downloads-cue");
       await expect(cue).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
-      await expect(page.locator('[data-testid="browser-url-input"]'), "nessuna riga sopra la pagina").toHaveCount(0);
-      await expect(page.getByTestId("browser-tab-sheet"), "un download non apre il foglio").toHaveCount(0);
+      await expect(page.locator('[data-testid="browser-url-input"]'), "no row over the page").toHaveCount(0);
+      await expect(page.getByTestId("browser-tab-sheet"), "a download does not open the sheet").toHaveCount(0);
 
-      // 2. IL CLIC SULLA SPIA E' CIO' CHE APRE, col foglio gia' sulla sezione
-      //    Download - e senza prendersi il caret dell'indirizzo.
+      // 2. THE CLICK ON THE CUE IS WHAT OPENS, with the sheet already on its
+      //    Downloads section - and without taking the address caret.
       await cue.click();
       await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
@@ -489,15 +488,15 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await expect(link).toHaveAttribute("href", "/media/browser/downloads/report.pdf");
       await expect(menu.locator('[data-testid="browser-download-entry"]')).toHaveText(/4 KB/);
 
-      // 3. E' CHIUDIBILE - il reclamo originale. Esc lo chiude, il bottone
-      //    dentro il foglio lo riapre.
+      // 3. IT IS DISMISSIBLE - the original complaint. Escape closes it, the
+      //    button inside the sheet reopens it.
       await page.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
       await page.getByTestId("browser-tab-downloads").click();
       await expect(menu).toBeVisible();
 
-      // 4. La voce si toglie a mano, e con l'ultima sparisce anche la spia
-      //    nella tab: a riposo la corsia torna com'era.
+      // 4. An entry is dismissed by hand, and with the last one the tab's cue
+      //    goes too: at rest the rail is back the way it was.
       await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
       await expect(cue).toHaveCount(0);
     } finally {

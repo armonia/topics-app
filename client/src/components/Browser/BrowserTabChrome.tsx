@@ -165,7 +165,14 @@ export function BrowserTabDownloadsCue({ paneId, onFill }: { paneId: string; onF
       onPointerDown={swallow}
       onDoubleClick={swallow}
       disabled={!openDownloads}
-      className={`flex items-center gap-0.5 tabular-nums text-micro font-medium rounded-sm px-0.5 -mx-0.5 disabled:cursor-default ${
+      // `relative z-10` IS THE WHOLE REASON IT CAN BE PRESSED. The tab's command
+      // rail (`.row-actions`, the close ring and friends) is an ABSOLUTE box on
+      // the same right edge, painted on hover - and hovering is what you do to
+      // reach this cue, so the ring landed on top of it and swallowed the
+      // click. Measured: Playwright reported the ring's span intercepting
+      // pointer events over a cue it could see. The console cue never hit this
+      // because it is a span nobody clicks.
+      className={`relative z-10 flex items-center gap-0.5 tabular-nums text-micro font-medium rounded-sm px-0.5 -mx-0.5 disabled:cursor-default ${
         onFill ? 'text-white' : 'text-app-text-faint/80 hover:text-app-text'
       } ${fresh && !prefersReducedMotion() ? 'animate-pulse' : ''}`}
       title={label}
