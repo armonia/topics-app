@@ -5360,6 +5360,53 @@ fn browser_animate_bounds(
     })
 }
 
+/// Put a browser pane's native view ON TOP of the other native views in its
+/// window, without touching its geometry or its page.
+///
+/// Z order between two child webviews of one window is CREATION ORDER and
+/// nothing else: wry adds every child with `addSubview:` (`wkwebview/mod.rs`),
+/// which appends, and `set_bounds` only calls `setFrame:`, which never
+/// reorders. So a pane opened after a floating browser window covers it, and no
+/// amount of repositioning brings the window back up.
+///
+/// Measured with `tools/wkzprobe z` (card e0821533): created-last wins, a
+/// `set_bounds` on the lower view does not reorder, this pair does, and the
+/// raised page keeps its state across the reparent (no reload, the random token
+/// the page minted at birth is still there afterwards).
+///
+/// `removeFromSuperview` + `addSubview:positioned:relativeTo:` rather than a
+/// bare `addSubview:`: re-adding a view to the superview it already has is
+/// documented as a move, but only the explicit ordering pair says WHERE it
+/// lands.
+// ENGINES: wkwebview only - WebView2 and webkitgtk stack their children by their own rules; no-op there until a window needs it.
+#[tauri::command]
+fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_raise", move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&browser_label(&id))
+            .ok_or("no such browser pane")?;
+        #[cfg(target_os = "macos")]
+        let _ = wv.with_webview(move |platform| unsafe {
+            use crate::mac::*;
+            let view = platform.inner() as id;
+            if view == nil {
+                return;
+            }
+            let parent: id = msg_send![view, superview];
+            if parent == nil {
+                return;
+            }
+            // NSWindowAbove = 1, relativeTo nil = above every sibling.
+            let _: () = msg_send![view, removeFromSuperview];
+            let _: () = msg_send![parent, addSubview: view, positioned: 1isize, relativeTo: nil];
+        });
+        #[cfg(not(target_os = "macos"))]
+        let _ = wv;
+        Ok(())
+    })
+}
+
 /// Elenca le WKWebView di pane browser vive ADESSO, per contextId.
 ///
 /// La verità è `Manager::webviews()`, non un registro nostro: un registro può
@@ -11297,6 +11344,7 @@ pub fn run() {
             browser_set_bounds,
             browser_set_visible,
             browser_animate_bounds,
+            browser_raise,
             browser_close,
             browser_purge_data_store,
             browser_purge_cache,

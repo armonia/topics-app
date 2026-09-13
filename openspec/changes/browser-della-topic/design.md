@@ -69,25 +69,58 @@ proprio rettangolo (`:188`) e `useTauriBrowser.applyBounds` lo manda con
 
 ### Trascinare
 
-Due strade, e la scelta si misura nella tornata 1 invece di indovinarla:
+**Misurato, tornata 0: si trascina da fermo.** Il cancello di
+`nativeViewDragGate.ts:52` fa `freeze()` all'inizio del gesto (screenshot come
+`<img>`, vista nativa parcheggiata) e la vista riappare a `-end` nella posizione
+nuova. Il ridimensionamento del bordo in stato espanso segue la stessa scelta.
 
-- **Dal vivo:** `browser_set_bounds` a ogni `pointermove` in rAF. Regge se la
-  vista resta entro un frame dal cursore sul Mac di sviluppo.
-- **Fermo immagine:** all'inizio del trascinamento si emette
-  `topics:pane-resize-start`, il cancello di `nativeViewDragGate.ts:52` fa
-  `freeze()` (screenshot come `<img>`, vista parcheggiata), e a `-end` la vista
-  riappare nella posizione nuova. È il percorso che le pane usano già.
+Il criterio era «entro un frame dal cursore → dal vivo». `tools/wkzprobe drag`
+(240 frame, una `set_bounds` per rAF, spostamento di 8 px logici a frame ≈
+480 px/s) misura il giro pagina → host → pagina su wry nudo, cioè **il
+pavimento**: un `#[tauri::command]` ci aggiunge serde e un salto per la coda
+dell'event loop.
 
-Il criterio è scritto nel task, con la misura come prova. Il ridimensionamento
-del bordo in stato espanso segue la stessa scelta.
+| quattro run, Mac di sviluppo | p50 | p95 | max |
+|---|---|---|---|
+| giro IPC completo | 1–2 ms | 6–17 ms | 21–34 ms |
+| la `set_bounds` in sé, lato host | 0,10–0,13 ms | 0,24–0,29 ms | |
+| intervallo fra i frame della pagina | 17 ms | 23–33 ms | 38–132 ms |
+
+La mediana non è il problema: la coda lo è. A p95 la vista è **un frame o due**
+dietro, e a 480 px/s sono 8–16 px di scollamento fra il telaio della finestra
+(DOM, incollato al cursore) e la pagina dentro — due superfici che devono
+sembrare un oggetto solo. Qui il pavimento è già fuori criterio, e sopra ci
+vanno ancora React, il rettangolo da misurare e il giro di Tauri.
+
+Non è una sorpresa ma una lezione già pagata: la slide della sidebar faceva
+esattamente questo inseguimento a rAF e «il bordo del pane balbettava», tanto da
+far nascere `browser_animate_bounds` (`lib.rs:5308`). Quella via qui non si può
+riusare: un trascinamento non ha un punto d'arrivo da dare a Core Animation.
 
 ### Due viste native una sopra l'altra
 
-Una finestrella minimizzata sopra una pane browser nel layout sovrappone due
-WKWebView. L'ordine z delle viste figlie non è oggi governato da nessuno.
-Tornata 1: verificare cosa succede e, se serve, alzare la vista della finestra
-all'apertura e a ogni cambio di stato (lato Rust, accanto a
-`browser_set_bounds`, `lib.rs:5196`).
+**Misurato, tornata 0: l'ordine z è l'ordine di creazione, e nient'altro.** Chi
+nasce dopo sta sopra; una `set_bounds` sulla vista sotto non la rimette davanti.
+In wry ogni figlia entra con `addSubview:` (`wkwebview/mod.rs:666`), che accoda,
+e `set_bounds` chiama solo `setFrame:` (`:1024`), che non riordina; Tauri non
+aggiunge niente, il suo `SetPosition` finisce sulla stessa `set_bounds`.
+
+Quindi la finestrella resta sopra finché nessuna pane browser nasce dopo di lei
+— e nasce dopo ogni volta che si apre una tab, si cambia topic o si ricrea una
+vista. La finestra va **alzata a mano**: all'apertura, a ogni cambio di stato e
+alla creazione di una qualunque altra vista nativa nella stessa finestra.
+
+Il comando c'è: `browser_raise` (`lib.rs`, accanto a `browser_set_bounds`) fa
+`removeFromSuperview` + `addSubview:positioned:NSWindowAbove relativeTo:nil`.
+La coppia esplicita e non un `addSubview:` nudo: ri-aggiungere una vista al
+superview che ha già è documentato come uno spostamento, ma solo la coppia dice
+dove atterra.
+
+La prova è `tools/wkzprobe z` (exit 0 = tutte le attese rispettate): creata per
+seconda vince · `set_bounds` sulla sotto non riordina · l'innalzamento vince ·
+una vista creata dopo copre di nuovo la alzata · **la pagina sopravvive
+all'innalzamento** (il numero casuale che si è coniata alla nascita è lo stesso
+dopo il reparent: nessun ricaricamento, nessun processo nuovo).
 
 ### Occlusione
 
@@ -186,6 +219,8 @@ richiesta esplicita di guardare.
   in più per topic aperta. Il tetto di residenza delle pane
   (`index_perf-delle-pane`) si applica anche alle schede della finestra: una
   topic non a fuoco parcheggia la sua vista.
-- **Trascinamento dal vivo che non regge.** Coperto dal fermo immagine, che è
-  il percorso già in uso.
-- **Ordine z fra due WKWebView.** Non verificato: è il primo task.
+- **Trascinamento dal vivo che non regge.** Chiuso in tornata 0: si trascina da
+  fermo, col percorso già in uso.
+- **Ordine z fra due WKWebView.** Chiuso in tornata 0: è l'ordine di creazione,
+  e `browser_raise` lo corregge. Resta da non dimenticare di chiamarlo quando
+  nasce una vista nuova mentre la finestra è aperta.

@@ -6,16 +6,20 @@ gli E2E del perimetro toccato, enumerato dai testid e dai file cambiati
 video `.webm` degli spec, non resoconti.
 
 ## Tornata 0: le due incognite, prima di scrivere componenti
-- [ ] **Ordine z fra due WKWebView.** Tauri dev: una pane browser nel layout e
+- [x] **Ordine z fra due WKWebView.** Tauri dev: una pane browser nel layout e
       una seconda vista posata sopra con `browser_set_bounds`. Annotare quale
       delle due vince e se l'ordine cambia a un nuovo `set_bounds`. Se la vista
       nuova non sta sopra, aggiungere il comando di innalzamento accanto a
       `browser_set_bounds` (`lib.rs:5196`).
-- [ ] **Trascinare dal vivo o da fermo.** Segnaposto in un `div` fisso mosso a
+      → Ordine di creazione: chi nasce dopo sta sopra, `set_bounds` non
+      riordina. Aggiunto `browser_raise`; prova in `tools/wkzprobe z`.
+- [x] **Trascinare dal vivo o da fermo.** Segnaposto in un `div` fisso mosso a
       mano con `browser_set_bounds` in rAF. Misura: ritardo fra cursore e bordo
       della vista in un video a 60 fps. Entro un frame → dal vivo, altrimenti
       fermo immagine col cancello di `nativeViewDragGate.ts`. Scrivere la scelta
       nel design.
+      → Da fermo: giro IPC p95 6-17 ms e p50 dei frame 17 ms sul pavimento wry
+      (`tools/wkzprobe drag`), cioè un frame o due di ritardo in coda.
 
 ## Tornata 1: lo stato della finestra (puro)
 - [ ] `client/src/state/topicBrowserWindow.ts`: reducer `open`, `activate`,
@@ -35,6 +39,9 @@ video `.webm` degli spec, non resoconti.
 - [ ] Il segnaposto nativo dentro la finestra: `browser:reflow-request` a ogni
       cambio di posizione, raggio dichiarato, contenitore marcato
       `data-native-browser-slot`.
+- [ ] `browser_raise` sulla vista della finestra all'apertura, a ogni cambio di
+      stato e quando nasce un'altra vista nativa (una tab nuova, un cambio di
+      topic): senza, la vista creata dopo la copre.
 - [ ] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [ ] Sotto 768 px la finestra non monta.
 - [ ] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
