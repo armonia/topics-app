@@ -8,14 +8,17 @@
 //! their width, which the probe chose to be different for each one.
 
 use objc2::rc::Retained;
-use objc2_app_kit::{NSView, NSWindow, NSWindowOrderingMode};
+use objc2_app_kit::{NSResponder, NSView, NSWindow, NSWindowOrderingMode};
 use objc2_foundation::NSPoint;
 use tao::platform::macos::WindowExtMacOS;
 
-fn content_view(window: &tao::window::Window) -> Retained<NSView> {
-    let ns_window = window.ns_window() as *mut NSWindow;
+fn ns_window(window: &tao::window::Window) -> &NSWindow {
     // The pointer comes from tao and lives as long as the window does.
-    unsafe { (*ns_window).contentView().expect("content view") }
+    unsafe { &*(window.ns_window() as *const NSWindow) }
+}
+
+fn content_view(window: &tao::window::Window) -> Retained<NSView> {
+    ns_window(window).contentView().expect("content view")
 }
 
 fn is_webview(view: &NSView) -> bool {
@@ -96,10 +99,11 @@ pub fn top_at(window: &tao::window::Window, point: (f64, f64)) -> String {
     "none".to_string()
 }
 
-/// Put the child webview with this role on top of its siblings, the way a raise
-/// command in the shell would: out of the superview and back in above
-/// everything. A plain `addSubview:` on a view already there is documented as a
-/// move, not a re-add, but only the explicit pair says where it lands.
+/// Put the child webview with this role on top of its siblings, exactly the way
+/// `browser_raise` in the shell does: `addSubview:positioned:above relativeTo:nil`
+/// on the superview it already has, and nothing else. AppKit reorders it in
+/// place; a `removeFromSuperview` first would reorder too, but hand the first
+/// responder to the window (see `first_responder_is`).
 pub fn raise_role(window: &tao::window::Window, which: &str) {
     let views = webviews(window);
     let Some(view) = views.iter().find(|v| role(v) == which) else {
@@ -108,6 +112,31 @@ pub fn raise_role(window: &tao::window::Window, which: &str) {
     let Some(parent) = (unsafe { view.superview() }) else {
         return;
     };
-    view.removeFromSuperview();
     parent.addSubview_positioned_relativeTo(view, NSWindowOrderingMode::Above, None);
+}
+
+/// Give the keyboard to the child webview with this role, as a click in its
+/// page would. Returns whether AppKit accepted it.
+pub fn focus_role(window: &tao::window::Window, which: &str) -> bool {
+    let views = webviews(window);
+    let Some(view) = views.iter().find(|v| role(v) == which) else {
+        return false;
+    };
+    let responder: &NSResponder = view;
+    ns_window(window).makeFirstResponder(Some(responder))
+}
+
+/// Is the child webview with this role its window's first responder, the view
+/// AppKit sends key events to? The page cannot answer this: after a
+/// `removeFromSuperview` + re-add the DOM still reports the same
+/// `document.activeElement`, while the keys go to the NSWindow instead.
+pub fn first_responder_is(window: &tao::window::Window, which: &str) -> bool {
+    let views = webviews(window);
+    let Some(view) = views.iter().find(|v| role(v) == which) else {
+        return false;
+    };
+    let Some(first) = ns_window(window).firstResponder() else {
+        return false;
+    };
+    Retained::as_ptr(&first).cast::<()>() == Retained::as_ptr(view).cast::<()>()
 }

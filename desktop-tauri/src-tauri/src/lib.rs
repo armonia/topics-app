@@ -5370,17 +5370,22 @@ fn browser_animate_bounds(
 /// amount of repositioning brings the window back up.
 ///
 /// Measured with `tools/wkzprobe z` (card e0821533): created-last wins, a
-/// `set_bounds` on the lower view does not reorder, this pair does, and the
-/// raised page keeps its state across the reparent (no reload, the random token
-/// the page minted at birth is still there afterwards).
+/// `set_bounds` on the lower view does not reorder, this call does, and the
+/// raised page keeps its state (no reload, the random token the page minted at
+/// birth is still there afterwards).
 ///
-/// `removeFromSuperview` + `addSubview:positioned:relativeTo:` rather than a
-/// bare `addSubview:`: re-adding a view to the superview it already has is
-/// documented as a move, but only the explicit ordering pair says WHERE it
-/// lands.
-// ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised with addSubview:positioned:above:.
-// ENGINES-GAP: webview2 - the floating window ships on macOS first, and raising one WebView2 child over another has not been probed on Windows; the command answers Ok and moves nothing.
-// ENGINES-GAP: webkitgtk - same: the GtkFixed stacking of two child webviews has not been probed on Linux; the command answers Ok and moves nothing.
+/// `addSubview:positioned:relativeTo:` ALONE, on a view that already sits in
+/// `parent`: AppKit reorders it in place, with no `willMoveToSuperview:`
+/// callback, and the view stays its window's first responder. A
+/// `removeFromSuperview` before it reorders just the same but hands the first
+/// responder to the NSWindow, so whoever is typing in the raised page loses the
+/// keyboard at every raise, while the DOM (`document.activeElement`, the page
+/// token) notices nothing. Measured with AppKit on NSTextView and WKWebView
+/// (review of card e0821533); `wkzprobe z` checks it as
+/// `first-responder-survives-the-raise`.
+// ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised in place with addSubview:positioned:above:.
+// ENGINES-GAP: webview2 - same hole as AppKit, read in the wry 0.55.1 source (every child HWND is born with SetWindowPos HWND_TOP, set_bounds passes SWP_NOZORDER): the command answers Ok and moves nothing until the WebView2 raise task of card e0821533 (tasks.md, Tornata 2) lands.
+// ENGINES-GAP: webkitgtk - not probed: wry puts every child with GtkFixed.put, which appends; the command answers Ok and moves nothing, and the same task of card e0821533 decides between a probed raise and an explicit open gap.
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {
@@ -5399,8 +5404,8 @@ fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
             if parent == nil {
                 return;
             }
-            // NSWindowAbove = 1, relativeTo nil = above every sibling.
-            let _: () = msg_send![view, removeFromSuperview];
+            // NSWindowAbove = 1, relativeTo nil = above every sibling. No
+            // removeFromSuperview first: it would take the keyboard away.
             let _: () = msg_send![parent, addSubview: view, positioned: 1isize, relativeTo: nil];
         });
         #[cfg(not(target_os = "macos"))]

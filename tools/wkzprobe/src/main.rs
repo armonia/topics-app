@@ -1,7 +1,7 @@
 //! Two child WKWebViews in one window: who is on top, and can a live drag move
 //! one of them by IPC without falling behind the cursor?
 //!
-//!   wkzprobe z      - z order: creation order, set_bounds, raise, page state
+//!   wkzprobe z      - z order: creation order, set_bounds, raise, page state, keyboard
 //!   wkzprobe drag   - round trip of one set_bounds per animation frame
 //!
 //! The probe uses wry directly, so its numbers are the FLOOR of what the Tauri
@@ -45,6 +45,12 @@ fn html(color: &str, label: &str) -> String {
 
 /// The page of the floating view in the `drag` arm: one IPC per animation
 /// frame, an ack back from the host, and a summary once the run is over.
+///
+/// The round trip it reports is a CEILING on the way there, not the way there:
+/// it also holds the ack's way back (`evaluate_script` after `set_bounds`) and
+/// the wait for this same page's main thread, the one that drops frames. The
+/// way there alone cannot be read by subtraction either: `performance.now()`
+/// here and `Instant` in the host are two different clocks.
 const DRAG_PAGE: &str = r#"<body style='margin:0;background:#c0392b'>
 <script>
 const N = 240;
@@ -158,10 +164,20 @@ fn run_z() {
                 ));
             }
             4 => {
-                println!("== 3. after raising the pane (removeFromSuperview + addSubview above)");
+                // The pane holds the keyboard before it is raised, as it would
+                // for someone typing in the floating window when a new view is
+                // born and the shell raises the window back up.
+                let focused = views::focus_role(&window, "pane") && views::first_responder_is(&window, "pane");
+                println!("== 3. after raising the pane (addSubview:positioned:above, in place)");
+                println!("   pane was first responder before the raise: {focused}");
                 views::raise_role(&window, "pane");
                 views::report(&window, probe_point);
                 verdicts.push(format!("raise-wins={}", views::top_at(&window, probe_point) == "pane"));
+                // Read right after the raise, before step 5 creates a view.
+                verdicts.push(format!(
+                    "first-responder-survives-the-raise={}",
+                    focused && views::first_responder_is(&window, "pane")
+                ));
                 let _ = pane.evaluate_script("window.ipc.postMessage('after-raise:pane:'+window.__probeState)");
             }
             5 => {
