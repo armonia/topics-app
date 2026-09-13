@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Settings, Sparkles } from 'lucide-react';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
 import { taskExecutionOptions } from '../../../../shared/task-coding-models';
+import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
 import { openSettings } from '../../lib/openSettings';
@@ -33,6 +34,32 @@ interface ExecutionRow {
   reason?: string;
 }
 
+/**
+ * The context window of ONE model row, in the chat list.
+ *
+ * It is what tells two otherwise similar rows apart, and it has to be readable
+ * at the moment of choosing, not only afterwards on the trigger (EFFORTUI-01,
+ * `tests/e2e/effort-single-surface.spec.ts`). The name gives up the width
+ * (`truncate`), this label never does, and the tilde says the model is not in
+ * the table and the number is the default rather than a measurement.
+ */
+function ModelWindowLabel({ model, selected }: { model: string; selected: boolean }) {
+  const tr = useT();
+  const win = contextWindowFor(model);
+  const n = win.tokens.toLocaleString('it-IT');
+  return (
+    <span
+      data-testid={`model-window-${model}`}
+      data-context-tokens={win.tokens}
+      data-context-known={win.known ? 'true' : 'false'}
+      className={`shrink-0 text-micro tabular-nums ${selected ? 'text-primary/80' : 'text-app-text-muted'}`}
+      title={win.known ? tr('model.ctxWindow', { n }) : tr('model.ctxWindow.guess', { n })}
+    >
+      {win.known ? '' : '≈'}{formatContextWindow(win.tokens)}
+    </span>
+  );
+}
+
 function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
   return (snapshot?.providers ?? []).map((entry) => ({
     name: entry.name,
@@ -60,6 +87,9 @@ export function AiExecutionMenuOptions({
     () => surface === 'task' ? taskExecutionOptions(snapshot) : chatExecutions(snapshot),
     [snapshot, surface],
   );
+  // Chat rows carry their context window; task rows never did, and their
+  // compatible catalog is already filtered by execution engine.
+  const showWindow = surface === 'chat';
   const [activeProvider, setActiveProvider] = useState<string | null>(value.provider);
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreProviderRef = useRef(value.provider);
@@ -123,6 +153,7 @@ export function AiExecutionMenuOptions({
           >
             <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(value.model)}</span>
             <span className="text-micro text-amber-300">{tr('ai.selector.unavailableShort')}</span>
+            {showWindow && <ModelWindowLabel model={value.model} selected />}
             <Check className="h-3 w-3 shrink-0 text-amber-300" />
           </button>
         )}
@@ -164,7 +195,16 @@ export function AiExecutionMenuOptions({
               onClick={() => { onSelect({ provider: active.name, model }); onClose?.(); }}
             >
               <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(model)}</span>
-              {selected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              {showWindow ? (
+                <>
+                  <ModelWindowLabel model={model} selected={selected} />
+                  {/* The check keeps its slot on every row: without it the
+                      window column would move on the selected row only. */}
+                  <span className="flex w-3 shrink-0 justify-center" aria-hidden="true">
+                    {selected && <Check className="h-3 w-3 text-emerald-400" />}
+                  </span>
+                </>
+              ) : selected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
           );
         })}

@@ -50,25 +50,42 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     const picker = page.getByTestId("provider-model-picker");
     await picker.waitFor({ state: "visible", timeout: 10_000 });
     await picker.click();
-    const popover = page.locator('[data-popover="provider-model-picker"]');
+    // Since the shared execution-first selector (card 05807e8e, d20667ff7) the
+    // picker opens the common `Menu`, whose testid is `provider-model-popover`.
+    const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
 
-    // Nessuno dei cinque bottoni di prima, e nessuna label "Effort" dentro il
-    // popover del modello: quel pannello parla di provider e modelli.
-    for (const tier of ["low", "medium", "high", "xhigh", "max"]) {
-      await expect(popover.getByTestId(`effort-opt-${tier}`)).toHaveCount(0);
-    }
-    await expect(popover.getByRole("group", { name: "Reasoning effort tier" })).toHaveCount(0);
+    const assertNoEffort = async () => {
+      // Nessuno dei cinque bottoni di prima, e nessuna label "Effort" dentro il
+      // popover del modello: quel pannello parla di provider e modelli.
+      for (const tier of ["low", "medium", "high", "xhigh", "max"]) {
+        await expect(popover.getByTestId(`effort-opt-${tier}`)).toHaveCount(0);
+      }
+      await expect(popover.getByRole("group", { name: "Reasoning effort tier" })).toHaveCount(0);
 
-    // E nemmeno l'effort in SOLA LETTURA. Erano rimasti due badge: il tier in
-    // forza sul bottone, e quello del provider accanto a ogni intestazione di
-    // gruppo. Leggerli lì significava cercare l'effort nel controllo sbagliato —
-    // il difetto che questa spec esiste per chiudere. Ora si legge in un posto
-    // solo, il pannello che lo cambia.
-    await expect(page.getByTestId("effort-tier-badge")).toHaveCount(0);
-    for (const prov of ["claude-code", "claude", "codex", "openai", "openclaw"]) {
-      await expect(popover.getByTestId(`effort-tier-${prov}`)).toHaveCount(0);
-    }
+      // E nemmeno l'effort in SOLA LETTURA. Erano rimasti due badge: il tier in
+      // forza sul bottone, e quello del provider accanto a ogni intestazione di
+      // gruppo. Leggerli lì significava cercare l'effort nel controllo sbagliato —
+      // il difetto che questa spec esiste per chiudere. Ora si legge in un posto
+      // solo, il pannello che lo cambia.
+      await expect(page.getByTestId("effort-tier-badge")).toHaveCount(0);
+      for (const prov of ["claude-code", "claude", "codex", "openai", "openclaw"]) {
+        await expect(popover.getByTestId(`effort-tier-${prov}`)).toHaveCount(0);
+      }
+    };
+
+    // The selector has two levels now: execution engines first, then that
+    // engine's models. The effort must be absent from BOTH, or the model list
+    // could grow its controls back behind the first level unnoticed.
+    await expect(popover.getByTestId("ai-selector-runtimes")).toBeVisible();
+    await assertNoEffort();
+    // Every registered engine is listed, ready or not, so there is always one
+    // to enter; an unavailable one still opens its level with the reason.
+    const runtime = popover.locator("button[data-provider]").first();
+    await expect(runtime).toBeVisible();
+    await runtime.click();
+    await expect(popover.getByTestId("ai-selector-models")).toBeVisible();
+    await assertNoEffort();
   });
 
   test("lo slider nel pannello di sessione scrive l'override sulla topic", async ({ page, request }) => {
@@ -239,23 +256,18 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     // E nella lista: ogni riga porta il suo numero, così la finestra si vede
     // NEL momento in cui si sceglie e non dopo, sul bottone.
     await picker.click();
-    const popover = page.locator('[data-popover="provider-model-picker"]');
+    const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
-    const rows = popover.locator('[role="option"]');
+    // The topic carries an explicit claude-code choice, so the execution-first
+    // selector (card 05807e8e) opens straight on that engine's model level.
+    const models = popover.getByTestId("ai-selector-models");
+    await expect(models).toBeVisible();
+    const rows = models.locator('[role="option"][data-model]');
+    // The list is never empty here, even on a CI runner with no `claude`
+    // binary: the saved `claude-haiku-4-5` stays as a disabled "unavailable"
+    // row (MP-TASK-06), and that row must state its window like every other.
+    await expect(rows.first()).toBeVisible();
     const total = await rows.count();
-    // Un elenco VUOTO non è un difetto della finestra di contesto: è un
-    // ambiente senza nessun provider pronto — i runner di CI, dove non c'è né il
-    // binario `claude` né una chiave. Lì questo test misurerebbe l'assenza dei
-    // modelli invece di ciò che gli interessa (che OGNI riga dichiari la sua
-    // finestra), e infatti falliva con «il picker deve elencare almeno un
-    // modello». Si salta dicendolo, come già fa provider-picker.spec.ts.
-    //
-    // Restano ASSERZIONI DURE tutte le righe qui sotto: appena un modello c'è,
-    // deve dire il suo numero. Il salto copre «non ce n'è nessuno», non «non lo
-    // dice».
-    if (total === 0) {
-      test.skip(true, "nessun provider pronto in questo ambiente — il picker non elenca modelli");
-    }
     const rightEdges: number[] = [];
     for (let i = 0; i < total; i++) {
       const row = rows.nth(i);
