@@ -28,6 +28,7 @@ import {
   mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
   chmodSync,
 } from "node:fs";
+import { connect as netConnect } from "node:net";
 import { randomBytes } from "node:crypto";
 
 export interface DaemonState {
@@ -271,4 +272,148 @@ export function releaseLock(): void {
  */
 export function uptimeMsSince(startedAt: string): number {
   return Math.max(0, Date.now() - Date.parse(startedAt));
+}
+
+// ─── Port identity + fallback (squatter recovery) ────────────────────────────
+//
+// The daemon is the single owner of the machine's Topics data. It must come UP
+// even when the preferred port (default 3333) is already held by an UNRELATED
+// process — the "Van Damme-o-Matic" / account-switcher dashboard on this box
+// binds 127.0.0.1:3333 and returns `200 text/html` for *every* path, including
+// `/__daemon/healthz` and `/api/system/presence`. `Bun.serve` then throws
+// `Failed to start server. Is port 3333 in use?` and the daemon process dies
+// with the lock recovered but no listener — the desktop app sees a dead daemon
+// and a live squatter, and the user gets "connection error".
+//
+// The fix has two cooperating halves:
+//   * `chooseListenPort` — before binding, ask the port "who are you?" by the
+//     SHAPE of the `/api/system/presence` body (two numeric fields no other
+//     server would emit). A Topics server → keep the port. A squatter, or
+//     nobody → bind an ephemeral port so the daemon always comes up and the
+//     state file carries the REAL port for the desktop to find.
+//   * `pickEphemeralPort` — a free, non-privileged port to fall back to.
+//
+// We deliberately do NOT kill the squatter: it belongs to someone else, and
+// shutting down an unrelated process on suspicion is exactly what this module
+// is not allowed to do (see `port-squatter.ts` header).
+
+/** The route whose RESPONSE SHAPE is Topics' identity, for a loopback probe.
+ *  Unauthenticated on loopback (no Origin header → origin gate passes), cheap
+ *  (three indexed COUNTs), and its body has a shape no other local server would
+ *  emit by chance. Same choice as `port-squatter.ts`. */
+export const PROBE_ROUTE = "/api/system/presence";
+
+/**
+ * Is this `/api/system/presence` body OUR shape?
+ *
+ * Mirrors `port-squatter.rispostaNostra`: require the two numeric fields
+ * `openSessions` and `workingSessions`. One common-named integer could appear
+ * by accident in another server's response; two with these names could not.
+ * Anything else — HTML, `{"status":"ok"}`, wrong types — is not Topics.
+ */
+export function isTopicsPresenceBody(body: string): boolean {
+  try {
+    const v = JSON.parse(body) as Record<string, unknown> | null;
+    return (
+      typeof v === "object" && v !== null &&
+      typeof v.openSessions === "number" &&
+      typeof v.workingSessions === "number"
+    );
+  } catch {
+    return false;
+  }
+}
+
+export interface PortProbeResult {
+  /** Topics answered: this port is ours, safe to bind. */
+  readonly ourServer: boolean;
+  /** Somebody answered, but not with the Topics shape: a squatter. */
+  readonly squatted: boolean;
+  /** Nobody answered (connection refused / timeout): safe to bind. */
+  readonly nobody: boolean;
+}
+
+/**
+ * Ask `http://127.0.0.1:<port>/api/system/presence` whether the Topics daemon
+ * is already listening there. Injectable `fetchFn` keeps this pure for tests
+ * (the real one is a timed, plain-HTTP loopback fetch).
+ */
+export async function probeTopicsOnPort(
+  port: number,
+  fetchFn: typeof fetch = fetch,
+): Promise<PortProbeResult> {
+  const url = `http://127.0.0.1:${port}${PROBE_ROUTE}`;
+  let res: Response | null = null;
+  try {
+    res = await fetchFn(url, { signal: AbortSignal.timeout(1500) } as RequestInit);
+  } catch {
+    return { ourServer: false, squatted: false, nobody: true };
+  }
+  if (res === null) return { ourServer: false, squatted: false, nobody: true };
+  let body = "";
+  try { body = await res.text(); } catch { body = ""; }
+  if (isTopicsPresenceBody(body)) {
+    return { ourServer: true, squatted: false, nobody: false };
+  }
+  // Someone answered (any status) but not with our shape: a squatter.
+  return { ourServer: false, squatted: true, nobody: false };
+}
+
+/**
+ * Decide the port the daemon should bind.
+ *
+ *   * `configured === 0` → return 0 immediately (already ephemeral).
+ *   * Otherwise ask `configured` "who are you?":
+ *       - Topics   → keep it (idempotent restart / our own rebind).
+ *       - squatter → 0 (bind ephemeral; state file records the real port).
+ *       - nobody   → keep it (nothing to lose by binding the preferred port).
+ *
+ * The binding step in `server.ts` is the real guard: if we try to bind a port
+ * that was taken between probe and bind, `Bun.serve` throws and the caller
+ * retries on port 0 (fully kernel-assigned) — so a TOCTOU race cannot leave
+ * the daemon dead.
+ */
+export async function chooseListenPort(
+  configured: number,
+  fetchFn: typeof fetch = fetch,
+): Promise<number> {
+  if (!configured || configured <= 0) return 0;
+  const r = await probeTopicsOnPort(configured, fetchFn);
+  if (r.ourServer) return configured;          // idempotent: already ours
+  if (r.squatted) return 0;                     // squatter → ephemeral
+  return configured;                            // nobody → prefer configured
+}
+
+/**
+ * A free, non-privileged ephemeral port. Bind to 127.0.0.1:0, read the
+ * kernel-assigned port, close, and hand it back. A small TOCTOU window exists
+ * between close and the real bind, but the real bind is what matters — if that
+ * port was stolen in the meantime, `Bun.serve` throws and the caller falls
+ * back to port 0 (fully kernel-assigned) for real.
+ */
+export function pickEphemeralPort(): number {
+  const s = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+  const p = s.port;
+  s.stop(true);
+  return p;
+}
+
+/**
+ * True if something is listening on 127.0.0.1:<port> (i.e. the port is held).
+ * Used to confirm a squatter before falling back, and to assert in tests that
+ * a freshly-picked ephemeral port is actually free.
+ */
+export function portIsHeld(port: number, timeoutMs = 1500): Promise<boolean> {
+  if (!port || port <= 0) return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let done = false;
+    const finish = (v: boolean) => { if (!done) { done = true; resolve(v); } };
+    const s = netConnect({ host: "127.0.0.1", port });
+    const timer = setTimeout(() => {
+      try { s.destroy(); } catch {}
+      finish(true); // no answer in time → treat as held (conservative)
+    }, timeoutMs);
+    s.once("connect", () => { clearTimeout(timer); try { s.destroy(); } catch {} finish(true); });
+    s.once("error", () => { clearTimeout(timer); finish(false); });
+  });
 }

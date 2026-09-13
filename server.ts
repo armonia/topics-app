@@ -12,7 +12,7 @@ import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
-import type { ServerWebSocket } from "bun";
+import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
@@ -21,6 +21,7 @@ import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
+  chooseListenPort,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -2932,8 +2933,25 @@ function isRemotePeer(req: Request, srv: { requestIP(req: Request): { address: s
   return !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
 }
 
+// ─── Port selection (squatter recovery) ─────────────────────────────────────
+// Before binding, ask the configured port "who are you?". If a non-Topics
+// process (e.g. the account-switcher / Van Damme-o-Matic dashboard) squats it,
+// fall back to an ephemeral port (0) so the daemon ALWAYS comes up. The state
+// file (written after Bun.serve) records the REAL port, so the desktop
+// discovers it correctly. If the port is stolen between probe and bind
+// (TOCTOU), the try/catch below retries on port 0 (fully kernel-assigned).
+let bindPort = await chooseListenPort(PORT);
+if (bindPort === 0 && PORT > 0) {
+  // chooseListenPort returned 0 → a non-Topics process holds PORT.
+  // Let Bun pick a kernel-assigned ephemeral port (port 0 in opzioniServer).
+  console.warn(
+    `[Daemon] port ${PORT} is held by a non-Topics process — binding an ephemeral port instead. ` +
+    `The state file will record the real port so the desktop can find us.`
+  );
+}
+
 const opzioniServer = {
-  port: PORT,
+  port: bindPort,
   // Bind host. Default "::" dual-stack: with net.inet6.ip6.v6only=0 (macOS
   // default) it owns BOTH the IPv6 and the IPv4-mapped families on PORT, so
   // Topics occupies localhost on every resolution path — important on a DEV box
@@ -4400,7 +4418,30 @@ function withHttpLog(
 
 const fetchCompresso = withHttpLog(withJsonCompression(opzioniServer.fetch));
 
-const server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
+// ─── Bind with TOCTOU guard ─────────────────────────────────────────────────
+// If `chooseListenPort` decided PORT was free (nobody answered) but a process
+// bound it in the meantime — or if the probe misread a squatter — `Bun.serve`
+// throws `Failed to start server. Is port <N> in use?`. Catch that and retry on
+// port 0 (fully kernel-assigned ephemeral). The state file records the real
+// port either way, so the desktop discovers us correctly. We never kill the
+// squatter: it belongs to someone else.
+let server: Server<WSData>;
+try {
+  server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
+} catch (err) {
+  if (PORT > 0 && bindPort !== 0) {
+    const bindError = err instanceof Error ? err.message : String(err);
+    // TOCTOU: the port we thought was free is held. Retry on a kernel-assigned
+    // ephemeral port. This is the only case where the daemon would otherwise die.
+    console.warn(
+      `[Daemon] bind failed on port ${bindPort} (${bindError}) — ` +
+      `retrying on an ephemeral port.`
+    );
+    server = Bun.serve<WSData>({ ...opzioniServer, port: 0, fetch: fetchCompresso });
+  } else {
+    throw err;
+  }
+}
 
 // Da qui in poi un file locale si può MOSTRARE senza che nessuno navighi su
 // `file://`: l'agente chiede il file, la pane va su `/api/media` di questo
@@ -5565,8 +5606,8 @@ ctx.requestIp = (req: Request) =>
 
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
-console.log(`🚀 Topics App running at ${proto}://localhost:${PORT}`);
-console.log(`📡 WebSocket available at ${wsProto}://localhost:${PORT}/ws`);
+console.log(`🚀 Topics App running at ${proto}://localhost:${server.port ?? PORT}`);
+console.log(`📡 WebSocket available at ${wsProto}://localhost:${server.port ?? PORT}/ws`);
 if (useTls) console.log(`🔒 TLS enabled (cert: ${tlsCert})`);
 console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/browser/:id)`);
 
