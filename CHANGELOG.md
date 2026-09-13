@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.312 — 2026-09-13
+
+### Sotto il cofano
+- bozza browser-della-topic (finestra a tre stati, tab come chrome, viewport arbitrato)
+
 ## 2.2.311 — 2026-09-13
 
 ### Novità

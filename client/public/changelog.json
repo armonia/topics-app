@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.312",
+    "date": "2026-09-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "bozza browser-della-topic (finestra a tre stati, tab come chrome, viewport arbitrato)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.311",
     "date": "2026-09-13",
     "sections": {
