@@ -92,6 +92,12 @@ const resizeMessageSchema = z.object({
   width: z.int().check(z.positive()),
   height: z.int().check(z.positive()),
   deviceScaleFactor: z.optional(z.number().check(z.minimum(1), z.maximum(3))),
+  // "This size comes with an input of mine". Whoever uses the page owns its
+  // viewport (TOPIC-BROWSER-05), so in a shared session the server drops the
+  // `resize` of a client that is only watching. The flag is needed because
+  // input also travels on the WebRTC DataChannel, which the server never sees:
+  // without it a phone that scrolls would stay a spectator forever.
+  driving: z.optional(z.boolean()),
 });
 
 /** Server -> client: a headless-page download saved under our origin. */

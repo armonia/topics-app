@@ -24,8 +24,8 @@
  * the Replayer default) and ALL input is captured by a transparent overlay in the
  * MAIN frame — which is fully scriptable with reliable first-responder/focus under
  * WKWebView, and never navigates. Pointer events map to source-page CSS px through
- * the known fit `scale` (the overlay is sized to the scaled mirror, pinned
- * top-left, so `sourcePx = localPx / scale`) and relay via `sendInput` (→ CDP).
+ * the known fit `scale` (the overlay is sized to the scaled mirror and sits
+ * exactly on it, so `sourcePx = (localPx - overlayOrigin) / scale`) and relay via `sendInput` (→ CDP).
  * Keyboard is captured by a hidden field (`BrowserKeyboardCapture`): `keydown`
  * covers hardware keys, `beforeinput`/composition cover mobile soft keyboards,
  * paste and IME — so an iPhone PWA follower can type into the shared session too.
@@ -56,6 +56,7 @@ import BrowserKeyboardCapture, {
   type SendInput,
 } from './BrowserKeyboardCapture';
 import type { RemoteField } from '../../lib/browserKeyboardProfile';
+import { fitCentered } from '../../lib/browserFit';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -66,6 +67,13 @@ type RrwebEvent = {
 
 /** rrweb constants we depend on (avoid importing the full enum surface). */
 const EVENT_META = 4;
+/** IncrementalSnapshot: the running stream of mutations, input and scroll. */
+const EVENT_INCREMENTAL = 3;
+/** IncrementalSource.ViewportResize: the page changed size mid-session. Meta only
+ *  says how big it was when recording STARTED, so without this the mirror kept
+ *  fitting the first size forever and a shared page that got resized by its
+ *  driver was rendered at the wrong scale on every other device. */
+const INCREMENTAL_VIEWPORT_RESIZE = 4;
 
 /** Senza eventi per questo tempo il timer live si parcheggia: una pagina remota
  *  ferma non deve tenere sveglio il renderer. Abbastanza largo da non tagliare la
@@ -122,8 +130,8 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   const touchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
   // Option/Alt held → let the user select + copy natively in the mirror iframe.
   const [selecting, setSelecting] = useState(false);
-  // Has the replayer painted anything yet? The root is `bg-white`, so before the
-  // first rrweb event this component IS a blank white box — indistinguishable
+  // Has the replayer painted anything yet? The root is the theme background, so
+  // before the first rrweb event this component IS an empty box — indistinguishable
   // from a broken pane when the transport is down (the only other signal is the
   // toolbar's connection chip). Nobody upstream can answer this: the panel only
   // knows the socket state, not whether pixels landed. So we own it here.
@@ -132,24 +140,34 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   useEffect(() => { selectingRef.current = selecting; }, [selecting]);
   const navGuardAbortRef = useRef<AbortController | null>(null);
 
-  // Fit the reconstructed iframe (recorded WxH) inside the pane, pinned top-left,
-  // and size the capture overlay to exactly that scaled rect.
+  // Fit the reconstructed iframe (recorded WxH) inside the pane and CENTRE it,
+  // then put the capture overlay on exactly that scaled rect.
+  //
+  // It used to be pinned top-left on a white root, which is what a viewer who is
+  // not driving the viewport (TOPIC-BROWSER-05) sees most of the time: the page
+  // in a corner with a white L around it, looking broken rather than scaled. The
+  // leftover space is split in two and the surround is the theme background.
   const applyScale = useCallback(() => {
     const root = rootRef.current;
     const replayer = replayerRef.current;
     const { w, h } = dimsRef.current;
     if (!root || !replayer || !w || !h) return;
-    const cw = root.clientWidth;
-    const ch = root.clientHeight;
-    const scale = Math.min(cw / w, ch / h) || 1;
+    const { scale, left, top } = fitCentered(
+      { width: root.clientWidth, height: root.clientHeight },
+      { width: w, height: h },
+    );
     scaleRef.current = scale;
     const wrapper = replayer.wrapper as HTMLElement | undefined;
     if (wrapper) {
       wrapper.style.transformOrigin = 'top left';
-      wrapper.style.transform = `scale(${scale})`;
+      wrapper.style.transform = `translate(${left}px, ${top}px) scale(${scale})`;
     }
+    // The overlay moves with the mirror: `toSource` reads its client rect, so
+    // the pointer mapping follows the centring without knowing about it.
     const overlay = overlayRef.current;
     if (overlay) {
+      overlay.style.left = `${left}px`;
+      overlay.style.top = `${top}px`;
       overlay.style.width = `${w * scale}px`;
       overlay.style.height = `${h * scale}px`;
     }
@@ -364,7 +382,12 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
       noteActivityRef.current?.();
       // Meta (type 4) carries the recorded viewport — drive the fit from it.
-      if (event.type === EVENT_META && event.data) {
+      // The recorded viewport arrives twice: once in Meta when recording starts,
+      // and again as a ViewportResize every time the driver's page changes size.
+      const carriesViewport =
+        event.type === EVENT_META ||
+        (event.type === EVENT_INCREMENTAL && event.data?.source === INCREMENTAL_VIEWPORT_RESIZE);
+      if (carriesViewport && event.data) {
         dimsRef.current = { w: event.data.width || dimsRef.current.w, h: event.data.height || dimsRef.current.h };
       }
       if (!started) {
@@ -400,7 +423,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         return;
       }
       replayerRef.current?.addEvent(event as never);
-      if (event.type === EVENT_META) applyScale(); // a resize re-emits Meta
+      if (carriesViewport) applyScale(); // refit on the new viewport
     };
 
     const unsubscribe = registerDomSink(handle);
@@ -484,7 +507,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
   }, [registerDomSink, applyScale, attachNavGuard]);
 
   return (
-    <div ref={rootRef} className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-white" style={{ isolation: 'isolate' }}>
+    <div ref={rootRef} className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-app-bg" style={{ isolation: 'isolate' }}>
       {/* Hide rrweb's REPLAYED cursor: liveMode paints a `.replayer-mouse` dot that
           chases the source page's CDP mouse — in co-browse the local user drives
           with their OWN native cursor, so the replayed one is only round-trip lag. */}
@@ -497,7 +520,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       <BrowserKeyboardCapture ref={kbdRef} sendInput={sendInput} suppressed={agentActive} />
 
       {/* Parent-frame capture overlay — the robust input surface. Sized to the
-          scaled mirror (applyScale), pinned top-left. Disabled while the user
+          scaled mirror and moved with it by applyScale (centred). Disabled while the user
           holds Option (native selection in the iframe) or an agent drives. */}
       <div
         ref={overlayRef}

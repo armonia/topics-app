@@ -119,6 +119,7 @@ import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
 import { countSharedViewers, createViewerCountPublisher } from "./server/browser-viewer-count";
+import { createViewportArbiter, isDrivingInput } from "./server/browser-viewport-arbiter";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
@@ -388,6 +389,12 @@ const viewerCountPublisher = createViewerCountPublisher(
   (c) => countSharedViewers(browserWsClients.get(c)),
   (c, count, except) => broadcastToBrowserWs(c, { type: 'viewers', count }, except),
 );
+
+// Who owns the viewport of a shared context: the client of the last input, or
+// the first one connected while nobody has touched the page. The rule and the
+// reason live in server/browser-viewport-arbiter.ts; here it is only wired to
+// the four socket events that move it (open, input, resize, close).
+const viewportArbiter = createViewportArbiter();
 
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
 // (migration 012). Without this, every GET/PUT would silently degrade. Fail loud.
@@ -3638,6 +3645,8 @@ const opzioniServer = {
       if (ws.data.browserContextId) {
         const ctxId = ws.data.browserContextId;
         console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
+        // Arrival order decides the viewport until somebody uses the page.
+        viewportArbiter.noteConnect(ctxId, ws.data.id);
         // Phase 30 BROWSER-CHAT-03 — register this WS in the broadcast set
         // so broadcastToBrowserWs(ctxId, msg) reaches it.
         let bset = browserWsClients.get(ctxId);
@@ -4017,6 +4026,8 @@ const opzioniServer = {
           }
           const parsed = result.data;
           if (parsed.type === 'input') {
+            // Using the page is what makes a client the driver of its viewport.
+            if (isDrivingInput(parsed.action)) viewportArbiter.noteInput(ctxId, ws.data.id);
             const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
               console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
               return 'failed' as const;
@@ -4090,6 +4101,20 @@ const opzioniServer = {
           } else if (parsed.type === 'resize') {
             // Match the server viewport (+HiDPI) to the pane's real size so the
             // page reflows responsively and renders sharp — no fixed-1280 letterbox.
+            //
+            // Only from the driver (TOPIC-BROWSER-05). A spectator's pane keeps
+            // streaming its own size from its ResizeObserver, and applying it
+            // reflowed the shared page to the smallest screen watching it: a
+            // phone opening the context turned the Mac's page into a phone page
+            // under the hands of whoever was typing. Dropped silently: the
+            // spectator is not asking for anything, it is just measuring itself.
+            //
+            // `driving` is the claim: the pane says this size comes with an
+            // input it just sent. It has to be said out loud because input can
+            // go down the WebRTC DataChannel straight to the sidecar, and the
+            // branch above never sees it.
+            if (parsed.driving) viewportArbiter.noteInput(ctxId, ws.data.id);
+            if (!viewportArbiter.canResize(ctxId, ws.data.id)) return;
             browserService.resize(ctxId, parsed.width, parsed.height, parsed.deviceScaleFactor).catch(err =>
               console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
             );
@@ -4292,6 +4317,9 @@ const opzioniServer = {
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       if (ws.data.browserContextId) {
         console.log(`[WS][browser] Close: ${ws.data.id} -> ctx ${ws.data.browserContextId}`);
+        // The viewport goes back to the oldest pane left (and the context is
+        // forgotten when this was the last one).
+        viewportArbiter.noteDisconnect(ws.data.browserContextId, ws.data.id);
         // Phase 30 BROWSER-CHAT-03 — remove from broadcast set BEFORE invoking
         // cleanup so any concurrent broadcast no longer targets this socket.
         const bset = browserWsClients.get(ws.data.browserContextId);

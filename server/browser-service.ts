@@ -1754,6 +1754,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // doesn't exist yet, and createContext() consults this hint so the context
       // is born at the pane's real size AND deviceScaleFactor (immutable after).
       const dsf = clampDsf(deviceScaleFactor ?? pendingViewportHints.get(id)?.deviceScaleFactor);
+      // Already this size: nothing to do, and doing it anyway is not free. The
+      // driver of a shared page re-asserts its viewport while it interacts
+      // (TOPIC-BROWSER-05), and every applied resize restarts the screencast.
+      const live = contexts.get(id);
+      const shown = live?.page.viewportSize();
+      if (shown && shown.width === width && shown.height === height) {
+        touchActivity(live);
+        return;
+      }
       pendingViewportHints.set(id, { width, height, deviceScaleFactor: dsf });
       const entry = await service.getOrCreate(id);
       await entry.page.setViewportSize({ width, height });
