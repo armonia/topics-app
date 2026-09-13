@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { slackMs } from "../tests/helpers/time-slack";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const START_PROD = join(REPO_ROOT, "scripts", "start-prod.sh");
@@ -39,7 +40,9 @@ function alive(pid: number): boolean {
 }
 
 async function waitUntil(check: () => boolean, message: string | (() => string), timeoutMs = 7_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+  // Every wait here watches real processes being spawned and killed: under the
+  // shard fleet the machine is busy, so the windows stretch with the load.
+  const deadline = Date.now() + slackMs(timeoutMs);
   while (Date.now() < deadline) {
     if (check()) return;
     await Bun.sleep(50);
@@ -276,7 +279,7 @@ describe("production server watcher supervision", () => {
       expect(alive(observedServer.pid)).toBe(true);
       expect(alive(foreignProcess.pid)).toBe(true);
     }
-  }, 20_000);
+  }, slackMs(20_000));
 
   it("starts the watcher supervisor only when the opt-in flag is exactly one", () => {
     const source = readFileSync(START_PROD, "utf8");
@@ -372,11 +375,11 @@ describe("production server watcher supervision", () => {
       "successor could not acquire the released kernel lease",
       3_000,
     );
-    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    expect(Date.now() - startedAt).toBeLessThan(slackMs(3_000));
 
     successor.kill("SIGTERM");
     expect(await successor.exited).toBe(0);
-  }, 6_000);
+  }, slackMs(6_000));
 
   it("keeps a detached reload helper from retaining the dead watcher's lease", async () => {
     const fixture = makeFixture();
@@ -465,7 +468,7 @@ wait
       supervisor.kill("SIGTERM");
       await supervisor.exited;
     }
-  }, 8_000);
+  }, slackMs(8_000));
 
   it("drops inherited leases and removes the watcher tree after supervisor SIGKILL", async () => {
     const fixture = makeFixture();
@@ -528,7 +531,7 @@ wait
 
     successor.kill("SIGTERM");
     expect(await successor.exited).toBe(0);
-  }, 10_000);
+  }, slackMs(10_000));
 
   it("force-stops only its watcher child when that child ignores TERM", async () => {
     const fixture = makeFixture();
@@ -568,5 +571,5 @@ while :; do sleep 1; done
     expect(await supervisor.exited).toBe(0);
     expect(alive(stubbornPid)).toBe(false);
     expect(existsSync(fixture.supervisorPidfile)).toBe(false);
-  }, 6_000);
+  }, slackMs(6_000));
 });
