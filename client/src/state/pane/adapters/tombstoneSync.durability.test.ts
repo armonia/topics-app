@@ -120,6 +120,15 @@ async function waitFor(ready: () => boolean, budgetMs = 10_000): Promise<void> {
   while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
 }
 
+/**
+ * The end of a failing write is its FOURTH fetch call (the first PUT plus
+ * `MAX_RETRIES`), not the key showing up in the un-acked set: `publish()` puts
+ * it there synchronously, before the debounce is even armed, so waiting for the
+ * key returns at 0 ms with no PUT attempted at all, and a test asserting there
+ * cannot see a failed PUT being thrown away.
+ */
+const PUT_ATTEMPTS = 4; // MAX_RETRIES + 1 in tombstoneSync.ts
+
 beforeEach(() => {
   __resetTombstoneSyncForTests();
   localStorage.clear();
@@ -144,14 +153,17 @@ describe("tombstone sync PUT durability", () => {
   test("a failing PUT (server down) is RETAINED as un-acked, not swallowed", async () => {
     installFetch(false);
     addBrowserTombstone("ctx:a6d64304");
-    await waitFor(() => __getUnackedTombstoneSyncKeys().includes(BROWSER_KEY));
+    await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS);
     expect(__getUnackedTombstoneSyncKeys()).toContain(BROWSER_KEY);
   });
 
   test("a WS reconnect retries the un-acked set and clears it once the server is back", async () => {
     installFetch(false);
     addBrowserTombstone("ctx:2c9911");
-    await waitFor(() => __getUnackedTombstoneSyncKeys().includes(BROWSER_KEY));
+    // The chain must be OVER before the server comes back: a retry still in
+    // flight would find the server up and clear the key on its own, and the
+    // reconnect retry below would never be put to the test.
+    await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS);
     expect(__getUnackedTombstoneSyncKeys()).toContain(BROWSER_KEY);
 
     installFetch(true);
