@@ -160,23 +160,71 @@ function keychainEnabled(): boolean {
   return process.env.NODE_ENV !== "test";
 }
 
-export function readKeychainCredentials(): (OAuthCredentials & { sourcePath: string }) | null {
-  const r = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
-  if (r.status !== 0 || !r.stdout.trim()) return null;
+// ONE SERVICE, POSSIBLY TWO ITEMS. The Keychain keys an item by service AND
+// account, and `find-generic-password -s` without `-a` returns whichever item
+// it meets first. On 2026-09-13 there were two: the live pair under the login
+// user (the account vdm writes, `platform.mjs` `currentUser()`) and a blank one
+// under account "unknown" (every token an empty string), created 2026-09-11
+// 21:42Z. The service-only lookup returned the blank one for 35 hours: this
+// runtime fell back to a stale `~/.jcode/auth.json` and every turn died on
+// `invalid_grant`, and the jcode mirror synced nothing. So the login user's
+// item is asked for first, and an item without a usable pair never shadows one
+// that has it.
+// Not `os.userInfo()` alone: under Bun, with USER unset (`env -i`), it answers
+// "unknown" instead of reading the user database, and that is exactly how the
+// blank item got its account (Claude Code 2.1.269, a Bun binary, launched with
+// `env -i` by a test agent). A lookup under "unknown" would find that item again.
+function loginUser(): string {
+  const fromEnv = process.env.USER || process.env.LOGNAME;
+  if (fromEnv) return fromEnv;
   try {
-    const parsed = parseAnyFormat(JSON.parse(r.stdout.trim()));
-    return parsed ? { ...parsed, sourcePath: KEYCHAIN_SOURCE } : null;
-  } catch {
-    return null;
-  }
+    const name = userInfo().username;
+    return name && name !== "unknown" ? name : "";
+  } catch { return ""; }
 }
 
-/** The item's account name: what the CLI wrote, falling back to the login user. */
+/** `-a` values to try, most specific first; `null` means "any account". */
+function keychainAccountsToTry(): Array<string | null> {
+  const user = loginUser();
+  return user ? [user, null] : [null];
+}
+
+function findKeychainItem(account: string | null, withSecret: boolean): KeychainRunResult {
+  const args = ["find-generic-password", "-s", KEYCHAIN_SERVICE];
+  if (account) args.push("-a", account);
+  if (withSecret) args.push("-w");
+  return _runner("security", args);
+}
+
+export function readKeychainCredentials(): (OAuthCredentials & { sourcePath: string }) | null {
+  for (const account of keychainAccountsToTry()) {
+    const r = findKeychainItem(account, true);
+    if (r.status !== 0 || !r.stdout.trim()) continue;
+    try {
+      const parsed = parseAnyFormat(JSON.parse(r.stdout.trim()));
+      if (parsed) return { ...parsed, sourcePath: KEYCHAIN_SOURCE };
+    } catch { /* unreadable item: try the next account */ }
+  }
+  return null;
+}
+
+/**
+ * The account of the item a renewal must update: the login user's when that
+ * item holds a usable pair (it is the one `readKeychainCredentials` read),
+ * otherwise what the service-only lookup reports, otherwise the login user.
+ */
 function keychainAccount(): string {
-  const r = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE]);
+  const user = loginUser();
+  if (user) {
+    const own = findKeychainItem(user, true);
+    try {
+      if (own.status === 0 && parseAnyFormat(JSON.parse(own.stdout.trim()))) return user;
+    } catch { /* not a usable item: fall through */ }
+  }
+  const r = findKeychainItem(null, false);
   const m = r.status === 0 ? /"acct"<blob>="([^"]+)"/.exec(r.stdout) : null;
   if (m?.[1]) return m[1];
-  try { return userInfo().username; } catch { return process.env.USER || "claude"; }
+  return user || "claude";
 }
 
 /**
@@ -186,7 +234,8 @@ function keychainAccount(): string {
  * `-U` updates the item in place instead of adding a duplicate.
  */
 export function writeKeychainCredentials(next: OAuthCredentials): void {
-  const cur = _runner("security", ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
+  const account = keychainAccount();
+  const cur = findKeychainItem(account, true);
   let doc: Record<string, unknown> = {};
   try { doc = cur.status === 0 && cur.stdout.trim() ? JSON.parse(cur.stdout.trim()) : {}; } catch { doc = {}; }
   const previous = (doc.claudeAiOauth && typeof doc.claudeAiOauth === "object" ? doc.claudeAiOauth : {}) as Record<string, unknown>;
@@ -196,7 +245,7 @@ export function writeKeychainCredentials(next: OAuthCredentials): void {
     refreshToken: next.refreshToken,
     expiresAt: next.expiresAt,
   };
-  const r = _runner("security", ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", keychainAccount(), "-w", JSON.stringify(doc)]);
+  const r = _runner("security", ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", account, "-w", JSON.stringify(doc)]);
   if (r.status !== 0) throw new Error(`keychain write failed: ${r.stderr.trim() || `exit ${r.status}`}`);
 }
 
