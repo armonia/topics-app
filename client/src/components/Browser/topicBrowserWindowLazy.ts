@@ -72,15 +72,21 @@ export const MIN_CHAT_WIDTH = 320;
  *  the two cannot drift apart. */
 export const MIN_EXPANDED_WIDTH = 360;
 
-/** Narrowest area that can hold an expanded window AND a usable chat next to
- *  it. Below this the window does not expand at all. */
-export const MIN_EXPANDABLE_AREA = MIN_CHAT_WIDTH + MIN_EXPANDED_WIDTH;
+/** Narrowest a docked window can be and still be OPERABLE: its bar has to
+ *  show the handful of buttons that get you back out of it. Deliberately
+ *  well BELOW MIN_EXPANDED_WIDTH: a window narrower than it would like is
+ *  a nuisance and the chat floor still wins, but a 2px one traps you. */
+export const MIN_OPERABLE_WINDOW_WIDTH = 160;
+
+/** Narrowest area that can hold an operable docked window AND a usable chat
+ *  beside it. Below this the window does not dock at all. */
+export const MIN_DOCK_AREA = MIN_CHAT_WIDTH + MIN_OPERABLE_WINDOW_WIDTH;
 
 /** Can this area hold a docked window at all? The rendering asks this before
  *  dressing the window as expanded, so a persisted `exp` cannot survive in
  *  an area too narrow to show the way out of it. */
 export function canExpandInArea(areaWidth: number): boolean {
-  return areaWidth >= MIN_EXPANDABLE_AREA;
+  return areaWidth >= MIN_DOCK_AREA;
 }
 
 /**
@@ -102,12 +108,12 @@ export function canExpandInArea(areaWidth: number): boolean {
  * project the area is a few hundred pixels, and the expanded window came out
  * 80 px wide at 1280 and 2 px at 1024, too narrow to hit its own minimise
  * button. A window nobody can grab is worse than no window, and the mode is
- * persisted, so the topic stayed stuck in it. Under `MIN_EXPANDABLE_AREA` the
+ * persisted, so the topic stayed stuck in it. Under `MIN_DOCK_AREA` the
  * answer is zero: the caller falls back to the floating window, which is
  * always reachable.
  */
 export function expandedInsetFor(areaWidth: number, requestedWidth: number): number {
-  if (areaWidth < MIN_EXPANDABLE_AREA) return 0;
+  if (areaWidth < MIN_DOCK_AREA) return 0;
   return Math.max(0, Math.min(requestedWidth, areaWidth - MIN_CHAT_WIDTH));
 }
 

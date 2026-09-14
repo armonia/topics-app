@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Locator, type APIRequestContext } from "@playwright/test";
+import { test, expect, type Page, type Locator, type Request, type APIRequestContext } from "@playwright/test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,6 +98,50 @@ async function openAddMenu(page: Page): Promise<Locator> {
 /** The chat floor, stated here and not imported: `MIN_CHAT_WIDTH` is the number
  *  under test, and reading it from the source would move the bar with it. */
 const MIN_CHAT_WIDTH = 320;
+
+/** Narrowest area that can hold an OPERABLE docked window (a bar wide enough
+ *  to show the way back out) plus a usable chat beside it. Stated here for the
+ *  same reason as `MIN_CHAT_WIDTH`: imported, a regression that moved the
+ *  threshold would move the bar with it, and the scenarios would follow the
+ *  defect instead of catching it. */
+const MIN_DOCK_AREA = 480;
+
+/**
+ * Does a hand actually reach this element?
+ *
+ * `toBeVisible` does not answer that: the window crushed to 2px was "visible",
+ * and so is a control drawn under something else. What a hand has is the
+ * center pixel, so whatever sits there must BE the element.
+ */
+async function reachable(el: Locator): Promise<boolean> {
+  return el.evaluate((node) => {
+    const r = node.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return false;
+    const onTop = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!onTop && node.contains(onTop);
+  });
+}
+
+/** Do these two rectangles share a single pixel? */
+function overlaps(a: { x: number; y: number; width: number; height: number }, b: typeof a): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/**
+ * Split ONE named tab out to the right.
+ *
+ * `splitViaContextMenu` in `helpers/layout.ts` addresses tabs by index under
+ * `[role="main"]`; inside a project window that picks the project's own tab in
+ * the outer strip, not the one in the project's inner strip. This scenario
+ * needs a specific inner tab, so it names it.
+ */
+async function splitTabRight(page: Page, tab: Locator): Promise<void> {
+  await expect(tab).toBeVisible({ timeout: 15000 });
+  await tab.click({ button: "right" });
+  const item = page.getByText("Dividi a destra", { exact: true });
+  await expect(item).toBeVisible({ timeout: 5000 });
+  await item.click();
+}
 
 /** The seed endpoint keys on the SESSION, which is not the topic id. */
 async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
@@ -637,18 +681,63 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       await expect(windowEl).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid="topic-browser-tab"]')).toHaveCount(2);
 
+      // THE IDENTITY OF THE LIVE PAGE, marked the way 01j marks it.
+      //
+      // Same sheets is NOT the same pages: a close that destroyed the contexts
+      // and a reopen that made two new ones would satisfy every assertion
+      // below and still have thrown away history, forms and the agent's own
+      // view. A node that comes back wearing its mark was never unmounted.
+      const sheetEl = page.locator(`[data-testid="topic-browser-sheet"][data-context-id="${first}"]`);
+      await expect(sheetEl).toBeVisible({ timeout: 10000 });
+      await sheetEl.evaluate((el) => { el.setAttribute("data-e2e-mark", "alive"); });
+
+      // And the same claim read from the wire, which is where a destructive X
+      // would leave its trace even if the DOM were rebuilt convincingly.
+      const lifecycle: string[] = [];
+      const watchWire = (req: Request) => {
+        const method = req.method();
+        if (method !== "DELETE" && method !== "POST") return;
+        if (/\/api\/browsers?\//.test(req.url())) lifecycle.push(`${method} ${req.url()}`);
+      };
+      page.on("request", watchWire);
+
       await page.locator('[data-testid="topic-browser-close"]').click();
-      await expect(windowEl).toHaveCount(0, { timeout: 10000 });
+      // PARKED, not unmounted: the node stays, hidden. `toHaveCount(0)` here
+      // was the assertion of the destructive X — it passed precisely because
+      // the pages were being thrown away.
+      await expect(windowEl).toBeHidden({ timeout: 10000 });
+      await expect(windowEl).toHaveAttribute("data-parked", "", { timeout: 10000 });
 
       // The way back has to EXIST: a window with pages behind it and no command
       // to reopen is a topic whose browser is unreachable for good.
       const reopen = page.locator('[data-testid="topic-browser-reopen"]');
       await expect(reopen).toBeVisible({ timeout: 10000 });
+
+      // And it has to be somewhere a hand can use WITHOUT costing the composer.
+      // It lived in `ChatPanel`'s header first, and that header does not exist
+      // in `bodyOnly` — which is how a standalone chat pane renders, i.e. the
+      // ordinary case: the pages were parked with no way back at all. It is a
+      // component of its own now, mounted beside the window in both hosts, so
+      // the two assertions below are where it may NOT be: on the composer, or
+      // under something else.
+      const reopenBox = (await reopen.boundingBox())!;
+      const composerBox = (await page.locator('[data-testid="chat-input-area"]').first().boundingBox())!;
+      expect(
+        overlaps(reopenBox, composerBox),
+        "il comando di riapertura interseca il composer",
+      ).toBe(false);
+      expect(await reachable(reopen), "il centro del comando di riapertura non e' suo").toBe(true);
+
       await reopen.click();
 
       await expect(windowEl).toBeVisible({ timeout: 10000 });
       await expect(page.locator(`[data-testid="topic-browser-tab"][data-context-id="${first}"]`)).toHaveCount(1);
       await expect(page.locator(`[data-testid="topic-browser-tab"][data-context-id="${second}"]`)).toHaveCount(1);
+
+      // THE POINT: the same page came back, and nothing was spent to get it.
+      await expect(sheetEl).toHaveAttribute("data-e2e-mark", "alive");
+      page.off("request", watchWire);
+      expect(lifecycle, "la X ha chiuso o riaperto un contesto browser").toEqual([]);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -728,6 +817,75 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       // The project layout and the browser contexts live on the SERVER, so
       // they outlive the page: left behind, the next spec finds a project
       // window that already has the panes this one opened.
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
+  test("TOPIC-BROWSER-01p: in un'area troppo stretta la finestra non si aggancia, e la sua barra resta raggiungibile", async ({ page, request }) => {
+    // AN AREA TOO NARROW TO DOCK IN.
+    //
+    // Docking needs room for the window AND a usable chat. A split project at
+    // 1024 leaves the conversation a third of the width: docked there the
+    // window came out a couple of pixels wide, its own controls could not be
+    // hit, and the `exp` sitting in ui-state had no way out — the topic was
+    // stuck in a state whose only exit was the button that state had crushed.
+    //
+    // The precondition is MEASURED and asserted, not assumed. If the split ever
+    // stopped making the area narrow, all three assertions below would pass on
+    // a wide area and prove nothing at all (HERO-R-003).
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-nodock-"));
+    const topic = await createTopic(request, `E2E-TBW-NoDock-${Date.now()}`, { projectPath });
+    const projectCtx = `tbw-nodock-pane-${Date.now()}`;
+    try {
+      await page.setViewportSize({ width: 1024, height: 800 });
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      await seedProjectLayout(request, projectPath, topic.id, projectCtx);
+      // The persisted state SAYS docked. The area is about to say it cannot be.
+      await seedWindow(request, topic.id, {
+        mode: "exp", minPos: null, expandedWidth: 520,
+        tabs: [sheet("tbw-nodock-1")], activeContextId: "tbw-nodock-1", promoted: [],
+      });
+
+      await goToApp(page);
+      const browserTab = page.locator(`[data-pane-id="browser:${projectCtx}"]`).first();
+      await expect(browserTab).toBeVisible({ timeout: 20000 });
+      // Divide the project: the conversation keeps one column of two.
+      await splitTabRight(page, browserTab);
+
+      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
+      await chatTab.click();
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 15000 });
+
+      // The precondition, measured on the element the window itself measures.
+      // Inside a project the conversation is a `ChatPane`, not the `ChatPanel`
+      // of a standalone topic: there is no `chat-panel` here, and the area the
+      // window reads is the pane root that carries the topic id.
+      const area = await page
+        .locator(`[data-testid="project-window"] [data-chat-topic-id="${topic.id}"]`)
+        .first()
+        .evaluate((el) => el.clientWidth);
+      expect(area, "lo split deve lasciare la chat sotto la soglia di aggancio").toBeLessThan(MIN_DOCK_AREA);
+      expect(area, "e la chat deve comunque esistere").toBeGreaterThan(0);
+
+      // (1) A persisted `exp` does not survive an area that cannot host it.
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      // (2) The control that would dock it is not offered at all: an area that
+      // cannot hold a docked window must not invite one.
+      await expect(page.locator('[data-testid="topic-browser-expand"]')).toHaveCount(0);
+      // (3) THE POINT, and the half that `toBeVisible` cannot state: the bar is
+      // reachable by a hand. The crushed window was "visible" at two pixels too.
+      const close = page.locator('[data-testid="topic-browser-close"]');
+      await expect(close).toBeVisible();
+      expect(
+        await reachable(close),
+        "il centro della X non appartiene alla X: la barra e' schiacciata o coperta",
+      ).toBe(true);
+    } finally {
       await resetProjectPanes(request, projectPath).catch(() => {});
       await closeAllBrowserContexts(request).catch(() => {});
       await deleteTopic(request, topic.id).catch(() => {});

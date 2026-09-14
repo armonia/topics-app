@@ -9,7 +9,7 @@
  * 2px window hides its own way out.
  */
 import { describe, test, expect } from 'bun:test';
-import { expandedInsetFor, canExpandInArea, MIN_CHAT_WIDTH, MIN_EXPANDABLE_AREA, DEFAULT_EXPANDED_WIDTH } from './topicBrowserWindowLazy';
+import { expandedInsetFor, canExpandInArea, MIN_CHAT_WIDTH, MIN_DOCK_AREA, DEFAULT_EXPANDED_WIDTH } from './topicBrowserWindowLazy';
 
 describe('the space the chat cedes when the window is expanded', () => {
   test('a wide area gives the window exactly what it asked for', () => {
@@ -34,8 +34,8 @@ describe('the space the chat cedes when the window is expanded', () => {
   });
 
   test('the floor is exact: one pixel decides', () => {
-    expect(canExpandInArea(MIN_EXPANDABLE_AREA - 1)).toBe(false);
-    expect(canExpandInArea(MIN_EXPANDABLE_AREA)).toBe(true);
+    expect(canExpandInArea(MIN_DOCK_AREA - 1)).toBe(false);
+    expect(canExpandInArea(MIN_DOCK_AREA)).toBe(true);
   });
 
 });

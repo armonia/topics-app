@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
+import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
 import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
@@ -1672,6 +1673,9 @@ function ChatPaneComponent({
         <Suspense fallback={null}>
           <TopicBrowserWindow topicId={topic.id} areaRef={paneRootRef} projectPath={topic.projectPath ?? undefined} />
         </Suspense>
+      )}
+      {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && browserWindow.mode === 'hidden' && (
+        <TopicBrowserReopen topicId={topic.id} />
       )}
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
