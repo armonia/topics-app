@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.322 — 2026-09-14
+
+### Sotto il cofano
+- La quota è sul libero: chi non è nostro ha la precedenza
+- Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
+
 ## 2.2.321 — 2026-09-14
 
 ### Sotto il cofano

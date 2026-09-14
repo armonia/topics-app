@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.322",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La quota è sul libero: chi non è nostro ha la precedenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti della quota sul libero in inglese: il rail comment-language su main era rosso",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.321",
     "date": "2026-09-14",
     "sections": {
