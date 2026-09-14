@@ -102,7 +102,9 @@ export function routeTaskBrowserFrame(msg: WSMessage): Promise<void> | undefined
     const taskId = taskIdFromKey(msg.key);
     if (!taskId) return;
     if (msg.sourceClientId && msg.sourceClientId === getTabId()) return;
-    applyRemoteTaskTabs(taskId, msg.value);
+    // server_seq orders this frame against a PUT of ours that may still be in
+    // flight: without it the store can only hold the frame and adopt it blindly.
+    applyRemoteTaskTabs(taskId, msg.value, msg.server_seq);
     return;
   }
   // Reconnect resync — MIRATO. L'`ui-state:init` non porta più le chiavi

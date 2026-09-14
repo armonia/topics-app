@@ -299,10 +299,15 @@ async function uiGet<T>(key: string): Promise<T | null | undefined> {
   } catch { return undefined; }
 }
 
-// Writes stay PENDING until the server answers, which is what keeps an inbound
-// frame from landing on a record whose PUT is still travelling (see
-// `uiStatePersist`).
-const writes = createUiStatePersister();
+// Writes stay PENDING until the server answers, and a frame that arrives while
+// our PUT travels is HELD until that answer says which of the two is newer (see
+// `uiStatePersist`); `onDeferredFrame` is where a held frame that won lands.
+const writes = createUiStatePersister({
+  onDeferredFrame: (key, value) => {
+    const topicId = topicIdFromKey(key);
+    if (topicId && adopt(topicId, value)) notify();
+  },
+});
 const hasPendingWrite = (topicId: string) => writes.isPending(keyFor(topicId));
 
 // ── in-memory cache + subscription (React) ───────────────────────────────────
@@ -343,12 +348,11 @@ function commit(topicId: string, next: TopicBrowserWindowState): void {
   notify();
 }
 
-/** Apply a server-pushed value for ONE topic WITHOUT persisting it (no PUT
- *  echo). Returns true when the cache changed. A topic with a PENDING local
- *  write is left untouched: the un-flushed edit is newer than any inbound frame
- *  and is about to be persisted and re-broadcast. */
-function applyRemote(topicId: string, value: unknown): boolean {
-  if (!topicId || hasPendingWrite(topicId)) return false;
+/** Write a server-side value into the cache, no questions asked and no PUT echo.
+ *  Returns true when the cache changed. Whether the value is allowed to win is
+ *  decided by the callers below. */
+function adopt(topicId: string, value: unknown): boolean {
+  if (!topicId) return false;
   const sanitized = sanitizeTopicBrowserWindow(value);
   if (!sanitized) return false;
   loaded.add(topicId);
@@ -358,11 +362,21 @@ function applyRemote(topicId: string, value: unknown): boolean {
   return true;
 }
 
+/** Apply a server-pushed value for ONE topic. A queued local edit wins (it is
+ *  newer than anything the server can know about); a value that arrives while
+ *  our own PUT is in flight is held by the persister and re-offered when the
+ *  answer says whose write came last. */
+function applyRemote(topicId: string, value: unknown, seq?: number | null): boolean {
+  if (!topicId) return false;
+  if (writes.admitFrame(keyFor(topicId), value, seq) !== 'apply') return false;
+  return adopt(topicId, value);
+}
+
 /** Live-apply one remote `ui-state:updated` for a topic-browser key. The WS
  *  bridge drops this client's own echo (by sourceClientId) before calling, so a
  *  close/promote/move on ANOTHER device updates this one in real time. */
-export function applyRemoteTopicWindow(topicId: string, value: unknown): void {
-  if (applyRemote(topicId, value)) notify();
+export function applyRemoteTopicWindow(topicId: string, value: unknown, seq?: number | null): void {
+  if (applyRemote(topicId, value, seq)) notify();
 }
 
 /**
@@ -374,11 +388,11 @@ export function applyRemoteTopicWindow(topicId: string, value: unknown): void {
  * repeating what we just wrote, and applying it would re-apply a stale value
  * over a newer local edit.
  */
-export function applyTopicWindowFrame(frame: { key: string; value: unknown; sourceClientId?: string }): boolean {
+export function applyTopicWindowFrame(frame: { key: string; value: unknown; sourceClientId?: string; server_seq?: number }): boolean {
   const topicId = topicIdFromKey(frame.key);
   if (!topicId) return false;
   if (frame.sourceClientId && frame.sourceClientId === getTabId()) return true;
-  applyRemoteTopicWindow(topicId, frame.value);
+  applyRemoteTopicWindow(topicId, frame.value, frame.server_seq);
   return true;
 }
 
@@ -412,16 +426,21 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
   const alreadyApplied = snapshot ? applyRemoteTopicWindowInit(snapshot) : new Set<string>();
   const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !hasPendingWrite(id));
   if (!ids.length) return;
+  // The write generation is taken BEFORE the GET leaves: `Promise.all` waits for
+  // the slowest answer, and a close committed in between would be resurrected by
+  // a read that was issued before it existed.
+  const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
   const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
     const value = values[i];
     if (value === undefined) return;
+    if (writes.wroteSince(keyFor(id), tokens[i]!) || hasPendingWrite(id)) return;
     if (value === null) {
-      if (!hasPendingWrite(id) && cache.delete(id)) changed = true;
+      if (cache.delete(id)) changed = true;
       return;
     }
-    if (applyRemote(id, value)) changed = true;
+    if (adopt(id, value)) changed = true;
   });
   if (changed) notify();
 }

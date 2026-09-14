@@ -290,10 +290,15 @@ function releaseBrowserContext(contextId: string): void {
   void fetch(`/api/browsers/${encodeURIComponent(contextId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
-// Writes stay PENDING until the server answers, which is what keeps an inbound
-// frame from landing on a record whose PUT is still travelling (see
-// `uiStatePersist`).
-const writes = createUiStatePersister();
+// Writes stay PENDING until the server answers, and a frame that arrives while
+// our PUT travels is HELD until that answer says which of the two is newer (see
+// `uiStatePersist`); `onDeferredFrame` is where a held frame that won lands.
+const writes = createUiStatePersister({
+  onDeferredFrame: (key, value) => {
+    const taskId = taskIdFromKey(key);
+    if (taskId && adopt(taskId, value)) notify();
+  },
+});
 const hasPendingWrite = (taskId: string) => writes.isPending(keyFor(taskId));
 
 const KEY_PREFIX = 'task-browser-tabs:';
@@ -364,14 +369,12 @@ function commit(taskId: string, next: TaskBrowserTabsState): void {
   notify();
 }
 
-/** Apply a server-pushed value for ONE task WITHOUT persisting it (no PUT echo).
- *  Returns true when the cache changed. A task with a PENDING local write is left
- *  untouched: the un-flushed edit is newer than any inbound frame and is about to
- *  be persisted + re-broadcast, so applying a remote value would clobber it. Marks
- *  the task loaded — the frame carries the full per-task record, so it supersedes
- *  a still-in-flight initial GET. */
-function applyRemote(taskId: string, value: unknown): boolean {
-  if (!taskId || hasPendingWrite(taskId)) return false;
+/** Write a server-side value into the cache, no questions asked and no PUT echo.
+ *  Returns true when the cache changed. Marks the task loaded — the value carries
+ *  the full per-task record, so it supersedes a still-in-flight initial GET.
+ *  Whether the value is allowed to win is decided by the callers below. */
+function adopt(taskId: string, value: unknown): boolean {
+  if (!taskId) return false;
   const sanitized = sanitizeTaskTabs(value);
   if (!sanitized) return false;
   loaded.add(taskId);
@@ -379,6 +382,16 @@ function applyRemote(taskId: string, value: unknown): boolean {
   if (cur && JSON.stringify(cur) === JSON.stringify(sanitized)) return false;
   cache.set(taskId, sanitized);
   return true;
+}
+
+/** Apply a server-pushed value for ONE task. A queued local edit wins (it is
+ *  newer than anything the server can know about); a value that arrives while
+ *  our own PUT is in flight is held by the persister and re-offered when the
+ *  answer says whose write came last. */
+function applyRemote(taskId: string, value: unknown, seq?: number | null): boolean {
+  if (!taskId) return false;
+  if (writes.admitFrame(keyFor(taskId), value, seq) !== 'apply') return false;
+  return adopt(taskId, value);
 }
 
 /**
@@ -423,8 +436,8 @@ export function forgetTaskTabs(taskId: string): void {
  *  WS bridge drops this client's own echo (by sourceClientId) before calling, so a
  *  park/close/reorder/rename/remove on ANOTHER device updates this one in real time
  *  — the missing inbound path that left the store write-only. */
-export function applyRemoteTaskTabs(taskId: string, value: unknown): void {
-  if (applyRemote(taskId, value)) notify();
+export function applyRemoteTaskTabs(taskId: string, value: unknown, seq?: number | null): void {
+  if (applyRemote(taskId, value, seq)) notify();
 }
 
 /** Live-apply the bulk `ui-state:init` snapshot on (re)connect: every
@@ -472,9 +485,17 @@ export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown
   const alreadyApplied = snapshot ? applyRemoteTaskTabsInit(snapshot) : new Set<string>();
   const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !hasPendingWrite(id));
   if (!ids.length) return;
+  // The write generation is taken BEFORE the GET leaves: `Promise.all` waits for
+  // the slowest answer, and a close committed in between would be resurrected by
+  // a read that was issued before it existed.
+  const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
   const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
-  ids.forEach((id, i) => { if (values[i] != null && applyRemote(id, values[i])) changed = true; });
+  ids.forEach((id, i) => {
+    if (values[i] == null) return;
+    if (writes.wroteSince(keyFor(id), tokens[i]!) || hasPendingWrite(id)) return;
+    if (adopt(id, values[i])) changed = true;
+  });
   if (changed) notify();
 }
 

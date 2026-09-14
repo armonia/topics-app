@@ -419,28 +419,45 @@ describe('forgetTaskTabs (task archiviato)', () => {
 // a frame from another device landed in the cache, our own echo was then dropped
 // as an echo, and the two copies stayed apart until the next reconnection.
 
-describe('a PUT in flight keeps the record protected until it answers', () => {
+// The fix opened the opposite window, which is what the seq arbitration closes:
+// the server broadcasts BEFORE it answers, so a frame carrying a write that
+// happened AFTER ours must be adopted, not thrown away. And a resync GET issued
+// before a close must lose to that close even when its answer lands later.
+describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   const REAL_FETCH = globalThis.fetch;
   let served: Map<string, unknown>;
-  let releasePut: (() => void) | null;
-  let fetched: string[];
+  let held: { method: string; key: string; release: (fail?: boolean) => void }[];
+  let nextSeq: number;
+  let asked: string[];
 
   beforeEach(() => {
     served = new Map();
-    fetched = [];
-    releasePut = null;
-    (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+    held = [];
+    asked = [];
+    nextSeq = 100;
+    // A server that COMMITS on arrival (and would broadcast there) but hands the
+    // answer over only when the test releases it: that gap is the race.
+    (globalThis as unknown as { fetch: unknown }).fetch = (url: string, init?: RequestInit): Promise<Response> => {
       const key = decodeURIComponent(String(url).replace('/api/ui-state/', ''));
-      if (init?.method === 'PUT') {
-        await new Promise<void>((resolve) => { releasePut = resolve; });
-        served.set(key, JSON.parse(String(init.body)));
-        return new Response('{}', { status: 200 });
+      const method = init?.method ?? 'GET';
+      if (method === 'DELETE') return Promise.resolve(new Response('{}', { status: 200 }));
+      let body: string;
+      if (method === 'PUT') {
+        served.set(key, JSON.parse(String(init!.body)));
+        body = JSON.stringify({ ok: true, server_seq: ++nextSeq });
+      } else {
+        asked.push(key);
+        const value = served.get(key);
+        body = JSON.stringify(value === undefined ? null : { value, server_seq: nextSeq });
       }
-      if (init?.method === 'DELETE') return new Response('{}', { status: 200 });
-      fetched.push(key);
-      const value = served.get(key);
-      return new Response(JSON.stringify(value === undefined ? null : { value }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
+      return new Promise<Response>((resolve, reject) => {
+        held.push({
+          method,
+          key,
+          release: (fail) => (fail
+            ? reject(new TypeError('network'))
+            : resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }))),
+        });
       });
     };
   });
@@ -456,39 +473,81 @@ describe('a PUT in flight keeps the record protected until it answers', () => {
     nextSeq: ctx.length,
   });
   const liveIds = (taskId: string) => liveTabs(getTaskTabs(taskId)).map((t) => t.contextId);
+  const onServer = (key: string) => ((served.get(key) as { tabs: { contextId: string }[] }).tabs).map((t) => t.contextId);
+  const release = (method: string, fail?: boolean) => {
+    const entry = held.find((h) => h.method === method)!;
+    held = held.filter((h) => h !== entry);
+    entry.release(fail);
+  };
 
-  test('a frame from another device cannot land while our PUT travels', async () => {
-    const tid = uniq('inflight');
+  test('an OLDER frame arriving while our PUT travels is dropped', async () => {
+    const tid = uniq('seq-older');
     const key = `task-browser-tabs:${tid}`;
-    applyRemoteTaskTabs(tid, recordOf('task-i-0'));
+    applyRemoteTaskTabs(tid, recordOf('task-i-0'), 100);
     served.set(key, recordOf('task-i-0'));
 
     taskBrowserTabs.removeTab(tid, 'task-i-0');   // last tab: PUT with no debounce
-    await tick();                                  // timer fired, PUT suspended
+    await tick();                                  // PUT committed on the server, answer withheld
 
-    applyRemoteTaskTabs(tid, recordOf('task-i-0', 'task-i-1'));
-    expect(liveIds(tid)).toEqual([]);              // the remote frame is the older one
+    applyRemoteTaskTabs(tid, recordOf('task-i-0', 'task-i-1'), 100);
+    expect(liveIds(tid)).toEqual([]);              // held, and it is our own past
 
-    releasePut!();
+    release('PUT');
     await tick();
-    expect((served.get(key) as { tabs: unknown[] }).tabs).toHaveLength(0);
-    expect(liveIds(tid)).toEqual([]);              // both copies agree
+    expect(liveIds(tid)).toEqual([]);
+    expect(onServer(key)).toEqual([]);             // both copies agree
   });
 
-  test('the resync GET is not even asked while our PUT travels', async () => {
-    const tid = uniq('inflight-get');
+  test('a NEWER frame arriving before our PUT answers is adopted, not lost', async () => {
+    const tid = uniq('seq-newer');
     const key = `task-browser-tabs:${tid}`;
-    applyRemoteTaskTabs(tid, recordOf('task-g-0'));
-    served.set(key, recordOf('task-g-0'));
+    applyRemoteTaskTabs(tid, recordOf('task-n-0'), 100);
+    served.set(key, recordOf('task-n-0'));
 
-    taskBrowserTabs.removeTab(tid, 'task-g-0');
+    taskBrowserTabs.removeTab(tid, 'task-n-0');
+    await tick();                                  // the server holds our empty record at seq 101
+
+    served.set(key, recordOf('task-n-1'));         // another device writes AFTER us
+    applyRemoteTaskTabs(tid, recordOf('task-n-1'), 102);
+
+    release('PUT');
     await tick();
+    expect(liveIds(tid)).toEqual(['task-n-1']);    // the newer write wins
+    expect(liveIds(tid)).toEqual(onServer(key));
+  });
 
-    await resyncTaskTabsFromServer({});
-    expect(fetched).not.toContain(key);
-    expect(liveIds(tid)).toEqual([]);
+  test('a resync GET issued before a close does not resurrect the tab', async () => {
+    const tid = uniq('seq-read');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-r-0'), 100);
+    served.set(key, recordOf('task-r-0'));
 
-    releasePut!();
+    const reading = resyncTaskTabsFromServer({});
+    await tick();                                  // the GET read one tab, answer withheld
+    expect(asked).toContain(key);
+
+    taskBrowserTabs.removeTab(tid, 'task-r-0');
     await tick();
+    release('PUT');
+    await tick();                                  // our close is persisted
+
+    release('GET');
+    await reading;
+    await tick();
+    expect(liveIds(tid)).toEqual([]);              // the read was overtaken by the write
+    expect(onServer(key)).toEqual([]);
+  });
+
+  test('a PUT that fails releases the frame it was holding', async () => {
+    const tid = uniq('seq-failed');
+    applyRemoteTaskTabs(tid, recordOf('task-f-0'), 100);
+
+    taskBrowserTabs.removeTab(tid, 'task-f-0');
+    await tick();
+    applyRemoteTaskTabs(tid, recordOf('task-f-9'), 105);
+
+    release('PUT', true);
+    await tick();
+    expect(liveIds(tid)).toEqual(['task-f-9']);    // nothing of ours reached the row
   });
 });

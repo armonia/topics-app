@@ -467,28 +467,44 @@ describe('persistence (ui-state PUT/GET)', () => {
 // the protection used to end THERE instead of at the answer. In that round trip
 // a frame from another device landed in the cache, our own echo was then dropped
 // as an echo, and the two copies stayed apart until the next reconnection.
-
-describe('a PUT in flight keeps the record protected until it answers', () => {
+// The fix opened the opposite window, which is what the seq arbitration closes:
+// the server broadcasts BEFORE it answers, so a frame carrying a write that
+// happened AFTER ours must be adopted, not thrown away. And a resync GET issued
+// before a close must lose to that close even when its answer lands later.
+describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   const REAL_FETCH = globalThis.fetch;
   let served: Map<string, unknown>;
-  let releasePut: (() => void) | null;
-  let fetched: string[];
+  let held: { method: string; key: string; release: (fail?: boolean) => void }[];
+  let nextSeq: number;
+  let asked: string[];
 
   beforeEach(() => {
     served = new Map();
-    fetched = [];
-    releasePut = null;
-    (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+    held = [];
+    asked = [];
+    nextSeq = 100;
+    // A server that COMMITS on arrival (and would broadcast there) but hands the
+    // answer over only when the test releases it: that gap is the race.
+    (globalThis as unknown as { fetch: unknown }).fetch = (url: string, init?: RequestInit): Promise<Response> => {
       const key = decodeURIComponent(String(url).replace('/api/ui-state/', ''));
-      if (init?.method === 'PUT') {
-        await new Promise<void>((resolve) => { releasePut = resolve; });
-        served.set(key, JSON.parse(String(init.body)));
-        return new Response('{}', { status: 200 });
+      const method = init?.method ?? 'GET';
+      let body: string;
+      if (method === 'PUT') {
+        served.set(key, JSON.parse(String(init!.body)));
+        body = JSON.stringify({ ok: true, server_seq: ++nextSeq });
+      } else {
+        asked.push(key);
+        const value = served.get(key);
+        body = JSON.stringify(value === undefined ? null : { value, server_seq: nextSeq });
       }
-      fetched.push(key);
-      const value = served.get(key);
-      return new Response(JSON.stringify(value === undefined ? null : { value }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
+      return new Promise<Response>((resolve, reject) => {
+        held.push({
+          method,
+          key,
+          release: (fail) => (fail
+            ? reject(new TypeError('network'))
+            : resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }))),
+        });
       });
     };
   });
@@ -498,49 +514,91 @@ describe('a PUT in flight keeps the record protected until it answers', () => {
   });
 
   const tick = () => new Promise((r) => setTimeout(r, 10));
-  const twoSheets = () => ({
+  const window = (...contextIds: string[]) => ({
     mode: 'min',
-    tabs: [{ contextId: 'a', url: 'u', title: 'T', openedBy: 'user' }, { contextId: 'b', url: 'u', title: 'T', openedBy: 'user' }],
-    activeContextId: 'a',
+    tabs: contextIds.map((contextId) => ({ contextId, url: 'u', title: 'T', openedBy: 'user' })),
+    activeContextId: contextIds[0] ?? null,
     promoted: [],
     minPos: null,
     expandedWidth: null,
   });
   const ids = (topicId: string) => getTopicWindow(topicId).tabs.map((t) => t.contextId);
-  const oneSheet = () => ({ ...twoSheets(), tabs: twoSheets().tabs.slice(0, 1) });
+  const onServer = (key: string) => ((served.get(key) as { tabs: { contextId: string }[] }).tabs).map((t) => t.contextId);
+  const release = (method: string, fail?: boolean) => {
+    const entry = held.find((h) => h.method === method)!;
+    held = held.filter((h) => h !== entry);
+    entry.release(fail);
+  };
 
-  test('a frame from another device cannot land while our PUT travels', async () => {
-    const tid = uniqueId('inflight');
+  test('an OLDER frame arriving while our PUT travels is dropped', async () => {
+    const tid = uniqueId('seq-older');
     const key = `topic-browser:${tid}`;
-    applyRemoteTopicWindow(tid, oneSheet());
-    served.set(key, oneSheet());
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
 
-    topicBrowserWindow.close(tid, 'a');   // last sheet: PUT with no debounce
-    await tick();                          // timer fired, PUT suspended
+    topicBrowserWindow.close(tid, 'a');    // last sheet: PUT with no debounce
+    await tick();                           // PUT committed on the server, answer withheld
 
-    applyTopicWindowFrame({ key, value: twoSheets(), sourceClientId: 'device-b' });
-    expect(ids(tid)).toEqual([]);          // the remote frame is the older one
+    applyTopicWindowFrame({ key, value: window('a', 'b'), sourceClientId: 'device-b', server_seq: 100 });
+    expect(ids(tid)).toEqual([]);           // held, and it is our own past
 
-    releasePut!();
+    release('PUT');
     await tick();
-    expect((served.get(key) as { tabs: unknown[] }).tabs).toHaveLength(0);
-    expect(ids(tid)).toEqual([]);          // both copies agree
+    expect(ids(tid)).toEqual([]);
+    expect(onServer(key)).toEqual([]);      // both copies agree
   });
 
-  test('the resync GET is not even asked while our PUT travels', async () => {
-    const tid = uniqueId('inflight-get');
+  test('a NEWER frame arriving before our PUT answers is adopted, not lost', async () => {
+    const tid = uniqueId('seq-newer');
     const key = `topic-browser:${tid}`;
-    applyRemoteTopicWindow(tid, oneSheet());
-    served.set(key, oneSheet());
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
+
+    topicBrowserWindow.close(tid, 'a');
+    await tick();                           // the server holds our [] at seq 101
+
+    served.set(key, window('b'));           // another device writes AFTER us
+    applyTopicWindowFrame({ key, value: window('b'), sourceClientId: 'device-b', server_seq: 102 });
+
+    release('PUT');
+    await tick();
+    expect(ids(tid)).toEqual(['b']);        // the newer write wins
+    expect(ids(tid)).toEqual(onServer(key));
+  });
+
+  test('a resync GET issued before a close does not resurrect the sheet', async () => {
+    const tid = uniqueId('seq-read');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
+
+    const reading = reloadTopicWindowsFromServer({});
+    await tick();                           // the GET read ['a'], answer withheld
+    expect(asked).toContain(key);
 
     topicBrowserWindow.close(tid, 'a');
     await tick();
+    release('PUT');
+    await tick();                           // our close is persisted
 
-    await reloadTopicWindowsFromServer({});
-    expect(fetched).not.toContain(key);
-    expect(ids(tid)).toEqual([]);
-
-    releasePut!();
+    release('GET');
+    await reading;
     await tick();
+    expect(ids(tid)).toEqual([]);           // the read was overtaken by the write
+    expect(onServer(key)).toEqual([]);
+  });
+
+  test('a PUT that fails releases the frame it was holding', async () => {
+    const tid = uniqueId('seq-failed');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 100);
+
+    topicBrowserWindow.close(tid, 'a');
+    await tick();
+    applyTopicWindowFrame({ key, value: window('z'), sourceClientId: 'device-b', server_seq: 105 });
+
+    release('PUT', true);
+    await tick();
+    expect(ids(tid)).toEqual(['z']);        // nothing of ours reached the row
   });
 });
