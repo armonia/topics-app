@@ -44,6 +44,15 @@ hermetic(test);
  * <iframe> is on screen): an absence asserted against a pane that never mounted
  * is free.
  *
+ * WHAT THIS FILE CANNOT SHOW, said out loud rather than faked. The SHARING icon
+ * needs a pane that could have rendered a native view and chose the server
+ * session instead, and that choice exists only in the desktop shell — the web
+ * client this suite drives has no native view at all, which is why it publishes
+ * no `shareMode` and no sharing icon (see `BrowserTabTypeIcon`). The icon's
+ * PRESENCE is therefore proved on the kind a web run can really reach: the real
+ * Chromium engine, in `browser-engine-switch`, which asserts `data-kind` flips
+ * to `chromium` the moment the engine does.
+ *
  * @covers TOPIC-BROWSER-03
  */
 
@@ -61,20 +70,6 @@ async function mountBrowserPane(
     { tid: topicId, u: url },
   );
   await expect(page.locator("[data-browser-pane]").first()).toBeVisible({ timeout: 10_000 });
-}
-
-/**
- * Pin this pane to the SHARED server session before it mounts.
- *
- * For a chat topic the browser contextId IS the topic id (see the
- * `browser:open-and-navigate` handler in `usePaneOrdering`), so the per-device
- * preference key is predictable — and it has to be written BEFORE the mount,
- * because the pane reads it once to decide which side it renders.
- */
-async function pinShared(page: import("@playwright/test").Page, contextId: string): Promise<void> {
-  await page.evaluate((ctx) => {
-    localStorage.setItem(`topics.browser.shared.${ctx}`, "1");
-  }, contextId);
 }
 
 /** Open the tab's sheet. The dots come out on hover, so the pointer goes over
@@ -95,7 +90,7 @@ test.describe("TOPIC-BROWSER-03 — niente di permanente sopra la pagina", () =>
     await resetPaneStore(request, []);
   });
 
-  test("una scheda condivisa: niente sopra la pagina, l'icona nella tab, i commutatori nel foglio", async ({ page, browserProcessPageV2, request }) => {
+  test("la pane streaming: niente steso sopra la pagina, e i due commutatori nel foglio", async ({ page, browserProcessPageV2, request }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-03" });
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // streaming surface = WebRTC <video>
@@ -114,21 +109,16 @@ test.describe("TOPIC-BROWSER-03 — niente di permanente sopra la pagina", () =>
     try {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
-      await pinShared(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
       // The pane is genuinely up: the streaming surface is on screen. Every
       // assertion below is about a pane that exists.
       await expect(page.getByTestId("browser-webrtc-video").first()).toBeVisible({ timeout: 10_000 });
 
-      await expectNothingOverThePage(page, "qualcosa è piantato sopra la pagina di una pane condivisa");
+      await expectNothingOverThePage(page, "qualcosa è piantato sopra la pagina della pane streaming");
 
-      // The tab carries the sharing icon: this pane is not the default kind.
-      const typeIcon = page.getByTestId("browser-tab-type-icon").first();
-      await expect(typeIcon).toBeVisible({ timeout: 10_000 });
-      await expect(typeIcon).toHaveAttribute("data-kind", "shared");
-
-      // …and the two switches are in the sheet, where a click can reach them.
+      // The two switches are in the sheet, where a click can reach them — this
+      // is the surface that replaced the two pills.
       await openTabSheet(page);
       const engine = page.getByTestId("browser-tab-engine");
       await expect(engine).toBeVisible({ timeout: 10_000 });

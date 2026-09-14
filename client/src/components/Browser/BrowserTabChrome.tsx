@@ -146,7 +146,17 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : connection === 'connecting' ? 'connecting'
     : connection === 'fallback-http' ? 'degraded'
     : chrome.engine === 'chromium' ? 'chromium'
-    : chrome.shared ? 'shared'
+    // SHARED IS ONLY A DEVIATION WHERE THERE IS SOMETHING TO DEVIATE FROM, i.e.
+    // where the pane HAS a native view of its own to render instead — the
+    // desktop shell, the only place that publishes `shareMode`. On the web
+    // client `mode` is hard-wired to 'shared' for every pane
+    // (`RemoteBrowserPanel`: no native shell, so the server session is all there
+    // is), and reading `shared` alone put this icon on EVERY web browser tab:
+    // a badge every tab carries, which is the one thing this requirement
+    // forbids. Measured on the TOPIC-BROWSER-03 e2e, where a pane rendering the
+    // page in a real <iframe> — this device's own engine, nothing shared about
+    // it — came up labelled "Sessione condivisa fra i tuoi dispositivi".
+    : chrome.shareMode && chrome.shared ? 'shared'
     : undefined;
   if (!kind) return null;
 
