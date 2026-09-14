@@ -70,6 +70,14 @@ describe("relay finto · il giro completo", () => {
     expect(registro).not.toContain("SEGRETO-DELLA-MACCHINA");
     expect(relay.visto.length).toBeGreaterThan(0);
   });
+
+  it("al battito della macchina risponde `pong`, come il Durable Object", () => {
+    // The fake stands in for the Worker: a client tested against it must meet
+    // the relay that is deployed, not the one from before the heartbeat.
+    const { mac, host } = connectedScene();
+    host.ricevi({ t: "ping" });
+    expect(mac.ricevuti.at(-1)).toEqual({ t: "pong" });
+  });
 });
 
 describe("relay finto · la macchina spenta", () => {

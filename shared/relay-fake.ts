@@ -104,6 +104,12 @@ export function creaRelayFinto(opts: FakeRelayOpts = {}) {
           return;
         }
 
+        // The beat, answered like the Durable Object answers it. Before the
+        // heartbeat existed this fell through to `bad-version` below, and a
+        // fake that answers differently from the relay it stands in for is
+        // how a client gets tested against a relay nobody deployed.
+        if (m.t === "ping") return capo.invia({ t: "pong" });
+
         if (m.t === "to-guest") {
           if (!id) return nega(capo, "bad-token");
           const dest = ospiti.get(m.to);

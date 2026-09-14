@@ -67,6 +67,18 @@ describe("relay · l'ibernazione è obbligatoria", () => {
     // solo sotto carico basso — cioè quando nessuno sta guardando.
     expect(CODICE).toContain("getTags");
   });
+
+  it("il battito NON lo risponde il runtime: niente `setWebSocketAutoResponse`", () => {
+    // The runtime answers an auto-response on every accepted socket without
+    // reading tags, and nobody has shown on a real deploy that a socket orphaned
+    // by the deploy stops being answered. If it does not, the machine's
+    // heartbeat gets a pong from a dead thread and never sees the zombie of
+    // 13/09 that card ab420f38 has to catch. The pong stays in
+    // `webSocketMessage`, for the current machine only, until a trial deploy
+    // proves otherwise (task 3.3 of the relay change).
+    // A CALL, not the name: the name may appear in a comment explaining why.
+    expect(CODICE).not.toMatch(/\.setWebSocketAutoResponse\s*\(/);
+  });
 });
 
 describe("relay · il co-browse a pixel non entra qui", () => {
