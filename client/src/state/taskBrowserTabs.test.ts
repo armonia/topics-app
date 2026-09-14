@@ -26,6 +26,7 @@ import {
   getTaskTabs,
   subscribeTaskTabs,
   taskBrowserTabs,
+  __resetTaskTabs,
 } from './taskBrowserTabs';
 
 const TASK = '125aafd5-0e15-4aa0-ab25-f00000000000';
@@ -411,3 +412,14 @@ describe('forgetTaskTabs (task archiviato)', () => {
     expect(notified).toBe(0);
   });
 });
+
+// ── a write stays protected until the server answers (card 0470f6df) ─────────
+// Touching the LAST tab writes with no debounce, so the PUT leaves at once, and
+// the protection used to end THERE instead of at the answer. In that round trip
+// a frame from another device landed in the cache, our own echo was then dropped
+// as an echo, and the two copies stayed apart until the next reconnection.
+
+// The fix opened the opposite window, which is what the seq arbitration closes:
+// the server broadcasts BEFORE it answers, so a frame carrying a write that
+// happened AFTER ours must be adopted, not thrown away. And a resync GET issued
+// before a close must lose to that close even when its answer lands later.

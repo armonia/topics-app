@@ -2,17 +2,41 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.318 — 2026-09-14
+
+### Sotto il cofano
+- The roster test waits for the answer it asserts, not for a message on the way there
+- Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima
+
 ## 2.2.317 — 2026-09-14
 
 ### Sotto il cofano
+- la pane non disegna più niente di permanente sopra la pagina
+- il tipo della scheda è un'icona nella tab, i commutatori stanno nel foglio
+- i quattro test del browser guardano dove i comandi sono adesso
+- a pid is not a liveness test, and a probe that cannot find anything is a second of someone's morning
+- la negazione di TOPIC-BROWSER-03 è geometria, non tre testid contati a zero
+- Move the daemon's two files into a module of their own
+- l'icona di condivisione solo dove la sessione è una scelta
+- commenti in inglese, e la citazione del requisito marcata allow-italian sulla sua riga
+- il pavimento «la pane è montata» scende a 10, perché il browser disegna 29 nodi in meno
+- a probe must not occupy the port, and a restarting server is not an absent one
+- Tornata 4 spuntata, con le tre cose che la misura ha cambiato
+- il commutatore di resa nel foglio solo su una pagina vera, come la pillola che sostituisce
+- A wait that gives up quietly blames the wrong test
+- The waiting loop becomes testable, and its patience becomes a duration
 - il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic
+- l'icona di condivisione torna dove la condivisione c'e' davvero
+- A test that counts rounds cannot see a clock being reset
 
 ## 2.2.316 — 2026-09-14
 
 ### Sotto il cofano
 - il foglio ascolta Esc e clic fuori prima che arrivi il suo corpo
+- Port probe: one English name for the API the rest of the tree now imports
 - la variante del foglio pigro prende il suffisso 02b
 - il riconcilio parte anche se il primo aggancio al ponte fallisce
+- the address is part of the answer, and a live daemon forbids a sidecar
 
 ## 2.2.315 — 2026-09-14
 
@@ -33,6 +57,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Wait for the condition, not for the clock
 - Revert "projectLayoutSync durability: un solo fattore per i tetti e per le attese"
 - The same clock, one file over
+- bind first, then ask who holds the port
 - Three more clocks, same cure
 - Residuo non committato, messo al sicuro dalla potatura
 - il contratto dei 15 s si misura sui ritardi chiesti, non sull'orologio
@@ -108,6 +133,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-13 [skip ci]
 - Una voce vuota nel Keychain non oscura più quella viva
 - Sotto Bun senza USER l'utente di login non è «unknown»
+- Port squatting: match Topics by shape and real port
+- invalidate stale marker on foreign port squatter
+- Fix port-squatter typecheck findings
 - Il relay confronta readyState con 1, non con WebSocket.OPEN
 - GUEST-09: /run di un ospite ora lo rifiuta la capability, non il cancello
 - Il watcher del server leggeva gli mtime solo in dialetto BSD, e su Linux perdeva il reload
