@@ -51,6 +51,8 @@ export interface ViewportSocket {
   id: string;
   /** Paired device behind the socket, or null (loopback owner, daemon). */
   deviceId?: string | null;
+  /** What the pane calls itself (`?client=`), stable across its sockets. */
+  clientId?: string | null;
   /**
    * Was there a network between this socket and its peer, as stamped at the
    * upgrade. Absent means nobody classified it, which the rest of the server
@@ -68,14 +70,22 @@ export interface ViewportSink {
 
 /** Who is claiming the viewport behind this socket. */
 export function viewportClaimantOf(socket: ViewportSocket): ViewportClient {
-  // The paired device comes FIRST, and the order matters: a phone reaching the
-  // server through the relay tunnel has a loopback peer address (the other end
-  // of that socket is `relay-client.ts`, on this very machine) and is therefore
-  // stamped `remote: false`. Asked about the network it answers "local"; asked
-  // who it is, it answers with its device id, which is the question here.
-  if (socket.deviceId) return { socket: socket.id, device: socket.deviceId };
-  if (socket.remote !== true) return { socket: socket.id, device: LOOPBACK_OWNER };
-  return { socket: socket.id, device: socket.id };
+  // WHO the socket belongs to. The paired device first, and on loopback there
+  // is none to have: the owner IS this machine and `evaluateIdentity` hands it
+  // `deviceId: null`. Note the tunnel, which looks like the opposite trap: a
+  // phone reaching us through it has a loopback peer address (the other end of
+  // that socket is `relay-client.ts`, here) and is stamped `remote: false`, so
+  // asked about the network it says "local" while carrying a device id all the
+  // same. Asking WHO first is what keeps that phone a phone.
+  const owner = socket.deviceId ?? (socket.remote !== true ? LOOPBACK_OWNER : null);
+
+  // WHICH PANE of that owner, when it told us (`?client=`). Namespaced under
+  // the owner and never read on its own: a guest that claimed the owner's pane
+  // name would still be a guest here. Without it the pane is its socket, which
+  // is a new client on every reconnection: that is the old bug, kept only for
+  // whoever does not send the id at all.
+  if (owner && socket.clientId) return { socket: socket.id, device: `${owner}/${socket.clientId}` };
+  return { socket: socket.id, device: owner ?? socket.id };
 }
 
 export interface ViewportWiring {

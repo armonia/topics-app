@@ -38,9 +38,10 @@ interface Pane {
  *
  * `transport: "loopback"` is the Mac shell (its proxy makes every request come
  * from 127.0.0.1); a phone presents a session token for a paired device and
- * reaches us over the network.
+ * reaches us over the network. `pane` is the `?client=` the real client always
+ * sends: the same value means the same pane coming back on a new socket.
  */
-function connect(who: "loopback" | { device: string }): Pane {
+function connect(who: "loopback" | { device: string }, paneName = "pane-1"): Pane {
   const identity = typeof who === "object"
     ? evaluateIdentity({
       transport: "remote",
@@ -66,7 +67,7 @@ function connect(who: "loopback" | { device: string }): Pane {
   } as unknown as Pick<Server<WSData>, "upgrade">;
 
   const answer = upgradeWebSocket(
-    new Request(`http://127.0.0.1:3333/ws/browser/${CTX}`),
+    new Request(`http://127.0.0.1:3333/ws/browser/${CTX}?client=${paneName}`),
     `/ws/browser/${CTX}`,
     server,
     { deviceId: identity.deviceId, role: identity.role },
@@ -97,23 +98,37 @@ function askedDevices(panes: Pane[]): string[] {
 test("the loopback shell has no device id, and is identified all the same", () => {
   const mac = connect("loopback");
   expect(mac.data.deviceId, "il guscio in loopback non ha un id di dispositivo").toBe(null);
-  expect(viewportClaimantOf(mac.data).device).toBe(LOOPBACK_OWNER);
+  expect(mac.data.clientId, "il nome che la pane si da' non arriva al socket").toBe("pane-1");
 
-  // And two panes of that same machine are one device, which is the whole
-  // point: the identity has to survive the socket.
-  const second = connect("loopback");
-  expect(second.data.id).not.toBe(mac.data.id);
-  expect(viewportClaimantOf(second.data).device).toBe(LOOPBACK_OWNER);
+  // The same pane on a new socket is the same claimant: that is the whole
+  // point, and the socket id cannot say it.
+  const reconnected = connect("loopback");
+  expect(reconnected.data.id).not.toBe(mac.data.id);
+  expect(viewportClaimantOf(reconnected.data).device).toBe(viewportClaimantOf(mac.data).device);
 
+  // Another pane of that same machine is another claimant: same person, other
+  // screen, and a viewport is about the screen.
+  const otherWindow = connect("loopback", "pane-2");
+  expect(viewportClaimantOf(otherWindow.data).device).not.toBe(viewportClaimantOf(mac.data).device);
+
+  // The pane name is namespaced under whoever is authenticated, so a guest
+  // cannot claim to be the owner's pane by sending its `?client=`.
   const phone = connect({ device: "phone-1" });
-  expect(viewportClaimantOf(phone.data).device).toBe("phone-1");
+  const impostor = connect({ device: "phone-1" }, "pane-1");
+  expect(viewportClaimantOf(phone.data).device).toContain("phone-1");
+  expect(viewportClaimantOf(impostor.data).device).not.toBe(viewportClaimantOf(mac.data).device);
+
+  // And a client that sends no name at all still gets the old answer, one per
+  // machine, instead of an exception.
+  const silent = connect("loopback", "");
+  expect(viewportClaimantOf(silent.data).device).toBe(LOOPBACK_OWNER);
 });
 
 test("S1: the native pane flips to streaming and keeps the page", () => {
   // The shell was running the context itself (native pane, auto mode). Then a
   // phone opens the same context, the pane flips to shared streaming: the
   // executor socket closes and the streaming one arrives AFTER the phone.
-  const nativeMac = connect("loopback");
+  const nativeMac = connect("loopback", "pane-mac");
   const panes = [nativeMac];
   const wiring = wireUp(panes);
 
@@ -126,7 +141,8 @@ test("S1: the native pane flips to streaming and keeps the page", () => {
 
   nativeMac.readyState = 3;
   wiring.onClose(CTX, nativeMac.data);
-  const streamingMac = connect("loopback");
+  // Same pane, other socket: the shell flipped from executing to streaming.
+  const streamingMac = connect("loopback", "pane-mac");
   panes.push(streamingMac);
   wiring.onOpen(CTX, streamingMac.data);
 
@@ -143,7 +159,7 @@ test("S2: the Mac that reconnects is still the driver", () => {
   // The phone got here first and the Mac is the one using the page. Then the
   // Mac sleeps, or the server reloads, and it comes back on a new socket.
   const phone = connect({ device: "phone-1" });
-  const mac = connect("loopback");
+  const mac = connect("loopback", "pane-mac");
   const panes = [phone, mac];
   const wiring = wireUp(panes);
   wiring.onOpen(CTX, phone.data);
@@ -155,7 +171,7 @@ test("S2: the Mac that reconnects is still the driver", () => {
 
   mac.readyState = 3;
   wiring.onClose(CTX, mac.data);
-  const mac2 = connect("loopback");
+  const mac2 = connect("loopback", "pane-mac");
   panes.push(mac2);
   wiring.onOpen(CTX, mac2.data);
 
@@ -192,13 +208,13 @@ test("when the driver leaves, its heir is asked for its size", () => {
 
   mac.readyState = 3;
   const heir = wiring.onClose(CTX, mac.data);
-  expect(heir, "nessun erede quando il driver esce").toBe("phone-1");
+  expect(heir, "nessun erede quando il driver esce").toBe(viewportClaimantOf(phone.data).device);
   wiring.askViewportOf(CTX, heir ?? "");
 
   // Only the heir is asked, and the question reaches it: the heir sent that
   // size once already and deduplicates it, so silence here means the page
   // keeps the size of whoever just left.
-  expect(askedDevices(panes)).toEqual(["phone-1"]);
+  expect(askedDevices(panes)).toEqual([viewportClaimantOf(phone.data).device]);
   expect(wiring.onResize(CTX, phone.data, false)).toBe(true);
 });
 

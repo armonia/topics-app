@@ -77,6 +77,18 @@ describe("una porta sola sul viewport condiviso", () => {
     }
   });
 
+  it("ogni pane dice il proprio nome aprendo il socket del browser", () => {
+    // On this machine every client is the owner: without `?client=` the Mac
+    // pane and a second window would be ONE claimant, and the arbiter would be
+    // back to deciding by socket. Both hooks that open a browser socket send
+    // it, the streaming one and the native one, because they are the same pane
+    // before and after the flip.
+    for (const hook of ["client/src/hooks/useRemoteBrowser.ts", "client/src/hooks/useTauriBrowser.ts"]) {
+      const source = readFileSync(join(ROOT, hook), "utf8");
+      expect(source, `${hook} apre il socket senza dire chi e'`).toContain("client=${encodeURIComponent(browserClientId())}");
+    }
+  });
+
   it("chi si registra come esecutore nativo esce dal pubblico dell'arbitro", () => {
     // The Tauri shell opens a socket on the context to EXECUTE, not to watch.
     // Left in the audience, its device queues as a spectator and the shell's

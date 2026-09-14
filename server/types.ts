@@ -35,6 +35,13 @@ export interface WSData {
    */
   deviceId?: string | null;
   /**
+   * What the pane calls itself on a browser socket (`?client=`), stable across
+   * its reconnections and NOT an identity: it is namespaced under `deviceId` by
+   * whoever uses it. Only the viewport arbiter does, to recognise the pane that
+   * comes back. See client/src/lib/browserClientId.ts.
+   */
+  clientId?: string | null;
+  /**
    * The ROLE of that device, stamped together with the id and for the same
    * reason: after the upgrade the cookie is no longer readable.
    *

@@ -3,6 +3,7 @@ import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/br
 import type { ElementDescription } from '../../../shared/element-describe';
 import type { RemoteField } from '../../../shared/browser-keyboard-field';
 import { serverWsBase } from '@/lib/shell/net';
+import { browserClientId } from '../lib/browserClientId';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
@@ -621,7 +622,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // current socket is truly gone (null / CLOSING / CLOSED).
       const cur = wsRef.current;
       if (cur && (cur.readyState === WebSocket.CONNECTING || cur.readyState === WebSocket.OPEN)) return;
-      const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}`;
+      // `?client=` is this pane's stable name: it is what lets the server
+      // recognise the same client across the native/streaming flip and across a
+      // reconnection, and so keep its viewport. See lib/browserClientId.ts.
+      const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}?client=${encodeURIComponent(browserClientId())}`;
       let ws: WebSocket;
       try {
         ws = new WebSocket(wsUrl);

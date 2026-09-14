@@ -101,6 +101,13 @@ test.describe("Arbitro del viewport in sessione condivisa", () => {
        * Open a spectator socket on the shared context FROM INSIDE the page, so
        * the origin is the server's and the client is one of its own.
        *
+       * It names itself with `?client=` exactly as a real pane does
+       * (`client/src/lib/browserClientId.ts`): on this machine every browser is
+       * the owner, so without that name the two contexts would be ONE claimant
+       * and there would be nothing to arbitrate. Each Playwright context has
+       * its own sessionStorage, so the two names differ by construction, the
+       * way two devices differ.
+       *
        * It also counts the `focus_field` frames received: that is this socket's
        * read receipt. WebSocket messages are ordered, so a `focus_query` sent
        * AFTER a `resize` only comes back once that `resize` has been handled -
@@ -109,7 +116,12 @@ test.describe("Arbitro del viewport in sessione condivisa", () => {
       const attach = (page: import("@playwright/test").Page) =>
         page.evaluate(async (ctx) => {
           const wsBase = location.origin.replace(/^http/, "ws");
-          const socket = new WebSocket(`${wsBase}/ws/browser/${encodeURIComponent(ctx)}`);
+          const KEY = "topics-browser-client-id";
+          let name = sessionStorage.getItem(KEY);
+          if (!name) { name = crypto.randomUUID(); sessionStorage.setItem(KEY, name); }
+          const socket = new WebSocket(
+            `${wsBase}/ws/browser/${encodeURIComponent(ctx)}?client=${encodeURIComponent(name)}`,
+          );
           const shared = window as unknown as { __arbiter?: { socket: WebSocket; acks: number } };
           const state = { socket, acks: 0 };
           socket.addEventListener("message", (ev) => {
