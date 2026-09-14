@@ -318,6 +318,18 @@ describe("syncServer — re-arm the push after a WS drop", () => {
 
   const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+  /**
+   * Wait for the THING, not for the clock. The debounce is 500 ms on a quiet
+   * machine, but under a loaded fleet the timer itself lands late and a fixed
+   * `sleep(600)` then asserts on a push that has not happened yet (card
+   * 289391a3: red on the board, green everywhere else). Polling ends the
+   * moment the push lands and only spends the budget on the way to a red.
+   */
+  const waitFor = async (ready: () => boolean, budgetMs = 10_000): Promise<void> => {
+    const deadline = Date.now() + budgetMs;
+    while (!ready() && Date.now() < deadline) await sleep(25);
+  };
+
   /** A local edit: the only thing that moves `localSeq` and arms the debounce. */
   function editLocally(): void {
     paneCounter += 1;
@@ -364,9 +376,12 @@ describe("syncServer — re-arm the push after a WS drop", () => {
 
   test("control: with the socket up, one edit is one PUT", async () => {
     editLocally();
-    await sleep(700);
+    await waitFor(() => putCount >= 1);
+    // A short quiet spell after the push: the assertion is "one PUT", not
+    // "at least one", so the second one has to have room to NOT happen.
+    await sleep(200);
     expect(putCount).toBe(1);
-  });
+  }, 20_000);
 
   test("an edit made just before the drop is pushed on the next open", async () => {
     editLocally();
@@ -377,9 +392,10 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     dispatchLifecycle("open");
     // One DEBOUNCE_MS after the reopen, and only one: the re-arm is a single
     // push, not a replay of everything the session ever cancelled.
-    await sleep(700);
+    await waitFor(() => putCount >= 1);
+    await sleep(200);
     expect(putCount).toBe(1);
-  });
+  }, 20_000);
 
   test("an open with nothing owed does not push", async () => {
     // No edit at all: a plain reconnect must stay silent, or every WS blip
@@ -394,14 +410,15 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     restoreFetch();
     installHangingFetch();
     editLocally();
-    await sleep(600); // debounce elapsed: the PUT is in flight and hanging
+    // Debounce elapsed: the PUT is in flight and hanging.
+    await waitFor(() => ourCalls().length >= 1);
     expect(ourCalls().length).toBe(1);
     dispatchLifecycle("close");
     expect(ourCalls()[0].aborted).toBe(true);
     await sleep(100);
     dispatchLifecycle("open");
-    await sleep(700);
+    await waitFor(() => ourCalls().length >= 2);
     expect(ourCalls().length).toBe(2);
     expect(ourCalls()[1].aborted).toBe(false);
-  });
+  }, 20_000);
 });

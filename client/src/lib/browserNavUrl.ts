@@ -80,8 +80,8 @@ export function resolveBrowserNavigateUrl(raw: string): string {
  *
  * Full URLs (any `scheme://…`) and `about:` pass through untouched; a bare host
  * (`github.com`) gets `https://`; anything else (spaces, or no dot) becomes a
- * Google search. Shared by the address-bar submit (`BrowserToolbar`) and the
- * native hook's `navigate()` so the two agree.
+ * Google search. Shared by the address submit of the tab sheet
+ * (`BrowserTabSheetBody`) and the native hook's `navigate()` so the two agree.
  *
  * The bug this closes: the toolbar's submit used to force `http://` onto ANY
  * scheme-less text, which (a) shadowed the search fallback — typing "come fare

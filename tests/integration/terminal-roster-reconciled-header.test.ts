@@ -20,6 +20,7 @@
  * GET must carry the header AND the body must still be a bare `[]`.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { TIME_SLACK_ENV, parseForcedSlack } from "../../shared/test-time-slack";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import { createInterface } from "node:readline";
@@ -91,11 +92,15 @@ beforeAll(async () => {
   disconnectBridge();
   _setPtyBridgeSocketPath(SOCKET_PATH);
   terminalRouter = createTerminalRouter(ctx) as typeof terminalRouter;
-  const deadline = Date.now() + 5000;
+  // The bridge handshake is a socket connect plus a round trip: 5 s is plenty
+  // on a quiet machine and not always enough under a loaded fleet, where this
+  // setup timing out left the header at 0 and the test red for no fault of
+  // its own (card 289391a3). Scaled by the slack the runner hands down.
+  const deadline = Date.now() + 20_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1);
   while (Date.now() < deadline && !bridge.received.some((m) => m.type === "list")) {
     await new Promise((r) => setTimeout(r, 50));
   }
-}, 30_000);
+}, 90_000);
 
 afterAll(async () => {
   const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");

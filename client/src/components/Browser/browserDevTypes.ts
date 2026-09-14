@@ -251,4 +251,12 @@ export interface NativeBrowserHandle {
    *  where the toolbar falls back to enabled. */
   canGoBack?: boolean;
   canGoForward?: boolean;
+  /** Optional - Tauri only. Park the live webview behind a pixel still, and
+   *  bring it back. The occlusion watcher calls these on its own whenever an
+   *  overlay covers the pane, and that is still the normal path; they are on
+   *  the handle so a surface that KNOWS it is covering the page (the tab sheet)
+   *  can say so directly instead of waiting to be measured. Absent on the
+   *  streaming/web path, where the page is already a picture. */
+  freeze?(): void;
+  thaw?(): void;
 }

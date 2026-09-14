@@ -1854,6 +1854,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     recreate,
     canGoBack,
     canGoForward,
+    freeze,
+    thaw,
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
@@ -1862,5 +1864,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     readImageDataUrl, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
     clearConsole, getNavEntries, goToNavIndex, fault, recreate, canGoBack, canGoForward,
+    freeze, thaw,
   ]);
 }

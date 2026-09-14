@@ -109,6 +109,26 @@ const BROWSER_KEY = "tombstones-browser";
 // attempt, same margin the sibling projectLayoutSync test uses).
 const settle = () => new Promise((r) => setTimeout(r, 650));
 
+/**
+ * Wait for the STATE, not for the clock: a fixed 650 ms is the debounce plus
+ * a sliver, and under a loaded fleet the timer itself lands later than that,
+ * so the assertion reads a push that has not happened yet (card 289391a3:
+ * red on the board, green on a quiet machine).
+ */
+async function waitFor(ready: () => boolean, budgetMs = 10_000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+}
+
+/**
+ * The end of a failing write is its FOURTH fetch call (the first PUT plus
+ * `MAX_RETRIES`), not the key showing up in the un-acked set: `publish()` puts
+ * it there synchronously, before the debounce is even armed, so waiting for the
+ * key returns at 0 ms with no PUT attempted at all, and a test asserting there
+ * cannot see a failed PUT being thrown away.
+ */
+const PUT_ATTEMPTS = 4; // MAX_RETRIES + 1 in tombstoneSync.ts
+
 beforeEach(() => {
   __resetTombstoneSyncForTests();
   localStorage.clear();
@@ -125,7 +145,7 @@ describe("tombstone sync PUT durability", () => {
   test("a successful publish PUTs to the kind's ui_state key and clears the un-acked entry", async () => {
     installFetch(true);
     addTerminalTombstone("terminal:fe2a97aa");
-    await settle();
+    await waitFor(() => fetchCalls.some((c) => c.url.includes(encodeURIComponent(TERMINAL_KEY))));
     expect(fetchCalls.some((c) => c.url.includes(encodeURIComponent(TERMINAL_KEY)))).toBe(true);
     expect(__getUnackedTombstoneSyncKeys()).not.toContain(TERMINAL_KEY);
   });
@@ -133,19 +153,22 @@ describe("tombstone sync PUT durability", () => {
   test("a failing PUT (server down) is RETAINED as un-acked, not swallowed", async () => {
     installFetch(false);
     addBrowserTombstone("ctx:a6d64304");
-    await settle();
+    await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS);
     expect(__getUnackedTombstoneSyncKeys()).toContain(BROWSER_KEY);
   });
 
   test("a WS reconnect retries the un-acked set and clears it once the server is back", async () => {
     installFetch(false);
     addBrowserTombstone("ctx:2c9911");
-    await settle();
+    // The chain must be OVER before the server comes back: a retry still in
+    // flight would find the server up and clear the key on its own, and the
+    // reconnect retry below would never be put to the test.
+    await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS);
     expect(__getUnackedTombstoneSyncKeys()).toContain(BROWSER_KEY);
 
     installFetch(true);
     dispatchLifecycle("open");
-    await settle();
+    await waitFor(() => !__getUnackedTombstoneSyncKeys().includes(BROWSER_KEY));
     expect(__getUnackedTombstoneSyncKeys()).not.toContain(BROWSER_KEY);
     expect(fetchCalls.some((c) => c.url.includes(encodeURIComponent(BROWSER_KEY)))).toBe(true);
   });
@@ -153,7 +176,7 @@ describe("tombstone sync PUT durability", () => {
   test("the last-synced-JSON guard skips a redundant publish of unchanged content", async () => {
     installFetch(true);
     addTerminalTombstone("terminal:dupcheck");
-    await settle();
+    await waitFor(() => fetchCalls.length > 0);
     const callsAfterFirst = fetchCalls.length;
 
     // No-op write: clearing an id that isn't in the set rewrites the same
@@ -171,7 +194,7 @@ describe("tombstone sync remote-frame guards", () => {
   test("a remote frame echoing our own write (sourceClientId match) is skipped, not re-applied", async () => {
     installFetch(true);
     addTerminalTombstone("terminal:echo-owner");
-    await settle();
+    await waitFor(() => getTerminalTombstones().has("terminal:echo-owner"));
     expect(getTerminalTombstones().has("terminal:echo-owner")).toBe(true);
 
     // A real server would echo back our own state; attach a bogus id here so

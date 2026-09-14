@@ -12,6 +12,7 @@ Browser della topic: 5 scelte prima del codice. Prototipo: https://claude.ai/cod
 3. Da espanso la larghezza si trascina dal bordo ed è ricordata per topic (o: fissa a metà)
 4. Un sito aperto dall'agente arriva nella finestrella, layout intatto (o: si apre espanso se guardi la chat)
 5. La barra elenca le schede della topic, quelle del progetto dal + (o: tutte le schede dell'app)
+6. Un download che parte accende una spia nella tab (o: apre da sé il foglio sui Download, congelando la pagina). In attesa del sì: aggiunta dopo l'approvazione del 13/09
 
 Compreso, senza scelta: sotto 768 px niente finestra; le pillole diventano un'icona nella tab; in condivisione il viewport lo decide chi usa la pagina.
 Non verificato: una pagina viva sopra un'altra pane browser nativa. È il primo task, prima di qualunque componente.
@@ -115,7 +116,7 @@ naviga quella.
   `usePaneOrdering.ts:520-660`, porta unica dei link).
 - Condivisione: `useRemoteBrowser.ts` (chi manda `resize`), `server.ts:4090`,
   `browser-service.ts:1752`, `DomCoBrowse.tsx` (ViewportResize).
-- Spec: `remote-browser` ADDED `TOPIC-BROWSER-01..05`, MODIFIED `LINK-TAB-02`.
+- Spec: `remote-browser` ADDED `TOPIC-BROWSER-01..05`, MODIFIED `LINK-TAB-02`, `BROWSER-CHAT-02`.
 - Change assorbite: **`tab-is-the-chrome`** per intero (si archivia senza
   implementarla quando questa è approvata); **`agent-inline-browser`** fasi 4 e
   6. `dropdown-unification` eredita un menu in meno.

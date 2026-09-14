@@ -242,6 +242,7 @@ richiesta esplicita di guardare.
 | 3 | Da espanso la larghezza… | si trascina dal bordo, resta per topic | fissa a metà | `TOPIC-BROWSER-01` |
 | 4 | Quando l'agente apre un sito… | arriva nella finestrella, layout intatto | si apre espanso se guardi la chat | `LINK-TAB-02`, `TOPIC-BROWSER-04` |
 | 5 | La barra della finestra elenca… | le schede della topic; quelle del progetto dal «+» | tutte le schede dell'app | `TOPIC-BROWSER-01` |
+| 6 | Un download che parte… (in attesa del sì, aggiunta dopo l'approvazione) | accende una spia nella tab | apre da sé il foglio sui Download, congelando la pagina | `BROWSER-CHAT-02` |
 
 ## Rischi
 

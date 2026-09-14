@@ -10,7 +10,7 @@
  *     sistema si prendeva il tocco (una notifica, una gesture di bordo): il
  *     menu si apriva dopo, da solo.
  *   · `MessageBubble`: seconda copia dello stesso timer.
- *   · `BrowserToolbar`: armato su `onMouseDown` e disarmato su `onMouseUp` —
+ *   · `BrowserToolbar` (deleted on 2026-09-13): armato su `onMouseDown` e disarmato su `onMouseUp` —
  *     su iOS quei due eventi sono sintetizzati INSIEME al `touchend`, quindi il
  *     timer nasceva e moriva nello stesso tick e la cronologia Indietro/Avanti
  *     era irraggiungibile, nonostante il `title` promettesse «tieni premuto».
