@@ -57,6 +57,13 @@ export interface BrowserPaneCommands {
    *  without those two numbers it would mean nothing. */
   setDevice?: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
   toggleShare?: () => void;
+  /** Move this pane between the server's bundled Playwright engine and the
+   *  real Chromium installed on the machine (with its extensions). Present only
+   *  when the server advertises the capability, i.e. the switch exists. */
+  setEngine?: (engine: 'native' | 'chromium') => void;
+  /** DOM reconstruction (rrweb, this device's own engine) ↔ the pixel stream.
+   *  Streaming pane only: the native and iframe panes ARE the page. */
+  setRenderMode?: (mode: 'dom' | 'video') => void;
   forgetSite?: () => void;
   /**
    * Park the page behind a pixel still while the sheet covers it, and bring it
@@ -92,6 +99,29 @@ export interface BrowserPaneChrome {
    *  device looks at the same context. Absent on the web, where there is only
    *  the shared session and nothing to choose. */
   shareMode?: ShareMode;
+  /**
+   * WHAT THIS PANE *IS*, for the one icon the tab draws between favicon and
+   * title (`BrowserTabTypeIcon`) and for the switches in the sheet's Session
+   * section. Until 2026-09-14 these three lived as pills PARKED OVER THE PAGE —
+   * a connection dot top-right, an engine pill top-left, a render pill
+   * bottom-left — which is what `TOPIC-BROWSER-03` forbids: no permanent DOM
+   * above a browser pane's page.
+   *
+   * All three are OPTIONAL, and absence is a real answer rather than a default:
+   *
+   *  - `connection` is absent on every path that has no streaming socket at all
+   *    (native Tauri pane, hosted iframe). The tab reads absent as connected,
+   *    because a pane with no socket cannot have lost one.
+   *  - `engine` and `engineExtensions` exist only when the server advertises the
+   *    capability (`browser.engineToggleAvailable`): without a real Chromium on
+   *    the machine there is no choice to offer, and an engine label nobody can
+   *    change is decoration.
+   *  - `renderMode` is absent wherever there is nothing to switch.
+   */
+  connection?: 'connected' | 'connecting' | 'fallback-http' | 'disconnected';
+  engine?: 'native' | 'chromium';
+  engineExtensions?: number;
+  renderMode?: 'dom' | 'video';
   /**
    * What the sheet shows and the tab does not: the pane's own address list,
    * the console rows behind the tally, and the downloads with their actions.
