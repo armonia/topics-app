@@ -349,3 +349,95 @@ test("two panes of the same machine, both open, stay two claimants", () => {
   expect(sendResize(rig, first, MAC_SIZE)).toBe(true);
   expect(sendResize(rig, second, [900, 600]), "la seconda finestra rimpagina la prima").toBe(false);
 });
+
+test("S4: a second pane of the owner does not inherit the seat of one that is executing", () => {
+  // The Tauri shell drives the context ITSELF (native pane): its socket is an
+  // executor, so it is not in the audience and cannot resize. That absence is
+  // not a departure: the pane is right there, on screen, showing the page.
+  // A Topics tab opened in a browser is another pane of the same owner, and it
+  // used to read that absence as "the shell is gone, its seat is free".
+  const nativeMac = connect("loopback", "pane-mac");
+  const tab = connect("loopback", "pane-tab");
+  const panes = [nativeMac, tab];
+  const rig = wireUp(panes);
+
+  rig.wiring.onOpen(CTX, nativeMac.data);
+  rig.wiring.onNativeExecutor(CTX, nativeMac.data);
+
+  // The tab arrives: it is watching, and it is NOT the one at the wheel.
+  rig.wiring.onOpen(CTX, tab.data);
+
+  // The shell flips to shared streaming: executor socket out, viewer socket in.
+  nativeMac.readyState = 3;
+  rig.wiring.onClose(CTX, nativeMac.data);
+  const macStreaming = connect("loopback", "pane-mac");
+  panes.push(macStreaming);
+  rig.wiring.onOpen(CTX, macStreaming.data);
+
+  // No input yet: the pane is only re-announcing its own size after the flip.
+  expect(sendResize(rig, macStreaming, MAC_SIZE, false), "il guscio non riprende la sua pagina").toBe(true);
+  expect(sendResize(rig, tab, PHONE_SIZE, false), "una scheda che guarda ha rimpaginato la pagina").toBe(false);
+});
+
+test("S5: a seat taken while the owner was away goes back when it returns", () => {
+  // The Mac is driving. Its socket falls (server reload, sleep) and while it is
+  // really gone a tab of the same owner takes the seat over: the page has to
+  // stay usable, so the tab inherits the wheel. But it INHERITED it, it did not
+  // earn it: the moment the Mac is back, the seat is its own again.
+  const mac = connect("loopback", "pane-mac");
+  const panes = [mac];
+  const rig = wireUp(panes);
+
+  rig.wiring.onOpen(CTX, mac.data);
+  sendInput(rig, mac, "click");
+  expect(sendResize(rig, mac, MAC_SIZE, true)).toBe(true);
+
+  // Somebody has to stay: with no socket left the context keeps no state at
+  // all, and the memory of the seat dies with it.
+  const phone = connect({ device: "dev-phone" });
+  panes.push(phone);
+  rig.wiring.onOpen(CTX, phone.data);
+
+  mac.readyState = 3;
+  rig.wiring.onClose(CTX, mac.data);
+
+  const tab = connect("loopback", "pane-tab");
+  panes.push(tab);
+  rig.wiring.onOpen(CTX, tab.data);
+  expect(sendResize(rig, tab, PHONE_SIZE, false), "la scheda eredita il posto del Mac assente").toBe(true);
+
+  const macBack = connect("loopback", "pane-mac");
+  panes.push(macBack);
+  rig.wiring.onOpen(CTX, macBack.data);
+  expect(sendResize(rig, macBack, MAC_SIZE, false), "il Mac torna e non ritrova il suo posto").toBe(true);
+  expect(sendResize(rig, tab, PHONE_SIZE, false), "la scheda ridimensiona ancora sotto il Mac").toBe(false);
+});
+
+test("S5b: but a seat the heir has actually used stays with the heir", () => {
+  // Same story, one difference that changes everything: while the Mac was away
+  // somebody USED the tab. Coming back does not undo that.
+  const mac = connect("loopback", "pane-mac");
+  const panes = [mac];
+  const rig = wireUp(panes);
+
+  rig.wiring.onOpen(CTX, mac.data);
+  sendInput(rig, mac, "click");
+
+  const phone = connect({ device: "dev-phone" });
+  panes.push(phone);
+  rig.wiring.onOpen(CTX, phone.data);
+
+  mac.readyState = 3;
+  rig.wiring.onClose(CTX, mac.data);
+
+  const tab = connect("loopback", "pane-tab");
+  panes.push(tab);
+  rig.wiring.onOpen(CTX, tab.data);
+  sendInput(rig, tab, "click");
+  expect(sendResize(rig, tab, PHONE_SIZE, true)).toBe(true);
+
+  const macBack = connect("loopback", "pane-mac");
+  panes.push(macBack);
+  rig.wiring.onOpen(CTX, macBack.data);
+  expect(sendResize(rig, macBack, MAC_SIZE, false), "il Mac che guarda ha ripreso la pagina").toBe(false);
+});

@@ -103,6 +103,18 @@ interface ContextState {
   viewers: Map<string, Set<string>>;
   /** Every connected socket, viewers and executors: the state dies with them. */
   sockets: Set<string>;
+  /**
+   * Every socket of a device, viewers AND executors. A device is GONE only when
+   * this is empty: the Tauri shell watching nothing while it executes is still
+   * sitting here, and its seat is not free.
+   */
+  attached: Map<string, Set<string>>;
+  /**
+   * Who took the seat of a device that was gone, while it was gone. A seat is
+   * lent, not given: the predecessor coming back takes it straight back, unless
+   * the heir has used the page meanwhile and earned it.
+   */
+  succession: Map<string, string>;
   /** Owner of each device in `seen`, when the caller knows it. */
   owners: Map<string, string>;
   /** Device of the last driving input, remembered while it is away. */
@@ -115,6 +127,14 @@ export function createViewportArbiter(): ViewportArbiter {
   const present = (state: ContextState, device: string): boolean =>
     (state.viewers.get(device)?.size ?? 0) > 0;
 
+  /**
+   * Nothing of this device is connected any more, not even a socket that only
+   * executes. Being gone is what frees a seat, and watching is not the test:
+   * the native shell of the Mac is not watching and is very much still here.
+   */
+  const gone = (state: ContextState, device: string): boolean =>
+    (state.attached.get(device)?.size ?? 0) === 0;
+
   const current = (state: ContextState | undefined): string | undefined => {
     if (!state) return undefined;
     if (state.driver && present(state, state.driver)) return state.driver;
@@ -126,6 +146,7 @@ export function createViewportArbiter(): ViewportArbiter {
     if (existing) return existing;
     const born: ContextState = {
       seen: [], viewers: new Map(), sockets: new Set(), owners: new Map(),
+      attached: new Map(), succession: new Map(),
     };
     contexts.set(contextId, born);
     return born;
@@ -151,7 +172,7 @@ export function createViewportArbiter(): ViewportArbiter {
     const orphans = client.owner === undefined
       ? []
       : state.seen.filter((device) =>
-        state.owners.get(device) === client.owner && !present(state, device));
+        state.owners.get(device) === client.owner && gone(state, device));
     const predecessor = orphans.find((device) => device === state.driver) ?? orphans[0];
     if (predecessor === undefined) {
       state.seen.push(client.device);
@@ -160,14 +181,45 @@ export function createViewportArbiter(): ViewportArbiter {
     state.seen[state.seen.indexOf(predecessor)] = client.device;
     state.owners.delete(predecessor);
     state.viewers.delete(predecessor);
+    state.succession.set(predecessor, client.device);
+    // If the predecessor was itself sitting in a borrowed seat, the debt moves
+    // on with the seat: whoever lent it is owed by whoever holds it now.
+    for (const [lender, heir] of state.succession) {
+      if (heir === predecessor) state.succession.set(lender, client.device);
+    }
     if (state.driver === predecessor) state.driver = client.device;
+  };
+
+  /**
+   * The claimant that lent its seat is back. It takes it, and the heir goes
+   * where it belongs, at the end of the queue: it did arrive later.
+   *
+   * This is the same screen as before (same name, same owner) and the seat was
+   * only warm. The heir keeps it for good the moment it USES the page, and
+   * `noteInput` cancels the debt then.
+   */
+  const reclaimSeat = (state: ContextState, client: ViewportClient): boolean => {
+    const heir = state.succession.get(client.device);
+    if (heir === undefined) return false;
+    state.succession.delete(client.device);
+    const at = state.seen.indexOf(heir);
+    if (at < 0) return false;
+    state.seen[at] = client.device;
+    state.seen.push(heir);
+    if (state.driver === heir) state.driver = client.device;
+    return true;
   };
 
   return {
     noteConnect(contextId, client) {
       const state = ensure(contextId);
       state.sockets.add(client.socket);
-      if (!state.seen.includes(client.device)) takeSeat(state, client);
+      const own = state.attached.get(client.device) ?? new Set<string>();
+      own.add(client.socket);
+      state.attached.set(client.device, own);
+      if (!state.seen.includes(client.device) && !reclaimSeat(state, client)) {
+        takeSeat(state, client);
+      }
       if (client.owner !== undefined) state.owners.set(client.device, client.owner);
       const sockets = state.viewers.get(client.device) ?? new Set<string>();
       sockets.add(client.socket);
@@ -190,6 +242,11 @@ export function createViewportArbiter(): ViewportArbiter {
       // viewport to impose.
       if (!state || !state.viewers.get(client.device)?.has(client.socket)) return;
       state.driver = client.device;
+      // Using the page settles the debt: a seat taken over from somebody away
+      // stops being borrowed the moment the heir does something with it.
+      for (const [lender, heir] of state.succession) {
+        if (heir === client.device) state.succession.delete(lender);
+      }
     },
 
     noteDisconnect(contextId, client) {
@@ -197,6 +254,9 @@ export function createViewportArbiter(): ViewportArbiter {
       if (!state) return undefined;
       const before = current(state);
       state.sockets.delete(client.socket);
+      const own = state.attached.get(client.device);
+      own?.delete(client.socket);
+      if (own && own.size === 0) state.attached.delete(client.device);
       const sockets = state.viewers.get(client.device);
       sockets?.delete(client.socket);
       if (sockets && sockets.size === 0) state.viewers.delete(client.device);

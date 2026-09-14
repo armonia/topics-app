@@ -77,6 +77,18 @@ async function historyCaller(sessionKey: string, turns: number): Promise<Caller>
   };
 }
 
+/** Median wall clock of one caller at two limits, interleaved. */
+async function medianLimits(c: Caller, la: number, lb: number, runs = 5): Promise<[number, number]> {
+  const ta: number[] = [];
+  const tb: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    let t0 = performance.now(); await c(la); ta.push(performance.now() - t0);
+    t0 = performance.now(); await c(lb); tb.push(performance.now() - t0);
+  }
+  const m = (xs: number[]) => xs.sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+  return [m(ta), m(tb)];
+}
+
 /** Median wall clock of `runs` calls, interleaving the two sessions. */
 async function medianPair(a: Caller, b: Caller, limit: number, runs = 5): Promise<[number, number]> {
   const ta: number[] = [];
@@ -121,6 +133,12 @@ describe("cost of a limited /api/history", () => {
     const tiny = (await small(0)).bytes;
     const fat = (await big(0)).bytes;
     expect(fat / tiny).toBeGreaterThan(3);
+
+    // And those bytes have to cost TIME, or the case above proves nothing.
+    // Measured WITHIN the fat session, full read against limited read: both
+    // sides carry the same load, so a busy machine moves them together.
+    const [tAll, tOne] = await medianLimits(big, 0, 1);
+    expect(tAll / Math.max(tOne, 0.05)).toBeGreaterThan(3);
   });
 
   test("the limited answer carries the same message the full one ends with", async () => {
