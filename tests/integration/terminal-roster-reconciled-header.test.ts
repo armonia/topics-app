@@ -96,11 +96,43 @@ beforeAll(async () => {
   // on a quiet machine and not always enough under a loaded fleet, where this
   // setup timing out left the header at 0 and the test red for no fault of
   // its own (card 289391a3). Scaled by the slack the runner hands down.
-  const deadline = Date.now() + 20_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1);
-  while (Date.now() < deadline && !bridge.received.some((m) => m.type === "list")) {
+  //
+  // WAITING FOR THE `list` TO ARRIVE IS NOT THE SAME AS WAITING FOR THE ROSTER
+  // TO BE PROMOTED, and the difference is what went red again under a full
+  // shard. `reconcileSessions` receives the answer and then still has work to
+  // do before it sets the bit, so a setup that stops at the socket message
+  // hands the first test a roster that is a few ticks away from ready. It also
+  // misses the other way the bit can arrive: a bridge too slow to answer is
+  // retried eight times and then the roster is restored from the DB, which
+  // promotes just the same, later than any fixed deadline. So the wait below
+  // asks the QUESTION THE TEST IS ABOUT, through the same door the test uses,
+  // and it stops as soon as the answer is yes.
+  await waitForReconciledRoster();
+}, 90_000);
+
+/**
+ * Poll the real route until the roster says it has been reconciled.
+ *
+ * Silence is not an option here: if the budget runs out, the tests below would
+ * all report the same missing header and blame the header, so this throws
+ * while the cause is still in view.
+ */
+async function waitForReconciledRoster(): Promise<void> {
+  const budgetMs = 30_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1);
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const res = await get("/api/terminal/sessions");
+    if (res.headers.get(ROSTER_RECONCILED_HEADER) === "1") return;
+    if (Date.now() >= deadline) {
+      const sawList = bridge.received.some((m) => m.type === "list");
+      throw new Error(
+        `the roster was never reconciled within ${Math.round(budgetMs)}ms `
+        + `(the fake bridge ${sawList ? "did" : "did NOT"} receive a list request)`,
+      );
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
-}, 90_000);
+}
 
 afterAll(async () => {
   const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
