@@ -1,5 +1,92 @@
 [
   {
+    "version": "2.2.315",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "browser della topic: l'ordine z e' l'ordine di creazione, e il trascinamento va da fermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "dichiara i due motori non sondati invece di dirli portati",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le finestre d'attesa passano dal fattore di carico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "server-watch-supervisor: anche qui le attese passano dal fattore di carico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "projectLayoutSync durability: un solo fattore per i tetti e per le attese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"projectLayoutSync durability: un solo fattore per i tetti e per le attese\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Residuo non committato, messo al sicuro dalla potatura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il contratto dei 15 s si misura sui ritardi chiesti, non sull'orologio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "riordina sul posto e non toglie la tastiera alla pagina",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "browser della topic: i numeri del trascinamento letti per quello che dicono, e l'ordine z chiuso solo su WKWebView",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il battito lo risponde il runtime, senza svegliare l'oggetto ibernato",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "relay client: la prova di vita e' per filo, e qualunque frame lo e'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "relay finto: al battito della macchina risponde pong, come il Durable Object",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il battito torna a risponderlo l'oggetto, non il runtime",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.314",
     "date": "2026-09-13",
     "sections": {
