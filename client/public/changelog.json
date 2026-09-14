@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.323",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.322",
     "date": "2026-09-14",
     "sections": {
@@ -14,6 +30,11 @@
         },
         {
           "it": "Commenti della quota sul libero in inglese: il rail comment-language su main era rosso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)",
           "en": "",
           "scope": null
         }
