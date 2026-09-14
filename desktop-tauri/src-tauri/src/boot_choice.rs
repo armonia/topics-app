@@ -22,6 +22,61 @@
 //! shell spawns the sidecar (or waits for a known server) instead of deferring to
 //! an HTML dashboard.
 
+/// WHICH LOOPBACK ADDRESS answered, because on this machine they are not the
+/// same machine. The daemon binds `[::]:3333`; a process that binds the more
+/// specific `127.0.0.1:3333` COEXISTS with it (no `EADDRINUSE`, verified
+/// 2026-09-14), and from then on IPv4 reaches the stranger while IPv6 reaches
+/// the real daemon. A probe that only knows "port 3333" cannot tell those two
+/// apart, and the shell that could not tell them apart started an empty sidecar
+/// next to a live production server.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub(crate) enum Loopback {
+    #[default]
+    V4,
+    V6,
+}
+
+impl Loopback {
+    /// The literal to connect to. `::1` without brackets: this is a host string
+    /// for `TcpStream::connect((host, port))`, not a URL authority.
+    pub(crate) fn host(self) -> &'static str {
+        match self {
+            Loopback::V4 => "127.0.0.1",
+            Loopback::V6 => "::1",
+        }
+    }
+}
+
+/// Everything the probes found, named. It was eight positional booleans before,
+/// and the call that read them wrong is exactly how a Mac with a live server
+/// got an empty sidecar.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct BootFacts {
+    /// A TOPICS daemon (by shape) answered on the canonical `:3333`, on
+    /// `primary_host`, with `primary_tls` as the scheme that matched.
+    pub primary_topics: bool,
+    pub primary_host: Loopback,
+    pub primary_tls: bool,
+    /// The same, on the port the daemon recorded in `daemon-state.json`
+    /// (`state_port`): the squatter-recovery case, where `:3333` is held by
+    /// someone else and the daemon moved to an ephemeral port.
+    pub state_topics: bool,
+    pub state_host: Loopback,
+    pub state_tls: bool,
+    pub state_port: Option<u16>,
+    /// The external-server marker: this machine has owned a real server here.
+    pub seen_before: bool,
+    /// A FOREIGN process ANSWERED a complete non-Topics HTTP response on
+    /// `:3333`. Proof of a stranger, never of a silence: a Topics that is merely
+    /// slow times out and is NOT foreign (see `probe_topics_shape`).
+    pub primary_foreign: bool,
+    /// The pid recorded in `daemon-state.json` is a LIVE process. This is the
+    /// only fact that survives a squatter: the daemon may be unreachable on the
+    /// address we probed and still be running, and a running daemon is a full
+    /// universe that a sidecar would silently replace.
+    pub state_pid_alive: bool,
+}
+
 /// Where the shell should point the proxy, decided from the probe outcomes + the
 /// daemon-state port + the external-server marker.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -32,78 +87,61 @@ pub(crate) enum BootChoice {
     /// configuration of the machine it runs on, so on a TLS box it answers TLS on
     /// its ephemeral port too. Assuming plain HTTP there sent a TLS machine to
     /// SpawnSidecar: an empty universe with the real data next door.
-    Defer { port: u16, tls: bool },
+    Defer { host: Loopback, port: u16, tls: bool },
     /// No Topics daemon answered, but the marker says this machine owns a real
     /// server. Keep pointing at :3333 and wait: forking an empty universe here is
     /// strictly worse (the 2026-08-13 incident).
-    WaitForKnownServer,
+    WaitForKnownServer { host: Loopback },
     /// No Topics daemon answered and nothing was ever here. Spawn the bundled
     /// sidecar.
     SpawnSidecar,
 }
 
 /// The boot rule itself, made PURE so it is provable without sockets or a tauri
-/// app: given what the probes found and the daemon-state port, decide where the
-/// proxy should point.
-///
-/// Arguments:
-///   * `primary_topics` — a TOPICS daemon (by shape) answered on the canonical
-///     `:3333`. `primary_tls` records WHICH probe matched it: the TLS probe
-///     (`true`, the external launchd/dev server serves TLS) or the plain-HTTP
-///     probe (`false`, a dev server without TLS). Only read when `primary_topics`.
-///   * `state_topics` / `state_tls` / `state_port` — a TOPICS daemon (by shape)
-///     answered on the port the daemon's own `daemon-state.json` records
-///     (`state_port`), and `state_tls` records which scheme it answered with. This
-///     is the squatter-recovery case: :3333 is held by someone else, the daemon is
-///     on an ephemeral port only the state file knows.
-///   * `seen_before` — the external-server marker: this machine has owned a real
-///     server here before, so a missing daemon means "wait", not "fork empty".
-///   * `primary_foreign` — a FOREIGN (non-Topics) process is actively answering on
-///     `:3333`. It is only meaningful when NO Topics daemon answered (otherwise we
-///     would already have deferred), and it means the "wait for my known server"
-///     marker is stale (a squatter — not our server — owns :3333), so the marker is
-///     invalidated and the sidecar spawns instead of the app hanging on a foreign
-///     dashboard (the 2026-09-12 account-switcher case).
+/// app: given what the probes found (`BootFacts`), decide where the proxy points.
 ///
 /// Decision order, most-to-least trusted:
-///   1. A Topics daemon on the daemon-state port → defer to THAT port, with the
-///      scheme that actually answered there.
-///   2. A Topics daemon on :3333 → defer to :3333 (with the TLS the probe saw).
-///   3. Marker present, no daemon → WaitForKnownServer.
-///   4. Otherwise → SpawnSidecar.
-pub(crate) fn decide_boot(
-    primary_topics: bool,
-    primary_tls: bool,
-    state_topics: bool,
-    state_tls: bool,
-    state_port: Option<u16>,
-    seen_before: bool,
-    primary_foreign: bool,
-) -> BootChoice {
+///   1. A Topics daemon on the daemon-state port: defer to THAT address and port,
+///      with the scheme that actually answered there.
+///   2. A Topics daemon on :3333: defer to the address that answered.
+///   3. The daemon-state pid is ALIVE: wait for it. Never a sidecar.
+///   4. Marker present and no foreign answer on :3333: wait.
+///   5. Otherwise: spawn the sidecar.
+pub(crate) fn decide_boot(f: BootFacts) -> BootChoice {
     // A daemon recorded in daemon-state.json, confirmed by shape on that port, is
-    // the one we want — even if :3333 is squatted (the 2026-09-12 case). A state
+    // the one we want, even if :3333 is squatted (the 2026-09-12 case). A state
     // port of 0 (a corrupt/zero port) is not a usable target: fall through.
-    if state_topics {
-        if let Some(p) = state_port {
+    if f.state_topics {
+        if let Some(p) = f.state_port {
             if p != 0 {
-                return BootChoice::Defer { port: p, tls: state_tls };
+                return BootChoice::Defer { host: f.state_host, port: p, tls: f.state_tls };
             }
         }
     }
     // A daemon on the canonical port (the normal case). TLS only if the TLS probe
-    // is what matched — a plain-HTTP dev server on :3333 defers without TLS.
-    if primary_topics {
-        return BootChoice::Defer { port: 3333, tls: primary_tls };
+    // is what matched: a plain-HTTP dev server on :3333 defers without TLS.
+    if f.primary_topics {
+        return BootChoice::Defer { host: f.primary_host, port: 3333, tls: f.primary_tls };
     }
-    // No Topics daemon answered. The marker says this machine owns a real server,
-    // so the 2026-08-13 invariant holds: WAIT for it, never fork an empty
-    // universe. EXCEPT when a FOREIGN process is actively serving :3333 (the
-    // 2026-09-12 account-switcher squatter, or a marker the old "any 200 = up"
-    // probe wrote when it mistook that squatter for Topics): the real server is
-    // NOT coming back on :3333, so waiting there hangs the app on a foreign
-    // dashboard forever. A live foreign presence invalidates the marker → spawn.
-    if seen_before && !primary_foreign {
-        BootChoice::WaitForKnownServer
+    // WHERE TO WAIT, when waiting is the answer. A stranger answering on IPv4
+    // does not evict our daemon from `[::]:3333`: the two bindings coexist, so
+    // the address still worth waiting on is the one the stranger cannot hold.
+    let wait_host = if f.primary_foreign { Loopback::V6 } else { Loopback::V4 };
+    // THE PROOF THAT OUTRANKS EVERY PROBE (the 2026-09-14 reproduction). The
+    // daemon writes its pid next to its port, and that pid is alive: there IS a
+    // full universe running on this machine right now. Whatever the probes could
+    // not reach, a sidecar here would open a SECOND, empty one beside it and the
+    // person would find their topics gone. A live pid means wait, always.
+    if f.state_pid_alive {
+        return BootChoice::WaitForKnownServer { host: wait_host };
+    }
+    // No Topics daemon answered and no daemon process is alive. The marker says
+    // this machine owns a real server, so the 2026-08-13 invariant holds: WAIT
+    // for it, never fork an empty universe. EXCEPT when a FOREIGN process is
+    // actively serving :3333 AND no daemon of ours is running: the real server is
+    // not coming back by itself, so waiting hangs the app on a foreign dashboard.
+    if f.seen_before && !f.primary_foreign {
+        BootChoice::WaitForKnownServer { host: wait_host }
     } else {
         BootChoice::SpawnSidecar
     }
@@ -111,100 +149,215 @@ pub(crate) fn decide_boot(
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_boot, BootChoice};
+    use super::{decide_boot, BootChoice, BootFacts, Loopback};
 
-    /// THE 2026-09-12 REGRESSION GUARD. A squatter holds :3333 (the primary probe
-    /// sees no Topics shape there), but the daemon recovered onto an ephemeral
-    /// port (recorded in daemon-state.json) and answers by shape there. The shell
-    /// must defer to the daemon's REAL port, not the squatter — this is the exact
-    /// failure the user hit ("connection error" against an HTML dashboard on :3333).
+    /// THE 2026-09-12 REGRESSION GUARD. A squatter holds :3333 (no Topics shape
+    /// there), but the daemon recovered onto an ephemeral port recorded in
+    /// daemon-state.json and answers by shape there. Defer to the daemon's REAL
+    /// port, not the squatter.
     #[test]
     fn squatted_3333_defers_to_the_daemon_real_port() {
-        let choice = decide_boot(false, true, true, false, Some(55655), true, false);
-        assert_eq!(choice, BootChoice::Defer { port: 55655, tls: false });
+        let choice = decide_boot(BootFacts {
+            state_topics: true,
+            state_port: Some(55655),
+            seen_before: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 55655, tls: false }
+        );
     }
 
-    /// The normal case: a Topics daemon on :3333 via TLS → defer to :3333 + TLS.
+    /// The normal case: a Topics daemon on :3333 via TLS.
     #[test]
     fn a_topics_daemon_on_3333_defers_with_tls() {
-        let choice = decide_boot(true, true, false, false, None, false, false);
-        assert_eq!(choice, BootChoice::Defer { port: 3333, tls: true });
+        let choice = decide_boot(BootFacts {
+            primary_topics: true,
+            primary_tls: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 3333, tls: true }
+        );
     }
 
-    /// A plain-HTTP dev server on :3333 → defer to :3333 WITHOUT TLS (the old code
-    /// probed TLS first, then plain, and deferred with the matching mode).
+    /// A plain-HTTP dev server on :3333 defers WITHOUT TLS.
     #[test]
     fn a_plain_dev_server_on_3333_defers_without_tls() {
-        let choice = decide_boot(true, false, false, false, None, false, false);
-        assert_eq!(choice, BootChoice::Defer { port: 3333, tls: false });
+        let choice = decide_boot(BootFacts { primary_topics: true, ..Default::default() });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 3333, tls: false }
+        );
     }
 
-    /// A daemon on BOTH the state port and :3333: the state port wins (it is the
-    /// port the daemon recorded as its real one).
+    /// THE MAC CASE, reproduced on 2026-09-14 and red before this rule existed.
+    /// An IPv4 squatter holds 127.0.0.1:3333; production is alive on `[::]:3333`
+    /// and answers the shape probe over IPv6. The shell must talk to IPv6, and
+    /// the port it defers to is still the canonical one.
+    #[test]
+    fn production_answering_on_ipv6_is_deferred_to_there() {
+        let choice = decide_boot(BootFacts {
+            primary_topics: true,
+            primary_host: Loopback::V6,
+            primary_tls: true,
+            seen_before: true,
+            primary_foreign: true,
+            state_pid_alive: true,
+            state_port: Some(3333),
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V6, port: 3333, tls: true }
+        );
+    }
+
+    /// THE DEFECT THE 2026-09-14 REVIEW REPRODUCED, and the reason this rule
+    /// gained `state_pid_alive`. Mac, marker present, state port 3333, an IPv4
+    /// squatter answering HTML there, and NO probe of ours got through (slow
+    /// server, wrong address, TLS mismatch: it does not matter which). The
+    /// daemon's own pid is alive, so a full universe is running: spawning a
+    /// sidecar here opens an empty second one beside it. Wait, on IPv6, where
+    /// the squatter cannot be. With the previous rule this input returned
+    /// SpawnSidecar.
+    #[test]
+    fn a_live_daemon_pid_forbids_the_sidecar_even_behind_a_squatter() {
+        let choice = decide_boot(BootFacts {
+            state_port: Some(3333),
+            seen_before: true,
+            primary_foreign: true,
+            state_pid_alive: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::WaitForKnownServer { host: Loopback::V6 }
+        );
+    }
+
+    /// A daemon on BOTH the state port and :3333: the state port wins.
     #[test]
     fn state_port_wins_over_primary() {
-        let choice = decide_boot(true, true, true, false, Some(40000), false, false);
-        assert_eq!(choice, BootChoice::Defer { port: 40000, tls: false });
+        let choice = decide_boot(BootFacts {
+            primary_topics: true,
+            primary_tls: true,
+            state_topics: true,
+            state_port: Some(40000),
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 40000, tls: false }
+        );
     }
 
-    /// A squatter on :3333 and NO daemon anywhere, virgin machine → spawn the
-    /// sidecar (never defer to an HTML dashboard).
+    /// A squatter on :3333, no daemon anywhere, no daemon process alive, virgin
+    /// machine: spawn the sidecar (never defer to an HTML dashboard).
     #[test]
     fn squatter_on_3333_virgin_spawns_sidecar() {
-        let choice = decide_boot(false, true, false, false, None, false, false);
+        let choice = decide_boot(BootFacts { primary_foreign: true, ..Default::default() });
         assert_eq!(choice, BootChoice::SpawnSidecar);
     }
 
-    /// Companion to `contaminated_marker_does_not_wait_on_a_foreign_squatter`:
-    /// NO foreign process on :3333 (a genuine server that is merely DOWN —
-    /// connection refused), stale state, marker present → the 2026-08-13 invariant
-    /// STILL holds: wait for the known server, never fork an empty universe. This
-    /// is the case we must NOT break while fixing the contaminated-marker case.
+    /// THE 2026-08-13 INVARIANT, restored after this test was deleted on the
+    /// first pass of this branch. A server that is alive but too SLOW to answer
+    /// inside the probe window looks like silence, not like a stranger: nothing
+    /// foreign answered, the marker is present, so the shell WAITS. Replacing a
+    /// slow server with an empty sidecar is the incident this whole file exists
+    /// for, and it cost a person every topic they had.
+    #[test]
+    fn a_slow_but_live_server_is_waited_for_never_replaced() {
+        let choice = decide_boot(BootFacts {
+            state_port: Some(3333),
+            seen_before: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::WaitForKnownServer { host: Loopback::V4 }
+        );
+    }
+
+    /// A genuine server that is merely DOWN (connection refused, nothing
+    /// foreign answering) with the marker present: wait, never fork.
     #[test]
     fn server_down_with_marker_still_waits() {
-        let choice = decide_boot(false, true, false, false, Some(3333), true, false);
-        assert_eq!(choice, BootChoice::WaitForKnownServer);
+        let choice = decide_boot(BootFacts {
+            state_port: Some(3333),
+            seen_before: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::WaitForKnownServer { host: Loopback::V4 }
+        );
     }
 
-    /// The marker is only consulted when NO daemon answered — a live daemon always
-    /// beats a stale marker.
+    /// The marker is only consulted when no daemon answered: a live daemon
+    /// always beats a stale marker.
     #[test]
     fn a_live_daemon_beats_a_stale_marker() {
-        let choice = decide_boot(true, true, false, false, None, true, false);
-        assert_eq!(choice, BootChoice::Defer { port: 3333, tls: true });
+        let choice = decide_boot(BootFacts {
+            primary_topics: true,
+            primary_tls: true,
+            seen_before: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 3333, tls: true }
+        );
     }
 
-    /// A state port of 0 (a corrupt/zero port) is not a usable target: it must not
-    /// produce a Defer to :0, and the rule falls through to the other outcomes.
+    /// A state port of 0 is not a usable target: no Defer to :0.
     #[test]
     fn a_zero_state_port_is_not_deferred_to() {
-        let choice = decide_boot(false, true, true, false, Some(0), false, false);
+        let choice = decide_boot(BootFacts {
+            state_topics: true,
+            state_port: Some(0),
+            primary_foreign: true,
+            ..Default::default()
+        });
         assert_eq!(choice, BootChoice::SpawnSidecar);
     }
 
-    /// THE 2026-09-12 CONTAMINATED-MARKER GUARD. The old "any 200 = up" probe
-    /// mistook the foreign account-switcher dashboard on :3333 for Topics and
-    /// wrote the external-server marker. Now: stale daemon-state (port 3333, dead
-    /// pid) + that squatter still answering on :3333 + the marker present + NO
-    /// Topics daemon anywhere. Waiting for the "known server" would hang the app
-    /// on a foreign dashboard forever — so a live foreign presence INVALIDATES
-    /// the marker and the sidecar spawns.
+    /// THE WINDOWS CASE OF 2026-09-13, and the one the pid rule must not break:
+    /// the dev server that wrote the marker is GONE (its recorded pid is dead)
+    /// and the account-switcher dashboard answers on :3333. There is no universe
+    /// to protect, so the sidecar starts instead of the app hanging forever on a
+    /// foreign dashboard.
     #[test]
     fn contaminated_marker_does_not_wait_on_a_foreign_squatter() {
-        let choice = decide_boot(false, true, false, false, Some(3333), true, true);
+        let choice = decide_boot(BootFacts {
+            state_port: Some(3333),
+            seen_before: true,
+            primary_foreign: true,
+            ..Default::default()
+        });
         assert_eq!(choice, BootChoice::SpawnSidecar);
     }
 
-    /// THE CASE THAT WAS UNREACHABLE BEFORE (card `1e078aee`): a TLS machine.
-    /// A stranger holds :3333, the marker is present, and the daemon recovered
-    /// onto an ephemeral port where it serves TLS, like everywhere else on that
-    /// machine. The shell must defer to that port WITH TLS. With the old fixed
-    /// `tls: false` the probe never matched, the rule fell through to a spawn and
-    /// the person got an empty universe with the real data one port away.
+    /// A TLS machine: the daemon recovered onto an ephemeral port and serves TLS
+    /// there like everywhere else. Defer to that port WITH TLS. With the old
+    /// fixed `tls: false` the probe never matched and the person got an empty
+    /// universe one port away.
     #[test]
     fn a_tls_daemon_on_the_state_port_is_deferred_to_over_tls() {
-        let choice = decide_boot(false, false, true, true, Some(55655), true, true);
-        assert_eq!(choice, BootChoice::Defer { port: 55655, tls: true });
+        let choice = decide_boot(BootFacts {
+            state_topics: true,
+            state_tls: true,
+            state_port: Some(55655),
+            seen_before: true,
+            primary_foreign: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 55655, tls: true }
+        );
     }
 
     /// The same machine, plain HTTP: the scheme deferred to is the one that
@@ -212,16 +365,50 @@ mod tests {
     /// either value again breaks a test.
     #[test]
     fn a_plain_daemon_on_the_state_port_is_deferred_to_without_tls() {
-        let choice = decide_boot(false, false, true, false, Some(55655), true, true);
-        assert_eq!(choice, BootChoice::Defer { port: 55655, tls: false });
+        let choice = decide_boot(BootFacts {
+            state_topics: true,
+            state_port: Some(55655),
+            seen_before: true,
+            primary_foreign: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 55655, tls: false }
+        );
     }
 
-    /// A TLS daemon on the state port beats a foreign squatter on :3333 even when
-    /// the marker is missing (a machine seeing its server for the first time):
-    /// finding the real daemon is never conditional on the marker.
+    /// A TLS daemon on the state port beats a foreign squatter on :3333 even
+    /// without the marker: finding the real daemon is never conditional on it.
     #[test]
     fn a_tls_state_daemon_beats_a_squatter_without_a_marker() {
-        let choice = decide_boot(false, false, true, true, Some(49152), false, true);
-        assert_eq!(choice, BootChoice::Defer { port: 49152, tls: true });
+        let choice = decide_boot(BootFacts {
+            state_topics: true,
+            state_tls: true,
+            state_port: Some(49152),
+            primary_foreign: true,
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V4, port: 49152, tls: true }
+        );
+    }
+
+    /// The daemon answers by shape on its ephemeral port over IPv6: the address
+    /// that answered is the address deferred to, on the state port as well.
+    #[test]
+    fn the_state_port_defers_to_the_address_that_answered() {
+        let choice = decide_boot(BootFacts {
+            state_topics: true,
+            state_host: Loopback::V6,
+            state_tls: true,
+            state_port: Some(49152),
+            ..Default::default()
+        });
+        assert_eq!(
+            choice,
+            BootChoice::Defer { host: Loopback::V6, port: 49152, tls: true }
+        );
     }
 }
