@@ -107,6 +107,30 @@ describe('dispatchLoadReading', () => {
     expect(loadToneClass(over)).toContain('rose');
   });
 
+  test('the ring fills against what is usable, not against the whole budget', () => {
+    // Other processes hold most of the machine: 3 of the 9.6 core-units are
+    // usable, and 2.4 of them are ours. The gate is close to "wait", so the
+    // ring must be too.
+    const r = dispatchLoadReading(stateWith(3, {
+      cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 },
+      capacity: machine({ usableCoreUnits: 3, usedCoreUnits: 2.4 }),
+    }));
+    expect(r.fill).toBeCloseTo(0.8, 5);
+    const at = dispatchLoadReading(stateWith(3, {
+      cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 },
+      capacity: machine({ usableCoreUnits: 3, usedCoreUnits: 3.5 }),
+    }));
+    expect(at.tone).toBe('over');
+    // A measured zero is a ceiling too: the ring is full and past it, not
+    // drawn against the whole budget.
+    const none = dispatchLoadReading(stateWith(3, {
+      cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 },
+      capacity: machine({ usableCoreUnits: 0, usedCoreUnits: 1.2 }),
+    }));
+    expect(none.fill).toBe(1);
+    expect(none.tone).toBe('over');
+  });
+
   test('braking on the budget with nothing measured yet: empty ring, nothing invented', () => {
     const r = dispatchLoadReading(stateWith(3, {
       cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 },
