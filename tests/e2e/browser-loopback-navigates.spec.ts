@@ -63,11 +63,11 @@ test.beforeAll(async () => {
  * timeout, leaves the test budget for the thing under test.
  */
 test.beforeAll(async ({ request }) => {
-  const warmup = await request.post(`/api/browsers/warmup-${Date.now()}/agent/open`, {
+  const launched = await request.post(`/api/browsers/warm-${Date.now()}/agent/open`, {
     data: { url: "about:blank" },
     timeout: 180_000,
   });
-  expect(warmup.ok()).toBe(true);
+  expect(launched.ok()).toBe(true);
 });
 
 test.afterAll(async ({ request }) => {
