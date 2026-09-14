@@ -142,16 +142,48 @@ video `.webm` degli spec, non resoconti.
       metà eager, +603 raw / +181 gz, dentro il budget.
 
 ## Tornata 4: niente sopra la pagina
-- [ ] Icona di tipo nella tab (connessione persa, condivisa, Chromium), assente
-      sul tipo predefinito.
-- [ ] Commutatori di motore e resa nella sezione Sessione del foglio; togliere
-      `BrowserPaneChip` da `RemoteBrowserPanel`; rinominare «Nativo» nel testo del
-      motore Playwright (chiavi i18n, non stringhe a mano).
-- [ ] Aggiornare `browser-engine-switch.spec.ts`, `browser-dom-cobrowse.spec.ts`,
-      `browser-ws-streaming.spec.ts` (`:393`) e `browser-iframe-mode.spec.ts` al
-      nuovo posto dei commutatori.
-- [ ] E2E (`TOPIC-BROWSER-03`): scheda condivisa senza pillole nell'area della
-      pagina e con l'icona; scheda normale senza icona.
+- [x] Icona di tipo nella tab (`BrowserTabTypeIcon`, fra favicon e titolo),
+      assente sul tipo predefinito. Quattro stati e non tre: `fallback-http` si
+      tiene il suo glifo, perché non è «sto collegando» né «perso», e dire «sto
+      ancora provando» di un collegamento già stabilizzato è l'unica cosa
+      sbagliata da dire. La resa (DOM ↔ video) NON prende un'icona: rendono la
+      stessa pagina e la differenza si vede nella pagina.
+- [x] Condivisa vale solo dove la sessione è una scelta, cioè dove la pane ha una
+      vista nativa da rendere invece (il guscio desktop, l'unico che pubblica
+      `shareMode`). Sul web `mode` è cablato a 'shared' per ogni pane, quindi
+      leggere `shared` da solo metteva l'icona su OGNI tab browser del web — il
+      badge che questo requisito vieta. Misurato sull'e2e: una pane con la pagina
+      in un `<iframe>` vero usciva «Sessione condivisa fra i tuoi dispositivi».
+- [x] Commutatori di motore e resa nella sezione Sessione del foglio;
+      `BrowserPaneChip` non è più importato da `RemoteBrowserPanel` (e `ChipDot`,
+      che serviva solo al pallino di connessione, è morto con lui); il motore
+      Playwright del server non è più «Nativo» (`browser.tab.engine.playwright`,
+      `browser.engine.native`/`.real` riscritte).
+- [x] La decisione su quale resa è attiva sale sopra i comandi: il ramo `<iframe>`
+      condivide questo bridge, e pubblicata senza cancello `connectionState`
+      metteva un glifo di connessione sulla tab di una pane che non ha nessuna
+      connessione da perdere.
+- [x] Aggiornati `browser-engine-switch.spec.ts`, `browser-dom-cobrowse.spec.ts`,
+      `browser-ws-streaming.spec.ts` e `browser-iframe-mode.spec.ts`. Due note:
+      in dom-cobrowse il foglio si apre PER ULTIMO (copre la pagina e la
+      parcheggia, aprirlo a metà toglie al test la superficie su cui clicca); in
+      ws-streaming la connessione si legge da `data-connection` e non dal glifo,
+      perché `degraded` e `connecting` sono due collegamenti diversi e un locator
+      che non li distingue non può provare che la macchina a stati non resta
+      appesa in 'connecting'.
+- [x] E2E (`TOPIC-BROWSER-03`), `browser-nothing-over-the-page.spec.ts`: la
+      negazione è GEOMETRIA (`elementsOverThePage` in
+      `tests/e2e/helpers/browser-geometry.ts`), non i tre testid contati a zero —
+      quelli sarebbero verdi su qualunque app, HERO-R-003. Il rettangolo è quello
+      dei pixel della pagina per ramo e non il contenitore della pane, che sul
+      ramo streaming era la scatola DENTRO cui le pillole stavano. L'icona di
+      condivisione non è raggiungibile da una corsa web (vedi sopra): la presenza
+      dell'icona la prova `browser-engine-switch` sul motore Chromium.
+- [x] `chrome-bar-surface-inventory`: il pavimento «la pane è montata» scende da
+      20 a 10. Il browser contava 49 nodi quando quel numero è stato scritto e
+      conta 20 adesso (tre bottoni, tre `<svg>` e i loro path in meno), quindi 20
+      voleva dire «esattamente quello del browser» e bocciava la pane che doveva
+      far passare.
 
 ## Tornata 5: dove arrivano le aperture
 - [ ] Porta unica dei link: origine chat di topic e viewport ≥ 768 px → scheda
