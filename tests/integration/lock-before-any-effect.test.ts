@@ -1,8 +1,8 @@
 /**
  * A LOSING BOOT TOUCHES NOTHING.
  *
- * The singleton lock used to be taken just above `Bun.serve`, at the very end
- * of init. Everything that makes a boot expensive ran first: the database was
+ * The singleton lock was acquired next to the HTTP listener, which is the last
+ * step of init. Everything that makes a boot expensive ran first: the database was
  * opened, migrations and the ui_state repairs applied, the PTY and AI bridges
  * joined, live sessions reattached, idle ones parked, partial rows swept. Only
  * then did the second process find the lock and exit. That is not a singleton,
