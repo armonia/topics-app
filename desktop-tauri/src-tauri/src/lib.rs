@@ -1047,6 +1047,36 @@ async fn probe_topics_server(host: Loopback, port: u16, tls: bool) -> bool {
         .unwrap_or(false)
 }
 
+/// What a port answered, and over WHICH scheme it answered it. The scheme is
+/// half the answer: deferring to a TLS daemon in plain HTTP reaches nobody.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+struct PortAnswer {
+    verdict: ShapeVerdict,
+    tls: bool,
+}
+
+/// Ask one address and port who is there, in as few connections as possible.
+///
+/// First a bare TCP connection, for one reason: if nothing is listening, that
+/// single refusal settles both schemes at once. Trying TLS and then plain HTTP
+/// against a port with no listener is two refusals for one fact, and on Windows a
+/// refusal costs ~0.83s (measured 2026-08-28). Only once something IS listening
+/// do we spend a real probe, TLS first because production serves TLS.
+async fn probe_port(host: Loopback, port: u16) -> PortAnswer {
+    let connect = tokio::net::TcpStream::connect((host.host(), port));
+    let listening = tokio::time::timeout(std::time::Duration::from_millis(800), connect).await;
+    if !matches!(listening, Ok(Ok(_))) {
+        return PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false };
+    }
+    for tls in [true, false] {
+        let verdict = probe_topics_shape(host, port, tls).await;
+        if verdict != ShapeVerdict::NoAnswer {
+            return PortAnswer { verdict, tls };
+        }
+    }
+    PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false }
+}
+
 /// WHAT ONE PROBE FOUND, and the whole point is that it has THREE answers, not
 /// two. The shell used to ask "is Topics there?" with the shape probe and "is a
 /// stranger there?" with a different, cheaper route (`/__daemon/healthz`, which
@@ -1190,29 +1220,137 @@ fn daemon_state_field(path: &std::path::Path, field: &str) -> Option<u64> {
 /// The path of the daemon's state file, by the same rule the daemon itself uses
 /// (`TOPICS_HOME`, else the OS home + `.topics`).
 fn daemon_state_path() -> Option<std::path::PathBuf> {
-    if let Ok(h) = std::env::var("TOPICS_HOME") {
-        return Some(std::path::PathBuf::from(h).join("daemon-state.json"));
-    }
-    let os_home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).ok()?;
-    Some(std::path::PathBuf::from(os_home).join(".topics").join("daemon-state.json"))
+    daemon_home().map(|h| h.join("daemon-state.json"))
 }
 
-/// IS THE DAEMON THIS MACHINE RECORDED STILL RUNNING? The one fact a port
-/// squatter cannot fake and a slow server cannot lose: `daemon-state.json` holds
-/// the daemon's pid next to its port, and a live pid means a full universe is
-/// running right here, whatever the probes could or could not reach. The shell
-/// reads it to answer one question only: may I start a sidecar? A live pid says
-/// no, and saying no is how the person keeps their topics.
-fn daemon_state_pid_alive() -> bool {
-    let Some(path) = daemon_state_path() else { return false };
-    let Some(pid) = daemon_state_field(&path, "pid") else { return false };
-    if pid == 0 || pid > u32::MAX as u64 {
-        return false;
+/// The daemon's process lock, `~/.topics/daemon-process.lock`. It matters that
+/// this is a DIFFERENT file from `daemon-state.json`: the lock is taken as the
+/// server process starts, the state file is written only once the listener is
+/// bound. Between the two there is a window, seconds on a warm machine and much
+/// longer on a cold login, in which a real server is starting and the state file
+/// still describes the PREVIOUS run (or does not exist). Reading the lock is what
+/// lets the shell see that starting server.
+fn daemon_lock_path() -> Option<std::path::PathBuf> {
+    daemon_home().map(|h| h.join("daemon-process.lock"))
+}
+
+
+/// `TOPICS_HOME`, else the OS home + `.topics`. The same rule the server uses.
+fn daemon_home() -> Option<std::path::PathBuf> {
+    if let Ok(h) = std::env::var("TOPICS_HOME") {
+        return Some(std::path::PathBuf::from(h));
     }
-    let pid = sysinfo::Pid::from_u32(pid as u32);
+    let os_home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).ok()?;
+    Some(std::path::PathBuf::from(os_home).join(".topics"))
+}
+
+/// Epoch seconds for an ISO-8601 UTC timestamp like `2026-09-14T06:35:07.123Z`,
+/// which is what both daemon files record. Written out by hand because the shell
+/// has no date library and pulling one in for eight fields would be worse. Any
+/// shape this does not recognise is `None`, and the caller then knows nothing
+/// about the timestamp, which is the honest answer.
+fn epoch_seconds_from_iso(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 19 {
+        return None;
+    }
+    let num = |from: usize, to: usize| -> Option<i64> { text.get(from..to)?.parse::<i64>().ok() };
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (hour, minute, second) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    // Days from the civil calendar to the Unix epoch (Howard Hinnant's algorithm,
+    // the one every date library uses underneath).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let year_of_era = y - era * 400;
+    let month_term = if month > 2 { month - 3 } else { month + 9 };
+    let day_of_year = (153 * month_term + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+}
+
+/// Read `{ pid, <stamp_field> }` out of one of the daemon's JSON files.
+fn daemon_pid_record(path: &std::path::Path, stamp_field: &str) -> Option<(u32, i64)> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let pid = v.get("pid")?.as_u64()?;
+    if pid == 0 || pid > u32::MAX as u64 {
+        return None;
+    }
+    let stamp = epoch_seconds_from_iso(v.get(stamp_field)?.as_str()?)?;
+    Some((pid as u32, stamp))
+}
+
+/// Does process `pid` exist AND did it start when the daemon says it did?
+///
+/// THE PID ALONE PROVES NOTHING, and this is the 2026-09-14 finding. A pid is a
+/// small integer the OS hands out again once the process is gone: on Windows it
+/// comes back around in minutes, and `pid 1` is alive on every Unix that ever
+/// booted. A recycled pid read as "the daemon is alive" is the 2026-09-13
+/// incident exactly: the shell waits forever for a server that died hours ago.
+///
+/// So the start time has to agree with the record, and the bound that does the
+/// work is the UPPER one: our daemon wrote that file while it was running, so it
+/// cannot have started AFTER it (bar clock skew). A recycled pid belongs to a
+/// process born after the record and fails there. The lower bound only rules out
+/// an ancient unrelated process that happens to hold the number, and it is loose
+/// on purpose, because between starting and writing its file a cold daemon can
+/// legitimately take a long time, and calling a live daemon dead is the mistake
+/// that costs someone their topics.
+fn process_matches_record(pid: u32, recorded_at: i64, earliest_before: i64) -> bool {
+    let pid = sysinfo::Pid::from_u32(pid);
     let mut sys = sysinfo::System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-    sys.process(pid).is_some()
+    let Some(process) = sys.process(pid) else { return false };
+    let started = process.start_time() as i64;
+    // `start_time() == 0` means the platform would not say: unknowable, and an
+    // unknowable start time cannot confirm anything.
+    if started == 0 {
+        return false;
+    }
+    started <= recorded_at + CLOCK_SKEW_SECONDS && started >= recorded_at - earliest_before
+}
+
+/// How far the two clocks (the OS start time and the timestamp the daemon wrote)
+/// may disagree while still describing the same instant.
+const CLOCK_SKEW_SECONDS: i64 = 10;
+/// How long a daemon may take between being started by the OS and taking its
+/// lock. Startup plus module loading: seconds, generously bounded.
+const LOCK_STARTUP_BUDGET_SECONDS: i64 = 120;
+/// How long a daemon may take between being started and having its listener
+/// bound, which is when the state file is written. A cold login with a large
+/// database is the slow case this covers.
+const BIND_STARTUP_BUDGET_SECONDS: i64 = 600;
+
+/// IS THE DAEMON THIS MACHINE RECORDED STILL RUNNING? The one fact a port
+/// squatter cannot fake and a slow server cannot lose: a live daemon process
+/// means a full universe is running right here, whatever the probes could or
+/// could not reach, and the shell must not open an empty second one beside it.
+///
+/// Two records answer it, and the LOCK is asked first because it exists earlier:
+/// a server that is still starting up has taken its lock and not yet written its
+/// state file, and that window is precisely when an impatient shell would fork.
+/// Either record, checked against the process start time, is enough.
+fn daemon_pid_is_alive() -> bool {
+    match (daemon_lock_path(), daemon_state_path()) {
+        (Some(lock), Some(state)) => daemon_pid_is_alive_in(&lock, &state),
+        _ => false,
+    }
+}
+
+/// The rule of `daemon_pid_is_alive`, with the two paths passed in so a test can
+/// point it at files it wrote itself instead of at the person's real home.
+fn daemon_pid_is_alive_in(lock: &std::path::Path, state: &std::path::Path) -> bool {
+    let by_lock = daemon_pid_record(lock, "acquiredAt")
+        .is_some_and(|(pid, at)| process_matches_record(pid, at, LOCK_STARTUP_BUDGET_SECONDS));
+    if by_lock {
+        return true;
+    }
+    daemon_pid_record(state, "startedAt")
+        .is_some_and(|(pid, at)| process_matches_record(pid, at, BIND_STARTUP_BUDGET_SECONDS))
 }
 
 /// How long a NON-document connection (XHR, SSE, WebSocket) waits for the upstream
@@ -1744,67 +1882,95 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // concluding (the 2026-08-13 note: a slow/restarting server must be waited
     // for, never replaced by an empty sidecar universe).
     let attempts: u32 = if seen_before { 60 } else { 8 };
-    // BOTH LOOPBACK FAMILIES, every round. The daemon binds `[::]:3333`; a
-    // stranger that binds the more specific `127.0.0.1:3333` coexists with it, so
-    // on such a machine IPv4 reaches the stranger and IPv6 reaches the real
-    // server. Probing IPv4 only is what made a Mac with a live production server
-    // conclude "nobody is home" (reproduced 2026-09-14).
-    const HOSTS: [Loopback; 2] = [Loopback::V4, Loopback::V6];
+    // WHAT ONE ROUND COSTS, because this loop runs on a machine where the
+    // person is staring at a blank window. On the Mac a refused connection comes
+    // back instantly; on Windows it costs ~0.83s (measured 2026-08-28, the 141s
+    // boot of commit 3a2f8d7e1), so every probe that cannot possibly find
+    // anything is a second of somebody's morning. Hence two economies, and they
+    // are the reason the round stays at the two connections it had before IPv6
+    // existed in this code:
+    //   * `probe_port` opens ONE connection to decide there is no listener, and
+    //     does not then repeat the whole thing in the other scheme;
+    //   * IPv6 is only probed where IPv4 found a STRANGER. That is the only
+    //     shape in which our daemon can hide from IPv4: it binds `[::]`, which
+    //     answers 127.0.0.1 too, unless somebody else holds the v4 address.
+    //     Where IPv4 found silence, IPv6 has nothing to add and would cost
+    //     0.83s a round for it.
+    // Worst case per round on Windows: 2 refused connections, ~1.7s, the same as
+    // before this branch.
     let mut facts = BootFacts { seen_before, ..Default::default() };
-    // THE STATE PORT IS RE-READ EVERY ROUND, and it has to be: the whole reason
-    // this loop lasts 42 seconds is that the server may be RESTARTING, and a
-    // restart is exactly when the daemon writes a new port into daemon-state.json
-    // (four restarts on four different ports in one night, 2026-09-13). Reading
-    // it once before the loop meant probing a dead port for the full 42s and then
-    // spawning a sidecar next to a server that had been up for forty of them.
     'rounds: for round in 0..attempts {
+        // THE STATE PORT IS RE-READ EVERY ROUND, and it has to be: the whole
+        // reason this loop lasts 42 seconds is that the server may be RESTARTING,
+        // and a restart is exactly when the daemon writes a new port into
+        // daemon-state.json (four restarts on four different ports in one night,
+        // 2026-09-13). Reading it once before the loop meant probing a dead port
+        // for the full 42s and then spawning a sidecar next to a server that had
+        // been up for forty of them. Both re-reads are file reads: no socket, no
+        // second of anybody's morning.
         facts.state_port = daemon_state_port();
-        for host in HOSTS {
-            for tls in [true, false] {
-                match probe_topics_shape(host, DEFAULT_UPSTREAM_PORT, tls).await {
+        facts.state_pid_alive = daemon_pid_is_alive();
+
+        let answer = probe_port(Loopback::V4, DEFAULT_UPSTREAM_PORT).await;
+        match answer.verdict {
+            ShapeVerdict::Topics => {
+                facts.primary_topics = true;
+                facts.primary_host = Loopback::V4;
+                facts.primary_tls = answer.tls;
+                break 'rounds;
+            }
+            ShapeVerdict::Foreign => {
+                facts.primary_foreign = true;
+                // A stranger on IPv4 is the one case where our daemon may still
+                // be answering on IPv6 behind it (reproduced 2026-09-14).
+                let behind = probe_port(Loopback::V6, DEFAULT_UPSTREAM_PORT).await;
+                if behind.verdict == ShapeVerdict::Topics {
+                    facts.primary_topics = true;
+                    facts.primary_host = Loopback::V6;
+                    facts.primary_tls = behind.tls;
+                    break 'rounds;
+                }
+            }
+            ShapeVerdict::NoAnswer => {}
+        }
+
+        if let Some(sp) = facts.state_port {
+            if sp != 0 && sp != DEFAULT_UPSTREAM_PORT {
+                let on_state = probe_port(Loopback::V4, sp).await;
+                match on_state.verdict {
                     ShapeVerdict::Topics => {
-                        facts.primary_topics = true;
-                        facts.primary_host = host;
-                        facts.primary_tls = tls;
+                        facts.state_topics = true;
+                        facts.state_host = Loopback::V4;
+                        facts.state_tls = on_state.tls;
                         break 'rounds;
                     }
-                    // Remembered, not acted on: a stranger on one address says
-                    // nothing about the other, and the Topics probes below still
-                    // get their turn.
-                    ShapeVerdict::Foreign => facts.primary_foreign = true,
+                    ShapeVerdict::Foreign => {
+                        let behind = probe_port(Loopback::V6, sp).await;
+                        if behind.verdict == ShapeVerdict::Topics {
+                            facts.state_topics = true;
+                            facts.state_host = Loopback::V6;
+                            facts.state_tls = behind.tls;
+                            break 'rounds;
+                        }
+                    }
                     ShapeVerdict::NoAnswer => {}
                 }
             }
         }
-        // TLS FIRST HERE TOO. The daemon on its ephemeral port is the same daemon:
-        // on a machine configured with certificates it serves TLS there as well,
-        // so a plain-HTTP-only probe misses it and the shell spawns an empty
-        // sidecar while the real data answers, in HTTPS, one port away.
-        if let Some(sp) = facts.state_port {
-            if sp != 0 && sp != DEFAULT_UPSTREAM_PORT {
-                for host in HOSTS {
-                    for tls in [true, false] {
-                        if probe_topics_shape(host, sp, tls).await == ShapeVerdict::Topics {
-                            facts.state_topics = true;
-                            facts.state_host = host;
-                            facts.state_tls = tls;
-                            break 'rounds;
-                        }
-                    }
-                }
-            }
+
+        // NOTHING LEFT TO WAIT FOR. A stranger is serving the canonical port, no
+        // daemon of ours answered anywhere, and no daemon process is running on
+        // this machine. Forty more seconds of that changes nothing, and the
+        // person spends them looking at "Connecting" (2026-09-13). Decide now.
+        if facts.primary_foreign && !facts.state_pid_alive {
+            break 'rounds;
         }
+
         if round + 1 < attempts {
             tokio::time::sleep(std::time::Duration::from_millis(700)).await;
         }
     }
-    // THE LAST FACT, and the one that outranks every probe: is the daemon this
-    // machine recorded still RUNNING? Read after the loop, when we already know no
-    // probe of ours got an answer, because it is the only question left that can
-    // still forbid a sidecar (see `decide_boot`).
-    if !facts.primary_topics && !facts.state_topics {
-        facts.state_pid_alive = daemon_state_pid_alive();
-    }
+
     let choice = decide_boot(facts);
     match choice {
         BootChoice::Defer { host, port, tls } => {
@@ -12506,7 +12672,9 @@ mod contaminated_marker_cold_boot_tests {
     //! server must still wait, not fork empty).
 
     use super::{
-        decide_boot, probe_topics_shape, BootChoice, BootFacts, Loopback, ShapeVerdict,
+        daemon_pid_is_alive_in, decide_boot, epoch_seconds_from_iso, probe_port,
+        probe_topics_shape, process_matches_record, BootChoice, BootFacts, Loopback, PortAnswer,
+        ShapeVerdict, LOCK_STARTUP_BUDGET_SECONDS,
     };
     use std::io::{Read, Write};
     use std::time::Duration;
@@ -12599,6 +12767,158 @@ mod contaminated_marker_cold_boot_tests {
                 choice,
                 BootChoice::SpawnSidecar,
                 "contaminated marker + foreign squatter must SPAWN, not hang"
+            );
+        });
+    }
+
+    /// An ISO-8601 UTC timestamp for `epoch`, the shape both daemon files use.
+    /// The inverse of what the shell parses, written here so a test can put a
+    /// process start time into a file the way the server would.
+    fn iso_utc(epoch: i64) -> String {
+        let days = epoch.div_euclid(86_400);
+        let secs = epoch.rem_euclid(86_400);
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z.rem_euclid(146_097);
+        let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = yoe + era * 400 + i64::from(month <= 2);
+        format!(
+            "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.000Z",
+            secs / 3_600,
+            (secs % 3_600) / 60,
+            secs % 60
+        )
+    }
+
+    fn now_epoch() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+
+    /// When THIS process started, by the same source the rule uses.
+    fn own_start_time() -> i64 {
+        let pid = sysinfo::Pid::from_u32(std::process::id());
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+        sys.process(pid).map(|p| p.start_time() as i64).unwrap_or(0)
+    }
+
+    #[test]
+    fn iso_timestamps_are_read_the_way_the_server_writes_them() {
+        assert_eq!(epoch_seconds_from_iso("1970-01-01T00:00:00.000Z"), Some(0));
+        assert_eq!(epoch_seconds_from_iso("2026-09-14T06:35:07.123Z"), Some(1_789_367_707));
+        // A round trip through the test's own writer, on a date with a leap day
+        // behind it, so neither direction can be quietly wrong.
+        let stamp = 1_772_000_000;
+        assert_eq!(epoch_seconds_from_iso(&iso_utc(stamp)), Some(stamp));
+        assert_eq!(epoch_seconds_from_iso("not a timestamp"), None);
+    }
+
+    /// THE 2026-09-14 DEFECT, on the real function. A pid that EXISTS proves
+    /// nothing: this process exists, and against a record written long before it
+    /// started it must read as dead, because that is what a recycled Windows pid
+    /// looks like. With a record that matches its start time, it reads as alive.
+    #[test]
+    fn an_existing_pid_started_at_another_time_is_not_the_daemon() {
+        let started = own_start_time();
+        assert!(started > 0, "the platform must report a start time for this test to mean anything");
+        let pid = std::process::id();
+        assert!(
+            process_matches_record(pid, started, LOCK_STARTUP_BUDGET_SECONDS),
+            "the record that matches the start time is our process"
+        );
+        assert!(
+            !process_matches_record(pid, started - 100_000, LOCK_STARTUP_BUDGET_SECONDS),
+            "a process that started AFTER the record is a recycled pid, not the daemon"
+        );
+        assert!(
+            !process_matches_record(pid, started + 100_000, LOCK_STARTUP_BUDGET_SECONDS),
+            "a process that started long before the record is an unrelated old process"
+        );
+        // `pid 1` is alive on every Unix and is the reason "does the pid exist"
+        // is not a liveness test at all.
+        #[cfg(unix)]
+        assert!(
+            !process_matches_record(1, now_epoch(), LOCK_STARTUP_BUDGET_SECONDS),
+            "pid 1 must never read as the Topics daemon"
+        );
+    }
+
+    /// The rule end to end, over files written exactly like the server's. The
+    /// lock is read FIRST because it exists first: a daemon that has started and
+    /// not yet bound its port has a lock and a stale (or absent) state file, and
+    /// that window is when an impatient shell used to fork an empty universe.
+    #[test]
+    fn the_lock_answers_for_a_daemon_that_has_not_bound_yet() {
+        let dir = std::env::temp_dir().join(format!("topics-pid-{}-{}", std::process::id(), now_epoch()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon-process.lock");
+        let state = dir.join("daemon-state.json");
+        let pid = std::process::id();
+        let started = own_start_time();
+
+        // Nothing written yet: nothing to protect.
+        assert!(!daemon_pid_is_alive_in(&lock, &state), "no files means no daemon");
+
+        // A lock that matches, and no state file at all: a server mid-startup.
+        std::fs::write(
+            &lock,
+            format!(r#"{{"pid":{pid},"acquiredAt":"{}"}}"#, iso_utc(started + 1)),
+        )
+        .unwrap();
+        assert!(
+            daemon_pid_is_alive_in(&lock, &state),
+            "a live lock alone must forbid the sidecar"
+        );
+
+        // THE WINDOWS CASE OF 2026-09-13: both files name a pid the OS has since
+        // handed to somebody else. The records predate this process, so neither
+        // confirms anything and the shell is free to start the sidecar.
+        std::fs::write(
+            &lock,
+            format!(r#"{{"pid":{pid},"acquiredAt":"{}"}}"#, iso_utc(started - 100_000)),
+        )
+        .unwrap();
+        std::fs::write(
+            &state,
+            format!(r#"{{"pid":{pid},"port":3333,"startedAt":"{}"}}"#, iso_utc(started - 100_000)),
+        )
+        .unwrap();
+        assert!(
+            !daemon_pid_is_alive_in(&lock, &state),
+            "a recycled pid must not read as a live daemon"
+        );
+
+        // A stale lock but a state file that matches: still alive.
+        std::fs::write(
+            &state,
+            format!(r#"{{"pid":{pid},"port":3333,"startedAt":"{}"}}"#, iso_utc(started + 2)),
+        )
+        .unwrap();
+        assert!(
+            daemon_pid_is_alive_in(&lock, &state),
+            "either record may confirm the daemon"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The cheap path of `probe_port`: nothing listening is settled by ONE
+    /// refused connection, and it is `NoAnswer`, never a stranger.
+    #[test]
+    fn a_port_with_no_listener_is_one_refusal_and_no_answer() {
+        rt().block_on(async {
+            let dead = bind_loopback(Loopback::V4, 0).local_addr().unwrap().port();
+            let answer = probe_port(Loopback::V4, dead).await;
+            assert_eq!(
+                answer,
+                PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false }
             );
         });
     }
