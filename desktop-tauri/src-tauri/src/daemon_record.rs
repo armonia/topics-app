@@ -2,7 +2,7 @@
 //! server keeps in `~/.topics` (honouring `TOPICS_HOME`, so a worktree install
 //! and a launchd install never read each other's):
 //!
-//!   daemon-process.lock  { pid, acquiredAt }  taken as the process starts
+//!   daemon-process.lock  { pid, acquiredAt }  taken early, but NOT first
 //!   daemon-state.json    { pid, port, token, startedAt }  written after the bind
 //!
 //! The shell reads them to answer one question before it may start a bundled
@@ -11,6 +11,14 @@
 //! server and the app opens a second, EMPTY universe beside the real one; say
 //! "alive" about a pid the OS has recycled and the window waits forever on a
 //! server that died hours ago (2026-09-13).
+//!
+//! NEITHER FILE EXISTS AT THE INSTANT THE SERVER STARTS, and no rewrite of this
+//! module can change that. The daemon opens its database before it takes the
+//! lock, and it binds its port after: a server that is starting is invisible
+//! here for 0.36s to 1.36s on a warm Mac (measured 2026-09-14), longer on a cold
+//! one. So "no daemon" read ONCE means nothing. It is only worth believing when
+//! it stays true across several seconds, and keeping that patience is the
+//! caller's job, not this module's.
 
 /// Read the port the daemon recorded in `daemon-state.json` (its REAL bound port —
 /// the squatter-recovery case where :3333 was held by another process and the
@@ -138,6 +146,13 @@ fn process_matches_record(pid: u32, recorded_at: i64, earliest_before: i64) -> b
 
 /// How far the two clocks (the OS start time and the timestamp the daemon wrote)
 /// may disagree while still describing the same instant.
+///
+/// It is also this rule's blind spot, and it is worth naming: a pid recycled
+/// WITHIN these ten seconds reads as alive, and a daemon so slow that it takes
+/// its lock more than `LOCK_STARTUP_BUDGET_SECONDS` after being started reads as
+/// dead. Both are chosen over the alternative. A pid recycled inside ten seconds
+/// costs a few more seconds of waiting before the shell concludes; widening the
+/// window the other way would cost somebody a second empty universe.
 const CLOCK_SKEW_SECONDS: i64 = 10;
 /// How long a daemon may take between being started by the OS and taking its
 /// lock. Startup plus module loading: seconds, generously bounded.
@@ -181,6 +196,7 @@ mod tests {
         daemon_pid_is_alive_in, epoch_seconds_from_iso, process_matches_record,
         LOCK_STARTUP_BUDGET_SECONDS,
     };
+    use crate::boot_choice::{may_concede_the_port, ROUNDS_ALONE_BEFORE_CONCEDING};
 
     /// An ISO-8601 UTC timestamp for `epoch`, the shape both daemon files use.
     /// The inverse of what the shell parses, written here so a test can put a
@@ -259,6 +275,56 @@ mod tests {
             !process_matches_record(1, now_epoch(), LOCK_STARTUP_BUDGET_SECONDS),
             "pid 1 must never read as the Topics daemon"
         );
+    }
+
+    /// THE RESTART WINDOW, played out in real time. A production that is coming
+    /// back up (the watcher restarts it often) has NO lock and NO state file for
+    /// the first second or so, while a stranger already holds the port. Deciding
+    /// on the first round reads that as "a stranger and no daemon" and forks an
+    /// empty universe 5ms before the real server takes its lock (measured
+    /// 2026-09-14). The shell must still be waiting when the lock appears.
+    #[test]
+    fn a_production_still_starting_is_not_mistaken_for_an_absent_one() {
+        let dir = std::env::temp_dir().join(format!("topics-restart-{}-{}", std::process::id(), now_epoch()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon-process.lock");
+        let state = dir.join("daemon-state.json");
+        let pid = std::process::id();
+        let started = own_start_time();
+
+        // The production takes its lock 2.5s from now, as the measured window says.
+        let writer = {
+            let lock = lock.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(2_500));
+                std::fs::write(
+                    &lock,
+                    format!(r#"{{"pid":{pid},"acquiredAt":"{}"}}"#, iso_utc(started + 1)),
+                )
+                .unwrap();
+            })
+        };
+
+        // The boot loop's patience, with its real timing: a stranger on the port
+        // every round, and the daemon absent until it is not.
+        let mut rounds_alone: u32 = 0;
+        let mut saw_the_daemon = false;
+        for _ in 0..ROUNDS_ALONE_BEFORE_CONCEDING {
+            if daemon_pid_is_alive_in(&lock, &state) {
+                saw_the_daemon = true;
+                break;
+            }
+            rounds_alone += 1;
+            assert!(
+                !may_concede_the_port(rounds_alone),
+                "the shell conceded the port after {rounds_alone} round(s), while the server was still starting"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(700));
+        }
+
+        assert!(saw_the_daemon, "the lock appeared and the shell must have seen it");
+        writer.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The rule end to end, over files written exactly like the server's. The

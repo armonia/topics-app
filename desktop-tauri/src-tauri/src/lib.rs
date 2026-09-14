@@ -49,7 +49,7 @@ mod boot_choice;
 mod daemon_record;
 mod boot_degraded;
 mod reconnect_page;
-use boot_choice::{decide_boot, BootChoice, BootFacts, Loopback};
+use boot_choice::{decide_boot, may_concede_the_port, BootChoice, BootFacts, Loopback};
 use daemon_record::{daemon_pid_is_alive, daemon_state_port};
 use reconnect_page::{reconnect_page_response, set_degraded_marker};
 
@@ -1067,8 +1067,16 @@ struct PortAnswer {
 async fn probe_port(host: Loopback, port: u16) -> PortAnswer {
     let connect = tokio::net::TcpStream::connect((host.host(), port));
     let listening = tokio::time::timeout(std::time::Duration::from_millis(800), connect).await;
-    if !matches!(listening, Ok(Ok(_))) {
-        return PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false };
+    match listening {
+        // CLOSED IMMEDIATELY, and the `drop` is the whole point of writing this
+        // as a statement. A server that handles ONE connection at a time (the
+        // Python `socketserver.TCPServer` an account switcher is built on) accepts
+        // our test connection and then answers nobody while we hold it: the shape
+        // probes that follow time out, the stranger reads as silence, and the
+        // shell sits for 222s pointed at the wrong address (measured 2026-09-14).
+        // We only wanted to know that somebody is listening.
+        Ok(Ok(stream)) => drop(stream),
+        _ => return PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false },
     }
     for tls in [true, false] {
         let verdict = probe_topics_shape(host, port, tls).await;
@@ -1738,6 +1746,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // Worst case per round on Windows: 2 refused connections, ~1.7s, the same as
     // before this branch.
     let mut facts = BootFacts { seen_before, ..Default::default() };
+    let mut rounds_alone: u32 = 0;
     'rounds: for round in 0..attempts {
         // THE STATE PORT IS RE-READ EVERY ROUND, and it has to be: the whole
         // reason this loop lasts 42 seconds is that the server may be RESTARTING,
@@ -1797,11 +1806,21 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             }
         }
 
-        // NOTHING LEFT TO WAIT FOR. A stranger is serving the canonical port, no
-        // daemon of ours answered anywhere, and no daemon process is running on
-        // this machine. Forty more seconds of that changes nothing, and the
-        // person spends them looking at "Connecting" (2026-09-13). Decide now.
+        // NOTHING LEFT TO WAIT FOR, once we are sure of it. A stranger serves the
+        // canonical port, no daemon of ours answered anywhere, and no daemon
+        // process is recorded on this machine: sixty more seconds of that change
+        // nothing, and the person spends them looking at "Connecting"
+        // (2026-09-13). But "no daemon process" is not trustworthy on the FIRST
+        // round: a production that is restarting (and the watcher restarts it
+        // often) has neither file for up to ~1.4s after launch, so an early exit
+        // there hands the window to the stranger 5ms before the real server takes
+        // its lock (measured 2026-09-14). The absence has to hold.
         if facts.primary_foreign && !facts.state_pid_alive {
+            rounds_alone += 1;
+        } else {
+            rounds_alone = 0;
+        }
+        if may_concede_the_port(rounds_alone) {
             break 'rounds;
         }
 
@@ -12553,6 +12572,36 @@ mod contaminated_marker_cold_boot_tests {
         })
     }
 
+    /// A STRANGER THAT SERVES ONE CONNECTION AT A TIME, which is what an account
+    /// switcher's dashboard actually is: a Python `socketserver.TCPServer` reads
+    /// each connection to the end before it accepts the next. Unlike the squatter
+    /// above it does NOT give up on a silent client quickly, so a probe that opens
+    /// a connection and holds it blocks every later probe of the same port. That
+    /// is the shape the 2026-09-14 review used to make the shell wait 222s.
+    fn start_single_connection_stranger(
+        listener: std::net::TcpListener,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        // Long enough to be "blocked" for any probe that has to
+                        // answer in under a second, short enough that the thread
+                        // does not outlive the test run.
+                        let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+                        let mut buf = [0u8; 512];
+                        let _ = s.read(&mut buf);
+                        let _ = s.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                             <html><body>one connection at a time</body></html>",
+                        );
+                    }
+                    Err(_) => return,
+                }
+            }
+        })
+    }
+
     /// A FAKE TOPICS DAEMON: answers the presence shape on any address given.
     /// `bind` is the address literal, so the caller can put it on `::1` while a
     /// stranger holds `127.0.0.1` on the SAME port, which is the whole point.
@@ -12605,6 +12654,40 @@ mod contaminated_marker_cold_boot_tests {
                 choice,
                 BootChoice::SpawnSidecar,
                 "contaminated marker + foreign squatter must SPAWN, not hang"
+            );
+        });
+    }
+
+    /// THE PROBE MUST NOT OCCUPY WHAT IT IS PROBING. Against a stranger that
+    /// serves one connection at a time, holding the "is anybody listening?"
+    /// connection open starved every probe that followed: no verdict, no stranger,
+    /// so IPv6 was never even tried and the shell waited on the wrong address for
+    /// 222s (2026-09-14). Closing it immediately, the same stranger is recognised
+    /// in milliseconds and the daemon behind it on IPv6 is found.
+    #[test]
+    fn a_stranger_that_serves_one_connection_at_a_time_is_still_recognised() {
+        rt().block_on(async {
+            let squatted = bind_loopback(Loopback::V4, 0);
+            let port = squatted.local_addr().unwrap().port();
+            let _stranger = start_single_connection_stranger(squatted);
+            let _daemon = start_fake_daemon(bind_loopback(Loopback::V6, port));
+            for _ in 0..50 {
+                if std::net::TcpStream::connect(("::1", port)).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let v4 = probe_port(Loopback::V4, port).await;
+            assert_eq!(
+                v4.verdict,
+                ShapeVerdict::Foreign,
+                "the stranger must be recognised even though it serves one connection at a time"
+            );
+            let v6 = probe_port(Loopback::V6, port).await;
+            assert_eq!(
+                v6.verdict,
+                ShapeVerdict::Topics,
+                "and the daemon behind it on IPv6 must still be found"
             );
         });
     }

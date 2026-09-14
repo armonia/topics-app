@@ -97,6 +97,25 @@ pub(crate) enum BootChoice {
     SpawnSidecar,
 }
 
+/// HOW LONG THE SHELL WAITS BEFORE IT BELIEVES THERE IS NO DAEMON, counted in
+/// rounds of the boot loop (one round is a probe plus a 700ms pause, so this is
+/// about seven seconds).
+///
+/// Not a comfort margin: a starting server is genuinely invisible for a while.
+/// It opens its database before it takes its lock and binds its port after, so
+/// between launch and the first trace of it on disk there is a window measured at
+/// 0.36s to 1.36s on a warm Mac (2026-09-14). Concede the port to a stranger
+/// inside that window and the app opens an empty universe beside a production
+/// that was two seconds from being ready. Waiting seven seconds costs a person
+/// seven seconds; not waiting costs them their topics.
+pub(crate) const ROUNDS_ALONE_BEFORE_CONCEDING: u32 = 10;
+
+/// May the shell stop waiting, having found a stranger on the port and no daemon
+/// of ours for `rounds_alone` consecutive rounds?
+pub(crate) fn may_concede_the_port(rounds_alone: u32) -> bool {
+    rounds_alone >= ROUNDS_ALONE_BEFORE_CONCEDING
+}
+
 /// The boot rule itself, made PURE so it is provable without sockets or a tauri
 /// app: given what the probes found (`BootFacts`), decide where the proxy points.
 ///
