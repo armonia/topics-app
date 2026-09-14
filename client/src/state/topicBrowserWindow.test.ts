@@ -626,4 +626,58 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     expect(ids(tid)).toEqual(['z']);
     expect(ids(tid)).toEqual(onServer(key));
   });
+
+  // The owed read is a GET like any other, so it can be overtaken like any other:
+  // between the settle that asks for it and its answer, the person can close the
+  // window again. Without the staleness guard on it, the answer (which still has
+  // the old row) puts the closed sheet back and the resync defect returns through
+  // the door opened to fix it.
+  test('a read owed to a resync does not resurrect a close committed while it travels', async () => {
+    const tid = uniqueId('seq-owed-stale');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
+
+    topicBrowserWindow.close(tid, 'a');
+    await tick();
+    served.set(key, window('z'));           // device B writes while we are deaf
+
+    await reloadTopicWindowsFromServer({}); // key skipped
+    release('PUT');
+    await tick();                           // the owed GET leaves, and will read ['z']
+    expect(asked).toContain(key);
+
+    topicBrowserWindow.open(tid, { contextId: 'c' });
+    topicBrowserWindow.close(tid, 'c');     // a close committed meanwhile
+    await tick();
+    release('PUT');
+    await tick();                           // the server holds our empty row
+
+    release('GET');
+    await tick();
+    expect(ids(tid)).toEqual([]);           // the owed read was overtaken
+    expect(onServer(key)).toEqual([]);
+  });
+
+  // A row the server no longer has (the topic was archived elsewhere) has to DROP
+  // the cached window, exactly as the bulk resync does: adopting `null` as a value
+  // would throw, and ignoring it would keep a window the server has forgotten.
+  test('an owed read that finds no row drops the cached window', async () => {
+    const tid = uniqueId('seq-owed-gone');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a', 'b'), 100);
+    served.set(key, window('a', 'b'));
+
+    topicBrowserWindow.close(tid, 'b');     // a sheet stays open, so the cache is not empty
+    await new Promise((r) => setTimeout(r, 850)); // a row still holding sheets is debounced
+    expect(ids(tid)).toEqual(['a']);
+    served.delete(key);                     // purged server-side while we were deaf
+
+    await reloadTopicWindowsFromServer({});
+    release('PUT');
+    await tick();
+    release('GET');
+    await tick();
+    expect(getTopicWindow(tid)).toEqual(EMPTY_TOPIC_BROWSER_WINDOW);
+  });
 });

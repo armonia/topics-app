@@ -9,7 +9,7 @@
  * @covers BROWSER-STATE-01
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { createUiStatePersister } from './uiStatePersist';
+import { createUiStatePersister, PUT_TIMEOUT_MS } from './uiStatePersist';
 
 describe('uiStatePersist (flight cap)', () => {
   const REAL_FETCH = globalThis.fetch;
@@ -186,5 +186,96 @@ describe('uiStatePersist (the guards, one by one)', () => {
     answers[0]!(105);
     await tick();
     expect(reads).toEqual([]);
+  });
+});
+
+describe('uiStatePersist (the guards nothing else was holding)', () => {
+  const REAL_FETCH = globalThis.fetch;
+  const KEY = 'topic-browser:owed';
+  let answers: ((seq: number | null) => void)[];
+
+  beforeEach(() => {
+    answers = [];
+    (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> =>
+      new Promise<Response>((resolve) => {
+        answers.push((seq) => resolve(seq === null
+          ? new Response('no', { status: 500 })
+          : new Response(JSON.stringify({ server_seq: seq }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+      });
+  });
+  afterEach(() => { (globalThis as unknown as { fetch: unknown }).fetch = REAL_FETCH; });
+
+  const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
+  const watching = () => {
+    const reads: string[] = [];
+    const writes = createUiStatePersister({ onReadNeeded: (key) => { reads.push(key); } });
+    return { writes, reads };
+  };
+
+  // Asking for the owed read while an edit is still queued would waste it: the
+  // read answers, the pending write makes the store discard the answer, and the
+  // debt is gone. If that queued write then fails without reaching the server,
+  // the two copies stay apart with nothing left to heal them.
+  test('an edit queued during the flight postpones the owed read to its own answer', async () => {
+    const { writes, reads } = watching();
+    writes.put(KEY, { v: 1 }, 0);
+    await tick();
+    writes.deferRead(KEY);
+    writes.put(KEY, { v: 2 }, 10);          // the user edits again while the PUT travels
+
+    answers[0]!(105);
+    await tick();
+    expect(reads).toEqual([]);               // not now: it would be thrown away
+
+    await tick(30);                          // the second write leaves and fails
+    expect(answers.length).toBe(2);
+    answers[1]!(null);
+    await tick();
+    expect(reads).toEqual([KEY]);            // the debt survived to be paid
+  });
+
+  test('a fetch that throws synchronously does not leave the key in the air', async () => {
+    (globalThis as unknown as { fetch: unknown }).fetch = () => { throw new TypeError('no network stack'); };
+    const writes = createUiStatePersister();
+    writes.put(KEY, { v: 1 }, 0);
+    await tick();
+
+    expect(writes.isPending(KEY)).toBe(false);
+    expect(writes.admitFrame(KEY, { theirs: true }, 7)).toBe('apply');
+  });
+
+  // One confirmed write must not silence the other records: the keys are one per
+  // task and one per topic, and the seq is global, so a line kept globally would
+  // drop every frame for every OTHER record written before our last write.
+  test('the confirmed seq is kept per key, not globally', async () => {
+    const other = 'topic-browser:another';
+    const { writes } = watching();
+    writes.put(KEY, { v: 1 }, 0);
+    await tick();
+    answers[0]!(200);
+    await tick();
+
+    expect(writes.admitFrame(KEY, { v: 0 }, 199)).toBe('drop');
+    expect(writes.admitFrame(other, { v: 0 }, 199)).toBe('apply');
+  });
+
+  // The cap is a real duration, not a knob: a value small enough to fire on a
+  // slow-but-working connection would release a held frame while our own write
+  // is still on its way, which is the divergence this whole helper exists to
+  // close.
+  test('the default flight cap is the ten seconds the helper documents', async () => {
+    const carrier = AbortSignal as unknown as { timeout: (ms: number) => AbortSignal };
+    const real = carrier.timeout;
+    const asked: number[] = [];
+    carrier.timeout = (ms: number): AbortSignal => { asked.push(ms); return real.call(AbortSignal, ms); };
+    try {
+      const writes = createUiStatePersister();
+      writes.put(KEY, { v: 1 }, 0);
+      await tick();
+      expect(asked).toEqual([PUT_TIMEOUT_MS]);
+      expect(PUT_TIMEOUT_MS).toBe(10_000);
+    } finally {
+      carrier.timeout = real;
+    }
   });
 });

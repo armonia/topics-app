@@ -575,4 +575,36 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     expect(liveIds(tid)).toEqual(['task-o-9']);
     expect(liveIds(tid)).toEqual(onServer(key));
   });
+
+  // The owed read is a GET like any other, so it can be overtaken like any other:
+  // between the settle that asks for it and its answer, the person can close a
+  // tab again. Without the staleness guard on it, the answer (which still has the
+  // old row) puts the closed tab back and the resync defect returns through the
+  // door opened to fix it.
+  test('a read owed to a resync does not resurrect a close committed while it travels', async () => {
+    const tid = uniq('seq-owed-stale');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-w-0'), 100);
+    served.set(key, recordOf('task-w-0'));
+
+    taskBrowserTabs.removeTab(tid, 'task-w-0');
+    await tick();
+    served.set(key, recordOf('task-w-9'));         // device B writes while we are deaf
+
+    await resyncTaskTabsFromServer({});            // key skipped
+    release('PUT');
+    await tick();                                  // the owed GET leaves, and will read [task-w-9]
+    expect(asked).toContain(key);
+
+    taskBrowserTabs.upsertTab(tid, 'task-w-5', 'u');
+    taskBrowserTabs.removeTab(tid, 'task-w-5');    // a close committed meanwhile
+    await tick();
+    release('PUT');
+    await tick();                                  // the server holds our empty record
+
+    release('GET');
+    await tick();
+    expect(liveIds(tid)).toEqual([]);              // the owed read was overtaken
+    expect(onServer(key)).toEqual([]);
+  });
 });

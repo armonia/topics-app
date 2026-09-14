@@ -47,6 +47,12 @@
  *  - a PUT that the server APPLIED but answered after the flight cap counts as
  *    a failure here, so a frame older than it gets adopted. A longer cap trades
  *    this against freezing cross-device updates on a dead socket.
+ *  - a READ can still lose to a frame that arrives while IT travels: reads are
+ *    ordered against our own writes (point 3) but not against other devices,
+ *    because `uiGet` throws away the `server_seq` the GET already returns. The
+ *    bulk resync has had this window since it existed and the owed read inherits
+ *    it; closing it means carrying the last applied seq per key and refusing a
+ *    read below it, which is a change to the read path, not to this writer.
  */
 
 import { getTabId } from './pane/middleware/syncCrossTab';
@@ -57,7 +63,7 @@ import { getTabId } from './pane/middleware/syncCrossTab';
  * invisible to a working connection and short enough that a dead socket does
  * not freeze cross-device updates for the session.
  */
-const PUT_TIMEOUT_MS = 10_000;
+export const PUT_TIMEOUT_MS = 10_000;
 
 /** What to do with an inbound frame: adopt it, throw it away, or wait for the answer to our own PUT. */
 export type FrameVerdict = 'apply' | 'drop' | 'deferred';
