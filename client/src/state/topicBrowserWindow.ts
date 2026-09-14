@@ -29,6 +29,7 @@
 
 import { getTabId } from './pane/middleware/syncCrossTab';
 import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey';
+import { createUiStatePersister } from './uiStatePersist';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -346,43 +347,35 @@ export function sanitizeTopicBrowserWindow(v: unknown): TopicBrowserWindowState 
  *   - `undefined`: the read FAILED (network down, an error status, a body
  *     that does not parse). Nothing is known, so nothing may be dropped on
  *     its account.
+ *
+ * The envelope's `server_seq` comes back with the value: a read has to be
+ * ordered against the frames that landed while it travelled, not only against
+ * our own writes (`uiStatePersist`, point 4).
  */
-async function uiGet<T>(key: string): Promise<T | null | undefined> {
+async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null } | undefined> {
   try {
     const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: topic-browser keys, not pane state
     if (!r.ok) return undefined;
     const d = await r.json().catch(() => undefined);
     if (d === undefined) return undefined;
-    return (d?.value ?? null) as T | null;
+    return { value: (d?.value ?? null) as T | null, seq: typeof d?.server_seq === 'number' ? d.server_seq : null };
   } catch { return undefined; }
 }
 
-const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-/** What each pending timer would send, so a flush can send it without waiting. */
-const pendingWrites = new Map<string, unknown>();
-
-function uiPut(key: string, value: unknown, keepalive = false): void {
-  fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: topic-browser keys, not pane state
-    method: 'PUT',
-    // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
-    // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
-    // our own write, or worse revert a newer local edit).
-    headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
-    body: JSON.stringify(value),
-    keepalive,
-  }).catch(() => {});
-}
-
-function uiPutDebounced(key: string, value: unknown, ms = 800): void {
-  const t = writeTimers.get(key);
-  if (t) clearTimeout(t);
-  pendingWrites.set(key, value);
-  writeTimers.set(key, setTimeout(() => {
-    writeTimers.delete(key);
-    pendingWrites.delete(key);
-    uiPut(key, value);
-  }, ms));
-}
+// Writes stay PENDING until the server answers, and a frame that arrives while
+// our PUT travels is HELD until that answer says which of the two is newer (see
+// `uiStatePersist`); `onDeferredFrame` is where a held frame that won lands.
+const writes = createUiStatePersister({
+  onDeferredFrame: (key, value) => {
+    const topicId = topicIdFromKey(key);
+    if (topicId && adopt(topicId, value)) notify();
+  },
+  onReadNeeded: (key) => {
+    const topicId = topicIdFromKey(key);
+    if (topicId) void rereadTopicWindow(topicId);
+  },
+});
+const hasPendingWrite = (topicId: string) => writes.isPending(keyFor(topicId));
 
 /**
  * Send every pending write NOW, because the page is going away.
@@ -393,16 +386,14 @@ function uiPutDebounced(key: string, value: unknown, ms = 800): void {
  * the window's `tabs` (the same page in both places). `keepalive` is what makes
  * the request survive the unload. This mirrors what the pane store already does
  * on pagehide (`syncServer.ts`).
+ *
+ * A flushed write is a NORMAL write, not a shortcut past the persister: it is
+ * counted as in flight and its answer still orders it against the frames that
+ * arrive meanwhile. That is why the flush lives in `uiStatePersist` and not
+ * here, next to a second copy of the queue.
  */
 export function flushTopicWindowWrites(): void {
-  if (!pendingWrites.size) return;
-  for (const [key, value] of pendingWrites) {
-    const t = writeTimers.get(key);
-    if (t) clearTimeout(t);
-    writeTimers.delete(key);
-    uiPut(key, value, true);
-  }
-  pendingWrites.clear();
+  writes.flushAll();
 }
 
 if (typeof window !== 'undefined') {
@@ -427,13 +418,17 @@ function notify(): void {
 export async function ensureTopicWindowLoaded(topicId: string): Promise<void> {
   if (!topicId || loaded.has(topicId) || loading.has(topicId)) return;
   loading.add(topicId);
-  const v = await uiGet<unknown>(keyFor(topicId));
+  const read = await uiGet<unknown>(keyFor(topicId));
   loading.delete(topicId);
   loaded.add(topicId);
   // Don't clobber writes that landed while the GET was in flight.
   if (!cache.has(topicId)) {
-    const sanitized = sanitizeTopicBrowserWindow(v);
-    if (sanitized) { cache.set(topicId, sanitized); notify(); }
+    const sanitized = sanitizeTopicBrowserWindow(read?.value);
+    if (sanitized) {
+      cache.set(topicId, sanitized);
+      writes.noteApplied(keyFor(topicId), read?.seq ?? null);
+      notify();
+    }
   }
 }
 
@@ -446,16 +441,15 @@ function commit(topicId: string, next: TopicBrowserWindowState): void {
   if (next === cur) return;
   cache.set(topicId, next);
   loaded.add(topicId);
-  uiPutDebounced(keyFor(topicId), next, next.tabs.length || next.promoted.length ? 800 : 0);
+  writes.put(keyFor(topicId), next, next.tabs.length || next.promoted.length ? 800 : 0);
   notify();
 }
 
-/** Apply a server-pushed value for ONE topic WITHOUT persisting it (no PUT
- *  echo). Returns true when the cache changed. A topic with a PENDING local
- *  write is left untouched: the un-flushed edit is newer than any inbound frame
- *  and is about to be persisted and re-broadcast. */
-function applyRemote(topicId: string, value: unknown): boolean {
-  if (!topicId || writeTimers.has(keyFor(topicId))) return false;
+/** Write a server-side value into the cache, no questions asked and no PUT echo.
+ *  Returns true when the cache changed. Whether the value is allowed to win is
+ *  decided by the callers below. */
+function adopt(topicId: string, value: unknown): boolean {
+  if (!topicId) return false;
   const sanitized = sanitizeTopicBrowserWindow(value);
   if (!sanitized) return false;
   loaded.add(topicId);
@@ -465,11 +459,21 @@ function applyRemote(topicId: string, value: unknown): boolean {
   return true;
 }
 
+/** Apply a server-pushed value for ONE topic. A queued local edit wins (it is
+ *  newer than anything the server can know about); a value that arrives while
+ *  our own PUT is in flight is held by the persister and re-offered when the
+ *  answer says whose write came last. */
+function applyRemote(topicId: string, value: unknown, seq?: number | null): boolean {
+  if (!topicId) return false;
+  if (writes.admitFrame(keyFor(topicId), value, seq) !== 'apply') return false;
+  return adopt(topicId, value);
+}
+
 /** Live-apply one remote `ui-state:updated` for a topic-browser key. The WS
  *  bridge drops this client's own echo (by sourceClientId) before calling, so a
  *  close/promote/move on ANOTHER device updates this one in real time. */
-export function applyRemoteTopicWindow(topicId: string, value: unknown): void {
-  if (applyRemote(topicId, value)) notify();
+export function applyRemoteTopicWindow(topicId: string, value: unknown, seq?: number | null): void {
+  if (applyRemote(topicId, value, seq)) notify();
 }
 
 /**
@@ -481,11 +485,11 @@ export function applyRemoteTopicWindow(topicId: string, value: unknown): void {
  * repeating what we just wrote, and applying it would re-apply a stale value
  * over a newer local edit.
  */
-export function applyTopicWindowFrame(frame: { key: string; value: unknown; sourceClientId?: string }): boolean {
+export function applyTopicWindowFrame(frame: { key: string; value: unknown; sourceClientId?: string; server_seq?: number }): boolean {
   const topicId = topicIdFromKey(frame.key);
   if (!topicId) return false;
   if (frame.sourceClientId && frame.sourceClientId === getTabId()) return true;
-  applyRemoteTopicWindow(topicId, frame.value);
+  applyRemoteTopicWindow(topicId, frame.value, frame.server_seq);
   return true;
 }
 
@@ -517,20 +521,61 @@ export function applyRemoteTopicWindowInit(data: Record<string, unknown>): Set<s
  *  (`undefined`) changes nothing. */
 export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTopicWindowInit(snapshot) : new Set<string>();
-  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
+  const ids: string[] = [];
+  for (const id of loaded) {
+    if (alreadyApplied.has(id)) continue;
+    // A key with an unresolved write is not read NOW (the local value is the
+    // newer one), but the read is owed: the end of that write re-issues it,
+    // otherwise a socket that died mid-flight leaves it stale until the next
+    // reconnect.
+    if (hasPendingWrite(id)) { writes.deferRead(keyFor(id)); continue; }
+    ids.push(id);
+  }
   if (!ids.length) return;
-  const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
+  // The write generation is taken BEFORE the GET leaves: `Promise.all` waits for
+  // the slowest answer, and a close committed in between would be resurrected by
+  // a read that was issued before it existed.
+  const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
+  const seen = ids.map((id) => writes.appliedToken(keyFor(id)));
+  const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
-    const value = values[i];
-    if (value === undefined) return;
-    if (value === null) {
-      if (!writeTimers.has(keyFor(id)) && cache.delete(id)) changed = true;
+    const read = reads[i];
+    if (read === undefined) return;
+    const key = keyFor(id);
+    // Stale in two different ways: overtaken by a write of OURS, or by a frame
+    // from another device that already moved this key past what the GET read.
+    if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
+    if (writes.readIsStale(key, seen[i]!, read.seq)) return;
+    if (read.value === null) {
+      writes.noteApplied(key, read.seq);
+      if (cache.delete(id)) changed = true;
       return;
     }
-    if (applyRemote(id, value)) changed = true;
+    writes.noteApplied(key, read.seq);
+    if (adopt(id, read.value)) changed = true;
   });
   if (changed) notify();
+}
+
+/** Re-read ONE topic's row, for a resync that had to skip it. Same staleness
+ *  guard and same deletion semantics as the bulk resync: a row the server no
+ *  longer has drops the cached window. */
+async function rereadTopicWindow(topicId: string): Promise<void> {
+  if (!loaded.has(topicId)) return;
+  const key = keyFor(topicId);
+  const token = writes.writeToken(key);
+  const seen = writes.appliedToken(key);
+  const read = await uiGet<unknown>(key);
+  if (read === undefined) return;
+  if (writes.wroteSince(key, token) || hasPendingWrite(topicId)) return;
+  if (writes.readIsStale(key, seen, read.seq)) return;
+  if (read.value === null) {
+    if (cache.delete(topicId)) notify();
+    return;
+  }
+  writes.noteApplied(key, read.seq);
+  if (adopt(topicId, read.value)) notify();
 }
 
 /**
@@ -545,9 +590,7 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
  */
 export function forgetTopicWindow(topicId: string): void {
   if (!topicId) return;
-  const key = keyFor(topicId);
-  const t = writeTimers.get(key);
-  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  writes.cancel(keyFor(topicId));
   loaded.delete(topicId);
   if (cache.delete(topicId)) notify();
 }
@@ -560,9 +603,7 @@ export function forgetTopicWindow(topicId: string): void {
  * leaves its residue to whoever comes next.
  */
 export function __resetTopicWindows(): void {
-  for (const t of writeTimers.values()) clearTimeout(t);
-  writeTimers.clear();
-  pendingWrites.clear();
+  writes.cancelAll();
   cache.clear();
   loaded.clear();
   loading.clear();
