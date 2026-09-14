@@ -1,10 +1,47 @@
 [
   {
+    "version": "2.2.319",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "compare a read with what landed during ITS flight",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        },
+        {
+          "it": "a counter that went backwards, and a deletion that counts as applied",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "name the task id helper in English",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.318",
     "date": "2026-09-14",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "a read may not undo a frame that landed while it travelled",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -25,7 +62,26 @@
     "date": "2026-09-14",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "hold a write's protection until the server answers",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        },
+        {
+          "it": "arbitrate an in-flight write against inbound frames by server_seq",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        },
+        {
+          "it": "re-read a key the resync had to skip, and cap the flight safely",
+          "en": "",
+          "scope": "ui-state",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -113,6 +169,12 @@
           "it": "il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "pin the guards nothing was holding, and pay the entry budget",
+          "en": "",
+          "scope": "ui-state",
           "breaking": false
         },
         {
