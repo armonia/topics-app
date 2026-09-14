@@ -607,4 +607,54 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     expect(liveIds(tid)).toEqual([]);              // the owed read was overtaken
     expect(onServer(key)).toEqual([]);
   });
+
+  // A read is ordered against OUR writes by the token; nothing ordered it
+  // against the OTHER devices, so a GET that left when the row said [b] put [b]
+  // back over a [c] that had landed meanwhile, and the copies stayed apart.
+  test('an owed read does not undo a newer frame that landed while it travelled', async () => {
+    const tid = uniq('read-seq-owed');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-ro-0'), 100);
+    served.set(key, recordOf('task-ro-0'));
+
+    taskBrowserTabs.removeTab(tid, 'task-ro-0');    // last tab: PUT with no debounce
+    await tick();
+    const skipped = resyncTaskTabsFromServer({});   // write in the air: the key is owed, not read
+    await skipped;
+    expect(asked).not.toContain(key);
+
+    served.set(key, recordOf('task-ro-b'));         // another device wrote while we were in flight
+    release('PUT');
+    await tick();                                    // our write settles: the owed GET reads [b]
+    expect(asked).toContain(key);
+
+    applyRemoteTaskTabs(tid, recordOf('task-ro-c'), 103);   // and a third device writes [c]
+    served.set(key, recordOf('task-ro-c'));
+    expect(liveIds(tid)).toEqual(['task-ro-c']);
+
+    release('GET');
+    await tick();
+    expect(liveIds(tid)).toEqual(['task-ro-c']);    // the read described a state we had left
+    expect(liveIds(tid)).toEqual(onServer(key));
+  });
+
+  test('the bulk resync does not undo a newer frame either', async () => {
+    const tid = uniq('read-seq-bulk');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-rb-0'), 100);
+    served.set(key, recordOf('task-rb-0'));
+
+    const reading = resyncTaskTabsFromServer({});
+    await tick();                                    // the GET read [task-rb-0] at seq 100
+    expect(asked).toContain(key);
+
+    applyRemoteTaskTabs(tid, recordOf('task-rb-c'), 104);
+    served.set(key, recordOf('task-rb-c'));
+
+    release('GET');
+    await reading;
+    await tick();
+    expect(liveIds(tid)).toEqual(['task-rb-c']);
+    expect(liveIds(tid)).toEqual(onServer(key));
+  });
 });

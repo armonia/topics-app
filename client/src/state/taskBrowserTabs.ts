@@ -272,13 +272,18 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
 
 // ── persistence (ui-state, per-task key) — mirrors lib/board.ts boardDrafts ───
 
-async function uiGet<T>(key: string): Promise<T | null> {
+/**
+ * Read one row, WITH the `server_seq` the envelope carries: a read has to be
+ * ordered against the frames that landed while it travelled, not only against
+ * our own writes (`uiStatePersist`, point 4). `null` value = nothing to apply.
+ */
+async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null }> {
   try {
     const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
-    if (!r.ok) return null;
+    if (!r.ok) return { value: null, seq: null };
     const d = await r.json().catch(() => null);
-    return (d?.value ?? null) as T | null;
-  } catch { return null; }
+    return { value: (d?.value ?? null) as T | null, seq: typeof d?.server_seq === 'number' ? d.server_seq : null };
+  } catch { return { value: null, seq: null }; }
 }
 
 /** Best-effort teardown of the server-side browser context behind a task tab.
@@ -329,13 +334,17 @@ function notify(): void {
 export async function ensureTaskTabsLoaded(taskId: string): Promise<void> {
   if (!taskId || loaded.has(taskId) || loading.has(taskId)) return;
   loading.add(taskId);
-  const v = await uiGet<unknown>(keyFor(taskId));
+  const read = await uiGet<unknown>(keyFor(taskId));
   loading.delete(taskId);
   loaded.add(taskId);
   // Don't clobber writes that landed while the GET was in flight.
   if (!cache.has(taskId)) {
-    const sanitized = sanitizeTaskTabs(v);
-    if (sanitized) { cache.set(taskId, sanitized); notify(); }
+    const sanitized = sanitizeTaskTabs(read.value);
+    if (sanitized) {
+      cache.set(taskId, sanitized);
+      writes.noteApplied(keyFor(taskId), read.seq);
+      notify();
+    }
   }
 }
 
@@ -502,27 +511,35 @@ export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown
   // the slowest answer, and a close committed in between would be resurrected by
   // a read that was issued before it existed.
   const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
-  const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
+  const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
-    if (values[i] == null) return;
-    if (writes.wroteSince(keyFor(id), tokens[i]!) || hasPendingWrite(id)) return;
-    if (adopt(id, values[i])) changed = true;
+    const read = reads[i]!;
+    if (read.value == null) return;
+    const key = keyFor(id);
+    // Stale in two different ways: overtaken by a write of OURS, or by a frame
+    // from another device that already moved this key past what the GET read.
+    if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
+    if (writes.readIsStale(key, read.seq)) return;
+    writes.noteApplied(key, read.seq);
+    if (adopt(id, read.value)) changed = true;
   });
   if (changed) notify();
 }
 
 /** Re-read ONE task's row, for a resync that had to skip it: same staleness
- *  guard as the bulk resync, so a write started while this GET travelled still
- *  wins over its answer. */
+ *  guards as the bulk resync: a write started while this GET travelled wins over
+ *  its answer, and so does a frame that moved the key past what it read. */
 async function rereadTaskTabs(taskId: string): Promise<void> {
   if (!loaded.has(taskId)) return;
   const key = keyFor(taskId);
   const token = writes.writeToken(key);
-  const value = await uiGet<unknown>(key);
-  if (value == null) return;
+  const read = await uiGet<unknown>(key);
+  if (read.value == null) return;
   if (writes.wroteSince(key, token) || hasPendingWrite(taskId)) return;
-  if (adopt(taskId, value)) notify();
+  if (writes.readIsStale(key, read.seq)) return;
+  writes.noteApplied(key, read.seq);
+  if (adopt(taskId, read.value)) notify();
 }
 
 /** Task-bound mutators. Each applies a pure reducer op and persists. */

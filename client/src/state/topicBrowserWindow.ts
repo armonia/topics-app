@@ -288,14 +288,18 @@ export function sanitizeTopicBrowserWindow(v: unknown): TopicBrowserWindowState 
  *   - `undefined`: the read FAILED (network down, an error status, a body
  *     that does not parse). Nothing is known, so nothing may be dropped on
  *     its account.
+ *
+ * The envelope's `server_seq` comes back with the value: a read has to be
+ * ordered against the frames that landed while it travelled, not only against
+ * our own writes (`uiStatePersist`, point 4).
  */
-async function uiGet<T>(key: string): Promise<T | null | undefined> {
+async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null } | undefined> {
   try {
     const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: topic-browser keys, not pane state
     if (!r.ok) return undefined;
     const d = await r.json().catch(() => undefined);
     if (d === undefined) return undefined;
-    return (d?.value ?? null) as T | null;
+    return { value: (d?.value ?? null) as T | null, seq: typeof d?.server_seq === 'number' ? d.server_seq : null };
   } catch { return undefined; }
 }
 
@@ -329,13 +333,17 @@ function notify(): void {
 export async function ensureTopicWindowLoaded(topicId: string): Promise<void> {
   if (!topicId || loaded.has(topicId) || loading.has(topicId)) return;
   loading.add(topicId);
-  const v = await uiGet<unknown>(keyFor(topicId));
+  const read = await uiGet<unknown>(keyFor(topicId));
   loading.delete(topicId);
   loaded.add(topicId);
   // Don't clobber writes that landed while the GET was in flight.
   if (!cache.has(topicId)) {
-    const sanitized = sanitizeTopicBrowserWindow(v);
-    if (sanitized) { cache.set(topicId, sanitized); notify(); }
+    const sanitized = sanitizeTopicBrowserWindow(read?.value);
+    if (sanitized) {
+      cache.set(topicId, sanitized);
+      writes.noteApplied(keyFor(topicId), read?.seq ?? null);
+      notify();
+    }
   }
 }
 
@@ -443,17 +451,22 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
   // the slowest answer, and a close committed in between would be resurrected by
   // a read that was issued before it existed.
   const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
-  const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
+  const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
-    const value = values[i];
-    if (value === undefined) return;
-    if (writes.wroteSince(keyFor(id), tokens[i]!) || hasPendingWrite(id)) return;
-    if (value === null) {
+    const read = reads[i];
+    if (read === undefined) return;
+    const key = keyFor(id);
+    // Stale in two different ways: overtaken by a write of OURS, or by a frame
+    // from another device that already moved this key past what the GET read.
+    if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
+    if (writes.readIsStale(key, read.seq)) return;
+    if (read.value === null) {
       if (cache.delete(id)) changed = true;
       return;
     }
-    if (adopt(id, value)) changed = true;
+    writes.noteApplied(key, read.seq);
+    if (adopt(id, read.value)) changed = true;
   });
   if (changed) notify();
 }
@@ -465,14 +478,16 @@ async function rereadTopicWindow(topicId: string): Promise<void> {
   if (!loaded.has(topicId)) return;
   const key = keyFor(topicId);
   const token = writes.writeToken(key);
-  const value = await uiGet<unknown>(key);
-  if (value === undefined) return;
+  const read = await uiGet<unknown>(key);
+  if (read === undefined) return;
   if (writes.wroteSince(key, token) || hasPendingWrite(topicId)) return;
-  if (value === null) {
+  if (writes.readIsStale(key, read.seq)) return;
+  if (read.value === null) {
     if (cache.delete(topicId)) notify();
     return;
   }
-  if (adopt(topicId, value)) notify();
+  writes.noteApplied(key, read.seq);
+  if (adopt(topicId, read.value)) notify();
 }
 
 /**

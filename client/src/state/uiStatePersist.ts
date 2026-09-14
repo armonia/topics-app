@@ -38,6 +38,16 @@
  *    died mid-flight left the key unread until the next reconnect, which is the
  *    original divergence with one more step.
  *
+ * 4. AND A READ IS NOT ALLOWED TO UNDO A NEWER FRAME. Point 3 orders a read
+ *    against OUR writes; it says nothing about the other devices. A GET that
+ *    left when the row said [b], with a frame carrying [c] applied while it
+ *    travelled, answered [b] and put it back: local [b], server [c], apart for
+ *    good. So every applied value's `server_seq` is remembered per key (frames,
+ *    held frames released later, and read answers alike), and a read answering
+ *    BELOW that line is refused -- it is describing a state we have already left
+ *    behind. The bulk resync had this window since it existed; the owed read of
+ *    point 3 inherited it.
+ *
  * KNOWN LIMITS, both of them older than this arbitration and left in the open on
  * purpose:
  *
@@ -47,12 +57,6 @@
  *  - a PUT that the server APPLIED but answered after the flight cap counts as
  *    a failure here, so a frame older than it gets adopted. A longer cap trades
  *    this against freezing cross-device updates on a dead socket.
- *  - a READ can still lose to a frame that arrives while IT travels: reads are
- *    ordered against our own writes (point 3) but not against other devices,
- *    because `uiGet` throws away the `server_seq` the GET already returns. The
- *    bulk resync has had this window since it existed and the owed read inherits
- *    it; closing it means carrying the last applied seq per key and refusing a
- *    read below it, which is a change to the read path, not to this writer.
  */
 
 import { getTabId } from './pane/middleware/syncCrossTab';
@@ -104,6 +108,17 @@ export interface UiStatePersister {
    * again as soon as the write settles (`onReadNeeded`).
    */
   deferRead(key: string): void;
+  /**
+   * Remember the `server_seq` of a value just APPLIED to `key`, which is the
+   * line a later read has to clear. A value with no seq moves no line.
+   */
+  noteApplied(key: string, seq: number | null): void;
+  /**
+   * Is a read answer for `key` describing a state we have already left? True
+   * when its seq is BELOW an applied one. A read with no seq is let through:
+   * nothing proves it old (a missing row answers with no envelope at all).
+   */
+  readIsStale(key: string, seq: number | null): boolean;
   /** Drop the QUEUED write for `key` (a PUT already in flight cannot be recalled). */
   cancel(key: string): void;
   /** Test seam: forget every queued write, in-flight write and held frame. */
@@ -140,6 +155,15 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
   const generation = new Map<string, number>();
   // Keys whose resync GET was skipped over an unresolved write of ours.
   const owedReads = new Set<string>();
+  // Highest server_seq we have APPLIED for a key, whatever brought it (a frame,
+  // a held frame released later, a read answer): the line a read must clear.
+  const appliedSeq = new Map<string, number>();
+
+  const markApplied = (key: string, seq: number | null): void => {
+    if (seq === null) return;
+    const known = appliedSeq.get(key);
+    if (known === undefined || seq > known) appliedSeq.set(key, seq);
+  };
 
   const settle = (key: string, seq: number | null): void => {
     if (seq !== null) {
@@ -168,6 +192,7 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
     if (timers.has(key)) return;
     const line = confirmedSeq.get(key);
     if (frame.seq !== null && line !== undefined && frame.seq <= line) return;
+    markApplied(key, frame.seq);
     options.onDeferredFrame?.(key, frame.value);
   };
 
@@ -235,6 +260,7 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       }
       const line = confirmedSeq.get(key);
       if (at !== null && line !== undefined && at <= line) return 'drop';
+      markApplied(key, at);
       return 'apply';
     },
     writeToken(key: string): number {
@@ -245,6 +271,13 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
     },
     deferRead(key: string): void {
       owedReads.add(key);
+    },
+    noteApplied(key: string, seq: number | null): void {
+      markApplied(key, seq);
+    },
+    readIsStale(key: string, seq: number | null): boolean {
+      const line = appliedSeq.get(key);
+      return seq !== null && line !== undefined && seq < line;
     },
     cancel(key: string): void {
       const queued = timers.get(key);
@@ -262,6 +295,7 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       held.clear();
       generation.clear();
       owedReads.clear();
+      appliedSeq.clear();
     },
   };
 }

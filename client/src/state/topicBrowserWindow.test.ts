@@ -680,4 +680,54 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     await tick();
     expect(getTopicWindow(tid)).toEqual(EMPTY_TOPIC_BROWSER_WINDOW);
   });
+
+  // A read is ordered against OUR writes by the token; nothing ordered it
+  // against the OTHER devices, so a GET that left when the row said [b] put [b]
+  // back over a [c] that had landed meanwhile, and the copies stayed apart.
+  test('an owed read does not undo a newer frame that landed while it travelled', async () => {
+    const tid = uniqueId('read-seq-owed');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
+
+    topicBrowserWindow.close(tid, 'a');      // last sheet: PUT with no debounce
+    await tick();
+    const skipped = reloadTopicWindowsFromServer({});   // write in the air: owed, not read
+    await skipped;
+    expect(asked).not.toContain(key);
+
+    served.set(key, window('b'));            // another device wrote while we were in flight
+    release('PUT');
+    await tick();                             // our write settles: the owed GET reads [b]
+    expect(asked).toContain(key);
+
+    applyTopicWindowFrame({ key, value: window('c'), sourceClientId: 'device-c', server_seq: 103 });
+    served.set(key, window('c'));
+    expect(ids(tid)).toEqual(['c']);
+
+    release('GET');
+    await tick();
+    expect(ids(tid)).toEqual(['c']);         // the read described a state we had left
+    expect(ids(tid)).toEqual(onServer(key));
+  });
+
+  test('the bulk resync does not undo a newer frame either', async () => {
+    const tid = uniqueId('read-seq-bulk');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
+
+    const reading = reloadTopicWindowsFromServer({});
+    await tick();                             // the GET read ['a'] at seq 100
+    expect(asked).toContain(key);
+
+    applyTopicWindowFrame({ key, value: window('c'), sourceClientId: 'device-c', server_seq: 104 });
+    served.set(key, window('c'));
+
+    release('GET');
+    await reading;
+    await tick();
+    expect(ids(tid)).toEqual(['c']);
+    expect(ids(tid)).toEqual(onServer(key));
+  });
 });
