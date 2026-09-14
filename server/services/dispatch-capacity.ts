@@ -705,9 +705,9 @@ export function fleetSlotBudget(input: {
   cores: number;
   ourCoreUnits: number;
   running: number;
-  /** The CPU that is NOT ours, when measured. The fleet's share is taken on
-   *  what is left: whatever did not come from Topics has priority (decided on
-   *  2026-09-14, see `shared/machine-budget.ts`). `null` = not measured, and
+  /** The CPU of whoever is NOT ours, when measured. The fleet share is taken
+   *  from what is left: what Topics did not open comes first (decided on
+   *  14/09/2026, see `shared/machine-budget.ts`). `null` = not measured, and
    *  then the whole machine counts, never zero. */
   otherCoreUnits?: number | null;
 }): {
@@ -727,16 +727,16 @@ export function fleetSlotBudget(input: {
 }
 
 /**
- * THE OTHERS' CPU, SMOOTHED. The ceiling is now taken on the free part, so a
- * one-second spike from somebody else would shut the door on a card that then
- * sits still for a whole tick. We keep the last readings and use the MEDIAN: an
- * isolated spike does not get in, a real load (one lasting more than half the
- * window) does. Five samples because the dispatcher's tick is ~10 s: that
+ * THE CPU OF OTHERS, SMOOTHED. The ceiling is now taken from the free part, so
+ * every one-second spike of somebody else would close the door on a card that
+ * then sits still for a whole tick. We keep the last readings and use the
+ * MEDIAN: an isolated spike does not get in, a real load (one lasting more than
+ * half the window) does. Five samples because the dispatcher tick is ~10 s: it
  * covers the minute, the scale at which somebody else's `bun test` or build
- * really shows up.
+ * actually shows.
  *
- * `null` (not measured) neither enters the history nor consumes it: it returns
- * `null`, i.e. "the whole machine", which is the prudent answer as always.
+ * `null` (not measured) does not enter the history and does not use it up: it
+ * returns `null`, that is "whole machine", the prudent answer as always.
  */
 const OTHER_SAMPLES = 5;
 const otherHistory: number[] = [];
@@ -833,9 +833,9 @@ export function computeDispatchCapacity(
     totalMemGB: Math.round(totalMemGB * 10) / 10,
     load1: Math.round(load1 * 100) / 100,
     oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
-    // The fleet's share is taken on WHAT IS FREE like everything else: what is
-    // reported here is the real one, not `cores x share`, or the panel would
-    // show a ceiling the brake does not apply.
+    // The fleet share is of the FREE like everything else: report the real one
+    // here, not `cores x share`, or the panel shows a ceiling the brake does not
+    // apply.
     budgetCores: budget ? Math.round(budget.budgetCores * 10) / 10 : Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
     budgetShare: share,
     budgetCoreUnits: round(budgetNow.cpuCoreUnits),
