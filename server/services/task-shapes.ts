@@ -68,6 +68,14 @@ export interface Task {
   /** Human-readable execution computer; machineId remains the stable key. */
   runComputerName?: string | null;
   dueDate?: string;
+  /**
+   * When a server shutdown cut this card's turn in half.
+   *
+   * ON THE WIRE, not in the fixed body: it travels only when it has a value,
+   * and absent means "no shutdown ever cut this card", which is the normal
+   * case. Its reader is the terminal pane of the session that died with it.
+   */
+  interruptedAt?: string;
   chatId?: string;
   createdAt: string;
   completedAt?: string;

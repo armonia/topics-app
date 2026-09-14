@@ -1827,6 +1827,11 @@ const EN = {
   // ── Terminal: the three states in which the pane is printing nothing.
   'terminal.stale.title': 'Session expired',
   'terminal.dormant.title': 'Session ended',
+  // ── Terminal: WHY it ended, read off the board card this session worked.
+  'terminal.cause.interrupted': 'Cut by the server restart at {time}',
+  'terminal.cause.queued': 'In the queue: {head}, {detail}',
+  'terminal.cause.resumed': 'Resumed in a new session',
+  'terminal.cause.resumedOpen': 'Open it',
   'terminal.copyResume': 'Copy to the clipboard: claude --resume {id}',
   'terminal.reloadTitle': 'Restart the session in place (resumes the conversation for claude/codex)',
   'terminal.resumeTitle': 'Resume the session (--resume): brings the sub-agent conversation back to life',

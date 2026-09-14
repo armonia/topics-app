@@ -549,6 +549,10 @@ export interface BoardTask {
   planCommentId?: string;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
   inProgressAt?: string;
+  /** When a server shutdown cut this card's turn in half. Absent = it never
+   *  happened, which is the normal case. Read by the terminal pane of the
+   *  session that died with it (`Terminal/dormantCause.ts`). */
+  interruptedAt?: string;
   /** Cumulative agent effort across every turn (dispatcher-recorded).
    *  agentTokens = input+output+cacheWrite (dedup by API message id); cache
    *  READS ride separately — the context re-read pressure, not "work" tokens. */

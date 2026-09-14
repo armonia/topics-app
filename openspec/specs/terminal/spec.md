@@ -594,6 +594,48 @@ countdown stops instead of firing into the void.
 - **THEN** the awaiting caller SHALL receive the timeout error
 - **AND** the API SHALL answer 502
 
+### Requirement: TERM-11 — Una pane dormiente SHALL dire la CAUSA, se la sua card la conosce
+
+Il velo «Sessione terminata» dice CHE la sessione è finita e non dice PERCHÉ.
+L'incidente, misurato il 14/09/2026: un riavvio del server ha tagliato dodici
+card a metà turno, e ognuna delle loro pane mostrava lo stesso velo generico
+mentre la card sulla board restava in corso, in coda per memoria. Dalla pane non
+si vedeva né la causa, né l'ora, né la strada per tornare alla card: si leggeva
+come «bloccata e basta».
+
+Una sessione che appartiene a una card SHALL mostrare, sopra il bottone che la
+riprende, UNA riga con la causa. La riga si LEGGE dalla card, non si deduce:
+l'istante in cui lo spegnimento l'ha tagliata, la frase di coda che il server ha
+già scritto, o il fatto che il lavoro è ripartito in una sessione nuova.
+
+Le tre righe SHALL avere una precedenza, perché una card può portare i tre fatti
+insieme: prima la ripresa altrove (è l'unica che offre un posto dove andare),
+poi la coda (dice cosa si aspetta e che riparte da sola), poi l'interruzione.
+
+Il legame fra sessione e card passa dal topic, e SHALL sopravvivere a una card
+ripartita da capo: la storia dei tentativi tiene il topic di ogni lancio, quindi
+una sessione vecchia sa ancora di chi era.
+
+Una sessione che non appartiene a nessuna card, o una card che non porta nessuno
+dei tre fatti, SHALL mostrare il velo di oggi, invariato. Nessun testo inventato.
+
+#### Scenario: la card è stata tagliata da un riavvio
+- **GIVEN** una sessione dormiente la cui card porta l'istante dell'interruzione
+- **THEN** la riga SHALL dire l'ora dell'interruzione e lo stato della card
+
+#### Scenario: la card aspetta in coda
+- **GIVEN** la stessa sessione, con la card in coda e il motivo scritto dal server
+- **THEN** la riga SHALL riportare quel motivo
+
+#### Scenario: la card è ripartita altrove
+- **GIVEN** una card ora legata a un topic diverso da quello della sessione
+- **THEN** la riga SHALL dire che è ripresa in una sessione nuova
+- **AND** SHALL offrire il collegamento che apre quella sessione
+
+#### Scenario: la sessione non appartiene a nessuna card
+- **GIVEN** una sessione dormiente il cui topic non è di nessuna card
+- **THEN** il velo SHALL restare quello di oggi
+
 ### Requirement: TERM-WARM-01 — "Not Yet" And "Gone" SHALL NOT Look The Same To The Client
 
 Between accepting connections and finishing its reconcile against the pty

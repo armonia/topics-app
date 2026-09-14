@@ -2096,6 +2096,10 @@ const IT: Dict = {
   //    `/^Riavvia la sessione/`) resta verde; l'inglese è il nuovo.
   'terminal.stale.title': 'Sessione scaduta',
   'terminal.dormant.title': 'Sessione terminata',
+  'terminal.cause.interrupted': 'Interrotta dal riavvio del server alle {time}',
+  'terminal.cause.queued': 'In coda: {head}, {detail}',
+  'terminal.cause.resumed': 'Ripresa in una sessione nuova',
+  'terminal.cause.resumedOpen': 'Aprila',
   'terminal.copyResume': 'Copia negli appunti: claude --resume {id}',
   'terminal.reloadTitle': 'Riavvia la sessione in-place (riprende la conversazione per claude/codex)',
   'terminal.resumeTitle': 'Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente',

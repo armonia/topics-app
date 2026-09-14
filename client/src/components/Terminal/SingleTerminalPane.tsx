@@ -22,6 +22,10 @@ import { postTerminalResize } from '../../lib/terminalRosterRetry';
 import { copyText } from '../../lib/clipboard';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
+import { causeClock, dormantCause } from './dormantCause';
+import { STATUS_LABEL, type BoardTask } from '../../lib/board';
+import { queueReasonText } from '../../../../shared/queue-reason-text';
+import { openTopicInApp } from '../../lib/deepLinkEntry';
 import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../shared/terminal-messages';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
@@ -235,6 +239,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const [dormantEmpty, setDormantEmpty] = useState(false);
   const dormantEmptyRef = useRef(dormantEmpty);
   useEffect(() => { dormantEmptyRef.current = dormantEmpty; }, [dormantEmpty]);
+
+  // ── The CAUSE of the silence ───────────────────────────────────────────
+  // The overlay above says the session ended; it could not say why. The answer
+  // is on the board card this session was working, and the only handle the pane
+  // holds is its topic: one read of `by-topic`, when the pane has already gone
+  // quiet, is what turns "stuck, full stop" into a restart with an hour on it.
+  // A read, not a poll: this pane is not going to change its mind, and a card
+  // that moves afterwards is the board's story, not this one's.
+  const [causeTask, setCauseTask] = useState<BoardTask | null>(null);
+  const [endedCleanly, setEndedCleanly] = useState(false);
+  const causeAskedRef = useRef(false);
 
   // THE FOURTH SILENCE: the keys that went nowhere.
   // When the PTY bridge is down the server drops the keystroke on purpose (see
@@ -643,6 +658,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // Clean end — the PTY exited (`exit`, process finished). Not a
           // reconnect candidate; the session drops from the list on its own.
           coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.ended')}]\x1b[0m\r\n`);
+          setEndedCleanly(true);
           return;
         }
         if (event.code === TERMINAL_WS_CLOSE_DORMANT) {
@@ -800,6 +816,58 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     })();
     return () => { cancelled = true; revivingRef.current = false; };
   }, [isActive, stale, sessionId]);
+
+  // The card behind this session, asked ONCE, and only once the pane has gone
+  // quiet: while output flows there is nothing to explain. `by-topic` answers
+  // 200 with `{ task: null }` when this topic belongs to no card, and that
+  // answer is a legitimate one - the overlay then stays exactly as it was.
+  useEffect(() => {
+    if (!dormantEmpty && !endedCleanly) return;
+    if (causeAskedRef.current) return;
+    const topicId = lastInfoRef.current?.topicId;
+    if (!topicId) return;
+    causeAskedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/all-boards/tasks/by-topic/${encodeURIComponent(topicId)}`);
+        if (!res.ok || cancelled) return;
+        const body = await res.json() as { task?: BoardTask | null };
+        if (!cancelled) setCauseTask(body.task ?? null);
+      } catch {
+        /* no answer, no line: the pane keeps the overlay it has today */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dormantEmpty, endedCleanly]);
+
+  const cause = useMemo(() => dormantCause(lastInfoRef.current?.topicId, causeTask), [causeTask]);
+
+  /** The cause as ONE line of prose, or null. Shared by the overlay and the
+   *  scrollback banner, so the two cannot drift into two different sentences. */
+  const causeLine = useMemo((): string | null => {
+    if (!cause) return null;
+    if (cause.kind === 'resumed') return t('terminal.cause.resumed');
+    if (cause.kind === 'queued') {
+      const { head, detail } = queueReasonText(cause.reason, t);
+      return t('terminal.cause.queued', { head, detail });
+    }
+    const clock = causeClock(cause.at);
+    if (!clock) return null;
+    return `${t('terminal.cause.interrupted', { time: clock })} · ${STATUS_LABEL[cause.status]}`;
+  }, [cause, t]);
+
+  // The same sentence, written into the SCROLLBACK under the "session ended"
+  // banner. A terminal that exited cleanly shows no overlay at all, so without
+  // this the cause would be visible in one of the two endings only.
+  const causeBannerRef = useRef(false);
+  useEffect(() => {
+    if (!endedCleanly || causeBannerRef.current || !causeLine) return;
+    const term = termRef.current?.term;
+    if (!term) return;
+    causeBannerRef.current = true;
+    term.write(`\x1b[90m[${causeLine}]\x1b[0m\r\n`);
+  }, [endedCleanly, causeLine]);
 
   // Resize observer. A divider drag resizes this pane's container on every
   // animation frame; fitting xterm per frame resizes its canvas layers and
@@ -1175,6 +1243,26 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                 </div>
               );
             })()}
+            {/* THE CAUSE, one line, above the button. It is the difference
+                between "it stopped" and "the restart cut it at 23:03 and the
+                card is waiting for memory": the second one you can act on. */}
+            {causeLine && (
+              <div
+                data-testid="terminal-dormant-cause"
+                className="flex max-w-full flex-wrap items-center justify-center gap-1.5 px-2 text-center text-compact text-app-text-muted"
+                title={cause?.kind === 'queued' ? queueReasonText(cause.reason, t).title : undefined}
+              >
+                <span>{causeLine}</span>
+                {cause?.kind === 'resumed' && (
+                  <button
+                    type="button"
+                    data-testid="terminal-dormant-resumed-link"
+                    onClick={() => { openTopicInApp({ topicId: cause.topicId }); }}
+                    className="underline decoration-dotted underline-offset-2 hover:text-app-text"
+                  >{t('terminal.cause.resumedOpen')}</button>
+                )}
+              </div>
+            )}
             <button
               type="button"
               disabled={reloading}

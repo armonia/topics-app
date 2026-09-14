@@ -2525,6 +2525,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // (`isGuestAllowedPath`) confronta `/api/all-boards/tasks` per uguaglianza,
     // quindi questo percorso non è in allowlist; e il ramo ospite di questo router
     // riconosce solo `/api/tasks/:id` fra i concessi, quindi cade su 403.
+    // GET /api/all-boards/tasks/by-topic/:topicId — from a CHAT TOPIC back to the
+    // card it belongs to. The terminal pane of a dead session asks it to say why
+    // it is dormant (`dormantCause.ts`): without this door the pane knows its
+    // topic and nothing else, and "Session ended" is all it can say.
+    //
+    // Declared BEFORE `/api/all-boards/tasks/:taskId`, which would otherwise
+    // swallow `by-topic` as a task id and answer `{ task: null }` forever.
+    //
+    // Always 200: "no card for this topic" is a legitimate answer from a
+    // resolver, and the caller draws its plain overlay on it. Same reasoning as
+    // the by-id door below.
+    const byTopic = matchRoute(pathname, "/api/all-boards/tasks/by-topic/:topicId");
+    if (byTopic && method === "GET") {
+      try {
+        const taskId = svc.taskIdOfTopic(byTopic.topicId);
+        return json({ task: taskId ? (svc.get(taskId)?.task ?? null) : null });
+      } catch (e) { return fail(e); }
+    }
+
     const allTaskItem = matchRoute(pathname, "/api/all-boards/tasks/:taskId");
     if (allTaskItem && method === "GET") {
       try { return json({ task: svc.get(allTaskItem.taskId)?.task ?? null }); }

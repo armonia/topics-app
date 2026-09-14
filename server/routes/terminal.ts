@@ -1119,6 +1119,9 @@ function handleBridgeMessage(msg: any) {
       break;
     }
     case "exit": {
+      // The e2e orphan fixture: the PTY was killed to reproduce a restart, and
+      // the row must survive it. See `orphanTerminalSession`.
+      if (orphanedForTest.delete(msg.id)) return;
       const exitedSession = sessions.get(msg.id);
       sessions.delete(msg.id);
       clearTerminalActivity(msg.id);
@@ -2701,6 +2704,44 @@ export function parkOrphanSessions(ids: readonly string[], thresholdMs: number):
     console.log(`[Terminal] Orfane non parcheggiate: ${summarizeRefusals(skipped)}.`);
   }
   return { parked, skipped };
+}
+
+/**
+ * The ids whose PTY was dropped on purpose by the e2e fixture below. The `exit`
+ * event they are about to raise must NOT unlist them: keeping the row in the
+ * roster with no process behind it is the whole point of the fixture.
+ *
+ * Populated only through `orphanTerminalSession`, which only the e2e router
+ * calls, and that router answers nothing unless TOPICS_E2E=1.
+ */
+const orphanedForTest = new Set<string>();
+
+/**
+ * E2E fixture: the state a SERVER RESTART leaves on a resumable pane - still
+ * listed in the roster, nothing running behind it. The attach then replays zero
+ * bytes and the pane draws its "session ended" overlay, which is the surface
+ * under test (`dormantCause`).
+ *
+ * Not reachable from the public API by any other road: the roster is built from
+ * the live map, and every ordinary way of losing a PTY (exit, park, delete)
+ * also takes the entry out of that map. Three stamps, and each one is a fact of
+ * the state being reproduced, not a convenience:
+ *  - the PTY is killed and the entry stays;
+ *  - `type` becomes a resumable one, because a shell is deliberately excluded
+ *    from the overlay (it has no frame to replay and cannot be resumed) and the
+ *    agent CLIs a real card runs are not installed on a test box;
+ *  - `createdAt` moves back, because a finished session is by definition old and
+ *    the pane refuses to call a young one dead.
+ */
+export function orphanTerminalSession(id: string, type: TerminalSessionType = "claude-code"): boolean {
+  const s = sessions.get(id);
+  if (!s) return false;
+  orphanedForTest.add(id);
+  try { sendToBridge({ type: "kill", id }); } catch { /* bridge down: the PTY is already gone */ }
+  s.type = type;
+  s.createdAt = new Date(Date.now() - 60_000).toISOString();
+  broadcastTerminalSessions();
+  return true;
 }
 
 /**
