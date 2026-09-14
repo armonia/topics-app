@@ -31,10 +31,11 @@
  * Promotion is the layout's own door, not a private one: "open as tab" fires
  * the same `browser:open-tab` event a clicked link fires, with the SAME
  * contextId, so the page, its history and the agent driving it survive. The
- * return trip goes through RECLAIM_PANE, WITHOUT the tombstone and the
- * server DELETE that a real close carries: the context has to stay alive, and
- * the native view survives the gap because a remount inside the close grace
- * cancels the teardown (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
+ * return trip goes through RECLAIM_PANE, which DOES write the tombstone but
+ * carries neither an undo entry nor the server DELETE a real close carries:
+ * the context has to stay alive, and the native view survives the gap
+ * because a remount inside the close grace cancels the teardown
+ * (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { createPortal } from 'react-dom';

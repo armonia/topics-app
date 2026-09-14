@@ -1734,7 +1734,23 @@ function ChatPaneComponent({
         data-testid="chat-input-area"
         data-composer-centered={composerCentered ? 'true' : 'false'}
         className={`absolute bottom-0 left-0 right-0 chat-measure${transitionsOn ? ' composer-dock-slide' : ''}`}
-        style={composerOffset ? { transform: `translateY(-${composerOffset}px)` } : undefined}
+        style={{
+          ...(composerOffset ? { transform: `translateY(-${composerOffset}px)` } : null),
+          // The root pads ITSELF, but an absolutely positioned child is laid
+          // out against the PADDING box, so the composer ignored that padding
+          // and sat under the expanded window, send button included. It has to
+          // be told the same inset directly.
+          //
+          // `width: auto` IS LOAD-BEARING, and `right` alone does nothing
+          // without it: `chat-measure` sets `width: 100%`, and an absolute box
+          // with `left`, `width` AND `right` all set is over-constrained — in
+          // LTR the one the browser throws away is `right`. Measured at 1280 in
+          // a project pane, with the inline `right: 480px` in place and no
+          // `width`: composer 480..1280, send button 1229..1261, and
+          // `elementFromPoint` on its center answering `topic-browser-window`.
+          // TOPIC-BROWSER-01q is that measurement.
+          ...(browserInset ? { right: `${browserInset}px`, width: 'auto' } : null),
+        }}
       >
         {showGreeting && (
           <div ref={greetingRef}>

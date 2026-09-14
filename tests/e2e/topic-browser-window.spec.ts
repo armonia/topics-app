@@ -165,23 +165,54 @@ async function seedProjectLayout(
   request: APIRequestContext,
   projectPath: string,
   topicId: string,
-  browserContextId: string,
+  /** null = the project opens with the conversation ALONE, one pane wide. */
+  browserContextId: string | null,
 ): Promise<void> {
   const res = await request.put(`${BASE}/api/ui-state/${projectPanesKey(realpathSync(projectPath))}`, {
     data: {
-      nonChatPanes: [{
+      nonChatPanes: browserContextId ? [{
         id: `browser:${browserContextId}`,
         type: "browser",
         title: "Project page",
         url: "https://example.com/project-pane",
         projectPath,
-      }],
+      }] : [],
       openChatTopicIds: [topicId],
       activeChatTopicId: topicId,
     },
     ignoreHTTPSErrors: true,
   });
   expect(res.ok()).toBeTruthy();
+}
+
+/**
+ * Seed a conversation, and wait for it to be ON SCREEN.
+ *
+ * Two messages and not one: the hover toolbar of a message is drawn ABOVE it
+ * (`bottom-full`), so only a transcript with something in it puts a toolbar in
+ * the band the window's controls live in — and only a transcript with something
+ * in it docks the composer at the bottom instead of centering it.
+ *
+ * The wait is not politeness. The list opens behind a curtain and lifts it only
+ * once its geometry has been still for two frames (`MessageList`): measured
+ * before that, every rectangle here is the rectangle of a hidden node, and an
+ * assertion about where things are would be an assertion about a layout that
+ * nobody ever sees.
+ */
+const FIRST_USER_MESSAGE = "Apri la pagina di esempio, per favore.";
+async function seedConversation(
+  request: APIRequestContext,
+  topicId: string,
+): Promise<void> {
+  const sessionKey = await sessionKeyOf(request, topicId);
+  await seedMessage(request, { sessionKey, role: "user", content: FIRST_USER_MESSAGE });
+  await seedMessage(request, { sessionKey, role: "assistant", content: "Fatto, e' aperta." });
+}
+async function waitForConversation(page: Page): Promise<void> {
+  await expect(page.getByText(FIRST_USER_MESSAGE)).toBeVisible({ timeout: 15000 });
+  await expect(
+    page.locator('[data-testid="chat-input-area"]').first(),
+  ).toHaveAttribute("data-composer-centered", "false", { timeout: 10000 });
 }
 
 test.afterAll(async ({ request }) => {
@@ -674,12 +705,23 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
         activeContextId: first,
         promoted: [],
       });
+      // A CONVERSATION, because the geometry below is measured against one.
+      //
+      // In an EMPTY topic the composer is centered in the middle of the pane,
+      // so «the reopen command does not intersect the composer» was true by
+      // accident and would have stayed true with the command drawn anywhere in
+      // the top half — including on top of the send button, which is the state
+      // it was moved out of. Seeded, the composer docks at the bottom and the
+      // first message puts its hover toolbar in the band the command lives in:
+      // both assertions now have something to be wrong about.
+      await seedConversation(request, topic.id);
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await selectTopic(page, topic.id);
       const windowEl = page.locator('[data-testid="topic-browser-window"]');
       await expect(windowEl).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid="topic-browser-tab"]')).toHaveCount(2);
+      await waitForConversation(page);
 
       // THE IDENTITY OF THE LIVE PAGE, marked the way 01j marks it.
       //
@@ -727,6 +769,48 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
         "il comando di riapertura interseca il composer",
       ).toBe(false);
       expect(await reachable(reopen), "il centro del comando di riapertura non e' suo").toBe(true);
+
+      // AND THE SEND BUTTON IS STILL THE SEND BUTTON.
+      //
+      // The rectangle above is not enough on its own: the composer is capped
+      // (`chat-measure`, 820 px) and centered, so in a wide pane the right edge
+      // is empty and a command parked in that corner overlaps nothing while
+      // sitting exactly where the old pill sat — over the send button, which it
+      // covered by 11 px. What that costs is a click, so a click is what is
+      // measured.
+      const send = page.locator('[aria-label="Invia il messaggio"]').first();
+      await expect(send).toBeVisible({ timeout: 10000 });
+      expect(
+        await reachable(send),
+        "il comando di riapertura sta sul bottone di invio",
+      ).toBe(true);
+
+      // AND NOT ON THE MESSAGE'S ACTIONS EITHER, which is the other thing
+      // that lives in the top-right band: the hover toolbar of the first
+      // message is drawn ABOVE it, right-aligned for a message of ours.
+      // Measured at 1280 the two rectangles read 1102..1260 and 1248..1272:
+      // a 7 px bite out of «Elimina il messaggio», taken by the command,
+      // which is on top. Sideways there is no room to give — 20 px between
+      // the toolbar and the pane edge, for a 24 px button — so the command
+      // moved DOWN, and this is the margin it has to keep.
+      const firstMessage = page.getByText(FIRST_USER_MESSAGE).first();
+      await firstMessage.hover();
+      const deleteBtn = page.locator('[data-testid="msg-action-delete"]').first();
+      const toolbar = deleteBtn.locator("xpath=..");
+      await expect(toolbar).toBeVisible({ timeout: 10000 });
+      const toolbarBox = (await toolbar.boundingBox())!;
+      expect(
+        overlaps(reopenBox, toolbarBox),
+        "il comando di riapertura interseca la barra azioni del messaggio",
+      ).toBe(false);
+      expect(
+        reopenBox.y - (toolbarBox.y + toolbarBox.height),
+        "il comando di riapertura e la barra azioni si sfiorano",
+      ).toBeGreaterThanOrEqual(4);
+      expect(
+        await reachable(deleteBtn),
+        "il centro di «Elimina il messaggio» non e' suo: il comando di riapertura ci sta sopra",
+      ).toBe(true);
 
       await reopen.click();
 
@@ -885,6 +969,80 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
         await reachable(close),
         "il centro della X non appartiene alla X: la barra e' schiacciata o coperta",
       ).toBe(true);
+    } finally {
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+
+  test("TOPIC-BROWSER-01q: in un progetto, la finestra espansa non copre il composer ne' il bottone di invio", async ({ page, request }) => {
+    // THE PADDING BOX IS NOT THE BORDER BOX.
+    //
+    // The pane cedes the docked window's width with `padding-right`, and that
+    // is enough for everything laid out in the flow. The composer is not laid
+    // out in the flow: it is `absolute bottom-0 left-0 right-0`, and an
+    // absolutely positioned child is resolved against the PADDING box, so its
+    // `right: 0` IS the pane's border edge. The padding it was supposed to
+    // respect it never saw: the composer ran the whole width, under the page,
+    // and the send button with it.
+    //
+    // 01l states the same law at 900px in a standalone topic. This one is the
+    // host where it was measured broken — a project pane, where the chat is a
+    // `ChatPane` and not the `ChatPanel` — and it asks the second question a
+    // rectangle cannot answer: not «do they overlap» but «whose pixel is it».
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-composer-"));
+    const topic = await createTopic(request, `E2E-TBW-Composer-${Date.now()}`, { projectPath });
+    try {
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      // One pane: the conversation alone, the full width of the project window.
+      await seedProjectLayout(request, projectPath, topic.id, null);
+      await seedConversation(request, topic.id);
+      await seedWindow(request, topic.id, {
+        mode: "exp", minPos: null, expandedWidth: 520,
+        tabs: [sheet("tbw-composer-1")], activeContextId: "tbw-composer-1", promoted: [],
+      });
+
+      await goToApp(page);
+      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
+      await expect(chatTab).toBeVisible({ timeout: 20000 });
+      await chatTab.click();
+
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 15000 });
+      // DOCKED, and asserted: floating, the window overlaps nothing by design
+      // and every line below would pass without ever exercising the inset.
+      await expect(windowEl).toHaveAttribute("data-mode", "exp");
+      await waitForConversation(page);
+
+      // (1) The composer ends where the window begins.
+      const win = (await windowEl.boundingBox())!;
+      const composer = (await page.locator('[data-testid="chat-input-area"]').first().boundingBox())!;
+      expect(
+        composer.x + composer.width,
+        "il composer arriva sotto la finestra",
+      ).toBeLessThanOrEqual(win.x + 1);
+
+      // (2) THE HALF A RECTANGLE CANNOT STATE. The window is a sibling with a
+      // higher stacking order: «not overlapping» is a claim about geometry,
+      // «clickable» is a claim about the pixel, and the defect was the second
+      // one — the send button was there, visible, and belonged to the page.
+      const send = page.locator('[aria-label="Invia il messaggio"]').first();
+      await expect(send).toBeVisible({ timeout: 10000 });
+      const coveredBy = await send.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        let node: Element | null = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        while (node) {
+          if (node.getAttribute("data-testid") === "topic-browser-window") return "topic-browser-window";
+          node = node.parentElement;
+        }
+        return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))
+          ? "send"
+          : "other";
+      });
+      expect(coveredBy, "al centro del bottone di invio c'e' altro").toBe("send");
     } finally {
       await resetProjectPanes(request, projectPath).catch(() => {});
       await closeAllBrowserContexts(request).catch(() => {});

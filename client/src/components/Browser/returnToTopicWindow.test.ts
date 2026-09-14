@@ -22,11 +22,11 @@ describe('the return-to-chat command of a promoted tab', () => {
     __resetTopicWindows();
   });
 
-  // Lending a page and taking it back are OPEN_PANE and CLOSE_PANE: they go
-  // through the pane store, which schedules a debounced write of the project
-  // layout. `__resetTopicWindows` only cancels the window's own writes, so
-  // without this that timer survives the file and fires inside whatever test
-  // runs next, spending its fetch mock on a PUT it never made.
+  // Lending a page and taking it back leave state in TWO stores. The one that
+  // actually leaks across files is the window store: without the reset below
+  // the windows of one test are still standing in the next (measured: it is
+  // `__resetTopicWindows`, not the project layout, that keeps the pair green).
+  // The project-sync reset rides along for its debounced layout write.
   afterEach(() => {
     __resetTopicWindows();
     __resetProjectSyncForTests();
