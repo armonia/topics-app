@@ -541,11 +541,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
         setOrderedIds(prev => {
           if (!groupClaimsBrowserNavigate({ topicId: navTopicId, hasProjectPane: hasProjectPaneRef.current, orderedIds: prev })) return prev;
-          // TOPIC-BROWSER-04: nessuno ha chiesto questa apertura, quindi non
-          // può muovere il layout. Il pane già aperto su QUESTO contesto vince
-          // sulla finestra (sarebbe la stessa pagina due volte); se non c'è, e
-          // la topic ha una chat che può ospitarla, la scheda va nella finestra
-          // e qui non si tocca niente.
+          // TOPIC-BROWSER-04: nobody asked for this opening, so it does not
+          // get to move the layout. A pane already on THIS context wins over
+          // the window (the same page twice, which the store refuses in
+          // silence); with no pane, and a chat able to host it, the sheet goes
+          // into the window and nothing here is touched.
           if (!paneForContext(prev, navContextId)
             && openInTopicWindow(navTopicId, { contextId: navContextId ?? '', url: navigateUrl, openedBy: 'agent' })) {
             return prev;
@@ -555,8 +555,8 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
             // Il seme dell'URL sta QUI, dopo la rivendicazione: prima stava
             // sopra il claim, e un gruppo che poi si tirava indietro aveva già
             // spinto l'URL nel suo browser (stessa trappola già chiusa in 8b).
-            // Niente `requestBrowserSolo`: era lui a spaccare la cella in due
-            // su un'apertura che l'utente non aveva chiesto.
+            // No `requestBrowserSolo`: that is what split the cell in two on
+            // an opening the user never asked for.
             queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
             persistBrowserPane(resolvedId);
             // Persist the URL onto the pane NOW (deterministic) so the tab
@@ -619,9 +619,9 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // (resolveContextIdForTopic === topic.id), so bind the pane to it — same
         // reason as the WS browser:navigate path: keep the native CDP target on
         // the id the agent's tools resolve to.
-        // `/browser <url>` è una richiesta ESPLICITA di guardare, quindi la
-        // finestra si apre ESPANSA — a differenza dell'apertura dell'agente,
-        // che al massimo sveglia una finestra nascosta in minimizzata.
+        // `/browser <url>` is an EXPLICIT request to look, so the window opens
+        // EXPANDED - unlike the agent's open, which at most wakes a hidden
+        // window into minimised.
         if (!paneForContext(prev, ce.detail?.topicId)
           && openInTopicWindow(ce.detail?.topicId, { contextId: ce.detail?.topicId ?? '', url: navigateUrl, openedBy: 'user', mode: 'exp' })) {
           return prev;
@@ -631,7 +631,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           // URL seed happens here, AFTER this group claimed the event via the
           // membership check above — seeding before the claim leaked the URL
           // into groups that then bailed.
-          // Niente `requestBrowserSolo`: vedi il ramo WS qui sopra.
+          // No `requestBrowserSolo`: see the WS branch above.
           queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
           persistBrowserPane(resolvedId);
           persistBrowserPaneUrl(resolvedId, navigateUrl);

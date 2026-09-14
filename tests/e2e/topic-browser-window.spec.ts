@@ -6,6 +6,8 @@ import { goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
 import {
   createTopic,
+  createTerminalSession,
+  deleteTerminalSession,
   deleteTopic,
   waitForTopicVisible,
   resetPaneStore,
@@ -1177,6 +1179,138 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       await deleteTopic(request, solo.id).catch(() => {});
       await deleteTopic(request, inProject.id).catch(() => {});
       removeTmpDir(projectPath);
+    }
+  });
+});
+
+/**
+ * TOPIC-BROWSER-04: a site opened without the user's gesture does not change
+ * the layout.
+ *
+ * The door is the agent's real one (`POST /api/topics/:id/browser/open-pane`,
+ * i.e. the `open_browser_pane` tool), not a shortcut of the test: the defect
+ * these two scenarios watch lived downstream of that route, in the
+ * `requestBrowserSolo` that split the cell in two.
+ */
+test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () => {
+  test.beforeEach(async ({}, testInfo) => {
+    testInfo.annotations.push({ type: "spec", description: "TOPIC-BROWSER-04" });
+  });
+
+  /** What the agent asks to open: `data:` so the scenario measures the layout
+   *  and not the network. */
+  const AGENT_URL = (label: string): string =>
+    `data:text/html,<body style='margin:0;background:%23101418'>${label}</body>`;
+
+  /** The geometry of EVERY pane of the group, by id: this is what has to stay
+   *  identical, not "how many panes there are". */
+  async function paneRects(page: Page): Promise<Record<string, string>> {
+    return page.evaluate(() => {
+      const out: Record<string, string> = {};
+      for (const el of Array.from(document.querySelectorAll("[data-pane-id]"))) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) continue;
+        out[el.getAttribute("data-pane-id") ?? ""] =
+          `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`;
+      }
+      return out;
+    });
+  }
+
+  test("TOPIC-BROWSER-04a: l'agente apre un sito e il layout non si muove di un pixel", async ({ page, request }) => {
+    const topic = await createTopic(request, `E2E-TBW-Agent-${Date.now()}`);
+    const term = await createTerminalSession(request, { cwd: "/tmp", name: "tbw-agent" });
+    // A page with NO NETWORK behind it (`data:`), so a red of connectivity
+    // could never dress up as a red of the product.
+    const url = AGENT_URL("dall-agente");
+    try {
+      // The scenario's precondition: chat and terminal in the layout, and NO
+      // browser window at all (the ui-state row does not exist).
+      await resetPaneStore(request, [topic.id, `terminal:${term.id}`]);
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      await expect(page.locator('[data-testid="chat-panel"]').first()).toBeVisible({ timeout: 15000 });
+      await expect(page.locator(`[data-pane-id="terminal:${term.id}"]`).first()).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveCount(0);
+
+      const before = await paneRects(page);
+      expect(Object.keys(before).length).toBeGreaterThan(1);
+
+      // The agent's own door.
+      const res = await request.post(
+        `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
+        { data: { url }, ignoreHTTPSErrors: true },
+      );
+      expect(res.ok()).toBeTruthy();
+
+      // THE DELIVERY: the window showed up minimised, with the sheet on that
+      // URL.
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 20000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await expect(
+        page.locator(`[data-testid="topic-browser-tab"][data-context-id="${topic.id}"]`),
+      ).toHaveCount(1, { timeout: 15000 });
+      await expect.poll(async () => {
+        const r = await request.get(`${BASE}/api/ui-state/topic-browser:${topic.id}`, { ignoreHTTPSErrors: true });
+        const body = await r.json().catch(() => null);
+        const tabs = (body?.value?.tabs ?? []) as Array<{ url?: string }>;
+        return tabs.map((t) => t.url ?? "");
+      }, { timeout: 15000 }).toContain(url);
+
+      // AND THE INVARIANT: the same panes, at the same sizes. An extra browser
+      // pane and a cell split in two both show up right here.
+      expect(await paneRects(page)).toEqual(before);
+    } finally {
+      await deleteTerminalSession(request, term.id).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-04b: con la scheda gia' promossa a tab, naviga la tab e nessuna finestra compare", async ({ page, request }) => {
+    const topic = await createTopic(request, `E2E-TBW-AgentTab-${Date.now()}`);
+    const url = AGENT_URL("sulla-tab");
+    try {
+      // The topic's page is already OUT, on loan to the layout: its pane
+      // exists and its contextId is recorded as promoted.
+      await resetPaneStore(request, [topic.id, `browser:${topic.id}`]);
+      await seedWindow(request, topic.id, {
+        mode: "hidden",
+        minPos: null,
+        expandedWidth: null,
+        tabs: [],
+        activeContextId: null,
+        promoted: [topic.id],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      const tab = page.locator(`[data-pane-id="browser:${topic.id}"]`).first();
+      await expect(tab).toBeVisible({ timeout: 20000 });
+
+      const res = await request.post(
+        `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
+        { data: { url }, ignoreHTTPSErrors: true },
+      );
+      expect(res.ok()).toBeTruthy();
+
+      // The tab stays where it is and IT navigates: no window appears, and the
+      // page does not land in the layout a second time.
+      await expect(tab).toBeVisible();
+      await expect(page.locator(`[data-pane-id="browser:${topic.id}"]`)).toHaveCount(1);
+      await expect(page.locator('[data-testid="topic-browser-sheet"]')).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          const r = await request.get(`${BASE}/api/ui-state/topic-browser:${topic.id}`, { ignoreHTTPSErrors: true });
+          const body = await r.json().catch(() => null);
+          return ((body?.value?.tabs ?? []) as unknown[]).length;
+        }, { timeout: 8000 })
+        .toBe(0);
+    } finally {
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 });

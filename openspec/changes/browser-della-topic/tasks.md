@@ -204,16 +204,16 @@ video `.webm` degli spec, non resoconti.
       far passare.
 
 ## Tornata 5: dove arrivano le aperture
-- [ ] Porta unica dei link: origine chat di topic e viewport ≥ 768 px → scheda
+- [x] Porta unica dei link: origine chat di topic e viewport ≥ 768 px → scheda
       nella finestra; tab esistente sullo stesso contesto → naviga la tab.
-- [ ] `open_browser_pane` dell'agente di topic → stessa regola, niente
+- [x] `open_browser_pane` dell'agente di topic → stessa regola, niente
       `requestBrowserSolo`.
-- [ ] `/browser <url>` → finestra espansa.
-- [ ] `openTabTarget.test.ts`, `openLink.test.ts`, `link-opens-in-tab.spec.ts`,
+- [x] `/browser <url>` → finestra espansa.
+- [x] `openTabTarget.test.ts`, `openLink.test.ts`, `link-opens-in-tab.spec.ts`,
       `blank-anchor-opens-in-tab.spec.ts`: il caso «primo link fa lo split
       accanto alla chat» diventa «arriva nella finestra»; i casi da terminale e
       da pane browser restano com'erano.
-- [ ] E2E (`TOPIC-BROWSER-04`): layout con le stesse pane e dimensioni dopo
+- [x] E2E (`TOPIC-BROWSER-04`): layout con le stesse pane e dimensioni dopo
       un'apertura dell'agente; tab esistente navigata senza finestra.
 
 ## Tornata 6: un viewport, un arbitro
