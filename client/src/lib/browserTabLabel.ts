@@ -13,8 +13,8 @@
  * conclusion was wrong. Telling them apart is a question you ask ONCE, on
  * purpose, and there are now two surfaces that answer it without touching the
  * label: the hover card (name on the first line, the whole address on the
- * second) and the address DROPDOWN that opens under the tab
- * (`BrowserTabAddress`). Stealing the label to answer it made the tab you are
+ * second) and the SHEET that opens under the tab, address at the top
+ * (`BrowserTabSheet`). Stealing the label to answer it made the tab you are
  * working in the one tab in the bar that does not say what page it is, and it
  * made the label CHANGE under you every time focus moved.
  *

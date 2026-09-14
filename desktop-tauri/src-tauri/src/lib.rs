@@ -5360,6 +5360,60 @@ fn browser_animate_bounds(
     })
 }
 
+/// Put a browser pane's native view ON TOP of the other native views in its
+/// window, without touching its geometry or its page.
+///
+/// Z order between two child webviews of one window is CREATION ORDER and
+/// nothing else: wry adds every child with `addSubview:` (`wkwebview/mod.rs`),
+/// which appends, and `set_bounds` only calls `setFrame:`, which never
+/// reorders. So a pane opened after a floating browser window covers it, and no
+/// amount of repositioning brings the window back up.
+///
+/// Measured with `tools/wkzprobe z` (card e0821533): created-last wins, a
+/// `set_bounds` on the lower view does not reorder, this call does, and the
+/// raised page keeps its state (no reload, the random token the page minted at
+/// birth is still there afterwards).
+///
+/// `addSubview:positioned:relativeTo:` ALONE, on a view that already sits in
+/// `parent`: AppKit reorders it in place, with no `willMoveToSuperview:`
+/// callback, and the view stays its window's first responder. A
+/// `removeFromSuperview` before it reorders just the same but hands the first
+/// responder to the NSWindow, so whoever is typing in the raised page loses the
+/// keyboard at every raise, while the DOM (`document.activeElement`, the page
+/// token) notices nothing. Measured with AppKit on NSTextView and WKWebView
+/// (review of card e0821533); `wkzprobe z` checks it as
+/// `first-responder-survives-the-raise`.
+// ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised in place with addSubview:positioned:above:.
+// ENGINES-GAP: webview2 - same hole as AppKit, read in the wry 0.55.1 source (every child HWND is born with SetWindowPos HWND_TOP, set_bounds passes SWP_NOZORDER): the command answers Ok and moves nothing until the WebView2 raise task of card e0821533 (tasks.md, Tornata 2) lands.
+// ENGINES-GAP: webkitgtk - not probed: wry puts every child with GtkFixed.put, which appends; the command answers Ok and moves nothing, and the same task of card e0821533 decides between a probed raise and an explicit open gap.
+#[tauri::command]
+fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_raise", move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&browser_label(&id))
+            .ok_or("no such browser pane")?;
+        #[cfg(target_os = "macos")]
+        let _ = wv.with_webview(move |platform| unsafe {
+            use crate::mac::*;
+            let view = platform.inner() as id;
+            if view == nil {
+                return;
+            }
+            let parent: id = msg_send![view, superview];
+            if parent == nil {
+                return;
+            }
+            // NSWindowAbove = 1, relativeTo nil = above every sibling. No
+            // removeFromSuperview first: it would take the keyboard away.
+            let _: () = msg_send![parent, addSubview: view, positioned: 1isize, relativeTo: nil];
+        });
+        #[cfg(not(target_os = "macos"))]
+        let _ = wv;
+        Ok(())
+    })
+}
+
 /// Elenca le WKWebView di pane browser vive ADESSO, per contextId.
 ///
 /// La verità è `Manager::webviews()`, non un registro nostro: un registro può
@@ -11297,6 +11351,7 @@ pub fn run() {
             browser_set_bounds,
             browser_set_visible,
             browser_animate_bounds,
+            browser_raise,
             browser_close,
             browser_purge_data_store,
             browser_purge_cache,

@@ -68,7 +68,9 @@ sapere se il disegno regge prima di aprire un conto.
   `new_sqlite_classes` nella migration, che è anche ciò che lo tiene sul piano
   GRATUITO.
 - [ ] 3.3 `setWebSocketAutoResponse()` per i ping, che così non si pagano.
-  Serve quando ci sarà traffico vero da mantenere vivo.
+  Rimandato: prima un deploy di prova deve mostrare che una socket orfana dopo
+  un deploy non riceve l'auto-response, altrimenti il battito di ab420f38 non
+  vede lo zombie.
 - [x] 3.4 Il co-browse a pixel NON passa di qui, e c'è un test di contratto —
   `relay/relay-contract.test.ts` — che copre anche l'ibernazione e RELAY-04.
   Testuale, perché entrambi i difetti sono invisibili a runtime: cambia solo la

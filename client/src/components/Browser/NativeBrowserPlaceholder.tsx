@@ -97,10 +97,10 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
   };
 
   // Agent activity NO LONGER touches this view's bounds. The agent drives the
-  // SAME native WebContentsView over CDP, so the user already watches it work;
-  // the "agent is controlling" indicator now lives in the browser toolbar
-  // (AgentActivityPill) where it can't shift/reflow the page. The previous
-  // implementation inset the view by a top strip on every tool call, making the
+  // SAME native WebContentsView over CDP, so the user already watches it work.
+  // Nothing is drawn over or above the page for it (`TOPIC-BROWSER-03`): the
+  // pill that used to say so lived in the 40px toolbar and went with it. The
+  // implementation before that inset the view by a top strip on every tool call, making the
   // page visibly jump — which is exactly what we're removing here.
 
   // Track drag gestures globally. A drag begins (a tab in PaneTabBar, an item
@@ -503,9 +503,8 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
           data-testid="browser-frozen-frame"
         />
       )}
-      {/* The "agent is controlling" indicator lives in the toolbar
-          (AgentActivityPill) — it no longer insets this view, so the page
-          never jumps when the agent acts. */}
+      {/* Agent activity does not inset this view, so the page never jumps
+          when the agent acts. */}
 
       {/* Responsive design mode — drag handles around the (smaller) viewport.
           The native view sizes to resp W×H at the top-left; the rest of the

@@ -24,7 +24,9 @@
  *     "no entry yet", never a crash: the tab falls back to the persisted URL.
  */
 import { useSyncExternalStore } from 'react';
-import type { DeviceMode } from '../components/Browser/browserDevTypes';
+import type { BrowserConsoleEntry, DeviceMode } from '../components/Browser/browserDevTypes';
+import type { DownloadsMenuProps } from '../components/Browser/DownloadsMenu';
+import type { ShareMode } from '../lib/sharedAuto';
 
 /** What a browser pane can be asked to do from its tab. Every command is
  *  optional: the shared (server-streamed) pane has no DevTools, the web build
@@ -34,23 +36,37 @@ export interface BrowserPaneCommands {
   reload?: () => void;
   back?: () => void;
   forward?: () => void;
-  /** Ask the TAB to open its inline address editor (Cmd+L by another name). */
+  /** Ask the TAB to open its sheet, address field focused (Cmd+L by another name). */
   editAddress?: () => void;
-  /** Go to an address typed in the tab's inline editor. */
+  /** Go to an address typed in the tab's sheet. */
   navigate?: (url: string) => void;
   openExternal?: () => void;
   /** Focus the chat this browser was opened from (when there is one). */
   backToSpawner?: () => void;
   toggleDevTools?: () => void;
-  /** Reveal the chrome row with the console panel already open. */
-  openConsole?: () => void;
   clearConsole?: () => void;
-  /** Reveal the chrome row with the downloads list already open. */
+  /** Ask the TAB to open its sheet with the Downloads section already down.
+   *  The downloads cue in the tab's quiet rail is the only caller: a download
+   *  announces itself there and opens nothing until you click it. */
   openDownloads?: () => void;
   setZoom?: (delta: number | 'reset') => void;
-  setDevice?: (mode: DeviceMode) => void;
+  /** `custom` carries its own box: it is the one mode that is not a preset, and
+   *  without those two numbers it would mean nothing. */
+  setDevice?: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
   toggleShare?: () => void;
   forgetSite?: () => void;
+  /**
+   * Park the page behind a pixel still while the sheet covers it, and bring it
+   * back when the sheet closes.
+   *
+   * The occlusion watcher already does this by measurement, and that path is
+   * untouched: these two exist because the sheet KNOWS it is covering the page
+   * from the instant it mounts, while the watcher only knows once the panel has
+   * been laid out and measured. Absent on the panes whose page is already a
+   * picture (streaming, iframe), where there is nothing to freeze.
+   */
+  freeze?: () => void;
+  thaw?: () => void;
 }
 
 /** The snapshot a tab reads. Plain data plus the command table. */
@@ -68,10 +84,36 @@ export interface BrowserPaneChrome {
   deviceMode: DeviceMode;
   /** True while the pane renders the shared (server) session instead of native. */
   shared: boolean;
-  /** Grows every time the pane asks the tab to open its inline address editor
-   *  (Cmd+L, the menu entry, a blank pane that wants an address). The tab
-   *  compares it with the last value it acted on. */
+  /** The user's session CHOICE, which is not the same thing as `shared` (the
+   *  effective render): 'auto' is native alone and shared the moment another
+   *  device looks at the same context. Absent on the web, where there is only
+   *  the shared session and nothing to choose. */
+  shareMode?: ShareMode;
+  /**
+   * What the sheet shows and the tab does not: the pane's own address list,
+   * the console rows behind the tally, and the downloads with their actions.
+   *
+   * They live here for the same reason the tally does: the pane owns them, and
+   * the sheet is drawn in another subtree entirely. They are optional because
+   * the three render paths hold different things - the shared pane has no
+   * console of its own, the iframe pane has no downloads queue of its own.
+   */
+  history: string[];
+  consoleEntries?: BrowserConsoleEntry[];
+  downloadsMenu?: DownloadsMenuProps;
+  /** Monotonic count of downloads that have STARTED on this pane. It drives the
+   *  appearing and the one-shot pulse of the tab's downloads cue, and nothing
+   *  else: a file that arrives never opens a surface by itself. */
+  downloadsStarted: number;
+  /** Grows every time the sheet is asked for WITH THE CARET: Cmd+L, a click on
+   *  the tab you are already in, the three dots, a blank pane that wants an
+   *  address. The tab compares it with the last value it acted on. */
   addressEditRequest: number;
+  /** Grows every time something asks for the sheet OPENED ON ITS DOWNLOADS
+   *  (today: the tab's downloads cue). Separate from `addressEditRequest`
+   *  because that one selects the address, and a file you clicked to look at
+   *  must not put the caret somewhere you then have to undo. */
+  downloadsOpenRequest: number;
   commands: BrowserPaneCommands;
 }
 

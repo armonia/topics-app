@@ -62,6 +62,57 @@ test.describe("Cross-device browser tab close (tombstone eviction)", () => {
     }
   });
 
+  /**
+   * TOPIC-BROWSER-02: THE SHEET LIVES AND DIES WITH ITS TAB.
+   *
+   * The sheet is portalled into <body> for its geometry, so its DOM node is not
+   * inside the tab: what keeps it from outliving its anchor is only that it is
+   * rendered from the tab's React subtree. This is the scene that proves it.
+   *
+   * The close has to come from ANOTHER DEVICE. Closing through the X on the
+   * device that shows the sheet presses a pointer outside the sheet first, and
+   * that press already closes it: the step would be green even for a sheet
+   * that survived its tab. On device B nothing is pressed at all.
+   *
+   * The seeded browser pane has no URL, so it opens its own sheet as soon as it
+   * is visible (a blank pane asks for an address). A dashboard tab keeps the
+   * bar alive after the close, so "the sheet is gone" cannot be explained by
+   * the whole strip unmounting.
+   */
+  test("CD-CLOSE-03: a sheet open on device B goes away with its tab when device A closes it", async ({ browser }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-02" });
+    const stamp = Date.now();
+    const closePane = `browser:e2e-cdsheet-${stamp}`;
+
+    const dev = await openTwoDevices(browser, {
+      seed: (request) => resetPaneStore(request, ["__dashboard__", closePane]),
+    });
+
+    try {
+      const dashboardB = tabFor(dev.pageB, "__dashboard__").first();
+      const browserB = tabFor(dev.pageB, closePane).first();
+      await expect(dashboardB).toBeVisible({ timeout: 10000 });
+      await expect(browserB).toBeVisible({ timeout: 10000 });
+
+      // Start from the dashboard, so the browser tab is known NOT to have a
+      // sheet yet; bringing it to the front makes the blank pane ask for one.
+      await dashboardB.click();
+      await expect(browserB).toHaveAttribute("data-active", "false", { timeout: 15000 });
+      await browserB.getByTestId("pane-tab-label").click();
+      await expect(browserB).toHaveAttribute("data-active", "true", { timeout: 15000 });
+      const sheetB = dev.pageB.getByTestId("browser-tab-sheet");
+      await expect(sheetB, "the blank pane opened its sheet on device B").toBeVisible({ timeout: 30000 });
+
+      await closeTabViaX(dev.pageA, closePane);
+
+      await expect(tabFor(dev.pageB, closePane)).toHaveCount(0, { timeout: 15000 });
+      await expect(sheetB, "the sheet went away with its tab").toHaveCount(0);
+      await expect(dashboardB, "the tab bar itself is still there").toBeVisible();
+    } finally {
+      await dev.dispose();
+    }
+  });
+
   test("CD-CLOSE-02: closing a browser tab publishes its tombstone to the shared channel", async ({ browser }) => {
     test.info().annotations.push({ type: "spec", description: "CD-CLOSE-02" });
     const stamp = Date.now();

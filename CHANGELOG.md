@@ -2,6 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.315 — 2026-09-14
+
+### Sotto il cofano
+- browser della topic: l'ordine z e' l'ordine di creazione, e il trascinamento va da fermo
+- dichiara i due motori non sondati invece di dirli portati
+- le finestre d'attesa passano dal fattore di carico
+- server-watch-supervisor: anche qui le attese passano dal fattore di carico
+- projectLayoutSync durability: un solo fattore per i tetti e per le attese
+- Revert "projectLayoutSync durability: un solo fattore per i tetti e per le attese"
+- Residuo non committato, messo al sicuro dalla potatura
+- il contratto dei 15 s si misura sui ritardi chiesti, non sull'orologio
+- riordina sul posto e non toglie la tastiera alla pagina
+- browser della topic: i numeri del trascinamento letti per quello che dicono, e l'ordine z chiuso solo su WKWebView
+- il battito lo risponde il runtime, senza svegliare l'oggetto ibernato
+- relay client: la prova di vita e' per filo, e qualunque frame lo e'
+- relay finto: al battito della macchina risponde pong, come il Durable Object
+- il battito torna a risponderlo l'oggetto, non il runtime
+
+## 2.2.314 — 2026-09-13
+
+### Sotto il cofano
+- browser-della-topic approvata, tab-is-the-chrome in archivio senza farla
+
 ## 2.2.313 — 2026-09-13
 
 ### Sotto il cofano

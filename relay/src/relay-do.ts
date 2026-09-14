@@ -496,6 +496,23 @@ export class SessioneRelay {
     // the bridge or the replacement host's sessions.
     if ("host" in chi && this.macchina() !== ws) return;
 
+    // ── "ARE YOU STILL THERE?", and the silence that answers it.
+    //
+    // A deploy replaces this object, and the thread the machine holds does not
+    // always get a close: it stays open towards nobody, and from over there it
+    // looks healthy. The answer costs one frame and it is what tells the two
+    // apart. It is deliberately BELOW the check above: a socket that is no
+    // longer the current host gets no answer, which is exactly the truth it
+    // needs to hear in order to rebuild its thread. Only the machine asks
+    // (`FromMachine`), so only the machine is answered.
+    //
+    // NOT `setWebSocketAutoResponse`, even though it would spare this wake-up
+    // every 20 s: the runtime answers it without reading tags, and nobody has
+    // shown on a real deploy that a socket orphaned by the deploy stops being
+    // answered. If it does not, the heartbeat can no longer see the zombie
+    // thread of 13/09, which is the case card ab420f38 exists to catch.
+    if ("host" in chi && m.t === "ping") { SessioneRelay.dilloA(ws, { t: "pong" }); return; }
+
     if ("host" in chi && m.t === "to-guest") {
       const dest = this.state.getWebSockets(tagSessione(m.to));
       if (dest.length > 0) {

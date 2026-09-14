@@ -24,7 +24,7 @@ import { useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Download, Check, X as XIcon, FolderOpen, Loader2, AlertTriangle } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
-import { POPOVER_DIVIDER, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
+import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import type { DownloadState } from './downloadsModel';
 
 /** Una riga del menu, comune alle due pane. */
@@ -61,9 +61,19 @@ export interface DownloadsMenuProps {
    *  would stay true after the user closed the panel and reopen it on the next
    *  unrelated render. Same shape as `startedCount` right below, deliberately. */
   requestOpen?: number;
+  /** Given, the trigger becomes a full menu ROW (glyph + name + tally) instead
+   *  of a bare glyph: the tab sheet is read top to bottom, and an unlabelled
+   *  glyph in a list of named rows is a guess. */
+  label?: string;
+  /** Override the trigger's testid. It ANCHORS the list, so a test that opens
+   *  the downloads has to click this exact element. */
+  testId?: string;
+  /** Marks the list as opened BY a host surface (`Menu`'s `owner`), so that
+   *  host can count a click in it as a click inside itself. */
+  popoverOwner?: string;
 }
 
-export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal, requestOpen = 0 }: DownloadsMenuProps) {
+export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal, requestOpen = 0, label, testId, popoverOwner }: DownloadsMenuProps) {
   // `wanted` è la VOLONTÀ (il menu è stato aperto), non il fatto: se l'elenco è
   // vuoto il bottone non esiste e il menu non ha più un'ancora, quindi
   // `open` si DERIVA. Prima quella riconciliazione era un effetto che spegneva
@@ -111,17 +121,21 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         ref={btnRef}
         type="button"
         onClick={() => setWanted(!open)}
-        className="relative w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors shrink-0"
+        className={label
+          ? `relative ${POPOVER_ITEM}`
+          : 'relative w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors shrink-0'}
         title={activeCount > 0 ? tr('downloads.active', { n: activeCount }) : tr('downloads.title')}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Download"
-        data-testid="browser-downloads-button"
+        data-testid={testId ?? 'browser-downloads-button'}
         data-active={activeCount > 0 || undefined}
       >
         {activeCount > 0
-          ? <Loader2 size={14} className="animate-spin" aria-hidden />
-          : <Download size={14} aria-hidden />}
+          ? <Loader2 size={14} className="animate-spin shrink-0" aria-hidden />
+          : <Download size={14} className="shrink-0" aria-hidden />}
+        {label && <span className="flex-1 text-left">{label}</span>}
+        {label && <span className="text-app-text-faint tabular-nums text-mini">{items.length}</span>}
         {activeCount > 0 && (
           <span
             className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full bg-primary text-white text-nano leading-[13px] text-center tabular-nums"
@@ -140,6 +154,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         className="max-w-[380px]"
         testId="browser-downloads-menu"
         ariaLabel="Download"
+        owner={popoverOwner}
       >
         <div className="px-3 py-1 flex items-center justify-between gap-2">
           <span className="text-mini font-medium text-app-text-secondary">Download</span>
