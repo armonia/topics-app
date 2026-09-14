@@ -793,6 +793,28 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       state.closedStack = [];
       break;
     }
+    case 'RECLAIM_PANE': {
+      // Same removal as PURGE_ORPHAN_PANE, plus the durable tombstone: the page
+      // is not corrupted state, it is a page that moved somewhere else and must
+      // stay out of this layout. No closedStack record on purpose: see the
+      // docstring on the action.
+      const { id } = action.payload;
+      const known = Boolean(state.panes[id]) || Object.values(state.groups).some((g) => g.paneIds.includes(id));
+      if (!known) break;
+      delete state.panes[id];
+      for (const [gid, group] of Object.entries(state.groups)) {
+        const idx = group.paneIds.indexOf(id);
+        if (idx >= 0) group.paneIds.splice(idx, 1);
+        if (group.paneIds.length === 0 && gid !== 'group:default') {
+          delete state.groups[gid];
+          const orderIdx = state.groupOrder.indexOf(gid);
+          if (orderIdx >= 0) state.groupOrder.splice(orderIdx, 1);
+        }
+      }
+      if (state.focusedPaneId === id) state.focusedPaneId = null;
+      recordTombstone(state, id, Date.now(), state.lastSeq + 1);
+      break;
+    }
     case 'PURGE_ORPHAN_PANE': {
       // Remove an orphan pane id from `panes` AND every `groups[*].paneIds`,
       // without touching the closedStack. See PaneAction docstring on

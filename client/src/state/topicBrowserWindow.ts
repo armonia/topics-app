@@ -30,6 +30,7 @@
 import { getTabId } from './pane/middleware/syncCrossTab';
 import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey';
 import { createUiStatePersister } from './uiStatePersist';
+import { MIN_EXPANDED_WIDTH } from '../components/Browser/topicBrowserWindowLazy';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -79,7 +80,7 @@ export const EMPTY_TOPIC_BROWSER_WINDOW: TopicBrowserWindowState = {
 /** Default size of the minimized window, and the bounds of the expanded one.
  *  They live here because the position/width reducers clamp against them. */
 export const MIN_WINDOW_SIZE = { width: 420, height: 320 } as const;
-export const EXPANDED_WIDTH_BOUNDS = { min: 360, max: 1200 } as const;
+export const EXPANDED_WIDTH_BOUNDS = { min: MIN_EXPANDED_WIDTH, max: 1200 } as const;
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
 
@@ -136,6 +137,27 @@ export function open(
     tabs: [...state.tabs, { contextId, url, title, openedBy: sheet.openedBy ?? 'user' }],
     activeContextId: contextId,
   };
+}
+
+/**
+ * Record where a sheet ended up after a navigation, WITHOUT touching focus.
+ *
+ * `open` is the user gesture: it activates and it wakes the window. A page that
+ * navigates on its own (a redirect, an agent driving it, a late title) is not a
+ * gesture, and routing it through `open` would let a background sheet steal the
+ * window every time its title arrives.
+ */
+export function updateSheet(
+  state: TopicBrowserWindowState,
+  contextId: string,
+  patch: { url?: string; title?: string },
+): TopicBrowserWindowState {
+  if (!hasSheet(state, contextId)) return state;
+  const next = state.tabs.map((t) => (t.contextId === contextId
+    ? { ...t, url: patch.url ?? t.url, title: patch.title ?? t.title }
+    : t));
+  const changed = next.some((t, i) => t !== state.tabs[i] && (t.url !== state.tabs[i]?.url || t.title !== state.tabs[i]?.title));
+  return changed ? { ...state, tabs: next } : state;
 }
 
 /** Focus a sheet of the window. No-op for anything that is not one. */
@@ -215,19 +237,106 @@ export function returnFromTab(
   return open(released, sheet);
 }
 
+/**
+ * Give a promoted contextId back to the window WITHOUT re-adding a sheet.
+ *
+ * `returnFromTab` is the deliberate way out of `promoted`, and until this
+ * existed it was the ONLY one: a promoted tab CLOSED in the layout (the X on
+ * the tab, a group torn down, a pane purged) left its contextId in `promoted`
+ * for good, and from then on `open` refused that contextId in silence. The page
+ * was reachable from nowhere: not a tab any more, and never a sheet again.
+ *
+ * So closing the pane releases the id. Releasing is not opening: the sheet does
+ * NOT come back, because the user closed that page. What comes back is the
+ * right to open it again.
+ */
+export function releasePromoted(state: TopicBrowserWindowState, contextId: string): TopicBrowserWindowState {
+  if (!contextId || !state.promoted.includes(contextId)) return state;
+  return { ...state, promoted: state.promoted.filter((id) => id !== contextId) };
+}
+
+/**
+ * Drop every promoted contextId the layout no longer holds.
+ *
+ * The event-by-event release above needs someone to witness the close. Nobody
+ * witnesses a pane that disappears while this client is shut down, or one
+ * closed on ANOTHER device, or a record the layout dropped on its own (orphan
+ * purge, tombstone eviction). `promoted` is persisted, so a miss is permanent.
+ * This is the periodic answer to all of those at once: the layout is asked who
+ * is still alive, and whoever is not is released.
+ */
+export function reconcilePromoted(
+  state: TopicBrowserWindowState,
+  isLive: (contextId: string) => boolean,
+): TopicBrowserWindowState {
+  if (!state.promoted.length) return state;
+  const live = state.promoted.filter((id) => isLive(id));
+  if (live.length === state.promoted.length) return state;
+  return { ...state, promoted: live };
+}
+
+/** Breathing room between the floating window and the edges of the area, and
+ *  between the floating window and the composer below it. */
+export const FLOAT_MARGIN_PX = 24;
+
+/** The composer, as an obstacle: where its BAR lies inside the area (px from
+ *  the top) and whether the topic is still empty, which centres it. */
+export type ComposerBand = { top: number; bottom: number; centered: boolean };
+
+/** Where the window may sit so it does not cover the composer: `floor` is the
+ *  lowest `bottom` a drag may reach, `defaultBottom` the one it starts from.
+ *
+ *  Two cases, and the difference is measured, not assumed. A DOCKED composer
+ *  leaves no room underneath, so the window climbs above its bar. A CENTRED
+ *  composer (an empty topic) leaves the whole lower half free, so the window
+ *  keeps the bottom corner, tucked just under the bar when the corner itself
+ *  would touch it.
+ *
+ *  The floor is NOT applied while the composer is centred: there the free band
+ *  is 18px tall (measured at 1280x800), a clamp would pin the window and kill
+ *  the vertical drag, and the state is transient anyway since the composer
+ *  docks with the first message. */
+export function resolveComposerAvoidance(
+  area: { height: number; composer?: ComposerBand },
+  height: number,
+): { floor: number; defaultBottom: number } {
+  const band = area.composer;
+  if (!band || band.bottom <= band.top) return { floor: 0, defaultBottom: FLOAT_MARGIN_PX };
+  const below = area.height - band.bottom;
+  if (below >= height) {
+    return { floor: 0, defaultBottom: Math.min(FLOAT_MARGIN_PX, Math.round(below - height)) };
+  }
+  const climb = Math.max(0, Math.round(area.height - band.top));
+  return { floor: band.centered ? 0 : climb + FLOAT_MARGIN_PX, defaultBottom: climb + FLOAT_MARGIN_PX };
+}
+
 /** Where the minimized window really sits, given the size of the topic area.
  *  Anchored to the bottom-right: a narrower area moves `left`, never the
- *  distance from the corner, which is why the window survives a resize. */
+ *  distance from the corner, which is why the window survives a resize.
+ *
+ *  `area.composer` is the composer as an obstacle. The window does not cover
+ *  it: the default corner used to be 24px from the bottom, which in a 1280x800
+ *  topic put the window right on the send button, covered in every topic
+ *  since the first delivery.
+ *  The button reads «Invia il messaggio». allow-italian: quoted UI label
+ *  A floating window is not allowed to stand between a person and sending
+ *  their message.
+ *
+ *  When the area is too short for either side the window keeps what is left,
+ *  instead of being pushed out of the top. */
 export function resolveMinRect(
   state: TopicBrowserWindowState,
-  area: { width: number; height: number },
+  area: { width: number; height: number; composer?: ComposerBand },
   size: { width: number; height: number } = MIN_WINDOW_SIZE,
 ): { left: number; top: number; width: number; height: number } {
-  const pos = state.minPos ?? { right: 24, bottom: 24 };
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
+  const avoid = resolveComposerAvoidance(area, height);
+  const pos = state.minPos ?? { right: FLOAT_MARGIN_PX, bottom: avoid.defaultBottom };
   const right = Math.min(pos.right, Math.max(0, area.width - width));
-  const bottom = Math.min(pos.bottom, Math.max(0, area.height - height));
+  const maxBottom = Math.max(0, area.height - height);
+  const minBottom = Math.min(avoid.floor, maxBottom);
+  const bottom = Math.min(Math.max(pos.bottom, minBottom), maxBottom);
   return { left: area.width - right - width, top: area.height - bottom - height, width, height };
 }
 
@@ -317,6 +426,32 @@ const writes = createUiStatePersister({
   },
 });
 const hasPendingWrite = (topicId: string) => writes.isPending(keyFor(topicId));
+
+/**
+ * Send every pending write NOW, because the page is going away.
+ *
+ * The debounce is 800 ms and a reload does not wait for it: dragging the window
+ * and hitting reload used to lose the position, and promoting a sheet then
+ * reloading used to persist the pane in the layout while the sheet was still in
+ * the window's `tabs` (the same page in both places). `keepalive` is what makes
+ * the request survive the unload. This mirrors what the pane store already does
+ * on pagehide (`syncServer.ts`).
+ *
+ * A flushed write is a NORMAL write, not a shortcut past the persister: it is
+ * counted as in flight and its answer still orders it against the frames that
+ * arrive meanwhile. That is why the flush lives in `uiStatePersist` and not
+ * here, next to a second copy of the queue.
+ */
+export function flushTopicWindowWrites(): void {
+  writes.flushAll();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushTopicWindowWrites);
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushTopicWindowWrites();
+  });
+}
 
 // ── in-memory cache + subscription (React) ───────────────────────────────────
 
@@ -531,14 +666,33 @@ export const topicBrowserWindow = {
   open: (topicId: string, sheet: { contextId: string; url?: string; title?: string; openedBy?: TopicBrowserOpenedBy }, mode?: TopicBrowserMode) =>
     commit(topicId, open(getTopicWindow(topicId), sheet, mode)),
   activate: (topicId: string, contextId: string) => commit(topicId, activate(getTopicWindow(topicId), contextId)),
+  updateSheet: (topicId: string, contextId: string, patch: { url?: string; title?: string }) =>
+    commit(topicId, updateSheet(getTopicWindow(topicId), contextId, patch)),
   close: (topicId: string, contextId: string) => commit(topicId, close(getTopicWindow(topicId), contextId)),
   setMode: (topicId: string, mode: TopicBrowserMode) => commit(topicId, setMode(getTopicWindow(topicId), mode)),
   move: (topicId: string, pos: TopicBrowserPosition) => commit(topicId, move(getTopicWindow(topicId), pos)),
   setWidth: (topicId: string, width: number | null) => commit(topicId, setWidth(getTopicWindow(topicId), width)),
   promoteToTab: (topicId: string, contextId: string) => commit(topicId, promoteToTab(getTopicWindow(topicId), contextId)),
+  releasePromoted: (topicId: string, contextId: string) => commit(topicId, releasePromoted(getTopicWindow(topicId), contextId)),
+  reconcilePromoted: (topicId: string, isLive: (contextId: string) => boolean) =>
+    commit(topicId, reconcilePromoted(getTopicWindow(topicId), isLive)),
   returnFromTab: (topicId: string, sheet: { contextId: string; url?: string; title?: string; openedBy?: TopicBrowserOpenedBy }) =>
     commit(topicId, returnFromTab(getTopicWindow(topicId), sheet)),
 };
+
+/**
+ * Which topic lent THIS page to the layout, if any.
+ *
+ * The window is the only thing that knows a tab is on loan: the pane itself
+ * carries no mark. A promoted tab that wants to go home asks this.
+ */
+export function findTopicOwningPromoted(contextId: string): string | null {
+  if (!contextId) return null;
+  for (const [topicId, state] of cache) {
+    if (state.promoted.includes(contextId)) return topicId;
+  }
+  return null;
+}
 
 export function subscribeTopicWindows(listener: () => void): () => void {
   listeners.add(listener);

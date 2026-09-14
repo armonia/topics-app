@@ -43,13 +43,13 @@ video `.webm` degli spec, non resoconti.
       dopo un resize dell'app.
 
 ## Tornata 2: la finestra, minimizzata ed espansa
-- [ ] `TopicBrowserWindow`: barra con le schede della topic, «+», espandi,
+- [x] `TopicBrowserWindow`: barra con le schede della topic, «+», espandi,
       riduci, apri come tab, chiudi. Minimizzata trascinabile, espansa con il
       bordo sinistro trascinabile.
-- [ ] Il segnaposto nativo dentro la finestra: `browser:reflow-request` a ogni
+- [x] Il segnaposto nativo dentro la finestra: `browser:reflow-request` a ogni
       cambio di posizione, raggio dichiarato, contenitore marcato
       `data-native-browser-slot`.
-- [ ] `browser_raise` sulla vista della finestra all'apertura, a ogni cambio di
+- [x] `browser_raise` sulla vista della finestra all'apertura, a ogni cambio di
       stato e quando nasce un'altra vista nativa (una tab nuova, un cambio di
       topic): senza, la vista creata dopo la copre. Prima di collegarlo:
       `cd tools/wkzprobe && cargo run --release -- z` esce 0 con
@@ -57,6 +57,12 @@ video `.webm` degli spec, non resoconti.
       non ancora eseguito; falsificarlo rimettendo `removeFromSuperview` in
       `raise_role`, deve uscire 1), e un `invoke('browser_raise')` nel guscio di
       sviluppo con una pane browser sopra la finestra.
+      Eseguito il 14/09, `cargo run --release -- z` esce 0: `created-last-on-top`,
+      `set_bounds-does-not-reorder`, `raise-wins`,
+      `first-responder-survives-the-raise`, `newcomer-covers-raised`,
+      `page-survives-the-raise` tutti veri. Collegato in `TopicBrowserWindow`:
+      un `browser_raise` sulla vista attiva a ogni cambio di rettangolo o di
+      scheda, che e' anche il momento in cui puo' essere nata una vista dopo.
 - [ ] **`browser_raise` fuori da WKWebView.** Oggi su WebView2 e WebKitGTK
       risponde Ok e non sposta niente, quindi la finestra resta coperta dalla
       prima vista nativa nata dopo di lei. Su WebView2 il buco è letto nel
@@ -74,13 +80,16 @@ video `.webm` degli spec, non resoconti.
       A buco chiuso, togliere la sua riga da `PINNED_GAPS` in
       `tests/unit/browser-platform-parity.test.ts` e il suo `ENGINES-GAP` in
       `lib.rs`.
-- [ ] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
-- [ ] Sotto 768 px la finestra non monta.
-- [ ] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
+- [x] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
+- [x] Sotto 768 px la finestra non monta.
+- [x] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
       bordo della chat entro la finestra da espansa, posizione dopo cambio topic
       e dopo ricarica, promozione e ritorno sulla stessa pagina, telefono senza
       finestra. Falsificare il primo scenario facendo cedere spazio anche da
       minimizzata: deve diventare rosso.
+      Fatto il 14/09 in `tests/e2e/topic-browser-window.spec.ts` (6 scenari,
+      `01`..`01f`): 6 verdi. Falsificazione eseguita facendo cedere lo spazio
+      anche in stato minimizzato: `01` rosso, chat 504 px invece di 1024.
 
 ## Tornata 3: la tab è la chrome
 - [x] Foglio della tab (`BrowserTabSheet.tsx`): indirizzo a fuoco e selezionato,

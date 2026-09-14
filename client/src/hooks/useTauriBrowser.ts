@@ -188,6 +188,33 @@ onBeforeBundleReload(() => {
   }
 });
 
+/**
+ * The corner radius the shell rounds a native page to, in px.
+ *
+ * It used to be one global rule: "is there a `.floating-splits` on screen".
+ * That reads the SHAPE of a view off a class that belongs to a different
+ * surface, so any container that wants its page rounded has no way to say so.
+ * A container declares it instead, with `data-native-radius` on an ancestor of
+ * the slot (the topic browser window does); the floating rule stays as the
+ * fallback for every pane that declares nothing.
+ *
+ * The signal also widens the shell's "meets a window corner" tolerance, and
+ * rounding still happens ONLY at window corners: the number is a declaration,
+ * not a mask.
+ */
+function resolveCornerRadius(viewId: string): number {
+  // Escaped by hand: `CSS.escape` does not exist in every runtime this hook is
+  // exercised in, and a view id is a uuid anyway.
+  const selector = `[data-native-browser-slot="${viewId.replace(/["\\]/g, '\\$&')}"]`;
+  const slot = viewId ? document.querySelector(selector) : null;
+  const declared = slot?.closest('[data-native-radius]')?.getAttribute('data-native-radius');
+  if (declared !== null && declared !== undefined) {
+    const n = Number(declared);
+    if (Number.isFinite(n)) return Math.max(0, Math.round(n));
+  }
+  return document.querySelector('.floating-splits') ? 10 : 0;
+}
+
 export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;
   // The navigation error strip is written from inside socket and poll
@@ -457,11 +484,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!hide && rect.width >= 64 && rect.height >= 64) {
       lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
     }
-    // Floating-mode signal for the shell's corner mask: floating cards keep a
-    // margin from the window edge, so the shell widens its "meets a window
-    // corner" tolerance when this is non-zero. Rounding happens ONLY at window
-    // corners (Attilio's ruling) — the value itself is not a corner radius.
-    const radius = document.querySelector('.floating-splits') ? 10 : 0;
+    const radius = resolveCornerRadius(id);
     // Moving the live view can slide it under the cursor and make WebKit emit a
     // trusted pointerdown that isn't a real click-in — suppress self-focus across
     // the move (only when actually showing; a hide/park can't be misread).
@@ -535,7 +558,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       if (rect.width >= 64 && rect.height >= 64) {
         lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
       }
-      const radius = document.querySelector('.floating-splits') ? 10 : 0;
+      const radius = resolveCornerRadius(id);
       // The animated move can slide the view under a resting cursor — same
       // trusted-pointerdown hazard as a plain reposition.
       suppressSelfFocus();

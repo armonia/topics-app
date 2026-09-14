@@ -389,6 +389,19 @@ export type PaneAction =
    */
   | { type: 'PURGE_ORPHAN_PANE'; payload: { id: string } }
   /**
+   * Take a pane OUT of the layout because something else is now showing that
+   * same page: the topic's browser window reclaiming a sheet it had lent as a
+   * tab (the return-to-chat control).
+   *
+   * Like CLOSE_PANE it writes the durable tombstone, so a stale peer cannot
+   * re-add the pane on the next union-hydrate. Unlike CLOSE_PANE it pushes NO
+   * closedStack record: the page is not closed, it moved. With a record,
+   * Cmd+Shift+T would re-open the very page the window is displaying, and the
+   * same contextId would live in two RemoteBrowserPanels fighting over
+   * `set_bounds` of one native view (measured, verification of 14/09).
+   */
+  | { type: 'RECLAIM_PANE'; payload: { id: string } }
+  /**
    * Create / rename / reorder a Spazio. The reducer stamps
    * `updatedAt = Date.now()` (the per-id LWW key) — callers never set it.
    * Refuses DEFAULT_SPACE_ID (the default space is implicit, not a record).

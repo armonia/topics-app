@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
@@ -16,6 +16,8 @@ import { ChatPane } from '../Chat/ChatPane';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
+import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import type { SendMessageOptions } from '@/hooks/useChat';
 
 function errorMessage(e: unknown): string {
@@ -119,9 +121,28 @@ export function ChatPanel({
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
+  // The topic's browser window. Under 768 px it does not exist at all: a phone
+  // has no room to give, and a window that covers the chat is not a window.
+  // Expanded, the chat CEDES its width instead of being covered; minimized it
+  // cedes nothing, which is the difference the scenarios check.
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const browserWindow = useTopicBrowserPresence(isDraft || isMobile ? '' : topic.id);
+  const requestedBrowserInset = browserWindow.mode === 'exp' ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH) : 0;
+  // Measured, not stated in CSS: below a usable area the window falls back to
+  // floating and this has to be zero, which a stylesheet cannot decide.
+  const browserInset = useTopicBrowserInset(chatAreaRef, requestedBrowserInset);
+
   return (
     <>
-      <div data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+      <div ref={chatAreaRef} data-testid="chat-panel" data-chat-topic-id={topic.id} role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: `${browserInset}px` } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+        {hasTopicBrowserWindow(browserWindow) && (
+          <Suspense fallback={null}>
+            <TopicBrowserWindow topicId={topic.id} areaRef={chatAreaRef} projectPath={topic.projectPath ?? undefined} />
+          </Suspense>
+        )}
+        {hasTopicBrowserWindow(browserWindow) && browserWindow.mode === 'hidden' && (
+          <TopicBrowserReopen topicId={topic.id} />
+        )}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft

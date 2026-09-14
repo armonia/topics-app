@@ -242,3 +242,4 @@ export function registerProjectWindow(projectPath: string): () => void {
 export function isProjectWindowMounted(projectPath: string): boolean {
   return (mountedProjectWindows.get(projectPath) ?? 0) > 0;
 }
+

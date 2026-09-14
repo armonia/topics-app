@@ -17,6 +17,8 @@ import {
   setWidth,
   promoteToTab,
   returnFromTab,
+  releasePromoted,
+  reconcilePromoted,
   resolveMinRect,
   sanitizeTopicBrowserWindow,
   applyRemoteTopicWindow,
@@ -24,6 +26,9 @@ import {
   applyTopicWindowFrame,
   reloadTopicWindowsFromServer,
   getTopicWindow,
+  findTopicOwningPromoted,
+  flushTopicWindowWrites,
+  updateSheet,
   forgetTopicWindow,
   subscribeTopicWindows,
   topicBrowserWindow,
@@ -142,6 +147,52 @@ describe('resolveMinRect (the corner survives a resize of the app)', () => {
     expect(r.left).toBe(1440 - 24 - MIN_WINDOW_SIZE.width);
     expect(r.top).toBe(900 - 24 - MIN_WINDOW_SIZE.height);
   });
+
+  // A composer DOCKED at the bottom: there is no room underneath, so the
+  // window has to start above it. The old default corner (24px from the
+  // bottom) sat right on the send button.
+  const DOCKED_COMPOSER = { top: 900 - 140, bottom: 900, centered: false };
+  // A composer CENTERED in an empty topic: the bottom of the area is free,
+  // and that is where the window belongs. Pushing it above a centered
+  // composer would pin it to the ceiling and kill the drag.
+  const CENTERED_COMPOSER = { top: 340, bottom: 448, centered: true };
+
+  test('the default corner sits ABOVE a docked composer, never on top of it', () => {
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
+      width: 1440,
+      height: 900,
+      composer: DOCKED_COMPOSER,
+    });
+    expect(r.top + r.height).toBe(DOCKED_COMPOSER.top - 24);
+  });
+
+  test('a position dragged onto a docked composer is pulled back above it', () => {
+    const parked = { ...EMPTY_TOPIC_BROWSER_WINDOW, minPos: { right: 24, bottom: 0 } };
+    const r = resolveMinRect(parked, { width: 1440, height: 900, composer: DOCKED_COMPOSER });
+    expect(r.top + r.height).toBe(DOCKED_COMPOSER.top - 24);
+  });
+
+  test('a CENTERED composer leaves the bottom corner alone', () => {
+    const bare = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900 });
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
+      width: 1440,
+      height: 900,
+      composer: CENTERED_COMPOSER,
+    });
+    expect(r.top).toBe(bare.top);
+    // And it still clears it: the window starts below the composer.
+    expect(r.top).toBeGreaterThanOrEqual(CENTERED_COMPOSER.bottom);
+  });
+
+  test('an area too short for either side keeps the window inside it', () => {
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
+      width: 600,
+      height: 360,
+      composer: { top: 60, bottom: 360, centered: false },
+    });
+    expect(r.top).toBeGreaterThanOrEqual(0);
+    expect(r.top + r.height).toBeLessThanOrEqual(360);
+  });
 });
 
 describe('promoteToTab / returnFromTab (the invariant)', () => {
@@ -187,6 +238,39 @@ describe('promoteToTab / returnFromTab (the invariant)', () => {
     expect(s.mode).toBe('hidden');
     expect(s.tabs).toHaveLength(0);
     expect(s.promoted).toEqual(['a']);
+  });
+});
+
+describe('releasePromoted / reconcilePromoted (a promoted tab that is CLOSED, not returned)', () => {
+  const two = open(open(EMPTY_TOPIC_BROWSER_WINDOW, sheet('a')), sheet('b'));
+
+  test('closing the promoted tab frees the contextId, and the page can be opened again', () => {
+    const promoted = promoteToTab(two, 'a');
+    // The X on the layout tab: the pane goes, and nothing returns to the window.
+    const released = releasePromoted(promoted, 'a');
+    expect(released.promoted).toEqual([]);
+    expect(released.tabs.map((t) => t.contextId)).toEqual(['b']);
+    // Which is the whole point: `open` accepts that contextId again.
+    const again = open(released, sheet('a'));
+    expect(again.tabs.map((t) => t.contextId)).toEqual(['b', 'a']);
+    expect(again.activeContextId).toBe('a');
+    // Falsification: without the release, this reads ['b'] and the page is
+    // unreachable for good - which is exactly what happened before.
+  });
+
+  test('releasing something that is not promoted changes nothing', () => {
+    expect(releasePromoted(two, 'a')).toBe(two);
+    expect(releasePromoted(two, '')).toBe(two);
+  });
+
+  test('reconcile drops the promoted ids the layout no longer holds, keeps the live ones', () => {
+    const both = promoteToTab(promoteToTab(two, 'a'), 'b');
+    expect(both.promoted).toEqual(['a', 'b']);
+    const reconciled = reconcilePromoted(both, (id) => id === 'b');
+    expect(reconciled.promoted).toEqual(['b']);
+    // Identity is preserved when the layout agrees: no write, no broadcast.
+    expect(reconcilePromoted(reconciled, () => true)).toBe(reconciled);
+    expect(reconcilePromoted(two, () => false)).toBe(two);
   });
 });
 
@@ -342,6 +426,27 @@ describe('inbound ui-state (the store re-reads what it writes)', () => {
   });
 });
 
+describe('updateSheet (a page that navigates on its own)', () => {
+  const two = open(open(EMPTY_TOPIC_BROWSER_WINDOW, sheet('a')), sheet('b'));
+
+  test('records url and title of a sheet that is NOT the active one, without stealing focus', () => {
+    const after = updateSheet(two, 'a', { url: 'https://moved.test', title: 'Moved' });
+
+    expect(after.tabs.find((t) => t.contextId === 'a')).toMatchObject({ url: 'https://moved.test', title: 'Moved' });
+    expect(after.activeContextId).toBe(two.activeContextId);
+  });
+
+  test('a patch with neither field, and a patch for an unknown sheet, change nothing', () => {
+    expect(updateSheet(two, 'a', {})).toBe(two);
+    expect(updateSheet(two, 'ghost', { url: 'https://x.test' })).toBe(two);
+  });
+
+  test('leaves the other sheets alone', () => {
+    const after = updateSheet(two, 'a', { title: 'Moved' });
+    expect(after.tabs.find((t) => t.contextId === 'b')).toEqual(two.tabs.find((t) => t.contextId === 'b')!);
+  });
+});
+
 describe('persistence (ui-state PUT/GET)', () => {
   const REAL_FETCH = globalThis.fetch;
   let puts: { key: string; clientId: string | null; body: unknown }[];
@@ -378,6 +483,46 @@ describe('persistence (ui-state PUT/GET)', () => {
   });
 
   const settle = () => new Promise((r) => setTimeout(r, 1000));
+
+  test('flush sends the pending write NOW: a reload within the debounce keeps the position', async () => {
+    const tid = uniqueId('flush');
+    topicBrowserWindow.open(tid, sheet('a'));
+    topicBrowserWindow.move(tid, { right: 40, bottom: 90 });
+    // No settle(): this is the reload landing inside the 800 ms window.
+    expect(puts.filter((p) => p.key === `topic-browser:${tid}`)).toHaveLength(0);
+
+    flushTopicWindowWrites();
+
+    const sent = puts.filter((p) => p.key === `topic-browser:${tid}`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body).toMatchObject({ minPos: { right: 40, bottom: 90 } });
+  });
+
+  test('flush does not send the same state twice when the debounce would have fired anyway', async () => {
+    const tid = uniqueId('flush-once');
+    topicBrowserWindow.open(tid, sheet('a'));
+    flushTopicWindowWrites();
+    await settle();
+
+    expect(puts.filter((p) => p.key === `topic-browser:${tid}`)).toHaveLength(1);
+  });
+
+  test('with nothing pending, flush is a no-op', () => {
+    flushTopicWindowWrites();
+    expect(puts).toHaveLength(0);
+  });
+
+  test('findTopicOwningPromoted names the topic that lent a page, and only while it is on loan', async () => {
+    const tid = uniqueId('owner');
+    topicBrowserWindow.open(tid, sheet('a'));
+    expect(findTopicOwningPromoted('a')).toBeNull();
+
+    topicBrowserWindow.promoteToTab(tid, 'a');
+    expect(findTopicOwningPromoted('a')).toBe(tid);
+
+    topicBrowserWindow.returnFromTab(tid, sheet('a'));
+    expect(findTopicOwningPromoted('a')).toBeNull();
+  });
 
   test('a mutation persists the whole record under topic-browser:<topicId>, stamped with the client id', async () => {
     const tid = uniqueId('put');

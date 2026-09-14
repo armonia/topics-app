@@ -49,9 +49,10 @@ contesto, e la scheda torna in `tabs` come attiva. Una scheda non vive mai in
 entrambi i posti: è la lezione della striscia del task, mai due
 rappresentazioni vive della stessa cosa.
 
-`hidden` è la finestra chiusa con schede ancora aperte: un pulsante nella barra
-della topic la riapre. Chiudere l'ultima scheda porta a `hidden` con `tabs`
-vuoto.
+`hidden` è la finestra chiusa con schede ancora aperte: un comando in alto a
+destra dell'area della topic la riapre (non nella barra: una topic autonoma
+non ne ha una). Dentro un progetto sfiora le azioni dei messaggi, e si tiene un
+margine da loro. Chiudere l'ultima scheda porta a `hidden` con `tabs` vuoto.
 
 ## La vista nativa fuori dalla griglia
 

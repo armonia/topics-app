@@ -1,5 +1,7 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
+import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
+import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -108,6 +110,20 @@ export interface ChatPaneProps {
    *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
    *  the board strip so it stays visible while typing. */
   aboveInputSlot?: React.ReactNode;
+  /**
+   * Mount the topic's browser window on THIS pane instead of leaving it to a
+   * parent.
+   *
+   * The window belongs to the topic, not to the shell that draws it: a topic
+   * of a project is a topic, and the approved choice 5 of the change says the
+   * bar carries "the topic's sheets, the project's ones from the +". But the
+   * standalone shell puts `ChatPanel` above this pane and mounts the window
+   * there, over the header too. Two mounts for one topic would mean two
+   * `RemoteBrowserPanel` fighting over one native view, which is the very
+   * thing the one-page-one-place invariant forbids. So whoever has NO
+   * `ChatPanel` above (the project window) says so here.
+   */
+  ownsBrowserWindow?: boolean;
 }
 
 /** Riferimento stabile per il caso normale (nessun messaggio appuntato): senza,
@@ -132,7 +148,7 @@ function ChatPaneComponent({
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, regenerateMessage, deleteMessage, switchBranch,
-  aboveInputSlot,
+  aboveInputSlot, ownsBrowserWindow,
 }: ChatPaneProps) {
   const tr = useT();
   const toast = useToast();
@@ -323,6 +339,19 @@ function ChatPaneComponent({
   const [inputAreaHeight, setInputAreaHeight] = useState(0);
   const paneRootRef = useRef<HTMLDivElement>(null);
   const [paneHeight, setPaneHeight] = useState(0);
+  // The topic's browser window, when no `ChatPanel` above is already drawing
+  // it. Expanded it takes width away from this pane ALONE: the padding lives
+  // inside the pane, so the grid keeps tiling the columns it always tiled, and
+  // the clamp is the chat minimum of THIS pane, not of the whole window.
+  const browserWindow = useTopicBrowserPresence(
+    ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
+  );
+  const requestedBrowserInset = browserWindow.mode === 'exp'
+    ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
+    : 0;
+  // Measured, not stated in CSS: below a usable area the window falls back to
+  // floating and this has to be zero, which a stylesheet cannot decide.
+  const browserInset = useTopicBrowserInset(paneRootRef, requestedBrowserInset);
   // L'invito della chat vuota sta DENTRO il blocco misurato, ma non deve
   // contare nella centratura: si misura a parte per poterlo scalare.
   const greetingRef = useRef<HTMLDivElement>(null);
@@ -1625,17 +1654,29 @@ function ChatPaneComponent({
   return (
     <div
       ref={paneRootRef}
+      // Whose conversation this subtree is: `openLink` walks up from the clicked
+      // anchor to find out which topic's window may claim the link.
+      data-chat-topic-id={topic.id}
       // `chrome-passthrough-y` and not `overflow-hidden`: the transcript inside
       // rises by the height of the chrome bar and has to be PAINTED up there,
       // not just laid out there. The horizontal containment is unchanged. See
       // the block on `.chrome-passthrough-y` in index.css.
       className="relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full"
+      style={browserInset ? { paddingRight: `${browserInset}px` } : undefined}
       // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
       // nuova non si richiude più da sola. In cattura, perché deve valere anche
       // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.
       onPointerDownCapture={() => markDraftTouched(topic.id)}
       onKeyDownCapture={() => markDraftTouched(topic.id)}
     >
+      {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && (
+        <Suspense fallback={null}>
+          <TopicBrowserWindow topicId={topic.id} areaRef={paneRootRef} projectPath={topic.projectPath ?? undefined} />
+        </Suspense>
+      )}
+      {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && browserWindow.mode === 'hidden' && (
+        <TopicBrowserReopen topicId={topic.id} />
+      )}
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>
@@ -1693,7 +1734,23 @@ function ChatPaneComponent({
         data-testid="chat-input-area"
         data-composer-centered={composerCentered ? 'true' : 'false'}
         className={`absolute bottom-0 left-0 right-0 chat-measure${transitionsOn ? ' composer-dock-slide' : ''}`}
-        style={composerOffset ? { transform: `translateY(-${composerOffset}px)` } : undefined}
+        style={{
+          ...(composerOffset ? { transform: `translateY(-${composerOffset}px)` } : null),
+          // The root pads ITSELF, but an absolutely positioned child is laid
+          // out against the PADDING box, so the composer ignored that padding
+          // and sat under the expanded window, send button included. It has to
+          // be told the same inset directly.
+          //
+          // `width: auto` IS LOAD-BEARING, and `right` alone does nothing
+          // without it: `chat-measure` sets `width: 100%`, and an absolute box
+          // with `left`, `width` AND `right` all set is over-constrained — in
+          // LTR the one the browser throws away is `right`. Measured at 1280 in
+          // a project pane, with the inline `right: 480px` in place and no
+          // `width`: composer 480..1280, send button 1229..1261, and
+          // `elementFromPoint` on its center answering `topic-browser-window`.
+          // TOPIC-BROWSER-01q is that measurement.
+          ...(browserInset ? { right: `${browserInset}px`, width: 'auto' } : null),
+        }}
       >
         {showGreeting && (
           <div ref={greetingRef}>

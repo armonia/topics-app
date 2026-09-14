@@ -25,6 +25,7 @@
 
 import { openExternalOnce } from './openExternal';
 import { newBrowserContextId } from '../state/pane/adapters/paneConfig';
+import { topicWindowTakesLink } from './topicWindowDoor';
 
 /** The event a link click fires at the surfaces able to host a browser tab. */
 export const OPEN_TAB_EVENT = 'browser:open-tab';
@@ -68,6 +69,20 @@ function projectPathOfClick(origin: EventTarget | null | undefined): string | un
   if (!el || typeof el.closest !== 'function') return undefined;
   const host = el.closest('[data-project-path]');
   return host?.getAttribute('data-project-path') ?? undefined;
+}
+
+/**
+ * Which topic's CONVERSATION the click came from, read off the DOM.
+ *
+ * Same trick as `projectPathOfClick`, and for the same reason: the alternative
+ * was threading a topicId through every component that renders markdown. The
+ * chat marks its own root with `data-chat-topic-id`, and one ancestor walk
+ * answers "was this link clicked inside a conversation, and whose".
+ */
+function topicOfClick(origin: EventTarget | null | undefined): string | undefined {
+  const el = origin as { closest?: (s: string) => Element | null } | null | undefined;
+  if (!el || typeof el.closest !== 'function') return undefined;
+  return el.closest('[data-chat-topic-id]')?.getAttribute('data-chat-topic-id') ?? undefined;
 }
 
 /** Cmd/Ctrl-click and middle click mean "not here" in every browser, so they
@@ -133,10 +148,15 @@ export function openLink(url: string, opts: OpenLinkOptions = {}): void {
     // its own native view. Reusing one would navigate the page the user is
     // reading away from under them, which is the bug this whole module is about.
     contextId: newBrowserContextId(),
-    topicId: opts.topicId,
+    topicId: opts.topicId ?? topicOfClick(opts.origin),
     projectPath: opts.projectPath ?? projectPathOfClick(opts.origin),
     nearPaneId: opts.nearPaneId,
   };
+  // A topic that has a browser window of its own takes the links of its own
+  // conversation: they belong beside the chat they were read in, not in a pane
+  // somewhere else in the layout. Asked before the dispatch, see
+  // `topicWindowDoor`.
+  if (topicWindowTakesLink(detail)) return;
   const claimed = !window.dispatchEvent(
     new CustomEvent<OpenTabDetail>(OPEN_TAB_EVENT, { detail, cancelable: true }),
   );

@@ -155,6 +155,12 @@ export interface UiStatePersister {
   readIsStale(key: string, token: number, seq: number | null): boolean;
   /** Drop the QUEUED write for `key` (a PUT already in flight cannot be recalled). */
   cancel(key: string): void;
+  /**
+   * Send every queued write NOW, with `keepalive`, instead of waiting for a
+   * debounce tick. For the way out of the page (pagehide): the tick would
+   * never run, and the edit the person just made would be lost on reload.
+   */
+  flushAll(): void;
   /** Test seam: forget every queued write, in-flight write and held frame. */
   cancelAll(): void;
 }
@@ -176,6 +182,10 @@ function flightSignal(ms: number): { signal: AbortSignal; clear: () => void } {
 
 export function createUiStatePersister(options: UiStatePersisterOptions = {}): UiStatePersister {
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  // The value each waiting timer will send. The timer alone is not enough for
+  // `flushAll`, which has to send those writes NOW rather than wait for a tick
+  // that a page being unloaded will never run.
+  const queuedValues = new Map<string, unknown>();
   // Count, not a flag: a second edit can flush while the first PUT is still in
   // flight (closing the last tab writes with no debounce at all), and the first
   // answer must not clear the protection the second write still needs.
@@ -239,7 +249,7 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
     options.onDeferredFrame?.(key, frame.value);
   };
 
-  const send = (key: string, value: unknown): void => {
+  const send = (key: string, value: unknown, keepalive = false): void => {
     // The signal is built BEFORE the flight is counted, and the request is
     // guarded: anything that throws on the way out (an engine without
     // `AbortSignal.timeout`, a fetch that rejects synchronously) would otherwise
@@ -258,6 +268,9 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
       body: JSON.stringify(value),
       signal: flight.signal,
+      // Set only when flushing on the way out: it is what lets the request
+      // survive the unload instead of being cancelled with the page.
+      keepalive,
     })
       // The answer's server_seq is what orders our write against the frames that
       // arrived while it travelled; a write that failed reports no seq at all.
@@ -281,8 +294,10 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       // The generation moves at the EDIT, not only at the PUT: a read answered
       // after an edit was queued is already stale, whatever the debounce does.
       generation.set(key, (generation.get(key) ?? 0) + 1);
+      queuedValues.set(key, value);
       timers.set(key, setTimeout(() => {
         timers.delete(key);
+        queuedValues.delete(key);
         send(key, value);
       }, ms));
     },
@@ -335,8 +350,9 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       return log.entries.some((e) => e.gen > token && (seq === null || e.seq === null || e.seq > seq));
     },
     cancel(key: string): void {
-      const queued = timers.get(key);
-      if (queued) { clearTimeout(queued); timers.delete(key); }
+      const waiting = timers.get(key);
+      if (waiting) { clearTimeout(waiting); timers.delete(key); }
+      queuedValues.delete(key);
       held.delete(key);
       // The record is being forgotten (archived task/topic): a read owed for it
       // would resurrect the row we are dropping.
@@ -345,9 +361,20 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       // it cannot answer later and bring the record back from the dead.
       markApplied(key, null);
     },
+    flushAll(): void {
+      if (!timers.size) return;
+      // Copied first: `send` is synchronous up to the fetch, and iterating the
+      // map we are emptying would skip keys.
+      const pending = [...queuedValues];
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+      queuedValues.clear();
+      for (const [key, value] of pending) send(key, value, true);
+    },
     cancelAll(): void {
       for (const t of timers.values()) clearTimeout(t);
       timers.clear();
+      queuedValues.clear();
       inFlight.clear();
       confirmedSeq.clear();
       held.clear();

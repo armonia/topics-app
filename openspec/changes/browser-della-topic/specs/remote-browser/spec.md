@@ -12,8 +12,9 @@ topic. La finestra SHALL stare in uno di questi stati:
 - **espanso**: agganciata al lato destro dell'area della topic; la chat SHALL
   cedere lo spazio che la finestra occupa, e la larghezza SHALL regolarsi
   trascinando il bordo sinistro;
-- **nascosto**: chiusa, con le schede conservate e un comando nella barra della
-  topic per riaprirla.
+- **nascosto**: chiusa, con le schede conservate e un comando in alto a destra
+  dell'area della topic per riaprirla (non nella barra: una topic autonoma non
+  ne ha una).
 
 La barra della finestra SHALL elencare le schede della topic, con la scheda attiva
 che mostra la pagina viva; le schede aperte da altre superfici del progetto SHALL

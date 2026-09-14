@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import { pinKeyFromPaneId } from '../../state/pane/adapters/paneConfig';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
@@ -15,6 +15,7 @@ import {
   getBrowserContextFromPaneId,
   isTaskWorkspacePath,
   useClosedTabs,
+  publishProjectBrowserPanes,
 } from '../../state/pane/adapters';
 import { isRealUrl, shouldPersistBrowserTitle } from '../../state/pane/browserPaneUrl';
 import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
@@ -234,6 +235,38 @@ export function ProjectWindowPane({
   const handleActivatePane = layout.handlers.activate;
   const handleClosePane = layout.handlers.close;
   const handleClosePaneImmediate = layout.handlers.closeNow;
+
+  /**
+   * Tell the topic's browser window which pages this project already has open,
+   * and how to hand one back.
+   *
+   * Inside a project window a promoted sheet becomes a PROJECT pane, which
+   * `usePaneStore` never sees: without this the window's "+" would list
+   * nothing and the return path would leave the pane open, drawing the same
+   * contextId twice. The handback is `reclaimBrowser`, never a close: a close
+   * would tear the page down, and the page is exactly what we are moving.
+   */
+  const browserPanesForTopicWindow = useMemo(
+    () =>
+      panes
+        .filter((p) => p.type === 'browser')
+        .map((p) => ({
+          contextId: getBrowserContextFromPaneId(p.id) ?? '',
+          url: typeof p.url === 'string' ? p.url : '',
+          title: p.title ?? '',
+        }))
+        .filter((e) => e.contextId !== ''),
+    [panes],
+  );
+  const reclaimBrowserRef = useRef(layout.handlers.reclaimBrowser);
+  reclaimBrowserRef.current = layout.handlers.reclaimBrowser;
+  useEffect(
+    () =>
+      publishProjectBrowserPanes(projectPath, browserPanesForTopicWindow, (contextId) => {
+        reclaimBrowserRef.current(createPaneId('browser', contextId));
+      }),
+    [projectPath, browserPanesForTopicWindow],
+  );
   const handleReorderGroupPanes = layout.handlers.reorderGroupPanes;
   const handleMovePaneBetweenGroups = layout.handlers.moveBetweenGroups;
   const handleSplitGroup = layout.handlers.splitGroup;
@@ -401,6 +434,10 @@ export function ProjectWindowPane({
         return (
           <ChatPane
             topic={topic}
+            // No `ChatPanel` above this one: the topic's browser window is
+            // mounted by the pane itself, or a topic inside a project would
+            // be the only chat without one.
+            ownsBrowserWindow
             isFocused={isFocused && focusedPanelId === wrapperPaneId}
             getSessionMessages={getSessionMessages}
             getCompactionMarkers={getCompactionMarkers}
