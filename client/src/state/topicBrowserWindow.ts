@@ -316,8 +316,9 @@ export function resolveComposerAvoidance(
  *
  *  `area.composer` is the composer as an obstacle. The window does not cover
  *  it: the default corner used to be 24px from the bottom, which in a 1280x800
- *  topic put the window right on the send button, «Invia il messaggio», in
- *  every topic and since the first delivery. allow-italian: quoted UI label
+ *  topic put the window right on the send button, covered in every topic
+ *  since the first delivery.
+ *  The button reads «Invia il messaggio». allow-italian: quoted UI label
  *  A floating window is not allowed to stand between a person and sending
  *  their message.
  *

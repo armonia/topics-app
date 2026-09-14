@@ -1060,7 +1060,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     // area put its 420x320 body exactly over the band the composer occupies,
     // so `elementFromPoint` on the send button answered the window — in every
     // topic, from the first delivery on. The window measures that band now
-    // (`useComposerFloor`) and `resolveMinRect` keeps off it.
+    // (`useComposerBand`) and `resolveMinRect` keeps off it.
     //
     // A SEEDED CONVERSATION IN BOTH HALVES, and it is load-bearing, not decor:
     // in an empty topic the composer is CENTERED in the middle of the pane, so
