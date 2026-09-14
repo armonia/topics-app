@@ -789,7 +789,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       // that lives in the top-right band: the hover toolbar of the first
       // message is drawn ABOVE it, right-aligned for a message of ours.
       // Measured at 1280 the two rectangles read 1102..1260 and 1248..1272:
-      // a 7 px bite out of «Elimina il messaggio», taken by the command,
+      // a 7 px bite out of «Elimina il messaggio», taken by the command, allow-italian: quoted UI label
       // which is on top. Sideways there is no room to give — 20 px between
       // the toolbar and the pane edge, for a 24 px button — so the command
       // moved DOWN, and this is the margin it has to keep.

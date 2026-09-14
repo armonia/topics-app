@@ -15,7 +15,7 @@ import { reopenTopicBrowserWindow } from './topicBrowserWindowLazy';
  * message's action toolbar (`bottom-full` on the bubble), and for a user
  * message the toolbar is right-aligned: measured at 1280, the bar landed at
  * x 1102..1260 / y 76.5..110.5 and this button at x 1248..1272 / y 78..102 —
- * a 7 px bite out of «Elimina il messaggio», taken by the button on top
+ * a 7 px bite out of «Elimina il messaggio», taken by the button on top allow-italian: quoted UI label
  * (z-20 over the toolbar's z-10), i.e. a delete that could not be clicked.
  *
  * Sideways there is no room: only 20 px separate the toolbar's right edge
