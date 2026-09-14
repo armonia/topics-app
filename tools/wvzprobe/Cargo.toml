@@ -1,0 +1,24 @@
+[package]
+name = "wvzprobe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Pinned to the versions desktop-tauri/src-tauri/Cargo.lock resolves, so the
+# probe measures the same wry and tao the shell ships, and to the `windows`
+# crate wry itself links against. Cargo.lock is committed for the transitive
+# ones: move these pins together with the shell's.
+[dependencies]
+tao = "=0.35.3"
+wry = "=0.55.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "=0.61.3", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+opt-level = 1

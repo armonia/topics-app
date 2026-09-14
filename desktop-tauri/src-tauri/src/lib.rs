@@ -5557,8 +5557,8 @@ fn browser_animate_bounds(
 /// (review of card e0821533); `wkzprobe z` checks it as
 /// `first-responder-survives-the-raise`.
 // ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised in place with addSubview:positioned:above:.
-// ENGINES-GAP: webview2 - same hole as AppKit, read in the wry 0.55.1 source (every child HWND is born with SetWindowPos HWND_TOP, set_bounds passes SWP_NOZORDER): the command answers Ok and moves nothing until the WebView2 raise task of card e0821533 (tasks.md, Tornata 2) lands.
-// ENGINES-GAP: webkitgtk - not probed: wry puts every child with GtkFixed.put, which appends; the command answers Ok and moves nothing, and the same task of card e0821533 decides between a probed raise and an explicit open gap.
+// ENGINES-GAP: webview2 - the same hole as AppKit, now MEASURED on a Windows 11 machine with tools/wvzprobe z (card 99e56f4f): z order is creation order, set_bounds does not reorder, and SetWindowPos(HWND_TOP, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOOWNERZORDER) raises the child in place without reloading its page or moving the keyboard; the command still answers Ok and moves nothing until that arm is written here.
+// ENGINES-GAP: webkitgtk - the same hole, and the instrument for it is tools/gtkzprobe z (card 99e56f4f): with the x11 feature wry does NOT use GtkFixed.put for a pane, it creates an X11 child window (XCreateSimpleWindow), so the candidate raise is XRaiseWindow; the command answers Ok and moves nothing until that probe has run on a Linux machine and the arm is written here.
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {

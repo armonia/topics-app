@@ -80,6 +80,17 @@ video `.webm` degli spec, non resoconti.
       A buco chiuso, togliere la sua riga da `PINNED_GAPS` in
       `tests/unit/browser-platform-parity.test.ts` e il suo `ENGINES-GAP` in
       `lib.rs`.
+      Sondato (card `99e56f4f`), l'innalzamento resta da scrivere. WebView2:
+      `tools/wvzprobe z` eseguito il 14/09 sul PC Windows 11 esce 0 con tutte e
+      sei le attese di `wkzprobe z`, quindi `SetWindowPos` con `HWND_TOP` e
+      `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER` sull'HWND
+      figlio di classe `WRY_WEBVIEW` riordina in place, senza ricaricare la
+      pagina e senza spostare la tastiera. WebKitGTK: `tools/gtkzprobe z` e il
+      suo Dockerfile sono lo strumento, e il presupposto del `GtkFixed` e'
+      sbagliato: con la feature `x11` (accesa di default) wry non usa
+      `GtkFixed.put` per un pane, crea una finestra X11 figlia con
+      `XCreateSimpleWindow` (`webkitgtk/mod.rs:159`, `:192`), quindi la pila e'
+      X11 e la candidata e' `XRaiseWindow`.
 - [x] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [x] Sotto 768 px la finestra non monta.
 - [x] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,

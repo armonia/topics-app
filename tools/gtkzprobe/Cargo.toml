@@ -1,0 +1,20 @@
+[package]
+name = "gtkzprobe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Pinned to the versions desktop-tauri/src-tauri/Cargo.lock resolves, so the
+# probe measures the same wry and tao the shell ships, and to the x11-dl wry
+# itself talks to X11 with. Cargo.lock is committed for the transitive ones:
+# move these pins together with the shell's.
+[dependencies]
+tao = "=0.35.3"
+wry = "=0.55.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+raw-window-handle = "=0.6.2"
+x11-dl = "=2.21.0"
+
+[profile.release]
+opt-level = 1
