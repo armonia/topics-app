@@ -69,7 +69,6 @@ import {
   newBrowserContextId,
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
-import { registerTopicWindowDoor } from '../../lib/topicWindowDoor';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
@@ -279,19 +278,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   }, [topicId, state.promoted, panes, projectBrowsers]);
 
 
-  // The links of THIS conversation land in THIS window: a page read in the chat
-  // belongs beside the chat. Registered rather than listened for, because the
-  // claim has to be answered before the layout hooks see the event at all (see
-  // `topicWindowDoor`). A sheet already promoted keeps its tab: `open` refuses a
-  // promoted contextId, and a fresh contextId per click is never one.
-  useEffect(() => registerTopicWindowDoor(topicId, (detail) => {
-    topicBrowserWindow.open(topicId, {
-      contextId: detail.contextId,
-      url: detail.url,
-      openedBy: 'link',
-    });
-    return true;
-  }), [topicId]);
+  // The door of this conversation is NOT registered here. It belongs to the
+  // chat, which is eager and on screen before any click: registered from a
+  // window that has to be mounted first, the rule read "a topic that ALREADY
+  // has a window keeps its own links", and the first link of a topic still
+  // tiled a pane in the layout. See `topicWindowDoor`.
 
   const active = state.tabs.find((t) => t.contextId === state.activeContextId) ?? state.tabs[0] ?? null;
 

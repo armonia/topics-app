@@ -35,6 +35,7 @@ import { setBrowserSpawner } from '../../../state/browserSpawner';
 import { persistBrowserPaneUrl } from '../../../state/pane/browserPaneUrl';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
 import { insertPaneAfter } from '../../../lib/openTabTarget';
+import { openInTopicWindow } from '../../../lib/topicWindowDoor';
 
 /**
  * Phase 30.1 polish — persist a browser pane in the global pane store so
@@ -106,6 +107,20 @@ function requestBrowserSolo(paneId: string): void {
   try {
     window.dispatchEvent(new CustomEvent('browser:request-solo', { detail: { paneId } }));
   } catch { /* SSR / no window — no-op */ }
+}
+
+/**
+ * Is that page ALREADY a pane of this group?
+ *
+ * The question the topic window's door cannot answer: a sheet promoted to a tab
+ * lives in the layout, and putting it back in the window would be the same page
+ * twice (the store refuses it, silently). So the layout is asked first, and a
+ * pane that exists is simply navigated where it stands.
+ */
+function paneForContext(orderedIds: string[], contextId?: string): string | null {
+  if (!contextId) return null;
+  const id = createPaneId('browser', contextId);
+  return orderedIds.includes(id) ? id : null;
 }
 
 /** Any browser pane already open at the app level (group:default), regardless of
@@ -526,12 +541,23 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
         setOrderedIds(prev => {
           if (!groupClaimsBrowserNavigate({ topicId: navTopicId, hasProjectPane: hasProjectPaneRef.current, orderedIds: prev })) return prev;
+          // TOPIC-BROWSER-04: nessuno ha chiesto questa apertura, quindi non
+          // può muovere il layout. Il pane già aperto su QUESTO contesto vince
+          // sulla finestra (sarebbe la stessa pagina due volte); se non c'è, e
+          // la topic ha una chat che può ospitarla, la scheda va nella finestra
+          // e qui non si tocca niente.
+          if (!paneForContext(prev, navContextId)
+            && openInTopicWindow(navTopicId, { contextId: navContextId ?? '', url: navigateUrl, openedBy: 'agent' })) {
+            return prev;
+          }
           const { next, resolvedId } = browserSingletonReducer(prev, navContextId);
           if (resolvedId) {
             // Il seme dell'URL sta QUI, dopo la rivendicazione: prima stava
             // sopra il claim, e un gruppo che poi si tirava indietro aveva già
             // spinto l'URL nel suo browser (stessa trappola già chiusa in 8b).
-            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+            // Niente `requestBrowserSolo`: era lui a spaccare la cella in due
+            // su un'apertura che l'utente non aveva chiesto.
+            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
             persistBrowserPane(resolvedId);
             // Persist the URL onto the pane NOW (deterministic) so the tab
             // restores to its page after reload — the onUrlChange render path is
@@ -593,12 +619,20 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // (resolveContextIdForTopic === topic.id), so bind the pane to it — same
         // reason as the WS browser:navigate path: keep the native CDP target on
         // the id the agent's tools resolve to.
+        // `/browser <url>` è una richiesta ESPLICITA di guardare, quindi la
+        // finestra si apre ESPANSA — a differenza dell'apertura dell'agente,
+        // che al massimo sveglia una finestra nascosta in minimizzata.
+        if (!paneForContext(prev, ce.detail?.topicId)
+          && openInTopicWindow(ce.detail?.topicId, { contextId: ce.detail?.topicId ?? '', url: navigateUrl, openedBy: 'user', mode: 'exp' })) {
+          return prev;
+        }
         const { next, resolvedId } = browserSingletonReducer(prev, ce.detail?.topicId);
         if (resolvedId) {
           // URL seed happens here, AFTER this group claimed the event via the
           // membership check above — seeding before the claim leaked the URL
           // into groups that then bailed.
-          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+          // Niente `requestBrowserSolo`: vedi il ramo WS qui sopra.
+          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
           persistBrowserPane(resolvedId);
           persistBrowserPaneUrl(resolvedId, navigateUrl);
           const ctx = getBrowserContextFromPaneId(resolvedId);

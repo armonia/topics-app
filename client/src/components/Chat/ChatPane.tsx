@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
-import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, useTopicWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -343,9 +343,12 @@ function ChatPaneComponent({
   // it. Expanded it takes width away from this pane ALONE: the padding lives
   // inside the pane, so the grid keeps tiling the columns it always tiled, and
   // the clamp is the chat minimum of THIS pane, not of the whole window.
-  const browserWindow = useTopicBrowserPresence(
-    ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
-  );
+  // ONE expression, two consumers: how much room to cede, and whether the
+  // openings of this conversation land in the window instead of the layout.
+  // Two copies of this rule is how one of them ends up wrong.
+  const browserWindowTopicId = ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '';
+  const browserWindow = useTopicBrowserPresence(browserWindowTopicId);
+  useTopicWindowDoor(browserWindowTopicId);
   const requestedBrowserInset = browserWindow.mode === 'exp'
     ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
     : 0;
