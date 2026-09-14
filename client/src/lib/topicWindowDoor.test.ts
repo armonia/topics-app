@@ -1,4 +1,5 @@
 /**
+ * @covers TOPIC-BROWSER-01
  * The door is asked ONE question, so these are its three answers.
  *
  * Worth pinning without a renderer: the two refusals are what keeps the change

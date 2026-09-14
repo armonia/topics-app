@@ -1,4 +1,5 @@
 /**
+ * @covers TOPIC-BROWSER-01
  * THE WAY HOME EXISTS EXACTLY WHEN THE PAGE WAS LENT.
  *
  * On the web there is only the streaming panel, so if this command is missing

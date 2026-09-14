@@ -1,4 +1,5 @@
 /**
+ * @covers TOPIC-BROWSER-01
  * ONE EDGE, TWO RENDERINGS.
  *
  * The window's left edge (pixels, in JS) and the chat's right padding (a CSS
