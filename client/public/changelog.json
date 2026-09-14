@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.318",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The roster test waits for the answer it asserts, not for a message on the way there",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.317",
     "date": "2026-09-14",
     "sections": {
@@ -8,10 +29,102 @@
       "perf": [],
       "internal": [
         {
+          "it": "la pane non disegna più niente di permanente sopra la pagina",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il tipo della scheda è un'icona nella tab, i commutatori stanno nel foglio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i quattro test del browser guardano dove i comandi sono adesso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a pid is not a liveness test, and a probe that cannot find anything is a second of someone's morning",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la negazione di TOPIC-BROWSER-03 è geometria, non tre testid contati a zero",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Move the daemon's two files into a module of their own",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "l'icona di condivisione solo dove la sessione è una scelta",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti in inglese, e la citazione del requisito marcata allow-italian sulla sua riga",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il pavimento «la pane è montata» scende a 10, perché il browser disegna 29 nodi in meno",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a probe must not occupy the port, and a restarting server is not an absent one",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Tornata 4 spuntata, con le tre cose che la misura ha cambiato",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il commutatore di resa nel foglio solo su una pagina vera, come la pillola che sostituisce",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "A wait that gives up quietly blames the wrong test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The waiting loop becomes testable, and its patience becomes a duration",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "l'icona di condivisione torna dove la condivisione c'e' davvero",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "A test that counts rounds cannot see a clock being reset",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -31,6 +144,11 @@
           "breaking": false
         },
         {
+          "it": "Port probe: one English name for the API the rest of the tree now imports",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "la variante del foglio pigro prende il suffisso 02b",
           "en": "",
           "scope": null,
@@ -38,6 +156,12 @@
         },
         {
           "it": "il riconcilio parte anche se il primo aggancio al ponte fallisce",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the address is part of the answer, and a live daemon forbids a sidecar",
           "en": "",
           "scope": null,
           "breaking": false
@@ -139,6 +263,12 @@
           "it": "The same clock, one file over",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "bind first, then ask who holds the port",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Three more clocks, same cure",
@@ -472,6 +602,22 @@
         },
         {
           "it": "Sotto Bun senza USER l'utente di login non è «unknown»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Port squatting: match Topics by shape and real port",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "invalidate stale marker on foreign port squatter",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fix port-squatter typecheck findings",
           "en": "",
           "scope": null
         },
