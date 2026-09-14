@@ -307,6 +307,10 @@ const writes = createUiStatePersister({
     const topicId = topicIdFromKey(key);
     if (topicId && adopt(topicId, value)) notify();
   },
+  onReadNeeded: (key) => {
+    const topicId = topicIdFromKey(key);
+    if (topicId) void rereadTopicWindow(topicId);
+  },
 });
 const hasPendingWrite = (topicId: string) => writes.isPending(keyFor(topicId));
 
@@ -424,7 +428,16 @@ export function applyRemoteTopicWindowInit(data: Record<string, unknown>): Set<s
  *  (`undefined`) changes nothing. */
 export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTopicWindowInit(snapshot) : new Set<string>();
-  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !hasPendingWrite(id));
+  const ids: string[] = [];
+  for (const id of loaded) {
+    if (alreadyApplied.has(id)) continue;
+    // A key with an unresolved write is not read NOW (the local value is the
+    // newer one), but the read is owed: the end of that write re-issues it,
+    // otherwise a socket that died mid-flight leaves it stale until the next
+    // reconnect.
+    if (hasPendingWrite(id)) { writes.deferRead(keyFor(id)); continue; }
+    ids.push(id);
+  }
   if (!ids.length) return;
   // The write generation is taken BEFORE the GET leaves: `Promise.all` waits for
   // the slowest answer, and a close committed in between would be resurrected by
@@ -443,6 +456,23 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
     if (adopt(id, value)) changed = true;
   });
   if (changed) notify();
+}
+
+/** Re-read ONE topic's row, for a resync that had to skip it. Same staleness
+ *  guard and same deletion semantics as the bulk resync: a row the server no
+ *  longer has drops the cached window. */
+async function rereadTopicWindow(topicId: string): Promise<void> {
+  if (!loaded.has(topicId)) return;
+  const key = keyFor(topicId);
+  const token = writes.writeToken(key);
+  const value = await uiGet<unknown>(key);
+  if (value === undefined) return;
+  if (writes.wroteSince(key, token) || hasPendingWrite(topicId)) return;
+  if (value === null) {
+    if (cache.delete(topicId)) notify();
+    return;
+  }
+  if (adopt(topicId, value)) notify();
 }
 
 /**

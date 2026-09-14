@@ -298,6 +298,10 @@ const writes = createUiStatePersister({
     const taskId = taskIdFromKey(key);
     if (taskId && adopt(taskId, value)) notify();
   },
+  onReadNeeded: (key) => {
+    const taskId = taskIdFromKey(key);
+    if (taskId) void rereadTaskTabs(taskId);
+  },
 });
 const hasPendingWrite = (taskId: string) => writes.isPending(keyFor(taskId));
 
@@ -483,7 +487,16 @@ export function applyRemoteTaskTabsInit(data: Record<string, unknown>): Set<stri
  *  → `forgetTaskTabs`. */
 export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTaskTabsInit(snapshot) : new Set<string>();
-  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !hasPendingWrite(id));
+  const ids: string[] = [];
+  for (const id of loaded) {
+    if (alreadyApplied.has(id)) continue;
+    // A key with an unresolved write is not read NOW (the local value is the
+    // newer one), but the read is owed: the end of that write re-issues it,
+    // otherwise a socket that died mid-flight leaves it stale until the next
+    // reconnect.
+    if (hasPendingWrite(id)) { writes.deferRead(keyFor(id)); continue; }
+    ids.push(id);
+  }
   if (!ids.length) return;
   // The write generation is taken BEFORE the GET leaves: `Promise.all` waits for
   // the slowest answer, and a close committed in between would be resurrected by
@@ -497,6 +510,19 @@ export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown
     if (adopt(id, values[i])) changed = true;
   });
   if (changed) notify();
+}
+
+/** Re-read ONE task's row, for a resync that had to skip it: same staleness
+ *  guard as the bulk resync, so a write started while this GET travelled still
+ *  wins over its answer. */
+async function rereadTaskTabs(taskId: string): Promise<void> {
+  if (!loaded.has(taskId)) return;
+  const key = keyFor(taskId);
+  const token = writes.writeToken(key);
+  const value = await uiGet<unknown>(key);
+  if (value == null) return;
+  if (writes.wroteSince(key, token) || hasPendingWrite(taskId)) return;
+  if (adopt(taskId, value)) notify();
 }
 
 /** Task-bound mutators. Each applies a pure reducer op and persists. */

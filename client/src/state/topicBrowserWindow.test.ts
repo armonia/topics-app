@@ -601,4 +601,29 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     await tick();
     expect(ids(tid)).toEqual(['z']);        // nothing of ours reached the row
   });
+
+  // The flight protection made the reconnect resync SKIP the key, and nothing
+  // ever came back for it: the write settled, the frame another device had sent
+  // while the socket was down was gone, and the two copies stayed apart.
+  test('a key the resync skipped is re-read when its write settles', async () => {
+    const tid = uniqueId('seq-owed');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 100);
+    served.set(key, window('a'));
+
+    topicBrowserWindow.close(tid, 'a');     // PUT out, answer withheld
+    await tick();
+    served.set(key, window('z'));           // device B writes while we are deaf
+
+    await reloadTopicWindowsFromServer({}); // reconnect: the key is skipped
+    expect(asked).not.toContain(key);
+
+    release('PUT');
+    await tick();                           // the settle owes that read
+    release('GET');
+    await tick();
+    expect(asked).toContain(key);
+    expect(ids(tid)).toEqual(['z']);
+    expect(ids(tid)).toEqual(onServer(key));
+  });
 });
