@@ -1427,7 +1427,11 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     }
   });
 
-  test("TOPIC-BROWSER-04d: dentro una finestra di progetto vale la stessa porta", async ({ page, request }) => {
+  test("TOPIC-BROWSER-04d: dentro una finestra di progetto vale la stessa porta", async ({ page, request }, testInfo) => {
+    // The same 90 s its siblings ask for: this one seeds a project and its
+    // layout on top of the real browser context, so it is the slowest of the
+    // four and the one a loaded runner starves first.
+    testInfo.setTimeout(90_000);
     // The rule is about the CHAT, not about the frame around it. A project
     // window hosts the same conversation through a different component, and it
     // had its own opening path: the agent's broadcast landed there as a browser
