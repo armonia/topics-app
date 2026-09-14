@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-12",
+  "generated": "2026-09-14",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -3354,19 +3354,11 @@
     ],
     "server/lib/port-squatter.test.ts": [
       "NOSTRA",
-      "SondaPortaDeps",
       "visti"
     ],
     "server/lib/port-squatter.ts": [
-      "EsitoPorta",
-      "ROTTA_SONDA",
-      "SondaPortaDeps",
       "comando",
-      "messaggioEsito",
-      "risposta",
-      "rispostaNostra",
-      "sondaPorta",
-      "sondaRealeDeps"
+      "risposta"
     ],
     "server/lib/principals.test.ts": [
       "RADICE",
