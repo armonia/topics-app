@@ -7,7 +7,8 @@
  * its bar and the "+" menu is the only other door. The rule is one line, and
  * it is the line that decides whether the person is stuck.
  */
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { __resetProjectSyncForTests } from '../../state/pane/adapters/projectLayoutSync';
 import { returnCommandFor } from './returnToTopicWindow';
 import {
   topicBrowserWindow,
@@ -19,6 +20,16 @@ import {
 describe('the return-to-chat command of a promoted tab', () => {
   beforeEach(() => {
     __resetTopicWindows();
+  });
+
+  // Lending a page and taking it back are OPEN_PANE and CLOSE_PANE: they go
+  // through the pane store, which schedules a debounced write of the project
+  // layout. `__resetTopicWindows` only cancels the window's own writes, so
+  // without this that timer survives the file and fires inside whatever test
+  // runs next, spending its fetch mock on a PUT it never made.
+  afterEach(() => {
+    __resetTopicWindows();
+    __resetProjectSyncForTests();
   });
 
   test('an ordinary tab nobody lent has no command at all', () => {

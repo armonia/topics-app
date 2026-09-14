@@ -388,7 +388,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
         title={tr("topicBrowser.reopen")}
         aria-label={tr("topicBrowser.reopen")}
         onClick={() => topicBrowserWindow.setMode(topicId, "min")}
-        className="fixed rounded-full border border-app-border bg-surface px-3 py-1.5 text-xs shadow-lg"
+        className="fixed rounded-full border border-app-border bg-surface px-3 py-1.5 text-mini leading-none shadow-lg"
         style={{ left: rect.left + rect.width - 220, top: rect.top + rect.height - 44 }}
       >
         {tr("topicBrowser.reopen")}
