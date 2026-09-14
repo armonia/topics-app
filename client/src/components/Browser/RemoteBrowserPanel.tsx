@@ -12,6 +12,8 @@ import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
+import { deadLoopbackNotice, isLoopbackUrl } from './navErrorMessage';
+import { loopbackAlive } from '../../lib/loopbackAlive';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
 import { recordSiteVisit, noteSiteMeta } from '../../state/browserSiteHistory';
@@ -883,30 +885,80 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // path already navigates to initialUrl on mount (useTauriBrowser); this is its
   // streaming-path counterpart. Fire once, and only when the server context is
   // genuinely blank — never clobber a context already on a live page.
+  //
+  // LOOPBACK IS SEEDED TOO, AFTER ASKING WHETHER ANYONE IS THERE.
+  //
+  // The defect this closes (card 30f55ca9): on the web client a pane opened
+  // from the chat on a loopback address stayed on the new-tab page forever. The
+  // framable probe refuses every loopback by design (its SSRF guard must not be
+  // loosened), so there is no iframe; and this seed — the streaming fallback the
+  // requirement asks for — refused loopback wholesale, so nothing navigated at
+  // all. The pane held the right URL in its store and showed a blank new tab.
+  //
+  // The original refusal was not wrong about its own case: a DEAD preview port
+  // hangs the server-side goto for 30s and then fails. But "dead" is a question
+  // with an answer, `/api/browsers/port-listening`, which is loopback-only and
+  // costs one TCP connect. So the rule splits in two, and neither half is a
+  // silence: the port answers and the pane loads it through the server (which
+  // runs on the same machine, so it CAN reach it); nothing answers and the pane
+  // says which port is dead and when it looked.
+  const [deadLoopback, setDeadLoopback] = useState<{ url: string; checkedAt: Date } | null>(null);
+  // The live url, readable from inside the timeout without making it a dep.
+  const browserUrlRef = useRef(browser.url);
+  browserUrlRef.current = browser.url;
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current || !browser.connected) return;
-    // Only seed PUBLICLY-reachable urls. A pane's persisted url can point at a
-    // host only reachable from the machine that owns the native pane (the Mac):
-    // a bare hostname ("macbook"), a .local name, loopback, or a private-LAN IP.
-    // Seeding those makes the server-side headless hang on the goto (30s) then
-    // ERR_CONNECTION_REFUSED — worse than the honest blank "Browser ready". So
-    // skip them; public sites (e.g. google.com) still seed.
-    if (!isSeedableUrl(initialUrl)) return;
+    // The url the pane IS on, from the store or from the mount seed. Reading
+    // `initialUrl` alone missed the case this card is about: a chat-opened pane
+    // gets its url through the pane store, and its `initialUrl` is empty.
+    const seedUrl = knownPaneUrl;
+    if (!seedUrl || !/^https?:\/\//i.test(seedUrl)) return;
+    const loopback = isLoopbackUrl(seedUrl);
+    // Every OTHER not-publicly-reachable host keeps the old refusal: a bare
+    // hostname, a .local name, a private-LAN address can be reachable from the
+    // machine that owns the native pane and from nowhere else, and there is no
+    // cheap probe that can tell.
+    if (!loopback && !isSeedableUrl(seedUrl)) return;
+    let cancelled = false;
     // Let fetchInfo() (fired in ws.onopen) report the context's real url first,
     // so a context that already holds a page is left untouched.
+    const isBlank = (): boolean => !browserUrlRef.current || browserUrlRef.current === 'about:blank';
     const t = setTimeout(() => {
       if (seededRef.current) return;
-      seededRef.current = true;
-      const blank = !browser.url || browser.url === 'about:blank';
-      if (blank) browser.navigate(initialUrl!);
+      if (!isBlank()) { seededRef.current = true; return; }
+      if (!loopback) {
+        seededRef.current = true;
+        browser.navigate(seedUrl);
+        return;
+      }
+      void loopbackAlive(seedUrl).then((alive) => {
+        // Re-read blankness: the probe is a round trip, and a navigation may
+        // have landed meanwhile. Seeding over it would be a reload.
+        if (cancelled || seededRef.current || !isBlank()) return;
+        seededRef.current = true;
+        if (alive) browser.navigate(seedUrl);
+        else setDeadLoopback({ url: seedUrl, checkedAt: new Date() });
+      });
     }, 400);
-    return () => clearTimeout(t);
+    return () => { cancelled = true; clearTimeout(t); };
     // Fine-grained on the specific browser fields this seed reacts to — depending
     // on the whole `browser` object would re-run (and risk a re-seed) on every
     // unrelated browser-state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browser.connected, browser.url, initialUrl, browser.navigate]);
+  }, [browser.connected, browser.url, knownPaneUrl, browser.navigate]);
+
+  // Looking again is the whole point of the button: the port that was dead a
+  // minute ago is the dev server you have just restarted.
+  const retryDeadLoopback = useCallback(() => {
+    const url = deadLoopback?.url;
+    if (!url) return;
+    setDeadLoopback(null);
+    void loopbackAlive(url).then((alive) => {
+      if (alive) browser.navigate(url);
+      else setDeadLoopback({ url, checkedAt: new Date() });
+    });
+  }, [deadLoopback, browser]);
 
   // React to external navigateUrl prop
   useEffect(() => {
@@ -1282,6 +1334,19 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           // lo spinner): la scheda nuova prende lo stesso rettangolo, o dentro
           // un genitore senza flex non avrebbe altezza.
           <div className="absolute inset-0 flex flex-col">
+            {/* A pane opened on a local port nobody answers on: the new tab
+                below is still the right surface to type into, but on its own it
+                was a silence — the pane looked like it had never been asked to
+                go anywhere. The strip names the port and the time of the check.
+                Same shape as the native path (useTauriBrowser). */}
+            {deadLoopback && (
+              <BrowserNoticeStrip
+                testId="browser-loopback-down"
+                {...deadLoopbackNotice(deadLoopback.url, deadLoopback.checkedAt, tr)}
+                action={{ label: tr('common.retry'), onClick: retryDeadLoopback }}
+                onDismiss={() => setDeadLoopback(null)}
+              />
+            )}
             <NewTabPage onNavigate={(u) => { browser.navigate(u); }} />
           </div>
         ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (
