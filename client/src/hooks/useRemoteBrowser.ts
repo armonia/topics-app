@@ -398,11 +398,16 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // no-op resize is skipped) and only sent while the WS is live; the value is
   // force-re-sent on every (re)connect (see ws.onopen) so the server viewport
   // is correct even after a context recreate.
-  const sendResize = useCallback((width: number, height: number, driving = false) => {
+  const sendResize = useCallback((
+    width: number,
+    height: number,
+    opts: { driving?: boolean; force?: boolean } = {},
+  ) => {
     if (width <= 0 || height <= 0) return;
+    const { driving = false, force = false } = opts;
     const dsf = dsfRef.current;
     const last = lastSentSizeRef.current;
-    if (!driving && last.w === width && last.h === height && last.dsf === dsf) return;
+    if (!driving && !force && last.w === width && last.h === height && last.dsf === dsf) return;
     lastSentSizeRef.current = { w: width, h: height, dsf };
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
       try {
@@ -429,7 +434,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     if (now - lastViewportClaimRef.current < VIEWPORT_CLAIM_INTERVAL_MS) return;
     lastViewportClaimRef.current = now;
     const r = el.getBoundingClientRect();
-    sendResize(Math.round(r.width), Math.round(r.height), true);
+    sendResize(Math.round(r.width), Math.round(r.height), { driving: true });
   }, [sendResize]);
 
   // Callback ref for the pane content element: wires a debounced (~150ms)
@@ -546,9 +551,20 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
   ) => {
-    // Using the page claims its viewport. Moving the cursor does not: reading
-    // over somebody's shoulder must not reflow the page under their hands.
-    if (action !== 'mousemove') claimViewport();
+    // USING THE PAGE CLAIMS ITS VIEWPORT, AND THE CLAIM LEAVES AFTER THE INPUT.
+    // The order is the whole point: the coordinates in `payload` were measured
+    // against the viewport the page has RIGHT NOW, and the server reflows the
+    // page before dispatching whatever arrives next. Claiming first meant a
+    // spectator's very first tap landed on a page that had already been laid
+    // out again at the spectator's size, i.e. x=1000 on a 390 px page.
+    //
+    // Written out at each exit rather than in a `finally`: wrapping this body
+    // in try/finally makes the React Compiler bail out on the whole hook, and
+    // the only visible sign of it is an eslint-disable in an unrelated effect
+    // going "unused" (measured, card fb88b6e1). Moving the cursor is not using
+    // the page: reading over somebody's shoulder must not reflow it under
+    // their hands.
+    const claimAfterInput = () => { if (action !== 'mousemove') claimViewport(); };
     const dc = inputChannelRef.current;
     if (dc?.readyState === 'open') {
       try {
@@ -565,6 +581,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         } else {
           dc.send(JSON.stringify({ type: 'input', action, payload }));
         }
+        claimAfterInput();
         return;
       } catch {
         // Canale chiuso fra il controllo e l'invio — si scende al WS.
@@ -574,6 +591,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       const msg: BrowserWsMessage = { type: 'input', action, payload };
       try {
         wsRef.current.send(JSON.stringify(msg));
+        claimAfterInput();
         return;
       } catch {
         // WS send failed mid-flight — fall through to REST.
@@ -582,6 +600,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // Fallback: REST interact. Map action to the REST shape (the existing
     // /api/browsers/:id/interact endpoint expects { action, ...payload }).
     interact({ action, ...payload });
+    claimAfterInput();
   }, [interact, askFocusField, settleInputAck, claimViewport]);
 
   // WebSocket lifecycle with exponential-backoff auto-reconnect. `connect()` is
@@ -844,6 +863,17 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             // c'è nessun mirror da interrogare.
             focusSinkRef.current?.(msg.field ?? null);
             break;
+          case 'viewport_request': {
+            // The driver of the shared context left and this device inherited
+            // the viewport. Its size has already been sent once, so the dedup
+            // guard would swallow it: `force` is what makes the answer leave.
+            const el = containerElRef.current;
+            if (el) {
+              const r = el.getBoundingClientRect();
+              sendResize(Math.round(r.width), Math.round(r.height), { force: true });
+            }
+            break;
+          }
           case 'viewers':
             // The count moved (or this socket just opened): the auto-share
             // decision hears it from the bus instead of polling for it.
