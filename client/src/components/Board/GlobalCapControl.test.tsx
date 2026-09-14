@@ -47,6 +47,9 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   // running yet. Every case below moves the fields it is about.
   budgetShare: 0.8,
   budgetCoreUnits: 9.6,
+  blockedAxis: null,
+  agentCostMemGB: 1.5,
+  freeQuotaMemGB: 16,
   usableCoreUnits: 9.6,
   usedCoreUnits: 0,
   usedMemGB: 1,
