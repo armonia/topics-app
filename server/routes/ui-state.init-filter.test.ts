@@ -43,6 +43,7 @@ beforeEach(() => {
   putRow("task-browser-tabs:t-1", { tabs: [{ contextId: "task-t1-0", url: "u", title: "T", seq: 0 }] }, 3);
   putRow("task-browser-layout:t-1", { groups: [{ id: "g1", paneIds: ["browser:task-t1-0"] }] }, 4);
   putRow("task-browser-tabs:t-2", { tabs: [] }, 5);
+  putRow("topic-browser:tp-1", { mode: "min", tabs: [{ contextId: "c-1", url: "u", title: "T" }] }, 6);
 });
 
 describe("loadAllUiState (frame ui-state:init)", () => {
@@ -53,6 +54,13 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     // Il valore delle chiavi tenute non è toccato dal filtro.
     expect(data["theme"]).toBe("dark");
     expect(meta["pane-store-v2"].server_seq).toBe(1);
+  });
+
+  test("la finestra browser di una topic non viaggia nello snapshot", () => {
+    // Same shape as the per-task keys, one level up: one row per topic that has
+    // opened its window, and the client GETs it by itself.
+    expect(Object.keys(loadAllUiState(db).data)).not.toContain("topic-browser:tp-1");
+    expect(isExcludedFromUiStateInit("topic-browser:tp-1")).toBe(true);
   });
 
   test("un task che si CHIAMA come il prefisso ma non lo è resta nello snapshot", () => {
@@ -102,6 +110,7 @@ describe("le chiavi escluse restano leggibili (è da lì che il client le prende
       "task-browser-tabs:t-1",
       "task-browser-tabs:t-2",
       "theme",
+      "topic-browser:tp-1",
     ]);
   });
 });

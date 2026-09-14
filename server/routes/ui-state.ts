@@ -676,7 +676,16 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
  * `GET /api/ui-state` (all-keys) resta completo di proposito — è la porta di
  * servizio per chi vuole davvero tutto.
  */
-export const UI_STATE_INIT_EXCLUDED_PREFIXES = ["task-browser-tabs:", "task-browser-layout:"] as const;
+export const UI_STATE_INIT_EXCLUDED_PREFIXES = [
+  "task-browser-tabs:",
+  "task-browser-layout:",
+  // Same shape one level up: `topic-browser:<topicId>` is one row per topic
+  // that has ever opened its browser window, and the client GETs it by itself
+  // when it opens that topic (`ensureTopicWindowLoaded`), re-GETting only the
+  // topics it has in cache on reconnect (`reloadTopicWindowsFromServer`). It
+  // would otherwise ride in every snapshot, which is the 30,8% measured above.
+  "topic-browser:",
+] as const;
 
 /** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
 export function isExcludedFromUiStateInit(key: string): boolean {
