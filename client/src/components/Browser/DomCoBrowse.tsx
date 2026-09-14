@@ -56,7 +56,7 @@ import BrowserKeyboardCapture, {
   type SendInput,
 } from './BrowserKeyboardCapture';
 import type { RemoteField } from '../../lib/browserKeyboardProfile';
-import { fitCentered } from '../../lib/browserFit';
+import { fitCentered, viewportFromRrwebEvent } from '../../lib/browserFit';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = {
@@ -64,16 +64,6 @@ type RrwebEvent = {
   timestamp: number;
   data?: { width?: number; height?: number; source?: number; id?: number; x?: number; y?: number };
 };
-
-/** rrweb constants we depend on (avoid importing the full enum surface). */
-const EVENT_META = 4;
-/** IncrementalSnapshot: the running stream of mutations, input and scroll. */
-const EVENT_INCREMENTAL = 3;
-/** IncrementalSource.ViewportResize: the page changed size mid-session. Meta only
- *  says how big it was when recording STARTED, so without this the mirror kept
- *  fitting the first size forever and a shared page that got resized by its
- *  driver was rendered at the wrong scale on every other device. */
-const INCREMENTAL_VIEWPORT_RESIZE = 4;
 
 /** Senza eventi per questo tempo il timer live si parcheggia: una pagina remota
  *  ferma non deve tenere sveglio il renderer. Abbastanza largo da non tagliare la
@@ -381,15 +371,10 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
       if (!event || typeof event.type !== 'number') return;
       // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
       noteActivityRef.current?.();
-      // Meta (type 4) carries the recorded viewport — drive the fit from it.
       // The recorded viewport arrives twice: once in Meta when recording starts,
       // and again as a ViewportResize every time the driver's page changes size.
-      const carriesViewport =
-        event.type === EVENT_META ||
-        (event.type === EVENT_INCREMENTAL && event.data?.source === INCREMENTAL_VIEWPORT_RESIZE);
-      if (carriesViewport && event.data) {
-        dimsRef.current = { w: event.data.width || dimsRef.current.w, h: event.data.height || dimsRef.current.h };
-      }
+      const announced = viewportFromRrwebEvent(event);
+      if (announced) dimsRef.current = { w: announced.width, h: announced.height };
       if (!started) {
         // First event bootstraps the live replayer; subsequent ones stream in.
         const replayer = new Replayer([event as never], {
@@ -423,7 +408,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
         return;
       }
       replayerRef.current?.addEvent(event as never);
-      if (carriesViewport) applyScale(); // refit on the new viewport
+      if (announced) applyScale(); // refit on the new viewport
     };
 
     const unsubscribe = registerDomSink(handle);
