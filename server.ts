@@ -243,26 +243,6 @@ let onTermSignal: (signal: string) => void = (signal) => {
 process.on("SIGTERM", () => onTermSignal("SIGTERM"));
 process.on("SIGINT", () => onTermSignal("SIGINT"));
 
-// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
-if (!process.env.GATEWAY_TOKEN) {
-  try {
-    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
-    if (config?.gateway?.auth?.token) {
-      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
-      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-    }
-  } catch {}
-  if (!process.env.GATEWAY_TOKEN) {
-    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
-    // provider). A standalone download has no OpenClaw config,
-    // so a missing token must NOT be fatal: the app defaults to the Claude
-    // provider and runs fine without the gateway. This previously process.exit(1)'d,
-    // which crashed the bundled server before it could listen — the packaged app
-    // then hung forever on "Launching the local engine" on every clean machine.
-    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
-  }
-}
-
 // Solid singleton: a server booted from a DISPATCH WORKTREE (e.g. an agent that
 // ran `bun run server.ts` inside its isolation checkout under ~/.topics/worktrees)
 // must NOT hijack production. Sharing the ~/.topics daemon lock + the prod port
@@ -287,6 +267,50 @@ if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
       `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT}, ` +
       `tunnel ${process.env.TOPICS_TUNNEL_PORT ? process.env.TOPICS_TUNNEL_PORT : "off"} (won't touch production)`,
     );
+  }
+}
+
+// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
+// Take the singleton lock HERE: before the database, the PTY and AI bridges,
+// the session reattach and the partial sweep. A losing boot must exit having
+// touched nothing. The lock used to sit just above Bun.serve, which made the
+// comment ("concurrent boots exit fast") false: a second `bun run server.ts`
+// in the same working directory opened data/topics.db, ran migrations and the
+// ui_state repairs, joined both bridges, reattached live sessions, parked the
+// idle ones and swept the partial rows, and only then found the lock and
+// exited. It happened on 2026-09-13 at 03:38 against the production home and
+// ended clean by luck, not by design. The only thing allowed above this line
+// is the worktree isolation, because it decides WHICH home the lock lives in.
+// The state file is still written after Bun.serve returns the actual port
+// (PORT=0 resolves the port only then).
+try {
+  acquireLock();
+} catch (err) {
+  if (err instanceof LiveLockError) {
+    console.error(`[Daemon] ${err.message}`);
+    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
+    process.exit(1);
+  }
+  throw err;
+}
+
+// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
+if (!process.env.GATEWAY_TOKEN) {
+  try {
+    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
+    if (config?.gateway?.auth?.token) {
+      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
+      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
+    }
+  } catch {}
+  if (!process.env.GATEWAY_TOKEN) {
+    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
+    // provider). A standalone download has no OpenClaw config,
+    // so a missing token must NOT be fatal: the app defaults to the Claude
+    // provider and runs fine without the gateway. This previously process.exit(1)'d,
+    // which crashed the bundled server before it could listen — the packaged app
+    // then hung forever on "Launching the local engine" on every clean machine.
+    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
   }
 }
 
@@ -2865,21 +2889,6 @@ const liveBrokerChatSessions = new Set<string>();
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
-
-// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
-// Acquire singleton lock + write state file BEFORE Bun.serve so
-// concurrent boots see the live lock and exit fast. The state file is
-// finalised after Bun.serve returns the actual port (in case PORT=0).
-try {
-  acquireLock();
-} catch (err) {
-  if (err instanceof LiveLockError) {
-    console.error(`[Daemon] ${err.message}`);
-    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
-    process.exit(1);
-  }
-  throw err;
-}
 
 // PORTING-PLAN.md Tier 1 — CORS for the Tauri desktop shell, which serves the UI
 // locally (tauri://localhost) and calls this server cross-origin for /api + /ws.

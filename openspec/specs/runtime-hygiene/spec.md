@@ -445,6 +445,20 @@ Gli SNAPSHOT dello stato dell'interfaccia SHALL seguire le stesse regole —
 atomici, leggibili solo dal proprietario, con una RITENZIONE che tiene i più
 recenti e toglie gli altri — e l'elenco SHALL essere ordinato dal più recente.
 
+Il lucchetto SHALL essere preso PRIMA di ogni effetto: database, migrazioni,
+riparazioni, ponti, riaggancio delle sessioni. Un avvio che PERDE la corsa SHALL
+uscire senza aver toccato niente. Stava in fondo all'avvio, e un secondo processo
+apriva il database, migrava, si collegava ai ponti e riagganciava le sessioni
+prima di accorgersi del lucchetto: l'unica cosa che SHALL precederlo e' la scelta
+della CASA (l'isolamento della copia di lavoro), perche' decide dove il lucchetto
+vive.
+
+#### Scenario: un avvio che perde la corsa
+- **GIVEN** un lucchetto vivo
+- **WHEN** un secondo processo parte
+- **THEN** SHALL uscire con errore
+- **AND** NON SHALL aver creato il file del database
+
 #### Scenario: un identificativo riciclato
 - **GIVEN** un lucchetto il cui processo è vivo ma precede l'ultimo avvio
 - **THEN** SHALL essere recuperato
