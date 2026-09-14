@@ -177,16 +177,15 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     // under its OWN kind: the tone for "it will pass" is not the floor's.
     expect(h.task("p1")!.dispatchState).toBe("queued");
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
-    expect(currentDispatchBlock()!.reason).toContain("Topics usa il");
+    expect(currentDispatchBlock()!.reason).toContain("core a disposizione");
 
-    // The line carries the use, the budget, the core-units, and promises the
-    // restart. 5.8 on 12 cores is 48% of the machine, against a 50% budget.
-    const notes = h.notes("p1", "Topics usa il");
+    // The line carries the use, the cores at Topics' disposal, the share, and
+    // promises the restart: 50% of the 11 cores the others (1) leave is 5.5.
+    const notes = h.notes("p1", "core a disposizione");
     expect(notes).toHaveLength(1);
     expect(notes[0]!.kind).toBe("service");
-    expect(notes[0]!.content).toContain("48% del PC");
-    expect(notes[0]!.content).toContain("budget del 50%");
-    expect(notes[0]!.content).toContain("5,8 core-unità su 6,0");
+    expect(notes[0]!.content).toContain("5,8 dei 5,5 core a disposizione");
+    expect(notes[0]!.content).toContain("quota 50% del libero");
     expect(notes[0]!.content).toContain("riparte da sé");
     // And the log said it once, not once per tick.
     expect(h.logLines.filter((l) => l.includes("coda in attesa per budget"))).toHaveLength(1);
@@ -200,7 +199,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     expect(currentDispatchBlock()).toBeNull();
     expect(h.logLines.filter((l) => l.includes("coda ripartita"))).toHaveLength(1);
     // No second line on the card for the same episode.
-    expect(h.notes("p1", "Topics usa il")).toHaveLength(1);
+    expect(h.notes("p1", "core a disposizione")).toHaveLength(1);
   });
 
   it("does not resume where it stopped: between the resume line and the budget it keeps holding", async () => {
@@ -233,7 +232,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     boardOn(h);
     h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
     // Budget 9.6 core-units, but somebody else is holding 10 of the 12 cores:
-    // only 2 are usable, and we are already at 1.5.
+    // 80% of the 2 left is usable, 1.6, and we are already at 1.5.
     h.machine.pressure = { ...QUIET, ourCoreUnits: 1.5, otherCoreUnits: 10, running: 2 };
     seedTask(h.db, "o1");
 
@@ -241,9 +240,32 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     await flush();
 
     expect(h.topicsCreated).toHaveLength(0);
-    const notes = h.notes("o1", "Topics usa il");
+    const notes = h.notes("o1", "core a disposizione");
     expect(notes).toHaveLength(1);
+    expect(notes[0]!.content).toContain("1,5 dei 1,6 core a disposizione");
     expect(notes[0]!.content).toContain("il resto della macchina sta lavorando");
+  });
+
+  it("the preview the panel reads is the gate's answer, and reading it does not move the gate", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+    // 5.4 of the 5.5 usable, one more costs 1: the gate holds.
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 5.4, running: 2 };
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "cpu", firstAgentExempt: false });
+    // Reading it twice does not enter "holding": at 4.4 (under the budget, over
+    // the 80% resume line) a real tick still starts a card, which it would not
+    // if the preview had moved the state.
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 4.4, running: 2 };
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null });
+    seedTask(h.db, "pv1");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated).toHaveLength(1);
+    // Outside the budget mode there is no verdict to preview.
+    h.svc.setGlobalCap({ mode: "count" });
+    expect(h.dispatcher.admissionPreview?.()).toBeNull();
   });
 
   it("exempts the first agent: an empty fleet starts even on a busy machine", async () => {
@@ -274,9 +296,26 @@ describe("the cap by resources: over the budget nothing starts, under it it does
 
     expect(h.topicsCreated).toHaveLength(0);
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
-    const notes = h.notes("m1", "tetto di memoria");
+    const notes = h.notes("m1", "Non c'è memoria per un altro agent");
     expect(notes).toHaveLength(1);
     expect(notes[0]!.content).toContain("50%");
+  });
+
+  // The axis the machine actually hits: the RAM is gone, our footprint is
+  // modest, and the old comparison (footprint against the whole-machine budget)
+  // could not see it. Half a gigabyte free is the reading of the night at 22:20.
+  it("blocks on memory when the machine has none left, whatever our footprint is", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 1.1, ourMemGB: 3, availableMemGB: 0.5, running: 2 };
+    seedTask(h.db, "m2");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.notes("m2", "Non c'è memoria per un altro agent")).toHaveLength(1);
   });
 
   it("ramps ONE new dispatch per tick, and ignores the numeric cap: three cards on a cap of 1, three ticks, three agents", async () => {

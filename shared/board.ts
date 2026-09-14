@@ -1787,6 +1787,10 @@ export interface DispatchCapacity {
    * never zero.
    */
   availableMemGB: number | null;
+  /** What one more agent is priced at in memory, and the share of the free
+   *  memory it is compared with. `null` where memory is not measured. */
+  agentCostMemGB: number;
+  freeQuotaMemGB: number | null;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
   /**
@@ -1797,6 +1801,26 @@ export interface DispatchCapacity {
    * router montato senza, i test): un conteggio assente vale «nessuno».
    */
   running: number;
+  /**
+   * THE GATE'S OWN ANSWER to "would one more agent start right now", computed
+   * by the dispatcher with the same sample, measured cost and hysteresis state
+   * it admits with. The panel draws its verdict from this and from nothing
+   * else: a client-side `used >= usable` ignored the cost of the agent to admit,
+   * the 80% resume line and the memory axis, and said "would start" while the
+   * gate was holding. `null` or absent = not in the budget mode, or no reading
+   * (an old server): no verdict is drawn then.
+   */
+  admission?: DispatchAdmission | null;
+}
+
+/** The dispatcher's admission verdict as it travels on the wire. */
+export interface DispatchAdmission {
+  admit: boolean;
+  blockedBy: "cpu" | "memory" | null;
+  /** The pass is owed only to nothing running yet. */
+  firstAgentExempt: boolean;
+  /** What one more agent is priced at, in core-units (median of measured ones). */
+  costCoreUnits: number;
 }
 
 /** Il tetto globale come sta scritto: `auto` (dimensionato dalla macchina) o il

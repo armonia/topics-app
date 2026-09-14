@@ -422,6 +422,14 @@ async function readFleet(take: () => Promise<PsRow[]>, unsupported: FleetUsage):
  * are LEFT OUT rather than counted as zero: a zero here would pull the median
  * down and price the next agent as free.
  */
+/** The per-session memory, in GB, for the sessions the probe can see. The
+ *  median of this is what one more agent is priced at in memory: same rule as
+ *  `fleetSessionCoreUnits`, other axis. */
+export function fleetSessionMemGB(): number[] {
+  if (!cached || !cached.supported) return [];
+  return cached.sessions.map((s) => s.memoryMB / 1024);
+}
+
 export function fleetSessionCoreUnits(): number[] {
   if (!cached || !cached.supported) return [];
   const cores = Math.max(1, cached.cpuCores);
