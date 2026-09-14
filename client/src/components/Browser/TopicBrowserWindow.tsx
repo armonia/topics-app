@@ -36,7 +36,7 @@
  * the native view survives the gap because a remount inside the close grace
  * cancels the teardown (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
@@ -52,6 +52,11 @@ import {
   type TopicBrowserWindowState,
 } from '../../state/topicBrowserWindow';
 import { usePaneStore } from '../../state/pane/store';
+import {
+  listProjectBrowserPanes,
+  subscribeProjectBrowserPanes,
+  isProjectBrowserPaneOpen,
+} from '../../state/pane/adapters/projectBrowserPanes';
 import { returnSheetToWindow } from './returnToTopicWindow';
 import {
   createPaneId,
@@ -168,6 +173,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const [dragWidth, setDragWidth] = useState<number | null>(null);
 
   const panes = usePaneStore((s) => s.panes);
+  // A project window keeps its panes outside the pane store: it publishes them.
+  const projectBrowsers = useSyncExternalStore(
+    subscribeProjectBrowserPanes,
+    () => listProjectBrowserPanes(projectPath ?? ''),
+  );
   const promotedAt = useRef(new Map<string, number>());
 
   // A promoted contextId whose pane the layout no longer holds is released, so
@@ -184,7 +194,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           nextSweepIn = Math.min(nextSweepIn, since + PROMOTION_GRACE_MS - now);
           return true;
         }
-        return !!panes[createPaneId('browser', contextId)];
+                // A project window holds its panes outside the pane store: a page
+        // open there is still LENT, not gone.
+        return !!panes[createPaneId('browser', contextId)] || isProjectBrowserPaneOpen(contextId);
       });
       // A tab closed WHILE its promotion was still under grace produces no
       // further store change: without this re-run the id would stay held for
@@ -193,7 +205,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     };
     sweep();
     return () => { if (timer) clearTimeout(timer); };
-  }, [topicId, state.promoted, panes]);
+  }, [topicId, state.promoted, panes, projectBrowsers]);
 
 
   const active = state.tabs.find((t) => t.contextId === state.activeContextId) ?? state.tabs[0] ?? null;
@@ -318,14 +330,17 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     returnSheetToWindow({ contextId, url, title }, topicId);
   }, [topicId]);
 
-  /** The project's browser panes, offered by the «+»: they are in the layout,
-   *  so they are listed to be BROUGHT IN, never duplicated. */
   const layoutBrowsers = useMemo(
-    () => Object.values(panes)
-      .filter((p) => isBrowserPaneId(p.id))
-      .map((p) => ({ contextId: getBrowserContextFromPaneId(p.id) ?? '', url: p.url ?? '', title: p.title ?? '' }))
-      .filter((p) => !!p.contextId && !state.tabs.some((t) => t.contextId === p.contextId)),
-    [panes, state.tabs],
+    () => [
+      ...Object.values(panes)
+        .filter((p) => isBrowserPaneId(p.id))
+        .map((p) => ({ contextId: getBrowserContextFromPaneId(p.id) ?? '', url: p.url ?? '', title: p.title ?? '' })),
+      ...projectBrowsers,
+    ].filter((p, i, all) =>
+      !!p.contextId
+      && !state.tabs.some((t) => t.contextId === p.contextId)
+      && all.findIndex((o) => o.contextId === p.contextId) === i),
+    [panes, projectBrowsers, state.tabs],
   );
 
   useEffect(() => {

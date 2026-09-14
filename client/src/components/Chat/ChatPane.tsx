@@ -1,5 +1,6 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
+import { TopicBrowserWindow, useTopicBrowserPresence, DEFAULT_EXPANDED_WIDTH, MIN_CHAT_WIDTH } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -108,6 +109,20 @@ export interface ChatPaneProps {
    *  CheckpointTimeline + ChatInput. Used by Master Topic panes to mount
    *  the board strip so it stays visible while typing. */
   aboveInputSlot?: React.ReactNode;
+  /**
+   * Mount the topic's browser window on THIS pane instead of leaving it to a
+   * parent.
+   *
+   * The window belongs to the topic, not to the shell that draws it: a topic
+   * of a project is a topic, and the approved choice 5 of the change says the
+   * bar carries "the topic's sheets, the project's ones from the +". But the
+   * standalone shell puts `ChatPanel` above this pane and mounts the window
+   * there, over the header too. Two mounts for one topic would mean two
+   * `RemoteBrowserPanel` fighting over one native view, which is the very
+   * thing the one-page-one-place invariant forbids. So whoever has NO
+   * `ChatPanel` above (the project window) says so here.
+   */
+  ownsBrowserWindow?: boolean;
 }
 
 /** Riferimento stabile per il caso normale (nessun messaggio appuntato): senza,
@@ -132,7 +147,7 @@ function ChatPaneComponent({
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, regenerateMessage, deleteMessage, switchBranch,
-  aboveInputSlot,
+  aboveInputSlot, ownsBrowserWindow,
 }: ChatPaneProps) {
   const tr = useT();
   const toast = useToast();
@@ -323,6 +338,16 @@ function ChatPaneComponent({
   const [inputAreaHeight, setInputAreaHeight] = useState(0);
   const paneRootRef = useRef<HTMLDivElement>(null);
   const [paneHeight, setPaneHeight] = useState(0);
+  // The topic's browser window, when no `ChatPanel` above is already drawing
+  // it. Expanded it takes width away from this pane ALONE: the padding lives
+  // inside the pane, so the grid keeps tiling the columns it always tiled, and
+  // the clamp is `MIN_CHAT_WIDTH` of THIS pane, not of the whole window.
+  const browserWindow = useTopicBrowserPresence(
+    ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
+  );
+  const browserInset = browserWindow.mode === 'exp'
+    ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
+    : 0;
   // L'invito della chat vuota sta DENTRO il blocco misurato, ma non deve
   // contare nella centratura: si misura a parte per poterlo scalare.
   const greetingRef = useRef<HTMLDivElement>(null);
@@ -1630,12 +1655,18 @@ function ChatPaneComponent({
       // not just laid out there. The horizontal containment is unchanged. See
       // the block on `.chrome-passthrough-y` in index.css.
       className="relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full"
+      style={browserInset ? { paddingRight: `max(0px, min(${browserInset}px, calc(100% - ${MIN_CHAT_WIDTH}px)))` } : undefined}
       // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
       // nuova non si richiude più da sola. In cattura, perché deve valere anche
       // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.
       onPointerDownCapture={() => markDraftTouched(topic.id)}
       onKeyDownCapture={() => markDraftTouched(topic.id)}
     >
+      {ownsBrowserWindow && (browserWindow.mode !== 'hidden' || browserWindow.promoted > 0) && (
+        <Suspense fallback={null}>
+          <TopicBrowserWindow topicId={topic.id} areaRef={paneRootRef} projectPath={topic.projectPath ?? undefined} />
+        </Suspense>
+      )}
       {commandResult && (
         <div className={`chat-measure px-3 py-2 border-b flex items-center gap-2 flex-shrink-0 transition-all ${commandResult.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
           <div className={`text-compact flex-1 whitespace-pre-wrap font-mono ${commandResult.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{commandResult.message}</div>

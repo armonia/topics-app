@@ -180,6 +180,8 @@ export interface UseProjectLayoutReturn {
     close: (groupId: string, paneId: string) => void;
     /** Immediate close — bypasses the countdown (right-click "Close now"). */
     closeNow: (groupId: string, paneId: string) => void;
+    /** Remove a browser pane WITHOUT killing its page (the topic window takes it back). */
+    reclaimBrowser: (paneId: string) => boolean;
     addToGroup: (groupId: string, type: PaneType, subType?: string) => Promise<string | undefined>;
     addWhenEmpty: (type: PaneType, subType?: string, paneKey?: string) => Promise<string | undefined>;
     reorderGroupPanes: (groupId: string, newPaneIds: string[]) => void;
@@ -824,10 +826,23 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     [panes, groups, projectPath, pushClosedTab, removeClosedTab],
   );
 
-  // Deferred close — the default (UI X-click) path. Queues a PendingAction
-  // entry AND auto-ticks it so the 3 s countdown starts on the very first
-  // click of the empty-circle "mark as done" affordance (mirrors App.tsx's
-  // `enqueueAndTick` for top-level tabs). Without the tick the entry sits
+  // RECLAIM: hand a browser pane back to the topic window.
+  // Not a close: no undo record, no tombstone, no context teardown.
+  // The page keeps living, it just stops being drawn here.
+  const reclaimBrowserPane = useCallback((paneId: string): boolean => {
+    let found = false;
+    setPanes(prev => {
+      found = prev.some(p => p.id === paneId);
+      return found ? prev.filter(p => p.id !== paneId) : prev;
+    });
+    setGroups(prev => prev
+      .map(g => (g.paneIds.includes(paneId)
+        ? { ...g, paneIds: g.paneIds.filter(id => id !== paneId) }
+        : g))
+      .filter(g => g.paneIds.length > 0));
+    return found;
+  }, [setPanes, setGroups]);
+
   // pending forever — icon flips to the check, the L→R bar paints, but
   // the commit setTimeout is never scheduled and the pane never actually
   // closes. Right-click "Close now" calls `handleClosePaneNow` directly.
@@ -1797,6 +1812,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       activate: handleActivatePane,
       close: handleClosePane,
       closeNow: handleClosePaneNow,
+      reclaimBrowser: reclaimBrowserPane,
       addToGroup: handleAddPaneToGroup,
       addWhenEmpty: handleAddPaneWhenEmpty,
       reorderGroupPanes: handleReorderGroupPanes,

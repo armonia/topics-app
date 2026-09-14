@@ -1,11 +1,11 @@
 /**
  * THE WAY HOME FOR A PAGE LENT TO THE LAYOUT.
  *
- * "Apri come tab" hands a sheet of the topic's window to the layout, keeping
+ * The open-as-tab command hands a sheet of the topic's window to the layout, keeping
  * the same contextId: one page, two possible places, never both at once. This
  * module owns the return trip, because two surfaces need it and they must do
  * exactly the same thing: the window's own "+" menu, and the promoted tab's
- * own sheet ("Riporta nella chat", which is what the requirement asks for and
+ * own sheet (return-to-chat, what the requirement asks for, and
  * the only one a person can reach while the window is down to its bar).
  *
  * The pane leaves the layout with RECLAIM_PANE, not CLOSE_PANE: the page is
@@ -16,6 +16,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters/paneConfig';
+import { reclaimProjectBrowserPane } from '../../state/pane/adapters/projectBrowserPanes';
 import {
   topicBrowserWindow,
   getTopicWindow,
@@ -29,8 +30,16 @@ export interface ReturningSheet {
   title?: string;
 }
 
-/** Take the pane out of the layout without destroying its context. */
+/**
+ * Take the pane out of the layout without destroying its context.
+ *
+ * Two layouts can hold it, and they do not share a store: the workspace panes
+ * live in `usePaneStore`, a project window keeps its own. Ask the projects
+ * first, because a page open there is NOT in the pane store and dispatching
+ * `RECLAIM_PANE` for it would be a no-op that leaves the page drawn twice.
+ */
 export function reclaimPaneFromLayout(contextId: string): void {
+  if (reclaimProjectBrowserPane(contextId)) return;
   const paneId = createPaneId('browser', contextId);
   usePaneStore.getState().dispatch({ type: 'RECLAIM_PANE', payload: { id: paneId } });
 }

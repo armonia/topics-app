@@ -14,6 +14,7 @@ export * from './closedTabRecord';
 export * from './projectLayoutSync';
 export * from './terminalLocator';
 export * from './browserOriginStore';
+export * from './projectBrowserPanes';
 export { clampScrollOffset } from './scrollOffset';
 
 // Hook adapters (React wrappers around usePaneStore selectors).
