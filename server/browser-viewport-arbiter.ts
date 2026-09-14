@@ -62,6 +62,12 @@ export function isDrivingInput(action: string): action is DrivingInputAction {
 export interface ViewportClient {
   socket: string;
   device: string;
+  /**
+   * WHO the device belongs to, when we know it: a claimant of this owner that
+   * comes back under a NEW device name inherits the seat of the one that is
+   * gone. See `takeSeat`.
+   */
+  owner?: string;
 }
 
 export interface ViewportArbiter {
@@ -97,6 +103,8 @@ interface ContextState {
   viewers: Map<string, Set<string>>;
   /** Every connected socket, viewers and executors: the state dies with them. */
   sockets: Set<string>;
+  /** Owner of each device in `seen`, when the caller knows it. */
+  owners: Map<string, string>;
   /** Device of the last driving input, remembered while it is away. */
   driver?: string;
 }
@@ -116,16 +124,51 @@ export function createViewportArbiter(): ViewportArbiter {
   const ensure = (contextId: string): ContextState => {
     const existing = contexts.get(contextId);
     if (existing) return existing;
-    const born: ContextState = { seen: [], viewers: new Map(), sockets: new Set() };
+    const born: ContextState = {
+      seen: [], viewers: new Map(), sockets: new Set(), owners: new Map(),
+    };
     contexts.set(contextId, born);
     return born;
+  };
+
+  /**
+   * A claimant nobody has seen on this context yet takes its place in the
+   * queue. If the SAME OWNER left behind a claimant that is no longer present,
+   * the newcomer takes over its seat, and its steering wheel if it had one.
+   *
+   * That is the Mac coming back under a new name: the updater relaunches the
+   * app, the page is reloaded, or the pane is dragged into a new window. The
+   * pane name lives in the session storage of a webview that died with it, so
+   * the same screen reappears as a stranger. Without this, a phone that is
+   * only watching holds the viewport until somebody at the Mac touches
+   * something, which is the bug this whole file is about, one restart later.
+   *
+   * Only from an ABSENT predecessor, and only within one owner: two panes of
+   * the same machine both open stay two claimants, because two windows are two
+   * screens and a viewport is about the screen.
+   */
+  const takeSeat = (state: ContextState, client: ViewportClient): void => {
+    const orphans = client.owner === undefined
+      ? []
+      : state.seen.filter((device) =>
+        state.owners.get(device) === client.owner && !present(state, device));
+    const predecessor = orphans.find((device) => device === state.driver) ?? orphans[0];
+    if (predecessor === undefined) {
+      state.seen.push(client.device);
+      return;
+    }
+    state.seen[state.seen.indexOf(predecessor)] = client.device;
+    state.owners.delete(predecessor);
+    state.viewers.delete(predecessor);
+    if (state.driver === predecessor) state.driver = client.device;
   };
 
   return {
     noteConnect(contextId, client) {
       const state = ensure(contextId);
       state.sockets.add(client.socket);
-      if (!state.seen.includes(client.device)) state.seen.push(client.device);
+      if (!state.seen.includes(client.device)) takeSeat(state, client);
+      if (client.owner !== undefined) state.owners.set(client.device, client.owner);
       const sockets = state.viewers.get(client.device) ?? new Set<string>();
       sockets.add(client.socket);
       state.viewers.set(client.device, sockets);
@@ -157,6 +200,8 @@ export function createViewportArbiter(): ViewportArbiter {
       const sockets = state.viewers.get(client.device);
       sockets?.delete(client.socket);
       if (sockets && sockets.size === 0) state.viewers.delete(client.device);
+      // `seen` and `owners` keep the departed device: it is what lets the same
+      // owner inherit the seat when it comes back under another name.
       if (state.sockets.size === 0) {
         contexts.delete(contextId);
         return undefined;

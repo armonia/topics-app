@@ -398,6 +398,17 @@ const viewerCountPublisher = createViewerCountPublisher(
 // resize, close).
 const viewportWiring = createViewportWiring({
   socketsOf: (contextId) => browserWsClients.get(contextId),
+  // THE ONLY DOOR to the viewport of a shared page, and the question that
+  // guards it is INSIDE `onFrame`, not next to it. It used to be here, as
+  // `if (!onResize(...)) return;` followed by the call: two reviews found that
+  // dropping the `if` or freezing the claim to `false` brought the original bug
+  // back with every unit test still green, because nothing but a real Chromium
+  // ever read those two lines.
+  resize: (contextId, width, height, deviceScaleFactor) => {
+    browserService.resize(contextId, width, height, deviceScaleFactor).catch((err) =>
+      console.warn(`[WS][browser] resize failed for ${contextId}:`, err.message),
+    );
+  },
 });
 
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
@@ -4038,7 +4049,7 @@ const opzioniServer = {
           const parsed = result.data;
           if (parsed.type === 'input') {
             // Using the page is what makes a client the driver of its viewport.
-            viewportWiring.onInput(ctxId, ws.data, parsed.action);
+            viewportWiring.onFrame(ctxId, ws.data, parsed);
             const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
               console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
               return 'failed' as const;
@@ -4111,23 +4122,18 @@ const opzioniServer = {
             browserService.broadcastAgentActive(ctxId, false);
           } else if (parsed.type === 'resize') {
             // Match the server viewport (+HiDPI) to the pane's real size so the
-            // page reflows responsively and renders sharp — no fixed-1280 letterbox.
+            // page reflows responsively and renders sharp, no fixed-1280
+            // letterbox.
             //
-            // Only from the driver (TOPIC-BROWSER-05). A spectator's pane keeps
-            // streaming its own size from its ResizeObserver, and applying it
-            // reflowed the shared page to the smallest screen watching it: a
-            // phone opening the context turned the Mac's page into a phone page
-            // under the hands of whoever was typing. Dropped silently: the
-            // spectator is not asking for anything, it is just measuring itself.
-            //
-            // `driving` is the claim: the pane says this size comes with an
-            // input it just sent. It has to be said out loud because input can
-            // go down the WebRTC DataChannel straight to the sidecar, and the
-            // branch above never sees it.
-            if (!viewportWiring.onResize(ctxId, ws.data, parsed.driving === true)) return;
-            browserService.resize(ctxId, parsed.width, parsed.height, parsed.deviceScaleFactor).catch(err =>
-              console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
-            );
+            // Only from the driver (TOPIC-BROWSER-05), and the deciding is not
+            // done here: `onFrame` answers and applies in one move. A
+            // spectator's pane keeps streaming its own size from its
+            // ResizeObserver, and applying it reflowed the shared page to the
+            // smallest screen watching it: a phone opening the context turned
+            // the Mac's page into a phone page under the hands of whoever was
+            // typing. Dropped silently: the spectator is not asking for
+            // anything, it is just measuring itself.
+            viewportWiring.onFrame(ctxId, ws.data, parsed);
           } else if (parsed.type === 'set_engine') {
             // Engine switch (task 54601eeb). Non più dietro un flag: la
             // capacità la decide la presenza di un Chromium sulla macchina, e il

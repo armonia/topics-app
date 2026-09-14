@@ -75,6 +75,13 @@ class FakeSocket {
 
 let sockets: FakeSocket[] = [];
 
+/**
+ * The mounted pane's handle, captured from the effect that attaches the
+ * container: reaching it out of the render to poke it would be a mutation
+ * during render, and the compiler refuses that.
+ */
+let pane: ReturnType<typeof useRemoteBrowser> | null = null;
+
 function inert() {
   return {
     addEventListener() { /* nothing listens in this test */ },
@@ -86,9 +93,17 @@ const saved: Record<string, unknown> = {};
 
 beforeEach(() => {
   sockets = [];
-  for (const k of ['WebSocket', 'window', 'document', 'fetch', 'ResizeObserver', 'RTCPeerConnection', 'devicePixelRatio']) {
+  pane = null;
+  for (const k of ['WebSocket', 'window', 'document', 'fetch', 'ResizeObserver', 'RTCPeerConnection', 'devicePixelRatio', 'sessionStorage']) {
     saved[k] = g[k];
   }
+  // One webview, one storage: this is what makes the pane keep its name across
+  // its sockets, and the name is what the arbiter recognises it by.
+  const cells = new Map<string, string>();
+  g.sessionStorage = {
+    getItem: (key: string) => cells.get(key) ?? null,
+    setItem: (key: string, value: string) => { cells.set(key, value); },
+  };
   g.window = { ...inert(), location: { protocol: 'http:', host: '127.0.0.1:3333' }, devicePixelRatio: 1 };
   g.document = { ...inert(), hidden: false, visibilityState: 'visible' };
   g.WebSocket = FakeSocket;
@@ -120,6 +135,11 @@ function resizeFrames(socket: FakeSocket): { width: number; height: number; driv
     .filter((msg) => msg.type === 'resize');
 }
 
+/** The `?client=` the pane put in its socket URL. */
+function paneName(socket: FakeSocket): string {
+  return new URL(socket.url.replace('ws://', 'http://')).searchParams.get('client') ?? '';
+}
+
 /**
  * Mount the pane, open its socket, attach a container of a known size.
  *
@@ -133,6 +153,7 @@ function openPane(): FakeSocket {
   function Probe(): null {
     const api = useRemoteBrowser('ctx-shared', true);
     React.useEffect(() => {
+      pane = api;
       api.containerRef(PANE_CONTAINER);
       return () => { api.containerRef(null); };
     }, [api]);
@@ -173,4 +194,44 @@ test("viewport_request: the heir says its size again, dedup guard and all", () =
     "la pane ha ignorato la richiesta di misura: la pagina condivisa resta della misura di chi e' uscito",
   ).toBe(before + 1);
   expect(after[after.length - 1]).toMatchObject({ width: PANE_WIDTH, height: PANE_HEIGHT });
+});
+
+test('the pane gives the server the same name on a second connection', () => {
+  // The whole arbitration rests on this: a pane that comes back is recognised.
+  // Every other test in this family passes that name in by hand, so this is the
+  // only place where the promise is actually kept or broken. If the name is
+  // reinvented per socket, the Mac reconnecting is a stranger and a phone that
+  // is merely watching keeps the shared page at its own size.
+  const first = openPane();
+  expect(paneName(first), "la pane non dice il suo nome al server").toBeTruthy();
+
+  // A reconnection: the socket dropped and the same webview opens another one.
+  first.close();
+  const second = openPane();
+  expect(second).not.toBe(first);
+  expect(paneName(second), 'la pane si reinventa il nome ad ogni socket').toBe(paneName(first));
+});
+
+test('using the page claims its viewport: the resize after an input says driving', () => {
+  const socket = openPane();
+  const before = resizeFrames(socket).length;
+
+  // A click on a pane that is only watching. The size has not changed, so the
+  // dedup guard would swallow this frame: the claim is what has to get through,
+  // because it is the only thing that tells the server the page changed hands.
+  // On the DataChannel there is no `input` frame at all, and then this is the
+  // ONLY thing that says it.
+  pane?.sendInput('click', { x: 12, y: 34 });
+
+  const frames = resizeFrames(socket);
+  expect(frames.length, "l'input non ha rivendicato il viewport").toBe(before + 1);
+  expect(frames[frames.length - 1]).toMatchObject({
+    width: PANE_WIDTH, height: PANE_HEIGHT, driving: true,
+  });
+
+  // Moving the cursor to READ is not using the page: it must not reflow under
+  // the hands of whoever is typing.
+  const quiet = resizeFrames(socket).length;
+  pane?.sendInput('mousemove', { x: 13, y: 35 });
+  expect(resizeFrames(socket).length, 'il mouse che passa rivendica la pagina').toBe(quiet);
 });

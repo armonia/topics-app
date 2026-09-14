@@ -1,24 +1,26 @@
 /**
  * THE VIEWPORT OF A SHARED PAGE IS APPLIED FROM ONE DOOR, AND THAT DOOR ASKS.
  *
- * This is a textual test, and the reason it is worth having is that the failure
- * it guards is silent AND invisible to every other gate. The RULE of
- * TOPIC-BROWSER-05 lives in two modules with tests of their own
- * (`browser-viewport-arbiter.ts`, `browser-viewport-wiring.ts`), but the socket
- * branch of `server.ts` still has to CALL them: tell the wiring that a pane
- * opened, that an input arrived, ask before applying a `resize`, and ask the
- * heir for its size when the driver leaves. Delete any one of those calls and
- * nothing breaks loudly. Types still check, both module suites still pass (they
- * are pure and still correct), the panes still render. What comes back is the
- * original bug: a phone that merely watches reflows the page under the hands of
- * whoever is typing on a laptop.
+ * This is a textual test, and what it is for is narrow: the RULE of
+ * TOPIC-BROWSER-05 and the DECISION both live in modules with behavioural tests
+ * (`browser-viewport-arbiter.ts`, `browser-viewport-wiring.ts`, whose suite
+ * drives real frames through the real identity chain), but the socket branch of
+ * `server.ts` still has to CALL them. Delete one of those calls and nothing
+ * breaks loudly: types check, both module suites pass (they are pure and still
+ * correct), the panes render. What comes back is the original bug, a phone that
+ * merely watches reflowing the page under the hands of whoever is typing.
  *
- * The only witness that covers those calls end to end needs a server-side
- * Chromium, and that one does not run on pull requests (see
- * `NIGHTLY_ONLY_SPECS` in playwright.config.ts). So the wiring was removable
- * with the PR gate green. A grep in a test is ugly, and it holds where a type
- * cannot: TypeScript has no way to say "this call must exist, and must be
- * preceded by that question".
+ * So this file asks one question only: is the wiring still wired? It does NOT
+ * check the decision any more. It used to try, by looking for the question
+ * above the call that applied the size, and that was worth little: a mutant
+ * that asked and ignored the answer read the same. The decision moved INTO the
+ * wiring (`onFrame` applies the size itself, or does not) where a test can see
+ * it happen.
+ *
+ * Two properties of a grep-in-a-test that bit us and are now handled: it must
+ * read CODE, not comments (a commented-out call satisfied a `toContain`), and
+ * it must fail loudly when it stops watching anything at all (a renamed symbol
+ * would otherwise make it vacuously green).
  *
  * @covers TOPIC-BROWSER-05
  */
@@ -28,8 +30,26 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
-/** How far back the question may sit from the call it guards. */
-const GUARD_WINDOW_LINES = 8;
+/**
+ * The file as lines, with comment LINES blanked out and the numbering kept.
+ *
+ * A commented-out `viewportWiring.onOpen(...)` used to keep this whole file
+ * green, which is the one failure a textual test must not have. Only whole
+ * comment lines go: blanking from every `//` would also eat the tail of a
+ * string that contains a URL.
+ */
+function codeLines(relative: string): string[] {
+  return readFileSync(join(ROOT, relative), "utf-8")
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trimStart();
+      const isComment =
+        trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
+      return isComment ? "" : line;
+    });
+}
+
+const codeOf = (relative: string): string => codeLines(relative).join("\n");
 
 /**
  * Every place allowed to hand a viewport to the shared page, and why.
@@ -57,24 +77,43 @@ const SOURCES = [
 
 const VIEWPORT_CALL = /browserService\.resize\(|\.setViewportSize\(/;
 
+/** How far the dependency literal may stretch below its opening line. */
+const DEPS_WINDOW_LINES = 20;
+
 describe("una porta sola sul viewport condiviso", () => {
-  it("il resize che arriva da un socket passa dall'arbitro", () => {
-    const lines = readFileSync(join(ROOT, "server.ts"), "utf-8").split("\n");
+  it("in server.ts il resize della pagina condivisa lo applica solo il wiring", () => {
+    // The socket branch does not resize any more, and cannot: it hands
+    // `browserService.resize` to the wiring as a dependency and the wiring
+    // calls it after asking the arbiter. That is why there is no `if` left
+    // next to the call to mutate away. What this test defends is that nobody
+    // adds a SECOND, unguarded call somewhere else in the file.
+    const lines = codeLines("server.ts");
+    const opening = lines.findIndex((line) => /createViewportWiring\(/.test(line));
+    expect(opening, "server.ts non costruisce piu' il wiring del viewport").toBeGreaterThan(-1);
+
     const calls = lines
       .map((line, index) => ({ line, index }))
       .filter(({ line }) => /browserService\.resize\(/.test(line));
-
-    // If this is zero the test has stopped watching anything: the call moved
-    // out of server.ts and this file has to be pointed at its new home.
-    expect(calls.length, "nessuna chiamata a browserService.resize in server.ts").toBeGreaterThan(0);
+    expect(calls.length, "nessuna chiamata a browserService.resize in server.ts").toBe(1);
 
     for (const { line, index } of calls) {
-      const before = lines.slice(Math.max(0, index - GUARD_WINDOW_LINES), index).join("\n");
+      const insideDeps = index > opening && index <= opening + DEPS_WINDOW_LINES;
       expect(
-        /viewportWiring\.onResize\(/.test(before),
-        `server.ts:${index + 1} applica un viewport senza chiedere all'arbitro (${line.trim()})`,
+        insideDeps,
+        `server.ts:${index + 1} applica un viewport fuori dalle dipendenze del wiring (${line.trim()})`,
       ).toBe(true);
     }
+  });
+
+  it("ogni frame del socket del browser passa dal wiring", () => {
+    // `onFrame` is the door: input and resize both go through it, and it is
+    // what decides. Two call sites, one per branch of the message handler.
+    const source = codeOf("server.ts");
+    const doorCalls = source.match(/viewportWiring\.onFrame\(/g) ?? [];
+    expect(
+      doorCalls.length,
+      "i frame del socket non passano piu' dal wiring del viewport (input e resize)",
+    ).toBe(2);
   });
 
   it("ogni pane dice il proprio nome aprendo il socket del browser", () => {
@@ -84,8 +123,9 @@ describe("una porta sola sul viewport condiviso", () => {
     // it, the streaming one and the native one, because they are the same pane
     // before and after the flip.
     for (const hook of ["client/src/hooks/useRemoteBrowser.ts", "client/src/hooks/useTauriBrowser.ts"]) {
-      const source = readFileSync(join(ROOT, hook), "utf8");
-      expect(source, `${hook} apre il socket senza dire chi e'`).toContain("client=${encodeURIComponent(browserClientId())}");
+      expect(codeOf(hook), `${hook} apre il socket senza dire chi e'`).toContain(
+        "client=${encodeURIComponent(browserClientId())}",
+      );
     }
   });
 
@@ -93,8 +133,7 @@ describe("una porta sola sul viewport condiviso", () => {
     // The Tauri shell opens a socket on the context to EXECUTE, not to watch.
     // Left in the audience, its device queues as a spectator and the shell's
     // own streaming socket ends up behind a phone that is only looking.
-    const source = readFileSync(join(ROOT, "server.ts"), "utf-8");
-    const lines = source.split("\n");
+    const lines = codeLines("server.ts");
     const registered = lines.findIndex((line) => /delegated === 'registered'/.test(line));
     expect(registered, "il ramo della registrazione nativa non e' piu' in server.ts").toBeGreaterThan(-1);
     const branch = lines.slice(registered, registered + 20).join("\n");
@@ -107,13 +146,12 @@ describe("una porta sola sul viewport condiviso", () => {
   it("quando il driver esce, al successore si chiede la misura", () => {
     // The heir already sent this size once and deduplicates it, so without the
     // question the page keeps the viewport of whoever just left.
-    const source = readFileSync(join(ROOT, "server.ts"), "utf-8");
-    const lines = source.split("\n");
+    const lines = codeLines("server.ts");
     const disconnect = lines.findIndex((line) => /viewportWiring\.onClose\(/.test(line));
     expect(disconnect, "il close non avvisa piu' l'arbitro").toBeGreaterThan(-1);
     expect(
       /const \w+ = viewportWiring\.onClose\(/.test(lines[disconnect] ?? ""),
-      "l'erede che noteDisconnect restituisce viene buttato via",
+      "l'erede che onClose restituisce viene buttato via",
     ).toBe(true);
     const after = lines.slice(disconnect, disconnect + 25).join("\n");
     expect(
@@ -122,25 +160,18 @@ describe("una porta sola sul viewport condiviso", () => {
     ).toBe(true);
   });
 
-  it("l'apertura di una pane e ogni input arrivano all'arbitro", () => {
-    // Without the first call nobody is in the audience, so the arbiter has no
-    // first arrival to fall back on and the last resize wins again. Without the
-    // second one nobody ever becomes the driver: the page belongs forever to
-    // whoever connected first, and using it stops meaning anything.
-    const source = readFileSync(join(ROOT, "server.ts"), "utf-8");
+  it("l'arbitro sa quando una pane si affaccia sul contesto", () => {
+    // Without this call nobody is in the audience, so the arbiter has no first
+    // arrival to fall back on and the last resize wins again.
     expect(
-      /viewportWiring\.onOpen\(/.test(source),
+      /viewportWiring\.onOpen\(/.test(codeOf("server.ts")),
       "nessuno avvisa l'arbitro quando una pane si affaccia sul contesto",
-    ).toBe(true);
-    expect(
-      /viewportWiring\.onInput\(/.test(source),
-      "nessuno avvisa l'arbitro quando un client usa la pagina",
     ).toBe(true);
   });
 
   it("nessun altro file applica un viewport alla pagina condivisa", () => {
     for (const relative of SOURCES) {
-      const source = readFileSync(join(ROOT, relative), "utf-8");
+      const source = codeOf(relative);
       if (!VIEWPORT_CALL.test(source)) continue;
       expect(
         DOORS.has(relative),

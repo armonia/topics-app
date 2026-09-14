@@ -177,3 +177,40 @@ test("moving the mouse is reading, not driving", () => {
     expect(isDrivingInput(action)).toBe(true);
   }
 });
+
+test("a claimant of the same owner inherits the seat of one that is gone", () => {
+  // The Mac restarts (the updater relaunches the app), or the pane moves into
+  // a new window: the pane name lived in the session storage of a webview that
+  // no longer exists, so the same screen comes back under a new name. It must
+  // not queue behind a phone that has been watching all along.
+  const arbiter = createViewportArbiter();
+  const phone = { socket: "s-phone", device: "phone-1/pane-p", owner: "phone-1" };
+  const mac = { socket: "s-mac", device: "owner/pane-a", owner: "owner" };
+
+  arbiter.noteConnect(CTX, phone);
+  arbiter.noteConnect(CTX, mac);
+  arbiter.noteInput(CTX, mac);
+  arbiter.noteDisconnect(CTX, mac);
+
+  const reborn = { socket: "s-mac-2", device: "owner/pane-b", owner: "owner" };
+  arbiter.noteConnect(CTX, reborn);
+
+  expect(arbiter.canResize(CTX, reborn), "il Mac tornato non riprende la pagina").toBe(true);
+  expect(arbiter.canResize(CTX, phone), "il telefono che guardava tiene il viewport").toBe(false);
+});
+
+test("two panes of the same owner, both here, stay two claimants", () => {
+  // Inheritance is for a seat nobody is sitting in. Two live windows of the
+  // same person are two viewers with two container sizes, and the second one
+  // must not walk in and take the first one's viewport.
+  const arbiter = createViewportArbiter();
+  const first = { socket: "s-1", device: "owner/pane-a", owner: "owner" };
+  const second = { socket: "s-2", device: "owner/pane-b", owner: "owner" };
+
+  arbiter.noteConnect(CTX, first);
+  arbiter.noteInput(CTX, first);
+  arbiter.noteConnect(CTX, second);
+
+  expect(arbiter.canResize(CTX, first), "chi sta usando la pagina la perde").toBe(true);
+  expect(arbiter.canResize(CTX, second), "la seconda finestra ruba il viewport").toBe(false);
+});

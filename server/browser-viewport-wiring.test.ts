@@ -21,7 +21,12 @@ import type { Server } from "bun";
 import { evaluateIdentity, type DeviceRecord } from "./lib/device-auth";
 import { upgradeWebSocket } from "./lib/ws-upgrade";
 import type { WSData } from "./types";
-import { createViewportWiring, LOOPBACK_OWNER, viewportClaimantOf } from "./browser-viewport-wiring";
+import {
+  createViewportWiring,
+  LOOPBACK_OWNER,
+  viewportClaimantOf,
+  type ViewportWiring,
+} from "./browser-viewport-wiring";
 
 const CTX = "ctx-1";
 
@@ -83,10 +88,49 @@ function connect(who: "loopback" | { device: string }, paneName = "pane-1"): Pan
   return pane;
 }
 
-/** The wiring under test, with the sockets of the context it has to reach. */
-function wireUp(panes: Pane[]) {
-  return createViewportWiring({ socketsOf: () => panes.filter((p) => p.readyState === 1) });
+/** A wiring under test, and the sizes the shared page actually received. */
+interface Rig {
+  wiring: ViewportWiring;
+  applied: Array<{ width: number; height: number }>;
 }
+
+/** The wiring under test, with the sockets of the context it has to reach. */
+function wireUp(panes: Pane[]): Rig {
+  const applied: Rig["applied"] = [];
+  const wiring = createViewportWiring({
+    socketsOf: () => panes.filter((p) => p.readyState === 1),
+    resize: (_contextId, width, height) => { applied.push({ width, height }); },
+  });
+  return { wiring, applied };
+}
+
+/**
+ * A `resize` frame, as the pane really sends it. Answers the only question that
+ * matters: did the shared page take this size?
+ *
+ * The verdict and the effect are checked against each other on every single
+ * call, and that is deliberate: the reason this file exists is that the server
+ * used to ASK the arbiter and then apply the size itself, two lines apart, and
+ * a mutant that broke the link between them stayed green everywhere.
+ */
+function sendResize(rig: Rig, pane: Pane, size: [number, number], driving = false): boolean {
+  const before = rig.applied.length;
+  const verdict = rig.wiring.onFrame(CTX, pane.data, {
+    type: "resize", width: size[0], height: size[1], driving,
+  });
+  const took = rig.applied.length > before;
+  expect(took, `verdetto "${verdict}" e pagina che dice il contrario`).toBe(verdict === "applied");
+  if (took) expect(rig.applied.at(-1)).toEqual({ width: size[0], height: size[1] });
+  return took;
+}
+
+/** An `input` frame, as the pane really sends it. */
+function sendInput(rig: Rig, pane: Pane, action: string): void {
+  expect(rig.wiring.onFrame(CTX, pane.data, { type: "input", action })).toBe("noted");
+}
+
+const MAC_SIZE: [number, number] = [1280, 800];
+const PHONE_SIZE: [number, number] = [390, 844];
 
 /** Did anybody get asked for its size, and who. */
 function askedDevices(panes: Pane[]): string[] {
@@ -130,29 +174,32 @@ test("S1: the native pane flips to streaming and keeps the page", () => {
   // executor socket closes and the streaming one arrives AFTER the phone.
   const nativeMac = connect("loopback", "pane-mac");
   const panes = [nativeMac];
-  const wiring = wireUp(panes);
+  const rig = wireUp(panes);
 
-  wiring.onOpen(CTX, nativeMac.data);
-  wiring.onNativeExecutor(CTX, nativeMac.data);
+  rig.wiring.onOpen(CTX, nativeMac.data);
+  rig.wiring.onNativeExecutor(CTX, nativeMac.data);
 
   const phone = connect({ device: "phone-1" });
   panes.push(phone);
-  wiring.onOpen(CTX, phone.data);
+  rig.wiring.onOpen(CTX, phone.data);
 
   nativeMac.readyState = 3;
-  wiring.onClose(CTX, nativeMac.data);
+  rig.wiring.onClose(CTX, nativeMac.data);
   // Same pane, other socket: the shell flipped from executing to streaming.
   const streamingMac = connect("loopback", "pane-mac");
   panes.push(streamingMac);
-  wiring.onOpen(CTX, streamingMac.data);
+  rig.wiring.onOpen(CTX, streamingMac.data);
 
   // The phone is only watching: the Mac, first to show up on this context,
   // still owns the size even though its socket is the youngest of the three.
-  expect(wiring.onResize(CTX, streamingMac.data, false)).toBe(true);
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(false);
+  expect(sendResize(rig, streamingMac, MAC_SIZE)).toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(false);
 
   // Rotating the phone must not reflow the page under the Mac.
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(false);
+  expect(sendResize(rig, phone, [844, 390])).toBe(false);
+  expect(rig.applied, "la pagina ha preso una misura dallo spettatore").toEqual([
+    { width: 1280, height: 800 },
+  ]);
 });
 
 test("S2: the Mac that reconnects is still the driver", () => {
@@ -161,61 +208,76 @@ test("S2: the Mac that reconnects is still the driver", () => {
   const phone = connect({ device: "phone-1" });
   const mac = connect("loopback", "pane-mac");
   const panes = [phone, mac];
-  const wiring = wireUp(panes);
-  wiring.onOpen(CTX, phone.data);
-  wiring.onOpen(CTX, mac.data);
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, phone.data);
+  rig.wiring.onOpen(CTX, mac.data);
 
-  wiring.onInput(CTX, mac.data, "click");
-  expect(wiring.onResize(CTX, mac.data, false)).toBe(true);
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(false);
+  sendInput(rig, mac, "click");
+  expect(sendResize(rig, mac, MAC_SIZE)).toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(false);
 
   mac.readyState = 3;
-  wiring.onClose(CTX, mac.data);
+  rig.wiring.onClose(CTX, mac.data);
   const mac2 = connect("loopback", "pane-mac");
   panes.push(mac2);
-  wiring.onOpen(CTX, mac2.data);
+  rig.wiring.onOpen(CTX, mac2.data);
 
-  expect(wiring.onResize(CTX, mac2.data, false)).toBe(true);
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(false);
+  expect(sendResize(rig, mac2, MAC_SIZE)).toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(false);
 });
 
 test("using the page takes the viewport, and the resize that claims it says so", () => {
   const mac = connect("loopback");
   const phone = connect({ device: "phone-1" });
   const panes = [mac, phone];
-  const wiring = wireUp(panes);
-  wiring.onOpen(CTX, mac.data);
-  wiring.onOpen(CTX, phone.data);
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, mac.data);
+  rig.wiring.onOpen(CTX, phone.data);
+
+  // Passing the cursor over a pane to READ it is not using it. If it were, a
+  // shared page would resize under the hands of whoever is typing every time
+  // somebody else's mouse crossed their own screen.
+  sendInput(rig, phone, "mousemove");
+  expect(sendResize(rig, phone, PHONE_SIZE), "il mouse che passa prende la pagina").toBe(false);
 
   // Scrolling on the phone hands it the page (an `input` with action `scroll`).
-  wiring.onInput(CTX, phone.data, "scroll");
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(true);
-  expect(wiring.onResize(CTX, mac.data, false)).toBe(false);
+  sendInput(rig, phone, "scroll");
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(true);
+  expect(sendResize(rig, mac, MAC_SIZE)).toBe(false);
 
-  // And the Mac takes it back with the claim its own first input carries.
-  expect(wiring.onResize(CTX, mac.data, true)).toBe(true);
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(false);
+  // And the Mac takes it back with the claim its own first input carries: the
+  // input may have gone down the DataChannel, where no `input` frame exists, so
+  // the claim on the `resize` is the only thing that can say it happened.
+  expect(sendResize(rig, mac, MAC_SIZE, true)).toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(false);
+
+  // Without that claim the same frame would have been dropped: the phone is
+  // still the driver of record until somebody says otherwise.
+  expect(rig.applied).toEqual([
+    { width: 390, height: 844 },
+    { width: 1280, height: 800 },
+  ]);
 });
 
 test("when the driver leaves, its heir is asked for its size", () => {
   const mac = connect("loopback");
   const phone = connect({ device: "phone-1" });
   const panes = [mac, phone];
-  const wiring = wireUp(panes);
-  wiring.onOpen(CTX, mac.data);
-  wiring.onOpen(CTX, phone.data);
-  wiring.onInput(CTX, mac.data, "click");
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, mac.data);
+  rig.wiring.onOpen(CTX, phone.data);
+  sendInput(rig, mac, "click");
 
   mac.readyState = 3;
-  const heir = wiring.onClose(CTX, mac.data);
+  const heir = rig.wiring.onClose(CTX, mac.data);
   expect(heir, "nessun erede quando il driver esce").toBe(viewportClaimantOf(phone.data).device);
-  wiring.askViewportOf(CTX, heir ?? "");
+  rig.wiring.askViewportOf(CTX, heir ?? "");
 
   // Only the heir is asked, and the question reaches it: the heir sent that
   // size once already and deduplicates it, so silence here means the page
   // keeps the size of whoever just left.
   expect(askedDevices(panes)).toEqual([viewportClaimantOf(phone.data).device]);
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(true);
 });
 
 test("the executor socket of the shell is not in the audience", () => {
@@ -225,23 +287,65 @@ test("the executor socket of the shell is not in the audience", () => {
   const executor = connect("loopback");
   const phone = connect({ device: "phone-1" });
   const panes = [executor, phone];
-  const wiring = wireUp(panes);
-  wiring.onOpen(CTX, executor.data);
-  wiring.onNativeExecutor(CTX, executor.data);
-  wiring.onOpen(CTX, phone.data);
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, executor.data);
+  rig.wiring.onNativeExecutor(CTX, executor.data);
+  rig.wiring.onOpen(CTX, phone.data);
 
-  expect(wiring.onResize(CTX, phone.data, false)).toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE)).toBe(true);
 });
 
 test("the memory of a context goes away with its last pane", () => {
   const mac = connect("loopback");
   const panes = [mac];
-  const wiring = wireUp(panes);
-  wiring.onOpen(CTX, mac.data);
-  wiring.onInput(CTX, mac.data, "click");
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, mac.data);
+  sendInput(rig, mac, "click");
   mac.readyState = 3;
-  expect(wiring.onClose(CTX, mac.data)).toBeUndefined();
+  expect(rig.wiring.onClose(CTX, mac.data)).toBeUndefined();
   // Nothing to inherit, and nothing left behind: the next pane on this context
   // starts from an empty arbiter instead of from a driver that went home.
-  expect(wiring.driverDevice(CTX)).toBeUndefined();
+  expect(rig.wiring.driverDevice(CTX)).toBeUndefined();
+});
+
+test("S3: the Mac restarts under a new pane name and still finds its page", () => {
+  // The updater relaunches the app (`app.restart`), or the pane is dragged out
+  // into its own window: either way the webview is a new one, its session
+  // storage is empty, and the name the pane gives itself is brand new. The
+  // person is the same person, in front of the same screen.
+  const phone = connect({ device: "phone-1" });
+  const mac = connect("loopback", "pane-before");
+  const panes = [phone, mac];
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, phone.data);
+  rig.wiring.onOpen(CTX, mac.data);
+  sendInput(rig, mac, "click");
+
+  mac.readyState = 3;
+  rig.wiring.onClose(CTX, mac.data);
+  const restarted = connect("loopback", "pane-after");
+  panes.push(restarted);
+  rig.wiring.onOpen(CTX, restarted.data);
+
+  // It is a stranger by name, so it inherits: the seat of the pane that is
+  // gone, and the steering wheel that pane was holding. Without an input.
+  expect(viewportClaimantOf(restarted.data).device)
+    .not.toBe(viewportClaimantOf(mac.data).device);
+  expect(sendResize(rig, restarted, MAC_SIZE), "il Mac riavviato non ritrova la pagina").toBe(true);
+  expect(sendResize(rig, phone, PHONE_SIZE), "il telefono che guarda tiene il viewport").toBe(false);
+});
+
+test("two panes of the same machine, both open, stay two claimants", () => {
+  // The inheritance above must not become "the owner is one client": a second
+  // window is a second screen, and the one that is not driving does not get to
+  // reflow the page under the one that is.
+  const first = connect("loopback", "pane-1");
+  const second = connect("loopback", "pane-2");
+  const panes = [first, second];
+  const rig = wireUp(panes);
+  rig.wiring.onOpen(CTX, first.data);
+  rig.wiring.onOpen(CTX, second.data);
+
+  expect(sendResize(rig, first, MAC_SIZE)).toBe(true);
+  expect(sendResize(rig, second, [900, 600]), "la seconda finestra rimpagina la prima").toBe(false);
 });
