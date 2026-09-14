@@ -137,6 +137,27 @@ export function open(
   };
 }
 
+/**
+ * Record where a sheet ended up after a navigation, WITHOUT touching focus.
+ *
+ * `open` is the user gesture: it activates and it wakes the window. A page that
+ * navigates on its own (a redirect, an agent driving it, a late title) is not a
+ * gesture, and routing it through `open` would let a background sheet steal the
+ * window every time its title arrives.
+ */
+export function updateSheet(
+  state: TopicBrowserWindowState,
+  contextId: string,
+  patch: { url?: string; title?: string },
+): TopicBrowserWindowState {
+  if (!hasSheet(state, contextId)) return state;
+  const next = state.tabs.map((t) => (t.contextId === contextId
+    ? { ...t, url: patch.url ?? t.url, title: patch.title ?? t.title }
+    : t));
+  const changed = next.some((t, i) => t !== state.tabs[i] && (t.url !== state.tabs[i]?.url || t.title !== state.tabs[i]?.title));
+  return changed ? { ...state, tabs: next } : state;
+}
+
 /** Focus a sheet of the window. No-op for anything that is not one. */
 export function activate(state: TopicBrowserWindowState, contextId: string): TopicBrowserWindowState {
   if (!hasSheet(state, contextId) || state.activeContextId === contextId) return state;
@@ -212,6 +233,44 @@ export function returnFromTab(
     promoted: state.promoted.filter((id) => id !== contextId),
   };
   return open(released, sheet);
+}
+
+/**
+ * Give a promoted contextId back to the window WITHOUT re-adding a sheet.
+ *
+ * `returnFromTab` is the deliberate way out of `promoted`, and until this
+ * existed it was the ONLY one: a promoted tab CLOSED in the layout (the X on
+ * the tab, a group torn down, a pane purged) left its contextId in `promoted`
+ * for good, and from then on `open` refused that contextId in silence. The page
+ * was reachable from nowhere: not a tab any more, and never a sheet again.
+ *
+ * So closing the pane releases the id. Releasing is not opening: the sheet does
+ * NOT come back, because the user closed that page. What comes back is the
+ * right to open it again.
+ */
+export function releasePromoted(state: TopicBrowserWindowState, contextId: string): TopicBrowserWindowState {
+  if (!contextId || !state.promoted.includes(contextId)) return state;
+  return { ...state, promoted: state.promoted.filter((id) => id !== contextId) };
+}
+
+/**
+ * Drop every promoted contextId the layout no longer holds.
+ *
+ * The event-by-event release above needs someone to witness the close. Nobody
+ * witnesses a pane that disappears while this client is shut down, or one
+ * closed on ANOTHER device, or a record the layout dropped on its own (orphan
+ * purge, tombstone eviction). `promoted` is persisted, so a miss is permanent.
+ * This is the periodic answer to all of those at once: the layout is asked who
+ * is still alive, and whoever is not is released.
+ */
+export function reconcilePromoted(
+  state: TopicBrowserWindowState,
+  isLive: (contextId: string) => boolean,
+): TopicBrowserWindowState {
+  if (!state.promoted.length) return state;
+  const live = state.promoted.filter((id) => isLive(id));
+  if (live.length === state.promoted.length) return state;
+  return { ...state, promoted: live };
 }
 
 /** Where the minimized window really sits, given the size of the topic area.
@@ -477,11 +536,16 @@ export const topicBrowserWindow = {
   open: (topicId: string, sheet: { contextId: string; url?: string; title?: string; openedBy?: TopicBrowserOpenedBy }, mode?: TopicBrowserMode) =>
     commit(topicId, open(getTopicWindow(topicId), sheet, mode)),
   activate: (topicId: string, contextId: string) => commit(topicId, activate(getTopicWindow(topicId), contextId)),
+  updateSheet: (topicId: string, contextId: string, patch: { url?: string; title?: string }) =>
+    commit(topicId, updateSheet(getTopicWindow(topicId), contextId, patch)),
   close: (topicId: string, contextId: string) => commit(topicId, close(getTopicWindow(topicId), contextId)),
   setMode: (topicId: string, mode: TopicBrowserMode) => commit(topicId, setMode(getTopicWindow(topicId), mode)),
   move: (topicId: string, pos: TopicBrowserPosition) => commit(topicId, move(getTopicWindow(topicId), pos)),
   setWidth: (topicId: string, width: number | null) => commit(topicId, setWidth(getTopicWindow(topicId), width)),
   promoteToTab: (topicId: string, contextId: string) => commit(topicId, promoteToTab(getTopicWindow(topicId), contextId)),
+  releasePromoted: (topicId: string, contextId: string) => commit(topicId, releasePromoted(getTopicWindow(topicId), contextId)),
+  reconcilePromoted: (topicId: string, isLive: (contextId: string) => boolean) =>
+    commit(topicId, reconcilePromoted(getTopicWindow(topicId), isLive)),
   returnFromTab: (topicId: string, sheet: { contextId: string; url?: string; title?: string; openedBy?: TopicBrowserOpenedBy }) =>
     commit(topicId, returnFromTab(getTopicWindow(topicId), sheet)),
 };

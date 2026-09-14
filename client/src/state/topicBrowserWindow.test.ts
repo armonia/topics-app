@@ -17,6 +17,8 @@ import {
   setWidth,
   promoteToTab,
   returnFromTab,
+  releasePromoted,
+  reconcilePromoted,
   resolveMinRect,
   sanitizeTopicBrowserWindow,
   applyRemoteTopicWindow,
@@ -187,6 +189,39 @@ describe('promoteToTab / returnFromTab (the invariant)', () => {
     expect(s.mode).toBe('hidden');
     expect(s.tabs).toHaveLength(0);
     expect(s.promoted).toEqual(['a']);
+  });
+});
+
+describe('releasePromoted / reconcilePromoted (a promoted tab that is CLOSED, not returned)', () => {
+  const two = open(open(EMPTY_TOPIC_BROWSER_WINDOW, sheet('a')), sheet('b'));
+
+  test('closing the promoted tab frees the contextId, and the page can be opened again', () => {
+    const promoted = promoteToTab(two, 'a');
+    // The X on the layout tab: the pane goes, and nothing returns to the window.
+    const released = releasePromoted(promoted, 'a');
+    expect(released.promoted).toEqual([]);
+    expect(released.tabs.map((t) => t.contextId)).toEqual(['b']);
+    // Which is the whole point: `open` accepts that contextId again.
+    const again = open(released, sheet('a'));
+    expect(again.tabs.map((t) => t.contextId)).toEqual(['b', 'a']);
+    expect(again.activeContextId).toBe('a');
+    // Falsification: without the release, this reads ['b'] and the page is
+    // unreachable for good - which is exactly what happened before.
+  });
+
+  test('releasing something that is not promoted changes nothing', () => {
+    expect(releasePromoted(two, 'a')).toBe(two);
+    expect(releasePromoted(two, '')).toBe(two);
+  });
+
+  test('reconcile drops the promoted ids the layout no longer holds, keeps the live ones', () => {
+    const both = promoteToTab(promoteToTab(two, 'a'), 'b');
+    expect(both.promoted).toEqual(['a', 'b']);
+    const reconciled = reconcilePromoted(both, (id) => id === 'b');
+    expect(reconciled.promoted).toEqual(['b']);
+    // Identity is preserved when the layout agrees: no write, no broadcast.
+    expect(reconcilePromoted(reconciled, () => true)).toBe(reconciled);
+    expect(reconcilePromoted(two, () => false)).toBe(two);
   });
 });
 
