@@ -52,7 +52,7 @@ import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinis
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
-import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
+import { probePort, verdictMessage, realProbeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { startLoopLagSampler } from "./server/lib/loop-lag-sampler";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
@@ -5629,8 +5629,8 @@ console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonStat
 // qualcun altro. Vedi `server/lib/port-squatter.ts`.
 setTimeout(() => {
   const porta = server.port ?? PORT;
-  void sondaPorta(porta, sondaRealeDeps(process.pid))
-    .then((esito) => { const msg = messaggioEsito(porta, esito); if (msg) console.warn(msg); })
+  void probePort(porta, realProbeDeps(process.pid))
+    .then((esito) => { const msg = verdictMessage(porta, esito); if (msg) console.warn(msg); })
     .catch(() => { /* una sonda che fallisce non deve disturbare il boot */ });
 }, 2000).unref?.();
 

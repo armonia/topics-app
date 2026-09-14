@@ -29,7 +29,7 @@ import {
   chmodSync,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { sondaPorta, sondaRealeDeps, type EsitoPorta } from "../lib/port-squatter";
+import { probePort, realProbeDeps, type PortVerdict } from "../lib/port-squatter";
 
 export interface DaemonState {
   pid: number;
@@ -304,8 +304,8 @@ export function uptimeMsSince(startedAt: string): number {
 /** The port is contested and it is NOT a stranger holding it: do not fall back. */
 export class PortTakenError extends Error {
   readonly port: number;
-  readonly outcome: EsitoPorta;
-  constructor(port: number, outcome: EsitoPorta, message: string) {
+  readonly outcome: PortVerdict;
+  constructor(port: number, outcome: PortVerdict, message: string) {
     super(message);
     this.name = "PortTakenError";
     this.port = port;
@@ -335,7 +335,7 @@ export interface ListenOutcome<T> {
   /** True when the configured port was taken by a stranger and we moved. */
   readonly movedToEphemeral: boolean;
   /** What the probe saw, when it had to run. */
-  readonly probed: EsitoPorta | null;
+  readonly probed: PortVerdict | null;
 }
 
 /**
@@ -352,7 +352,7 @@ export interface ListenOutcome<T> {
 export async function listenWithSquatterFallback<T>(
   configured: number,
   bind: (port: number) => T,
-  probe: (port: number) => Promise<EsitoPorta> = (port) => sondaPorta(port, sondaRealeDeps(process.pid)),
+  probe: (port: number) => Promise<PortVerdict> = (port) => probePort(port, realProbeDeps(process.pid)),
 ): Promise<ListenOutcome<T>> {
   if (!configured || configured <= 0) {
     return { listener: bind(0), movedToEphemeral: false, probed: null };
@@ -370,7 +370,7 @@ export async function listenWithSquatterFallback<T>(
 }
 
 /** The line a person reads when the daemon refuses to start. */
-export function portTakenMessage(port: number, outcome: EsitoPorta): string {
+export function portTakenMessage(port: number, outcome: PortVerdict): string {
   switch (outcome.stato) {
     case "nostro":
       return `port ${port} is already served by another Topics daemon. ` +

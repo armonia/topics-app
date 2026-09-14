@@ -25,7 +25,7 @@ import {
   portTakenMessage,
   PortTakenError,
 } from "./daemon-state";
-import { sondaPorta, sondaRealeDeps, type EsitoPorta, type SondaPortaDeps } from "../lib/port-squatter";
+import { probePort, realProbeDeps, type PortVerdict, type ProbePortDeps } from "../lib/port-squatter";
 
 const OURS = JSON.stringify({
   openSessions: 19,
@@ -46,13 +46,13 @@ function bindThatRefuses(port: number, tried: number[]) {
   };
 }
 
-const probeSaying = (outcome: EsitoPorta) => async () => outcome;
+const probeSaying = (outcome: PortVerdict) => async () => outcome;
 
-// A probe built on the REAL sondaPorta, with only the two I/O dependencies
+// A probe built on the REAL probePort, with only the two I/O dependencies
 // faked: it is the production code path that decides who answers, including
 // the HTTPS-then-HTTP order.
 function probeOverFakeNetwork(answers: Record<string, string | null>) {
-  const deps: SondaPortaDeps = {
+  const deps: ProbePortDeps = {
     chiedi: async (url) => {
       const scheme = url.startsWith("https") ? "https" : "http";
       const body = answers[scheme];
@@ -61,7 +61,7 @@ function probeOverFakeNetwork(answers: Record<string, string | null>) {
     chiOccupa: () => ({ pid: 4242, comando: "dashboard.mjs" }),
     pidNostro: 1,
   };
-  return (port: number) => sondaPorta(port, deps);
+  return (port: number) => probePort(port, deps);
 }
 
 describe("isAddressInUse", () => {
@@ -166,7 +166,7 @@ describe("listenWithSquatterFallback", () => {
       const out = await listenWithSquatterFallback(
         held,
         bindThatRefuses(held, tried),
-        (port) => sondaPorta(port, sondaRealeDeps(-1)),
+        (port) => probePort(port, realProbeDeps(-1)),
       );
       expect(tried).toEqual([held, 0]);
       expect(out.movedToEphemeral).toBe(true);
