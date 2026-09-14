@@ -813,7 +813,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     setEngine: !useIframe && browser.engineToggleAvailable
       ? (e: 'native' | 'chromium') => browser.setEngine(e)
       : undefined,
-    setRenderMode: useIframe ? undefined : (m: 'dom' | 'video') => browser.setRenderMode(m),
+    // The render switch kept the condition its pill had: only on a real page. A
+    // blank pane has nothing to render either way, and a switch with no page is
+    // the same dead door as a Downloads entry that opens an empty list.
+    setRenderMode: !useIframe && isRealUrl(browser.url)
+      ? (m: 'dom' | 'video') => browser.setRenderMode(m)
+      : undefined,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
   }), [browser, sharedCanForget, onToggleShare, backToSpawner, useIframe]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
