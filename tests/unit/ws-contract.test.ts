@@ -216,6 +216,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
       'set_watching',
       'take_control',
       'viewers',
+      'viewport_request',
       'webrtc_answer',
       'webrtc_ice',
       'webrtc_offer',
