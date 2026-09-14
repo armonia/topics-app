@@ -93,9 +93,9 @@ describe("budget against what the others leave", () => {
     expect(b.usableMemGB).toBeCloseTo(b.memGB, 5);
   });
 
-  test("the memory we already hold counts as reachable, e della libera prendiamo la quota", () => {
-    // 60% of 32 GB is 19.2; we hold 6 and 8 are free: dei liberi ne prendiamo
-    // il 60% (4,8), quindi 10,8, e 3,2 GB restano a chi non è nostro.
+  test("the memory we already hold counts as reachable, and of the free we take our share", () => {
+    // 60% of 32 GB is 19.2; we hold 6 and 8 are free: of the free we take 60%
+    // (4.8), so 10.8, and 3.2 GB stay with whatever is not ours.
     const b = machineBudget(sample({ ourMemGB: 6, availableMemGB: 8 }), 0.6);
     expect(b.memGB).toBeCloseTo(19.2, 5);
     expect(b.usableMemGB).toBeCloseTo(10.8, 5);
