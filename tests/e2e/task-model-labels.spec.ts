@@ -48,11 +48,20 @@ async function openProjectBoard(page: Page) {
   await expect(projectWindow).toBeVisible();
   const trigger = projectWindow.locator('[data-testid="pane-add-menu-trigger"]:visible').last();
   await trigger.scrollIntoViewIfNeeded();
-  await trigger.click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-  const portal = page.getByTestId('pane-add-menu');
-  await expect(portal).toBeVisible();
-  await portal.getByRole('menuitem', { name: 'Board', exact: true }).click();
+  const item = page.getByTestId('pane-add-menu-kanban');
+  // Under load the menu can open and close within the same tick (the portal
+  // mounts, then a stray blur/resize event closes it before the click lands).
+  // Retry the trigger click a couple of times and wait for the item itself,
+  // not just the portal wrapper, before clicking it. Same shape as the retry
+  // loop in board-column-elastic-width.spec.ts.
+  let menuOpened = false;
+  for (let attempt = 0; attempt < 3 && !menuOpened; attempt++) {
+    await trigger.click();
+    menuOpened = await item.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
+    if (!menuOpened) await page.keyboard.press('Escape');
+  }
+  if (!menuOpened) throw new Error('pane-add-menu never showed a Board entry');
+  await item.click();
   await expect(projectWindow.getByTestId('kanban-board')).toBeVisible();
 }
 
