@@ -31,7 +31,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2 } from 'lucide-react';
 import { BrowserFavicon } from './BrowserFavicon';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
-import { DANGER_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useT } from '../../hooks/useT';
 
@@ -146,18 +146,20 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : connection === 'connecting' ? 'connecting'
     : connection === 'fallback-http' ? 'degraded'
     : chrome.engine === 'chromium' ? 'chromium'
-    // SHARED IS ONLY A DEVIATION WHERE THERE IS SOMETHING TO DEVIATE FROM, i.e.
-    // where the pane HAS a native view of its own to render instead — the
-    // desktop shell, the only place that publishes `shareMode`. On the web
-    // client `mode` is hard-wired to 'shared' for every pane
-    // (`RemoteBrowserPanel`: no native shell, so the server session is all there
-    // is), and reading `shared` alone put this icon on EVERY web browser tab:
-    // a badge every tab carries, which is the one thing this requirement
-    // forbids. Measured on the TOPIC-BROWSER-03 e2e, where a pane rendering the
-    // page in a real <iframe> — this device's own engine, nothing shared about
-    // it — came up labelled with `browser.tab.kind.shared`, the "shared across
-    // your devices" string.
-    : chrome.shareMode && chrome.shared ? 'shared'
+    // SHARED IS THE EFFECTIVE RENDER, and the pane publishes it as such: true
+    // only where the page actually lives on the server and another device can
+    // therefore be looking at it. An iframe pane draws the page with this
+    // device's own engine and publishes `shared: false`, so the icon stays off
+    // the default kind without this line having to guess.
+    //
+    // It was briefly gated on `shareMode` too, to keep the icon off panes where
+    // sharing is not a CHOICE. That reading silenced it on the entire web
+    // client, where `shareMode` is undefined (there is no native view to choose
+    // instead) and every streaming pane is genuinely the shared session: the
+    // one place the icon has something to say, it said nothing. The fact is
+    // worth an icon wherever it holds - "your phone can be watching this" does
+    // not stop being true because you could not have had it otherwise.
+    : chrome.shared ? 'shared'
     : undefined;
   if (!kind) return null;
 
@@ -175,10 +177,22 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
     : t('browser.tab.kind.shared');
 
-  // Red only for the state that says something is BROKEN — the same spending
-  // rule as the console cue a few pixels to the right. The other two are facts,
-  // not faults, and take the muted ink.
-  const tone = kind === 'disconnected' ? DANGER_TEXT : 'text-app-text-faint';
+  // THE LINK STATES KEEP THEIR COLOUR, the other two do not.
+  //
+  // The pill said "Polling" in yellow and "Connecting..." with a pulsing yellow
+  // dot; here the text is gone and only an 11px glyph is left, so in the muted
+  // ink of a tab's quiet rail "the connection is degraded" would have been
+  // legible exactly to whoever already knew. Red stays reserved for the state
+  // that is BROKEN (same rule as the console cue a few pixels to the right) and
+  // amber carries the two that are WORKING BADLY - the measured pair in
+  // `popoverStyles`, not a hand-picked yellow, because 11px is normal-text
+  // contrast and `amber-400` alone misses it in the light theme.
+  //
+  // Chromium and shared are facts, not faults: muted ink, no colour spent.
+  const tone =
+    kind === 'disconnected' ? DANGER_TEXT
+    : kind === 'connecting' || kind === 'degraded' ? WARNING_TEXT
+    : 'text-app-text-faint';
 
   return (
     <span

@@ -72,9 +72,14 @@ const cell = (page: Page) => page.locator('[data-pane-shell][data-pane-visible="
  *
  * LOWERED FROM 20 TO 10 ON 2026-09-14, and by a measurement rather than to get
  * a red to go away. The browser pane counted 49 when this floor was written and
- * counts 20 now: `TOPIC-BROWSER-03` took the three pills off the page area, and
- * three pills made of a button, a lucide <svg> and its paths are about thirty
- * nodes. A floor of 20 therefore stopped meaning "far below the real counts" and
+ * counts 20 in this scene now, after `TOPIC-BROWSER-03` emptied the page area.
+ * The three pills are only part of that drop and it is worth not overstating
+ * them: on the pane this spec probes only the ones the state allows are ever
+ * drawn (the connection pill hides while connected, the render switch needs a
+ * real page), so they are about half a dozen nodes, and the rest of the 29 is
+ * the rest of the chrome this card and the one before it took out of the pane.
+ * What decides the floor is the number that was measured, 20, not its
+ * breakdown. A floor of 20 therefore stopped meaning "far below the real counts" and
  * started meaning "exactly the browser's", which fails on the pane it was meant
  * to wave through. The new floor keeps both ends: an empty shell is 0, and the
  * half-mounted terminal this same file measured at 8 nodes is still caught.

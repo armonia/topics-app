@@ -148,12 +148,15 @@ video `.webm` degli spec, non resoconti.
       ancora provando» di un collegamento già stabilizzato è l'unica cosa
       sbagliata da dire. La resa (DOM ↔ video) NON prende un'icona: rendono la
       stessa pagina e la differenza si vede nella pagina.
-- [x] Condivisa vale solo dove la sessione è una scelta, cioè dove la pane ha una
-      vista nativa da rendere invece (il guscio desktop, l'unico che pubblica
-      `shareMode`). Sul web `mode` è cablato a 'shared' per ogni pane, quindi
-      leggere `shared` da solo metteva l'icona su OGNI tab browser del web — il
-      badge che questo requisito vieta. Misurato sull'e2e: una pane con la pagina
-      in un `<iframe>` vero usciva «Sessione condivisa fra i tuoi dispositivi».
+- [x] «Condivisa» è la RESA EFFETTIVA, e la pane la pubblica come tale: vera solo
+      dove la pagina sta davvero sul server. Una pane `<iframe>` disegna la
+      pagina col motore di questo dispositivo e pubblica `shared: false`, quindi
+      l'icona sta lontana dal tipo predefinito senza che la tab debba indovinare.
+      Per un giro è stata agganciata anche a `shareMode`, per tenerla via da dove
+      la condivisione non è una scelta: così taceva su TUTTO il web, che
+      `shareMode` non lo pubblica ed è l'unico posto dove la pane è davvero la
+      sessione condivisa. «Il tuo telefono può star guardando questa pagina» non
+      smette di essere vero perché non potevi farne a meno.
 - [x] Commutatori di motore e resa nella sezione Sessione del foglio;
       `BrowserPaneChip` non è più importato da `RemoteBrowserPanel` (e `ChipDot`,
       che serviva solo al pallino di connessione, è morto con lui); il motore
@@ -176,12 +179,18 @@ video `.webm` degli spec, non resoconti.
       `tests/e2e/helpers/browser-geometry.ts`), non i tre testid contati a zero —
       quelli sarebbero verdi su qualunque app, HERO-R-003. Il rettangolo è quello
       dei pixel della pagina per ramo e non il contenitore della pane, che sul
-      ramo streaming era la scatola DENTRO cui le pillole stavano. L'icona di
-      condivisione non è raggiungibile da una corsa web (vedi sopra): la presenza
-      dell'icona la prova `browser-engine-switch` sul motore Chromium.
+      ramo streaming era la scatola DENTRO cui le pillole stavano. E la scena
+      asserisce le DUE metà: la pane streaming È la sessione condivisa, quindi la
+      sua tab porta l'icona `shared`; la pane iframe accanto non ne porta
+      nessuna. Scritta con la sola negazione, la spec restava verde proprio sul
+      difetto che doveva prendere (icona agganciata a `shareMode`, che sul web
+      non esiste: nessuna icona da nessuna parte, e il conteggio a zero
+      soddisfatto).
 - [x] `chrome-bar-surface-inventory`: il pavimento «la pane è montata» scende da
       20 a 10. Il browser contava 49 nodi quando quel numero è stato scritto e
-      conta 20 adesso (tre bottoni, tre `<svg>` e i loro path in meno), quindi 20
+      conta 20 adesso in quella scena (le pillole sono una parte di quel calo,
+      circa mezza dozzina di nodi: quelle che lo stato consente di disegnare
+      sono poche), quindi 20
       voleva dire «esattamente quello del browser» e bocciava la pane che doveva
       far passare.
 

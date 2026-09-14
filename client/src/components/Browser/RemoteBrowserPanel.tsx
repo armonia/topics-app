@@ -831,7 +831,14 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     canGoForward: true,
     downloads: streamDownloads.items.length,
     downloadsStarted: streamDownloads.startedCount,
-    shared: !!shared,
+    // SHARED MEANS "THIS PANE IS SHOWING THE SERVER SESSION", not "this pane was
+    // allowed to". An iframe pane renders the page in this device's own engine:
+    // nothing about it is shared, and no other device is looking at it. Saying
+    // `shared` there was what forced the tab's type icon to look for `shareMode`
+    // instead (desktop only), which in turn silenced the icon on every pane that
+    // really IS shared - the whole web client. Published as the effective render
+    // and read as such.
+    shared: !useIframe && !!shared,
     shareMode,
     // WHAT THIS PANE IS, published instead of drawn over the page. The engine
     // pair travels only when the capability exists, so the sheet can tell "no

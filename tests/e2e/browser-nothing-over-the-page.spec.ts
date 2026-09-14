@@ -44,14 +44,15 @@ hermetic(test);
  * <iframe> is on screen): an absence asserted against a pane that never mounted
  * is free.
  *
- * WHAT THIS FILE CANNOT SHOW, said out loud rather than faked. The SHARING icon
- * needs a pane that could have rendered a native view and chose the server
- * session instead, and that choice exists only in the desktop shell — the web
- * client this suite drives has no native view at all, which is why it publishes
- * no `shareMode` and no sharing icon (see `BrowserTabTypeIcon`). The icon's
- * PRESENCE is therefore proved on the kind a web run can really reach: the real
- * Chromium engine, in `browser-engine-switch`, which asserts `data-kind` flips
- * to `chromium` the moment the engine does.
+ * BOTH HALVES OF THE SCENARIO ARE HERE, the absence and the presence: a
+ * streaming pane IS the shared server session, so its tab must carry the
+ * sharing icon, and the iframe pane next door must carry none. Written as one
+ * `toHaveCount(0)` this file would have stayed green through the very bug it
+ * was supposed to hold - the icon gated on `shareMode`, which the web client
+ * never publishes, drew nothing anywhere and satisfied the only assertion
+ * asked. The other kind, the real Chromium engine, is proved in
+ * `browser-engine-switch`, which asserts `data-kind` flips to `chromium` the
+ * moment the engine does.
  *
  * @covers TOPIC-BROWSER-03
  */
@@ -116,6 +117,15 @@ test.describe("TOPIC-BROWSER-03 — niente di permanente sopra la pagina", () =>
       await expect(page.getByTestId("browser-webrtc-video").first()).toBeVisible({ timeout: 10_000 });
 
       await expectNothingOverThePage(page, "qualcosa è piantato sopra la pagina della pane streaming");
+
+      // AND THE FACT IS SAID SOMEWHERE: what left the page area has to arrive in
+      // the tab, or this file would be happy with an app that simply deleted the
+      // three pills. This pane renders the server session, so another device can
+      // be looking at the same page: that is the sharing kind, and it is the
+      // only cue left that says so.
+      const typeIcon = page.getByTestId("browser-tab-type-icon").first();
+      await expect(typeIcon).toBeVisible({ timeout: 10_000 });
+      await expect(typeIcon).toHaveAttribute("data-kind", "shared");
 
       // The two switches are in the sheet, where a click can reach them — this
       // is the surface that replaced the two pills.
