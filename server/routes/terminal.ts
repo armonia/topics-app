@@ -2740,11 +2740,28 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
   _worktreeStore = ctx.worktreeStore;
   if (tracker) _tracker = tracker;
 
-  // Connect to bridge and reconcile sessions (async, fire-and-forget)
+  // Connect to bridge and reconcile sessions (async, fire-and-forget).
+  //
+  // THE RECONCILE RUNS EVEN WHEN THE FIRST CONNECT FAILS. It used to hang off
+  // `.then` of `ensureBridge()`, so a rejection skipped it, and the reconcile is
+  // the only thing that promotes `rosterReconciled`. A bridge that needs more
+  // than the 3s spawn deadline - a cold CI runner - rejects here and then comes
+  // up anyway: the next POST connects to it lazily and creates sessions, but
+  // the warming gate keeps answering 503 to every DELETE, resize, send and
+  // rename on them for the life of the process. Measured in CI: run 34799985301
+  // shard 1, one "Bridge init failed" at boot, then 9.282 `DELETE ... 503` from
+  // the e2e teardown and every later file red at 0 ms; "roster warming finished
+  // - 9299 request(s)" only appeared when the bridge socket closed at teardown.
+  // Same signature on main in runs 34669019794 and 34675029755 (shard 4).
+  //
+  // `reconcileSessions` already owns the slow-bridge case: an unanswered `list`
+  // reconnects and retries, and after eight tries it restores from the DB and
+  // promotes. It just has to be reached.
   ensureBridge()
+    .catch((err) => console.error("[Terminal] Bridge init failed:", err.message))
     .then(() => reconcileSessions())
     .then(() => broadcastTerminalSessions())
-    .catch((err) => console.error("[Terminal] Bridge init failed:", err.message));
+    .catch((err) => console.error("[Terminal] boot reconcile failed:", err instanceof Error ? err.message : String(err)));
 
   // Parcheggio delle sessioni ferme. SPENTO se `TOPICS_TERMINAL_IDLE_PARK_MS`
   // non c'è, che è il default: vedi `idleParkThresholdMs` per il perché (una
