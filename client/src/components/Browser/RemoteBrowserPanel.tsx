@@ -923,19 +923,32 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     let cancelled = false;
     // Let fetchInfo() (fired in ws.onopen) report the context's real url first,
     // so a context that already holds a page is left untouched.
-    const isBlank = (): boolean => !browserUrlRef.current || browserUrlRef.current === 'about:blank';
+    //
+    // "STILL NEEDS THE SEED" IS NOT THE SAME AS "BLANK", and the difference is
+    // the whole bug the first version of this fix still had. `browser.url` also
+    // holds the url the pane was OPENED on, before anything has loaded it: a
+    // chat-opened pane reads its own target back within milliseconds. Bailing on
+    // "not blank" therefore skipped the navigation precisely in this card's
+    // case, and the pane sat on a context the server had never been told to
+    // load - the same dead pane, now with the right url in the address bar.
+    // So the url we are about to seed counts as "not loaded yet" too; only a
+    // DIFFERENT page means somebody got there first and must not be clobbered.
+    const needsSeed = (): boolean => {
+      const current = browserUrlRef.current;
+      return !current || current === 'about:blank' || current === seedUrl;
+    };
     const t = setTimeout(() => {
       if (seededRef.current) return;
-      if (!isBlank()) { seededRef.current = true; return; }
+      if (!needsSeed()) { seededRef.current = true; return; }
       if (!loopback) {
         seededRef.current = true;
         browser.navigate(seedUrl);
         return;
       }
       void loopbackAlive(seedUrl).then((alive) => {
-        // Re-read blankness: the probe is a round trip, and a navigation may
-        // have landed meanwhile. Seeding over it would be a reload.
-        if (cancelled || seededRef.current || !isBlank()) return;
+        // Re-read: the probe is a round trip, and a real navigation may have
+        // landed meanwhile. Seeding over that one would be a reload.
+        if (cancelled || seededRef.current || !needsSeed()) return;
         seededRef.current = true;
         if (alive) browser.navigate(seedUrl);
         else setDeadLoopback({ url: seedUrl, checkedAt: new Date() });

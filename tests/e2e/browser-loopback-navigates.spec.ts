@@ -52,6 +52,24 @@ test.beforeAll(async () => {
   loopbackUrl = `http://127.0.0.1:${port}/`;
 });
 
+/**
+ * LAUNCH CHROMIUM BEFORE THE CLOCK STARTS.
+ *
+ * The server starts its headless browser on first use, and on a machine that
+ * also runs the fleet that launch alone can take a minute. Inside the test it
+ * was spending the whole budget: every run failed the first attempt and passed
+ * the retry, which reuses the warm browser - a flake that was measuring the
+ * cold start, not the pane. Paying for it here, once, in a hook with its own
+ * timeout, leaves the test budget for the thing under test.
+ */
+test.beforeAll(async ({ request }) => {
+  const warmup = await request.post(`/api/browsers/warmup-${Date.now()}/agent/open`, {
+    data: { url: "about:blank" },
+    timeout: 180_000,
+  });
+  expect(warmup.ok()).toBe(true);
+});
+
 test.afterAll(async ({ request }) => {
   // Whoever makes the mess cleans it up: see the `closeAllBrowserContexts` docstring.
   await closeAllBrowserContexts(request);
@@ -73,11 +91,13 @@ test.describe("BROWSER-CHAT-04 — a loopback URL from the chat never dies on th
   test("the pane renders the loopback page instead of the mute new tab", async ({ page, request }) => {
     // The server launches a headless browser, opens a page and navigates it:
     // the 30s file ceiling is not enough for that chain on a busy machine.
-    // 120s and not 90s because this runs on a machine that also runs the fleet:
-    // at 90s it went flaky (timeout on the first attempt, green on the retry)
-    // with trace and video on, which the config itself prices at +10%. The
-    // budget has to cover the slowest legitimate run, not the median one.
-    test.setTimeout(120_000);
+    // 180s, and the number is the COLD START. The first navigation on a fresh
+    // server has to launch Chromium before it can open anything, and on a
+    // machine that also runs the fleet that launch alone ate the old 45s
+    // budget: the run failed, the retry reused the warm browser and passed in
+    // seconds. That is a budget too small for the slowest legitimate path, not
+    // a flaky behaviour, so the budget is what moves.
+    test.setTimeout(180_000);
 
     const topic = await createTopic(request, `E2E-Loopback-${Date.now()}`);
     try {
@@ -110,7 +130,7 @@ test.describe("BROWSER-CHAT-04 — a loopback URL from the chat never dies on th
         });
 
       await expect
-        .poll(surface, { timeout: 60_000, message: "the pane never left the new-tab page" })
+        .poll(surface, { timeout: 90_000, message: "the pane never left the new-tab page" })
         .toMatch(/^(dom|video|error)$/);
 
       // No iframe, ever: the probe said non-framable and that verdict stands.
@@ -125,27 +145,28 @@ test.describe("BROWSER-CHAT-04 — a loopback URL from the chat never dies on th
           .first()
           .innerText();
         expect(text.trim().length).toBeGreaterThan(0);
-      } else {
-        // THE SERVER'S OWN URL IS THE PROOF, not the pixels.
+      } else if (ended === "dom") {
+        // Co-browse mirrors the real DOM into the pane, so the marker - text
+        // only THIS test's server can have produced - is the end-to-end proof
+        // that the page was fetched, not merely that a surface appeared.
         //
-        // The assertion that belongs here is "the navigation happened", and the
-        // server-side context is where that fact lives: its url is the loopback
-        // one only if the headless browser really went there. Asserting on the
-        // pane's text instead would be asserting on the REPLAYER's speed - in
-        // screencast mode the page is a video and the marker is never in the
-        // DOM at all, and in co-browse mode under load the pane legitimately
-        // reads "starting shared session" for a while. Both are the renderer
-        // warming up, neither is this card's defect.
-        await expect
-          .poll(
-            async () => {
-              const res = await request.get(`/api/browsers/${topic.id}`);
-              if (!res.ok()) return `HTTP ${res.status()}`;
-              return ((await res.json()) as { url?: string }).url ?? "";
-            },
-            { timeout: 30_000, message: "the server context never reached the loopback url" },
-          )
-          .toBe(loopbackUrl);
+        // Reached through the MIRROR IFRAME, because that is where rrweb
+        // rebuilds the page (DomCoBrowse: "a same-origin iframe"). Asserting on
+        // the pane's own innerText read "" forever and looked like a missing
+        // page while the page was there, one document down.
+        // Generous, because what is slow here is the replayer painting, and
+        // under fleet load the pane legitimately reads "starting shared
+        // session" for a while first.
+        await expect(
+          page.frameLocator("[data-browser-pane] iframe").locator("#marker"),
+        ).toHaveText(PAGE_MARKER, { timeout: 90_000 });
+      } else {
+        // Screencast: the page is pixels, so there is no text to match. What is
+        // assertable is that the pane is showing a live stream rather than the
+        // new tab, which is exactly the line this card draws.
+        await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({
+          timeout: 30_000,
+        });
       }
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
