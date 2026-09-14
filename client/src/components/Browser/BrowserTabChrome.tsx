@@ -155,7 +155,8 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     // a badge every tab carries, which is the one thing this requirement
     // forbids. Measured on the TOPIC-BROWSER-03 e2e, where a pane rendering the
     // page in a real <iframe> — this device's own engine, nothing shared about
-    // it — came up labelled "Sessione condivisa fra i tuoi dispositivi".
+    // it — came up labelled with `browser.tab.kind.shared`, the "shared across
+    // your devices" string.
     : chrome.shareMode && chrome.shared ? 'shared'
     : undefined;
   if (!kind) return null;

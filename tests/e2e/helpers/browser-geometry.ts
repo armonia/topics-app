@@ -112,8 +112,8 @@ export interface OverlayOffender {
  *    while it is open, and the pane parks its page behind a still for exactly
  *    that reason;
  *  - `browser-dom-select-mode`: the temporary, user-armed element-select mode,
- *    which the requirement admits in so many words ("uno stato temporaneo
- *    attivato dall'utente ... resta ammesso finché la modalità è attiva").
+ *    which the requirement admits in so many words:
+ *    «uno stato temporaneo attivato dall'utente ... resta ammesso finché la modalità è attiva» (allow-italian: the requirement is quoted verbatim).
  *
  * Nothing else is listed, deliberately: an overlay this list does not know
  * arrives NAMED in the failure message, and whoever reads it decides whether it

@@ -10,8 +10,8 @@ import {
 import { hermetic } from "./fixtures/hermetic";
 import { expectNothingOverThePage } from "./helpers/browser-geometry";
 
-// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
-// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+// Hermetic boundary: this file starts from the globalSetup baseline, not from
+// whatever the preceding specs left behind. See fixtures/hermetic.ts.
 hermetic(test);
 
 /**
