@@ -164,6 +164,18 @@ const viewersMessageSchema = z.object({
   count: z.int().check(z.nonnegative()),
 });
 
+/**
+ * Server -> client: "you own the viewport now, tell me your size".
+ *
+ * Sent to the device that inherits the viewport when the driver of a shared
+ * context disconnects. Without it the page keeps the size of whoever left: the
+ * heir's pane sent its own size when it opened and deduplicates it from then
+ * on, so it has nothing left to say unless it is asked.
+ */
+const viewportRequestMessageSchema = z.object({
+  type: z.literal('viewport_request'),
+});
+
 /** Client -> server (T1 DOM co-browse): how this pane renders — 'video' (JPEG/
  *  WebRTC pixels, default) or 'dom' (rrweb DOM stream, reconstructed natively).
  *  Paired with set_stream:false to pause the screencast while in DOM mode. */
@@ -262,6 +274,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setStreamMessageSchema,
   setWatchingMessageSchema,
   viewersMessageSchema,
+  viewportRequestMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,
   domEventMessageSchema,

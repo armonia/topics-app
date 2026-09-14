@@ -390,11 +390,32 @@ const viewerCountPublisher = createViewerCountPublisher(
   (c, count, except) => broadcastToBrowserWs(c, { type: 'viewers', count }, except),
 );
 
-// Who owns the viewport of a shared context: the client of the last input, or
-// the first one connected while nobody has touched the page. The rule and the
-// reason live in server/browser-viewport-arbiter.ts; here it is only wired to
-// the four socket events that move it (open, input, resize, close).
+// Who owns the viewport of a shared context: the DEVICE of the last input, or
+// the first one that showed up while nobody has touched the page. The rule and
+// the reason live in server/browser-viewport-arbiter.ts; here it is only wired
+// to the socket events that move it (open, native registration, input, resize,
+// close).
 const viewportArbiter = createViewportArbiter();
+
+// The claimant behind a socket. A guest with no device is its own device: it
+// gets the old socket-shaped behaviour instead of sharing a null identity with
+// every other anonymous pane.
+const viewportClientOf = (ws: { data: WSData }) => ({
+  socket: ws.data.id,
+  device: ws.data.deviceId ?? ws.data.id,
+});
+
+// The viewport of a context changed hands. The heir's pane already sent this
+// size once and deduplicates it (useRemoteBrowser), so unless it is asked it
+// will never send it again and the page would keep the size of whoever left.
+function askViewportOf(contextId: string, device: string): void {
+  for (const ws of browserWsClients.get(contextId) ?? []) {
+    if (ws.readyState !== 1 || (ws.data.deviceId ?? ws.data.id) !== device) continue;
+    try {
+      ws.send(JSON.stringify({ type: 'viewport_request' } satisfies BrowserWsMessage));
+    } catch { /* socket already gone */ }
+  }
+}
 
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
 // (migration 012). Without this, every GET/PUT would silently degrade. Fail loud.
@@ -3646,7 +3667,7 @@ const opzioniServer = {
         const ctxId = ws.data.browserContextId;
         console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
         // Arrival order decides the viewport until somebody uses the page.
-        viewportArbiter.noteConnect(ctxId, ws.data.id);
+        viewportArbiter.noteConnect(ctxId, viewportClientOf(ws));
         // Phase 30 BROWSER-CHAT-03 — register this WS in the broadcast set
         // so broadcastToBrowserWs(ctxId, msg) reaches it.
         let bset = browserWsClients.get(ctxId);
@@ -3921,6 +3942,12 @@ const opzioniServer = {
             return;
           }
           if (delegated === 'registered') {
+            // This socket executes, it does not watch: it leaves the audience of
+            // the viewport arbiter, exactly as it leaves the viewer count. A
+            // native pane has no viewport of its own to impose, and counting it
+            // as a spectator made the shell's own streaming socket queue up
+            // behind a phone when the pane later flipped to shared.
+            viewportArbiter.noteExecutor(ctxId, viewportClientOf(ws));
             // A native pane runs ops itself — it never views server frames, so tear
             // down the screencast the open handler auto-started (no wasted headless
             // Chromium / bandwidth for a context that isn't streaming).
@@ -4027,7 +4054,7 @@ const opzioniServer = {
           const parsed = result.data;
           if (parsed.type === 'input') {
             // Using the page is what makes a client the driver of its viewport.
-            if (isDrivingInput(parsed.action)) viewportArbiter.noteInput(ctxId, ws.data.id);
+            if (isDrivingInput(parsed.action)) viewportArbiter.noteInput(ctxId, viewportClientOf(ws));
             const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
               console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
               return 'failed' as const;
@@ -4113,8 +4140,8 @@ const opzioniServer = {
             // input it just sent. It has to be said out loud because input can
             // go down the WebRTC DataChannel straight to the sidecar, and the
             // branch above never sees it.
-            if (parsed.driving) viewportArbiter.noteInput(ctxId, ws.data.id);
-            if (!viewportArbiter.canResize(ctxId, ws.data.id)) return;
+            if (parsed.driving) viewportArbiter.noteInput(ctxId, viewportClientOf(ws));
+            if (!viewportArbiter.canResize(ctxId, viewportClientOf(ws))) return;
             browserService.resize(ctxId, parsed.width, parsed.height, parsed.deviceScaleFactor).catch(err =>
               console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
             );
@@ -4318,8 +4345,10 @@ const opzioniServer = {
       if (ws.data.browserContextId) {
         console.log(`[WS][browser] Close: ${ws.data.id} -> ctx ${ws.data.browserContextId}`);
         // The viewport goes back to the oldest pane left (and the context is
-        // forgotten when this was the last one).
-        viewportArbiter.noteDisconnect(ws.data.browserContextId, ws.data.id);
+        // forgotten when this was the last one). Asking the heir for its size
+        // is deferred below: it has to happen once this socket is out of the
+        // broadcast set, and never to the socket that is leaving.
+        const viewportHeir = viewportArbiter.noteDisconnect(ws.data.browserContextId, viewportClientOf(ws));
         // Phase 30 BROWSER-CHAT-03 — remove from broadcast set BEFORE invoking
         // cleanup so any concurrent broadcast no longer targets this socket.
         const bset = browserWsClients.get(ws.data.browserContextId);
@@ -4332,6 +4361,7 @@ const opzioniServer = {
             viewerCountPublisher.publish(ws.data.browserContextId);
           }
         }
+        if (viewportHeir) askViewportOf(ws.data.browserContextId, viewportHeir);
         browserService.refreshBackgroundPriority(`viewer left: ${ws.data.browserContextId}`);
         // T1 DOM co-browse — if this was the last DOM-mode viewer, stop emission
         // (the page keeps recording cheaply; no wasted `dom_event` fan-out).
