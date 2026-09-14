@@ -30,8 +30,6 @@
   "files": {
     "client/src/App.tsx": 2,
     "client/src/components/Auth/PairingApproval.tsx": 1,
-    "client/src/components/Browser/AgentActivityPill.tsx": 1,
-    "client/src/components/Browser/BrowserToolbar.tsx": 10,
     "client/src/components/Browser/DownloadsMenu.tsx": 3,
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 5,
     "client/src/components/Browser/consoleLogModel.ts": 2,
@@ -124,7 +122,6 @@
   },
   "untranslated": {
     "client/src/components/Board/UnifiedDiff.tsx": 2,
-    "client/src/components/Browser/BrowserToolbar.tsx": 1,
     "client/src/components/Browser/DownloadsMenu.tsx": 1,
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 2,
     "client/src/components/Context/ContextInspector.tsx": 2,

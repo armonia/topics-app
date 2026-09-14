@@ -54,6 +54,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
 import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue, BrowserTabDownloadsCue } from '../Browser/BrowserTabChrome';
 import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
+import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/browserTabLabel';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
@@ -85,6 +86,25 @@ const TAB_W_BROWSER_ACTIVE = 300;
 /** Max px a native tab "drag" may travel and still count as a click the browser
  *  ate (see dragStartPtRef). Mirrors SplitTree's DRAG_SLOP_PX. */
 const TAB_DRAG_SLOP_PX = 4;
+
+/**
+ * Did this event start INSIDE the tab's own DOM, or did it only reach the tab
+ * through React?
+ *
+ * React bubbles events along the COMPONENT tree, not the DOM tree, so anything
+ * portalled from inside a tab arrives at the tab's handlers even though it is
+ * drawn in `<body>`. A browser tab portals its whole sheet (`BrowserTabSheet`):
+ * a double click on the address field zoomed the pane (or pinned a preview
+ * tab), a right click opened the TAB's menu instead of the field's, selecting
+ * text and dragging it started a TAB drag, and a long press armed the tab menu.
+ * One guard on the tab side covers every handler, including the ones added
+ * later; a list of `stopPropagation` on the sheet would always leave one out.
+ * `onPointerDown` deliberately stays unguarded: taking AppKit's first
+ * responder back to the chrome is exactly what typing in the sheet needs.
+ */
+function fromThisTab(e: React.SyntheticEvent): boolean {
+  return (e.currentTarget as Node).contains(e.target as Node);
+}
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound,
@@ -624,6 +644,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   }, { enabled: isTouch });
 
   const handleContextMenu = useCallback((paneId: string) => (e: React.MouseEvent) => {
+    // The field inside a portalled sheet keeps its own menu (see `fromThisTab`).
+    if (!fromThisTab(e)) return;
     e.preventDefault();
     e.stopPropagation();
     openTabMenu(paneId, e.currentTarget as HTMLElement);
@@ -660,6 +682,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
+    // Text dragged out of a portalled sheet is not a tab drag (see `fromThisTab`).
+    if (!fromThisTab(e)) return;
     // D8: any intent to REORGANISE leaves the zoom before it applies. A tab
     // drag has every one of its targets (`FullWidthRowZone`, `RowGapDropZone`,
     // `InsertDividers`) inside the collapsed area, so starting one with the
@@ -729,6 +753,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   }, [onReorderPanes, isZoomed, groupId, panes, dndScope, tabNotifications, etichettaTab]);
 
   const handleTabDragOver = useCallback((paneIdx: number) => (e: React.DragEvent) => {
+    if (!fromThisTab(e)) return;
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
     // Scope guard: a tab from another window/project must not paint insert
     // indicators here — we'd only reject it on drop. (No preventDefault, so the
@@ -1304,6 +1329,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // first-responder; yank it back to the chrome on pointer-down so the
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
             onPointerDown={() => releaseNativeFocus()}
+            // The sheet's body is a lazy chunk: warm it while the pointer is
+            // on its way to the click, so the panel does not open empty.
+            onPointerEnter={pane.type === 'browser' ? prefetchBrowserTabSheet : undefined}
+            onFocus={pane.type === 'browser' ? prefetchBrowserTabSheet : undefined}
             onClick={() => { if (tabLongPress.consumeClick()) return; if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             // Il doppio clic è il gesto con cui si dice «questa la tengo»: vale
             // anche per una chat nuova, che da quel momento non si richiude più
@@ -1325,6 +1354,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // (LAYOUT-40). It names what the gesture asked for; which cells
             // that buys is `resolveEntryScope`'s answer, upstream.
             onDoubleClick={(e) => {
+              if (!fromThisTab(e)) return;
               markDraftTouched(pane.id);
               if (pane.preview) { onPinPane?.(pane.id); return; }
               if (zoomAvailableFor(pane.id)) onToggleZoom?.(pane.id, e.altKey ? 'cell' : 'derived');
@@ -1335,7 +1365,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // uno per tutta la barra (vedi `pressingPaneId`).
             data-pressing={(tabLongPress.pressed && pressingPaneId === pane.id) || undefined}
             {...tabLongPress.handlers}
-            onTouchStart={(e) => { setPressingPaneId(pane.id); tabLongPress.handlers.onTouchStart(e); }}
+            onTouchStart={(e) => { if (!fromThisTab(e)) return; setPressingPaneId(pane.id); tabLongPress.handlers.onTouchStart(e); }}
             // …e a fine gesto si azzera. `pressingPaneId` restava all'ultima tab
             // premuta per sempre: innocuo finché l'AND con `tabLongPress.pressed`
             // regge il feedback, ma è uno stato che sopravvive al gesto che lo ha
@@ -1434,6 +1464,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // rinominarne una li faceva passare a verde-vuoto senza che nulla
               // fosse rotto. Un data-attribute è il vero appiglio».
               data-testid="pane-tab-label"
+              // One of the doors of the browser sheet: pressed while the sheet
+              // is open, it closes it instead of opening it again.
+              data-sheet-door={pane.type === 'browser' ? '' : undefined}
               className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}

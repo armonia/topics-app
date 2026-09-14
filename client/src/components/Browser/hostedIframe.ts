@@ -59,7 +59,7 @@ const pendingHide = new Map<string, ReturnType<typeof setTimeout>>();
 let layer: HTMLDivElement | null = null;
 
 /**
- * WHILE A PANE IS BEING DRAGGED, THE LAYER STEPS ASIDE.
+ * WHILE A PANE IS BEING DRAGGED, OR A TAB SHEET COVERS IT, THE LAYER STEPS ASIDE.
  *
  * Dropping a tab onto a pane body is how panes merge into one group, and the
  * target of that drop is an overlay the pane renders over itself
@@ -74,8 +74,13 @@ let layer: HTMLDivElement | null = null;
  *
  * `dragstart` only reaches this document for a drag that started in it: a page
  * dragging something inside the frame is its own business and never gets here.
+ *
+ * The tab sheet (`BrowserTabSheetBody`) asks for the same thing for the same
+ * reason: a click on a frame is dispatched to the frame's document, so while
+ * the sheet is open "a click on the page closes the sheet" needs the click to
+ * land on the app instead.
  */
-function setFramesInteractive(interactive: boolean): void {
+export function setFramesInteractive(interactive: boolean): void {
   for (const { wrapper } of hosted.values()) {
     wrapper.style.pointerEvents = interactive ? 'auto' : 'none';
   }

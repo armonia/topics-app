@@ -72,7 +72,7 @@ function ConsoleRow({ row }: { row: ConsoleLogRow }) {
 }
 
 export function ConsoleBadge({
-  entries, summary, onClear, open: openProp, onOpenChange, label, testId,
+  entries, summary, onClear, open: openProp, onOpenChange, label, testId, popoverOwner,
 }: {
   entries: BrowserConsoleEntry[];
   summary: { errors: number; warnings: number };
@@ -90,6 +90,9 @@ export function ConsoleBadge({
    *  that wants to open the console has to click this exact element: a wrapper
    *  around it would be clicked in its middle and miss. */
   testId?: string;
+  /** Marks the panel as opened BY a host surface (`Menu`'s `owner`), so that
+   *  host can count a click in it as a click inside itself. */
+  popoverOwner?: string;
 }) {
   const t = useT();
   const [openLocal, setOpenLocal] = useState(false);
@@ -195,7 +198,7 @@ export function ConsoleBadge({
           restore). A scrollable log panel that owns its own layout → unmanagedFocus.
           The `-my-1` wrapper cancels Menu's POPOVER_SURFACE py-1 so the header/body
           sit flush to the card edges exactly like the old POPOVER_PANEL surface. */}
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-[460px] max-w-[86vw]">
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-[460px] max-w-[86vw]" owner={popoverOwner}>
         <div className="-my-1 flex flex-col" data-testid="browser-console-panel">
           <div className="px-2 py-1.5 border-b border-app-border flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">

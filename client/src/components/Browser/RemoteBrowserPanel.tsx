@@ -509,7 +509,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
 
   // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
   // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·
-  // Cmd+(+/-/0) zoom. Skip when typing in a different text field.
+  // Cmd+(+/-/0) zoom. Skip when typing in a text field: the sheet's own address
+  // field stops its keys before they get here.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
@@ -517,8 +518,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName ?? '';
       const isTextField = tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable;
-      const isUrlBar = (target as HTMLInputElement | null)?.dataset?.testid === 'browser-url-input';
-      if (isTextField && !isUrlBar) return;
+      if (isTextField) return;
       const k = e.key.toLowerCase();
       if (e.altKey && k === 'i') { e.preventDefault(); void browser.toggleDevTools(); }
       else if (!e.altKey && !e.shiftKey && k === 'l') { e.preventDefault(); focusUrlBar(); }

@@ -242,6 +242,8 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
       title={t('browser.tab.menu')}
       aria-label={t('browser.tab.menu')}
       aria-haspopup="dialog"
+      // A door of the sheet: pressed while it is open, it closes it.
+      data-sheet-door=""
       data-testid="browser-tab-menu"
       data-console-errors={errors || undefined}
     >

@@ -67,6 +67,11 @@ export interface MenuProps {
   ariaLabel?: string;
   /** false = aprendosi NON chiude gli altri popover (sotto-superficie). */
   exclusive?: boolean;
+  /** Who opened this menu, written on the panel as `data-popover-owner`. The
+   *  panel is portalled to <body>, so a surface that must tell "a click in a
+   *  popover I opened" from "a click in some other popover" cannot ask the DOM
+   *  tree: it asks this mark (`BrowserTabSheetBody`). */
+  owner?: string;
 }
 
 export function Menu({
@@ -86,6 +91,7 @@ export function Menu({
   testId,
   ariaLabel,
   exclusive = true,
+  owner,
 }: MenuProps) {
   const { isMobile } = useMobile();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -190,6 +196,7 @@ export function Menu({
         // scrivendo altrove» e SMONTAVA il composer che ospitava il menu — il
         // popover spariva sotto il primo carattere digitato.
         data-popover=""
+        data-popover-owner={owner}
         aria-label={ariaLabel}
         className={
           isMobile

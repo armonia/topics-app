@@ -68,9 +68,12 @@ export interface DownloadsMenuProps {
   /** Override the trigger's testid. It ANCHORS the list, so a test that opens
    *  the downloads has to click this exact element. */
   testId?: string;
+  /** Marks the list as opened BY a host surface (`Menu`'s `owner`), so that
+   *  host can count a click in it as a click inside itself. */
+  popoverOwner?: string;
 }
 
-export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal, requestOpen = 0, label, testId }: DownloadsMenuProps) {
+export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onClear, onOpen, onReveal, requestOpen = 0, label, testId, popoverOwner }: DownloadsMenuProps) {
   // `wanted` è la VOLONTÀ (il menu è stato aperto), non il fatto: se l'elenco è
   // vuoto il bottone non esiste e il menu non ha più un'ancora, quindi
   // `open` si DERIVA. Prima quella riconciliazione era un effetto che spegneva
@@ -151,6 +154,7 @@ export function DownloadsMenu({ items, activeCount, startedCount, onDismiss, onC
         className="max-w-[380px]"
         testId="browser-downloads-menu"
         ariaLabel="Download"
+        owner={popoverOwner}
       >
         <div className="px-3 py-1 flex items-center justify-between gap-2">
           <span className="text-mini font-medium text-app-text-secondary">Download</span>
