@@ -22,14 +22,23 @@
  * exports a function loses fast refresh, and knip reads a bare `import()` as
  * opaque (every export of the target would count as used).
  */
+import type { ComponentProps, ComponentType } from 'react';
 import { lazyWarm, warm } from '../../lib/lazyWarm';
+// Type-only: erased from the output, so the body stays out of this chunk.
+import type { BrowserTabSheetBody as Body } from './BrowserTabSheetBody';
 
 const loadBrowserTabSheetBody = async () => {
-  const { BrowserTabSheetBody: Body } = await import('./BrowserTabSheetBody');
-  return { BrowserTabSheetBody: Body };
+  const { BrowserTabSheetBody: Component } = await import('./BrowserTabSheetBody');
+  return { BrowserTabSheetBody: Component };
 };
 
-export const BrowserTabSheetBody = lazyWarm(loadBrowserTabSheetBody, (m) => m.BrowserTabSheetBody);
+// Annotated with the props of the real component: an inferred type would name
+// the body's props interface, which that module does not export (TS4023 under
+// declaration emit).
+export const BrowserTabSheetBody: ComponentType<ComponentProps<typeof Body>> = lazyWarm(
+  loadBrowserTabSheetBody,
+  (m) => m.BrowserTabSheetBody,
+);
 
 let prefetched = false;
 
