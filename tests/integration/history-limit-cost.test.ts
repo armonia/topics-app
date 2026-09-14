@@ -77,6 +77,18 @@ async function historyCaller(sessionKey: string, turns: number): Promise<Caller>
   };
 }
 
+/** Median wall clock of one caller at two limits, interleaved. */
+async function medianLimits(c: Caller, la: number, lb: number, runs = 5): Promise<[number, number]> {
+  const ta: number[] = [];
+  const tb: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    let t0 = performance.now(); await c(la); ta.push(performance.now() - t0);
+    t0 = performance.now(); await c(lb); tb.push(performance.now() - t0);
+  }
+  const m = (xs: number[]) => xs.sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+  return [m(ta), m(tb)];
+}
+
 /** Median wall clock of `runs` calls, interleaving the two sessions. */
 async function medianPair(a: Caller, b: Caller, limit: number, runs = 5): Promise<[number, number]> {
   const ta: number[] = [];
@@ -112,8 +124,21 @@ describe("cost of a limited /api/history", () => {
   test("the fixture really is fat: asking for everything does cost more", async () => {
     const small = await historyCaller("topic:cost-small-all", 1);
     const big = await historyCaller("topic:cost-big-all", 14);
-    const [tSmall, tBig] = await medianPair(small, big, 0, 3);
-    expect(tBig / Math.max(tSmall, 0.05)).toBeGreaterThan(3);
+    // This case keeps the one above from being vacuous: a ratio under 4x
+    // proves nothing if the fat session is not actually fat. It used to time
+    // two full reads and demand >3x, and under load the ratio collapsed: the
+    // small read inflates in relative terms, and a median of three samples
+    // does not absorb it. The fatness is DATA, so measure the data: the
+    // payload the server has to build, which no scheduler can shrink.
+    const tiny = (await small(0)).bytes;
+    const fat = (await big(0)).bytes;
+    expect(fat / tiny).toBeGreaterThan(3);
+
+    // And those bytes have to cost TIME, or the case above proves nothing.
+    // Measured WITHIN the fat session, full read against limited read: both
+    // sides carry the same load, so a busy machine moves them together.
+    const [tAll, tOne] = await medianLimits(big, 0, 1);
+    expect(tAll / Math.max(tOne, 0.05)).toBeGreaterThan(3);
   });
 
   test("the limited answer carries the same message the full one ends with", async () => {

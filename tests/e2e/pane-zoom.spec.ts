@@ -252,7 +252,12 @@ async function seedGrid(page: Page, request: APIRequestContext, opts: SeedOption
     // Swallow: no server, no frames. With a log, also transcribe what the pane
     // sends, keyed by the context id in its own URL.
     if (!wsLog) return;
-    const ctx = decodeURIComponent(ws.url().split("/ws/browser/")[1] ?? "");
+    // The key is the context id and NOTHING ELSE. The pane also puts its own
+    // name in the query string (`?client=`, the viewport arbiter needs to tell
+    // two panes apart), so splitting the whole URL would key this log by
+    // "<ctx>?client=..." and every lookup by context id would miss. Read the
+    // path, which is the only part that carries the context.
+    const ctx = decodeURIComponent(new URL(ws.url()).pathname.split("/ws/browser/")[1] ?? "");
     ws.onMessage((msg) => {
       const bucket = wsLog.get(ctx) ?? [];
       bucket.push(String(msg));

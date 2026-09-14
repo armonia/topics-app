@@ -35,6 +35,7 @@ import { onBeforeBundleReload } from '../lib/devBundleReload';
 import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { currentOverlays, decideFreeze, liveSlotRect, onOcclusionChange, type OverlayRect } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
+import { browserClientId } from '../lib/browserClientId';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM, zoomApplyJs, zoomDrifted } from '../lib/shell/zoomScale';
 import {
@@ -1555,7 +1556,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // streaming socket carries it while shared); see viewerCountBus.
     let detachViewerChannel: (() => void) | null = null;
     const run = startNativeExecutorSocket({
-      url: `${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`,
+      // Same `?client=` as the streaming socket of this pane: when auto mode
+      // flips native to shared, the server has to see one client changing
+      // socket and not a newcomer queueing behind whoever is watching.
+      url: `${serverWsBase()}/ws/browser/${encodeURIComponent(id)}?client=${encodeURIComponent(browserClientId())}`,
       onViewers: (count) => pushViewerCount(id, count),
       onChannel: (up) => {
         detachViewerChannel?.();

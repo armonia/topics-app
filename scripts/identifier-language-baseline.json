@@ -198,7 +198,6 @@
       "vola"
     ],
     "client/src/components/Browser/DomCoBrowse.tsx": [
-      "RrwebEvent",
       "acc",
       "focusKbdAt",
       "kbdRef",
@@ -2693,9 +2692,6 @@
       "buf"
     ],
     "server/browser-service.ts": [
-      "RRWEB_RECORD_BUNDLE",
-      "RRWEB_RECORD_START",
-      "RRWEB_STOP",
       "ScreencastOnFrame",
       "buf",
       "clampDsf",
@@ -6075,9 +6071,6 @@
       "txt",
       "txtRes"
     ],
-    "tests/e2e/browser-dom-cobrowse.spec.ts": [
-      "RRWEB_EVENTS"
-    ],
     "tests/e2e/browser-forget-site-shared.spec.ts": [
       "apriIlDialogo",
       "bordo",
@@ -6096,7 +6089,6 @@
       "preB"
     ],
     "tests/e2e/browser-mobile-keyboard.spec.ts": [
-      "RRWEB_FIELDS",
       "email",
       "kbd",
       "otp"

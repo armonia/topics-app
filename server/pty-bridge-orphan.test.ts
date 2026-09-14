@@ -60,8 +60,21 @@ const BRIDGE_ENV_FAST = { TOPICS_PTY_BRIDGE_MONITOR_TICK_MS: String(MONITOR_TICK
 const IDLE_EXIT_MS = slackMs(2_000);
 /** Long enough to catch a connect that has to cross a loaded scheduler. */
 const CLIENT_OPEN_MS = slackMs(5_000);
-/** Four times the idle window: the backstop had every chance and did not fire. */
-const IDLE_PROOF_MS = IDLE_EXIT_MS * 4;
+/**
+ * The idle window for the ONE case that has to attach a client first, and it is
+ * deliberately not `IDLE_EXIT_MS`.
+ *
+ * That case was racing itself. It allows the connect up to `CLIENT_OPEN_MS` to
+ * complete, which is longer than `IDLE_EXIT_MS`: on a loaded machine the bridge
+ * legitimately retired while the client was still crossing the scheduler, and
+ * the test read that as "the backstop killed a bridge in use". The window the
+ * case needs is one the attach cannot lose to, so it is the worst connect we
+ * tolerate PLUS a full idle window on top.
+ *
+ * The assertion does not get weaker: the proof below still sleeps past this
+ * window, so the backstop has had its chance and declined to fire.
+ */
+const BUSY_IDLE_EXIT_MS = CLIENT_OPEN_MS + IDLE_EXIT_MS;
 /** The per-test ceiling, which has to hold all of the above. */
 const CASE_MS = slackMs(40_000);
 
@@ -195,7 +208,7 @@ describe("pty-bridge · backstop idle", () => {
 
   test("con un client attaccato NON si ritira (il backstop non uccide chi è in uso)", async () => {
     const sock = socketPath("busy");
-    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: String(IDLE_EXIT_MS) });
+    const bridge = spawnBridge(sock, process.pid, { ...BRIDGE_ENV_FAST, TOPICS_PTY_BRIDGE_IDLE_EXIT_MS: String(BUSY_IDLE_EXIT_MS) });
     expect(await until(() => existsSync(sock), 15_000)).toBe(true);
 
     const client = net.connect(sock);
@@ -204,7 +217,7 @@ describe("pty-bridge · backstop idle", () => {
 
     let exited = false;
     void bridge.exited.then(() => { exited = true; });
-    await Bun.sleep(IDLE_PROOF_MS); // four times the idle window
+    await Bun.sleep(BUSY_IDLE_EXIT_MS * 2); // well past the window it was given
     expect(exited).toBe(false);
   }, CASE_MS);
 });

@@ -120,6 +120,7 @@ import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
 import { countSharedViewers, createViewerCountPublisher } from "./server/browser-viewer-count";
+import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
@@ -389,6 +390,27 @@ const viewerCountPublisher = createViewerCountPublisher(
   (c) => countSharedViewers(browserWsClients.get(c)),
   (c, count, except) => broadcastToBrowserWs(c, { type: 'viewers', count }, except),
 );
+
+// Who owns the viewport of a shared context: the DEVICE of the last input, or
+// the first one that showed up while nobody has touched the page. The rule
+// lives in server/browser-viewport-arbiter.ts and the translation from socket
+// to claimant in server/browser-viewport-wiring.ts; here the wiring is only
+// called on the five events that move it (open, native registration, input,
+// resize, close).
+const viewportWiring = createViewportWiring({
+  socketsOf: (contextId) => browserWsClients.get(contextId),
+  // THE ONLY DOOR to the viewport of a shared page, and the question that
+  // guards it is INSIDE `onFrame`, not next to it. It used to be here, as
+  // `if (!onResize(...)) return;` followed by the call: two reviews found that
+  // dropping the `if` or freezing the claim to `false` brought the original bug
+  // back with every unit test still green, because nothing but a real Chromium
+  // ever read those two lines.
+  resize: (contextId, width, height, deviceScaleFactor) => {
+    browserService.resize(contextId, width, height, deviceScaleFactor).catch((err) =>
+      console.warn(`[WS][browser] resize failed for ${contextId}:`, err.message),
+    );
+  },
+});
 
 // Boot-time invariant (Bug #7): ui_state.payload_version/server_seq must exist
 // (migration 012). Without this, every GET/PUT would silently degrade. Fail loud.
@@ -3640,6 +3662,8 @@ const opzioniServer = {
       if (ws.data.browserContextId) {
         const ctxId = ws.data.browserContextId;
         console.log(`[WS][browser] Open: ${ws.data.id} -> ctx ${ctxId}`);
+        // Arrival order decides the viewport until somebody uses the page.
+        viewportWiring.onOpen(ctxId, ws.data);
         // Phase 30 BROWSER-CHAT-03 — register this WS in the broadcast set
         // so broadcastToBrowserWs(ctxId, msg) reaches it.
         let bset = browserWsClients.get(ctxId);
@@ -3914,6 +3938,12 @@ const opzioniServer = {
             return;
           }
           if (delegated === 'registered') {
+            // This socket executes, it does not watch: it leaves the audience of
+            // the viewport arbiter, exactly as it leaves the viewer count. A
+            // native pane has no viewport of its own to impose, and counting it
+            // as a spectator made the shell's own streaming socket queue up
+            // behind a phone when the pane later flipped to shared.
+            viewportWiring.onNativeExecutor(ctxId, ws.data);
             // A native pane runs ops itself — it never views server frames, so tear
             // down the screencast the open handler auto-started (no wasted headless
             // Chromium / bandwidth for a context that isn't streaming).
@@ -4019,6 +4049,8 @@ const opzioniServer = {
           }
           const parsed = result.data;
           if (parsed.type === 'input') {
+            // Using the page is what makes a client the driver of its viewport.
+            viewportWiring.onFrame(ctxId, ws.data, parsed);
             const relayed = browserService.dispatchInput(ctxId, parsed.action, parsed.payload).catch(err => {
               console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message);
               return 'failed' as const;
@@ -4091,10 +4123,18 @@ const opzioniServer = {
             browserService.broadcastAgentActive(ctxId, false);
           } else if (parsed.type === 'resize') {
             // Match the server viewport (+HiDPI) to the pane's real size so the
-            // page reflows responsively and renders sharp — no fixed-1280 letterbox.
-            browserService.resize(ctxId, parsed.width, parsed.height, parsed.deviceScaleFactor).catch(err =>
-              console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
-            );
+            // page reflows responsively and renders sharp, no fixed-1280
+            // letterbox.
+            //
+            // Only from the driver (TOPIC-BROWSER-05), and the deciding is not
+            // done here: `onFrame` answers and applies in one move. A
+            // spectator's pane keeps streaming its own size from its
+            // ResizeObserver, and applying it reflowed the shared page to the
+            // smallest screen watching it: a phone opening the context turned
+            // the Mac's page into a phone page under the hands of whoever was
+            // typing. Dropped silently: the spectator is not asking for
+            // anything, it is just measuring itself.
+            viewportWiring.onFrame(ctxId, ws.data, parsed);
           } else if (parsed.type === 'set_engine') {
             // Engine switch (task 54601eeb). Non più dietro un flag: la
             // capacità la decide la presenza di un Chromium sulla macchina, e il
@@ -4294,6 +4334,11 @@ const opzioniServer = {
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
       if (ws.data.browserContextId) {
         console.log(`[WS][browser] Close: ${ws.data.id} -> ctx ${ws.data.browserContextId}`);
+        // The viewport goes back to the oldest pane left (and the context is
+        // forgotten when this was the last one). Asking the heir for its size
+        // is deferred below: it has to happen once this socket is out of the
+        // broadcast set, and never to the socket that is leaving.
+        const viewportHeir = viewportWiring.onClose(ws.data.browserContextId, ws.data);
         // Phase 30 BROWSER-CHAT-03 — remove from broadcast set BEFORE invoking
         // cleanup so any concurrent broadcast no longer targets this socket.
         const bset = browserWsClients.get(ws.data.browserContextId);
@@ -4306,6 +4351,7 @@ const opzioniServer = {
             viewerCountPublisher.publish(ws.data.browserContextId);
           }
         }
+        if (viewportHeir) viewportWiring.askViewportOf(ws.data.browserContextId, viewportHeir);
         browserService.refreshBackgroundPriority(`viewer left: ${ws.data.browserContextId}`);
         // T1 DOM co-browse — if this was the last DOM-mode viewer, stop emission
         // (the page keeps recording cheaply; no wasted `dom_event` fan-out).

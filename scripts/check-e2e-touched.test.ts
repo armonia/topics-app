@@ -49,6 +49,7 @@ describe("selectSpecs", () => {
     spec("sidebar-chevron-column.spec.ts", 'page.locator(\'[role="tree"]\')'),
     spec("share-project.spec.ts", 'getByTestId("project-share")'),
     spec("add-menu.spec.ts", 'import { TERMINAL_AGENT_TYPES } from "../../shared/terminal-session-types";'),
+    spec("model-labels.spec.ts", 'import type { Task } from "../../shared/types";'),
   ];
 
   test("a changed spec is its own reason to run", () => {
@@ -58,6 +59,17 @@ describe("selectSpecs", () => {
 
   test("a file nobody imports and no spec names selects nothing", () => {
     expect(selectSpecs(["docs/whatever.md", "package.json"], all)).toEqual([]);
+  });
+
+  test("a namesake in another folder is not an import of this one", () => {
+    // One name, two files: `server/types.ts` is not `shared/types.ts`.
+    // Matching the bare name made a change to the server one pull in
+    // every spec importing the shared one, and those reds landed on
+    // cards that had never touched it.
+    const mine = selectSpecs(["server/types.ts"], all);
+    expect(mine.map((p) => p.file)).toEqual([]);
+    const real = selectSpecs(["shared/types.ts"], all);
+    expect(real.map((p) => p.file)).toEqual(["tests/e2e/model-labels.spec.ts"]);
   });
 
   test("the area beats a passing testid mention", () => {

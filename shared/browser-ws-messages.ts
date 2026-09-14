@@ -92,6 +92,12 @@ const resizeMessageSchema = z.object({
   width: z.int().check(z.positive()),
   height: z.int().check(z.positive()),
   deviceScaleFactor: z.optional(z.number().check(z.minimum(1), z.maximum(3))),
+  // "This size comes with an input of mine". Whoever uses the page owns its
+  // viewport (TOPIC-BROWSER-05), so in a shared session the server drops the
+  // `resize` of a client that is only watching. The flag is needed because
+  // input also travels on the WebRTC DataChannel, which the server never sees:
+  // without it a phone that scrolls would stay a spectator forever.
+  driving: z.optional(z.boolean()),
 });
 
 /** Server -> client: a headless-page download saved under our origin. */
@@ -156,6 +162,18 @@ const setWatchingMessageSchema = z.object({
 const viewersMessageSchema = z.object({
   type: z.literal('viewers'),
   count: z.int().check(z.nonnegative()),
+});
+
+/**
+ * Server -> client: "you own the viewport now, tell me your size".
+ *
+ * Sent to the device that inherits the viewport when the driver of a shared
+ * context disconnects. Without it the page keeps the size of whoever left: the
+ * heir's pane sent its own size when it opened and deduplicates it from then
+ * on, so it has nothing left to say unless it is asked.
+ */
+const viewportRequestMessageSchema = z.object({
+  type: z.literal('viewport_request'),
 });
 
 /** Client -> server (T1 DOM co-browse): how this pane renders — 'video' (JPEG/
@@ -256,6 +274,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setStreamMessageSchema,
   setWatchingMessageSchema,
   viewersMessageSchema,
+  viewportRequestMessageSchema,
   setRenderMessageSchema,
   renderModeMessageSchema,
   domEventMessageSchema,

@@ -2,13 +2,30 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.319 — 2026-09-14
+
+### Correzioni
+- **ui-state** · compare a read with what landed during ITS flight
+- **ui-state** · a counter that went backwards, and a deletion that counts as applied
+
+### Sotto il cofano
+- **ui-state** · name the task id helper in English
+
 ## 2.2.318 — 2026-09-14
+
+### Correzioni
+- **ui-state** · a read may not undo a frame that landed while it travelled
 
 ### Sotto il cofano
 - The roster test waits for the answer it asserts, not for a message on the way there
 - Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima
 
 ## 2.2.317 — 2026-09-14
+
+### Correzioni
+- **ui-state** · hold a write's protection until the server answers
+- **ui-state** · arbitrate an in-flight write against inbound frames by server_seq
+- **ui-state** · re-read a key the resync had to skip, and cap the flight safely
 
 ### Sotto il cofano
 - la pane non disegna più niente di permanente sopra la pagina
@@ -26,6 +43,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A wait that gives up quietly blames the wrong test
 - The waiting loop becomes testable, and its patience becomes a duration
 - il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic
+- **ui-state** · pin the guards nothing was holding, and pay the entry budget
 - l'icona di condivisione torna dove la condivisione c'e' davvero
 - A test that counts rounds cannot see a clock being reset
 
