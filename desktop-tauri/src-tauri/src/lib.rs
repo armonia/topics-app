@@ -49,7 +49,10 @@ mod boot_choice;
 mod daemon_record;
 mod boot_degraded;
 mod reconnect_page;
-use boot_choice::{decide_boot, may_concede_the_port, BootChoice, BootFacts, Loopback};
+use boot_choice::{
+    decide_boot, discover_upstream, BootChoice, BootFacts, Loopback, PortAnswer, ShapeVerdict,
+    ALONE_BEFORE_CONCEDING,
+};
 use daemon_record::{daemon_pid_is_alive, daemon_state_port};
 use reconnect_page::{reconnect_page_response, set_degraded_marker};
 
@@ -1049,14 +1052,6 @@ async fn probe_topics_server(host: Loopback, port: u16, tls: bool) -> bool {
         .unwrap_or(false)
 }
 
-/// What a port answered, and over WHICH scheme it answered it. The scheme is
-/// half the answer: deferring to a TLS daemon in plain HTTP reaches nobody.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct PortAnswer {
-    verdict: ShapeVerdict,
-    tls: bool,
-}
-
 /// Ask one address and port who is there, in as few connections as possible.
 ///
 /// First a bare TCP connection, for one reason: if nothing is listening, that
@@ -1085,25 +1080,6 @@ async fn probe_port(host: Loopback, port: u16) -> PortAnswer {
         }
     }
     PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false }
-}
-
-/// WHAT ONE PROBE FOUND, and the whole point is that it has THREE answers, not
-/// two. The shell used to ask "is Topics there?" with the shape probe and "is a
-/// stranger there?" with a different, cheaper route (`/__daemon/healthz`, which
-/// answers before authentication in 2 ms). A Topics under load then failed the
-/// first question and PASSED the second: slow, therefore foreign, therefore
-/// replaced by an empty sidecar. That was the 2026-08-13 incident, and one probe
-/// answering both questions is what makes it unrepresentable.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum ShapeVerdict {
-    /// A Topics daemon answered with its presence shape.
-    Topics,
-    /// Somebody else answered: a complete, successful HTTP response that is not
-    /// ours. The only proof of a stranger this code accepts.
-    Foreign,
-    /// Nobody answered in time, or the answer said nothing about who is there.
-    /// A slow Topics lands here, and silence is never a stranger.
-    NoAnswer,
 }
 
 /// SHAPE-AWARE probe: `Topics` only if `127.0.0.1:<port>/api/system/presence` answers
@@ -1721,113 +1697,21 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     if seen_before {
         set_degraded_marker(Some(marker.display().to_string()));
     }
-    // SHAPE-AWARE discovery, not just "some server is here". Probe the canonical
-    // :3333 (TLS then plain) AND the port the daemon recorded in daemon-state.json
-    // (the squatter-recovery case: :3333 held by another process, daemon on an
-    // ephemeral port only the state file knows). Defer the moment a TOPICS daemon
-    // answers by shape; a squatter's HTML is rejected. Retry a few seconds before
-    // concluding (the 2026-08-13 note: a slow/restarting server must be waited
-    // for, never replaced by an empty sidecar universe).
+    // SHAPE-AWARE discovery, not just "some server is here", and the rule that
+    // drives it lives in `boot_choice::discover_upstream` with its probes handed
+    // in, so it can be tested without a Tauri app around it. All this function
+    // still owns is the wiring: real sockets, the real files on disk, a real
+    // pause.
     let attempts: u32 = if seen_before { 60 } else { 8 };
-    // WHAT ONE ROUND COSTS, because this loop runs on a machine where the
-    // person is staring at a blank window. On the Mac a refused connection comes
-    // back instantly; on Windows it costs ~0.83s (measured 2026-08-28, the 141s
-    // boot of commit 3a2f8d7e1), so every probe that cannot possibly find
-    // anything is a second of somebody's morning. Hence two economies, and they
-    // are the reason the round stays at the two connections it had before IPv6
-    // existed in this code:
-    //   * `probe_port` opens ONE connection to decide there is no listener, and
-    //     does not then repeat the whole thing in the other scheme;
-    //   * IPv6 is only probed where IPv4 found a STRANGER. That is the only
-    //     shape in which our daemon can hide from IPv4: it binds `[::]`, which
-    //     answers 127.0.0.1 too, unless somebody else holds the v4 address.
-    //     Where IPv4 found silence, IPv6 has nothing to add and would cost
-    //     0.83s a round for it.
-    // Worst case per round on Windows: 2 refused connections, ~1.7s, the same as
-    // before this branch.
-    let mut facts = BootFacts { seen_before, ..Default::default() };
-    let mut rounds_alone: u32 = 0;
-    'rounds: for round in 0..attempts {
-        // THE STATE PORT IS RE-READ EVERY ROUND, and it has to be: the whole
-        // reason this loop lasts 42 seconds is that the server may be RESTARTING,
-        // and a restart is exactly when the daemon writes a new port into
-        // daemon-state.json (four restarts on four different ports in one night,
-        // 2026-09-13). Reading it once before the loop meant probing a dead port
-        // for the full 42s and then spawning a sidecar next to a server that had
-        // been up for forty of them. Both re-reads are file reads: no socket, no
-        // second of anybody's morning.
-        facts.state_port = daemon_state_port();
-        facts.state_pid_alive = daemon_pid_is_alive();
-
-        let answer = probe_port(Loopback::V4, DEFAULT_UPSTREAM_PORT).await;
-        match answer.verdict {
-            ShapeVerdict::Topics => {
-                facts.primary_topics = true;
-                facts.primary_host = Loopback::V4;
-                facts.primary_tls = answer.tls;
-                break 'rounds;
-            }
-            ShapeVerdict::Foreign => {
-                facts.primary_foreign = true;
-                // A stranger on IPv4 is the one case where our daemon may still
-                // be answering on IPv6 behind it (reproduced 2026-09-14).
-                let behind = probe_port(Loopback::V6, DEFAULT_UPSTREAM_PORT).await;
-                if behind.verdict == ShapeVerdict::Topics {
-                    facts.primary_topics = true;
-                    facts.primary_host = Loopback::V6;
-                    facts.primary_tls = behind.tls;
-                    break 'rounds;
-                }
-            }
-            ShapeVerdict::NoAnswer => {}
-        }
-
-        if let Some(sp) = facts.state_port {
-            if sp != 0 && sp != DEFAULT_UPSTREAM_PORT {
-                let on_state = probe_port(Loopback::V4, sp).await;
-                match on_state.verdict {
-                    ShapeVerdict::Topics => {
-                        facts.state_topics = true;
-                        facts.state_host = Loopback::V4;
-                        facts.state_tls = on_state.tls;
-                        break 'rounds;
-                    }
-                    ShapeVerdict::Foreign => {
-                        let behind = probe_port(Loopback::V6, sp).await;
-                        if behind.verdict == ShapeVerdict::Topics {
-                            facts.state_topics = true;
-                            facts.state_host = Loopback::V6;
-                            facts.state_tls = behind.tls;
-                            break 'rounds;
-                        }
-                    }
-                    ShapeVerdict::NoAnswer => {}
-                }
-            }
-        }
-
-        // NOTHING LEFT TO WAIT FOR, once we are sure of it. A stranger serves the
-        // canonical port, no daemon of ours answered anywhere, and no daemon
-        // process is recorded on this machine: sixty more seconds of that change
-        // nothing, and the person spends them looking at "Connecting"
-        // (2026-09-13). But "no daemon process" is not trustworthy on the FIRST
-        // round: a production that is restarting (and the watcher restarts it
-        // often) has neither file for up to ~1.4s after launch, so an early exit
-        // there hands the window to the stranger 5ms before the real server takes
-        // its lock (measured 2026-09-14). The absence has to hold.
-        if facts.primary_foreign && !facts.state_pid_alive {
-            rounds_alone += 1;
-        } else {
-            rounds_alone = 0;
-        }
-        if may_concede_the_port(rounds_alone) {
-            break 'rounds;
-        }
-
-        if round + 1 < attempts {
-            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-        }
-    }
+    let facts = discover_upstream(
+        seen_before,
+        attempts,
+        ALONE_BEFORE_CONCEDING,
+        |host, port| probe_port(host, port),
+        || (daemon_state_port(), daemon_pid_is_alive()),
+        || tokio::time::sleep(std::time::Duration::from_millis(700)),
+    )
+    .await;
 
     let choice = decide_boot(facts);
     match choice {

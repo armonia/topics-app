@@ -16,9 +16,12 @@
 //! module can change that. The daemon opens its database before it takes the
 //! lock, and it binds its port after: a server that is starting is invisible
 //! here for 0.36s to 1.36s on a warm Mac (measured 2026-09-14), longer on a cold
-//! one. So "no daemon" read ONCE means nothing. It is only worth believing when
-//! it stays true across several seconds, and keeping that patience is the
-//! caller's job, not this module's.
+//! one. Seen from the shell the gap is wider still, because a restart runs
+//! through `start-prod.sh`, which sleeps a second before relaunching: 1.4s to
+//! 2.4s from the old process exiting to the new one taking its lock. So "no
+//! daemon" read ONCE means nothing. It is only worth believing when it stays true
+//! across several seconds, and keeping that patience is the caller's job, not
+//! this module's (`boot_choice::ALONE_BEFORE_CONCEDING`).
 
 /// Read the port the daemon recorded in `daemon-state.json` (its REAL bound port —
 /// the squatter-recovery case where :3333 was held by another process and the
@@ -147,12 +150,20 @@ fn process_matches_record(pid: u32, recorded_at: i64, earliest_before: i64) -> b
 /// How far the two clocks (the OS start time and the timestamp the daemon wrote)
 /// may disagree while still describing the same instant.
 ///
-/// It is also this rule's blind spot, and it is worth naming: a pid recycled
-/// WITHIN these ten seconds reads as alive, and a daemon so slow that it takes
-/// its lock more than `LOCK_STARTUP_BUDGET_SECONDS` after being started reads as
-/// dead. Both are chosen over the alternative. A pid recycled inside ten seconds
-/// costs a few more seconds of waiting before the shell concludes; widening the
-/// window the other way would cost somebody a second empty universe.
+/// It is also this rule's blind spot, and both halves of it are worth naming
+/// exactly, because the earlier wording undersold one of them:
+///
+///   * a pid recycled WITHIN these ten seconds reads as alive, and the shell then
+///     waits for a server that is never coming back. Not "a few more seconds":
+///     with the marker present it waits out the whole loop and then keeps
+///     waiting, which is a session spent on "Connecting". It is still the better
+///     failure, because the alternative loses the person's topics rather than
+///     their patience, and the odds are small (the recycled pid must also land
+///     inside a ten second window);
+///   * a daemon that takes longer than `LOCK_STARTUP_BUDGET_SECONDS` to reach its
+///     lock reads as dead, and if a stranger holds the port at that moment the
+///     shell opens an empty universe beside a daemon that is genuinely starting.
+///     Two minutes is meant to put that out of reach of any real startup.
 const CLOCK_SKEW_SECONDS: i64 = 10;
 /// How long a daemon may take between being started by the OS and taking its
 /// lock. Startup plus module loading: seconds, generously bounded.
@@ -196,7 +207,6 @@ mod tests {
         daemon_pid_is_alive_in, epoch_seconds_from_iso, process_matches_record,
         LOCK_STARTUP_BUDGET_SECONDS,
     };
-    use crate::boot_choice::{may_concede_the_port, ROUNDS_ALONE_BEFORE_CONCEDING};
 
     /// An ISO-8601 UTC timestamp for `epoch`, the shape both daemon files use.
     /// The inverse of what the shell parses, written here so a test can put a
@@ -268,63 +278,40 @@ mod tests {
             !process_matches_record(pid, started + 100_000, LOCK_STARTUP_BUDGET_SECONDS),
             "a process that started long before the record is an unrelated old process"
         );
-        // `pid 1` is alive on every Unix and is the reason "does the pid exist"
-        // is not a liveness test at all.
-        #[cfg(unix)]
+        // A PID THAT EXISTS AND IS NOT OURS, which is the whole point: "the pid is
+        // in the process table" is not a liveness test. This used to ask about
+        // `pid 1`, and that was a fact about the platform rather than about the
+        // rule: macOS refuses its start time (EPERM, reported as 0) and read as
+        // "not the daemon" for that reason, while on Linux CI pid 1 is the
+        // container's own entry point, started minutes ago, and the assert failed
+        // (2026-09-14). So start a process on purpose and ask about IT: it exists,
+        // it is running right now, and it began at a time no old record can claim.
+        let mut child = spawn_a_child_that_waits();
+        let other = child.id();
         assert!(
-            !process_matches_record(1, now_epoch(), LOCK_STARTUP_BUDGET_SECONDS),
-            "pid 1 must never read as the Topics daemon"
+            !process_matches_record(other, now_epoch() - 100_000, LOCK_STARTUP_BUDGET_SECONDS),
+            "a live process started just now must not answer for a record written a day ago"
         );
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
-    /// THE RESTART WINDOW, played out in real time. A production that is coming
-    /// back up (the watcher restarts it often) has NO lock and NO state file for
-    /// the first second or so, while a stranger already holds the port. Deciding
-    /// on the first round reads that as "a stranger and no daemon" and forks an
-    /// empty universe 5ms before the real server takes its lock (measured
-    /// 2026-09-14). The shell must still be waiting when the lock appears.
-    #[test]
-    fn a_production_still_starting_is_not_mistaken_for_an_absent_one() {
-        let dir = std::env::temp_dir().join(format!("topics-restart-{}-{}", std::process::id(), now_epoch()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let lock = dir.join("daemon-process.lock");
-        let state = dir.join("daemon-state.json");
-        let pid = std::process::id();
-        let started = own_start_time();
-
-        // The production takes its lock 2.5s from now, as the measured window says.
-        let writer = {
-            let lock = lock.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(2_500));
-                std::fs::write(
-                    &lock,
-                    format!(r#"{{"pid":{pid},"acquiredAt":"{}"}}"#, iso_utc(started + 1)),
-                )
-                .unwrap();
-            })
+    /// A child that stays alive long enough to be asked about, on any platform
+    /// the desktop shell is built for.
+    fn spawn_a_child_that_waits() -> std::process::Child {
+        #[cfg(unix)]
+        let mut command = {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", "sleep 30"]);
+            c
         };
-
-        // The boot loop's patience, with its real timing: a stranger on the port
-        // every round, and the daemon absent until it is not.
-        let mut rounds_alone: u32 = 0;
-        let mut saw_the_daemon = false;
-        for _ in 0..ROUNDS_ALONE_BEFORE_CONCEDING {
-            if daemon_pid_is_alive_in(&lock, &state) {
-                saw_the_daemon = true;
-                break;
-            }
-            rounds_alone += 1;
-            assert!(
-                !may_concede_the_port(rounds_alone),
-                "the shell conceded the port after {rounds_alone} round(s), while the server was still starting"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(700));
-        }
-
-        assert!(saw_the_daemon, "the lock appeared and the shell must have seen it");
-        writer.join().unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
+        #[cfg(windows)]
+        let mut command = {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", "ping -n 30 127.0.0.1"]);
+            c
+        };
+        command.spawn().expect("the test needs to be able to start a child process")
     }
 
     /// The rule end to end, over files written exactly like the server's. The
