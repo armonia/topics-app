@@ -152,11 +152,20 @@ tab. Nessuna delle due aperture SHALL creare uno split o spostare una pane del l
 `/browser <url>` nel composer SHALL aprire la scheda nella finestra espansa, perché è
 una richiesta esplicita di guardare.
 
+La superficie che ospita la chat NON SHALL cambiare la regola: vale anche quando quella
+chat è una pane di una finestra di progetto.
+
 #### Scenario: l'agente apre un sito mentre l'utente scrive
 - **GIVEN** una topic con chat e terminale nel layout, e nessuna finestra browser
 - **WHEN** l'agente chiama `open_browser_pane` con un URL
 - **THEN** il layout ha le stesse pane con le stesse dimensioni
 - **AND** la finestra della topic è minimizzata con una scheda su quell'URL
+
+#### Scenario: la stessa apertura dentro una finestra di progetto
+- **GIVEN** la chat di quella topic aperta come pane di una finestra di progetto
+- **WHEN** l'agente di quella topic apre un URL
+- **THEN** il layout del progetto non guadagna nessuna pane browser
+- **AND** la scheda va nella finestra della topic
 
 #### Scenario: un link con la scheda già in tab
 - **GIVEN** una scheda della topic già aperta come tab

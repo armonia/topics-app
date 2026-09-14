@@ -1348,7 +1348,11 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       // mark, and dropping the `source` check from the product left this test
       // green.
       await selectTopic(page, replayed.id);
-      await expect(page.locator('[data-testid="chat-panel"]').first()).toBeVisible({ timeout: 15000 });
+      // THIS topic's panel, not `.first()`: the other chat stays in the DOM,
+      // hidden, and being first it would answer for a panel nobody is looking at.
+      await expect(
+        page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${replayed.id}"]`),
+      ).toBeVisible({ timeout: 15000 });
       // The door of THIS topic is open now, and half (a) is the proof: it is
       // the same chat surface that registered it there.
       await openAndNavigate(page, replayed.id, AGENT_URL("dal-task"));
@@ -1420,6 +1424,56 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     } finally {
       await closeAllBrowserContexts(request).catch(() => {});
       await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-04d: dentro una finestra di progetto vale la stessa porta", async ({ page, request }) => {
+    // The rule is about the CHAT, not about the frame around it. A project
+    // window hosts the same conversation through a different component, and it
+    // had its own opening path: the agent's broadcast landed there as a browser
+    // pane of the project layout while the very same click on a LINK of that
+    // chat went into the topic's window. Two behaviours, and nothing anywhere
+    // said so.
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-04d-"));
+    const topic = await createTopic(request, `E2E-TBW-Project-${Date.now()}`, { projectPath });
+    const url = AGENT_URL("nel-progetto");
+    try {
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      // The conversation alone in the project window, and no browser window yet.
+      await seedProjectLayout(request, projectPath, topic.id, null);
+      await goToApp(page);
+      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
+      await expect(chatTab).toBeVisible({ timeout: 20000 });
+      await chatTab.click();
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveCount(0);
+      const beforeCells = await cellRects(page);
+      expect(Object.keys(beforeCells).length).toBeGreaterThan(0);
+
+      const res = await request.post(
+        `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
+        { data: { url }, ignoreHTTPSErrors: true },
+      );
+      expect(res.ok()).toBeTruthy();
+
+      // The window, as anywhere else: minimised, with the sheet on that URL.
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 20000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await expect(
+        page.locator(`[data-testid="topic-browser-tab"][data-context-id="${topic.id}"]`),
+      ).toHaveCount(1, { timeout: 15000 });
+
+      // And the project layout is exactly the one the user left: no browser
+      // pane of its own, the same cells at the same sizes.
+      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
+      expect(await cellRects(page)).toEqual(beforeCells);
+    } finally {
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+      removeTmpDir(projectPath);
     }
   });
 });
