@@ -649,3 +649,49 @@ sentence it shows.
 - **GIVEN** a retry that inspected the envelope to recognise a warming 503
 - **WHEN** the final answer is handed to the caller
 - **THEN** that response body SHALL still be unread
+
+### Requirement: TERM-11 — I tasti battuti prima dell'aggancio si mettono in coda, non si perdono
+
+Ricaricare la pagina rimonta la pane: xterm ridisegna, il ponte rimanda lo
+scrollback e il cursore si muove. Sembra pronta, e non lo è. Fino al 14/09 la
+porta dell'input era un `if (ws.readyState === OPEN) ws.send(data)` e basta,
+quindi ogni tasto battuto prima dell'apertura del socket spariva in silenzio.
+Misurato in questo worktree con `scripts/terminal-attach-latency.ts`: con il
+server già caldo l'aggancio costa 27 ms in mediana (450 ms sotto carico), ma
+quando è il SERVER a ripartire non risponde per ~11,5 s, e in quella finestra il
+client ritenta a backoff fino a 3 s per tentativo. Il cancello di riscaldamento
+del roster non è una seconda causa: nelle due corse ha respinto 0 richieste,
+perché il roster è riconciliato prima che l'HTTP risponda.
+
+Il client SHALL trattenere l'input finché l'aggancio non è PROVATO, cioè fino a
+`replay-end` — non fino all'apertura del socket, che il server concede a
+qualunque id e rifiuta solo dopo. All'aggancio SHALL svuotare la coda nell'ORDINE
+di battitura e UNA VOLTA SOLA.
+
+La coda SHALL avere due limiti, e superarli SHALL essere detto invece che
+subito: un tetto di byte (8 KB) e una scadenza (10 s), oltre i quali l'input si
+scarta. Un comando consegnato mezzo minuto dopo, contro un prompt che chi
+scriveva non sta più guardando, è peggio di un tasto perso.
+
+Entrambe le porte SHALL passare di qui: la tastiera fisica (`term.onData`) e
+quella virtuale delle pane touch (`sendToTerminal`).
+
+Finché l'aggancio non è provato la pane SHALL dirlo con un segno visibile, che
+SHALL sparire da solo a `replay-end`.
+
+#### Scenario: tre tasti battuti a socket caduto
+- **GIVEN** una pane il cui socket è caduto e si sta riagganciando
+- **WHEN** si battono tre caratteri e poi l'aggancio riesce
+- **THEN** i tre caratteri SHALL arrivare alla pseudo-terminale nell'ordine battuto
+- **AND** un secondo aggancio NON SHALL riconsegnarli
+
+#### Scenario: socket aperto ma sessione non ancora provata
+- **GIVEN** un socket in stato OPEN che non ha ancora mandato `replay-end`
+- **WHEN** si batte un tasto
+- **THEN** il tasto SHALL restare in coda, non essere spedito
+
+#### Scenario: oltre i limiti si scarta e si avvisa
+- **GIVEN** una coda che supera il tetto di byte o la scadenza
+- **WHEN** l'aggancio riesce
+- **THEN** l'input scaduto o eccedente NON SHALL essere consegnato
+- **AND** la pane SHALL mostrare che quello che si è scritto è andato perso
