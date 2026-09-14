@@ -50,6 +50,7 @@ import {
   EXPANDED_WIDTH_BOUNDS,
   getTopicWindow,
   resolveMinRect,
+  resolveComposerFloor,
   subscribeTopicWindows,
   topicBrowserWindow,
   type TopicBrowserWindowState,
@@ -115,14 +116,15 @@ function useAreaRect(areaRef: AreaRef): Rect | null {
   return rect;
 }
 
-/** How much of the area's BOTTOM edge the composer occupies, in px.
+/** Where the composer lies inside the area, in px from the area's top.
  *
  *  Measured, never assumed: the composer grows with the text, carries the
- *  queue box and the strips above it, and slides on a transform when the
- *  transcript pushes it. The floating window keeps off that band, so the
- *  send button stays clickable. Zero while there is nothing to measure. */
-function useComposerFloor(areaRef: AreaRef): number {
-  const [floor, setFloor] = useState(0);
+ *  queue box and the strips above it, slides on a transform when the
+ *  transcript pushes it, and sits in the MIDDLE while the topic is empty.
+ *  The floating window keeps off that band, so the send button stays
+ *  clickable. Null while there is nothing to measure. */
+function useComposerBand(areaRef: AreaRef): { top: number; bottom: number } | null {
+  const [band, setBand] = useState<{ top: number; bottom: number } | null>(null);
   useEffect(() => {
     const root = areaRef.current;
     if (!root) return;
@@ -153,7 +155,14 @@ function useComposerFloor(areaRef: AreaRef): number {
       }
       const box = composer?.getBoundingClientRect();
       const bounds = host.getBoundingClientRect();
-      setFloor(box && box.height > 0 ? Math.max(0, Math.round(bounds.bottom - box.top)) : 0);
+      setBand(
+        box && box.height > 0
+          ? {
+              top: Math.max(0, Math.round(box.top - bounds.top)),
+              bottom: Math.max(0, Math.round(box.bottom - bounds.top)),
+            }
+          : null,
+      );
     }
 
     read();
@@ -168,7 +177,7 @@ function useComposerFloor(areaRef: AreaRef): number {
       window.removeEventListener('resize', read);
     };
   }, [areaRef]);
-  return floor;
+  return band;
 }
 
 /** The window state of ONE topic, re-read on every change of the store. */
@@ -221,7 +230,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const tr = useT();
   const state = useTopicWindowState(topicId);
   const area = useAreaRect(areaRef);
-  const floor = useComposerFloor(areaRef);
+  const band = useComposerBand(areaRef);
   const [addOpen, setAddOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   // Where the "+" menu is drawn, in viewport coordinates: it is a portal on the
@@ -298,7 +307,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const rect = useMemo<Rect | null>(() => {
     if (!area || area.width < 1 || area.height < 1) return null;
     if (barOnly) {
-      const local = resolveMinRect(state, { width: area.width, height: area.height, floor }, { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT });
+      const local = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT });
       return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
     }
     // Docking needs room for BOTH the window and the chat. In a split
@@ -315,11 +324,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     }
     const local = resolveMinRect(
       dragPos ? { ...state, minPos: dragPos } : state,
-      { width: area.width, height: area.height, floor },
+      { width: area.width, height: area.height, composer: band ?? undefined },
       MIN_WINDOW_SIZE,
     );
     return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
-  }, [area, state, expandedWidth, dragPos, barOnly, floor]);
+  }, [area, state, expandedWidth, dragPos, barOnly, band]);
 
   // The last geometry the window really had, so a parked window can come back
   // where it was instead of jumping to a corner for one frame.
@@ -341,12 +350,13 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     // Anything the bar holds that answers a click of its own keeps its click:
     // the drag is what is left of the bar, which is most of it.
     if ((e.target as HTMLElement | null)?.closest('button, a, input, [role="menu"]')) return;
-    const start = resolveMinRect(state, { width: area.width, height: area.height, floor }, MIN_WINDOW_SIZE);
+    const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, MIN_WINDOW_SIZE);
     const originX = e.clientX;
     const originY = e.clientY;
     // Freezing paints a still image over every native view: a bar that is only
     // being clicked must not pay for it, so it is armed at the first real move.
     let release: (() => void) | null = null;
+    const floor = resolveComposerFloor({ height: area.height, composer: band ?? undefined }, start.height);
     const floorBottom = floor > 0 ? Math.min(floor + FLOAT_MARGIN_PX, Math.max(0, area.height - start.height)) : 0;
     let latest = { right: area.width - start.left - start.width, bottom: area.height - start.top - start.height };
     const onMove = (ev: PointerEvent): void => {
@@ -369,7 +379,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-  }, [state, area, topicId, floor]);
+  }, [state, area, topicId, band]);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     if (state.mode !== 'exp' || !area) return;

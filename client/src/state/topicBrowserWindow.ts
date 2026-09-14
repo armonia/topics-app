@@ -279,28 +279,47 @@ export function reconcilePromoted(
  *  between the floating window and the composer below it. */
 export const FLOAT_MARGIN_PX = 24;
 
+/** How high the window has to start so it clears the composer: 0 while it
+ *  still fits underneath, the whole band from the composer's top otherwise. */
+export function resolveComposerFloor(
+  area: { height: number; composer?: { top: number; bottom: number } },
+  height: number,
+): number {
+  const band = area.composer;
+  if (!band || band.bottom <= band.top) return 0;
+  const below = area.height - band.bottom;
+  if (below >= height + FLOAT_MARGIN_PX) return 0;
+  return Math.max(0, Math.round(area.height - band.top));
+}
+
 /** Where the minimized window really sits, given the size of the topic area.
  *  Anchored to the bottom-right: a narrower area moves `left`, never the
  *  distance from the corner, which is why the window survives a resize.
  *
- *  `area.floor` is the band along the bottom edge the composer occupies. The
- *  floating window sits ABOVE it, and a drag cannot park it back on top: the
+ *  `area.composer` is where the composer lies, in px from the top of the area.
+ *  The window is not allowed to overlap it, by default or after a drag: the
  *  default corner used to be 24px from the bottom, which in a 1280x800 topic
  *  put the window right over the send button, «Invia il messaggio». allow-italian: quoted UI label
  *  Measured: elementFromPoint on that button answered the window, in every
- *  topic, from the first delivery on.
- *  A floating window is not allowed to stand between a person and sending
- *  their message. When the area is too short to honour the band, the window
- *  keeps what is left instead of being pushed out of the top. */
+ *  topic, from the first delivery on. A floating window is not allowed to
+ *  stand between a person and sending their message.
+ *
+ *  It is a BAND, not a floor, because the composer is not always at the
+ *  bottom: an empty topic centres it, and then the free room is BELOW it.
+ *  So the window keeps the bottom corner whenever it still fits under the
+ *  composer, and only climbs above the composer when it does not. Reading it
+ *  as a floor pinned the window to the top of an empty topic and killed the
+ *  vertical drag. When the area is too short for either, the window keeps
+ *  what is left instead of being pushed out of the top. */
 export function resolveMinRect(
   state: TopicBrowserWindowState,
-  area: { width: number; height: number; floor?: number },
+  area: { width: number; height: number; composer?: { top: number; bottom: number } },
   size: { width: number; height: number } = MIN_WINDOW_SIZE,
 ): { left: number; top: number; width: number; height: number } {
-  const floor = Math.max(0, Math.round(area.floor ?? 0));
-  const pos = state.minPos ?? { right: FLOAT_MARGIN_PX, bottom: floor + FLOAT_MARGIN_PX };
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
+  const floor = resolveComposerFloor(area, height);
+  const pos = state.minPos ?? { right: FLOAT_MARGIN_PX, bottom: floor + FLOAT_MARGIN_PX };
   const right = Math.min(pos.right, Math.max(0, area.width - width));
   const maxBottom = Math.max(0, area.height - height);
   const minBottom = floor > 0 ? Math.min(floor + FLOAT_MARGIN_PX, maxBottom) : 0;

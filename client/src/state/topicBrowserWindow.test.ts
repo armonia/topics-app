@@ -148,28 +148,48 @@ describe('resolveMinRect (the corner survives a resize of the app)', () => {
     expect(r.top).toBe(900 - 24 - MIN_WINDOW_SIZE.height);
   });
 
-  test('the default corner sits ABOVE the composer, never on top of it', () => {
-    const floor = 140;
-    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900, floor });
-    // Its bottom edge stops where the composer band starts, plus the margin.
-    expect(r.top + r.height).toBe(900 - floor - 24);
+  // A composer DOCKED at the bottom: there is no room underneath, so the
+  // window has to start above it. The old default corner (24px from the
+  // bottom) sat right on the send button.
+  const DOCKED_COMPOSER = { top: 900 - 140, bottom: 900 };
+  // A composer CENTERED in an empty topic: the bottom of the area is free,
+  // and that is where the window belongs. Pushing it above a centered
+  // composer would pin it to the ceiling and kill the drag.
+  const CENTERED_COMPOSER = { top: 340, bottom: 448 };
+
+  test('the default corner sits ABOVE a docked composer, never on top of it', () => {
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
+      width: 1440,
+      height: 900,
+      composer: DOCKED_COMPOSER,
+    });
+    expect(r.top + r.height).toBe(DOCKED_COMPOSER.top - 24);
   });
 
-  test('a position dragged over the composer is pulled back above it', () => {
-    const floor = 140;
+  test('a position dragged onto a docked composer is pulled back above it', () => {
     const parked = { ...EMPTY_TOPIC_BROWSER_WINDOW, minPos: { right: 24, bottom: 0 } };
-    const r = resolveMinRect(parked, { width: 1440, height: 900, floor });
-    expect(r.top + r.height).toBe(900 - floor - 24);
+    const r = resolveMinRect(parked, { width: 1440, height: 900, composer: DOCKED_COMPOSER });
+    expect(r.top + r.height).toBe(DOCKED_COMPOSER.top - 24);
   });
 
-  test('with no composer to measure nothing moves', () => {
+  test('a CENTERED composer leaves the bottom corner alone', () => {
     const bare = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900 });
-    const zero = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900, floor: 0 });
-    expect(zero.top).toBe(bare.top);
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
+      width: 1440,
+      height: 900,
+      composer: CENTERED_COMPOSER,
+    });
+    expect(r.top).toBe(bare.top);
+    // And it still clears it: the window starts below the composer.
+    expect(r.top).toBeGreaterThanOrEqual(CENTERED_COMPOSER.bottom);
   });
 
-  test('an area too short to honour the floor keeps the window inside it', () => {
-    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 600, height: 360, floor: 300 });
+  test('an area too short for either side keeps the window inside it', () => {
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
+      width: 600,
+      height: 360,
+      composer: { top: 60, bottom: 360 },
+    });
     expect(r.top).toBeGreaterThanOrEqual(0);
     expect(r.top + r.height).toBeLessThanOrEqual(360);
   });

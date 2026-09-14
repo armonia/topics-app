@@ -1077,11 +1077,35 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     const solo = await createTopic(request, `E2E-TBW-FloorSolo-${Date.now()}`);
     const inProject = await createTopic(request, `E2E-TBW-FloorProj-${Date.now()}`, { projectPath });
 
-    /** The two controls a person needs to send a message, checked the only way
-     *  that answers: whatever sits on their center pixel must BE them. */
-    const composerIsReachable = async (where: string): Promise<void> => {
-      const send = page.locator('[aria-label="Invia il messaggio"]').first();
-      const input = page.locator('[data-testid="chat-message-input"]').first();
+    // THE LIVE WINDOW, and not just «a window». Act (a) leaves its topic open
+    // as a pane, and a topic that loses the screen keeps its window in the DOM,
+    // PARKED (01c, 01j): unqualified, the locator matches two elements in act
+    // (b) and Playwright refuses to measure either.
+    const windowEl = page.locator('[data-testid="topic-browser-window"]:not([data-parked])');
+
+    /**
+     * The two controls a person needs to send a message, checked the only way
+     * that answers: whatever sits on their center pixel must BE them.
+     *
+     * Everything is addressed THROUGH THE AREA OF ITS OWN TOPIC. With two
+     * conversations mounted — and both seeded with the same first message —
+     * `chat-input-area`, the send button and `FIRST_USER_MESSAGE` all exist
+     * twice, so `.first()` and `waitForConversation` would just as happily
+     * measure the parked half. `data-chat-topic-id` is on the root of both
+     * hosts, and it is the very element the window reads its floor from.
+     */
+    const composerIsReachable = async (where: string, topicId: string): Promise<void> => {
+      const area = page.locator(`[data-chat-topic-id="${topicId}"]`).first();
+      const send = area.locator('[aria-label="Invia il messaggio"]').first();
+      const input = area.locator('[data-testid="chat-message-input"]').first();
+
+      // The conversation has to be ON SCREEN before anything is measured: the
+      // list lifts its curtain only once its geometry has been still for two
+      // frames, and the composer docks at the bottom only then. Same two
+      // conditions `waitForConversation` states, scoped to this topic.
+      await expect(area.getByText(FIRST_USER_MESSAGE).first()).toBeVisible({ timeout: 15000 });
+      await expect(area.locator('[data-testid="chat-input-area"]').first())
+        .toHaveAttribute("data-composer-centered", "false", { timeout: 10000 });
       await expect(send).toBeVisible({ timeout: 10000 });
       await expect(input).toBeVisible({ timeout: 10000 });
 
@@ -1089,7 +1113,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       // in the way; a window drawn somewhere else entirely would satisfy it
       // without ever being tested. The send button has to be in the window's
       // own column, and only the vertical band may separate them.
-      const win = (await page.locator('[data-testid="topic-browser-window"]').boundingBox())!;
+      const win = (await windowEl.boundingBox())!;
       const sendBox = (await send.boundingBox())!;
       const sendCenterX = sendBox.x + sendBox.width / 2;
       expect(
@@ -1104,42 +1128,49 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
     try {
       await page.setViewportSize({ width: 1280, height: 800 });
 
-      // (a) A STANDALONE TOPIC. `minPos: null` is the whole point: no drag ever
-      // happened here, so the corner is the one the code picks by itself.
-      await seedConversation(request, solo.id);
-      await seedWindow(request, solo.id, {
-        mode: "min", minPos: null, expandedWidth: null,
-        tabs: [sheet("tbw-floor-solo")], activeContextId: "tbw-floor-solo", promoted: [],
-      });
-      await goToApp(page);
-      await waitForTopicVisible(page, solo.id);
-      await selectTopic(page, solo.id);
-
-      const windowEl = page.locator('[data-testid="topic-browser-window"]');
-      await expect(windowEl).toBeVisible({ timeout: 10000 });
-      await expect(windowEl).toHaveAttribute("data-mode", "min");
-      await waitForConversation(page);
-      await composerIsReachable("topic autonoma");
-
-      // (b) THE SAME TOPIC AREA, HOSTED BY A PROJECT. One pane: the
-      // conversation alone, the full width of the project window.
+      // EVERYTHING IS SEEDED BEFORE THE ONE AND ONLY PAGE LOAD, and the two
+      // hosts are then reached by clicking, not by reloading between them.
+      // Seeding the project half after act (a) does not survive: the page of
+      // act (a) flushes its own pane store as it unloads, and that beacon
+      // lands on top of the seed — the project pane is gone before the new
+      // page hydrates, so the project window never opens at all. Measured:
+      // `chat:<topicId>` not found, twice, on a window that is correct.
       await resetProjectPanes(request, projectPath);
-      await seedProjectPane(request, projectPath);
+      const projectPaneId = await seedProjectPane(request, projectPath);
       await seedProjectLayout(request, projectPath, inProject.id, null);
       await seedConversation(request, inProject.id);
       await seedWindow(request, inProject.id, {
         mode: "min", minPos: null, expandedWidth: null,
         tabs: [sheet("tbw-floor-proj")], activeContextId: "tbw-floor-proj", promoted: [],
       });
+      await seedConversation(request, solo.id);
+      await seedWindow(request, solo.id, {
+        mode: "min", minPos: null, expandedWidth: null,
+        tabs: [sheet("tbw-floor-solo")], activeContextId: "tbw-floor-solo", promoted: [],
+      });
 
       await goToApp(page);
+
+      // (a) A STANDALONE TOPIC, opened from the sidebar. `minPos: null` is the
+      // whole point: no drag ever happened here, so the corner is the one the
+      // code picks by itself.
+      await waitForTopicVisible(page, solo.id);
+      await selectTopic(page, solo.id);
+      await expect(windowEl).toBeVisible({ timeout: 15000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await composerIsReachable("topic autonoma", solo.id);
+
+      // (b) THE SAME TOPIC AREA, HOSTED BY A PROJECT: one pane, the
+      // conversation alone, the full width of the project window. Inside a
+      // project the chat is a `ChatPane` and not the `ChatPanel` of act (a),
+      // so the area the floor is read from is a different element entirely.
+      await page.locator(`[data-pane-id="${projectPaneId}"]`).first().click();
       const chatTab = page.locator(`[data-pane-id="chat:${inProject.id}"]`).first();
       await expect(chatTab).toBeVisible({ timeout: 20000 });
       await chatTab.click();
       await expect(windowEl).toBeVisible({ timeout: 15000 });
       await expect(windowEl).toHaveAttribute("data-mode", "min");
-      await waitForConversation(page);
-      await composerIsReachable("topic dentro un progetto");
+      await composerIsReachable("topic dentro un progetto", inProject.id);
     } finally {
       await resetProjectPanes(request, projectPath).catch(() => {});
       await closeAllBrowserContexts(request).catch(() => {});
