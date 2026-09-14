@@ -271,8 +271,10 @@ visible.
 
 A link clicked in the chat of a topic SHALL NOT follow this rule on a viewport of 768 px
 or wider: it SHALL land in that topic's browser window as specified by
-`TOPIC-BROWSER-04`. This rule keeps governing links from terminals, browser panes,
-project windows, task drawers, and every origin on a narrower viewport.
+`TOPIC-BROWSER-04`, and that SHALL hold wherever that chat is drawn, a pane of a project
+window included. This rule keeps governing links from terminals, browser panes, the
+panes of a project window other than a topic chat, task drawers, and every origin on a
+narrower viewport.
 
 #### Scenario: A link in a topic chat lands in the topic window
 - **GIVEN** a desktop-width window whose focused group holds a topic chat and a terminal, and no browser pane

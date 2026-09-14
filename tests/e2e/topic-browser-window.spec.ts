@@ -1267,7 +1267,11 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       // The agent's own door.
       const res = await request.post(
         `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
-        { data: { url }, ignoreHTTPSErrors: true },
+        // 45 s for THIS call: it spawns a real Chromium context, and the
+        // default action budget is shorter than that costs on a loaded runner.
+        // Measured: the request expired while the server was still opening it,
+        // with nothing wrong on either side.
+        { data: { url }, ignoreHTTPSErrors: true, timeout: 45_000 },
       );
       expect(res.ok()).toBeTruthy();
 
@@ -1389,7 +1393,11 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
 
       const res = await request.post(
         `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
-        { data: { url }, ignoreHTTPSErrors: true },
+        // 45 s for THIS call: it spawns a real Chromium context, and the
+        // default action budget is shorter than that costs on a loaded runner.
+        // Measured: the request expired while the server was still opening it,
+        // with nothing wrong on either side.
+        { data: { url }, ignoreHTTPSErrors: true, timeout: 45_000 },
       );
       expect(res.ok()).toBeTruthy();
 
@@ -1406,8 +1414,14 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
         }, { timeout: 8000 })
         .toBe(0);
 
-      // AND it NAVIGATED: "the tab is still there" would also be true of an
-      // opening that went nowhere. The url the pane persists is the observable.
+      // AND IT IS THE MOUNTED TAB that holds the page. Say plainly what each
+      // half is worth: the persisted url is NOT the client's signature, since
+      // the server navigates the real context itself and would write that url
+      // with no window open at all. What belongs to this scenario is the pane
+      // RENDERED on that same contextId - `[data-browser-pane]` is on the
+      // panel's root - so the page the agent asked for is in the tab the user
+      // is looking at, and not in a record nobody shows.
+      await expect(page.locator(`[data-browser-pane="${topic.id}"]`).first()).toBeVisible({ timeout: 15000 });
       await expect
         .poll(async () => {
           const r = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
@@ -1420,6 +1434,58 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       // AND no split: the cell this pane already lived in is untouched. The
       // product only splits a cell for a pane that did NOT exist; without this
       // line "always a new pane" passes the scenario unnoticed.
+      expect(await cellRects(page)).toEqual(beforeCells);
+    } finally {
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-04e: l'evento non marcato su una pane che c'e' gia' la naviga e basta", async ({ page, request }) => {
+    // The OTHER `isNewPane`, the one on the event path. Its sibling on the WS
+    // path is guarded by 04b; this one had no scenario at all, so "always a new
+    // pane" survived here: the task drawer replaying a tab onto a browser pane
+    // that is ALREADY in the layout would have asked for solo and split the
+    // cell under the user, for a pane that was already there.
+    const topic = await createTopic(request, `E2E-TBW-Replay-${Date.now()}`);
+    const url = AGENT_URL("di-nuovo");
+    try {
+      await resetPaneStore(request, [topic.id, `browser:${topic.id}`]);
+      await seedWindow(request, topic.id, {
+        mode: "hidden",
+        minPos: null,
+        expandedWidth: null,
+        tabs: [],
+        activeContextId: null,
+        promoted: [topic.id],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      const tab = page.locator(`[data-pane-id="browser:${topic.id}"]`).first();
+      await expect(tab).toBeVisible({ timeout: 20000 });
+      const beforeCells = await cellRects(page);
+      expect(Object.keys(beforeCells).length).toBeGreaterThan(0);
+
+      // Unmarked: the task drawer's shape, which the card keeps unchanged.
+      await openAndNavigate(page, topic.id, url);
+
+      // It went to the pane that already existed: one pane, no window, and the
+      // cells exactly as they were. The url seed is the event handler's own
+      // work here, so this time it IS the client's signature.
+      await expect(page.locator(`[data-pane-id="browser:${topic.id}"]`)).toHaveCount(1);
+      // No SHEET, which is what "it did not go to the window" means here: the
+      // window element itself is in the DOM even hidden, so counting it would
+      // be counting the seed of this very test.
+      await expect(page.locator('[data-testid="topic-browser-sheet"]')).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          const r = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+          const body = await r.json().catch(() => null);
+          const panes = (body?.value?.panes ?? {}) as Record<string, { url?: string }>;
+          return panes[`browser:${topic.id}`]?.url ?? "";
+        }, { timeout: 15000 })
+        .toBe(url);
       expect(await cellRects(page)).toEqual(beforeCells);
     } finally {
       await closeAllBrowserContexts(request).catch(() => {});
@@ -1457,7 +1523,11 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
 
       const res = await request.post(
         `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
-        { data: { url }, ignoreHTTPSErrors: true },
+        // 45 s for THIS call: it spawns a real Chromium context, and the
+        // default action budget is shorter than that costs on a loaded runner.
+        // Measured: the request expired while the server was still opening it,
+        // with nothing wrong on either side.
+        { data: { url }, ignoreHTTPSErrors: true, timeout: 45_000 },
       );
       expect(res.ok()).toBeTruthy();
 
@@ -1473,6 +1543,15 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       // pane of its own, the same cells at the same sizes.
       await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
       expect(await cellRects(page)).toEqual(beforeCells);
+
+      // THE SECOND DOOR OF THE SAME WALL. The project window has its own
+      // handler for the typed command too, and a guard added to only one of
+      // the two ingresses is half a rule. `/browser` is an explicit request to
+      // look, so here as anywhere it opens the window EXPANDED - and still not
+      // a pane of the project.
+      await openAndNavigate(page, topic.id, AGENT_URL("comando-nel-progetto"), "slash-command");
+      await expect(windowEl).toHaveAttribute("data-mode", "exp", { timeout: 15000 });
+      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
     } finally {
       await resetProjectPanes(request, projectPath).catch(() => {});
       await closeAllBrowserContexts(request).catch(() => {});
