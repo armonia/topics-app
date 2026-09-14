@@ -525,6 +525,19 @@ export interface ProviderSnapshotEntry {
      *  probe a ogni giro (vedi `snapshot-manager.ts`). */
     checkedAt?: string;
   };
+  /**
+   * La finestra di contesto di OGNI modello, come la DICHIARA il provider.
+   *
+   * Stessa regola di `fastMode` e `languages`: qui non si indovina. La tabella
+   * statica dei modelli noti non ha mai sentito nominare un llama locale, e per
+   * un modello che non conosce ripiega su un valore generico: un 200k finisce
+   * col badge che annuncia una finestra da 1M, cioe' un numero inventato messo
+   * davanti a una persona. Un valore presente qui BATTE la tabella; assente
+   * significa «non lo so» e la tabella resta l'ultima parola.
+   *
+   * Chiave = id del modello, valore = token.
+   */
+  modelContextWindows?: Record<string, number>;
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }

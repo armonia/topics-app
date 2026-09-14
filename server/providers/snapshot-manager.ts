@@ -139,7 +139,9 @@ export class ProviderSnapshotManager extends EventEmitter {
       const requirements: ProviderRequirement[] = diag?.requirements ?? [];
       entry = {
         name,
-        label: labelFor(name),
+        // Un endpoint configurato porta l'etichetta che ha scritto chi lo ha
+        // aggiunto: `labelFor` saprebbe solo rigirare `direct-<slug>`.
+        label: (provider as { label?: string }).label ?? labelFor(name),
         status: diag ? diag.status : provider.connected ? "ready" : "unavailable",
         isDefault: name === defaultName,
         binaryPath: diag?.binaryPath,
@@ -161,6 +163,12 @@ export class ProviderSnapshotManager extends EventEmitter {
         languages:
           (provider as { languages?: () => ProviderSnapshotEntry["languages"] | null }).languages?.() ??
           undefined,
+        // Le finestre le dichiara il provider, come sopra. Serve perche' un
+        // endpoint configurato conosce il proprio `n_ctx` e la tabella dei
+        // modelli noti no: senza questa riga un 200k locale si presenta con
+        // una finestra da 1M, che e' un numero inventato.
+        modelContextWindows:
+          (provider as { contextWindows?: () => Record<string, number> }).contextWindows?.() ?? undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: provider.effortTier?.(),
