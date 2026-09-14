@@ -101,6 +101,11 @@ async function killLiveTerminalSessions(request: APIRequestContext): Promise<str
  * the kill, and a GitHub runner is not overloaded — it is slow, which
  * `loadavg` cannot see (so the factor there reads x1.0 and widens nothing).
  *
+ * CORRECTION, 2026-09-14. Both runs cited here (34675029755 and 34669019794,
+ * shard 4) had "Bridge init failed" at boot, and every DELETE answered 503: the
+ * roster was never reconciled, so no budget could have won. That was a server
+ * bug, fixed in `createTerminalRouter`. The drain still covers a slow kill.
+ *
  * IT COSTS NOTHING WHEN THERE IS NOTHING TO DRAIN. The drain is only entered
  * when the reset already left survivors, and it returns the moment the list is
  * empty. A clean board never pays this number; only a teardown that is losing

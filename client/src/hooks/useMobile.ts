@@ -33,7 +33,7 @@ import { mediaQuery, mediaQueryMatches } from '../lib/mediaQuery';
  * caso che ha rotto le cose: `isTouch` usato come se significasse «niente
  * hover» ha lasciato la barra azioni dei messaggi permanentemente a opacity-40
  * (MessageBubble) e ha SPENTO i gestori mouse del «tieni premuto» sui bottoni
- * Indietro/Avanti (BrowserToolbar) — su un ibrido la cronologia tornava
+ * Indietro/Avanti (BrowserToolbar, deleted on 2026-09-13) — su un ibrido la cronologia tornava
  * raggiungibile col solo tasto destro, cioè esattamente il difetto che quel
  * codice diceva di aver chiuso, spostato su un'altra popolazione.
  * Regola: affordance touch → `isTouch`; nascondere dietro l'hover → `hasHover`;

@@ -13,6 +13,8 @@
  * the next file refused to start, and every file after it in that shard died at
  * 0 ms — 100+ reds out of one slow teardown. The same pair run back to back on
  * a developer machine straight after: 15 green. A race, not a stuck process.
+ * (Corrected 2026-09-14: that run had "Bridge init failed" at boot and its
+ * DELETEs answered 503 - a roster never reconciled, see `hermetic.ts`.)
  *
  * Separated from the fixture so the loop can be TESTED: a probe that clears on
  * the third round and one that never clears are two lines here, and neither is

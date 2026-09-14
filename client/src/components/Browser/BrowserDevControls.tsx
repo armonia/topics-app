@@ -1,8 +1,13 @@
 /**
- * Dev-toolbar controls for the native browser pane: zoom, device emulation,
- * and a quick console (error/warning badge + dropdown panel). Rendered only for
- * the Tauri native pane (the host passes the handlers from useTauriBrowser);
- * web/screenshot mode omits them.
+ * The quick console of a browser pane: an error/warning badge and the dropdown
+ * panel behind it. Rendered from the TAB SHEET, which passes the entries and
+ * the clear handler the pane published; a path without a console of its own
+ * (streaming, iframe) simply does not pass them and no badge is drawn.
+ *
+ * Zoom and device emulation used to live here too, as a `ZoomControl` and a
+ * `DeviceSwitcher` for the 40px toolbar. They are rows in the sheet now - in
+ * plain sight, `custom` included - and a dropdown inside a panel is exactly
+ * what `TOPIC-BROWSER-02` forbids.
  *
  * La console e' una TENDINA, non un pannello di sviluppo: ci sta un filtro per
  * livello, una ricerca, il raggruppamento dei doppioni e un bottone «Copia», e
@@ -10,106 +15,14 @@
  * `consoleLogModel.ts` (pure e sotto test); qui resta solo il disegno.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, ChevronRight, X, Search, Copy, Check, ArrowDown, TriangleAlert } from 'lucide-react';
-import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
+import { Terminal, ChevronRight, X, Search, Copy, Check, ArrowDown, TriangleAlert } from 'lucide-react';
+import type { BrowserConsoleEntry } from './browserDevTypes';
 import { CONSOLE_FILTERS, buildConsoleView, consoleTime, formatConsoleRows, type ConsoleFilter, type ConsoleLogRow } from './consoleLogModel';
 import { Menu } from '../Shared/Menu';
-import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, WARNING_TEXT, POPOVER_ITEM } from '../../lib/popoverStyles';
 import { useT } from '../../hooks/useT';
 
 const ICON = 14;
-
-/* ---------------------------------------------------------------- Zoom ---- */
-
-export function ZoomControl({ zoom = 100, onZoom }: { zoom?: number; onZoom: (delta: number | 'reset') => Promise<number> }) {
-  const t = useT();
-  // `zoom` is the reactive source of truth (a clean integer percent from the
-  // ZOOM_STEPS ladder), so button AND keyboard changes show the same value.
-  const pct = Math.round(zoom);
-  const apply = (d: number | 'reset') => { void onZoom(d); };
-  return (
-    <div className="flex items-center rounded-md border border-app-border-input overflow-hidden" data-testid="browser-zoom">
-      <button type="button" onClick={() => apply(-1)} title={t('browser.dev.zoomOut')}
-        className="w-5 h-6 flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary">
-        <Minus size={12} />
-      </button>
-      <button type="button" onClick={() => apply('reset')} title={t('browser.dev.zoomReset')}
-        className={`px-1 h-6 text-mini tabular-nums ${pct !== 100 ? 'text-primary font-medium' : 'text-app-text-tertiary'} hover:bg-black/5 dark:hover:bg-white/5`}>
-        {pct}%
-      </button>
-      <button type="button" onClick={() => apply(1)} title={t('browser.dev.zoomIn')}
-        className="w-5 h-6 flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary">
-        <Plus size={12} />
-      </button>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------- Device ---- */
-
-const DEVICE_ICON: Record<DeviceMode, typeof Monitor> = {
-  desktop: Monitor, mobile: Smartphone, tablet: Tablet, auto: Maximize, custom: SlidersHorizontal,
-};
-const DEVICE_LABEL: Record<DeviceMode, string> = {
-  desktop: 'Desktop', mobile: 'Mobile', tablet: 'Tablet', auto: 'Auto', custom: 'Responsive',
-};
-
-export function DeviceSwitcher({
-  mode, onSet,
-}: {
-  mode: DeviceMode;
-  onSet: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
-}) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const [cw, setCw] = useState('414');
-  const [ch, setCh] = useState('896');
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const Icon = DEVICE_ICON[mode];
-  const active = mode !== 'desktop';
-  return (
-    <>
-      <button ref={btnRef} type="button" title={t('browser.dev.device', { name: DEVICE_LABEL[mode] })}
-        data-testid="browser-device-switcher"
-        onClick={() => setOpen(o => !o)}
-        className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${active ? 'text-primary' : 'text-app-text-secondary'}`}>
-        <Icon size={ICON} />
-        <ChevronDown size={10} className="opacity-60" />
-      </button>
-      {/* Anchored React <Menu> (portal + flip/clamp + Escape/dismissal). The W×H
-          input row means the panel owns its own focus → unmanagedFocus. */}
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" minWidth={160} unmanagedFocus>
-        <div data-testid="browser-device-menu">
-          {(['desktop', 'mobile', 'tablet', 'auto', 'custom'] as DeviceMode[]).map((m) => {
-            const MI = DEVICE_ICON[m];
-            return (
-              <button key={m} type="button"
-                onClick={() => { onSet(m); setOpen(false); }}
-                className={`w-full px-3 py-1.5 flex items-center gap-2 text-left text-compact hover:bg-app-hover ${mode === m ? 'text-primary' : 'text-app-text'}`}>
-                <MI size={13} /> {DEVICE_LABEL[m]}
-              </button>
-            );
-          })}
-          <div className="border-t border-app-border my-1" />
-          <div className="px-3 py-1.5 flex items-center gap-1">
-            <SlidersHorizontal size={13} className="text-app-text-tertiary shrink-0" />
-            <input value={cw} onChange={e => setCw(e.target.value)} placeholder="W" inputMode="numeric"
-              className="w-12 px-1 py-0.5 text-mini bg-surface border border-app-border-input rounded text-app-text-heading" />
-            <span className="text-app-text-faint text-mini">×</span>
-            <input value={ch} onChange={e => setCh(e.target.value)} placeholder="H" inputMode="numeric"
-              className="w-12 px-1 py-0.5 text-mini bg-surface border border-app-border-input rounded text-app-text-heading" />
-            <button type="button"
-              onClick={() => {
-                const w = parseInt(cw, 10), h = parseInt(ch, 10);
-                if (w > 0 && h > 0) { onSet('custom', { width: w, height: h }); setOpen(false); }
-              }}
-              className="ml-auto px-1.5 py-0.5 text-mini rounded bg-primary text-white hover:bg-primary/90">OK</button>
-          </div>
-        </div>
-      </Menu>
-    </>
-  );
-}
 
 /* ------------------------------------------------------------ Console ---- */
 
@@ -159,7 +72,7 @@ function ConsoleRow({ row }: { row: ConsoleLogRow }) {
 }
 
 export function ConsoleBadge({
-  entries, summary, onClear, open: openProp, onOpenChange,
+  entries, summary, onClear, open: openProp, onOpenChange, label, testId, popoverOwner,
 }: {
   entries: BrowserConsoleEntry[];
   summary: { errors: number; warnings: number };
@@ -169,6 +82,17 @@ export function ConsoleBadge({
    *  the state has to be liftable. Uncontrolled (undefined) stays the default. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Given, the trigger becomes a full menu ROW (glyph + name + tally) instead
+   *  of a bare glyph. The tab sheet needs the name written out: in a panel read
+   *  top to bottom an unlabelled glyph is a guess. */
+  label?: string;
+  /** Override the trigger's testid. It is the ANCHOR of the panel, so a test
+   *  that wants to open the console has to click this exact element: a wrapper
+   *  around it would be clicked in its middle and miss. */
+  testId?: string;
+  /** Marks the panel as opened BY a host surface (`Menu`'s `owner`), so that
+   *  host can count a click in it as a click inside itself. */
+  popoverOwner?: string;
 }) {
   const t = useT();
   const [openLocal, setOpenLocal] = useState(false);
@@ -261,17 +185,20 @@ export function ConsoleBadge({
   return (
     <>
       <button ref={btnRef} type="button" title="Console"
-        data-testid="browser-console-badge"
+        data-testid={testId ?? 'browser-console-badge'}
         onClick={() => { setOpen(o => !o); setStuckToTail(true); }}
-        className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? DANGER_TEXT : hasWarn ? WARNING_TEXT : 'text-app-text-secondary'}`}>
-        <Terminal size={ICON} />
+        className={label
+          ? `${POPOVER_ITEM} ${hasErr ? DANGER_TEXT : hasWarn ? WARNING_TEXT : ''}`
+          : `h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? DANGER_TEXT : hasWarn ? WARNING_TEXT : 'text-app-text-secondary'}`}>
+        <Terminal size={ICON} className={label ? 'shrink-0' : undefined} />
+        {label && <span className="flex-1 text-left">{label}</span>}
         {count > 0 && <span className="text-micro font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
       </button>
       {/* Anchored React <Menu> (portal + flip/clamp + Escape/dismissal + focus-
           restore). A scrollable log panel that owns its own layout → unmanagedFocus.
           The `-my-1` wrapper cancels Menu's POPOVER_SURFACE py-1 so the header/body
           sit flush to the card edges exactly like the old POPOVER_PANEL surface. */}
-      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-[460px] max-w-[86vw]">
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-[460px] max-w-[86vw]" owner={popoverOwner}>
         <div className="-my-1 flex flex-col" data-testid="browser-console-panel">
           <div className="px-2 py-1.5 border-b border-app-border flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">

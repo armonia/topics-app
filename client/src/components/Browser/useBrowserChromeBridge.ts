@@ -1,33 +1,35 @@
 /**
  * THE PANE SIDE OF "THE TAB IS THE CHROME".
  *
- * Two things live here, and they are the same decision seen from both ends:
+ * The pane publishes its live chrome (address, favicon, loading, history reach,
+ * console tally and rows, downloads, zoom, device, session) plus the commands
+ * that go with it, into `state/browserPaneChrome`. The tab reads it from there
+ * and draws it in its SHEET (`BrowserTabSheet`). See that module for why it is
+ * a registry and not a prop.
  *
- *  1. WHAT THE TAB GETS. The pane publishes its live chrome (address, favicon,
- *     loading, history reach, console tally, zoom, device, session) plus the
- *     commands that go with it, into `state/browserPaneChrome`. The tab reads
- *     it from there. See that module for why it is a registry and not a prop.
+ * WHAT THIS HOOK DECIDES IS ONLY *WHEN THE SHEET OPENS*, and both reasons are a
+ * request someone made:
  *
- *  2. WHEN THE ADDRESS BAR EXISTS AT ALL. On a loaded page it does not: the tab
- *     says where you are, so a second row saying the same thing is 40px of
- *     furniture. It comes back exactly when you need to TYPE an address:
- *       - a pane with no real page yet (a new tab: you are here to type),
- *       - Cmd+L, or "Edit address" in the tab menu,
- *       - the tab menu asking for the console or the downloads list, because
- *         those two panels are anchored to buttons that live in that row,
- *       - a download that STARTS: the only event allowed to bring the row up
- *         without being asked, because it is the only one that happens while
- *         you are looking elsewhere.
- *     And it goes away again on the next navigation, which is the gesture that
- *     says you are done typing.
+ *   - the caret is asked for (Cmd+L, a click on the tab you are already in, a
+ *     blank pane that has nowhere to go): `addressEditRequest`;
+ *   - the downloads cue in the tab is CLICKED: `downloadsOpenRequest`.
  *
- * The pane still owns everything. This hook only decides who can SEE it.
+ * NOTHING OPENS IT BY ITSELF, a started download least of all: the sheet covers
+ * the page and freezes it, so an arrival would interrupt a reading nobody asked
+ * to interrupt. `downloadsStarted` travels to the tab's quiet rail and lights a
+ * cue there; the opening waits for the click.
+ *
+ * There is no third surface left to reveal. Until 2026-09-13 there was: a 40px
+ * `BrowserToolbar` above the page, shown on demand and brought back by a
+ * download. It is gone, and with it the whole `revealed`/`showChrome` axis.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { publishBrowserPaneChrome, retireBrowserPaneChrome, type BrowserPaneCommands } from '../../state/browserPaneChrome';
 import { isRealUrl } from '../../state/pane/browserPaneUrl';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
-import type { DeviceMode } from './browserDevTypes';
+import type { BrowserConsoleEntry, DeviceMode } from './browserDevTypes';
+import type { DownloadsMenuProps } from './DownloadsMenu';
+import type { ShareMode } from '../../lib/sharedAuto';
 
 export interface BrowserChromeBridgeInput {
   url: string;
@@ -49,53 +51,44 @@ export interface BrowserChromeBridgeInput {
   canGoBack: boolean;
   canGoForward: boolean;
   consoleSummary?: { errors: number; warnings: number };
-  /** How many downloads the pane is holding (drives the tab menu entry). */
+  /** How many downloads the pane is holding (drives the sheet's tally). */
   downloads: number;
-  /** Monotonic count of downloads that STARTED. A download announcing itself is
-   *  one of the few things allowed to bring the chrome row back on its own. */
+  /** Monotonic count of downloads that STARTED. It lights the tab's downloads
+   *  cue and pulses it once; it opens nothing. */
   downloadsStarted: number;
   zoom?: number;
   deviceMode?: DeviceMode;
   shared: boolean;
+  shareMode?: ShareMode;
+  /** What the SHEET shows and the tab cannot: this pane's address list, the
+   *  console rows behind the tally, the downloads with their actions. They
+   *  travel through the registry for the same reason the tally does - the sheet
+   *  is drawn in another subtree - and each is absent on the paths that do not
+   *  have it. */
+  history?: string[];
+  consoleEntries?: BrowserConsoleEntry[];
+  downloadsMenu?: DownloadsMenuProps;
   commands: BrowserPaneCommands;
 }
 
 export interface BrowserChromeBridge {
-  /** Render the address row? */
-  showChrome: boolean;
-  /** Reveal it and put the caret in it. */
-  revealAddress: () => void;
-  /** Give the row back (Escape). */
-  hideChrome: () => void;
-  consoleOpen: boolean;
-  setConsoleOpen: (open: boolean) => void;
-  /** Counter for `DownloadsMenu.requestOpen`. */
-  downloadsRequestOpen: number;
-  /** Wire this into `BrowserToolbar.onRegisterFocus`. */
-  registerFocus: (fn: () => void) => void;
-  /** Focus the address input, revealing the row first if it is hidden. */
+  /** Open the tab's sheet with the address selected. The pane's own ⌘L. */
   focusAddress: () => void;
 }
+
+/** One frozen empty list, so a pane with no history does not publish a new
+ *  array (and therefore a new snapshot) on every render. */
+const EMPTY_HISTORY: string[] = [];
 
 export function useBrowserChromeBridge(
   contextId: string,
   input: BrowserChromeBridgeInput,
 ): BrowserChromeBridge {
-  const [revealed, setRevealed] = useState(false);
-  const [consoleOpen, setConsoleOpen] = useState(false);
-  const [downloadsRequestOpen, setDownloadsRequestOpen] = useState(0);
-  const focusFnRef = useRef<(() => void) | null>(null);
-
-  const registerFocus = useCallback((fn: () => void) => { focusFnRef.current = fn; }, []);
-
-  // The 50ms defer is the same one the auto-focus effect uses: on a hidden row
-  // the input does not exist yet when the reveal is decided, so the focus call
-  // has to land after the paint that mounts it.
-  // EDITING HAPPENS IN THE TAB. Until 2026-09-03 this revealed the address
-  // row and put the caret there, so a click on the active tab (the gesture
-  // that also FOCUSES the pane) brought the row back under a tab that was
-  // already naming the page. Now it asks the tab to open its inline editor;
-  // the row stays where it belongs, behind the console and the downloads.
+  // EDITING HAPPENS IN THE TAB. Until 2026-09-03 this revealed an address row
+  // and put the caret there, so a click on the active tab (the gesture that
+  // also FOCUSES the pane) brought a row back under a tab that was already
+  // naming the page. It asks the tab for its sheet instead.
+  //
   // TAKING THE KEYBOARD BACK IS PART OF ASKING FOR THE CARET.
   //
   // A native pane is a sibling webview that holds the OS keyboard while it is
@@ -115,126 +108,45 @@ export function useBrowserChromeBridge(
     setAddressEditRequest((n) => n + 1);
   }, []);
 
-  const revealAddress = focusAddress;
-  const hideChrome = useCallback(() => { setRevealed(false); }, []);
-
-  const openConsole = useCallback(() => {
-    setRevealed(true);
-    setConsoleOpen(true);
-  }, []);
-
-  const openDownloads = useCallback(() => {
-    setRevealed(true);
-    setDownloadsRequestOpen((n) => n + 1);
-  }, []);
-
-  // A NAVIGATION ENDS THE REASON THE ROW WAS SHOWING. You revealed it to type an
-  // address; you typed it; the row has no further job.
-  //
-  // Adjusted DURING the render (the way React asks a state to react to a prop
-  // that changed) and not in an effect: an effect here would be a second render
-  // pass with the bar still painted, and the lint rule that forbids it is
-  // right. Guarded on a REAL url, so landing on about:blank (a pane being
-  // recreated) never hides the one bar that lets you leave it.
   const url = input.url;
-  const [seenUrl, setSeenUrl] = useState(url);
-  if (url !== seenUrl) {
-    setSeenUrl(url);
-    if (isRealUrl(url) && revealed) setRevealed(false);
-  }
 
-  // A DOWNLOAD IS THE ONE EVENT THAT SPEAKS FIRST.
+  // A DOWNLOAD SPEAKS FIRST, AND SPEAKS QUIETLY.
   //
-  // Between 2026-09-03 and this card nothing did: `downloadsStarted` arrived
-  // here and was dropped, the row only came up when asked, and the tab menu
-  // entry it was supposed to be replaced by is behind three dots that stay
-  // invisible until you hover them. A file landed on the disk and the app said
-  // nothing at all - no bubble, no badge, no toast.
+  // Between 2026-09-03 and this card nothing spoke at all: `downloadsStarted`
+  // arrived here and was dropped. A file landed on the disk and the app said
+  // nothing - no bubble, no badge, no toast. Then it brought the 40px row back
+  // over the page, which said it loudly and took the page away to do it.
   //
-  // So the bump brings the row back and opens the list anchored to it, which is
-  // what the spec (remote-browser, "A download announces itself in the toolbar")
-  // and its E2E have kept asserting all along. It is not the focus behaviour
-  // that was removed: that one appeared because you clicked, this one appears
-  // because something happened while you were not looking. And the next
-  // navigation takes it away again, like any other reveal.
-  const started = input.downloadsStarted;
-  const [seenStarted, setSeenStarted] = useState(started);
-  if (started !== seenStarted) {
-    setSeenStarted(started);
-    if (started > seenStarted) {
-      setRevealed(true);
-      setDownloadsRequestOpen((n) => n + 1);
-    }
-  }
+  // The sheet must NOT be that second mistake with a smaller footprint: it
+  // covers the page and freezes it, so a file arriving while you read would
+  // stop the reading to report something you did not ask for at that instant.
+  // The announcement is the cue in the tab's quiet rail
+  // (`BrowserTabDownloadsCue`) and the opening is the user's click on it.
+  //
+  // So `downloadsStarted` only travels; `openDownloads` is what opens, and it
+  // is a SEPARATE counter from `addressEditRequest` because that one selects
+  // the address, and a file you clicked to look at must not leave you with a
+  // caret to undo.
+  const [downloadsOpenRequest, setDownloadsOpenRequest] = useState(0);
+  const openDownloads = useCallback(() => {
+    releaseNativeFocus();
+    setDownloadsOpenRequest((n) => n + 1);
+  }, []);
 
-  /**
-   * THE ROW SHOWS WHEN YOU ASKED FOR IT, OR WHEN THERE IS NOWHERE TO GO.
-   *
-   * The second half used to read the LIVE url alone, and that made a restored
-   * pane indistinguishable from a blank one: the store already knows the pane
-   * is on `…/rapporto` while `browser.url` is still `about:blank`, so the bar
-   * stayed up on exactly the panes where the address had already moved onto
-   * the tab. `knownUrl` is that store value, and consulting it is the fix.
-   *
-   * WHY HIDING IT HERE IS NOT A TRAP, which is the objection the original
-   * guard was written against. On a genuinely blank pane the row is the only
-   * way out, and that case still shows it — neither url is real. On a restored
-   * pane there are two other ways back to the address, both independent of the
-   * row: `⌘L` (`RemoteBrowserPanel`) and the tab menu's own "edit address"
-   * item (`browser-tab-edit-address`). And a navigation that FAILS lands on
-   * `chrome-error:`, which `isRealUrl` rejects, so the bar comes back by
-   * itself exactly when it is needed.
-   *
-   * AND THE THIRD STATE: «I DO NOT KNOW YET» IS NOT «IT IS NOT REAL».
-   *
-   * `knownUrl` reads the pane store SYNCHRONOUSLY (`getBrowserPaneUrl`), so
-   * before the server hydration lands that store knows nothing and returns
-   * `undefined` — which `isRealUrl` rejects, exactly like a blank pane. The
-   * guard then answered "neither is real → show the row", and on a restored
-   * pane the row came back and stayed.
-   *
-   * It is not a race that only theory has: measured 2026-08-25 on a four-shard
-   * run, `browser-url-input` resolved to 1 element for 34 consecutive polls
-   * across a 30s timeout — it did not arrive late, it did not arrive. Under
-   * load the hydration lands after the mount, and that inverted order is the
-   * whole defect. Reproduced deterministically by delaying `/api/ui-state`
-   * (`browser-tab-chrome.spec.ts`, "con l'idratazione IN RITARDO").
-   *
-   * So the row waits for the store to speak. A genuinely blank pane still gets
-   * it — the flag flips within a boot, and from then on `!isRealUrl` on both
-   * sides means what it says. What it can no longer do is answer a question the
-   * store has not been asked yet.
-   */
-  // `useServerHydrated` and NOT `hasReceivedServerHydrate()`: the second is a
-  // plain read, and read during a render it gives the value of that instant. The
-  // flag flips AFTER the mount — that is the normal order, and the whole reason
-  // this third state exists — so nothing told React to render again and the row
-  // stayed on screen for the rest of the session.
-  //
-  // The cure below was right and is untouched; what was missing is that a third
-  // state has to be OBSERVED, not sampled. Measured on 2026-08-26: three failures
-  // out of four in `browser-tab-chrome.spec.ts` under `--workers=4`, and the same
-  // red in CI on a four-shard run.
-  // THE ROW APPEARS ONLY WHEN ASKED (console, downloads). A blank pane has
-  // its start page and an editable tab; a page that failed has its own retry;
-  // the address is on the tab. Reported 2026-09-03, in the words of the
-  // report (allow-italian: the report, verbatim): "la riga sotto compare
-  // quando faccio focus, ma non dovrebbe proprio esserci" (allow-italian: same).
-  const showChrome = revealed;
 
   const {
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
-    zoom, deviceMode, shared, commands,
+    zoom, deviceMode, shared, shareMode, history, consoleEntries, downloadsMenu, commands,
   } = input;
 
   /**
    * THE ADDRESS THE TAB SHOWS IS THE ONE THE TAB KNOWS, not the one the browser
    * has finished loading.
    *
-   * Same divergence as `showChrome`, and the same cure. On a restored pane
-   * `url` is `about:blank` for a few instants, so `prettyUrl` produced nothing
-   * and the address line inside the three-dots menu simply was not drawn: the
-   * menu opened maimed exactly where the card had moved the address to.
+   * On a restored pane `url` is `about:blank` for a few instants, so
+   * `prettyUrl` produced nothing and the address the tab surface was supposed
+   * to carry simply was not drawn: it opened maimed exactly where the card had
+   * moved the address to.
    *
    * Showing `knownUrl` is not a lie: the tab's LABEL, a centimetre further up,
    * already reads the store and already shows that address. Before, the two
@@ -256,17 +168,25 @@ export function useBrowserChromeBridge(
     zoom: zoom ?? 100,
     deviceMode: deviceMode ?? ('desktop' as DeviceMode),
     shared,
+    shareMode,
+    history: history ?? EMPTY_HISTORY,
+    consoleEntries,
+    downloadsMenu,
+    downloadsStarted: input.downloadsStarted,
     addressEditRequest,
+    downloadsOpenRequest,
     commands: {
       ...commands,
-      editAddress: revealAddress,
-      openConsole: commands.clearConsole ? openConsole : undefined,
-      openDownloads: downloads > 0 ? openDownloads : undefined,
+      editAddress: focusAddress,
+      // Only offered when there is a list to open: the cue hides on an empty
+      // pane anyway, and a command that opens an empty section is a dead door.
+      openDownloads: downloadsMenu ? openDownloads : undefined,
     },
   }), [
     urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
-    addressEditRequest, commands, revealAddress, openConsole, openDownloads,
+    shareMode, history, consoleEntries, downloadsMenu, input.downloadsStarted,
+    addressEditRequest, downloadsOpenRequest, commands, focusAddress, openDownloads,
   ]);
 
   const paneId = `browser:${contextId}`;
@@ -278,14 +198,5 @@ export function useBrowserChromeBridge(
   // must fall back to its persisted URL rather than keep a stale favicon.
   useEffect(() => () => { retireBrowserPaneChrome(paneId); }, [paneId]);
 
-  return {
-    showChrome,
-    revealAddress,
-    hideChrome,
-    consoleOpen,
-    setConsoleOpen,
-    downloadsRequestOpen,
-    registerFocus,
-    focusAddress,
-  };
+  return { focusAddress };
 }
