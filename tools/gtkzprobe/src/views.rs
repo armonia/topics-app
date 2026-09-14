@@ -36,7 +36,6 @@ pub struct X {
     lib: Xlib,
     display: *mut Display,
     parent: c_ulong,
-    scale: f64,
 }
 
 impl X {
@@ -54,7 +53,6 @@ impl X {
             lib,
             display,
             parent,
-            scale: window.scale_factor(),
         })
     }
 
@@ -102,12 +100,12 @@ impl X {
                 &mut depth,
             )
         };
-        (
-            x as f64 / self.scale,
-            y as f64 / self.scale,
-            width as f64 / self.scale,
-            height as f64 / self.scale,
-        )
+        // No scale division. Under Xvfb tao reports a fractional scale factor
+        // (0.96 on a 1280x800 screen), and wry does NOT apply it to the bounds
+        // of a child view: an X window asked for 420 logical pixels comes back
+        // 420 pixels wide. Dividing here made every width 4% too large and no
+        // view could be recognised by its size.
+        (x as f64, y as f64, width as f64, height as f64)
     }
 
     /// The role each width stands for in this probe: the two overlapping panes
@@ -115,12 +113,19 @@ impl X {
     /// (it goes in the GTK box of the window itself), so unlike the AppKit and
     /// Win32 probes it never shows up in this list.
     fn role(&self, w: c_ulong) -> &'static str {
-        match self.geometry(w).2.round() as i64 {
-            420 => "pane",
-            360 => "floater",
-            300 => "late",
-            _ => "other",
+        // Matched with a tolerance, because the two ways a child gets its size
+        // do not agree under X11: at CREATION wry scales the logical rect by
+        // the GDK dpi factor (a view asked for 420 comes back 438 wide, 100/96
+        // of it), while `set_bounds` later writes the numbers through as they
+        // are (420). An exact match recognised the views only after the first
+        // set_bounds, and read every step before it as "other".
+        let width = self.geometry(w).2;
+        for (name, nominal) in [("pane", 420.0), ("floater", 360.0), ("late", 300.0)] {
+            if (width - nominal).abs() <= nominal * 0.06_f64 {
+                return name;
+            }
         }
+        "other"
     }
 
     fn find(&self, which: &str) -> Option<c_ulong> {
@@ -173,8 +178,8 @@ impl X {
                 self.display,
                 self.parent,
                 (self.lib.XDefaultRootWindow)(self.display),
-                (point.0 * self.scale) as c_int,
-                (point.1 * self.scale) as c_int,
+                point.0 as c_int,
+                point.1 as c_int,
                 &mut rx,
                 &mut ry,
                 &mut child,

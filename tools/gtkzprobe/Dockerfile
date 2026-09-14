@@ -30,9 +30,11 @@ ENV WEBKIT_DISABLE_COMPOSITING_MODE=1 \
     LIBGL_ALWAYS_SOFTWARE=1 \
     GDK_BACKEND=x11
 
-# The sandbox needs namespaces the container does not hand out; the probe reads
-# window stacking, not untrusted pages.
-ENV WEBKIT_FORCE_SANDBOX=0
+# The sandbox is left ON on purpose. Turning it off with
+# WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS was measured to stop the pages from
+# painting at all in this container (every screen pixel came back black), and
+# the pixel read is half the evidence of this probe.
 
-ENTRYPOINT ["xvfb-run", "-a", "-s", "-screen 0 1280x800x24", "./target/release/gtkzprobe"]
+COPY run.sh ./run.sh
+ENTRYPOINT ["./run.sh"]
 CMD ["z"]

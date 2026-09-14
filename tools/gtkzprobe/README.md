@@ -45,11 +45,49 @@ here.
 
 ## Measured
 
-**Not yet run.** The arm and its machine are written and the container builds,
-but no verdict has been taken on a real WebKitGTK yet, so nothing is claimed
-here: the `ENGINES-GAP` on webkitgtk in `lib.rs` stays open and now names this
-probe as its instrument. When the run happens, the table goes here in the shape
-`tools/wvzprobe/README.md` uses, with the date and the WebKitGTK version, and a
-run under Xvfb has to say out loud what it cannot: a software-rendered, unmanaged
-X server is not a user's desktop, and a window manager is entitled to restack
-windows on its own.
+Run 2026-09-14 in the container above (Debian bookworm, webkit2gtk-4.1,
+Xvfb 1280x800x24), exit 0:
+
+| question | answer |
+|---|---|
+| pane created first, floating view second | the **second** is on top |
+| `set_bounds` on the lower view | **no reorder** - it stays underneath |
+| `XRaiseWindow` on the lower view | the raised view **wins** |
+| the raised view held the keyboard | the focus **stays inside it** |
+| a third view created afterwards | **covers** the raised one |
+| the raised page | **survives** - same token it minted at birth, no reload |
+
+Same rule as the other two engines: **stacking is creation order**, and only an
+explicit reorder changes it. **The raise is one `XRaiseWindow` on the child's X
+window and nothing else** - no geometry moves, and the focus does not follow.
+
+What is missing to write the arm in `browser_linux.rs` is not the call, it is
+the handle: wry exposes no accessor for a child's X window, so the shell will
+have to find it the way this probe does (walk `XQueryTree` under the parent) or
+get one added upstream.
+
+**Two independent verdicts, not one**, as on the other platforms: the window
+tree (`XQueryTree`, bottom first) and the screen pixel at the overlap
+(`XGetImage` on the root, each page painting a colour of its own). They agree
+everywhere except right after the raise, where the tree already says `pane` and
+the pixel still says `floater`: the restacked window had not repainted when the
+frame was read. The verdict is the tree's, and the disagreement is what tells
+you why.
+
+**A size surprise, worth knowing before trusting any geometry here.** The two
+ways a child gets its size do not agree: at CREATION wry scales the logical rect
+by the GDK dpi factor (a view asked for 420 comes back 438 wide, 100/96 of it),
+while `set_bounds` afterwards writes the numbers through unscaled (420). The
+probe matches views by width with a 6% tolerance for exactly this reason. Under
+X11 tao's own `scale_factor()` is 1.0 and does not explain the difference.
+
+## What it does not say
+
+Only the stacking of sibling child webviews inside ONE window, under Xvfb. A
+software-rendered X server with no window manager is not a user's desktop: a
+real window manager is entitled to restack windows on its own, and the pixel
+counter proof is weaker here than on the other two platforms (on a reused
+container with a locked soup profile the pages never painted and every pixel
+read came back black, while the tree verdicts were unaffected). The Wayland
+session, where there are no X11 child windows at all, is a different question
+this probe cannot reach.

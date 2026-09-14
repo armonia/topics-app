@@ -90,7 +90,12 @@ video `.webm` degli spec, non resoconti.
       sbagliato: con la feature `x11` (accesa di default) wry non usa
       `GtkFixed.put` per un pane, crea una finestra X11 figlia con
       `XCreateSimpleWindow` (`webkitgtk/mod.rs:159`, `:192`), quindi la pila e'
-      X11 e la candidata e' `XRaiseWindow`.
+      X11. Eseguita in container sotto Xvfb il 14/09: `XRaiseWindow` sulla
+      finestra X del figlio alza in place, ordine di creazione e `set_bounds`
+      si comportano come sugli altri due motori, pagina e tastiera restano.
+      Quello che manca per scrivere l'arm non e' la chiamata ma la maniglia:
+      wry non espone la finestra X del figlio, va cercata camminando
+      `XQueryTree` sotto il padre.
 - [x] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [x] Sotto 768 px la finestra non monta.
 - [x] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
