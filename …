@@ -1,6 +1,0 @@
-
-/Users/zorahrel/.topics/worktrees/topics-app/full-cipher/client/src/components/Browser/BrowserTabSheetBody.tsx
-  183:6  warning  React Hook useLayoutEffect has a missing dependency: 'panelRef'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
-
-✖ 1 problem (0 errors, 1 warning)
-

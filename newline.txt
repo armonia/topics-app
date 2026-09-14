@@ -1,1 +1,0 @@
-    const guard = resolveComposerAvoidance(area.height, band, start.height);
