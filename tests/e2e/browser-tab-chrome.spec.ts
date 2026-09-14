@@ -941,7 +941,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
    * with no key, the sheet does come up, so the second half cannot be green
    * because the click opened nothing.
    */
-  test("TOPIC-BROWSER-02: the sheet hears Esc before its body has loaded", async ({ page, browser, request }) => {
+  test("TOPIC-BROWSER-02b: the sheet hears Esc before its body has loaded", async ({ page, browser, request }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-02" });
     const openedAt = Date.now();
     const paneId = `browser:cold-${openedAt}`;
