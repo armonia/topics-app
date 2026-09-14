@@ -725,6 +725,11 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       await expect(page.locator(`[data-pane-id="browser:${seeded}"]`)).toHaveCount(0, { timeout: 15000 });
       await expect(page.locator(`[data-testid="topic-browser-sheet"][data-context-id="${seeded}"]`)).toHaveCount(1);
     } finally {
+      // The project layout and the browser contexts live on the SERVER, so
+      // they outlive the page: left behind, the next spec finds a project
+      // window that already has the panes this one opened.
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
       await deleteTopic(request, topic.id).catch(() => {});
       removeTmpDir(projectPath);
     }
