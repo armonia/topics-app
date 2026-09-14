@@ -1207,8 +1207,28 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
   const AGENT_URL = (label: string): string =>
     `data:text/html,<body style='margin:0;background:%23101418'>${label}</body>`;
 
-  /** The geometry of EVERY pane of the group, by id: this is what has to stay
-   *  identical, not "how many panes there are". */
+  /** The geometry of the layout CELLS, by their `row-col` key. THIS is where a
+   *  split shows up, and `paneRects` below is not: in the main layout
+   *  `[data-pane-id]` lives on the TAB LABELS of the bar (`PaneTabBar`), so an
+   *  invariant written on it alone was comparing two 150x28 tabs and would have
+   *  let a whole new cell through. Sub-pixel slivers are dropped: a cell that
+   *  small is a divider, not a pane. */
+  async function cellRects(page: Page): Promise<Record<string, string>> {
+    return page.evaluate(() => {
+      const out: Record<string, string> = {};
+      for (const el of Array.from(document.querySelectorAll("[data-panel-cell]"))) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 40 || r.height < 40) continue;
+        out[el.getAttribute("data-panel-cell") ?? ""] =
+          `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`;
+      }
+      return out;
+    });
+  }
+
+  /** The tab labels of the bar, by pane id: the second half of "the same panes",
+   *  since a pane arriving inside an existing cell shows up here and not in the
+   *  geometry of the cells. */
   async function paneRects(page: Page): Promise<Record<string, string>> {
     return page.evaluate(() => {
       const out: Record<string, string> = {};
@@ -1241,6 +1261,8 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
 
       const before = await paneRects(page);
       expect(Object.keys(before).length).toBeGreaterThan(1);
+      const beforeCells = await cellRects(page);
+      expect(Object.keys(beforeCells).length).toBeGreaterThan(0);
 
       // The agent's own door.
       const res = await request.post(
@@ -1264,8 +1286,10 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
         return tabs.map((t) => t.url ?? "");
       }, { timeout: 15000 }).toContain(url);
 
-      // AND THE INVARIANT: the same panes, at the same sizes. An extra browser
-      // pane and a cell split in two both show up right here.
+      // AND THE INVARIANT: the same cells at the same sizes (a split lands
+      // here), and the same tabs on the bar (a pane joining an existing cell
+      // lands there). One without the other is half a measurement.
+      expect(await cellRects(page)).toEqual(beforeCells);
       expect(await paneRects(page)).toEqual(before);
     } finally {
       await deleteTerminalSession(request, term.id).catch(() => {});
@@ -1316,8 +1340,17 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       await expect(windowEl).toHaveAttribute("data-mode", "exp");
       await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
 
-      // (b) The same event WITHOUT the mark, on another topic of the same
-      // group: unchanged, i.e. a pane of the layout.
+      // (b) The same event WITHOUT the mark, on a topic whose chat is MOUNTED
+      // and therefore HAS a door to fool: unchanged, i.e. a pane of the layout.
+      // Selecting the topic first is the whole point of this half. While it ran
+      // on a chat nobody had mounted there was no door in the first place, the
+      // event fell into the layout for a reason that had nothing to do with the
+      // mark, and dropping the `source` check from the product left this test
+      // green.
+      await selectTopic(page, replayed.id);
+      await expect(page.locator('[data-testid="chat-panel"]').first()).toBeVisible({ timeout: 15000 });
+      // The door of THIS topic is open now, and half (a) is the proof: it is
+      // the same chat surface that registered it there.
       await openAndNavigate(page, replayed.id, AGENT_URL("dal-task"));
       await expect(page.locator(`[data-pane-id="browser:${replayed.id}"]`)).toHaveCount(1, { timeout: 15000 });
     } finally {
@@ -1347,6 +1380,8 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       await selectTopic(page, topic.id);
       const tab = page.locator(`[data-pane-id="browser:${topic.id}"]`).first();
       await expect(tab).toBeVisible({ timeout: 20000 });
+      const beforeCells = await cellRects(page);
+      expect(Object.keys(beforeCells).length).toBeGreaterThan(0);
 
       const res = await request.post(
         `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
@@ -1366,6 +1401,22 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
           return ((body?.value?.tabs ?? []) as unknown[]).length;
         }, { timeout: 8000 })
         .toBe(0);
+
+      // AND it NAVIGATED: "the tab is still there" would also be true of an
+      // opening that went nowhere. The url the pane persists is the observable.
+      await expect
+        .poll(async () => {
+          const r = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+          const body = await r.json().catch(() => null);
+          const panes = (body?.value?.panes ?? {}) as Record<string, { url?: string }>;
+          return panes[`browser:${topic.id}`]?.url ?? "";
+        }, { timeout: 15000 })
+        .toBe(url);
+
+      // AND no split: the cell this pane already lived in is untouched. The
+      // product only splits a cell for a pane that did NOT exist; without this
+      // line "always a new pane" passes the scenario unnoticed.
+      expect(await cellRects(page)).toEqual(beforeCells);
     } finally {
       await closeAllBrowserContexts(request).catch(() => {});
       await deleteTopic(request, topic.id).catch(() => {});
