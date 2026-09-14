@@ -451,6 +451,7 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
   // the slowest answer, and a close committed in between would be resurrected by
   // a read that was issued before it existed.
   const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
+  const seen = ids.map((id) => writes.appliedToken(keyFor(id)));
   const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
@@ -460,7 +461,7 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
     // Stale in two different ways: overtaken by a write of OURS, or by a frame
     // from another device that already moved this key past what the GET read.
     if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
-    if (writes.readIsStale(key, read.seq)) return;
+    if (writes.readIsStale(key, seen[i]!, read.seq)) return;
     if (read.value === null) {
       if (cache.delete(id)) changed = true;
       return;
@@ -478,10 +479,11 @@ async function rereadTopicWindow(topicId: string): Promise<void> {
   if (!loaded.has(topicId)) return;
   const key = keyFor(topicId);
   const token = writes.writeToken(key);
+  const seen = writes.appliedToken(key);
   const read = await uiGet<unknown>(key);
   if (read === undefined) return;
   if (writes.wroteSince(key, token) || hasPendingWrite(topicId)) return;
-  if (writes.readIsStale(key, read.seq)) return;
+  if (writes.readIsStale(key, seen, read.seq)) return;
   if (read.value === null) {
     if (cache.delete(topicId)) notify();
     return;

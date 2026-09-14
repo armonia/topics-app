@@ -511,6 +511,7 @@ export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown
   // the slowest answer, and a close committed in between would be resurrected by
   // a read that was issued before it existed.
   const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
+  const seen = ids.map((id) => writes.appliedToken(keyFor(id)));
   const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
@@ -520,7 +521,7 @@ export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown
     // Stale in two different ways: overtaken by a write of OURS, or by a frame
     // from another device that already moved this key past what the GET read.
     if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
-    if (writes.readIsStale(key, read.seq)) return;
+    if (writes.readIsStale(key, seen[i]!, read.seq)) return;
     writes.noteApplied(key, read.seq);
     if (adopt(id, read.value)) changed = true;
   });
@@ -534,10 +535,11 @@ async function rereadTaskTabs(taskId: string): Promise<void> {
   if (!loaded.has(taskId)) return;
   const key = keyFor(taskId);
   const token = writes.writeToken(key);
+  const seen = writes.appliedToken(key);
   const read = await uiGet<unknown>(key);
   if (read.value == null) return;
   if (writes.wroteSince(key, token) || hasPendingWrite(taskId)) return;
-  if (writes.readIsStale(key, read.seq)) return;
+  if (writes.readIsStale(key, seen, read.seq)) return;
   writes.noteApplied(key, read.seq);
   if (adopt(taskId, read.value)) notify();
 }

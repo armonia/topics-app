@@ -22,6 +22,7 @@ import {
   applyRemoteTopicWindow,
   applyRemoteTopicWindowInit,
   applyTopicWindowFrame,
+  ensureTopicWindowLoaded,
   reloadTopicWindowsFromServer,
   getTopicWindow,
   forgetTopicWindow,
@@ -513,7 +514,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     __resetTopicWindows();
   });
 
-  const tick = () => new Promise((r) => setTimeout(r, 10));
+  const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
   const window = (...contextIds: string[]) => ({
     mode: 'min',
     tabs: contextIds.map((contextId) => ({ contextId, url: 'u', title: 'T', openedBy: 'user' })),
@@ -528,6 +529,10 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     const entry = held.find((h) => h.method === method)!;
     held = held.filter((h) => h !== entry);
     entry.release(fail);
+  };
+  const settleGets = async () => {
+    await tick();
+    while (held.some((h) => h.method === 'GET')) { release('GET'); await tick(); }
   };
 
   test('an OLDER frame arriving while our PUT travels is dropped', async () => {
@@ -728,6 +733,60 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     await reading;
     await tick();
     expect(ids(tid)).toEqual(['c']);
+    expect(ids(tid)).toEqual(onServer(key));
+  });
+
+  // A server_seq can go BACKWARDS: a data/topics.db put back from backup, the
+  // rollback planned before a migration, with the app open. Against a high-water
+  // mark the key would be wedged, and `ui-state:init` does not carry these keys,
+  // so the refused read is the only thing that would have realigned it.
+  test('a seq that went backwards does not wedge the key', async () => {
+    const tid = uniqueId('regress');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, window('a'), 500);
+    served.set(key, window('a'));
+    nextSeq = 500;
+
+    served.set(key, window('old'));           // row restored from backup...
+    nextSeq = 20;                              // ...and the counter with it
+
+    const reconnect = reloadTopicWindowsFromServer({});
+    await settleGets();
+    await reconnect;
+    expect(ids(tid)).toEqual(['old']);
+    expect(ids(tid)).toEqual(onServer(key));
+
+    served.set(key, window('d'));              // another device writes while we are down
+    nextSeq = 499;
+    const later = reloadTopicWindowsFromServer({});
+    await settleGets();
+    await later;
+    expect(ids(tid)).toEqual(onServer(key));
+  });
+
+  // A topic whose browser was never opened has NO row, and the server answers a
+  // missing row with a literal `null`: no envelope, so no seq of its own. A read
+  // like that answering late must not erase a window another device just made.
+  test('a null read answered after a frame created the window does not erase it', async () => {
+    const tid = uniqueId('null-read');
+    const key = `topic-browser:${tid}`;
+    const hydrate = ensureTopicWindowLoaded(tid);
+    await tick();
+    release('GET');
+    await hydrate;
+    await tick();                              // loaded, and the server holds no row
+
+    const reading = reloadTopicWindowsFromServer({});
+    await tick();                              // this GET will answer `null`
+
+    served.set(key, window('c'));              // another device opens a sheet meanwhile
+    applyTopicWindowFrame({ key, value: window('c'), sourceClientId: 'device-c', server_seq: ++nextSeq });
+    expect(ids(tid)).toEqual(['c']);
+
+    release('GET');
+    await reading;
+    await tick();
+    expect(ids(tid)).toEqual(['c']);           // the `null` is older than the frame
     expect(ids(tid)).toEqual(onServer(key));
   });
 });

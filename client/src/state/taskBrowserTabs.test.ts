@@ -466,7 +466,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     __resetTaskTabs();
   });
 
-  const tick = () => new Promise((r) => setTimeout(r, 10));
+  const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
   const recordOf = (...ctx: string[]) => ({
     tabs: ctx.map((c, i) => ({ contextId: c, url: 'u', title: 'T', seq: i })),
     activeContextId: ctx[0] ?? null,
@@ -478,6 +478,16 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     const entry = held.find((h) => h.method === method)!;
     held = held.filter((h) => h !== entry);
     entry.release(fail);
+  };
+  /** Release the n-th withheld GET: two resyncs can overlap and answer out of order. */
+  const releaseNth = (method: string, i: number) => {
+    const entry = held.filter((h) => h.method === method)[i]!;
+    held = held.filter((h) => h !== entry);
+    entry.release();
+  };
+  const settleGets = async () => {
+    await tick();
+    while (held.some((h) => h.method === 'GET')) { release('GET'); await tick(); }
   };
 
   test('an OLDER frame arriving while our PUT travels is dropped', async () => {
@@ -655,6 +665,86 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
     await reading;
     await tick();
     expect(liveIds(tid)).toEqual(['task-rb-c']);
+    expect(liveIds(tid)).toEqual(onServer(key));
+  });
+
+  // A server_seq can go BACKWARDS: a data/topics.db put back from backup, which
+  // is the rollback planned before a migration, with the app still open and the
+  // socket simply reconnecting. Compared against a high-water mark the key would
+  // be wedged -- and these keys are excluded from `ui-state:init`, so the read
+  // refused as "old" is the only thing that realigns them.
+  test('a seq that went backwards does not wedge a key we never wrote', async () => {
+    const tid = uniq('regress-unwritten');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-g-a'), 500);
+    served.set(key, recordOf('task-g-a'));
+    nextSeq = 500;
+
+    served.set(key, recordOf('task-g-old'));       // the row is restored from backup...
+    nextSeq = 20;                                   // ...and the counter with it
+
+    const reconnect = resyncTaskTabsFromServer({});
+    await settleGets();
+    await reconnect;
+    expect(liveIds(tid)).toEqual(['task-g-old']);  // the read at seq 20 is believed
+    expect(liveIds(tid)).toEqual(onServer(key));
+
+    served.set(key, recordOf('task-g-d'));          // another device writes while we are down
+    nextSeq = 499;
+    const later = resyncTaskTabsFromServer({});
+    await settleGets();
+    await later;
+    expect(liveIds(tid)).toEqual(onServer(key));    // still realigning, 499 or not
+  });
+
+  test('a seq that went backwards does not wedge a key we wrote ourselves', async () => {
+    const tid = uniq('regress-written');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-h-a', 'task-h-x'), 100);
+    served.set(key, recordOf('task-h-a', 'task-h-x'));
+    nextSeq = 499;
+
+    taskBrowserTabs.removeTab(tid, 'task-h-x');     // our own write, confirmed at 500
+    await tick(900);
+    while (held.some((h) => h.method === 'PUT')) { release('PUT'); await tick(); }
+    expect(onServer(key)).toEqual(['task-h-a']);
+
+    served.set(key, recordOf('task-h-old'));        // restore from backup
+    nextSeq = 20;
+    served.set(key, recordOf('task-h-b'));          // and another device writes at 21
+    nextSeq = 21;
+
+    const reconnect = resyncTaskTabsFromServer({});
+    await settleGets();
+    await reconnect;
+    expect(liveIds(tid)).toEqual(onServer(key));    // the reconnect read realigns us
+  });
+
+  // Two resyncs can overlap (a socket that goes and comes back sends two inits):
+  // the older GET answering LAST must not undo what the newer one applied.
+  test('an overlapping read answered last does not undo the newer read', async () => {
+    const tid = uniq('overlap-reads');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-o-a'), 100);
+    served.set(key, recordOf('task-o-b'));
+    nextSeq = 101;
+
+    const first = resyncTaskTabsFromServer({});
+    await tick();                                   // GET1 reads [b] at 101
+    served.set(key, recordOf('task-o-c'));          // a write elsewhere, its frame lost
+    nextSeq = 102;
+    const second = resyncTaskTabsFromServer({});
+    await tick();                                   // GET2 reads [c] at 102
+
+    releaseNth('GET', 1);
+    await second;
+    await tick();
+    expect(liveIds(tid)).toEqual(['task-o-c']);
+
+    releaseNth('GET', 0);
+    await first;
+    await tick();
+    expect(liveIds(tid)).toEqual(['task-o-c']);     // GET1 described a state already left
     expect(liveIds(tid)).toEqual(onServer(key));
   });
 });

@@ -42,11 +42,25 @@
  *    against OUR writes; it says nothing about the other devices. A GET that
  *    left when the row said [b], with a frame carrying [c] applied while it
  *    travelled, answered [b] and put it back: local [b], server [c], apart for
- *    good. So every applied value's `server_seq` is remembered per key (frames,
- *    held frames released later, and read answers alike), and a read answering
- *    BELOW that line is refused -- it is describing a state we have already left
- *    behind. The bulk resync had this window since it existed; the owed read of
+ *    good. The bulk resync had this window since it existed; the owed read of
  *    point 3 inherited it.
+ *
+ *    What settles it is the same shape as point 3: a token taken BEFORE the GET
+ *    (`appliedToken`), and the question `readIsStale` at the answer -- was
+ *    anything applied to this key WHILE I travelled that is newer than what I
+ *    bring? Only what landed during the flight is compared, never a high-water
+ *    mark of everything ever seen. The difference is not academic: a `server_seq`
+ *    can go BACKWARDS (a `data/topics.db` put back from backup, which is the
+ *    rollback planned before a migration, with the app still open), and against
+ *    a high-water mark that key would be stuck -- these two key families are
+ *    excluded from `ui-state:init`, so the read refused as "old" is the only
+ *    thing that would have realigned them. A line that only exists for the
+ *    length of one flight cannot outlive the counter that fed it.
+ *
+ *    A read with no seq at all (the server answers a missing row with a literal
+ *    `null`, no envelope) brings no order of its own, so ANY value applied
+ *    during its flight beats it: otherwise a `null` read answering late erases
+ *    a window another device had just created.
  *
  * KNOWN LIMITS, both of them older than this arbitration and left in the open on
  * purpose:
@@ -68,6 +82,9 @@ import { getTabId } from './pane/middleware/syncCrossTab';
  * not freeze cross-device updates for the session.
  */
 export const PUT_TIMEOUT_MS = 10_000;
+
+/** How many applied values are kept per key to answer `readIsStale` (see there). */
+const APPLIED_LOG_MAX = 32;
 
 /** What to do with an inbound frame: adopt it, throw it away, or wait for the answer to our own PUT. */
 export type FrameVerdict = 'apply' | 'drop' | 'deferred';
@@ -108,17 +125,21 @@ export interface UiStatePersister {
    * again as soon as the write settles (`onReadNeeded`).
    */
   deferRead(key: string): void;
+  /** Applied-value generation for `key`, to be taken BEFORE a read and handed to `readIsStale`. */
+  appliedToken(key: string): number;
   /**
-   * Remember the `server_seq` of a value just APPLIED to `key`, which is the
-   * line a later read has to clear. A value with no seq moves no line.
+   * Record a value just APPLIED to `key` with the `server_seq` it carried, so a
+   * read still travelling can tell it was overtaken.
    */
   noteApplied(key: string, seq: number | null): void;
   /**
    * Is a read answer for `key` describing a state we have already left? True
-   * when its seq is BELOW an applied one. A read with no seq is let through:
-   * nothing proves it old (a missing row answers with no envelope at all).
+   * when something applied SINCE `token` is newer than the answer: a higher
+   * seq, a value with no seq at all, or anything at all when the answer itself
+   * has no seq. Only the flight window counts, never a high-water mark: a
+   * server_seq that went backwards must not be able to wedge the key shut.
    */
-  readIsStale(key: string, seq: number | null): boolean;
+  readIsStale(key: string, token: number, seq: number | null): boolean;
   /** Drop the QUEUED write for `key` (a PUT already in flight cannot be recalled). */
   cancel(key: string): void;
   /** Test seam: forget every queued write, in-flight write and held frame. */
@@ -155,14 +176,21 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
   const generation = new Map<string, number>();
   // Keys whose resync GET was skipped over an unresolved write of ours.
   const owedReads = new Set<string>();
-  // Highest server_seq we have APPLIED for a key, whatever brought it (a frame,
-  // a held frame released later, a read answer): the line a read must clear.
-  const appliedSeq = new Map<string, number>();
+  // What has been APPLIED to a key and when, whatever brought it (a frame, a
+  // held frame released later, a read answer). Not a high-water mark: a LOG,
+  // read through the token a caller took before its GET, so the comparison
+  // spans one flight and nothing more.
+  const applied = new Map<string, { gen: number; entries: { gen: number; seq: number | null }[] }>();
 
   const markApplied = (key: string, seq: number | null): void => {
-    if (seq === null) return;
-    const known = appliedSeq.get(key);
-    if (known === undefined || seq > known) appliedSeq.set(key, seq);
+    const log = applied.get(key) ?? { gen: 0, entries: [] };
+    log.gen += 1;
+    log.entries.push({ gen: log.gen, seq });
+    // Bounded: a read older than the retained window is treated as fresh rather
+    // than stale, which costs the old race in a case nobody reaches (32 values
+    // applied to ONE key while a single GET travels) and never wedges a key.
+    if (log.entries.length > APPLIED_LOG_MAX) log.entries.splice(0, log.entries.length - APPLIED_LOG_MAX);
+    applied.set(key, log);
   };
 
   const settle = (key: string, seq: number | null): void => {
@@ -272,12 +300,16 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
     deferRead(key: string): void {
       owedReads.add(key);
     },
+    appliedToken(key: string): number {
+      return applied.get(key)?.gen ?? 0;
+    },
     noteApplied(key: string, seq: number | null): void {
       markApplied(key, seq);
     },
-    readIsStale(key: string, seq: number | null): boolean {
-      const line = appliedSeq.get(key);
-      return seq !== null && line !== undefined && seq < line;
+    readIsStale(key: string, token: number, seq: number | null): boolean {
+      const log = applied.get(key);
+      if (!log) return false;
+      return log.entries.some((e) => e.gen > token && (seq === null || e.seq === null || e.seq > seq));
     },
     cancel(key: string): void {
       const queued = timers.get(key);
@@ -295,7 +327,7 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       held.clear();
       generation.clear();
       owedReads.clear();
-      appliedSeq.clear();
+      applied.clear();
     },
   };
 }
