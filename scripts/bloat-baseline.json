@@ -195,6 +195,7 @@
     "tests/e2e/board-drawer-scroll.spec.ts": 847,
     "server/services/dispatch-capacity.ts": 840,
     "server/browser-tools-handler.ts": 810,
+    "server/services/dispatch-capacity.test.ts": 810,
     "server/providers/acp.ts": 805,
     "relay/ponte.test.ts": 804
   },
