@@ -130,9 +130,22 @@ const settle = () => new Promise((r) => setTimeout(r, 2500));
  * actually about ends the moment it is true, and only spends the budget when
  * it never becomes true, which is the red we do want.
  */
-async function waitFor(ready: () => boolean, budgetMs: number = BUDGET_MS): Promise<void> {
+async function waitFor(
+  ready: () => boolean,
+  what: string,
+  budgetMs: number = BUDGET_MS,
+): Promise<void> {
   const deadline = Date.now() + budgetMs * 0.8;
   while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  // A WAIT THAT GIVES UP QUIETLY LIES TWICE.
+  //
+  // This used to return whether or not the condition held, and the test went
+  // on regardless. Under load that meant a retry chain still in flight when
+  // the test asserted: the failure surfaced later, as a count that was 2
+  // instead of 1, or in the NEXT test, where the straggler landed in its
+  // fetchCalls. Both reds named the wrong thing. Say it here, where the
+  // waiting actually ran out.
+  if (!ready()) throw new Error(`waited ${budgetMs * 0.8} ms for ${what} and it never came`);
 }
 
 /**
@@ -151,7 +164,7 @@ async function waitFor(ready: () => boolean, budgetMs: number = BUDGET_MS): Prom
 const PUT_ATTEMPTS = 4; // MAX_RETRIES + 1 in projectLayoutSync.ts
 
 async function waitForRetryChainExhausted(): Promise<void> {
-  await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS);
+  await waitFor(() => fetchCalls.length >= PUT_ATTEMPTS, `the ${PUT_ATTEMPTS} PUTs of the retry chain`);
   await new Promise((r) => setTimeout(r, 0));
 }
 
@@ -167,8 +180,14 @@ async function waitForRetryChainExhausted(): Promise<void> {
  * runner hands down (`TOPICS_TEST_TIME_SLACK`, measured once per round: see
  * `shared/test-time-slack.ts`). Widening a cap costs nothing when the test
  * passes — it is only ever paid on the way to a red.
+ *
+ * Raised from 15 s on 2026-09-14: the waits here poll, so on a quiet machine
+ * they end in about a second and the number below is never reached. It is
+ * reached on a machine running a dozen shards at once, and there the old cap
+ * ran out mid retry chain (card 1e078aee, two tests red on a diff that
+ * touched no client file at all).
  */
-const BUDGET_MS = Math.round(15_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
+const BUDGET_MS = Math.round(45_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
 
 beforeEach(() => {
   __resetProjectSyncForTests();
@@ -187,7 +206,7 @@ describe("project channel PUT durability", () => {
   test("a successful debounced PUT lands and leaves nothing un-acked", async () => {
     installFetch(true);
     saveProjectLayout(KEY, PROJECT, layout("terminal:fe2a97aa"));
-    await waitFor(() => fetchCalls.length >= 1);
+    await waitFor(() => fetchCalls.length >= 1, "the first PUT");
     expect(fetchCalls.length).toBeGreaterThanOrEqual(1);
     expect(fetchCalls.some((c) => c.url.includes(encodeURIComponent(KEY)))).toBe(true);
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
@@ -231,7 +250,7 @@ describe("project channel PUT durability", () => {
     // Server comes back; a new save with a DIFFERENT value succeeds.
     installFetch(true);
     saveProjectLayout(KEY, PROJECT, layout("terminal:a6d64304"));
-    await waitFor(() => !__getUnackedProjectSyncKeys().includes(KEY));
+    await waitFor(() => !__getUnackedProjectSyncKeys().includes(KEY), "the ack that clears the un-acked key");
     expect(__getUnackedProjectSyncKeys()).not.toContain(KEY);
     // The NEW value is what cleared it: a late attempt carrying the old one
     // would clear the key just the same and prove nothing about this save.
