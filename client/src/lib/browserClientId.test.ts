@@ -26,14 +26,27 @@ function fakeStorage(): Storage {
   } as Storage;
 }
 
-/** Install a storage for the pane, or nothing at all. */
-function withStorage(storage: Storage | undefined): void {
+// What this process had before we touched it. Restoring "nothing" means
+// DELETING the property, not setting it to undefined: a shard runs many test
+// files in one process, and a `sessionStorage` that exists with value undefined
+// is not the same thing as a `sessionStorage` that does not exist. Left behind,
+// it broke an unrelated file in the same shard.
+const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+
+/** Install a storage for the pane. */
+function withStorage(storage: Storage): void {
   Object.defineProperty(globalThis, 'sessionStorage', {
     value: storage, configurable: true, writable: true,
   });
 }
 
-afterEach(() => { withStorage(undefined); });
+/** Put the process back exactly as we found it. */
+function restoreStorage(): void {
+  if (original) Object.defineProperty(globalThis, 'sessionStorage', original);
+  else delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+}
+
+afterEach(restoreStorage);
 
 test('the same webview gets the same name on every call', () => {
   withStorage(fakeStorage());
@@ -63,7 +76,7 @@ test('a webview with no storage still gets a name instead of an exception', () =
   // A hardened webview, or a render with no window at all. The pane is then a
   // newcomer on every socket, which is the behaviour from before this id
   // existed. What it must not do is throw on the way to opening the socket.
-  withStorage(undefined);
+  delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
   expect(browserClientId()).toBeTruthy();
 
   const throwing = {

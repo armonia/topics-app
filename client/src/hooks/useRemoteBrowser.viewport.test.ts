@@ -74,6 +74,8 @@ class FakeSocket {
 }
 
 let sockets: FakeSocket[] = [];
+/** Every pane this test mounted, so afterEach can take them down again. */
+let mounted: { unmount(): void }[] = [];
 
 /**
  * The mounted pane's handle, captured from the effect that attaches the
@@ -94,6 +96,7 @@ const saved: Record<string, unknown> = {};
 beforeEach(() => {
   sockets = [];
   pane = null;
+  mounted = [];
   for (const k of ['WebSocket', 'window', 'document', 'fetch', 'ResizeObserver', 'RTCPeerConnection', 'devicePixelRatio', 'sessionStorage']) {
     saved[k] = g[k];
   }
@@ -123,6 +126,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // A pane left mounted keeps the hook's timers alive, and they fire AFTER this
+  // file is done, with the globals already put back: the throw then lands on
+  // whatever file the shard runs next, as a failure with no test name.
+  for (const h of mounted) h.unmount();
   for (const [k, v] of Object.entries(saved)) {
     if (v === undefined) delete g[k]; else g[k] = v;
   }
@@ -159,7 +166,7 @@ function openPane(): FakeSocket {
     }, [api]);
     return null;
   }
-  mount(React.createElement(Probe));
+  mounted.push(mount(React.createElement(Probe)));
   const socket = sockets[sockets.length - 1];
   if (!socket) throw new Error('useRemoteBrowser did not open a socket');
   // The size goes out on open: while the socket was still connecting there was
