@@ -250,25 +250,28 @@ function ResourcesBrake() {
   const s = useGlobalDispatchCap();
   const cap = s.capacity;
   const share = budgetShare(s.cap ?? {});
+  // The share the slider is showing, draft included: what it buys, under
+  // "How it works", moves under the finger with the label.
+  const [shownShare, setShownShare] = useState<number | null>(null);
+  const shown = shownShare ?? share;
   const used = cap?.usedCoreUnits ?? null;
-  const budget = cap?.budgetCoreUnits ?? 0;
-  const usable = cap?.usableCoreUnits ?? 0;
-  // "Would a new agent start" is answered from the SAME two numbers the gate
-  // decides on: used against usable. The cost of the one to admit is the gate's
-  // business (it has the measured history); here it is enough that the machine
-  // is at its ceiling, which is what the person is looking at.
-  const atCeiling = used != null && used >= usable;
-  const running = cap?.running ?? 0;
-  const liveBand: ThresholdBand | null = used == null ? null : livePressureBand(used, usable || budget);
+  const usable = Math.max(0, cap?.usableCoreUnits ?? 0);
+  // THE VERDICT IS THE GATE'S, read off the wire (`admission`), never worked
+  // out here: `used >= usable` ignored the cost of the agent to admit, the 80%
+  // resume line and the memory axis, and said "would start" while the gate
+  // held. No admission on the wire (an old server) = no verdict drawn.
+  const admission = cap?.admission ?? null;
+  // Nothing usable is the red end, not "no threshold": the others hold it all.
+  const liveBand: ThresholdBand | null = used == null ? null : usable <= 0 ? 'red' : livePressureBand(used, usable);
   const cores = cap?.cores ?? 0;
 
   return (
     <>
       <RunningLine className="text-app-text-heading">
-        {s.cap ? tr('board.dispatch.runningResources', { running }) : tr('board.dispatch.runningLoading')}
+        {s.cap ? tr('board.dispatch.runningResources', { running: cap?.running ?? 0 }) : tr('board.dispatch.runningLoading')}
       </RunningLine>
 
-      <BudgetSlider share={share} onCommit={(next) => { void saveGlobalCap({ budgetShare: next }); }} />
+      <BudgetSlider share={share} onDraft={setShownShare} onCommit={(next) => { void saveGlobalCap({ budgetShare: next }); }} />
 
       {/* THE NUMBERS AND THE VERDICT, on one line. The verdict says the
           exemption out loud: a pass earned only because nobody is running yet
@@ -283,17 +286,18 @@ function ResourcesBrake() {
             ? tr('board.dispatch.liveLoading')
             : tr('board.dispatch.liveFree', { used: used.toFixed(1), usable: usable.toFixed(1) })}
         </span>
-        {cap && used != null && (
+        {admission && used != null && (
           <span
             data-testid="global-cap-verdict"
-            data-admit={!atCeiling || running <= 0}
-            className={`font-medium ${!atCeiling ? SUCCESS_TEXT : running <= 0 ? WARNING_TEXT : DANGER_TEXT}`}
+            data-admit={admission.admit}
+            data-blocked-by={admission.blockedBy ?? 'none'}
+            className={`font-medium ${!admission.admit ? DANGER_TEXT : admission.firstAgentExempt ? WARNING_TEXT : SUCCESS_TEXT}`}
           >
-            {!atCeiling
-              ? tr('board.dispatch.verdictGo')
-              : running <= 0
+            {!admission.admit
+              ? tr(admission.blockedBy === 'memory' ? 'board.dispatch.verdictWaitMemory' : 'board.dispatch.verdictWait')
+              : admission.firstAgentExempt
                 ? tr('board.dispatch.verdictFirst')
-                : tr('board.dispatch.verdictWait')}
+                : tr('board.dispatch.verdictGo')}
           </span>
         )}
       </p>
@@ -304,8 +308,8 @@ function ResourcesBrake() {
           <p data-testid="global-cap-budget-units">
             {tr('board.dispatch.budgetHint', {
               cores,
-              units: (cores * share).toFixed(1),
-              mem: Math.round((cap?.totalMemGB ?? 0) * share),
+              units: (cores * shown).toFixed(1),
+              mem: Math.round((cap?.totalMemGB ?? 0) * shown),
             })}
           </p>
         )}
@@ -325,9 +329,15 @@ function ResourcesBrake() {
  * happens on release. A change that arrives with no pointer down (arrow keys,
  * a test's `fill`) has no release to wait for and is written at once.
  */
-function BudgetSlider({ share, onCommit }: { share: number; onCommit: (share: number) => void }) {
+function BudgetSlider({ share, onCommit, onDraft }: {
+  share: number;
+  onCommit: (share: number) => void;
+  /** The draft while the pointer is down, `null` once it is written. */
+  onDraft?: (share: number | null) => void;
+}) {
   const tr = useT();
-  const [draft, setDraft] = useState<number | null>(null);
+  const [draft, setDraftState] = useState<number | null>(null);
+  const setDraft = (v: number | null) => { setDraftState(v); onDraft?.(v); };
   const dragging = useRef(false);
   const shown = draft ?? share;
   const commit = (v: number) => {

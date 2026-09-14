@@ -121,6 +121,14 @@ describe('dispatchLoadReading', () => {
       capacity: machine({ usableCoreUnits: 3, usedCoreUnits: 3.5 }),
     }));
     expect(at.tone).toBe('over');
+    // A measured zero is a ceiling too: the ring is full and past it, not
+    // drawn against the whole budget.
+    const none = dispatchLoadReading(stateWith(3, {
+      cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.8 },
+      capacity: machine({ usableCoreUnits: 0, usedCoreUnits: 1.2 }),
+    }));
+    expect(none.fill).toBe(1);
+    expect(none.tone).toBe('over');
   });
 
   test('braking on the budget with nothing measured yet: empty ring, nothing invented', () => {

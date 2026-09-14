@@ -69,10 +69,12 @@ async function stubMachine(page: Page) {
       body: JSON.stringify({
         recommended: 2, cores: 12, totalMemGB: 32, availableMemGB: 9.5, load1: 15.4, running: 1,
         oursCores: 1.2, budgetCores: 6,
-        // 7.4 core-units of ours on a 7.2 budget (60% of twelve cores): over
-        // it, which is what makes the verdict and the colour assertable.
-        budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 7.2,
+        // 7.4 core-units of ours against the 6.0 at our disposal (60% of the
+        // 10 cores the others leave): over it, which is what makes the colour
+        // assertable. The verdict is the gate's, so the stub says it too.
+        budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 6,
         usedCoreUnits: 7.4, usedMemGB: 8, otherCoreUnits: 2, frozen: 0,
+        admission: { admit: false, blockedBy: "cpu", firstAgentExempt: false, costCoreUnits: 1 },
         reason: "12 core, base 4",
       }),
     }));
@@ -308,10 +310,10 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     const budget = page.getByTestId("global-cap-budget-slider");
     await expect(page.getByTestId("global-cap-budget-value")).toHaveText("60% del libero");
 
-    // The live reading, in cores against what is usable: 7.4 of 7.2.
+    // The live reading, in cores against what is usable: 7.4 of 6.0.
     const live = page.getByTestId("global-cap-budget-live");
     await expect(live).toHaveAttribute("data-band", "red");
-    await expect(live).toHaveText("7.4 di 7.2 core a disposizione");
+    await expect(live).toHaveText("Topics usa 7.4 dei 6.0 core a disposizione");
 
     // The verdict, on the same line: at the ceiling with an agent running, a new one waits.
     const verdict = page.getByTestId("global-cap-verdict");

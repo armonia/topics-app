@@ -253,7 +253,10 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
         body: JSON.stringify({
           recommended: 4, cores: 12, totalMemGB: 32, availableMemGB: 18, load1: 9.1, running: 3,
           oursCores: 4.8, budgetCores: 6,
-          budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 7.2,
+          // Usable is the share of the free, 60% of the 9 cores the others
+          // leave: 5.4, not the 7.2 budget, so the ring and the popover are
+          // seen to read the right one of the two.
+          budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 5.4,
           usedCoreUnits: 4.8, usedMemGB: 6, otherCoreUnits: 3, frozen: 2,
           reason: "12 core, base 4",
         }),
@@ -268,14 +271,14 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // budget, 4.8 of 7.2 = two thirds.
     const g = gauge(page);
     await expect(word(page)).toHaveText("a budget");
-    await expect(g).toHaveAttribute("data-fill", "0.67");
-    await expect(g).toHaveAttribute("aria-label", /3 agent al lavoro, 4\.8 di 7\.2 core a disposizione/);
+    await expect(g).toHaveAttribute("data-fill", "0.89");
+    await expect(g).toHaveAttribute("aria-label", /3 agent al lavoro, usano 4\.8 dei 5\.4 core a disposizione/);
 
     await g.click();
     const popover = page.getByTestId("dispatch-load-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toContainText("Quota: 60% del libero");
-    await expect(popover.getByTestId("dispatch-load-budget")).toHaveText("3 agent, 4.8 di 7.2 core a disposizione");
+    await expect(popover.getByTestId("dispatch-load-budget")).toHaveText("3 agent, usano 4.8 dei 5.4 core a disposizione");
     await expect(popover).toContainText("2 check congelati per carico");
     // Said once: the old per-cent-of-the-PC line and the core-units line are gone.
     await expect(popover).not.toContainText("del PC");

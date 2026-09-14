@@ -83,6 +83,8 @@ function gaugePhrase(
 ): string {
   if (reading.loading) return tr('board.gauge.ariaReading');
   if (reading.byResources) {
+    // Not measured yet is said as such, never as "0.0 of X".
+    if (reading.usedShare == null) return tr('board.gauge.ariaReading');
     return tr('board.gauge.ariaResources', { running: reading.running, ...coreNumbers(cap) });
   }
   if (reading.unbounded) return tr('board.gauge.ariaNoLimit', { running: reading.running });
@@ -96,8 +98,7 @@ const pctOf = (share: number | null | undefined): number => Math.round(Math.max(
  *  budget line prints. "May hold" is the usable ceiling (the share of what the
  *  rest of the machine leaves free), the same number the gate admits against. */
 function coreNumbers(cap: DispatchCapacity | null): { used: string; usable: string } {
-  const usable = cap ? (cap.usableCoreUnits > 0 ? cap.usableCoreUnits : cap.budgetCoreUnits) : 0;
-  return { used: (cap?.usedCoreUnits ?? 0).toFixed(1), usable: usable.toFixed(1) };
+  return { used: (cap?.usedCoreUnits ?? 0).toFixed(1), usable: Math.max(0, cap?.usableCoreUnits ?? 0).toFixed(1) };
 }
 
 /** What the DOM says the state is, for whoever reads it without pixels (the

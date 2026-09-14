@@ -245,7 +245,7 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="green"');
-    expect(words(html)).toContain('2.0 di 9.6 core a disposizione');
+    expect(words(html)).toContain('Topics usa 2.0 dei 9.6 core a disposizione');
     // At the budget: red.
     adoptDispatchCapacity(machine({ usedCoreUnits: 9.6, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
     html = renderToStaticMarkup(<GlobalCapControl />);
@@ -258,8 +258,8 @@ describe('the brake by budget', () => {
     resources(0.8);
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, budgetCoreUnits: 9.6, usableCoreUnits: 2 }));
     const html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('1.0 di 2.0 core a disposizione');
-    expect(html).not.toContain('di 9.6 core a disposizione');
+    expect(html).toContain('Topics usa 1.0 dei 2.0 core a disposizione');
+    expect(html).not.toContain('dei 9.6 core a disposizione');
   });
 
   test('the reading is said ONCE, and the explanations are folded away', () => {
@@ -288,25 +288,50 @@ describe('the brake by budget', () => {
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="none"');
   });
 
-  test('the verdict line: would a new agent start right now', () => {
-    resources(0.8);
-    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2 }));
-    let html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('data-testid="global-cap-verdict" data-admit="true"');
-    expect(words(html)).toContain('un agent nuovo partirebbe');
+  test('nothing usable is the red end, not a missing threshold', () => {
+    // The others hold the whole machine: usable 0 is a measured ceiling, and
+    // falling back to the budget drew green numbers beside a gate that refused.
+    resources(0.6);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 1.2, budgetCoreUnits: 7.2, usableCoreUnits: 0, running: 2 }));
+    const html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(html).toContain('data-testid="global-cap-budget-live" data-band="red"');
+    expect(words(html)).toContain('Topics usa 1.2 dei 0.0 core a disposizione');
+  });
 
-    // At the ceiling with agents running: it waits.
-    adoptDispatchCapacity(machine({ usedCoreUnits: 9.7, usableCoreUnits: 9.6, running: 2 }));
-    html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toContain('data-admit="false"');
+  test('the verdict is the GATE\'s, read off the wire, and says which axis holds', () => {
+    // A client-side `used >= usable` said "would start" at 3.4 of 3.8 while the
+    // gate, pricing one more agent at 0.5, was holding. Whatever the numbers,
+    // the line says what `admission` says.
+    resources(0.6);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 3.4, usableCoreUnits: 3.8, running: 2,
+      admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5 } }));
+    let html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="cpu"');
     expect(words(html)).toContain('i nuovi aspettano');
 
-    // Over the ceiling with NOBODY running: the first one starts, and the line
-    // says it is an exemption rather than a free machine.
-    adoptDispatchCapacity(machine({ usedCoreUnits: 9.7, usableCoreUnits: 9.6, running: 0 }));
+    adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 9.6, running: 3,
+      admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5 } }));
+    html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(words(html)).toContain('i nuovi aspettano: memoria piena');
+
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2,
+      admission: { admit: true, blockedBy: null, firstAgentExempt: false, costCoreUnits: 0.5 } }));
+    html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(html).toContain('data-admit="true"');
+    expect(words(html)).toContain('un agent nuovo partirebbe');
+
+    // The exemption is said as one, not as a free machine.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 9.7, usableCoreUnits: 9.6, running: 0,
+      admission: { admit: true, blockedBy: 'cpu', firstAgentExempt: true, costCoreUnits: 0.5 } }));
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-admit="true"');
     expect(words(html)).toContain('il primo parte comunque');
+  });
+
+  test('no admission on the wire (an old server): no verdict is drawn, rather than a guessed one', () => {
+    resources(0.8);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2 }));
+    expect(renderToStaticMarkup(<GlobalCapControl />)).not.toContain('data-testid="global-cap-verdict"');
   });
 });
 
