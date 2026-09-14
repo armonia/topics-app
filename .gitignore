@@ -289,6 +289,9 @@ desktop-tauri/cef-spike/target/
 
 # wv2probe: cross-built by hand when someone re-runs the measurement
 tools/wv2probe/target/
+tools/wkzprobe/target/
+# wkzprobe keeps its Cargo.lock: its README states the versions it measured,
+# and without the lock that statement could not be re-run.
 tools/wv2probe/Cargo.lock
 
 # Dev bundle hot-delivery opt-in flag (per-machine, never shipped)
