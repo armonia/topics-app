@@ -555,9 +555,14 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
             // Il seme dell'URL sta QUI, dopo la rivendicazione: prima stava
             // sopra il claim, e un gruppo che poi si tirava indietro aveva già
             // spinto l'URL nel suo browser (stessa trappola già chiusa in 8b).
-            // No `requestBrowserSolo`: that is what split the cell in two on
-            // an opening the user never asked for.
-            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
+            // `requestBrowserSolo` splits a cell, so it is for a pane that did
+            // NOT exist: an existing one is navigated where it stands (the
+            // "existing tab" half of TOPIC-BROWSER-04). Reaching here at all
+            // means the window did not take it - a task drawer, a viewport
+            // under 768, a chat inside a project window - and the card calls
+            // those unchanged, so they keep the split they always had.
+            const isNewPane = !paneForContext(prev, navContextId);
+            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); if (isNewPane) requestBrowserSolo(resolvedId); });
             persistBrowserPane(resolvedId);
             // Persist the URL onto the pane NOW (deterministic) so the tab
             // restores to its page after reload — the onUrlChange render path is
@@ -650,8 +655,9 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
           // URL seed happens here, AFTER this group claimed the event via the
           // membership check above — seeding before the claim leaked the URL
           // into groups that then bailed.
-          // No `requestBrowserSolo`: see the WS branch above.
-          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); });
+          // `requestBrowserSolo` only for a NEW pane: see the WS branch above.
+          const isNewPane = !paneForContext(prev, ce.detail?.topicId);
+          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); if (isNewPane) requestBrowserSolo(resolvedId); });
           persistBrowserPane(resolvedId);
           persistBrowserPaneUrl(resolvedId, navigateUrl);
           const ctx = getBrowserContextFromPaneId(resolvedId);
