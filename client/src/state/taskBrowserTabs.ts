@@ -20,8 +20,8 @@
  */
 
 import { useSyncExternalStore, useEffect } from 'react';
-import { getTabId } from './pane/middleware/syncCrossTab';
 import { requestTaskTabNavigate } from './taskTabNavigate';
+import { createUiStatePersister } from './uiStatePersist';
 
 /**
  * Chi ha deciso l'etichetta di una tab, in ordine di autorità crescente:
@@ -272,13 +272,18 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
 
 // ── persistence (ui-state, per-task key) — mirrors lib/board.ts boardDrafts ───
 
-async function uiGet<T>(key: string): Promise<T | null> {
+/**
+ * Read one row, WITH the `server_seq` the envelope carries: a read has to be
+ * ordered against the frames that landed while it travelled, not only against
+ * our own writes (`uiStatePersist`, point 4). `null` value = nothing to apply.
+ */
+async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null }> {
   try {
     const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
-    if (!r.ok) return null;
+    if (!r.ok) return { value: null, seq: null };
     const d = await r.json().catch(() => null);
-    return (d?.value ?? null) as T | null;
-  } catch { return null; }
+    return { value: (d?.value ?? null) as T | null, seq: typeof d?.server_seq === 'number' ? d.server_seq : null };
+  } catch { return { value: null, seq: null }; }
 }
 
 /** Best-effort teardown of the server-side browser context behind a task tab.
@@ -290,22 +295,20 @@ function releaseBrowserContext(contextId: string): void {
   void fetch(`/api/browsers/${encodeURIComponent(contextId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
-const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-function uiPutDebounced(key: string, value: unknown, ms = 800): void {
-  const t = writeTimers.get(key);
-  if (t) clearTimeout(t);
-  writeTimers.set(key, setTimeout(() => {
-    writeTimers.delete(key);
-    fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
-      method: 'PUT',
-      // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
-      // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
-      // our own write, or worse revert a newer local edit).
-      headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
-      body: JSON.stringify(value),
-    }).catch(() => {});
-  }, ms));
-}
+// Writes stay PENDING until the server answers, and a frame that arrives while
+// our PUT travels is HELD until that answer says which of the two is newer (see
+// `uiStatePersist`); `onDeferredFrame` is where a held frame that won lands.
+const writes = createUiStatePersister({
+  onDeferredFrame: (key, value) => {
+    const taskId = taskIdFromKey(key);
+    if (taskId && adopt(taskId, value)) notify();
+  },
+  onReadNeeded: (key) => {
+    const taskId = taskIdFromKey(key);
+    if (taskId) void rereadTaskTabs(taskId);
+  },
+});
+const hasPendingWrite = (taskId: string) => writes.isPending(keyFor(taskId));
 
 const KEY_PREFIX = 'task-browser-tabs:';
 const keyFor = (taskId: string) => `${KEY_PREFIX}${taskId}`;
@@ -331,13 +334,17 @@ function notify(): void {
 export async function ensureTaskTabsLoaded(taskId: string): Promise<void> {
   if (!taskId || loaded.has(taskId) || loading.has(taskId)) return;
   loading.add(taskId);
-  const v = await uiGet<unknown>(keyFor(taskId));
+  const read = await uiGet<unknown>(keyFor(taskId));
   loading.delete(taskId);
   loaded.add(taskId);
   // Don't clobber writes that landed while the GET was in flight.
   if (!cache.has(taskId)) {
-    const sanitized = sanitizeTaskTabs(v);
-    if (sanitized) { cache.set(taskId, sanitized); notify(); }
+    const sanitized = sanitizeTaskTabs(read.value);
+    if (sanitized) {
+      cache.set(taskId, sanitized);
+      writes.noteApplied(keyFor(taskId), read.seq);
+      notify();
+    }
   }
 }
 
@@ -371,18 +378,16 @@ function commit(taskId: string, next: TaskBrowserTabsState): void {
   if (next === cur) return;
   cache.set(taskId, next);
   loaded.add(taskId);
-  uiPutDebounced(keyFor(taskId), next, next.tabs.length ? 800 : 0);
+  writes.put(keyFor(taskId), next, next.tabs.length ? 800 : 0);
   notify();
 }
 
-/** Apply a server-pushed value for ONE task WITHOUT persisting it (no PUT echo).
- *  Returns true when the cache changed. A task with a PENDING local write is left
- *  untouched: the un-flushed edit is newer than any inbound frame and is about to
- *  be persisted + re-broadcast, so applying a remote value would clobber it. Marks
- *  the task loaded — the frame carries the full per-task record, so it supersedes
- *  a still-in-flight initial GET. */
-function applyRemote(taskId: string, value: unknown): boolean {
-  if (!taskId || writeTimers.has(keyFor(taskId))) return false;
+/** Write a server-side value into the cache, no questions asked and no PUT echo.
+ *  Returns true when the cache changed. Marks the task loaded — the value carries
+ *  the full per-task record, so it supersedes a still-in-flight initial GET.
+ *  Whether the value is allowed to win is decided by the callers below. */
+function adopt(taskId: string, value: unknown): boolean {
+  if (!taskId) return false;
   const sanitized = sanitizeTaskTabs(value);
   if (!sanitized) return false;
   loaded.add(taskId);
@@ -390,6 +395,16 @@ function applyRemote(taskId: string, value: unknown): boolean {
   if (cur && JSON.stringify(cur) === JSON.stringify(sanitized)) return false;
   cache.set(taskId, sanitized);
   return true;
+}
+
+/** Apply a server-pushed value for ONE task. A queued local edit wins (it is
+ *  newer than anything the server can know about); a value that arrives while
+ *  our own PUT is in flight is held by the persister and re-offered when the
+ *  answer says whose write came last. */
+function applyRemote(taskId: string, value: unknown, seq?: number | null): boolean {
+  if (!taskId) return false;
+  if (writes.admitFrame(keyFor(taskId), value, seq) !== 'apply') return false;
+  return adopt(taskId, value);
 }
 
 /**
@@ -405,8 +420,7 @@ function applyRemote(taskId: string, value: unknown): boolean {
  * bisognerebbe sapere quali task ha creato qualcun altro.
  */
 export function __resetTaskTabs(): void {
-  for (const t of writeTimers.values()) clearTimeout(t);
-  writeTimers.clear();
+  writes.cancelAll();
   cache.clear();
   loaded.clear();
   loading.clear();
@@ -426,9 +440,7 @@ export function __resetTaskTabs(): void {
  *  server stays clean — and the boot sweep re-purges anything that slips. */
 export function forgetTaskTabs(taskId: string): void {
   if (!taskId) return;
-  const key = keyFor(taskId);
-  const t = writeTimers.get(key);
-  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  writes.cancel(keyFor(taskId));
   loaded.delete(taskId);
   if (cache.delete(taskId)) notify();
 }
@@ -437,8 +449,8 @@ export function forgetTaskTabs(taskId: string): void {
  *  WS bridge drops this client's own echo (by sourceClientId) before calling, so a
  *  park/close/reorder/rename/remove on ANOTHER device updates this one in real time
  *  — the missing inbound path that left the store write-only. */
-export function applyRemoteTaskTabs(taskId: string, value: unknown): void {
-  if (applyRemote(taskId, value)) notify();
+export function applyRemoteTaskTabs(taskId: string, value: unknown, seq?: number | null): void {
+  if (applyRemote(taskId, value, seq)) notify();
 }
 
 /** Live-apply the bulk `ui-state:init` snapshot on (re)connect: every
@@ -484,12 +496,52 @@ export function applyRemoteTaskTabsInit(data: Record<string, unknown>): Set<stri
  *  → `forgetTaskTabs`. */
 export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTaskTabsInit(snapshot) : new Set<string>();
-  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
+  const ids: string[] = [];
+  for (const id of loaded) {
+    if (alreadyApplied.has(id)) continue;
+    // A key with an unresolved write is not read NOW (the local value is the
+    // newer one), but the read is owed: the end of that write re-issues it,
+    // otherwise a socket that died mid-flight leaves it stale until the next
+    // reconnect.
+    if (hasPendingWrite(id)) { writes.deferRead(keyFor(id)); continue; }
+    ids.push(id);
+  }
   if (!ids.length) return;
-  const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
+  // The write generation is taken BEFORE the GET leaves: `Promise.all` waits for
+  // the slowest answer, and a close committed in between would be resurrected by
+  // a read that was issued before it existed.
+  const tokens = ids.map((id) => writes.writeToken(keyFor(id)));
+  const seen = ids.map((id) => writes.appliedToken(keyFor(id)));
+  const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
-  ids.forEach((id, i) => { if (values[i] != null && applyRemote(id, values[i])) changed = true; });
+  ids.forEach((id, i) => {
+    const read = reads[i]!;
+    if (read.value == null) return;
+    const key = keyFor(id);
+    // Stale in two different ways: overtaken by a write of OURS, or by a frame
+    // from another device that already moved this key past what the GET read.
+    if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
+    if (writes.readIsStale(key, seen[i]!, read.seq)) return;
+    writes.noteApplied(key, read.seq);
+    if (adopt(id, read.value)) changed = true;
+  });
   if (changed) notify();
+}
+
+/** Re-read ONE task's row, for a resync that had to skip it: same staleness
+ *  guards as the bulk resync: a write started while this GET travelled wins over
+ *  its answer, and so does a frame that moved the key past what it read. */
+async function rereadTaskTabs(taskId: string): Promise<void> {
+  if (!loaded.has(taskId)) return;
+  const key = keyFor(taskId);
+  const token = writes.writeToken(key);
+  const seen = writes.appliedToken(key);
+  const read = await uiGet<unknown>(key);
+  if (read.value == null) return;
+  if (writes.wroteSince(key, token) || hasPendingWrite(taskId)) return;
+  if (writes.readIsStale(key, seen, read.seq)) return;
+  writes.noteApplied(key, read.seq);
+  if (adopt(taskId, read.value)) notify();
 }
 
 /** Task-bound mutators. Each applies a pure reducer op and persists. */

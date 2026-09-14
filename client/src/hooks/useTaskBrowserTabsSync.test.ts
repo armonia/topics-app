@@ -17,6 +17,13 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import type { WSMessage } from '../types';
 import { routeTaskBrowserFrame } from './useTaskBrowserTabsSync';
 import {
+  applyRemoteTaskTabs,
+  getTaskTabs,
+  liveTabs,
+  taskBrowserTabs,
+  __resetTaskTabs,
+} from '../state/taskBrowserTabs';
+import {
   EMPTY_TOPIC_BROWSER_WINDOW,
   applyRemoteTopicWindow,
   getTopicWindow,
@@ -108,5 +115,48 @@ describe('a topic-browser frame goes to the lazily loaded store', () => {
     } as unknown as WSMessage;
     await routeTaskBrowserFrame(frame);
     expect(getTopicWindow(tid).tabs.map((t) => t.contextId)).toEqual(['a', 'b']);
+  });
+});
+
+// The bridge is the only place that reads `server_seq` off the wire. Forwarding
+// it is what lets the store tell a frame that is our own past from one that is
+// genuinely newer: without it every frame arriving around a write of ours is
+// adopted blindly, and a stale broadcast resurrects a closed tab.
+describe('the bridge forwards a frame server_seq to the task store', () => {
+  const OWN_FETCH = globalThis.fetch;
+  beforeEach(() => {
+    (globalThis as unknown as { fetch: unknown }).fetch = async (_url: string, init?: RequestInit): Promise<Response> =>
+      new Response(JSON.stringify(init?.method === 'PUT' ? { server_seq: 105 } : null), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+  });
+  afterEach(() => {
+    (globalThis as unknown as { fetch: unknown }).fetch = OWN_FETCH;
+    __resetTaskTabs();
+  });
+
+  const record = (...contextIds: string[]) => ({
+    tabs: contextIds.map((contextId, i) => ({ contextId, url: 'u', title: 'T', seq: i })),
+    activeContextId: contextIds[0] ?? null,
+    nextSeq: contextIds.length,
+  });
+
+  test('a frame older than our confirmed write does not resurrect the tab', async () => {
+    const taskId = uniqueId('seq-bridge');
+    applyRemoteTaskTabs(taskId, record('t-0'), 100);
+
+    taskBrowserTabs.removeTab(taskId, 't-0');       // last tab: PUT with no debounce
+    await new Promise((r) => setTimeout(r, 10));    // answered at server_seq 105
+
+    await routeTaskBrowserFrame({
+      type: 'ui-state:updated',
+      key: `task-browser-tabs:${taskId}`,
+      value: record('t-0'),
+      sourceClientId: 'device-b',
+      server_seq: 104,
+    } as unknown as WSMessage);
+
+    expect(liveTabs(getTaskTabs(taskId)).map((t) => t.contextId)).toEqual([]);
   });
 });
