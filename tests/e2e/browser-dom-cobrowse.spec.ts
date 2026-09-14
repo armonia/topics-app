@@ -40,6 +40,32 @@ async function mountBrowserPane(
   await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
+/**
+ * Open the TAB SHEET, where the render switch (DOM ↔ video) lives since
+ * TOPIC-BROWSER-03: it used to be a pill in the page's bottom-left corner, a
+ * switch parked on top of the thing it switches. Nothing permanent is allowed
+ * over a browser pane's page any more.
+ *
+ * It is opened LAST in a test that drives the page, never in the middle: the
+ * sheet covers the page and parks it, so opening it early would take away the
+ * surface the rest of the test clicks on.
+ */
+async function expectRenderMode(
+  page: import("@playwright/test").Page,
+  mode: "dom" | "video",
+  label: string,
+): Promise<void> {
+  await page.locator('[data-pane-id^="browser:"]').first().hover();
+  await page.getByTestId("browser-tab-menu").first().click();
+  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10000 });
+  const row = page.getByTestId("browser-tab-render");
+  await expect(row).toBeVisible({ timeout: 10000 });
+  await expect(row).toHaveAttribute("data-render-mode", mode);
+  await expect(row).toContainText(label);
+  // And the pill it replaced is nowhere over the page.
+  await expect(page.locator('[data-testid="browser-render-toggle"]')).toHaveCount(0);
+}
+
 test.describe("T1 DOM co-browse", () => {
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, []);
@@ -70,7 +96,6 @@ test.describe("T1 DOM co-browse", () => {
       await expect(dom).toBeVisible({ timeout: 8000 });
       const reconstructed = dom.frameLocator("iframe").locator("#hi");
       await expect(reconstructed).toHaveText("DOM COBROWSE OK", { timeout: 8000 });
-      await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("DOM");
 
       // Input relay: clicks land on the PARENT-FRAME capture overlay (robust under
       // WKWebView, where in-iframe capture is unreliable) and relay to the server as
@@ -130,6 +155,10 @@ test.describe("T1 DOM co-browse", () => {
       await expect
         .poll(() => overlay.evaluate((el) => getComputedStyle(el).pointerEvents))
         .toBe("auto");
+
+      // LAST, because it covers the page: the mode this pane is on is a row of
+      // the sheet's Session section, not a pill over the page.
+      await expectRenderMode(page, "dom", "DOM");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -197,7 +226,7 @@ test.describe("T1 DOM co-browse", () => {
       // the DOM overlay is NOT mounted. No manual interaction — the pane resolves it.
       await expect(page.locator('[data-testid="browser-webrtc-video"]').first()).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid="browser-dom-cobrowse"]')).toHaveCount(0);
-      await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("Video");
+      await expectRenderMode(page, "video", "video");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

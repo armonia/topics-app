@@ -80,8 +80,14 @@ test.describe("T2 iframe render mode", () => {
       const iframe = page.locator('[data-testid="browser-iframe"]');
       await expect(iframe).toBeVisible({ timeout: 10000 });
       await expect(iframe).toHaveAttribute("src", "https://example.com");
-      // The screenshot-stream path must NOT be the active render (iframe early-returns).
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toHaveCount(0);
+      // The screenshot-stream path must NOT be the active render (iframe
+      // early-returns). Asserted on the stream's OWN surfaces: the connection
+      // pill that used to prove this no longer exists anywhere
+      // (TOPIC-BROWSER-03), so counting it would be an assertion that passes for
+      // free. The <video> and the rrweb mirror are the two things only the
+      // streaming branch draws.
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="browser-dom-cobrowse"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

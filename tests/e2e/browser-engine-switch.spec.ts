@@ -39,6 +39,21 @@ async function mountBrowserPane(
   await expect(page.locator('[data-browser-pane]').first()).toBeVisible({ timeout: 10000 });
 }
 
+/**
+ * Open the TAB SHEET, where the engine switch lives since TOPIC-BROWSER-03.
+ *
+ * It used to be a pill floating over the page (top-left), i.e. a switch parked
+ * on top of the thing it switches. Nothing permanent is allowed over a browser
+ * pane's page any more, so the switch moved into the sheet's Session section and
+ * the tab carries only the ANSWER, as one icon. The dots come out on hover, so
+ * the pointer goes over the pane's tab first.
+ */
+async function openTabSheet(page: import("@playwright/test").Page): Promise<void> {
+  await page.locator('[data-pane-id^="browser:"]').first().hover();
+  await page.getByTestId("browser-tab-menu").first().click();
+  await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10000 });
+}
+
 test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", () => {
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, []);
@@ -61,15 +76,21 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
-      // The streaming <video> proves the pane is up; the toggle must still be absent.
+      // The streaming <video> proves the pane is up; the switch must still be
+      // absent — and absent WITH THE SHEET OPEN, otherwise the assertion only
+      // proves the sheet is closed. A capability the server denies means the
+      // command is never published, so the row is not drawn at all.
       await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
+      await openTabSheet(page);
+      await expect(page.getByTestId("browser-tab-engine")).toHaveCount(0);
+      // And nothing of it is left over the page either.
       await expect(page.locator('[data-testid="browser-engine-toggle"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 
-  test("enabled → toggle shows Nativo, click switches to Chromium (badge + WS remount) and back", async ({ page, browserProcessPageV2, request }) => {
+  test("enabled → the sheet shows Playwright, click switches to Chromium (label + tab icon + WS remount) and back", async ({ page, browserProcessPageV2, request }) => {
     test.info().annotations.push({ type: "spec", description: "ENGSW-02" });
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -86,9 +107,14 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      const toggle = page.locator('[data-testid="browser-engine-toggle"]');
+      // The switch is a row of the sheet's Session section now, and the bundled
+      // engine is NOT called "Nativo": that word names the device's own webview,
+      // a different thing entirely. This one is the server's Playwright.
+      await openTabSheet(page);
+      const toggle = page.getByTestId("browser-tab-engine");
       await expect(toggle).toBeVisible({ timeout: 10000 });
-      await expect(toggle).toContainText("Nativo");
+      await expect(toggle).toContainText("Playwright");
+      await expect(toggle).not.toContainText("Nativo");
 
       const connectsBefore = browserProcessPageV2.getWsConnectCount();
 
@@ -96,12 +122,14 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
       // to "Chromium · 42" and the client remounts the WS (recreate on new engine).
       await toggle.click();
       await expect(toggle).toContainText("Chromium · 42", { timeout: 5000 });
+      // The tab grew the type icon: this pane is no longer the default kind.
+      await expect(page.getByTestId("browser-tab-type-icon").first()).toHaveAttribute("data-kind", "chromium");
       await expect.poll(() => browserProcessPageV2.getWsConnectCount(), { timeout: 6000 }).toBeGreaterThan(connectsBefore);
 
       // Switch back to native.
       const connectsAfterChromium = browserProcessPageV2.getWsConnectCount();
       await toggle.click();
-      await expect(toggle).toContainText("Nativo", { timeout: 5000 });
+      await expect(toggle).toContainText("Playwright", { timeout: 5000 });
       await expect.poll(() => browserProcessPageV2.getWsConnectCount(), { timeout: 6000 }).toBeGreaterThan(connectsAfterChromium);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

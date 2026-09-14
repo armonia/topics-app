@@ -60,6 +60,15 @@ export interface BrowserChromeBridgeInput {
   deviceMode?: DeviceMode;
   shared: boolean;
   shareMode?: ShareMode;
+  /** WHAT THIS PANE IS: the streaming connection, the server engine, the render
+   *  mode. They feed the tab's single type icon and the sheet's Session
+   *  switches; see `BrowserPaneChrome` for why each one is optional and what
+   *  absence means. The paths without a streaming socket (native, iframe) pass
+   *  none of them. */
+  connection?: 'connected' | 'connecting' | 'fallback-http' | 'disconnected';
+  engine?: 'native' | 'chromium';
+  engineExtensions?: number;
+  renderMode?: 'dom' | 'video';
   /** What the SHEET shows and the tab cannot: this pane's address list, the
    *  console rows behind the tally, the downloads with their actions. They
    *  travel through the registry for the same reason the tally does - the sheet
@@ -136,7 +145,8 @@ export function useBrowserChromeBridge(
 
   const {
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
-    zoom, deviceMode, shared, shareMode, history, consoleEntries, downloadsMenu, commands,
+    zoom, deviceMode, shared, shareMode, connection, engine, engineExtensions,
+    renderMode, history, consoleEntries, downloadsMenu, commands,
   } = input;
 
   /**
@@ -169,6 +179,10 @@ export function useBrowserChromeBridge(
     deviceMode: deviceMode ?? ('desktop' as DeviceMode),
     shared,
     shareMode,
+    connection,
+    engine,
+    engineExtensions,
+    renderMode,
     history: history ?? EMPTY_HISTORY,
     consoleEntries,
     downloadsMenu,
@@ -185,7 +199,8 @@ export function useBrowserChromeBridge(
   }), [
     urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
-    shareMode, history, consoleEntries, downloadsMenu, input.downloadsStarted,
+    shareMode, connection, engine, engineExtensions, renderMode,
+    history, consoleEntries, downloadsMenu, input.downloadsStarted,
     addressEditRequest, downloadsOpenRequest, commands, focusAddress, openDownloads,
   ]);
 

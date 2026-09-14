@@ -52,7 +52,7 @@ import {
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
-import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabConsoleCue, BrowserTabDownloadsCue } from '../Browser/BrowserTabChrome';
+import { BrowserTabIcon, BrowserTabTypeIcon, BrowserTabMenuButton, BrowserTabConsoleCue, BrowserTabDownloadsCue } from '../Browser/BrowserTabChrome';
 import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
 import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
@@ -1445,6 +1445,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Icon size={14} />
               </span>
             ) : null}
+            {/* WHAT KIND of browser tab this is (shared, real Chromium, no
+                connection) — between the favicon and the title, and nothing at
+                all on the default kind. It replaces the three pills that used
+                to float over the page itself; see `BrowserTabTypeIcon`. */}
+            {pane.type === 'browser' && <BrowserTabTypeIcon paneId={pane.id} />}
             {/* Il consumo va QUI e non sulla tab: il contenitore usa apposta
                 `aria-label` e non `title` (vedi sopra), perché un title là
                 duplicherebbe il nome già scritto accanto e i title dei figli.

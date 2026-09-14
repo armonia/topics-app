@@ -67,10 +67,24 @@ const cell = (page: Page) => page.locator('[data-pane-shell][data-pane-visible="
  * a tab label, and still returns a perfectly quotable contrast number - about an
  * empty box. Measured while writing this: the `__files__` panel with no project
  * seeded renders ZERO descendants, and it produced readings identical to the
- * dashboard's to four decimals. The threshold is far below the real counts
- * (terminal 81, browser 49, dashboard 136) and far above an empty shell.
+ * dashboard's to four decimals. The threshold has to sit far below the real
+ * counts (terminal 81, dashboard 136) and far above an empty shell.
+ *
+ * LOWERED FROM 20 TO 10 ON 2026-09-14, and by a measurement rather than to get
+ * a red to go away. The browser pane counted 49 when this floor was written and
+ * counts 20 in this scene now, after `TOPIC-BROWSER-03` emptied the page area.
+ * The three pills are only part of that drop and it is worth not overstating
+ * them: on the pane this spec probes only the ones the state allows are ever
+ * drawn (the connection pill hides while connected, the render switch needs a
+ * real page), so they are about half a dozen nodes, and the rest of the 29 is
+ * the rest of the chrome this card and the one before it took out of the pane.
+ * What decides the floor is the number that was measured, 20, not its
+ * breakdown. A floor of 20 therefore stopped meaning "far below the real counts" and
+ * started meaning "exactly the browser's", which fails on the pane it was meant
+ * to wave through. The new floor keeps both ends: an empty shell is 0, and the
+ * half-mounted terminal this same file measured at 8 nodes is still caught.
  */
-const MOUNTED_NODES = 20;
+const MOUNTED_NODES = 10;
 
 /** The poll's answer when there is no shell to count at all (see `openProbePane`). */
 const NO_SHELL = -1;
