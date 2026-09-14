@@ -5557,8 +5557,8 @@ fn browser_animate_bounds(
 /// (review of card e0821533); `wkzprobe z` checks it as
 /// `first-responder-survives-the-raise`.
 // ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised in place with addSubview:positioned:above:.
-// ENGINES-GAP: webview2 - same hole as AppKit, read in the wry 0.55.1 source (every child HWND is born with SetWindowPos HWND_TOP, set_bounds passes SWP_NOZORDER): the command answers Ok and moves nothing until the WebView2 raise task of card e0821533 (tasks.md, Tornata 2) lands.
-// ENGINES-GAP: webkitgtk - not probed: wry puts every child with GtkFixed.put, which appends; the command answers Ok and moves nothing, and the same task of card e0821533 decides between a probed raise and an explicit open gap.
+// ENGINES-GAP: webview2 - the arm is wired (browser_win::raise: SetWindowPos HWND_TOP on the container HWND the controller hands back), but no Windows machine has run wkzprobe z yet, so the behaviour is read from the wry 0.55.1 source and not measured.
+// ENGINES-GAP: webkitgtk - the arm is wired (browser_linux::raise: GdkWindow::raise), but nothing has probed whether a WebKitWebView owns its GdkWindow, and without that the call is a no-op rather than a raise.
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {
@@ -5581,8 +5581,10 @@ fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
             // removeFromSuperview first: it would take the keyboard away.
             let _: () = msg_send![parent, addSubview: view, positioned: 1isize, relativeTo: nil];
         });
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
+        #[cfg(target_os = "windows")]
+        crate::browser_win::raise(&wv)?;
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        crate::browser_linux::raise(&wv)?;
         Ok(())
     })
 }
