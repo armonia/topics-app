@@ -37,10 +37,10 @@ export const TopicBrowserWindow: ComponentType<ComponentProps<typeof Window>> = 
 // Destructured, not handed around whole: a bare `import()` is opaque to knip
 // and would make every export of the store immortal.
 const loadStore = async () => {
-  const { getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded } = await import(
+  const { getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded, topicBrowserWindow } = await import(
     '../../state/topicBrowserWindow'
   );
-  return { getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded };
+  return { getTopicWindow, subscribeTopicWindows, ensureTopicWindowLoaded, topicBrowserWindow };
 };
 let storePromise: ReturnType<typeof loadStore> | null = null;
 const store = () => (storePromise ??= loadStore());
@@ -66,6 +66,23 @@ export const DEFAULT_EXPANDED_WIDTH = 520;
  *  otherwise push the conversation down to a sliver, or past zero. */
 export const MIN_CHAT_WIDTH = 320;
 
+/** Narrowest the expanded window is allowed to be. Declared here, on the eager
+ *  side, so `expandedInsetFor` can ask "does this area fit a window at all?"
+ *  without pulling the store in; `EXPANDED_WIDTH_BOUNDS` reads it from here, so
+ *  the two cannot drift apart. */
+export const MIN_EXPANDED_WIDTH = 360;
+
+/** Narrowest area that can hold an expanded window AND a usable chat next to
+ *  it. Below this the window does not expand at all. */
+export const MIN_EXPANDABLE_AREA = MIN_CHAT_WIDTH + MIN_EXPANDED_WIDTH;
+
+/** Can this area hold a docked window at all? The rendering asks this before
+ *  dressing the window as expanded, so a persisted `exp` cannot survive in
+ *  an area too narrow to show the way out of it. */
+export function canExpandInArea(areaWidth: number): boolean {
+  return areaWidth >= MIN_EXPANDABLE_AREA;
+}
+
 /**
  * HOW MUCH THE CHAT ACTUALLY CEDES, computed ONCE for both sides.
  *
@@ -79,20 +96,51 @@ export const MIN_CHAT_WIDTH = 320;
  * So there is one number now, and whoever needs it asks for it. The chat's
  * floor wins over the window's preferred minimum: a window a bit narrower than
  * it would like is a nuisance, a covered composer is a broken chat.
+ *
+ * AND BELOW A POINT THERE IS NO WINDOW TO PLACE. Letting the chat's floor win
+ * without a floor of its own meant the leftover could be anything: in a split
+ * project the area is a few hundred pixels, and the expanded window came out
+ * 80 px wide at 1280 and 2 px at 1024, too narrow to hit its own minimise
+ * button. A window nobody can grab is worse than no window, and the mode is
+ * persisted, so the topic stayed stuck in it. Under `MIN_EXPANDABLE_AREA` the
+ * answer is zero: the caller falls back to the floating window, which is
+ * always reachable.
  */
 export function expandedInsetFor(areaWidth: number, requestedWidth: number): number {
+  if (areaWidth < MIN_EXPANDABLE_AREA) return 0;
   return Math.max(0, Math.min(requestedWidth, areaWidth - MIN_CHAT_WIDTH));
 }
 
 /**
- * The same rule as `expandedInsetFor`, written for CSS.
+ * HOW MUCH THIS CHAT CEDES, measured.
  *
- * The chat pads ITSELF, so it cannot pass its own width in: `100%` is that
- * width (padding grows inward, the border box does not move). Same clamp, same
- * floor, stated next to the function it has to agree with.
+ * This used to be the same clamp written a second time in CSS, over `100%` of
+ * the padded element. It agreed with `expandedInsetFor` only as long as the
+ * rule was a pure clamp: the moment the rule gained a THRESHOLD ("below this
+ * area, nothing"), CSS could no longer state it, because a step function of a
+ * length is not expressible in `min`/`max`/`calc`. The two sides would have
+ * drifted exactly where it hurts, leaving the chat a 359 px gutter next to a
+ * window that had fallen back to floating.
+ *
+ * So the chat measures the element it is about to pad, and asks the same
+ * function as everyone else. The border box does not move when the padding
+ * changes, so the measurement is stable and this does not oscillate.
  */
-export function expandedInsetCss(requestedWidth: number): string {
-  return `max(0px, min(${requestedWidth}px, calc(100% - ${MIN_CHAT_WIDTH}px)))`;
+export function useTopicBrowserInset(
+  areaRef: { current: HTMLElement | null },
+  requestedWidth: number,
+): number {
+  const [areaWidth, setAreaWidth] = useState(0);
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const read = (): void => setAreaWidth((prev) => (prev === el.clientWidth ? prev : el.clientWidth));
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [areaRef]);
+  return requestedWidth > 0 && areaWidth > 0 ? expandedInsetFor(areaWidth, requestedWidth) : 0;
 }
 
 /**
@@ -154,4 +202,12 @@ export function useTopicBrowserPresence(topicId: string): TopicBrowserPresence {
     return () => { alive = false; stop(); };
   }, [topicId]);
   return topicId && entry.topicId === topicId ? entry.presence : ABSENT;
+}
+
+/** Bring a parked window back into the topic. The command lives in the
+ *  topic header, which is eager, so it goes through the same bridge the
+ *  presence hook uses: by the time the button is on screen the chunk is
+ *  already loaded, so the click resolves from cache. */
+export function reopenTopicBrowserWindow(topicId: string): void {
+  void store().then((s) => s.topicBrowserWindow.setMode(topicId, 'min'));
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
-import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -345,9 +345,12 @@ function ChatPaneComponent({
   const browserWindow = useTopicBrowserPresence(
     ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
   );
-  const browserInset = browserWindow.mode === 'exp'
+  const requestedBrowserInset = browserWindow.mode === 'exp'
     ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
     : 0;
+  // Measured, not stated in CSS: below a usable area the window falls back to
+  // floating and this has to be zero, which a stylesheet cannot decide.
+  const browserInset = useTopicBrowserInset(paneRootRef, requestedBrowserInset);
   // L'invito della chat vuota sta DENTRO il blocco misurato, ma non deve
   // contare nella centratura: si misura a parte per poterlo scalare.
   const greetingRef = useRef<HTMLDivElement>(null);
@@ -1658,7 +1661,7 @@ function ChatPaneComponent({
       // not just laid out there. The horizontal containment is unchanged. See
       // the block on `.chrome-passthrough-y` in index.css.
       className="relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full"
-      style={browserInset ? { paddingRight: expandedInsetCss(browserInset) } : undefined}
+      style={browserInset ? { paddingRight: `${browserInset}px` } : undefined}
       // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
       // nuova non si richiude più da sola. In cattura, perché deve valere anche
       // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.

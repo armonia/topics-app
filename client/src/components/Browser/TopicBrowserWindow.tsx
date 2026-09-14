@@ -31,7 +31,7 @@
  * Promotion is the layout's own door, not a private one: "open as tab" fires
  * the same `browser:open-tab` event a clicked link fires, with the SAME
  * contextId, so the page, its history and the agent driving it survive. The
- * return trip dispatches CLOSE_PANE directly, WITHOUT the tombstone and the
+ * return trip goes through RECLAIM_PANE, WITHOUT the tombstone and the
  * server DELETE that a real close carries: the context has to stay alive, and
  * the native view survives the gap because a remount inside the close grace
  * cancels the teardown (`useTauriBrowser`, BROWSER_CLOSE_GRACE_MS).
@@ -68,7 +68,7 @@ import {
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { registerTopicWindowDoor } from '../../lib/topicWindowDoor';
 import { tauriInvoke } from '../../lib/shell/tauri';
-import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor } from './topicBrowserWindowLazy';
+import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
  *  so the reconciler must not read its absence as "the tab was closed". */
 const PROMOTION_GRACE_MS = 5000;
@@ -242,9 +242,15 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       const local = resolveMinRect(state, { width: area.width, height: area.height }, { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT });
       return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
     }
-    if (state.mode === 'exp') {
-      // The same number the chat cedes, from the same function: the window's
-      // left edge and the chat's padding are one edge, not two formulas.
+    // Docking needs room for BOTH the window and the chat. In a split
+    // project at 1024 the area is about 322px: docked, the window came out
+    // 2px wide, its own controls could not be hit, and the persisted `exp`
+    // had no way out. Below that floor we stay floating: the bar is always
+    // reachable.
+    if (state.mode === 'exp' && canExpandInArea(area.width)) {
+      // The same number the chat cedes, from the same function: the
+      // left edge of the window and the padding of the chat are one
+      // edge, not two formulas.
       const width = expandedInsetFor(area.width, expandedWidth);
       return { left: area.left + area.width - width, top: area.top, width, height: area.height };
     }
@@ -377,25 +383,6 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   }, [addOpen, layoutBrowsers.length]);
   if (!topicId) return null;
   if (!barOnly && !state.tabs.length) return null;
-  // Hidden, but the topic still HAS pages: the X puts the window away,
-  // it does not throw the pages away, so there must be a way back.
-  if (!barOnly && state.mode === "hidden") {
-    if (!rect) return null;
-    return createPortal(
-      <button
-        type="button"
-        data-testid="topic-browser-reopen"
-        title={tr("topicBrowser.reopen")}
-        aria-label={tr("topicBrowser.reopen")}
-        onClick={() => topicBrowserWindow.setMode(topicId, "min")}
-        className="fixed rounded-full border border-app-border bg-surface px-3 py-1.5 text-mini leading-none shadow-lg"
-        style={{ left: rect.left + rect.width - 220, top: rect.top + rect.height - 44 }}
-      >
-        {tr("topicBrowser.reopen")}
-      </button>,
-      document.body,
-    );
-  }
 
 
   // The topic is not the one on screen (its chat pane is collapsed to zero, or
@@ -404,14 +391,24 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // back to the topic would reload it and lose the history. Parked means: kept
   // in the DOM, hidden, and every sheet told it is not visible, which is what
   // makes the shell take its native views off screen.
-  const parked = !rect;
+  //
+  // The X parks too. It used to return early here and unmount the panels,
+  // which closed the pages: history, forms and the agent own view, exactly
+  // what the topic switch is careful to keep.
+  const hidden = !barOnly && state.mode === 'hidden';
+  const parked = !rect || hidden;
   const box = rect ?? lastRect.current;
-  const expanded = state.mode === 'exp' && !barOnly;
+  // One answer for the whole render: if the area cannot host a docked window,
+  // `exp` is not what this window IS, whatever the persisted state says. The
+  // rect above already falls back to floating, so the flag must agree or
+  // the chrome would dress a docked window around a floating box.
+  const canExpand = !!area && canExpandInArea(area.width);
+  const expanded = state.mode === 'exp' && canExpand && !barOnly;
 
   return createPortal(
     <div
       data-testid="topic-browser-window"
-      data-mode={barOnly ? 'loaned' : state.mode}
+      data-mode={barOnly ? 'loaned' : (expanded ? 'exp' : 'min')}
       // The window is not an overlay for the native views it contains, and it
       // declares the corner radius the shell rounds its page to.
       data-native-browser-slot=""
@@ -480,6 +477,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
         >
           <ExternalLink size={13} />
         </button>
+        {canExpand && (
         <button
           data-testid={expanded ? 'topic-browser-minimize' : 'topic-browser-expand'}
           aria-label={expanded ? tr('topicBrowser.minimize') : tr('topicBrowser.expand')}
@@ -489,6 +487,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
         >
           {expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
         </button>
+        )}
         <button
           data-testid="topic-browser-close"
           aria-label={tr('topicBrowser.close')}

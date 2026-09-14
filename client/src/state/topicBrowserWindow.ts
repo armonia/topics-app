@@ -30,6 +30,7 @@
 import { getTabId } from './pane/middleware/syncCrossTab';
 import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey';
 import { createUiStatePersister } from './uiStatePersist';
+import { MIN_EXPANDED_WIDTH } from '../components/Browser/topicBrowserWindowLazy';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -79,7 +80,7 @@ export const EMPTY_TOPIC_BROWSER_WINDOW: TopicBrowserWindowState = {
 /** Default size of the minimized window, and the bounds of the expanded one.
  *  They live here because the position/width reducers clamp against them. */
 export const MIN_WINDOW_SIZE = { width: 420, height: 320 } as const;
-export const EXPANDED_WIDTH_BOUNDS = { min: 360, max: 1200 } as const;
+export const EXPANDED_WIDTH_BOUNDS = { min: MIN_EXPANDED_WIDTH, max: 1200 } as const;
 
 // ── pure reducer ops (unit-tested; no I/O) ───────────────────────────────────
 

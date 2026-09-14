@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
-import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
+import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud, PanelRight } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -16,7 +16,7 @@ import { ChatPane } from '../Chat/ChatPane';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
-import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset, reopenTopicBrowserWindow } from '../Browser/topicBrowserWindowLazy';
 import type { SendMessageOptions } from '@/hooks/useChat';
 
 function errorMessage(e: unknown): string {
@@ -126,11 +126,14 @@ export function ChatPanel({
   // cedes nothing, which is the difference the scenarios check.
   const chatAreaRef = useRef<HTMLDivElement>(null);
   const browserWindow = useTopicBrowserPresence(isDraft || isMobile ? '' : topic.id);
-  const browserInset = browserWindow.mode === 'exp' ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH) : 0;
+  const requestedBrowserInset = browserWindow.mode === 'exp' ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH) : 0;
+  // Measured, not stated in CSS: below a usable area the window falls back to
+  // floating and this has to be zero, which a stylesheet cannot decide.
+  const browserInset = useTopicBrowserInset(chatAreaRef, requestedBrowserInset);
 
   return (
     <>
-      <div ref={chatAreaRef} data-testid="chat-panel" data-chat-topic-id={topic.id} role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: expandedInsetCss(browserInset) } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+      <div ref={chatAreaRef} data-testid="chat-panel" data-chat-topic-id={topic.id} role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: `${browserInset}px` } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {hasTopicBrowserWindow(browserWindow) && (
           <Suspense fallback={null}>
             <TopicBrowserWindow topicId={topic.id} areaRef={chatAreaRef} projectPath={topic.projectPath ?? undefined} />
@@ -188,6 +191,18 @@ export function ChatPanel({
               data-testid="chat-jump-to-browser"
             >
               <Globe size={14} />
+            </button>
+          )}
+          {hasTopicBrowserWindow(browserWindow) && browserWindow.mode === 'hidden' && (
+            <button
+              data-testid="topic-browser-reopen"
+              onClick={() => reopenTopicBrowserWindow(topic.id)}
+              title={tr('topicBrowser.reopen')}
+              aria-label={tr('topicBrowser.reopen')}
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors app-no-drag"
+              {...NO_DRAG_REGION}
+            >
+              <PanelRight size={14} />
             </button>
           )}
           {/* Context Inspector toggle — hidden when headerLeft has rings.
