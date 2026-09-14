@@ -37,6 +37,14 @@ const NIGHTLY_ONLY_SPECS = [
   // e il test accusa il broadcast, che non c'entra — non c'era nessun browser da
   // cui potesse partire. Nel notturno gira senza sharding e passa.
   "browser-shared-session",
+  // Stessa famiglia: il primo dei due test fa lanciare al server un Chromium
+  // headless — il `resize` dello spettatore che guida E' la cosa che crea il
+  // contesto — e poi ne legge il viewport vero tre volte. Sotto i quattro shard
+  // quel launch va in timeout come per `browser-shared-session`, e il rosso
+  // accuserebbe l'arbitro invece della macchina. Nel notturno gira senza
+  // sharding; il secondo test (la centratura) e' sul mock harness e non c'entra,
+  // ma testIgnore salta i FILE, non i test.
+  "browser-viewport-arbiter",
   // Stessa famiglia, stessa ragione: il prologo aspetta che il server lanci un
   // Chromium headless e ci navighi dentro due volte prima di poter filmare.
   "browser-forget-site-shared",

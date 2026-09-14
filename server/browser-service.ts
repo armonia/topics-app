@@ -1759,7 +1759,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // (TOPIC-BROWSER-05), and every applied resize restarts the screencast.
       const live = contexts.get(id);
       const shown = live?.page.viewportSize();
-      if (shown && shown.width === width && shown.height === height) {
+      if (live && shown && shown.width === width && shown.height === height) {
         touchActivity(live);
         return;
       }

@@ -108,6 +108,14 @@ export const PROJECT_WORDS = new Set([
   // (2026-09-12, `components/Browser/hostedIframe.ts`).
   "iframe",
   "iframes",
+  // The name of the DOM-recording library the co-browse path is built on
+  // (`rrweb`, `rrweb-player`, its `Replayer`, its event types). It is already
+  // the vocabulary here - the mock harness replays an "rrweb burst", the
+  // fixture is `rrweb-sample.json` - and a name that reads the event shape
+  // that library defines has no other honest spelling: `viewportFromRrwebEvent`
+  // says which events it knows, `viewportFromRecorderEvent` would not
+  // (2026-09-14, `client/src/lib/browserFit.ts`).
+  "rrweb",
   // The opposite of zooming a cell, and this app's own name for it: the menu
   // entry is `tab.menu.unzoom` and the control is `tab-menu-unzoom`, so the
   // word is already in the product before it is in a variable (2026-09-11,
