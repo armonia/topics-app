@@ -46,12 +46,16 @@ mod windows_repaint;
 /// and compiled on EVERY platform (no `#[cfg]` body), so a `cargo check` on any
 /// OS still catches a break in the one code path only Windows can reproduce.
 mod boot_choice;
+mod upstream_search;
 mod daemon_record;
 mod boot_degraded;
 mod reconnect_page;
+use upstream_search::{
+    discover_upstream, ALONE_BEFORE_CONCEDING, ROUND_PAUSE, SEARCH_WITHOUT_MARKER,
+    SEARCH_WITH_MARKER,
+};
 use boot_choice::{
-    decide_boot, discover_upstream, BootChoice, BootFacts, Loopback, PortAnswer, ShapeVerdict,
-    ALONE_BEFORE_CONCEDING,
+    decide_boot, BootChoice, Loopback, PortAnswer, ShapeVerdict,
 };
 use daemon_record::{daemon_pid_is_alive, daemon_state_port};
 use reconnect_page::{reconnect_page_response, set_degraded_marker};
@@ -1702,14 +1706,16 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // in, so it can be tested without a Tauri app around it. All this function
     // still owns is the wiring: real sockets, the real files on disk, a real
     // pause.
-    let attempts: u32 = if seen_before { 60 } else { 8 };
+    // In TIME, not in rounds, and the short one is no longer shorter than the
+    // patience it is supposed to let run (see `SEARCH_WITHOUT_MARKER`).
+    let budget = if seen_before { SEARCH_WITH_MARKER } else { SEARCH_WITHOUT_MARKER };
     let facts = discover_upstream(
         seen_before,
-        attempts,
+        budget,
         ALONE_BEFORE_CONCEDING,
         |host, port| probe_port(host, port),
         || (daemon_state_port(), daemon_pid_is_alive()),
-        || tokio::time::sleep(std::time::Duration::from_millis(700)),
+        || tokio::time::sleep(ROUND_PAUSE),
     )
     .await;
 
@@ -1742,7 +1748,17 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 marker.display(),
                 facts.state_pid_alive,
             );
-            set_degraded_marker(Some(marker.display().to_string()));
+            // ONLY OFFER THE WAY OUT THAT IS ACTUALLY THE WAY OUT. The page tells
+            // the person to delete the marker and reopen; that is true when the
+            // marker is what makes the shell wait, and false otherwise. A LIVE
+            // daemon pid is believed before the marker is even read, so with a
+            // recycled pid the button sends somebody to delete a file and land
+            // right back on this same wait (reproduced 2026-09-14). Same for a
+            // marker that is not there: the path was published regardless.
+            let marker_is_the_reason = seen_before && !facts.state_pid_alive;
+            set_degraded_marker(
+                marker_is_the_reason.then(|| marker.display().to_string()),
+            );
             let _ = UPSTREAM.set(Upstream { host, port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
@@ -12414,9 +12430,9 @@ mod contaminated_marker_cold_boot_tests {
     //! server must still wait, not fork empty).
 
     use super::{
-        decide_boot, probe_port, probe_topics_shape, BootChoice, BootFacts, Loopback, PortAnswer,
-        ShapeVerdict,
+        decide_boot, probe_port, probe_topics_shape, BootChoice, Loopback, PortAnswer, ShapeVerdict,
     };
+    use crate::boot_choice::BootFacts;
     use std::io::{Read, Write};
     use std::time::Duration;
 

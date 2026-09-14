@@ -155,8 +155,11 @@ fn process_matches_record(pid: u32, recorded_at: i64, earliest_before: i64) -> b
 ///
 ///   * a pid recycled WITHIN these ten seconds reads as alive, and the shell then
 ///     waits for a server that is never coming back. Not "a few more seconds":
-///     with the marker present it waits out the whole loop and then keeps
-///     waiting, which is a session spent on "Connecting". It is still the better
+///     it waits out the whole loop and then keeps waiting, a session spent on
+///     "Connecting", and deleting the external-server marker does not end it,
+///     because a live pid is believed before the marker is even looked at. The
+///     way out is killing the process that now holds the recycled pid, or
+///     deleting this file and `daemon-state.json`. It is still the better
 ///     failure, because the alternative loses the person's topics rather than
 ///     their patience, and the odds are small (the recycled pid must also land
 ///     inside a ten second window);
