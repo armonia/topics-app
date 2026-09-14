@@ -463,6 +463,7 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
     if (writes.wroteSince(key, tokens[i]!) || hasPendingWrite(id)) return;
     if (writes.readIsStale(key, seen[i]!, read.seq)) return;
     if (read.value === null) {
+      writes.noteApplied(key, read.seq);
       if (cache.delete(id)) changed = true;
       return;
     }

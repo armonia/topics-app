@@ -60,7 +60,20 @@
  *    A read with no seq at all (the server answers a missing row with a literal
  *    `null`, no envelope) brings no order of its own, so ANY value applied
  *    during its flight beats it: otherwise a `null` read answering late erases
- *    a window another device had just created.
+ *    a window another device had just created. A DELETION applied locally
+ *    counts as an applied value too (`cancel` logs one): a record forgotten
+ *    because its task or topic was archived must not come back because a GET
+ *    issued before the archiving answers after it.
+ *
+ * 5. NO LINE OUTLIVES ITS COUNTER. The seq our own write was confirmed at
+ *    (`confirmedSeq`) is what tells a frame from our own echo, and it is the
+ *    one comparison here that is a per-key maximum rather than a flight window.
+ *    It cannot be one for ever: restore a `data/topics.db` from backup and the
+ *    server's counter starts again from below it, so every frame from the other
+ *    devices reads as "our past" and is dropped, for as many writes as the
+ *    rollback threw away. A read accepted BELOW that line is the proof the
+ *    counter restarted -- the row cannot be older than our own write to it --
+ *    and the line is dropped there.
  *
  * KNOWN LIMITS, both of them older than this arbitration and left in the open on
  * purpose:
@@ -168,7 +181,9 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
   // answer must not clear the protection the second write still needs.
   const inFlight = new Map<string, number>();
   // Highest server_seq our OWN writes have been confirmed at: the line under
-  // which an inbound frame is our own past.
+  // which an inbound frame is our own past. Dropped as soon as a read proves
+  // the counter restarted below it (see `noteApplied`), because a line that
+  // outlives its counter stops being a past and becomes a wall.
   const confirmedSeq = new Map<string, number>();
   // The one frame waiting for our PUT's answer (a newer frame replaces it).
   const held = new Map<string, { value: unknown; seq: number | null }>();
@@ -304,6 +319,14 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       return applied.get(key)?.gen ?? 0;
     },
     noteApplied(key: string, seq: number | null): void {
+      // A read that the caller ACCEPTED, answering below the line our own write
+      // was confirmed at, is proof that the server's counter restarted: the row
+      // it read can never be older than our own write to it. Keeping the line
+      // would leave every frame from the other devices dropped until the global
+      // counter climbed back past it. So the line goes, exactly as a read's own
+      // ordering is scoped to one flight and never to a high-water mark.
+      const line = confirmedSeq.get(key);
+      if (seq !== null && line !== undefined && seq < line) confirmedSeq.delete(key);
       markApplied(key, seq);
     },
     readIsStale(key: string, token: number, seq: number | null): boolean {
@@ -318,6 +341,9 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
       // The record is being forgotten (archived task/topic): a read owed for it
       // would resurrect the row we are dropping.
       owedReads.delete(key);
+      // A deletion is a value like any other: logged, so a read that left before
+      // it cannot answer later and bring the record back from the dead.
+      markApplied(key, null);
     },
     cancelAll(): void {
       for (const t of timers.values()) clearTimeout(t);
