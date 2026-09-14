@@ -52,13 +52,13 @@ import os from "node:os";
 import { statfsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
-import { fleetLoadSync, type FleetLoadReading } from "../lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, type FleetLoadReading } from "../lib/fleet-usage";
 import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
-import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, machineBudget } from "../../shared/board";
+import { admissionVerdict, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, machineBudget } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -819,6 +819,12 @@ export function computeDispatchCapacity(
    *  gauge and the gate must read ONE reading: a second probe for the same
    *  question is two numbers that disagree on screen. */
   budgetKnob: { share: number; frozen: number } = { share: BUDGET_SHARE_DEFAULT, frozen: 0 },
+  /** The live price list of one agent, per session, injectable for the same
+   *  reason as the probes: a test must be able to fix what an agent costs. */
+  priceList: { coreUnits: () => number[]; memGB: () => number[] } = {
+    coreUnits: fleetSessionCoreUnits,
+    memGB: fleetSessionMemGB,
+  },
 ): DispatchCapacity {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
@@ -868,6 +874,15 @@ export function computeDispatchCapacity(
   const share = clamp(budgetKnob.share, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX);
   const budgetNow = machineBudget(sample, share);
   const round = (n: number) => Math.round(n * 10) / 10;
+  // WHICH AXIS IS BLOCKING, from the same reading, with no memory of its own:
+  // the panel asks about now. The agent's price comes from the live sessions,
+  // the same price list the gate uses, so the panel cannot show a number the
+  // gate did not decide on.
+  const agentCost = {
+    coreUnits: estimatedAgentCost((() => { try { return priceList.coreUnits(); } catch { return []; } })()),
+    memGB: estimatedAgentMemCost((() => { try { return priceList.memGB(); } catch { return []; } })()),
+  };
+  const axis = admissionVerdict(sample, share, agentCost);
   return {
     recommended,
     cores,
@@ -889,6 +904,9 @@ export function computeDispatchCapacity(
     otherCoreUnits: sample.otherCoreUnits == null ? null : round(sample.otherCoreUnits),
     frozen: Math.max(0, budgetKnob.frozen),
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
+    blockedAxis: axis.blockedBy,
+    agentCostMemGB: round(agentCost.memGB),
+    freeQuotaMemGB: budgetNow.freeQuotaMemGB == null ? null : round(budgetNow.freeQuotaMemGB),
     reason,
     running,
   };

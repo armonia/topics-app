@@ -1787,6 +1787,20 @@ export interface DispatchCapacity {
    * never zero.
    */
   availableMemGB: number | null;
+  /**
+   * WHICH AXIS IS SAYING NO right now, so the panel can name it instead of
+   * drawing a CPU bar that is half empty while the queue does not move. `cpu`
+   * and `memory` are the two the admission decides on; `null` means nothing is
+   * blocking, and it is also what a machine without the probe reports.
+   *
+   * Computed stateless (no hysteresis state travels on the wire): it describes
+   * the CURRENT reading, which is what a panel is for.
+   */
+  blockedAxis: "cpu" | "memory" | null;
+  /** What one more agent is priced at in memory, and the share of the free
+   *  memory it is compared with. `null` where memory is not measured. */
+  agentCostMemGB: number;
+  freeQuotaMemGB: number | null;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
   /**

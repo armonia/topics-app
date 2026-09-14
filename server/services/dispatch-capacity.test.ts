@@ -643,6 +643,29 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
     if (strutturale > 2) expect(cap.reason).toContain("ridotto a");
   });
 
+  // The panel must be able to NAME the axis: a CPU bar half empty next to a
+  // queue that does not move is the screen that makes the brake look broken.
+  test("il wire dice QUALE asse blocca: memoria quando e' la memoria", () => {
+    const priceList = { coreUnits: () => [0.5], memGB: () => [2] };
+    const cap = computeDispatchCapacity(
+      4, () => fleetReading({ coreUnits: 0.2, cores }), false, () => 0.3,
+      { share: 0.8, frozen: 0 }, priceList,
+    );
+    expect(cap.blockedAxis).toBe("memory");
+    expect(cap.agentCostMemGB).toBe(2);
+    // Rounded to one decimal like every other figure on the wire: 0.8 x 0.3.
+    expect(cap.freeQuotaMemGB).toBe(0.2);
+  });
+
+  test("con memoria abbondante e macchina libera il wire non accusa nessun asse", () => {
+    const priceList = { coreUnits: () => [0.2], memGB: () => [1.5] };
+    const cap = computeDispatchCapacity(
+      0, () => fleetReading({ coreUnits: 0.1, cores }), false, () => 40,
+      { share: 0.8, frozen: 0 }, priceList,
+    );
+    expect(cap.blockedAxis).toBe(null);
+  });
+
   test("senza sonda (Windows, cache fredda) resta il conto storico sul load", () => {
     const cap = computeDispatchCapacity(0, () => null);
     expect(cap.oursCores).toBeNull();

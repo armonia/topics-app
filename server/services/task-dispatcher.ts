@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
@@ -182,6 +182,10 @@ export interface DispatcherDeps {
    * no history, and the estimate falls back to its floor, never to zero.
    */
   agentCostSamples?: () => number[];
+  /** The same price list in gigabytes: the peak each live session is holding.
+   *  The median of these prices the memory of one more agent, and an empty list
+   *  prices it at the measured floor (never at zero). */
+  agentMemSamples?: () => number[];
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
@@ -849,8 +853,14 @@ const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 export function machineBudgetMessage(verdict: AdmissionVerdict, cores: number, share: number): string {
   const c = cores > 0 ? cores : 1;
   if (verdict.blockedBy === "memory") {
+    // The memory sentence says the two numbers the axis actually compared: what
+    // one more agent costs, and the share of the FREE memory it did not fit in.
+    // "Topics is at its memory ceiling" was true of a footprint nobody could
+    // see and said nothing about the machine being in swap.
+    const quota = verdict.freeQuotaMemGB;
+    const room = quota == null ? "" : ` (ne servono ${itNumber(verdict.costMemGB)} GB, liberi per Topics ${itNumber(quota)} GB)`;
     return (
-      `Topics è al tetto di memoria che gli hai dato, il ${asPercent(share)} di questa macchina. ` +
+      `Non c'è memoria per un altro agent: il ${asPercent(share)} di quella libera non basta${room}. ` +
       `Non ne parte un altro finché non si libera: riparte da sé, niente è andato perso.`
     );
   }
@@ -1091,8 +1101,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const sample = deps.budgetSample?.() ?? null;
       if (!sample) return null;
       const share = budgetShare(gcap);
-      const cost = estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })());
-      const verdict = admissionVerdict(sample, share, cost, budgetGate);
+      const cost = {
+        coreUnits: estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })()),
+        memGB: estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })()),
+      };
+      // WHAT WE HAVE ALREADY PROMISED. The turns launched in the last ninety
+      // seconds are not in the probe yet (an agent reads its card before it
+      // launches a gate), so they are counted at their estimate: without this
+      // term every tick decides against the calm that the previous tick has
+      // already spent, and the queue drains into swap. `sessionAt` is the
+      // launch instant, so the ledger is the in-flight map itself.
+      const now = Date.now();
+      const warming = [...inFlight.values()].map((slot) => slot.sessionAt);
+      const reserved = reservedCost(warming, cost, now);
+      const verdict = admissionVerdict(
+        { ...sample, reservedCoreUnits: reserved.coreUnits, reservedMemGB: reserved.memGB },
+        share,
+        cost,
+        budgetGate,
+      );
       budgetGate = verdict.state;
       if (verdict.firstAgentExempt) {
         // Not a block, but not a free machine either: the log says why the
