@@ -23,7 +23,7 @@
  *
  * 3. A drag runs with the page FROZEN (`freeze()`/`thaw()` on the drag gate,
  *    through the `topics:pane-resize-*` events the gate already understands).
- *    That is the ruling of Tornata 0, written in design.md, §Trascinare: the
+ *    That is the ruling written in design.md, in the dragging section: the
  *    IPC floor measured by `wkzprobe drag` is inside a frame at the median but
  *    its tail is one to two frames out, and the live-follow that the sidebar
  *    tried made the pane edge stutter.
@@ -60,15 +60,19 @@ import {
   newBrowserContextId,
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
+import { tauriInvoke } from '../../lib/shell/tauri';
 import { DEFAULT_EXPANDED_WIDTH } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
  *  so the reconciler must not read its absence as "the tab was closed". */
 const PROMOTION_GRACE_MS = 5000;
+/** Height of the window when every page of the topic is out on loan: the bar
+ *  alone, which is the only thing that can bring one back. */
+const BAR_ONLY_HEIGHT = 36;
 
 export interface TopicBrowserWindowProps {
   topicId: string;
   /** The topic area: the window floats inside it and docks to its right edge. */
-  areaRef: RefObject<HTMLElement | null>;
+  areaRef: AreaRef;
   /** Where a promoted tab belongs, so the right layout claims the open. */
   projectPath?: string;
 }
@@ -77,7 +81,9 @@ interface Rect { left: number; top: number; width: number; height: number }
 
 /** The topic area in viewport coordinates, kept fresh across resizes, scrolls
  *  and layout changes of the cell itself. */
-function useAreaRect(areaRef: RefObject<HTMLElement | null>): Rect | null {
+type AreaRef = RefObject<HTMLElement | null>;
+
+function useAreaRect(areaRef: AreaRef): Rect | null {
   const [rect, setRect] = useState<Rect | null>(null);
   useEffect(() => {
     const el = areaRef.current;
@@ -107,6 +113,20 @@ function useTopicWindowState(topicId: string): TopicBrowserWindowState {
     return subscribeTopicWindows(read);
   }, [topicId]);
   return topicId ? state : EMPTY_TOPIC_BROWSER_WINDOW;
+}
+
+/**
+ * Put the window's page above the sibling native views.
+ *
+ * Z order among native views is CREATION order, and nothing but an explicit
+ * reorder changes it (`tools/wkzprobe z`): a window opened before a browser
+ * pane would float UNDER that pane, which is the one thing a floating window
+ * may not do. The raise is a no-op outside the desktop shell, and a declared
+ * gap on WebView2 and WebKitGTK (see `browser-platform-parity`).
+ */
+function raiseNativeView(contextId: string): void {
+  if (!contextId) return;
+  void tauriInvoke('browser_raise', { id: contextId }).catch(() => {});
 }
 
 /** Tell the native views to re-measure: a window that MOVED without changing
@@ -145,20 +165,45 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // that page can come back into the window. See `reconcilePromoted`.
   useEffect(() => {
     if (!topicId || !state.promoted.length) return;
-    const now = Date.now();
-    topicBrowserWindow.reconcilePromoted(topicId, (contextId) => {
-      const since = promotedAt.current.get(contextId);
-      if (since !== undefined && now - since < PROMOTION_GRACE_MS) return true;
-      return !!panes[createPaneId('browser', contextId)];
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sweep = (): void => {
+      const now = Date.now();
+      let nextSweepIn = Infinity;
+      topicBrowserWindow.reconcilePromoted(topicId, (contextId) => {
+        const since = promotedAt.current.get(contextId);
+        if (since !== undefined && now - since < PROMOTION_GRACE_MS) {
+          nextSweepIn = Math.min(nextSweepIn, since + PROMOTION_GRACE_MS - now);
+          return true;
+        }
+        return !!panes[createPaneId('browser', contextId)];
+      });
+      // A tab closed WHILE its promotion was still under grace produces no
+      // further store change: without this re-run the id would stay held for
+      // good, and `open` would silently refuse that page for ever.
+      if (nextSweepIn !== Infinity) timer = setTimeout(sweep, nextSweepIn + 50);
+    };
+    sweep();
+    return () => { if (timer) clearTimeout(timer); };
   }, [topicId, state.promoted, panes]);
 
   const active = state.tabs.find((t) => t.contextId === state.activeContextId) ?? state.tabs[0] ?? null;
 
   const expandedWidth = dragWidth ?? state.expandedWidth ?? DEFAULT_EXPANDED_WIDTH;
 
+  // Every page of this topic is a tab of the layout right now: the window keeps
+  // the bar, and nothing else. Without it the «+» that takes them back would be
+  // unreachable, and a tab closed out there would never release its id.
+  const barOnly = !state.tabs.length && state.promoted.length > 0;
+
+  // A chat pane that is not the visible tab keeps its DOM, hidden: its box
+  // collapses to zero. The window is a PORTAL, so nothing would hide it with
+  // the pane, and topic A's browser would float over topic B.
   const rect = useMemo<Rect | null>(() => {
-    if (!area) return null;
+    if (!area || area.width < 1 || area.height < 1) return null;
+    if (barOnly) {
+      const local = resolveMinRect(state, { width: area.width, height: area.height }, { width: MIN_WINDOW_SIZE.width, height: BAR_ONLY_HEIGHT });
+      return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
+    }
     if (state.mode === 'exp') {
       const width = Math.min(expandedWidth, area.width);
       return { left: area.left + area.width - width, top: area.top, width, height: area.height };
@@ -169,14 +214,17 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       MIN_WINDOW_SIZE,
     );
     return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
-  }, [area, state, expandedWidth, dragPos]);
+  }, [area, state, expandedWidth, dragPos, barOnly]);
 
   // Every geometry change is a reflow request: the page inside is composited by
   // the OS at a rectangle it was told once.
-  useEffect(() => { requestReflow(); }, [rect?.left, rect?.top, rect?.width, rect?.height, state.activeContextId]);
+  useEffect(() => {
+    requestReflow();
+    if (state.activeContextId) raiseNativeView(state.activeContextId);
+  }, [rect?.left, rect?.top, rect?.width, rect?.height, state.activeContextId]);
 
   const startMove = useCallback((e: React.PointerEvent) => {
-    if (state.mode !== 'min' || !area) return;
+    if (state.mode === 'exp' || !area) return;
     const start = resolveMinRect(state, { width: area.width, height: area.height }, MIN_WINDOW_SIZE);
     const originX = e.clientX;
     const originY = e.clientY;
@@ -239,8 +287,8 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const takeFromLayout = useCallback((contextId: string, url: string, title: string) => {
     const paneId = createPaneId('browser', contextId);
     const store = usePaneStore.getState();
-    const loc = findPaneLocation(store, paneId);
-    if (loc) store.dispatch({ type: 'CLOSE_PANE', payload: { id: paneId, groupId: loc.groupId, groupIndex: loc.groupIndex } });
+    const placed = findPaneLocation(store, paneId);
+    if (placed) store.dispatch({ type: 'CLOSE_PANE', payload: { id: paneId, groupId: placed.groupId, groupIndex: placed.groupIndex } });
     promotedAt.current.delete(contextId);
     if (getTopicWindow(topicId).promoted.includes(contextId)) {
       topicBrowserWindow.returnFromTab(topicId, { contextId, url, title });
@@ -259,14 +307,15 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     [panes, state.tabs],
   );
 
-  if (!topicId || state.mode === 'hidden' || !rect || !state.tabs.length) return null;
+  if (!topicId || !rect) return null;
+  if (!barOnly && (state.mode === 'hidden' || !state.tabs.length)) return null;
 
-  const expanded = state.mode === 'exp';
+  const expanded = state.mode === 'exp' && !barOnly;
 
   return createPortal(
     <div
       data-testid="topic-browser-window"
-      data-mode={state.mode}
+      data-mode={barOnly ? 'loaned' : state.mode}
       // The window is not an overlay for the native views it contains, and it
       // declares the corner radius the shell rounds its page to.
       data-native-browser-slot=""

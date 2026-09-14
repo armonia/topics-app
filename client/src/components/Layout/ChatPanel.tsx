@@ -131,7 +131,7 @@ export function ChatPanel({
   return (
     <>
       <div ref={chatAreaRef} data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: browserInset } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
-        {browserWindow.mode !== 'hidden' && (
+        {(browserWindow.mode !== 'hidden' || browserWindow.promoted > 0) && (
           <Suspense fallback={null}>
             <TopicBrowserWindow topicId={topic.id} areaRef={chatAreaRef} projectPath={topic.projectPath ?? undefined} />
           </Suspense>

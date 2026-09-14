@@ -52,16 +52,20 @@ export interface TopicBrowserPresence {
   /** px, null = the default width of the expanded window. */
   expandedWidth: number | null;
   sheets: number;
+  /** Pages of this topic currently ON LOAN to the layout as tabs. A window with
+   *  none of its own sheets left still has to exist for them: it is what gives
+   *  them back, and what notices when one is closed out there. */
+  promoted: number;
 }
 
 /** Width of the expanded window before anyone drags its edge. Lives here, on
  *  the eager side, because `ChatPanel` has to cede exactly this much. */
 export const DEFAULT_EXPANDED_WIDTH = 520;
 
-const ABSENT: TopicBrowserPresence = { mode: 'hidden', expandedWidth: null, sheets: 0 };
+const ABSENT: TopicBrowserPresence = { mode: 'hidden', expandedWidth: null, sheets: 0, promoted: 0 };
 
 const same = (a: TopicBrowserPresence, b: TopicBrowserPresence): boolean =>
-  a.mode === b.mode && a.expandedWidth === b.expandedWidth && a.sheets === b.sheets;
+  a.mode === b.mode && a.expandedWidth === b.expandedWidth && a.sheets === b.sheets && a.promoted === b.promoted;
 
 /**
  * Subscribe to the shape of a topic's window. Hydrates the row on first use
@@ -80,23 +84,25 @@ export function useTopicBrowserPresence(topicId: string): TopicBrowserPresence {
   useEffect(() => {
     if (!topicId) return;
     let alive = true;
-    let unsubscribe = (): void => {};
+    let stop = (): void => {};
     void store().then(async (s) => {
       if (!alive) return;
       await s.ensureTopicWindowLoaded(topicId);
       if (!alive) return;
       const read = (): void => {
         const w = s.getTopicWindow(topicId);
-        const next: TopicBrowserPresence = { mode: w.mode, expandedWidth: w.expandedWidth, sheets: w.tabs.length };
+        const next: TopicBrowserPresence = {
+          mode: w.mode, expandedWidth: w.expandedWidth, sheets: w.tabs.length, promoted: w.promoted.length,
+        };
         setEntry((prev) => (prev.topicId === topicId && same(prev.presence, next) ? prev : { topicId, presence: next }));
         // A topic with sheets is a topic whose window can be asked for at any
         // moment: warm the chunk now, not on the click.
-        if (w.tabs.length) void warm(loadTopicBrowserWindow);
+        if (w.tabs.length || w.promoted.length) void warm(loadTopicBrowserWindow);
       };
       read();
-      unsubscribe = s.subscribeTopicWindows(read);
+      stop = s.subscribeTopicWindows(read);
     });
-    return () => { alive = false; unsubscribe(); };
+    return () => { alive = false; stop(); };
   }, [topicId]);
   return topicId && entry.topicId === topicId ? entry.presence : ABSENT;
 }
