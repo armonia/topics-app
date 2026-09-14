@@ -30,6 +30,8 @@ interface ExecutionRow {
   label: string;
   status: ProviderSnapshotEntry['status'];
   models: string[];
+  /** Windows declared by the provider, per model id, when it declares any. */
+  contextWindows?: Record<string, number>;
   supportsAutomatic: boolean;
   reason?: string;
 }
@@ -43,9 +45,11 @@ interface ExecutionRow {
  * (`truncate`), this label never does, and the tilde says the model is not in
  * the table and the number is the default rather than a measurement.
  */
-function ModelWindowLabel({ model, selected }: { model: string; selected: boolean }) {
+function ModelWindowLabel(
+  { model, selected, declared }: { model: string; selected: boolean; declared?: number },
+) {
   const tr = useT();
-  const win = contextWindowFor(model);
+  const win = contextWindowFor(model, declared);
   const n = win.tokens.toLocaleString('it-IT');
   return (
     <span
@@ -66,6 +70,7 @@ function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
     label: entry.label ?? entry.name,
     status: entry.status,
     models: entry.models,
+    contextWindows: entry.modelContextWindows,
     supportsAutomatic: true,
     reason: entry.lastError ?? entry.requirements.find((requirement) => !requirement.present)?.hint,
   }));
@@ -153,7 +158,9 @@ export function AiExecutionMenuOptions({
           >
             <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(value.model)}</span>
             <span className="text-micro text-amber-300">{tr('ai.selector.unavailableShort')}</span>
-            {showWindow && <ModelWindowLabel model={value.model} selected />}
+            {showWindow && (
+              <ModelWindowLabel model={value.model} selected declared={active.contextWindows?.[value.model]} />
+            )}
             <Check className="h-3 w-3 shrink-0 text-amber-300" />
           </button>
         )}
@@ -197,7 +204,7 @@ export function AiExecutionMenuOptions({
               <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(model)}</span>
               {showWindow ? (
                 <>
-                  <ModelWindowLabel model={model} selected={selected} />
+                  <ModelWindowLabel model={model} selected={selected} declared={active.contextWindows?.[model]} />
                   {/* The check keeps its slot on every row: without it the
                       window column would move on the selected row only. */}
                   <span className="flex w-3 shrink-0 justify-center" aria-hidden="true">

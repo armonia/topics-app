@@ -13,6 +13,13 @@ export interface TaskExecutionOption {
   label: string;
   status: ProvidersSnapshot['providers'][number]['status'];
   models: string[];
+  /**
+   * Windows declared by the provider, per model id. Always absent here: the
+   * coding runtimes serve models the shared table already knows. The field
+   * exists so the one menu component can read it on either surface without a
+   * cast, and it stays absent on this side on purpose.
+   */
+  contextWindows?: Record<string, number>;
   supportsAutomatic: boolean;
   reason?: string;
 }
