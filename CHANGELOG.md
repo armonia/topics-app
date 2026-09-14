@@ -2,6 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.321 — 2026-09-14
+
+### Sotto il cofano
+- Riallinea con T6 e corregge i numeri misurati nella nota
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-14 [skip ci]
+- Gradino tipografico dichiarato sul chip e pulizia della scrittura lasciata dal test
+- Finestra non incastrata in aree strette; la X parcheggia
+- Comando di riapertura nella topic e soglia che tiene la barra raggiungibile
+- Il composer resta scoperto e cliccabile accanto alla finestra agganciata
+- Etichetta citata marcata allow-italian e baseline dello spec aggiornata
+- La finestra minimizzata tiene la sua banda sopra il composer
+- Il lettore del pavimento rilegge il riferimento invece di catturarlo
+- La banda del composer, non un pavimento: la finestra sceglie il lato libero
+- La barra e non il contenitore: la finestra scansa i comandi del composer
+- Via i file di servizio finiti nel commit precedente
+- Scenario 01r falsificato: il commento e la baseline dello spec
+
+## 2.2.320 — 2026-09-14
+
+### Sotto il cofano
+- Lo scenario del progetto ripulisce lo stato del server
+- Registra la misura del ramo unito senza alzare il tetto
+
 ## 2.2.319 — 2026-09-14
 
 ### Correzioni
@@ -10,9 +33,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - la grassezza del fixture e' un dato, non un tempo
+- Scala z, una sola larghezza ceduta, ritorno dal web
 - un file non e' un altro solo perche' si chiama uguale
 - **ui-state** · name the task id helper in English
+- La finestra della topic: quattro scenari, e le tre cose che li tenevano rossi
 - la chiave del registro e' il contesto, non il contesto piu' la query
+- Rimisura il bundle dopo il riallineamento e corregge la nota
+- Dichiara il requisito coperto dai test nuovi
 - un posto si presta, non si regala
 
 ## 2.2.318 — 2026-09-14
@@ -23,8 +50,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - The roster test waits for the answer it asserts, not for a message on the way there
 - la decisione sul viewport la prende il wiring, e il Mac che riparte ritrova il suo posto
+- La finestra della topic esiste anche dentro un progetto
 - Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima
 - i due test nuovi rimettono a posto il processo che hanno sporcato
+- Il piano dello scrim del menu esce da una costante
+- Registra la crescita di i18n-it nel bloat baseline
 - il caso del ponte con un client attaccato non corre piu' contro se stesso
 
 ## 2.2.317 — 2026-09-14
@@ -37,6 +67,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - la pane non disegna più niente di permanente sopra la pagina
 - il tipo della scheda è un'icona nella tab, i commutatori stanno nel foglio
+- Topic browser window: the surface, and the way out of a promoted id
 - i quattro test del browser guardano dove i comandi sono adesso
 - a pid is not a liveness test, and a probe that cannot find anything is a second of someone's morning
 - la negazione di TOPIC-BROWSER-03 è geometria, non tre testid contati a zero
@@ -52,6 +83,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - a probe must not occupy the port, and a restarting server is not an absent one
 - Tornata 4 spuntata, con le tre cose che la misura ha cambiato
 - il commutatore di resa nel foglio solo su una pagina vera, come la pillola che sostituisce
+- La finestra browser della topic: componente, spazio ceduto, E2E
+- Commento in inglese nella E2E: il gate del linguaggio non passa una riga italiana
 - A wait that gives up quietly blames the wrong test
 - il Mac in loopback ha un'identita' stabile nell'arbitro del viewport
 - ogni pane dice il proprio nome, e l'arbitro finalmente la riconosce
@@ -59,6 +92,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic
 - **ui-state** · pin the guards nothing was holding, and pay the entry budget
 - l'icona di condivisione torna dove la condivisione c'e' davvero
+- Finestra della topic: l'invariante una-pagina-un-posto, e la via di ritorno
 - A test that counts rounds cannot see a clock being reset
 
 ## 2.2.316 — 2026-09-14

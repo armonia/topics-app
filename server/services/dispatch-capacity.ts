@@ -701,17 +701,51 @@ const FLEET_MIN_SLOTS = 2;
  * abbassato il tetto TOTALE invece dei posti residui, e il primo che compila
  * avrebbe di nuovo chiuso la porta.
  */
-export function fleetSlotBudget(input: { cores: number; ourCoreUnits: number; running: number }): {
+export function fleetSlotBudget(input: {
+  cores: number;
+  ourCoreUnits: number;
+  running: number;
+  /** The CPU of whoever is NOT ours, when measured. The fleet share is taken
+   *  from what is left: what Topics did not open comes first (decided on
+   *  14/09/2026, see `shared/machine-budget.ts`). `null` = not measured, and
+   *  then the whole machine counts, never zero. */
+  otherCoreUnits?: number | null;
+}): {
   slots: number;
   /** Core-unità che la flotta può occupare in tutto. */
   budgetCores: number;
   /** Core-unità di budget ancora libere. */
   freeCores: number;
 } {
-  const budgetCores = Math.max(1, input.cores * FLEET_CPU_SHARE);
+  const freeOfOthers = input.otherCoreUnits == null
+    ? input.cores
+    : Math.max(0, input.cores - Math.max(0, input.otherCoreUnits));
+  const budgetCores = Math.max(1, freeOfOthers * FLEET_CPU_SHARE);
   const freeCores = clamp(budgetCores - Math.max(0, input.ourCoreUnits), 0, budgetCores);
   const nuovi = Math.floor(freeCores / CORES_PER_NEW_SLOT);
   return { slots: Math.max(FLEET_MIN_SLOTS, Math.max(0, input.running) + nuovi), budgetCores, freeCores };
+}
+
+/**
+ * THE CPU OF OTHERS, SMOOTHED. The ceiling is now taken from the free part, so
+ * every one-second spike of somebody else would close the door on a card that
+ * then sits still for a whole tick. We keep the last readings and use the
+ * MEDIAN: an isolated spike does not get in, a real load (one lasting more than
+ * half the window) does. Five samples because the dispatcher tick is ~10 s: it
+ * covers the minute, the scale at which somebody else's `bun test` or build
+ * actually shows.
+ *
+ * `null` (not measured) does not enter the history and does not use it up: it
+ * returns `null`, that is "whole machine", the prudent answer as always.
+ */
+const OTHER_SAMPLES = 5;
+const otherHistory: number[] = [];
+export function smoothedOther(other: number | null | undefined, history: number[] = otherHistory): number | null {
+  if (other == null || !Number.isFinite(other)) return null;
+  history.push(Math.max(0, other));
+  if (history.length > OTHER_SAMPLES) history.shift();
+  const sorted = [...history].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? null;
 }
 
 /**
@@ -767,7 +801,9 @@ export function computeDispatchCapacity(
   const structural = Math.min(byCores, byMem);
   // Il freno vivo: la CPU che la flotta si sta già mangiando, non quella della
   // macchina intera (vedi la nota in testa al file).
-  const budget = fleet ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running }) : null;
+  const budget = fleet
+    ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running, otherCoreUnits: smoothedOther(fleet.otherCoreUnits) })
+    : null;
   const live = budget ? budget.slots : loadAverageSlots(cores, load1);
 
   const recommended = clamp(Math.min(structural, live), 1, MAX_AUTO_CAP);
@@ -797,7 +833,10 @@ export function computeDispatchCapacity(
     totalMemGB: Math.round(totalMemGB * 10) / 10,
     load1: Math.round(load1 * 100) / 100,
     oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
-    budgetCores: Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
+    // The fleet share is of the FREE like everything else: report the real one
+    // here, not `cores x share`, or the panel shows a ceiling the brake does not
+    // apply.
+    budgetCores: budget ? Math.round(budget.budgetCores * 10) / 10 : Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
     budgetShare: share,
     budgetCoreUnits: round(budgetNow.cpuCoreUnits),
     usableCoreUnits: round(budgetNow.usableCoreUnits),

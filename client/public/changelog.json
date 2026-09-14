@@ -1,5 +1,103 @@
 [
   {
+    "version": "2.2.321",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Riallinea con T6 e corregge i numeri misurati nella nota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-14 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Gradino tipografico dichiarato sul chip e pulizia della scrittura lasciata dal test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Finestra non incastrata in aree strette; la X parcheggia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Comando di riapertura nella topic e soglia che tiene la barra raggiungibile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il composer resta scoperto e cliccabile accanto alla finestra agganciata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Etichetta citata marcata allow-italian e baseline dello spec aggiornata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra minimizzata tiene la sua banda sopra il composer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il lettore del pavimento rilegge il riferimento invece di catturarlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La banda del composer, non un pavimento: la finestra sceglie il lato libero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra e non il contenitore: la finestra scansa i comandi del composer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Via i file di servizio finiti nel commit precedente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scenario 01r falsificato: il commento e la baseline dello spec",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.320",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo scenario del progetto ripulisce lo stato del server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la misura del ramo unito senza alzare il tetto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.319",
     "date": "2026-09-14",
     "sections": {
@@ -26,6 +124,11 @@
           "scope": null
         },
         {
+          "it": "Scala z, una sola larghezza ceduta, ritorno dal web",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "un file non e' un altro solo perche' si chiama uguale",
           "en": "",
           "scope": null
@@ -37,7 +140,22 @@
           "breaking": false
         },
         {
+          "it": "La finestra della topic: quattro scenari, e le tre cose che li tenevano rossi",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "la chiave del registro e' il contesto, non il contesto piu' la query",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rimisura il bundle dopo il riallineamento e corregge la nota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dichiara il requisito coperto dai test nuovi",
           "en": "",
           "scope": null
         },
@@ -75,12 +193,27 @@
           "scope": null
         },
         {
+          "it": "La finestra della topic esiste anche dentro un progetto",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima",
           "en": "",
           "scope": null
         },
         {
           "it": "i due test nuovi rimettono a posto il processo che hanno sporcato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il piano dello scrim del menu esce da una costante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la crescita di i18n-it nel bloat baseline",
           "en": "",
           "scope": null
         },
@@ -130,6 +263,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Topic browser window: the surface, and the way out of a promoted id",
+          "en": "",
+          "scope": null
         },
         {
           "it": "i quattro test del browser guardano dove i comandi sono adesso",
@@ -216,6 +354,16 @@
           "breaking": false
         },
         {
+          "it": "La finestra browser della topic: componente, spazio ceduto, E2E",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commento in inglese nella E2E: il gate del linguaggio non passa una riga italiana",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A wait that gives up quietly blames the wrong test",
           "en": "",
           "scope": null
@@ -252,6 +400,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Finestra della topic: l'invariante una-pagina-un-posto, e la via di ritorno",
+          "en": "",
+          "scope": null
         },
         {
           "it": "A test that counts rounds cannot see a clock being reset",
