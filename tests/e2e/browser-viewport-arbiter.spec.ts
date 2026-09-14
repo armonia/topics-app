@@ -6,45 +6,46 @@ import { closeAllBrowserContexts, createTopic, deleteTopic, waitForTopicVisible,
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
-// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
-// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+// Hermetic boundary: this file restarts from the globalSetup baseline, not from
+// whatever the previous specs left behind. See fixtures/hermetic.ts.
 hermetic(test);
 
-// Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
+// Whoever makes the mess cleans it: see the docstring of `closeAllBrowserContexts`.
 test.afterAll(async ({ request }) => {
   await closeAllBrowserContexts(request);
 });
 
 /**
- * In condivisione il viewport lo decide chi USA la pagina, e chi guarda la vede
- * in scala al centro.
+ * In a shared session the viewport belongs to whoever USES the page, and
+ * everyone else sees it scaled and centred.
  *
- * Un contesto browser lato server puo' avere piu' spettatori: la pane del Mac,
- * un telefono sulla stessa rete, il cassetto di un task. Ognuno trasmette la
- * propria misura da un ResizeObserver, e il server applicava l'ultimo `resize`
- * arrivato — cosi' un telefono che si limitava ad APRIRE il contesto condiviso
- * rifluiva la pagina a 390 px sotto le mani di chi stava scrivendo sul Mac.
- * Niente errori: la pagina diventava semplicemente una pagina da telefono.
+ * One server-side browser context can have several viewers: the Mac pane, a
+ * phone on the same network, a task drawer. Each one streams its own size from
+ * a ResizeObserver, and the server used to apply the last `resize` that
+ * arrived, so a phone that merely OPENED the shared context reflowed the page
+ * to 390 px under the hands of whoever was typing on the Mac. Nothing errored:
+ * the page simply became a phone page.
  *
- * Qui si provano le due meta' della regola, ciascuna col mezzo che le serve:
+ * The two halves of the rule are proved with the tool each one needs:
  *
- *   1. l'arbitrato, sul server VERO — due contesti Playwright con misure
- *      diverse sullo stesso contextId, e la misura che la pagina headless ha
- *      davvero letta da `/api/browsers/:id/agent/eval`. Niente mock: l'arbitro
- *      sta nel ramo socket del server, e uno stub proverebbe lo stub.
- *   2. la centratura, sul mock harness — deterministica, senza browser vero,
- *      perche' la geometria e' una funzione della coppia contenitore/pagina e
- *      non ha bisogno di un Chromium per essere sbagliata.
+ *   1. the arbitration, against the REAL server: two Playwright contexts with
+ *      different sizes on the same contextId, and the size the headless page
+ *      actually has, read back from `/api/browsers/:id/agent/eval`. No mock:
+ *      the arbiter lives in the server's socket branch, and a stub would prove
+ *      the stub.
+ *   2. the centring, on the mock harness, where it is deterministic: the
+ *      geometry is a function of the container/page pair and needs no real
+ *      Chromium to be wrong.
  *
  * @covers TOPIC-BROWSER-05
  */
 
-/** Il flusso rrweb registrato offline, riusato qui con un Meta piu' largo. */
+/** The rrweb burst captured offline, reused here with a wider Meta. */
 const RRWEB_EVENTS = JSON.parse(
   readFileSync(resolvePath(__dirname, "fixtures/rrweb-sample.json"), "utf-8"),
 ) as { type: number; data?: Record<string, unknown> }[];
 
-/** Il Meta del campione dichiara 900x600: qui serve una pagina da scrivania. */
+/** The sample's Meta says 900x600; this needs a desk-sized page instead. */
 const RECORDED_WIDTH = 1280;
 const RECORDED_HEIGHT = 800;
 
@@ -58,26 +59,26 @@ function eventsWithRecordedViewport(width: number, height: number): unknown[] {
 
 test.describe("Arbitro del viewport in sessione condivisa", () => {
   /**
-   * QUESTO FILE NON GIRA NEL GATE DELLE PR, per la ragione della sua famiglia.
+   * THIS FILE IS OUT OF THE PR GATE, for its family's reason.
    *
-   * Il primo test fa lanciare al server un Chromium headless (il `resize` e' la
-   * prima cosa che crea il contesto). Sotto i quattro shard del gate quel launch
-   * va in timeout a 180s — misurato sulla stessa famiglia, vedi il commento di
-   * `browser-shared-session` — e il rosso accusa l'arbitro, che non c'entra:
-   * non c'era nessuna pagina di cui misurare il viewport. Sta quindi in
-   * `NIGHTLY_ONLY_SPECS`, dove gira senza sharding.
+   * The first test makes the server launch a headless Chromium (the `resize` is
+   * the very thing that creates the context). Under the gate's four shards that
+   * launch times out at 180s - measured on the same family, see the comment on
+   * `browser-shared-session` - and the red would accuse the arbiter, which has
+   * nothing to do with it: there was no page whose viewport could be measured.
+   * So it sits in `NIGHTLY_ONLY_SPECS`, where it runs unsharded.
    */
   test("l'arbitro del viewport: chi guarda non rimpicciolisce chi usa", async ({ browser, request }) => {
-    // Il tetto del file e' 30s e qui non basta: si aspetta che il server lanci
-    // un Chromium headless, e poi tre viaggi di andata e ritorno sulla pagina.
+    // The file cap is 30s and it is not enough here: this waits for the server
+    // to launch a headless Chromium, then three round trips against the page.
     test.setTimeout(180_000);
 
     const contextId = `e2e-arbiter-${Date.now()}`;
-    const evalUrl = `${E2E_BASE}/api/browsers/${encodeURIComponent(contextId)}/agent/eval`;
+    const evaluateUrl = `${E2E_BASE}/api/browsers/${encodeURIComponent(contextId)}/agent/eval`;
 
-    /** La misura che la pagina headless ha DAVVERO, non quella che le e' stata chiesta. */
+    /** The size the headless page REALLY has, not the one it was asked for. */
     const readViewport = async (): Promise<string> => {
-      const res = await request.post(evalUrl, {
+      const res = await request.post(evaluateUrl, {
         data: { expression: "[window.innerWidth, window.innerHeight].join('x')" },
         timeout: 60_000,
       });
@@ -87,24 +88,23 @@ test.describe("Arbitro del viewport in sessione condivisa", () => {
       return typeof body.result === "string" ? body.result : JSON.stringify(body.result);
     };
 
-    // Due dispositivi veri, con due misure diverse: la scrivania e il telefono.
-    const desktop = await browser.newContext({ baseURL: E2E_BASE, viewport: { width: 1280, height: 800 } });
+    // Two real devices with two different sizes: the desk and the phone.
+    const wide = await browser.newContext({ baseURL: E2E_BASE, viewport: { width: 1280, height: 800 } });
     const phone = await browser.newContext({ baseURL: E2E_BASE, viewport: { width: 390, height: 700 } });
     try {
-      const desktopPage = await desktop.newPage();
+      const widePage = await wide.newPage();
       const phonePage = await phone.newPage();
-      await goToApp(desktopPage);
+      await goToApp(widePage);
       await goToApp(phonePage);
 
       /**
-       * Apre una socket spettatrice sul contesto condiviso DA DENTRO la pagina,
-       * cosi' l'origine e' quella del server e il client e' uno dei suoi.
+       * Open a spectator socket on the shared context FROM INSIDE the page, so
+       * the origin is the server's and the client is one of its own.
        *
-       * Tiene anche il conto dei `focus_field` ricevuti: e' la ricevuta di
-       * lettura di questa socket. I messaggi di una WebSocket sono ordinati,
-       * quindi un `focus_query` mandato DOPO un `resize` torna indietro solo
-       * quando quel `resize` e' gia' stato trattato — che e' il modo di
-       * aspettare un NON-cambiamento senza inventare un'attesa a tempo.
+       * It also counts the `focus_field` frames received: that is this socket's
+       * read receipt. WebSocket messages are ordered, so a `focus_query` sent
+       * AFTER a `resize` only comes back once that `resize` has been handled -
+       * which is how one waits for a NON-change without inventing a delay.
        */
       const attach = (page: import("@playwright/test").Page) =>
         page.evaluate(async (ctx) => {
@@ -130,11 +130,11 @@ test.describe("Arbitro del viewport in sessione condivisa", () => {
           shared.__arbiter.socket.send(JSON.stringify(msg));
         }, message);
 
-      /** Quante ricevute ha visto finora questa pagina. */
+      /** How many receipts this page has seen so far. */
       const acks = (page: import("@playwright/test").Page) =>
         page.evaluate(() => (window as unknown as { __arbiter: { acks: number } }).__arbiter.acks);
 
-      /** Manda la domanda-ricevuta e aspetta che la risposta torni. */
+      /** Send the receipt question and wait for the answer to come back. */
       const roundTrip = async (page: import("@playwright/test").Page) => {
         const before = await acks(page);
         await send(page, { type: "focus_query" });
@@ -143,30 +143,30 @@ test.describe("Arbitro del viewport in sessione condivisa", () => {
           .toBeGreaterThan(before);
       };
 
-      // 1) La scrivania arriva per prima e chiede la propria misura. Nessuno ha
-      //    ancora toccato la pagina, quindi guida il primo connesso: lei.
-      await attach(desktopPage);
-      await send(desktopPage, { type: "resize", width: 1280, height: 800 });
+      // 1) The desk arrives first and asks for its own size. Nobody has touched
+      //    the page yet, so the first client connected drives: this one.
+      await attach(widePage);
+      await send(widePage, { type: "resize", width: 1280, height: 800 });
       await expect
         .poll(readViewport, { timeout: 120_000, message: "il primo connesso deve poter imporre la sua misura" })
         .toBe("1280x800");
 
-      // 2) Il telefono si connette e trasmette la propria misura SENZA toccare
-      //    la pagina. E' uno spettatore: il suo `resize` va lasciato cadere.
+      // 2) The phone connects and streams its own size WITHOUT touching the
+      //    page. It is a spectator: its `resize` must be dropped.
       await attach(phonePage);
       await send(phonePage, { type: "resize", width: 390, height: 700 });
       await roundTrip(phonePage);
       expect(await readViewport(), "un telefono che GUARDA non deve rimpicciolire la pagina di chi la usa").toBe("1280x800");
 
-      // 3) Ora il telefono USA la pagina: uno scroll, e la misura che arriva
-      //    insieme all'input (`driving`) e' quella di chi guida.
+      // 3) Now the phone USES the page: a scroll, and the size that travels
+      //    with the input (`driving`) is the size of whoever drives.
       await send(phonePage, { type: "input", action: "scroll", payload: { x: 10, y: 10, deltaX: 0, deltaY: 120 } });
       await send(phonePage, { type: "resize", width: 390, height: 700, driving: true });
       await expect
         .poll(readViewport, { timeout: 120_000, message: "chi tocca la pagina ne prende il viewport" })
         .toBe("390x700");
     } finally {
-      await desktop.close().catch(() => { /* best-effort */ });
+      await wide.close().catch(() => { /* best-effort */ });
       await phone.close().catch(() => { /* best-effort */ });
     }
   });
@@ -188,8 +188,8 @@ test.describe("La pagina in scala sta al centro", () => {
       title: "Example",
       hasScreenshot: true,
     });
-    // La pagina condivisa e' stata registrata da una scrivania: il mirror di
-    // questo spettatore e' piu' stretto e la deve mostrare in scala.
+    // The shared page was recorded by a desk: this spectator's mirror is
+    // narrower and has to show it scaled.
     browserProcessPageV2.mockDomCoBrowse(eventsWithRecordedViewport(RECORDED_WIDTH, RECORDED_HEIGHT));
 
     const topic = await createTopic(request, `E2E-FIT-${Date.now()}`);
@@ -208,8 +208,15 @@ test.describe("La pagina in scala sta al centro", () => {
       const overlay = page.locator('[data-testid="browser-dom-input-overlay"]').first();
       await expect(container).toBeVisible({ timeout: 10_000 });
       await expect(overlay).toBeVisible({ timeout: 10_000 });
+      // THE MIRROR MUST BE THE SURFACE ON TOP, not merely an element with a box.
+      // Playwright's `toBeVisible` means "non-empty box and not hidden": a
+      // rectangle COVERED by the pane's new-tab page passes it too, and such a
+      // green would measure the geometry of a surface nobody sees. Reading the
+      // reconstructed content inside the iframe is what ties the measurement to
+      // what the user has in front of them.
+      await expect(container.frameLocator("iframe").locator("#hi")).toHaveText("DOM COBROWSE OK", { timeout: 10_000 });
 
-      /** I quattro margini fra il riquadro scalato e il contenitore che lo ospita. */
+      /** The four margins between the scaled rectangle and the container holding it. */
       const margins = async (): Promise<{ left: number; right: number; top: number; bottom: number; width: number; height: number }> => {
         const outer = await container.boundingBox();
         const inner = await overlay.boundingBox();
@@ -224,30 +231,30 @@ test.describe("La pagina in scala sta al centro", () => {
         };
       };
 
-      // La misura si stabilizza sul primo fullsnapshot; `expect.poll` aspetta
-      // quella, non un tick. Senza contenuto il riquadro sarebbe 0x0.
+      // The size settles on the first fullsnapshot; `expect.poll` waits for that,
+      // not for a tick. With no content the rectangle would be 0x0.
       await expect
         .poll(async () => (await margins()).width > 0, { timeout: 10_000, message: "il mirror non ha ancora preso una misura" })
         .toBe(true);
 
       const landscape = await margins();
-      // Centrato: i margini opposti coincidono. L'asse stretto ne ha due a zero,
-      // che e' comunque centrato; quello largo porta lo spazio avanzato, diviso
-      // in due. Ed e' proprio quello spazio a dire che la pagina NON e' incollata
-      // in alto a sinistra, che era la resa di prima.
+      // Centred: opposite margins match. The tight axis has both at zero, which
+      // is still centred; the loose one carries the leftover space, split in
+      // two. And it is that leftover which says the page is NOT pinned to the
+      // top-left corner, which is how it used to render.
       expect(Math.abs(landscape.left - landscape.right), `margini orizzontali diversi: ${JSON.stringify(landscape)}`).toBeLessThanOrEqual(2);
       expect(Math.abs(landscape.top - landscape.bottom), `margini verticali diversi: ${JSON.stringify(landscape)}`).toBeLessThanOrEqual(2);
       expect(
         Math.max(landscape.left, landscape.top),
         `la pagina riempie il riquadro su entrambi gli assi: non c'e' nessuna scala da centrare (${JSON.stringify(landscape)})`,
       ).toBeGreaterThan(2);
-      // In scala, non ritagliata: il rapporto della pagina registrata resta.
+      // Scaled, not cropped: the recorded page keeps its aspect ratio.
       expect(landscape.width / landscape.height).toBeCloseTo(RECORDED_WIDTH / RECORDED_HEIGHT, 1);
 
-      // Il driver del contesto cambia (TOPIC-BROWSER-05) e la pagina passa a una
-      // misura da telefono: rrweb lo dice con un incrementale ViewportResize, non
-      // con un nuovo Meta. Leggere solo il Meta lasciava questo spettatore a
-      // scalare per sempre sulla prima misura.
+      // The context's driver changes (TOPIC-BROWSER-05) and the page moves to a
+      // phone-sized viewport: rrweb says so with an incremental ViewportResize,
+      // not with a new Meta. Reading only the Meta left this spectator scaling
+      // on the first size forever.
       const portraitWidth = 420;
       const portraitHeight = 900;
       browserProcessPageV2.sendDomEvent({
