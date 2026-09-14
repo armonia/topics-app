@@ -1183,7 +1183,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
 
         {/* WebRTC shared-session <video> (opt-in). Mounted through negotiation so
             ontrack can attach the stream before ICE connects; overlaid + interactive
-            only once active, otherwise the JPEG <img> below stays visible. */}
+            only once active, otherwise the JPEG <img> below stays visible.
+            `object-contain` already scales and centres the frame; the surround is
+            the theme background, not black, because a viewer who does not drive the
+            viewport (TOPIC-BROWSER-05) lives inside those bands. */}
         {browser.webrtcMounted && (
           <video
             ref={browser.videoRef}
@@ -1191,7 +1194,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             playsInline
             muted
             data-testid="browser-webrtc-video"
-            className={`absolute inset-0 w-full h-full object-contain bg-black transition-opacity ${
+            className={`absolute inset-0 w-full h-full object-contain bg-app-bg transition-opacity ${
               browser.webrtcActive ? 'opacity-100 z-[1] cursor-default select-none' : 'opacity-0 pointer-events-none'
             }`}
             onClick={onVideoClick}
@@ -1216,7 +1219,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         {browser.renderMode === 'dom' && !!browser.url && browser.url !== 'about:blank' && (
           <Suspense
             fallback={
-              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-white">
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-app-bg">
                 <Loader2 size={24} className="text-app-spinner animate-spin" />
               </div>
             }

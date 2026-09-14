@@ -365,6 +365,20 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     });
   }
 
+  /**
+   * Push ONE more rrweb event down the live DOM co-browse stream, after the
+   * bootstrap burst `mockDomCoBrowse` replayed on connect.
+   *
+   * The burst answers `set_render` and stops there, so a test that needs the
+   * page to CHANGE mid-session (an rrweb ViewportResize, which is how a shared
+   * context tells its spectators the driver resized it) has no way to say so.
+   * Same shape the server uses: one `dom_event` per event, opaque payload.
+   */
+  sendDomEvent(event: unknown): void {
+    if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
+    this.wsRouteRef.send(JSON.stringify({ type: 'dom_event', event }));
+  }
+
   /** Send a synthetic engine broadcast over the active WS route. */
   sendEngine(engine: 'native' | 'chromium', extensions?: number): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');

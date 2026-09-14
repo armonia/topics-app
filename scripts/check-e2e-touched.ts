@@ -56,7 +56,7 @@
  *   bun run check:e2e-touched --base=main   diff against another base
  */
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join, basename, extname, resolve } from "node:path";
+import { join, basename, dirname, extname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 /** More than this many specs and it is not a gate any more, it is the suite. */
@@ -202,6 +202,14 @@ export function selectSpecs(
     }
 
     const moduleName = basename(file, extname(file));
+    // The tail an import of THIS file must end with: its
+    // folder plus its name. The name alone cannot tell two
+    // files apart, and the repo has several pairs of them:
+    // `server/types.ts` and `shared/types.ts` both end in
+    // `types`, so a changed `server/types.ts` used to drag
+    // in every spec importing `shared/types`, and its reds
+    // landed on cards that never touched it.
+    const importTail = `${basename(dirname(file))}/${moduleName}`;
     const tokens = areaTokens(file);
     const ids = testIdsOf(source);
     const users = new Map<string, string[]>();
@@ -210,9 +218,13 @@ export function selectSpecs(
     }
 
     for (const spec of all) {
-      // An import of the changed module, by path segment: `from "../../shared/
-      // terminal-session-types"` for shared/terminal-session-types.ts.
-      if (moduleName.length >= 5 && new RegExp(`from\\s+["'][^"']*${moduleName}["']`).test(spec.text)) {
+      // An import of the changed module, folder included:
+      // `from "../../shared/terminal-session-types"` for
+      // shared/terminal-session-types.ts.
+      const tailRe = new RegExp(
+        `from\\s+["'][^"']*${importTail}["']`,
+      );
+      if (moduleName.length >= 5 && tailRe.test(spec.text)) {
         keep(spec.file, `${file} is imported by the spec`, RANK.imported);
         continue;
       }
