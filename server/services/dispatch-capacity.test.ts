@@ -494,18 +494,18 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(su12(3, 3).slots).toBe(6);
   });
 
-  test("il carico altrui NON MISURATO non entra nel conto: la sonda misura solo noi", () => {
+  test("the load of others, when NOT MEASURED, does not enter the count: the probe measures only us", () => {
     // Il caso del 12/08, numeri veri: load 13 su 12 core, ma la NOSTRA flotta a
-    // 0,75 core. Il vecchio conto dava 1 slot. Senza una misura di CHI NON È
-    // NOSTRO la quota resta quella della macchina intera: il load, da solo, non
-    // è un ingresso di questa funzione.
+    // 0.75 cores. The old count gave 1 slot. Without a measure of WHO IS NOT
+    // OURS the share stays the whole machine's: the load alone is not an input
+    // of this function.
     expect(su12(0.75, 0).slots).toBe(5);
     expect(su12(0.75, 0).freeCores).toBeCloseTo(5.25, 5);
   });
 
-  test("LA QUOTA È SUL LIBERO: chi non è nostro ha la precedenza (14/09/2026)", () => {
-    // Same machine, but now we know 8 of the 12 cores belong to somebody
-    // else: the fleet share is half of what is left, not half of the computer.
+  test("THE SHARE IS OF THE FREE: whoever is not ours comes first (14/09/2026)", () => {
+    // Same machine, but now we know 8 of the 12 cores are somebody else's: the
+    // fleet share is half of what is left, not half of the PC.
     const b = fleetSlotBudget({ cores: 12, ourCoreUnits: 0, running: 0, otherCoreUnits: 8 });
     expect(b.budgetCores).toBeCloseTo(2, 5);
     expect(b.slots).toBe(2);
@@ -513,7 +513,7 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(su12(0, 0).budgetCores).toBe(6);
   });
 
-  test("una macchina occupata del tutto lascia il pavimento, non lo zero", () => {
+  test("a fully busy machine leaves the floor, not zero", () => {
     const b = fleetSlotBudget({ cores: 12, ourCoreUnits: 0, running: 0, otherCoreUnits: 12 });
     expect(b.budgetCores).toBe(1);
     expect(b.slots).toBe(2);
@@ -552,7 +552,7 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(smoothedOther(1, state, 90_000)).toBeCloseTo(1, 5);
   });
 
-  test("la finestra e' di TEMPO, non di readings: piu' lettori non la accorciano", () => {
+  test("the window is TIME, not a count of readings: more readers do not shorten it", () => {
     // Three different readers (tick, panel, governor) sample at the same
     // instant. With a window counted in readings the history would already be
     // full of "now"; with a window of time, the reading from a minute ago is

@@ -705,10 +705,10 @@ export function fleetSlotBudget(input: {
   cores: number;
   ourCoreUnits: number;
   running: number;
-  /** The CPU of whatever is NOT ours, when measured. The fleet share is taken
-   *  on what is left: whatever Topics did not start has the priority (decided
-   *  on 2026-09-14, see `shared/machine-budget.ts`). `null` = not measured,
-   *  and then the whole machine counts, never zero. */
+  /** The CPU of whoever is NOT ours, when measured. The fleet share is taken
+   *  from what is left: what Topics did not open comes first (decided on
+   *  14/09/2026, see `shared/machine-budget.ts`). `null` = not measured, and
+   *  then the whole machine counts, never zero. */
   otherCoreUnits?: number | null;
 }): {
   slots: number;
@@ -874,9 +874,9 @@ export function computeDispatchCapacity(
     totalMemGB: Math.round(totalMemGB * 10) / 10,
     load1: Math.round(load1 * 100) / 100,
     oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
-    // The fleet share is taken on WHAT IS FREE like everything else here: this
-    // reports the real one, not `cores x share`, or the panel would draw a
-    // ceiling the brake does not apply.
+    // The fleet share is of the FREE like everything else: report the real one
+    // here, not `cores x share`, or the panel shows a ceiling the brake does not
+    // apply.
     budgetCores: budget ? Math.round(budget.budgetCores * 10) / 10 : Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
     budgetShare: share,
     budgetCoreUnits: round(budgetNow.cpuCoreUnits),
