@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.317 — 2026-09-14
+
+### Sotto il cofano
+- il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic
+
 ## 2.2.316 — 2026-09-14
 
 ### Sotto il cofano
@@ -12,17 +17,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.315 — 2026-09-14
 
 ### Sotto il cofano
+- Topic browser window: one sheet, one place
+- Names the gate can read: expandedWidth, nextActive, reload…
 - browser della topic: l'ordine z e' l'ordine di creazione, e il trascinamento va da fermo
 - dichiara i due motori non sondati invece di dirli portati
 - le finestre d'attesa passano dal fattore di carico
 - la tab è l'unica chrome, e apre un foglio
 - **e2e** · il foglio al posto delle quattro superfici, e una negazione che può fallire
 - server-watch-supervisor: anche qui le attese passano dal fattore di carico
+- A window that survives its own round trip, and a row that dies with its topic
 - il foglio in un portal, la spia cliccabile, e tre rossi spiegati
 - la spia è due volte, perché le due corsie si danno il cambio
 - projectLayoutSync durability: un solo fattore per i tetti e per le attese
 - Tornata 3 chiusa, e due requisiti che descrivevano il rimedio invece del male
+- Wait for the condition, not for the clock
 - Revert "projectLayoutSync durability: un solo fattore per i tetti e per le attese"
+- The same clock, one file over
+- Three more clocks, same cure
 - Residuo non committato, messo al sicuro dalla potatura
 - il contratto dei 15 s si misura sui ritardi chiesti, non sull'orologio
 - riordina sul posto e non toglie la tastiera alla pagina
@@ -30,11 +41,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - il battito lo risponde il runtime, senza svegliare l'oggetto ibernato
 - relay client: la prova di vita e' per filo, e qualunque frame lo e'
 - relay finto: al battito della macchina risponde pong, come il Durable Object
+- Durabilita' del canale progetto: si aspetta la fine della catena, non la chiave
+- Durabilita' dei tombstone: il test RETAINED torna a vedere il PUT fallito
+- Finestra della topic: al resync una riga sparita e' una cancellazione
+- Ponte WS: forget solo su archived=true, e lo store della finestra fuori dall'entry
 - BROWSER-CHAT-02 intero nel delta, e il download chiesto ad Attilio
 - il foglio si chiude da ogni fuoco e da ogni clic, e non pesa sull'ingresso
 - **e2e** · «nessuna riga» misurata come geometria ovunque, e i passi che mancavano
 - il battito torna a risponderlo l'oggetto, non il runtime
 - il corpo pigro del foglio dichiara il suo tipo, e il build torna a compilare
+- topic browser: l'import pigro dello store elenca cio' che usa, e knip torna a vederlo
 
 ## 2.2.314 — 2026-09-13
 

@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.317",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.316",
     "date": "2026-09-14",
     "sections": {
@@ -37,6 +54,16 @@
       "perf": [],
       "internal": [
         {
+          "it": "Topic browser window: one sheet, one place",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Names the gate can read: expandedWidth, nextActive, reload…",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "browser della topic: l'ordine z e' l'ordine di creazione, e il trascinamento va da fermo",
           "en": "",
           "scope": null
@@ -71,6 +98,11 @@
           "scope": null
         },
         {
+          "it": "A window that survives its own round trip, and a row that dies with its topic",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "il foglio in un portal, la spia cliccabile, e tre rossi spiegati",
           "en": "",
           "scope": null,
@@ -94,7 +126,22 @@
           "breaking": false
         },
         {
+          "it": "Wait for the condition, not for the clock",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Revert \"projectLayoutSync durability: un solo fattore per i tetti e per le attese\"",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The same clock, one file over",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Three more clocks, same cure",
           "en": "",
           "scope": null
         },
@@ -137,6 +184,26 @@
           "scope": null
         },
         {
+          "it": "Durabilita' del canale progetto: si aspetta la fine della catena, non la chiave",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Durabilita' dei tombstone: il test RETAINED torna a vedere il PUT fallito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Finestra della topic: al resync una riga sparita e' una cancellazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ponte WS: forget solo su archived=true, e lo store della finestra fuori dall'entry",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "BROWSER-CHAT-02 intero nel delta, e il download chiesto ad Attilio",
           "en": "",
           "scope": null,
@@ -165,6 +232,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "topic browser: l'import pigro dello store elenca cio' che usa, e knip torna a vederlo",
+          "en": "",
+          "scope": null
         }
       ]
     }
