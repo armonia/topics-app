@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
@@ -558,6 +558,13 @@ export interface TaskDispatcher {
    * vuota e questa riga varrebbe zero. Ritorna quante card ha marcato.
    */
   markInterrupted(by: string): number;
+  /**
+   * What the budget gate WOULD answer for one more agent right now, without
+   * moving its hysteresis state. `null` outside the budget mode or without a
+   * sample. Read by GET /api/system/dispatch-capacity, so the panel's verdict
+   * is the gate's and not a second opinion.
+   */
+  admissionPreview?(): DispatchAdmission | null;
   /** Cancel all timers (test teardown / shutdown). */
   shutdown(): void;
   /** True while a launch for this task is in flight (test/introspection). */
@@ -847,22 +854,20 @@ const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
  * Exported for the test, which asserts on the numbers and not on the prose.
  */
 export function machineBudgetMessage(verdict: AdmissionVerdict, cores: number, share: number): string {
-  const c = cores > 0 ? cores : 1;
   if (verdict.blockedBy === "memory") {
     return (
-      `Topics è al tetto di memoria che gli hai dato, il ${asPercent(share)} di questa macchina. ` +
-      `Non ne parte un altro finché non si libera: riparte da sé, niente è andato perso.`
+      `Topics è alla sua quota di memoria (${asPercent(share)} del libero). ` +
+      `Non ne parte un altro finché non se ne libera: riparte da sé, niente è andato perso.`
     );
   }
-  // The usable ceiling is said ONLY when it is lower than the budget, and then
-  // it says why: a number smaller than the one on the slider, with nothing next
-  // to it, reads as the setting not being honoured.
-  const squeezed = verdict.usableCoreUnits < verdict.budgetCoreUnits - 0.05
-    ? `, e adesso ne sono libere ${itNumber(verdict.usableCoreUnits)} perché il resto della macchina sta lavorando`
-    : "";
+  // Said in the panel's words: the cores Topics holds against the cores at its
+  // disposal, which is the share of what the rest of the machine leaves free.
+  // When that is less than the slider promises, the line says why, or a number
+  // smaller than the setting reads as the setting not being honoured.
+  const squeezed = verdict.usableCoreUnits < verdict.budgetCoreUnits - 0.05 ? ", e il resto della macchina sta lavorando" : "";
   return (
-    `Topics usa il ${asPercent(verdict.usedCoreUnits / c)} del PC su un budget del ${asPercent(share)} ` +
-    `(${itNumber(verdict.usedCoreUnits)} core-unità su ${itNumber(verdict.budgetCoreUnits)}${squeezed}). ` +
+    `Topics usa ${itNumber(verdict.usedCoreUnits)} dei ${itNumber(verdict.usableCoreUnits)} core a disposizione ` +
+    `(quota ${asPercent(share)} del libero${squeezed}); un agent nuovo ne costa ${itNumber(verdict.costCoreUnits)}. ` +
     `Non ne parte un altro finché non scende: riparte da sé, niente è andato perso.`
   );
 }
@@ -1083,6 +1088,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * tick, measured on 2026-09-07.
    */
   let budgetGate: BudgetGateState = "admitting";
+  function admissionPreview(): DispatchAdmission | null {
+    try {
+      const gcap = deps.svc.getGlobalCap();
+      if (capMode(gcap) !== "resources") return null;
+      const sample = deps.budgetSample?.() ?? null;
+      if (!sample) return null;
+      const cost = estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })());
+      const v = admissionVerdict(sample, budgetShare(gcap), cost, budgetGate);
+      return { admit: v.admit, blockedBy: v.blockedBy, firstAgentExempt: v.firstAgentExempt, costCoreUnits: v.costCoreUnits };
+    } catch { return null; }
+  }
   function pressureBlock(): string | null {
     try {
       let gcap: GlobalDispatchCap;
@@ -5134,7 +5150,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   return {
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
-    revokeDelegatedCapability, shutdown, nightStatus,
+    revokeDelegatedCapability, shutdown, nightStatus, admissionPreview,
     isInFlight: (id) => inFlight.has(id),
     // THE REMOTE LANE DOES NOT SPEND THIS MACHINE'S CAP (KANBAN-76): a card
     // running on a node costs no process, no worktree and no CPU here, and the
