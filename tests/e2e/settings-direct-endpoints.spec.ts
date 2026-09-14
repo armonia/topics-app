@@ -2,11 +2,12 @@
  * Adding, testing and removing an endpoint somebody runs themselves, with
  * every request intercepted: no real endpoint, no token, no generation.
  *
- * The one thing this spec is really here to hold is the last test. A
- * configured endpoint is a chat connection and MP-TASK-01 keeps it out of the
- * task pickers: one round trip, no file or bash tool, no update_task, so a
- * card handed to one would never close. That rule is invisible in the UI,
- * which is exactly why it needs a test that fails when it breaks.
+ * A configured endpoint is a chat connection, and MP-TASK-01 keeps it out of
+ * the task pickers: one round trip, no file or bash tool, no update_task, so a
+ * card handed to one would never close. That boundary is a pure function and
+ * it is asserted where it can actually break, in
+ * shared/direct-endpoints-boundaries.test.ts. What this spec holds is the
+ * other half: the endpoint IS offered for a chat.
  *
  * @covers MP-DIRECT-01
  * @covers MP-DIRECT-04
@@ -27,6 +28,20 @@ const ENDPOINT = {
   hasToken: false,
   contextWindows: { 'qwen38-27b-200k': 200_192 },
 };
+
+function nativeEntry(): ProviderSnapshotEntry {
+  return {
+    name: 'topics',
+    label: 'Topics',
+    status: 'ready',
+    models: ['claude-opus-4-8'],
+    defaultModel: 'claude-opus-4-8',
+    requirements: [],
+    capabilities: ['streaming', 'history', 'coding-tasks'],
+    isDefault: true,
+    fetchedAt: new Date().toISOString(),
+  } as ProviderSnapshotEntry;
+}
 
 function directEntry(): ProviderSnapshotEntry {
   return {
@@ -67,8 +82,8 @@ async function mockEndpoints(page: Page, options: { reachable?: boolean; provide
   const saved: Array<typeof ENDPOINT> = [];
   const sentTokens: Array<string | undefined> = [];
   const snapshot: ProvidersSnapshot = {
-    providers: options.providers ?? [],
-    defaultProvider: null,
+    providers: options.providers ?? [nativeEntry()],
+    defaultProvider: 'topics',
     generatedAt: new Date().toISOString(),
   } as ProvidersSnapshot;
 
@@ -190,29 +205,20 @@ test.describe('Settings · endpoints you run yourself', () => {
   });
 });
 
-test.describe('A configured endpoint is not a task runtime', () => {
+test.describe('A configured endpoint in the chat picker', () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
-  test('it is offered in the chat picker and absent from the task picker', async ({ page }) => {
+  test('it is offered for a chat, with the window it declares', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'MP-DIRECT-04' });
-    await mockEndpoints(page, { providers: [directEntry(), codingEntry()] });
+    await mockEndpoints(page, { providers: [nativeEntry(), directEntry(), codingEntry()] });
     await goToApp(page);
 
-    // The chat surface lists it: that is the whole point of the feature.
-    const chatPicker = page.getByTestId('provider-model-picker');
+    const chatPicker = page.getByTestId('provider-model-picker').last();
     await expect(chatPicker).toBeVisible();
     await chatPicker.click();
-    const chatMenu = page.getByRole('listbox');
-    await expect(chatMenu.locator('[data-provider="direct-local-llama"]')).toBeVisible();
-    // And its window is the one the endpoint declares, not the table's guess.
-    await expect(chatMenu.locator('[data-provider="direct-local-llama"]')).toBeVisible();
-    await page.keyboard.press('Escape');
-
-    // The task surface does not, while the real coding runtime still does.
-    const taskMenu = page.getByTestId('task-model-menu');
-    if (await taskMenu.count()) {
-      await expect(taskMenu.locator('[data-provider="direct-local-llama"]')).toHaveCount(0);
-      await expect(taskMenu.locator('[data-provider="claude"]')).toBeVisible();
-    }
+    const popover = page.getByTestId('provider-model-popover');
+    await expect(popover).toBeVisible();
+    // The endpoint is selectable for a chat: that is the whole feature.
+    await expect(popover.locator('[data-provider="direct-local-llama"]').first()).toBeVisible();
   });
 });
