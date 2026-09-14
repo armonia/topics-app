@@ -29,6 +29,7 @@ import {
   chmodSync,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { sondaPorta, sondaRealeDeps, type EsitoPorta } from "../lib/port-squatter";
 
 export interface DaemonState {
   pid: number;
@@ -271,4 +272,116 @@ export function releaseLock(): void {
  */
 export function uptimeMsSince(startedAt: string): number {
   return Math.max(0, Date.now() - Date.parse(startedAt));
+}
+
+// ─── Binding the port when somebody else may hold it ────────────────────────
+//
+// The daemon must come UP even when the preferred port (default 3333) is held
+// by an UNRELATED process: an account-switcher dashboard on one of these
+// machines binds 127.0.0.1:3333 and answers `200 text/html` to every path.
+//
+// ORDER MATTERS, and the first version had it backwards. Probing BEFORE the
+// bind means deciding on the answer of a stranger who may not even be there:
+// on a TLS build the plain-HTTP probe times out against our own listener and
+// the daemon walks away from 3333 for no reason, dragging MCP children, hooks
+// and the phone with it. So: BIND FIRST. Only an `EADDRINUSE` is evidence that
+// the port is contested, and only then is it worth asking who is there.
+//
+// And the answer decides three different things, not two:
+//   * a confirmed STRANGER answers      → ephemeral port, the state file
+//                                          carries the real one;
+//   * TOPICS answers                    → a second server on the same data
+//                                          directory: exit, do not sneak onto
+//                                          another port (that is what
+//                                          `reusePort: false` is defending);
+//   * nobody / cannot tell              → exit. A daemon that guesses here is
+//                                          a second universe with the real
+//                                          data somewhere else.
+//
+// We never kill the squatter: the process belongs to someone else (see the
+// header of `server/lib/port-squatter.ts`).
+
+/** The port is contested and it is NOT a stranger holding it: do not fall back. */
+export class PortTakenError extends Error {
+  readonly port: number;
+  readonly outcome: EsitoPorta;
+  constructor(port: number, outcome: EsitoPorta, message: string) {
+    super(message);
+    this.name = "PortTakenError";
+    this.port = port;
+    this.outcome = outcome;
+  }
+}
+
+/**
+ * Is this bind failure "somebody already holds the port"?
+ *
+ * Bun does not surface `err.code` when the listener fails to start: what it
+ * throws reads `Failed to start server. Is port 3333 in use?`. Node errors carry
+ * `EADDRINUSE`, so both shapes are accepted. Any OTHER failure (a bad TLS
+ * certificate, for instance) must keep propagating: falling back to an
+ * ephemeral port would hide a broken configuration behind a moved daemon.
+ */
+export function isAddressInUse(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === "EADDRINUSE") return true;
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /EADDRINUSE|address already in use|is port\s+\d+\s+in use/i.test(message);
+}
+
+export interface ListenOutcome<T> {
+  /** Whatever `bind` returned (the live server). */
+  readonly listener: T;
+  /** True when the configured port was taken by a stranger and we moved. */
+  readonly movedToEphemeral: boolean;
+  /** What the probe saw, when it had to run. */
+  readonly probed: EsitoPorta | null;
+}
+
+/**
+ * Bind `configured`, and only if the kernel says it is taken ask who is there.
+ *
+ * `probe` defaults to the real loopback probe of `port-squatter.ts`, which
+ * tries HTTPS and then HTTP: production is TLS on some machines and plain on
+ * others, and a single-scheme probe is blind on the other half of them.
+ *
+ * Throws `PortTakenError` when the port is contested by Topics itself or by
+ * something the probe could not identify; the caller turns that into a non-zero
+ * exit. Only a CONFIRMED stranger earns the ephemeral fallback.
+ */
+export async function listenWithSquatterFallback<T>(
+  configured: number,
+  bind: (port: number) => T,
+  probe: (port: number) => Promise<EsitoPorta> = (port) => sondaPorta(port, sondaRealeDeps(process.pid)),
+): Promise<ListenOutcome<T>> {
+  if (!configured || configured <= 0) {
+    return { listener: bind(0), movedToEphemeral: false, probed: null };
+  }
+  try {
+    return { listener: bind(configured), movedToEphemeral: false, probed: null };
+  } catch (err) {
+    if (!isAddressInUse(err)) throw err;
+    const outcome = await probe(configured);
+    if (outcome.stato === "estraneo") {
+      return { listener: bind(0), movedToEphemeral: true, probed: outcome };
+    }
+    throw new PortTakenError(configured, outcome, portTakenMessage(configured, outcome));
+  }
+}
+
+/** The line a person reads when the daemon refuses to start. */
+export function portTakenMessage(port: number, outcome: EsitoPorta): string {
+  switch (outcome.stato) {
+    case "nostro":
+      return `port ${port} is already served by another Topics daemon. ` +
+        `Two servers on the same data directory corrupt each other: stop that one first.`;
+    case "silenzio":
+      return `port ${port} is taken but nobody answers on it. ` +
+        `Refusing to start elsewhere: the machine would end up with two Topics universes.`;
+    case "ignoto":
+      return `port ${port} is taken and I could not tell who holds it (${outcome.perche}). ` +
+        `Refusing to guess.`;
+    case "estraneo":
+      return `port ${port} is held by a foreign process.`;
+  }
 }
