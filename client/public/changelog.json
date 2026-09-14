@@ -1,5 +1,34 @@
 [
   {
+    "version": "2.2.316",
+    "date": "2026-09-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il foglio ascolta Esc e clic fuori prima che arrivi il suo corpo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la variante del foglio pigro prende il suffisso 02b",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il riconcilio parte anche se il primo aggancio al ponte fallisce",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.315",
     "date": "2026-09-14",
     "sections": {
@@ -25,14 +54,44 @@
           "breaking": false
         },
         {
+          "it": "la tab è l'unica chrome, e apre un foglio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il foglio al posto delle quattro superfici, e una negazione che può fallire",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
           "it": "server-watch-supervisor: anche qui le attese passano dal fattore di carico",
           "en": "",
           "scope": null
         },
         {
+          "it": "il foglio in un portal, la spia cliccabile, e tre rossi spiegati",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la spia è due volte, perché le due corsie si danno il cambio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "projectLayoutSync durability: un solo fattore per i tetti e per le attese",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Tornata 3 chiusa, e due requisiti che descrivevano il rimedio invece del male",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Revert \"projectLayoutSync durability: un solo fattore per i tetti e per le attese\"",
@@ -78,7 +137,31 @@
           "scope": null
         },
         {
+          "it": "BROWSER-CHAT-02 intero nel delta, e il download chiesto ad Attilio",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il foglio si chiude da ogni fuoco e da ogni clic, e non pesa sull'ingresso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "«nessuna riga» misurata come geometria ovunque, e i passi che mancavano",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
           "it": "il battito torna a risponderlo l'oggetto, non il runtime",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il corpo pigro del foglio dichiara il suo tipo, e il build torna a compilare",
           "en": "",
           "scope": null,
           "breaking": false

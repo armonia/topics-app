@@ -2,14 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.316 — 2026-09-14
+
+### Sotto il cofano
+- il foglio ascolta Esc e clic fuori prima che arrivi il suo corpo
+- la variante del foglio pigro prende il suffisso 02b
+- il riconcilio parte anche se il primo aggancio al ponte fallisce
+
 ## 2.2.315 — 2026-09-14
 
 ### Sotto il cofano
 - browser della topic: l'ordine z e' l'ordine di creazione, e il trascinamento va da fermo
 - dichiara i due motori non sondati invece di dirli portati
 - le finestre d'attesa passano dal fattore di carico
+- la tab è l'unica chrome, e apre un foglio
+- **e2e** · il foglio al posto delle quattro superfici, e una negazione che può fallire
 - server-watch-supervisor: anche qui le attese passano dal fattore di carico
+- il foglio in un portal, la spia cliccabile, e tre rossi spiegati
+- la spia è due volte, perché le due corsie si danno il cambio
 - projectLayoutSync durability: un solo fattore per i tetti e per le attese
+- Tornata 3 chiusa, e due requisiti che descrivevano il rimedio invece del male
 - Revert "projectLayoutSync durability: un solo fattore per i tetti e per le attese"
 - Residuo non committato, messo al sicuro dalla potatura
 - il contratto dei 15 s si misura sui ritardi chiesti, non sull'orologio
@@ -18,7 +30,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - il battito lo risponde il runtime, senza svegliare l'oggetto ibernato
 - relay client: la prova di vita e' per filo, e qualunque frame lo e'
 - relay finto: al battito della macchina risponde pong, come il Durable Object
+- BROWSER-CHAT-02 intero nel delta, e il download chiesto ad Attilio
+- il foglio si chiude da ogni fuoco e da ogni clic, e non pesa sull'ingresso
+- **e2e** · «nessuna riga» misurata come geometria ovunque, e i passi che mancavano
 - il battito torna a risponderlo l'oggetto, non il runtime
+- il corpo pigro del foglio dichiara il suo tipo, e il build torna a compilare
 
 ## 2.2.314 — 2026-09-13
 
