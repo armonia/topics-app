@@ -18,12 +18,7 @@ import { validateDirectEndpoint, type DirectEndpointConfig } from "../../shared/
 const STORE_FILE = "direct-endpoints.json";
 const SECRETS_FILE = "direct-endpoint-secrets.json";
 
-let configuredRoot: string | undefined;
-
-/** The server hands over its canonical writable root before provider bootstrap. */
-export function configureDirectEndpointRoot(root: string): void { configuredRoot = root; }
-
-function stateRoot(): string { return configuredRoot ?? resolveStateDir(process.cwd()); }
+function stateRoot(): string { return resolveStateDir(process.cwd()); }
 
 function secretsDirectory(root: string): string { return join(root, ".topics-secrets"); }
 

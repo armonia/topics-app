@@ -42,8 +42,9 @@ describe("a configured endpoint stays out of the task pickers", () => {
   });
 
   test("its models are not offered as task models, not even the claude-looking one", () => {
-    // The name alone is not a permission: a local endpoint can serve a model
-    // called `claude-sonnet-4` and it still cannot run a card.
+    // A model id is not a permission. Some configured endpoint out there
+    // serves something called `claude-sonnet-4`, and it still cannot run a
+    // card, because running a card takes tools this provider does not have.
     expect(availableTaskModels(snapshot([entry({})]))).toEqual([]);
   });
 

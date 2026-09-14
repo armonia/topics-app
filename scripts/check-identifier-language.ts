@@ -108,6 +108,19 @@ export const PROJECT_WORDS = new Set([
   // (2026-09-12, `components/Browser/hostedIframe.ts`).
   "iframe",
   "iframes",
+  // `ipv`: the prefix of the two internet protocol versions, as every RFC, the
+  // Node API (`net.isIPv4`) and this project's own `isPrivateIpv4` already
+  // spell it. A guard that tells the two apart has no other honest name
+  // (2026-09-14, `server/lib/private-endpoint-url.ts`).
+  "ipv",
+  // `mapped`: the regular past participle, same case as `scanned` above. It
+  // names the IPv4 address carried inside an IPv6 one, which the RFC itself
+  // calls "IPv4-mapped".
+  "mapped",
+  // `slugify`: turning a label into a URL-safe slug. The verb is the name of
+  // the operation across the web toolchain, and `slug` is already the word
+  // this project uses for the result.
+  "slugify",
   // The name of the DOM-recording library the co-browse path is built on
   // (`rrweb`, `rrweb-player`, its `Replayer`, its event types). It is already
   // the vocabulary here - the mock harness replays an "rrweb burst", the

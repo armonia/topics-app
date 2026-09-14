@@ -526,16 +526,16 @@ export interface ProviderSnapshotEntry {
     checkedAt?: string;
   };
   /**
-   * La finestra di contesto di OGNI modello, come la DICHIARA il provider.
+   * The context window of EACH model, as the provider DECLARES it.
    *
-   * Stessa regola di `fastMode` e `languages`: qui non si indovina. La tabella
-   * statica dei modelli noti non ha mai sentito nominare un llama locale, e per
-   * un modello che non conosce ripiega su un valore generico: un 200k finisce
-   * col badge che annuncia una finestra da 1M, cioe' un numero inventato messo
-   * davanti a una persona. Un valore presente qui BATTE la tabella; assente
-   * significa «non lo so» e la tabella resta l'ultima parola.
+   * Same rule as `fastMode` and `languages`: nothing is guessed here. The
+   * static table of known models has never heard of a local llama, and for a
+   * model it does not know it falls back to a generic value: a 200k model then
+   * wears a badge announcing a 1M window, a number nobody measured, shown to a
+   * person. A value present here BEATS the table; absent means "I do not know"
+   * and the table keeps the last word.
    *
-   * Chiave = id del modello, valore = token.
+   * Key = model id, value = tokens.
    */
   modelContextWindows?: Record<string, number>;
   /** ISO 8601 timestamp of when this entry was last refreshed. */
