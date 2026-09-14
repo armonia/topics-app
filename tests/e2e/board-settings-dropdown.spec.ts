@@ -282,7 +282,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(language).toBeVisible();
   });
 
-  test("DROP-04: a budget: una manopola in % del PC, misura viva, verdetto, e niente numero fisso", async ({ page }) => {
+  test("DROP-04: a budget: una manopola in % del libero, una riga viva col verdetto, e niente numero fisso", async ({ page }) => {
     const writes = await stubBrakeServer(page);
     await stubMachine(page);
     await page.goto("/");
@@ -302,35 +302,40 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // The fixed number does not apply, so it is not there to be believed.
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);
     await expect(page.getByTestId("global-cap-mode-fixed")).toHaveCount(0);
-    await expect(control.getByTestId("global-cap-running")).toContainText("freno sulle risorse");
+    await expect(control.getByTestId("global-cap-running")).toContainText("agent al lavoro");
 
-    // ONE knob, and it says what the percentage buys on both axes.
+    // ONE knob, a share of what is free.
     const budget = page.getByTestId("global-cap-budget-slider");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("60% del PC");
-    await expect(page.getByTestId("global-cap-budget-units")).toContainText("12 core");
-    await expect(page.getByTestId("global-cap-budget-units")).toContainText("7.2 core-unità");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("60% del libero");
 
-    // The live reading, in per cent of the PC: 7.4 core-units of twelve cores.
+    // The live reading, in cores against what is usable: 7.4 of 7.2.
     const live = page.getByTestId("global-cap-budget-live");
     await expect(live).toHaveAttribute("data-band", "red");
-    await expect(live).toContainText("Topics usa il 62% del PC");
-    await expect(live).toContainText("7.4 di 7.2 core-unità");
+    await expect(live).toHaveText("7.4 di 7.2 core a disposizione");
 
-    // The verdict: at the budget with an agent running, a new one waits.
+    // The verdict, on the same line: at the ceiling with an agent running, a new one waits.
     const verdict = page.getByTestId("global-cap-verdict");
     await expect(verdict).toHaveAttribute("data-admit", "false");
-    await expect(verdict).toContainText("al suo budget");
+    await expect(verdict).toHaveText("i nuovi aspettano");
+
+    // What the share buys on both axes is folded away, and opens on request.
+    const units = page.getByTestId("global-cap-budget-units");
+    await expect(units).toBeHidden();
+    await page.getByTestId("global-cap-details").locator("summary").click();
+    await expect(units).toBeVisible();
+    await expect(units).toContainText("12 core");
+    await expect(units).toContainText("7.2 core-unità");
     await page.screenshot({ path: join(SHOTS, "a-budget.png"), clip: { x: 0, y: 0, width: 1280, height: 700 } });
 
     // Moving the knob: the two units follow under the finger, ONE write per
     // move goes out in the wire name, and at 80% the machine is back inside.
     await budget.fill("0.8");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("80% del PC");
-    await expect(page.getByTestId("global-cap-budget-units")).toContainText("9.6 core-unità");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("80% del libero");
+    await expect(units).toContainText("9.6 core-unità");
     await expect.poll(() => writes.filter((w) => "budgetShare" in w).map((w) => w.budgetShare)).toEqual([0.8]);
 
     await budget.fill("0.15");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("15% del PC");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("15% del libero");
     await expect.poll(() => writes.filter((w) => "budgetShare" in w).map((w) => w.budgetShare)).toEqual([0.8, 0.15]);
   });
 
@@ -347,13 +352,13 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     const budget = page.getByTestId("global-cap-budget-slider");
     await expect(budget).toBeVisible();
     await budget.fill("0.85");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del PC");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del libero");
 
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
     await gear(page).click();
     await expect(page.getByTestId("global-cap-brake-resources")).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del PC");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del libero");
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);
 
     // Back to "by count": the three states and the number are back.

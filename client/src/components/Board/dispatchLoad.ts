@@ -78,7 +78,10 @@ export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadRead
     if (!c || c.usedCoreUnits == null || !(c.cores > 0)) {
       return { ...base, limit: null, byResources: true, loading: !c };
     }
-    const ceiling = c.budgetCoreUnits > 0 ? c.budgetCoreUnits : 0;
+    // Against the USABLE ceiling, the one the gate admits against: the share
+    // of what the rest of the machine leaves free. Filling against the whole
+    // budget drew a half-empty ring while the gate was already saying "wait".
+    const ceiling = c.usableCoreUnits > 0 ? c.usableCoreUnits : c.budgetCoreUnits > 0 ? c.budgetCoreUnits : 0;
     const fill = ceiling > 0 ? Math.min(1, c.usedCoreUnits / ceiling) : 0;
     const tone: LoadTone = ceiling > 0 && c.usedCoreUnits > ceiling
       ? 'over'

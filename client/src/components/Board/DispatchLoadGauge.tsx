@@ -32,7 +32,7 @@ import { useT } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import { dispatchLoadReading, limitDerivation, loadToneClass, loadWordKey, type DispatchLoadReading } from './dispatchLoad';
 import { spendLabel } from './spendFormat';
-import { capMode } from '../../lib/board';
+import { budgetShare, capMode } from '../../lib/board';
 import type { DispatchCapacity, GlobalDispatchCap } from '../../lib/board';
 
 /** Ring geometry. `r` small enough to sit on a badge line, stroke thin enough
@@ -76,38 +76,28 @@ function LoadRing({ reading, size }: { reading: DispatchLoadReading; size: numbe
 
 /** The whole sentence, for the hover title and for a screen reader: the word
  *  alone is the peripheral reading, not the accessible name. */
-function gaugePhrase(reading: DispatchLoadReading, tr: (k: string, v?: Record<string, string | number>) => string): string {
+function gaugePhrase(
+  reading: DispatchLoadReading,
+  cap: DispatchCapacity | null,
+  tr: (k: string, v?: Record<string, string | number>) => string,
+): string {
   if (reading.loading) return tr('board.gauge.ariaReading');
   if (reading.byResources) {
-    return tr('board.gauge.ariaResources', {
-      running: reading.running,
-      pct: pctOf(reading.usedShare),
-      budget: pctOf(reading.budgetShare),
-    });
+    return tr('board.gauge.ariaResources', { running: reading.running, ...coreNumbers(cap) });
   }
   if (reading.unbounded) return tr('board.gauge.ariaNoLimit', { running: reading.running });
   return tr('board.gauge.aria', { running: reading.running, limit: reading.limit ?? 0 });
 }
 
-/** A share as a whole percentage, and `0` where nothing was measured: the
- *  callers only reach for it once they know the reading exists. */
-const pctOf = (share: number | null): number => Math.round(Math.max(0, share ?? 0) * 100);
+/** A share as a whole percentage, and `0` where nothing was measured. */
+const pctOf = (share: number | null | undefined): number => Math.round(Math.max(0, share ?? 0) * 100);
 
-/** The two lines of the budget mode, in the order a person reads them: the
- *  sentence with the two percentages, then the same thing in core-units for
- *  whoever wants to check it against the slider. */
-function budgetLines(
-  reading: DispatchLoadReading,
-  cap: DispatchCapacity | null,
-  tr: (k: string, v?: Record<string, string | number>) => string,
-): string[] {
-  if (!reading.byResources || reading.usedShare == null) return [];
-  const lines = [tr('board.gauge.budgetUse', { pct: pctOf(reading.usedShare), budget: pctOf(reading.budgetShare) })];
-  if (cap && cap.usedCoreUnits != null) {
-    lines.push(tr('board.gauge.budgetCores', { used: cap.usedCoreUnits.toFixed(1), budget: cap.budgetCoreUnits.toFixed(1) }));
-  }
-  if (reading.frozen > 0) lines.push(tr('board.gauge.frozen', { n: reading.frozen }));
-  return lines;
+/** What Topics holds and what it may hold, in cores, as the two strings every
+ *  budget line prints. "May hold" is the usable ceiling (the share of what the
+ *  rest of the machine leaves free), the same number the gate admits against. */
+function coreNumbers(cap: DispatchCapacity | null): { used: string; usable: string } {
+  const usable = cap ? (cap.usableCoreUnits > 0 ? cap.usableCoreUnits : cap.budgetCoreUnits) : 0;
+  return { used: (cap?.usedCoreUnits ?? 0).toFixed(1), usable: usable.toFixed(1) };
 }
 
 /** What the DOM says the state is, for whoever reads it without pixels (the
@@ -120,12 +110,12 @@ function toneAttr(r: DispatchLoadReading): string {
 }
 
 /** Which brake produced the ceiling, said in words before any number. */
-function modeKey(cap: GlobalDispatchCap | null): string {
-  if (!cap) return 'board.gauge.modeAuto';
-  if (capMode(cap) === 'resources') return 'board.gauge.modeResources';
-  if (cap.auto) return 'board.gauge.modeAuto';
-  if (cap.max === 0) return 'board.gauge.modeOff';
-  return 'board.gauge.modeFixed';
+function modeLine(cap: GlobalDispatchCap | null, tr: (k: string, v?: Record<string, string | number>) => string): string {
+  if (!cap) return tr('board.gauge.modeAuto');
+  if (capMode(cap) === 'resources') return tr('board.gauge.modeResources', { pct: pctOf(budgetShare(cap)) });
+  if (cap.auto) return tr('board.gauge.modeAuto');
+  if (cap.max === 0) return tr('board.gauge.modeOff');
+  return tr('board.gauge.modeFixed');
 }
 
 /**
@@ -139,9 +129,9 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
   const reading = dispatchLoadReading(s);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const phrase = gaugePhrase(reading, tr);
-  const derived = limitDerivation(s);
   const cap = s.capacity;
+  const phrase = gaugePhrase(reading, cap, tr);
+  const derived = limitDerivation(s);
 
   return (
     <>
@@ -170,22 +160,24 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
             {tr('board.gauge.popoverTitle')}
           </p>
           <p className="tabular-nums">
-            {tr(modeKey(s.cap))}
+            {modeLine(s.cap, tr)}
             {derived && <span data-testid="dispatch-load-derivation">{' · '}{tr('board.gauge.derived', { cores: derived.cores, limit: derived.limit })}</span>}
           </p>
-          <p className="tabular-nums">{tr('board.gauge.inFlight', { running: reading.running })}</p>
-          {/* THE NUMBERS OF THE BUDGET, and only those: what Topics is taking
-              of this computer against what it may take. The machine's load
-              average and its free memory used to be here, from the days when
-              the brake read them; they described somebody else's browser and
-              decided nothing. */}
-          {budgetLines(reading, cap, tr).map((line) => (
-            <p key={line} className="tabular-nums" data-testid="dispatch-load-budget">{line}</p>
-          ))}
+          {/* ONE LINE OF NUMBERS, not four. Agents and cores together in the
+              budget mode; the count alone otherwise. The percentage of the PC
+              and the core-units line used to say the same thing twice, and
+              the server's `reason` a third time. */}
+          {reading.byResources && reading.usedShare != null ? (
+            <p className="tabular-nums" data-testid="dispatch-load-budget">
+              {tr('board.gauge.budgetLine', { running: reading.running, ...coreNumbers(cap) })}
+            </p>
+          ) : (
+            <p className="tabular-nums">{tr('board.gauge.inFlight', { running: reading.running })}</p>
+          )}
+          {reading.frozen > 0 && <p className="tabular-nums">{tr('board.gauge.frozen', { n: reading.frozen })}</p>}
           {s.spend && (
             <p className="tabular-nums">{tr('board.gauge.spendToday', { amount: spendLabel(s.spend.cents24h) })}</p>
           )}
-          {cap?.reason && <p className="text-app-text-muted">{cap.reason}</p>}
           {onOpenSettings && (
             <button
               type="button"
@@ -201,47 +193,25 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
 }
 
 /**
- * The same reading in the settings panel, under the knobs: no popover, no
- * button. The ring and the count say what the knob is doing, the row of numbers
- * says against what.
+ * The same reading in the settings panel, beside the live count: the ring and
+ * the word, nothing else. The numbers are already on the line it sits on, and
+ * repeating them underneath is what made the panel read three times the same.
  */
 export function DispatchLoadSummary() {
   const tr = useT();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
-  const cap = s.capacity;
-  const numbers = budgetLines(reading, cap, tr);
 
   return (
-    <div className="space-y-0.5 pt-1" data-testid="dispatch-load-summary">
-      <p
-        className={`flex items-center gap-1.5 text-mini font-medium tabular-nums ${loadToneClass(reading)}`}
-        data-tone={toneAttr(reading)}
-        data-fill={reading.fill.toFixed(2)}
-      >
-        <LoadRing reading={reading} size={12} />
-        <span data-testid="dispatch-load-summary-count">
-          {/* The fraction ONLY where it decides something. Over the ceiling
-              "4 of 2" reads as a progress out of a total (the panel has banned
-              that reading since KANBAN-07), and under the resources brake there
-              is no count to be a fraction of. */}
-          {reading.loading
-            ? tr('board.gauge.reading')
-            : reading.unbounded
-              ? tr('board.gauge.ariaNoLimit', { running: reading.running })
-              : reading.byResources
-                // In budget mode the fraction is not agents over a ceiling: it
-                // is per cent of the computer, and that is what the ring draws.
-                ? tr('board.gauge.budgetUse', { pct: pctOf(reading.usedShare), budget: pctOf(reading.budgetShare) })
-                : reading.tone === 'over'
-                  ? tr('board.gauge.inFlight', { running: reading.running })
-                  : tr('board.gauge.ofLimit', { running: reading.running, limit: reading.limit ?? 0 })}
-        </span>
-        <span className="text-app-text-muted">{tr(loadWordKey(reading))}</span>
-      </p>
-      {numbers.length > 0 && (
-        <p className="text-micro leading-snug text-app-text-tertiary tabular-nums">{numbers.join(' · ')}</p>
-      )}
-    </div>
+    <span
+      className={`flex shrink-0 items-center gap-1 text-mini font-medium tabular-nums ${loadToneClass(reading)}`}
+      data-testid="dispatch-load-summary"
+      data-tone={toneAttr(reading)}
+      data-fill={reading.fill.toFixed(2)}
+      title={gaugePhrase(reading, s.capacity, tr)}
+    >
+      <LoadRing reading={reading} size={12} />
+      <span>{tr(loadWordKey(reading))}</span>
+    </span>
   );
 }

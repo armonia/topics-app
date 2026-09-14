@@ -216,7 +216,7 @@ describe('the brake by budget', () => {
     expect(html).not.toContain('data-testid="global-cap-mode-');
     expect(html).toContain('data-testid="global-cap-budget-slider"');
     // The count is still there: it is the live term, not the cap.
-    expect(words(html)).toContain('3 al lavoro');
+    expect(words(html)).toContain('3 agent al lavoro');
     expect(words(html)).not.toContain('3 di 5');
   });
 
@@ -224,10 +224,10 @@ describe('the brake by budget', () => {
     // 9 is far above the bound; the wire never reaches the slider unclamped.
     resources(9);
     let html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toMatch(/data-testid="global-cap-budget-value">95% del PC</);
+    expect(html).toMatch(/data-testid="global-cap-budget-value">95% del libero</);
     adoptGlobalCap({ maxAgentsMode: 'resources', budgetShare: 0.8 });
     html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toMatch(/data-testid="global-cap-budget-value">80% del PC</);
+    expect(html).toMatch(/data-testid="global-cap-budget-value">80% del libero</);
   });
 
   test('the percentage is said in the units it buys, on both axes', () => {
@@ -245,18 +245,39 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="green"');
-    expect(words(html)).toContain('Topics usa il 17% del PC');
-    expect(words(html)).toContain('2.0 di 9.6 core-unità');
+    expect(words(html)).toContain('2.0 di 9.6 core a disposizione');
     // At the budget: red.
     adoptDispatchCapacity(machine({ usedCoreUnits: 9.6, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="red"');
   });
 
-  test('a budget squeezed by the rest of the machine says so instead of promising it', () => {
+  test('a budget squeezed by the rest of the machine shows the smaller number, not the ceiling', () => {
+    // Others hold most of the machine: 2 of the 9.6 core-units are usable, and
+    // that is the number said, because it is the one the gate admits against.
     resources(0.8);
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, budgetCoreUnits: 9.6, usableCoreUnits: 2 }));
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('il resto della macchina sta lavorando');
+    const html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('1.0 di 2.0 core a disposizione');
+    expect(html).not.toContain('di 9.6 core a disposizione');
+  });
+
+  test('the reading is said ONCE, and the explanations are folded away', () => {
+    // The panel said the same use three times (running line, live line,
+    // summary line) with four paragraphs around it. One live line now, and
+    // the how-it-works under a closed disclosure.
+    resources(0.8);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 5, running: 2, frozen: 1 }));
+    const html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(words(html).match(/core a disposizione/g)).toHaveLength(1);
+    expect(html).not.toContain('% del PC');
+    const details = html.match(/<details[^>]*data-testid="global-cap-details"[^>]*>([\s\S]*?)<\/details>/);
+    expect(details).not.toBe(null);
+    expect(details![0]).not.toMatch(/<details[^>]*\sopen/);
+    const folded = words(details![1]);
+    expect(folded).toContain('i processi che non sono di Topics hanno la precedenza');
+    expect(folded).toContain('Un tetto solo');
+    expect(folded).toContain('1 check congelati');
   });
 
   test('not measured is said, not shown as an empty machine', () => {
@@ -272,13 +293,13 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2 }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="true"');
-    expect(words(html)).toContain('Adesso un agent nuovo partirebbe');
+    expect(words(html)).toContain('un agent nuovo partirebbe');
 
     // At the ceiling with agents running: it waits.
     adoptDispatchCapacity(machine({ usedCoreUnits: 9.7, usableCoreUnits: 9.6, running: 2 }));
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-admit="false"');
-    expect(words(html)).toContain('Topics è al suo budget');
+    expect(words(html)).toContain('i nuovi aspettano');
 
     // Over the ceiling with NOBODY running: the first one starts, and the line
     // says it is an exemption rather than a free machine.

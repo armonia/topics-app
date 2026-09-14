@@ -18,13 +18,14 @@
  *    says how the machine derived the ceiling ("12 core → 4", only because the
  *    cap is in auto), counts the agents in flight, and its "Impostazioni" allow-italian: quotes the button label
  *    button opens the board settings dropdown.
- *  - GAUGE-05  the settings panel shows the SAME reading under the cap knobs:
- *    "{running} di {limit}" with the same tone and fill as the header. Two
- *    surfaces built from one store cannot disagree; this is where it is checked.
- *  - GAUGE-06  on the budget brake the ring fills with USE OVER BUDGET (it used
- *    to stay empty in that mode, which is a gauge saying nothing in the mode
- *    whose whole question is "how full is it"), and the popover reads "Topics
- *    usa il 40% del PC su un budget del 60%" plus the frozen check runs. allow-italian: quotes the sentence the popover shows
+ *  - GAUGE-05  the settings panel shows the SAME reading beside the live count:
+ *    ring and word with the same tone and fill as the header, the count said
+ *    once on the running line. Two surfaces built from one store cannot
+ *    disagree; this is where it is checked.
+ *  - GAUGE-06  on the budget brake the ring fills with USE OVER WHAT IS USABLE
+ *    (it used to stay empty in that mode, which is a gauge saying nothing in
+ *    the mode whose whole question is "how full is it"), and the popover says
+ *    it in ONE line, agents and cores, plus the frozen check runs.
  *
  * The cap is left in its default (by count, auto): the derivation line only
  * exists when the machine is what produced the limit, and auto is what the
@@ -231,16 +232,17 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await expectReading(page, { running: 2, limit: 4, word: "leggero", fill: "0.50", tone: "idle" });
 
     await gear(page).click();
-    const summary = page.getByTestId("board-settings-menu").getByTestId("dispatch-load-summary");
+    const menu = page.getByTestId("board-settings-menu");
+    const summary = menu.getByTestId("dispatch-load-summary");
     await expect(summary).toBeVisible();
-    await expect(summary.getByTestId("dispatch-load-summary-count")).toHaveText("2 di 4");
-    await expect(summary).toContainText("leggero");
-    const line = summary.locator("[data-tone]");
-    await expect(line).toHaveAttribute("data-tone", "idle");
-    await expect(line).toHaveAttribute("data-fill", "0.50");
+    // The count is said once, on the running line the ring sits beside.
+    await expect(menu.getByTestId("global-cap-running")).toContainText("2 di 4");
+    await expect(summary).toHaveText("leggero");
+    await expect(summary).toHaveAttribute("data-tone", "idle");
+    await expect(summary).toHaveAttribute("data-fill", "0.50");
   });
 
-  test("GAUGE-06: a budget, l'anello si riempie sul budget e il popover dice la % del PC", async ({ page }) => {
+  test("GAUGE-06: a budget, l'anello si riempie sul budget e il popover dice i core a disposizione", async ({ page }) => {
     // The machine of the card: Topics taking 4.8 core-units of a 7.2 budget on
     // twelve cores, that is 40% of the PC against a 60% budget, and two check
     // runs frozen for load.
@@ -267,14 +269,16 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     const g = gauge(page);
     await expect(word(page)).toHaveText("a budget");
     await expect(g).toHaveAttribute("data-fill", "0.67");
-    await expect(g).toHaveAttribute("aria-label", /Topics usa il 40% del PC su un budget del 60%/);
+    await expect(g).toHaveAttribute("aria-label", /3 agent al lavoro, 4\.8 di 7\.2 core a disposizione/);
 
     await g.click();
     const popover = page.getByTestId("dispatch-load-popover");
     await expect(popover).toBeVisible();
-    await expect(popover).toContainText("Topics usa il 40% del PC su un budget del 60%");
-    await expect(popover).toContainText("4.8 core-unità su 7.2 di budget");
+    await expect(popover).toContainText("Quota: 60% del libero");
+    await expect(popover.getByTestId("dispatch-load-budget")).toHaveText("3 agent, 4.8 di 7.2 core a disposizione");
     await expect(popover).toContainText("2 check congelati per carico");
+    // Said once: the old per-cent-of-the-PC line and the core-units line are gone.
+    await expect(popover).not.toContainText("del PC");
     await page.screenshot({ path: join(SHOTS, "06-a-budget.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
 
     // THE BRAKE IS PER MACHINE AND IT PERSISTS: left on "resources", the next
