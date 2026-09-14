@@ -68,11 +68,31 @@ video `.webm` degli spec, non resoconti.
       `showChrome`/`revealed`/`hideChrome`/`revealAddress`/`registerFocus`.
       `check:deadcode` verde senza eccezioni nuove.
 - [x] E2E (`TOPIC-BROWSER-02`) in `browser-tab-chrome.spec.ts`, aggiornato e non
-      duplicato. La negazione «nessuna riga» è geometrica
-      (`expectNoRowAboveThePage`) e non un testid morto: `browser-url-input` non
-      esiste più, quindi asserirlo a zero sarebbe verde su qualunque app.
-      Zoom e dispositivo non si asseriscono: sono capacità del ramo nativo,
-      irraggiungibili da Chromium. `check:e2e-touched` 52/52.
+      duplicato. Zoom, dispositivo e console non si asseriscono: sono capacità
+      del ramo nativo, irraggiungibili da Chromium. `check:e2e-touched` 52/52.
+- [x] Revisione della Tornata 3 (14/09). La negazione «nessuna riga» ERA ancora
+      un testid morto in tredici punti di tre spec (`browser-url-input`,
+      `browser-tab-menu-panel`), e il passo della console stava sotto un `if`
+      sempre falso in Chromium: ora è geometrica ovunque, da un helper solo
+      (`tests/e2e/helpers/browser-geometry.ts`), e il passo cieco è tolto con
+      il perché scritto nel test. La metà «parte un download» dello scenario è
+      coperta solo dal notturno: `browser-ws-streaming` sta in
+      `NIGHTLY_ONLY_SPECS`.
+- [x] Esc chiude da qualunque fuoco (ascoltatore in bolla sul documento: il
+      primo Esc resta del popover figlio); un clic sulla pagina chiude anche sul
+      ramo iframe (i frame non prendono il puntatore mentre il foglio è
+      aperto); il secondo clic su tab o puntini chiude invece di riaprire; i
+      popover esenti dal clic fuori sono solo quelli aperti dal foglio
+      (`data-popover-owner`). Il foglio muore con la tab: provato da un altro
+      dispositivo (`CD-CLOSE-03`), perché la X sullo stesso dispositivo lo
+      chiude già col suo pointerdown.
+- [x] La tab filtra gli eventi che le arrivano dal portale (`fromThisTab`):
+      doppio clic, tasto destro, trascinamento e pressione lunga dentro il
+      foglio non toccano più la tab.
+- [x] Il corpo del foglio è un chunk pigro (`browserTabSheetLazy.ts`), scaldato
+      al passaggio del puntatore sulla tab: nell'ingresso eager aveva portato
+      console e download, e la CI della PR #34 era fuori budget
+      (entry_eager 1.403.155 raw / 439.747 gz contro 1.393.840 / 435.687).
 
 ## Tornata 4: niente sopra la pagina
 - [ ] Icona di tipo nella tab (connessione persa, condivisa, Chromium), assente

@@ -142,11 +142,11 @@ selezione dell'elemento, resta ammesso finché la modalità è attiva.
 
 ### Requirement: TOPIC-BROWSER-04 — Un sito aperto senza il gesto dell'utente non cambia il layout
 
-Un link cliccato in una chat di topic e un `open_browser_pane` dell'agente di quella
-topic SHALL aprire il sito come scheda della finestra della topic, nello stato in
-cui la finestra si trova (una finestra nascosta SHALL diventare minimizzata). Se una
-scheda con quel contesto è già una tab, SHALL navigare quella tab. Nessuna delle due
-aperture SHALL creare uno split o spostare una pane del layout.
+Un link cliccato in una chat di topic SHALL aprire il sito come scheda della finestra
+della topic, e lo stesso SHALL fare un `open_browser_pane` dell'agente di quella topic,
+nello stato in cui la finestra si trova (una finestra nascosta SHALL diventare
+minimizzata). Se una scheda con quel contesto è già una tab, SHALL navigare quella
+tab. Nessuna delle due aperture SHALL creare uno split o spostare una pane del layout.
 
 `/browser <url>` nel composer SHALL aprire la scheda nella finestra espansa, perché è
 una richiesta esplicita di guardare.
@@ -207,6 +207,39 @@ dell'ultima voce la spia SHALL sparire.
 > riferire una cosa che in quell'istante nessuno ha chiesto. Resta vero il
 > reclamo originale che aveva prodotto lo scenario — un download non deve essere
 > muto — e resta vero il suo seguito: la lista è chiudibile e riapribile.
+
+#### Scenario: First frame arrives push-driven after the socket opens
+- **GIVEN** a browser pane is mounted for a topic via the `browser:open-and-navigate` event
+- **WHEN** the first `frame` message arrives on the browser WebSocket
+- **THEN** the elapsed time since the socket opened is below the `first_frame_ms_ceiling` baseline
+
+#### Scenario: Input round-trip stays under the p95 ceiling
+- **GIVEN** a connected pane whose clickable surface is the WebRTC `<video>` element
+- **WHEN** the user clicks it repeatedly until at least `input_latency_sample_size_min` click→frame pairs are measured
+- **THEN** the p95 of those round trips is below the `input_latency_p95_ms_ceiling` baseline
+
+#### Scenario: Sustained frame rate stays within the bandwidth ceiling
+- **GIVEN** a connected pane receiving frames
+- **WHEN** at least `frame_count_in_2s_floor` frames have arrived
+- **THEN** the measured bandwidth is below the `bandwidth_kbps_ceiling` baseline
+
+#### Scenario: A transient socket drop reconnects and the surface returns
+- **GIVEN** a connected pane showing the WebRTC `<video>` surface
+- **WHEN** the WebSocket is closed underneath it
+- **THEN** the client opens a NEW socket rather than staying in polling
+- **AND** the `<video>` surface returns once the transport renegotiates
+
+#### Scenario: With no socket at all the pane reports fallback, never "connecting"
+- **GIVEN** the browser WebSocket constructor throws so no socket can be opened
+- **WHEN** the pane mounts
+- **THEN** the connection indicator is visible and carries the `connection-fallback` class within the `fallback_http_grace_ms_ceiling` baseline
+- **AND** it does not carry the `connection-connecting` class
+
+#### Scenario: The pane streams its real size on open and on resize
+- **GIVEN** a browser pane has just opened its socket
+- **THEN** a `resize` message is sent carrying a positive width, a positive height and a `deviceScaleFactor` of at least 1
+- **WHEN** the window is resized
+- **THEN** a further `resize` message is sent
 
 #### Scenario: A download announces itself in the tab and is dismissible
 - **GIVEN** a connected pane
