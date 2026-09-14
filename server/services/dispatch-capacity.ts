@@ -52,13 +52,13 @@ import os from "node:os";
 import { statfsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
-import { fleetLoadSync, type FleetLoadReading } from "../lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, type FleetLoadReading } from "../lib/fleet-usage";
 import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
-import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, machineBudget } from "../../shared/board";
+import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, machineBudget } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -727,25 +727,61 @@ export function fleetSlotBudget(input: {
 }
 
 /**
- * THE CPU OF OTHERS, SMOOTHED. The ceiling is now taken from the free part, so
- * every one-second spike of somebody else would close the door on a card that
- * then sits still for a whole tick. We keep the last readings and use the
- * MEDIAN: an isolated spike does not get in, a real load (one lasting more than
- * half the window) does. Five samples because the dispatcher tick is ~10 s: it
- * covers the minute, the scale at which somebody else's `bun test` or build
- * actually shows.
+ * SOMEBODY ELSE'S CPU, SMOOTHED, and this is the hysteresis of the whole
+ * budget. The ceiling is now taken on the FREE part of the machine, so every
+ * one second spike of somebody else would shut the door on a card that then
+ * sits still for a whole tick, and a load that comes and goes would make the
+ * ceiling jump between its extremes with nothing having changed.
  *
- * `null` (not measured) does not enter the history and does not use it up: it
- * returns `null`, that is "whole machine", the prudent answer as always.
+ * THE WINDOW IS 45 SECONDS OF WALL CLOCK, not a count of readings, and the
+ * difference matters because this smoother has several callers at different
+ * cadences: the dispatcher tick (~10 s), the settings panel, the governor.
+ * With a window of five readings, three callers would have squeezed it down to
+ * fifteen seconds without anybody choosing that. 45 s is the scale on which
+ * somebody else's `bun test` or build is visibly there while a burst of `tsc`
+ * is not; under 30 s the ceiling follows every breath of the machine, over a
+ * minute it answers with a load that is already over.
+ *
+ * NARROWING AND WIDENING ARE NOT SYMMETRIC, and that asymmetry IS the band:
+ *  · we narrow (their load counts as higher) on the MEDIAN of the window, so it
+ *    takes a load that holds for half of it. One isolated spike never moves a
+ *    median, which is why it is not the mean.
+ *  · we widen only when the WHOLE window is under the value in force. Half a
+ *    window of quiet is not a machine that has gone quiet: it is the trough of
+ *    something still running, and taking it would give back a ceiling we are
+ *    about to take away again. The alternating burst of the card stabilises
+ *    here, on the busy reading, instead of flipping every ten seconds.
+ * Their load has the priority, so the ambiguous case resolves their way; the
+ * floor of slots is what keeps the board moving anyway.
+ *
+ * `null` (not measured) does not enter the history and does not consume it: it
+ * returns `null`, that is "the whole machine", the prudent answer as always.
  */
-const OTHER_SAMPLES = 5;
-const otherHistory: number[] = [];
-export function smoothedOther(other: number | null | undefined, history: number[] = otherHistory): number | null {
+export const OTHER_WINDOW_MS = 45_000;
+type OtherSample = { at: number; coreUnits: number };
+export type OtherLoadState = { samples: OtherSample[]; held: number | null };
+export const newOtherLoadState = (): OtherLoadState => ({ samples: [], held: null });
+const otherState = newOtherLoadState();
+
+export function smoothedOther(
+  other: number | null | undefined,
+  state: OtherLoadState = otherState,
+  now: number = Date.now(),
+): number | null {
   if (other == null || !Number.isFinite(other)) return null;
-  history.push(Math.max(0, other));
-  if (history.length > OTHER_SAMPLES) history.shift();
-  const sorted = [...history].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)] ?? null;
+  const samples = state.samples;
+  samples.push({ at: now, coreUnits: Math.max(0, other) });
+  // Drop what fell out of the window. Anything dated in the future is kept: a
+  // clock that jumped backwards must not empty the history.
+  let cut = 0;
+  while (cut < samples.length && now - samples[cut]!.at > OTHER_WINDOW_MS) cut++;
+  if (cut) samples.splice(0, cut);
+  const sorted = samples.map((s) => s.coreUnits).sort((a, b) => a - b);
+  const median = sorted[Math.ceil(sorted.length / 2) - 1] ?? 0;
+  const peak = sorted[sorted.length - 1] ?? 0;
+  const held = state.held;
+  if (held == null || median >= held || peak < held) state.held = median;
+  return state.held;
 }
 
 /**
@@ -783,6 +819,12 @@ export function computeDispatchCapacity(
    *  gauge and the gate must read ONE reading: a second probe for the same
    *  question is two numbers that disagree on screen. */
   budgetKnob: { share: number; frozen: number } = { share: BUDGET_SHARE_DEFAULT, frozen: 0 },
+  /** The live price list of one agent, per session, injectable for the same
+   *  reason as the probes: a test must be able to fix what an agent costs. */
+  priceList: { coreUnits: () => number[]; memGB: () => number[] } = {
+    coreUnits: fleetSessionCoreUnits,
+    memGB: fleetSessionMemGB,
+  },
 ): DispatchCapacity {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
@@ -799,10 +841,16 @@ export function computeDispatchCapacity(
   // Il prezzo di ammissione dipende dal runtime (vedi `GB_PER_AGENT_*`).
   const byMem = Math.max(1, Math.floor(totalMemGB / (agentsAreProcesses ? GB_PER_AGENT_CLI : GB_PER_AGENT_NATIVE)));
   const structural = Math.min(byCores, byMem);
+  // ONE SAMPLE FOR BOTH BRAKES, and it is where somebody else's CPU gets
+  // smoothed (`budgetSample` calls `smoothedOther`). Assembled before the live
+  // brake so the slot count and the "by resources" budget decide on the very
+  // same number: two smoothers over one machine are two ceilings that
+  // contradict each other on screen sooner or later.
+  const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
   // Il freno vivo: la CPU che la flotta si sta già mangiando, non quella della
   // macchina intera (vedi la nota in testa al file).
   const budget = fleet
-    ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running, otherCoreUnits: smoothedOther(fleet.otherCoreUnits) })
+    ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running, otherCoreUnits: sample.otherCoreUnits })
     : null;
   const live = budget ? budget.slots : loadAverageSlots(cores, load1);
 
@@ -824,9 +872,16 @@ export function computeDispatchCapacity(
   // what is left of it once the rest of the machine has taken its share, and
   // what we are taking now (agents and their gates together).
   const share = clamp(budgetKnob.share, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX);
-  const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
   const budgetNow = machineBudget(sample, share);
   const round = (n: number) => Math.round(n * 10) / 10;
+  // What one more agent is priced at in memory, from the live sessions (the
+  // same price list the gate uses). WHICH AXIS BLOCKS is not computed here:
+  // it travels as `admission`, the dispatcher's own verdict with its
+  // reservation and hysteresis, so there is one answer and not two.
+  const agentCost = {
+    coreUnits: estimatedAgentCost((() => { try { return priceList.coreUnits(); } catch { return []; } })()),
+    memGB: estimatedAgentMemCost((() => { try { return priceList.memGB(); } catch { return []; } })()),
+  };
   return {
     recommended,
     cores,
@@ -842,9 +897,14 @@ export function computeDispatchCapacity(
     usableCoreUnits: round(budgetNow.usableCoreUnits),
     usedCoreUnits: fleet ? round(sample.ourCoreUnits) : null,
     usedMemGB: fleet ? round(sample.ourMemGB) : null,
-    otherCoreUnits: fleet ? round(fleet.otherCoreUnits) : null,
+    // The SMOOTHED reading, not the raw one: the panel has to show the number
+    // the gate decided on, otherwise a spike appears on screen that no ceiling
+    // ever reacted to.
+    otherCoreUnits: sample.otherCoreUnits == null ? null : round(sample.otherCoreUnits),
     frozen: Math.max(0, budgetKnob.frozen),
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
+    agentCostMemGB: round(agentCost.memGB),
+    freeQuotaMemGB: budgetNow.freeQuotaMemGB == null ? null : round(budgetNow.freeQuotaMemGB),
     reason,
     running,
   };
@@ -859,6 +919,13 @@ export function computeDispatchCapacity(
  * `bun test`, the Chromium of an e2e run). Without the probe every one of our
  * own terms is `null` or zero, and `machineBudget` then reads the budget as the
  * whole answer: not measured must never be able to shrink it.
+ *
+ * SOMEBODY ELSE'S CPU ENTERS SMOOTHED (`smoothedOther`), and it enters HERE
+ * because this is the one door every reader of the "by resources" mode goes
+ * through: the admission gate, the governor that freezes running work, and the
+ * settings panel. Smoothing it further up would have left the gate deciding on
+ * the raw reading, which is the ceiling that jumps at every breath of the
+ * machine.
  */
 export function budgetSample(
   fleet: FleetLoadReading | null,
@@ -871,7 +938,7 @@ export function budgetSample(
     cores,
     totalMemGB,
     ourCoreUnits: fleet ? fleet.coreUnits + fleet.scriptsCoreUnits : 0,
-    otherCoreUnits: fleet ? fleet.otherCoreUnits : null,
+    otherCoreUnits: fleet ? smoothedOther(fleet.otherCoreUnits) : null,
     ourMemGB: fleet ? fleet.memGB : 0,
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? availMemGB : null,
     running,

@@ -1787,6 +1787,10 @@ export interface DispatchCapacity {
    * never zero.
    */
   availableMemGB: number | null;
+  /** What one more agent is priced at in memory, and the share of the free
+   *  memory it is compared with. `null` where memory is not measured. */
+  agentCostMemGB: number;
+  freeQuotaMemGB: number | null;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
   /**
