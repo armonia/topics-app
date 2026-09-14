@@ -46,9 +46,18 @@ mod windows_repaint;
 /// and compiled on EVERY platform (no `#[cfg]` body), so a `cargo check` on any
 /// OS still catches a break in the one code path only Windows can reproduce.
 mod boot_choice;
+mod upstream_search;
+mod daemon_record;
 mod boot_degraded;
 mod reconnect_page;
-use boot_choice::{decide_boot, BootChoice};
+use upstream_search::{
+    discover_upstream, ALONE_BEFORE_CONCEDING, ROUND_PAUSE, SEARCH_WITHOUT_MARKER,
+    SEARCH_WITH_MARKER,
+};
+use boot_choice::{
+    decide_boot, BootChoice, Loopback, PortAnswer, ShapeVerdict,
+};
+use daemon_record::{daemon_pid_is_alive, daemon_state_port};
 use reconnect_page::{reconnect_page_response, set_degraded_marker};
 
 /// The DWM backdrop behind the app window on Windows 11. Compiled on EVERY
@@ -984,6 +993,11 @@ const DEFAULT_UPSTREAM_PORT: u16 = 3333;
 /// origination and pipes raw TCP straight through.
 #[derive(Clone, Copy)]
 struct Upstream {
+    /// WHICH loopback address, and it is not decoration: an IPv4 squatter on
+    /// `127.0.0.1:3333` coexists with the daemon's `[::]:3333` bind, so piping to
+    /// "port 3333" without saying which address is how the window ended up
+    /// talking to a stranger's dashboard. This is the address that ANSWERED.
+    host: Loopback,
     port: u16,
     tls: bool,
 }
@@ -995,11 +1009,11 @@ static UPSTREAM: std::sync::OnceLock<Upstream> = std::sync::OnceLock::new();
 /// server is listening and speaking HTTP, which is all we need to defer to it.
 /// `tls` picks plain vs TLS-originated origination (the external server serves TLS).
 /// Returns true on a readable HTTP response within a short timeout.
-async fn probe_topics_server(port: u16, tls: bool) -> bool {
+async fn probe_topics_server(host: Loopback, port: u16, tls: bool) -> bool {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
-    let connect = TcpStream::connect(("127.0.0.1", port));
+    let connect = TcpStream::connect((host.host(), port));
     let stream = match tokio::time::timeout(std::time::Duration::from_millis(800), connect).await {
         Ok(Ok(s)) => s,
         _ => return false,
@@ -1029,7 +1043,7 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
                 Ok(c) => tokio_native_tls::TlsConnector::from(c),
                 Err(_) => return false,
             };
-            match connector.connect("127.0.0.1", stream).await {
+            match connector.connect(host.host(), stream).await {
                 Ok(tls_stream) => round_trip(tls_stream, req).await,
                 Err(_) => false,
             }
@@ -1040,6 +1054,130 @@ async fn probe_topics_server(port: u16, tls: bool) -> bool {
     tokio::time::timeout(std::time::Duration::from_millis(1500), fut)
         .await
         .unwrap_or(false)
+}
+
+/// Ask one address and port who is there, in as few connections as possible.
+///
+/// First a bare TCP connection, for one reason: if nothing is listening, that
+/// single refusal settles both schemes at once. Trying TLS and then plain HTTP
+/// against a port with no listener is two refusals for one fact, and on Windows a
+/// refusal costs ~0.83s (measured 2026-08-28). Only once something IS listening
+/// do we spend a real probe, TLS first because production serves TLS.
+async fn probe_port(host: Loopback, port: u16) -> PortAnswer {
+    let connect = tokio::net::TcpStream::connect((host.host(), port));
+    let listening = tokio::time::timeout(std::time::Duration::from_millis(800), connect).await;
+    match listening {
+        // CLOSED IMMEDIATELY, and the `drop` is the whole point of writing this
+        // as a statement. A server that handles ONE connection at a time (the
+        // Python `socketserver.TCPServer` an account switcher is built on) accepts
+        // our test connection and then answers nobody while we hold it: the shape
+        // probes that follow time out, the stranger reads as silence, and the
+        // shell sits for 222s pointed at the wrong address (measured 2026-09-14).
+        // We only wanted to know that somebody is listening.
+        Ok(Ok(stream)) => drop(stream),
+        _ => return PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false },
+    }
+    for tls in [true, false] {
+        let verdict = probe_topics_shape(host, port, tls).await;
+        if verdict != ShapeVerdict::NoAnswer {
+            return PortAnswer { verdict, tls };
+        }
+    }
+    PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false }
+}
+
+/// SHAPE-AWARE probe: `Topics` only if `127.0.0.1:<port>/api/system/presence` answers
+/// with a Topics daemon's body — the JSON object carrying the numeric
+/// `openSessions` AND `workingSessions` fields. This is the exact shape the daemon
+/// emits and the shape `port-squatter.ts`/`daemon-state.ts` both key on; an
+/// unrelated process squatting the port answers `200 text/html` for that path,
+/// which has no such fields and is therefore REJECTED. The old `probe_topics_server`
+/// accepted ANY HTTP status line, which is precisely how the shell deferred to the
+/// "account-switcher" dashboard on :3333 (2026-09-12) instead of the real daemon.
+///
+/// The route is unauthenticated on loopback (no Origin header → the origin gate
+/// passes) and cheap (three indexed COUNTs), so it is safe to probe repeatedly.
+/// `tls` picks TLS-originated origination (the external :3333 server serves TLS).
+async fn probe_topics_shape(host: Loopback, port: u16, tls: bool) -> ShapeVerdict {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    const REQ: &str =
+        "GET /api/system/presence HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+
+    async fn round_trip<S>(mut s: S) -> ShapeVerdict
+    where
+        S: AsyncReadExt + AsyncWriteExt + Unpin,
+    {
+        if s.write_all(REQ.as_bytes()).await.is_err() {
+            return ShapeVerdict::NoAnswer;
+        }
+        // Read up to 2 KiB: status line + headers + body. The body is a few dozen
+        // bytes of JSON, so this comfortably covers it and the shape check below
+        // parses only the part present.
+        let mut buf = [0u8; 2048];
+        let n = match s.read(&mut buf).await {
+            Ok(n) => n,
+            _ => return ShapeVerdict::NoAnswer,
+        };
+        if n < 5 || &buf[..5] != b"HTTP/" {
+            return ShapeVerdict::NoAnswer;
+        }
+        let text = String::from_utf8_lossy(&buf[..n]).to_string();
+        let status = text
+            .split_whitespace()
+            .nth(1)
+            .and_then(|c| c.parse::<u16>().ok())
+            .unwrap_or(0);
+        // Split headers from body at the first blank line, then the body.
+        let body = text.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+        let ours = match serde_json::from_str::<serde_json::Value>(body) {
+            Ok(v) if v.is_object() => {
+                v.get("openSessions").and_then(|x| x.as_i64()).is_some()
+                    && v.get("workingSessions").and_then(|x| x.as_i64()).is_some()
+            }
+            _ => false,
+        };
+        if ours {
+            return ShapeVerdict::Topics;
+        }
+        // ONLY A COMPLETE, SUCCESSFUL, NON-TOPICS ANSWER PROVES A STRANGER. A
+        // 401, a 502 or a 503 is an answer we cannot read the owner from, and
+        // reading a stranger into it is how a loaded Topics gets replaced by an
+        // empty sidecar. Uncertain is not foreign.
+        if (200..300).contains(&status) {
+            ShapeVerdict::Foreign
+        } else {
+            ShapeVerdict::NoAnswer
+        }
+    }
+
+    let connect = TcpStream::connect((host.host(), port));
+    let stream = match tokio::time::timeout(std::time::Duration::from_millis(800), connect).await {
+        Ok(Ok(s)) => s,
+        _ => return ShapeVerdict::NoAnswer,
+    };
+    let fut = async {
+        if tls {
+            let connector = match native_tls::TlsConnector::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()
+            {
+                Ok(c) => tokio_native_tls::TlsConnector::from(c),
+                Err(_) => return ShapeVerdict::NoAnswer,
+            };
+            match connector.connect(host.host(), stream).await {
+                Ok(tls_stream) => round_trip(tls_stream).await,
+                Err(_) => ShapeVerdict::NoAnswer,
+            }
+        } else {
+            round_trip(stream).await
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_millis(1500), fut)
+        .await
+        .unwrap_or(ShapeVerdict::NoAnswer)
 }
 
 /// How long a NON-document connection (XHR, SSE, WebSocket) waits for the upstream
@@ -1138,12 +1276,13 @@ fn is_document_head(head: &[u8]) -> bool {
 /// the second or two it takes to rebind — one unlucky reload in that window left the
 /// window permanently empty.
 async fn connect_upstream_retrying(
+    host: Loopback,
     port: u16,
     grace: std::time::Duration,
 ) -> Option<tokio::net::TcpStream> {
     let deadline = std::time::Instant::now() + grace;
     loop {
-        match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+        match tokio::net::TcpStream::connect((host.host(), port)).await {
             Ok(s) => return Some(s),
             Err(_) if std::time::Instant::now() < deadline => {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1309,10 +1448,15 @@ async fn proxy_loop(listener: tokio::net::TcpListener, source: UpstreamSource) {
                 return;
             };
             let grace = if doc { UPSTREAM_GRACE_DOC } else { UPSTREAM_GRACE };
-            let upstream = match connect_upstream_retrying(up.port, grace).await {
+            let upstream = match connect_upstream_retrying(up.host, up.port, grace).await {
                 Some(s) => s,
                 None => {
-                    eprintln!("[proxy] upstream :{} unreachable for {:?}", up.port, grace);
+                    eprintln!(
+                        "[proxy] upstream {}:{} unreachable for {:?}",
+                        up.host.host(),
+                        up.port,
+                        grace
+                    );
                     if doc {
                         // Paint SOMETHING and keep retrying by itself. Without this the
                         // transparent window has no pixels at all — "sparita" and "vuota"
@@ -1324,7 +1468,7 @@ async fn proxy_loop(listener: tokio::net::TcpListener, source: UpstreamSource) {
                 }
             };
             if up.tls {
-                let mut tls_stream = match tls.connect("127.0.0.1", upstream).await {
+                let mut tls_stream = match tls.connect(up.host.host(), upstream).await {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("[proxy] upstream TLS handshake failed: {e}");
@@ -1557,19 +1701,35 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     if seen_before {
         set_degraded_marker(Some(marker.display().to_string()));
     }
-    let choice = decide_boot(seen_before, std::time::Duration::from_millis(700), |tls| {
-        probe_topics_server(DEFAULT_UPSTREAM_PORT, tls)
-    })
+    // SHAPE-AWARE discovery, not just "some server is here", and the rule that
+    // drives it lives in `boot_choice::discover_upstream` with its probes handed
+    // in, so it can be tested without a Tauri app around it. All this function
+    // still owns is the wiring: real sockets, the real files on disk, a real
+    // pause.
+    // In TIME, not in rounds, and the short one is no longer shorter than the
+    // patience it is supposed to let run (see `SEARCH_WITHOUT_MARKER`).
+    let budget = if seen_before { SEARCH_WITH_MARKER } else { SEARCH_WITHOUT_MARKER };
+    let facts = discover_upstream(
+        seen_before,
+        budget,
+        ALONE_BEFORE_CONCEDING,
+        |host, port| probe_port(host, port),
+        || (daemon_state_port(), daemon_pid_is_alive()),
+        || tokio::time::sleep(ROUND_PAUSE),
+    )
     .await;
+
+    let choice = decide_boot(facts);
     match choice {
-        BootChoice::Defer { tls } => {
+        BootChoice::Defer { host, port, tls } => {
             let kind = if tls { "TLS" } else { "plain-HTTP" };
-            eprintln!("[sidecar] external {kind} server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            let addr = host.host();
+            eprintln!("[sidecar] external {kind} Topics daemon on {addr}:{port} — deferring, no sidecar");
             // The server answered: there is nothing to explain, and leaving the
             // sentence up would offer to delete a marker that is doing its job.
             set_degraded_marker(None);
             let _ = std::fs::write(&marker, "1");
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls });
+            let _ = UPSTREAM.set(Upstream { host, port, tls });
             return;
         }
         // Still nothing, but this machine is KNOWN to own a real server: point at
@@ -1580,18 +1740,31 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         // the reconnect page can say why nothing is starting and which file to
         // remove to get a local server instead (`reconnect_page_response_for`):
         // before this, the only symptom was an eternal "Reconnecting".
-        BootChoice::WaitForKnownServer => {
+        BootChoice::WaitForKnownServer { host } => {
+            let addr = host.host();
             eprintln!(
-                "[sidecar] no answer on :{DEFAULT_UPSTREAM_PORT} after ~42s, but this machine has a real server \
-                 (marker {}) — NOT spawning a sidecar; degrading to \"connecting\"",
+                "[sidecar] no answer on {addr}:{DEFAULT_UPSTREAM_PORT} after ~42s, but this machine has a real \
+                 server (marker {}, daemon pid alive: {}): NOT spawning a sidecar; degrading to \"connecting\"",
                 marker.display(),
+                facts.state_pid_alive,
             );
-            set_degraded_marker(Some(marker.display().to_string()));
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+            // ONLY OFFER THE WAY OUT THAT IS ACTUALLY THE WAY OUT. The page tells
+            // the person to delete the marker and reopen; that is true when the
+            // marker is what makes the shell wait, and false otherwise. A LIVE
+            // daemon pid is believed before the marker is even read, so with a
+            // recycled pid the button sends somebody to delete a file and land
+            // right back on this same wait (reproduced 2026-09-14). Same for a
+            // marker that is not there: the path was published regardless.
+            let marker_is_the_reason = seen_before && !facts.state_pid_alive;
+            set_degraded_marker(
+                marker_is_the_reason.then(|| marker.display().to_string()),
+            );
+            let _ = UPSTREAM.set(Upstream { host, port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
-        // Unreachable with a marker present (that is `WaitForKnownServer`), so this
-        // clears nothing in practice; it is here so the fact has exactly one owner.
+        // Reached when nothing of ours is here at all: no daemon answered, no
+        // daemon pid is alive, and either no marker or a marker a stranger has
+        // invalidated. The sentence about waiting would be false from here on.
         BootChoice::SpawnSidecar => set_degraded_marker(None),
     }
 
@@ -1700,7 +1873,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         }
         Err(e) => {
             eprintln!("[sidecar] sidecar() resolve failed: {e} — falling back to external target");
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+            let _ = UPSTREAM.set(Upstream { host: Loopback::V4, port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
     };
@@ -1712,7 +1885,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             // Point the proxy at the sidecar NOW (before the health wait) so it can
             // start piping the moment the server binds; a connection before then just
             // fails and the client retries.
-            let _ = UPSTREAM.set(Upstream { port, tls: false });
+            let _ = UPSTREAM.set(Upstream { host: Loopback::V4, port, tls: false });
             // Drain the sidecar's stdout/stderr so its pipe never fills (which would
             // block the child); log lines to our stderr for field diagnosis.
             tauri::async_runtime::spawn(async move {
@@ -1736,7 +1909,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         }
         Err(e) => {
             eprintln!("[sidecar] spawn failed: {e} — falling back to external target");
-            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+            let _ = UPSTREAM.set(Upstream { host: Loopback::V4, port: DEFAULT_UPSTREAM_PORT, tls: true });
             return;
         }
     }
@@ -1757,7 +1930,7 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         let mut healthy = false;
         while std::time::Instant::now() < deadline {
-            if probe_topics_server(health_port, false).await {
+            if probe_topics_server(Loopback::V4, health_port, false).await {
                 healthy = true;
                 break;
             }
@@ -1833,11 +2006,11 @@ pub(crate) fn eval_in_main_webview(app: &tauri::AppHandle, js: &str) -> bool {
 async fn watch_upstream(app: tauri::AppHandle) {
     let up = *UPSTREAM
         .get()
-        .unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+        .unwrap_or(&Upstream { host: Loopback::V4, port: DEFAULT_UPSTREAM_PORT, tls: true });
     let mut was_down = false;
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        let alive = probe_topics_server(up.port, up.tls).await;
+        let alive = probe_topics_server(up.host, up.port, up.tls).await;
         if !alive {
             if !was_down {
                 eprintln!("[watchdog] upstream :{} is DOWN", up.port);
@@ -12076,7 +12249,7 @@ mod bundle_rev_tests {
 mod window_recovery_tests {
     use super::{
         connect_upstream_retrying, is_document_head, is_tls_client_hello, is_websocket_head,
-        window_recompose::rect_intersects_any, Upstream, UpstreamSource, RELOAD_IF_BLANK_JS,
+        window_recompose::rect_intersects_any, Loopback, Upstream, UpstreamSource, RELOAD_IF_BLANK_JS,
         UPSTREAM,
     };
     use std::time::Duration;
@@ -12127,7 +12300,7 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
                 "ha risposto senza che nessuno avesse deciso: e' il difetto, \
                  il proxy sceglieva una porta per conto suo",
             );
-            let _ = UPSTREAM.set(Upstream { port: 61234, tls: false });
+            let _ = UPSTREAM.set(Upstream { host: Loopback::V4, port: 61234, tls: false });
             let got = pending.await.unwrap().expect("la decisione e' arrivata");
             assert_eq!(got.port, 61234, "ha usato il default invece della decisione");
             assert!(!got.tls);
@@ -12140,7 +12313,7 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
     #[test]
     fn un_bersaglio_esplicito_non_guarda_la_decisione() {
         rt().block_on(async {
-            let fixed = UpstreamSource::Fixed(Upstream { port: 4242, tls: true });
+            let fixed = UpstreamSource::Fixed(Upstream { host: Loopback::V4, port: 4242, tls: true });
             let got = fixed.resolve().await.expect("un bersaglio esplicito e' sempre pronto");
             assert_eq!(got.port, 4242);
             assert!(got.tls);
@@ -12207,7 +12380,7 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
             let _l = tokio::net::TcpListener::bind(("127.0.0.1", port)).await.unwrap();
             tokio::time::sleep(Duration::from_secs(3)).await;
         });
-        let got = connect_upstream_retrying(port, Duration::from_secs(5)).await;
+        let got = connect_upstream_retrying(Loopback::V4, port, Duration::from_secs(5)).await;
         assert!(got.is_some(), "must survive a port that comes back after 600ms");
         });
     }
@@ -12221,7 +12394,7 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
         let port = probe.local_addr().unwrap().port();
         drop(probe);
         let t0 = std::time::Instant::now();
-        let got = connect_upstream_retrying(port, Duration::from_millis(500)).await;
+        let got = connect_upstream_retrying(Loopback::V4, port, Duration::from_millis(500)).await;
         assert!(got.is_none());
         assert!(t0.elapsed() < Duration::from_secs(3), "must not hang past the grace");
         });
@@ -12249,6 +12422,300 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
     }
 }
 
+#[cfg(test)]
+mod contaminated_marker_cold_boot_tests {
+    //! The 2026-09-12 contaminated-marker regression, verified by driving the REAL
+    //! probe functions against a real local foreign HTTP server (no dependency on
+    //! the live account-switcher), plus the companion invariant (a merely-DOWN
+    //! server must still wait, not fork empty).
+
+    use super::{
+        decide_boot, probe_port, probe_topics_shape, BootChoice, Loopback, PortAnswer, ShapeVerdict,
+    };
+    use crate::boot_choice::BootFacts;
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    fn rt() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    }
+
+    /// Bind one loopback family explicitly. `TcpListener::bind(("::1", p))` and
+    /// `("127.0.0.1", p)` are two different sockets on one port, which is exactly
+    /// the situation these tests are about.
+    fn bind_loopback(host: Loopback, port: u16) -> std::net::TcpListener {
+        std::net::TcpListener::bind((host.host(), port)).expect("bind loopback")
+    }
+
+    /// A FOREIGN process that answers 200 text/html for every path. The listener
+    /// is bound HERE, by the caller, and only then handed to the thread: binding
+    /// inside the thread meant two tests racing for the same "free" port, and a
+    /// test that fails because of another test proves nothing about the code.
+    fn start_foreign_squatter(
+        listener: std::net::TcpListener,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        let _ = s.set_read_timeout(Some(Duration::from_millis(200)));
+                        let mut buf = [0u8; 512];
+                        let _ = s.read(&mut buf);
+                        let _ = s.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                             <html><body>foreign dashboard</body></html>",
+                        );
+                    }
+                    Err(_) => return,
+                }
+            }
+        })
+    }
+
+    /// A STRANGER THAT SERVES ONE CONNECTION AT A TIME, which is what an account
+    /// switcher's dashboard actually is: a Python `socketserver.TCPServer` reads
+    /// each connection to the end before it accepts the next. Unlike the squatter
+    /// above it does NOT give up on a silent client quickly, so a probe that opens
+    /// a connection and holds it blocks every later probe of the same port. That
+    /// is the shape the 2026-09-14 review used to make the shell wait 222s.
+    fn start_single_connection_stranger(
+        listener: std::net::TcpListener,
+    ) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        // Long enough to be "blocked" for any probe that has to
+                        // answer in under a second, short enough that the thread
+                        // does not outlive the test run.
+                        let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+                        let mut buf = [0u8; 512];
+                        let _ = s.read(&mut buf);
+                        let _ = s.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                             <html><body>one connection at a time</body></html>",
+                        );
+                    }
+                    Err(_) => return,
+                }
+            }
+        })
+    }
+
+    /// A FAKE TOPICS DAEMON: answers the presence shape on any address given.
+    /// `bind` is the address literal, so the caller can put it on `::1` while a
+    /// stranger holds `127.0.0.1` on the SAME port, which is the whole point.
+    fn start_fake_daemon(listener: std::net::TcpListener) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok((mut s, _)) => {
+                        let _ = s.set_read_timeout(Some(Duration::from_millis(200)));
+                        let mut buf = [0u8; 512];
+                        let _ = s.read(&mut buf);
+                        let _ = s.write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n\
+                             {\"openSessions\":1,\"workingSessions\":0,\"activeTasks\":2}",
+                        );
+                    }
+                    Err(_) => return,
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn foreign_squatter_with_stale_marker_spawns_not_hangs() {
+        rt().block_on(async {
+            let listener = bind_loopback(Loopback::V4, 0);
+            let port = listener.local_addr().unwrap().port();
+            let _h = start_foreign_squatter(listener);
+            for _ in 0..50 {
+                if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let verdict = probe_topics_shape(Loopback::V4, port, false).await;
+            assert_eq!(
+                verdict,
+                ShapeVerdict::Foreign,
+                "foreign HTML is a stranger, not a Topics daemon"
+            );
+            // A stale state file (dead pid) is what this case has: no universe to
+            // protect, so the sidecar is the right answer.
+            let choice = decide_boot(BootFacts {
+                state_port: Some(3333),
+                seen_before: true,
+                primary_foreign: true,
+                ..Default::default()
+            });
+            assert_eq!(
+                choice,
+                BootChoice::SpawnSidecar,
+                "contaminated marker + foreign squatter must SPAWN, not hang"
+            );
+        });
+    }
+
+    /// THE PROBE MUST NOT OCCUPY WHAT IT IS PROBING. Against a stranger that
+    /// serves one connection at a time, holding the "is anybody listening?"
+    /// connection open starved every probe that followed: no verdict, no stranger,
+    /// so IPv6 was never even tried and the shell waited on the wrong address for
+    /// 222s (2026-09-14). Closing it immediately, the same stranger is recognised
+    /// in milliseconds and the daemon behind it on IPv6 is found.
+    #[test]
+    fn a_stranger_that_serves_one_connection_at_a_time_is_still_recognised() {
+        rt().block_on(async {
+            let squatted = bind_loopback(Loopback::V4, 0);
+            let port = squatted.local_addr().unwrap().port();
+            let _stranger = start_single_connection_stranger(squatted);
+            let _daemon = start_fake_daemon(bind_loopback(Loopback::V6, port));
+            for _ in 0..50 {
+                if std::net::TcpStream::connect(("::1", port)).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let v4 = probe_port(Loopback::V4, port).await;
+            assert_eq!(
+                v4.verdict,
+                ShapeVerdict::Foreign,
+                "the stranger must be recognised even though it serves one connection at a time"
+            );
+            let v6 = probe_port(Loopback::V6, port).await;
+            assert_eq!(
+                v6.verdict,
+                ShapeVerdict::Topics,
+                "and the daemon behind it on IPv6 must still be found"
+            );
+        });
+    }
+
+    /// The cheap path of `probe_port`: nothing listening is settled by ONE
+    /// refused connection, and it is `NoAnswer`, never a stranger.
+    #[test]
+    fn a_port_with_no_listener_is_one_refusal_and_no_answer() {
+        rt().block_on(async {
+            let dead = bind_loopback(Loopback::V4, 0).local_addr().unwrap().port();
+            let answer = probe_port(Loopback::V4, dead).await;
+            assert_eq!(
+                answer,
+                PortAnswer { verdict: ShapeVerdict::NoAnswer, tls: false }
+            );
+        });
+    }
+
+    /// THE 2026-09-14 REPRODUCTION, with real sockets. A stranger binds
+    /// `127.0.0.1:p` while the daemon binds `[::1]:p`: both succeed, because the
+    /// IPv4-specific bind and the IPv6 one coexist. The IPv4 probe must report a
+    /// stranger, the IPv6 probe must find Topics, and the shell must end up
+    /// talking to IPv6 instead of starting an empty sidecar.
+    #[test]
+    fn an_ipv4_squatter_does_not_hide_the_daemon_on_ipv6() {
+        rt().block_on(async {
+            let squatted = bind_loopback(Loopback::V4, 0);
+            let port = squatted.local_addr().unwrap().port();
+            let _squatter = start_foreign_squatter(squatted);
+            // THE COEXISTENCE ITSELF: the same port, bound a second time on IPv6
+            // while IPv4 is held. If this bind failed the reproduction would be
+            // impossible, so the test asserts it by unwrapping.
+            let _daemon = start_fake_daemon(bind_loopback(Loopback::V6, port));
+            for _ in 0..50 {
+                if std::net::TcpStream::connect(("::1", port)).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let v4 = probe_topics_shape(Loopback::V4, port, false).await;
+            let v6 = probe_topics_shape(Loopback::V6, port, false).await;
+            assert_eq!(v4, ShapeVerdict::Foreign, "IPv4 is held by the stranger");
+            assert_eq!(v6, ShapeVerdict::Topics, "the daemon answers on IPv6");
+            let choice = decide_boot(BootFacts {
+                primary_topics: true,
+                primary_host: Loopback::V6,
+                state_port: Some(3333),
+                seen_before: true,
+                primary_foreign: true,
+                state_pid_alive: true,
+                ..Default::default()
+            });
+            assert_eq!(
+                choice,
+                BootChoice::Defer { host: Loopback::V6, port: 3333, tls: false },
+                "the live daemon on IPv6 wins over a stranger on IPv4"
+            );
+        });
+    }
+
+    /// A server that is DOWN is not a stranger: nothing answers at all, so the
+    /// marker still means wait.
+    #[test]
+    fn down_server_with_stale_marker_still_waits() {
+        rt().block_on(async {
+            let dead = bind_loopback(Loopback::V4, 0).local_addr().unwrap().port();
+            let verdict = probe_topics_shape(Loopback::V4, dead, false).await;
+            assert_eq!(
+                verdict,
+                ShapeVerdict::NoAnswer,
+                "a down server answers nothing, and silence is not a stranger"
+            );
+            let choice = decide_boot(BootFacts {
+                state_port: Some(3333),
+                seen_before: true,
+                ..Default::default()
+            });
+            assert_eq!(
+                choice,
+                BootChoice::WaitForKnownServer { host: Loopback::V4 },
+                "a merely-DOWN known server must still be waited on"
+            );
+        });
+    }
+
+    /// A SLOW Topics is not a stranger either, and this is the 2026-08-13
+    /// incident in one test: a server that accepts the connection and then takes
+    /// too long must come back `NoAnswer`, never `Foreign`. `Foreign` plus a
+    /// marker is what used to authorise the empty sidecar.
+    #[test]
+    fn a_slow_server_is_never_read_as_foreign() {
+        rt().block_on(async {
+            let listener = bind_loopback(Loopback::V4, 0);
+            let port = listener.local_addr().unwrap().port();
+            let _h = std::thread::spawn(move || {
+                while let Ok((s, _)) = listener.accept() {
+                    // Accept and say nothing for longer than the probe waits.
+                    std::thread::sleep(Duration::from_millis(2500));
+                    drop(s);
+                }
+            });
+            for _ in 0..50 {
+                if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let verdict = probe_topics_shape(Loopback::V4, port, false).await;
+            assert_eq!(
+                verdict,
+                ShapeVerdict::NoAnswer,
+                "a slow server must not be classified as a stranger"
+            );
+            let choice = decide_boot(BootFacts {
+                state_port: Some(3333),
+                seen_before: true,
+                primary_foreign: verdict == ShapeVerdict::Foreign,
+                ..Default::default()
+            });
+            assert_eq!(
+                choice,
+                BootChoice::WaitForKnownServer { host: Loopback::V4 },
+                "a slow but live server is waited for, never replaced"
+            );
+        });
+    }
+}
+
 /// The end-to-end PROOF for the empty-window bug, kept out of the normal run
 /// (`#[ignore]`) because it drives a real browser and takes ~15s:
 ///
@@ -12260,7 +12727,7 @@ Upgrade: websocket\r\nConnection: Upgrade\r\nAccept: */*\r\n\r\n";
 /// transparent, titlebar-less window with nothing to paint — i.e. invisible.
 #[cfg(test)]
 mod window_recovery_demo {
-    use super::{proxy_loop, Upstream, UpstreamSource};
+    use super::{proxy_loop, Loopback, Upstream, UpstreamSource};
 
     /// Minimal HTTP server standing in for the Topics server: one fixed page whose
     /// marker (`TOPICS`) the browser checks for. Killed by aborting its task, which
@@ -12308,7 +12775,7 @@ Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
             let proxy_port = proxy_listener.local_addr().unwrap().port();
 
             let server = tokio::spawn(fake_app_server(up_port));
-            tokio::spawn(proxy_loop(proxy_listener, UpstreamSource::Fixed(Upstream { port: up_port, tls: false })));
+            tokio::spawn(proxy_loop(proxy_listener, UpstreamSource::Fixed(Upstream { host: Loopback::V4, port: up_port, tls: false })));
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
             // The camera + browser, on its own clock (see window-recovery-demo.mjs).

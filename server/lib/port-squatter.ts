@@ -34,7 +34,7 @@
  */
 
 /** Cosa ha trovato la sonda sulla porta di questo server. */
-export type EsitoPorta =
+export type PortVerdict =
   /** Risponde Topics: tutto a posto. */
   | { stato: "nostro" }
   /** Risponde qualcosa che NON è Topics: il pid e il comando, se leggibili. */
@@ -45,7 +45,7 @@ export type EsitoPorta =
   /** La sonda stessa non ha potuto decidere (rete, timeout, `lsof` assente). */
   | { stato: "ignoto"; perche: string };
 
-export interface SondaPortaDeps {
+export interface ProbePortDeps {
   /** Una GET su `http://127.0.0.1:<porta>/…`; `null` se non risponde nessuno. */
   chiedi: (url: string) => Promise<{ ok: boolean; corpo: string } | null>;
   /** Chi ascolta su quella porta in IPv4. Il comando puo' mancare (`lsof` con
@@ -63,7 +63,7 @@ export interface SondaPortaDeps {
  * COUNT indicizzati) e perché la sua risposta ha una forma che nessun altro
  * server produrrebbe per caso.
  */
-export const ROTTA_SONDA = "/api/system/presence";
+export const PROBE_ROUTE = "/api/system/presence";
 
 /**
  * La risposta è nostra? Si guarda la FORMA, non il codice di stato: darkroom
@@ -79,7 +79,7 @@ export const ROTTA_SONDA = "/api/system/presence";
  * Si richiedono DUE campi e non uno: un solo intero di nome comune potrebbe
  * capitare per caso nella risposta di un altro server, due con questi nomi no.
  */
-export function rispostaNostra(corpo: string): boolean {
+export function isOurResponse(corpo: string): boolean {
   try {
     const v = JSON.parse(corpo) as Record<string, unknown>;
     return (
@@ -99,7 +99,7 @@ export function rispostaNostra(corpo: string): boolean {
  * `127.0.0.1` di proposito, perché è l'indirizzo che il guscio e il client
  * usano davvero, ed è esattamente quello che un binding IPv4 altrui intercetta.
  */
-export async function sondaPorta(porta: number, deps: SondaPortaDeps): Promise<EsitoPorta> {
+export async function probePort(porta: number, deps: ProbePortDeps): Promise<PortVerdict> {
   // SI PROVANO ENTRAMBI GLI SCHEMI, e non e' pignoleria: in produzione Topics
   // parla TLS, quindi una sonda solo-HTTP riceve `null` da SE STESSA e conclude
   // «silenzio» — cioe' tace esattamente sulla porta che deve sorvegliare.
@@ -111,7 +111,7 @@ export async function sondaPorta(porta: number, deps: SondaPortaDeps): Promise<E
   let risposta: { ok: boolean; corpo: string } | null = null;
   try {
     for (const schema of ["https", "http"] as const) {
-      risposta = await deps.chiedi(`${schema}://127.0.0.1:${porta}${ROTTA_SONDA}`);
+      risposta = await deps.chiedi(`${schema}://127.0.0.1:${porta}${PROBE_ROUTE}`);
       if (risposta !== null) break;
     }
   } catch (err) {
@@ -119,7 +119,7 @@ export async function sondaPorta(porta: number, deps: SondaPortaDeps): Promise<E
   }
 
   if (risposta === null) return { stato: "silenzio" };
-  if (rispostaNostra(risposta.corpo)) return { stato: "nostro" };
+  if (isOurResponse(risposta.corpo)) return { stato: "nostro" };
 
   const chi = deps.chiOccupa(porta);
   // Se il pid trovato è il nostro, chi risponde siamo noi con una forma che non
@@ -133,7 +133,7 @@ export async function sondaPorta(porta: number, deps: SondaPortaDeps): Promise<E
 
 /** La riga che finisce nel log. Separata perché è ciò che una persona legge
  *  alle otto di mattina davanti a un'app che non si connette. */
-export function messaggioEsito(porta: number, esito: EsitoPorta): string | null {
+export function verdictMessage(porta: number, esito: PortVerdict): string | null {
   switch (esito.stato) {
     case "nostro":
     case "silenzio":
@@ -162,7 +162,7 @@ export function messaggioEsito(porta: number, esito: EsitoPorta): string | null 
  * Stanno qui e non nel chiamante perche' sono il mestiere di questo modulo, e
  * perche' `server.ts` non deve importare `child_process` per una sonda.
  */
-export function sondaRealeDeps(pidNostro: number): SondaPortaDeps {
+export function realProbeDeps(pidNostro: number): ProbePortDeps {
   return {
     chiedi: async (url) => {
       try {
