@@ -594,6 +594,12 @@ test('the current question is actionable once; history and centered status stay 
   expect(answered.ok()).toBe(true);
   expect(answered.request().postDataJSON().content).toBe('**Build the source editor**');
   await expect(choices).toHaveCount(0);
+  // The answer makes the drawer refetch the task, and that GET goes through the
+  // route above. When the test ends first, the page closes under `route.fetch()`
+  // and Playwright fails a test whose assertions all passed (flaky on main and
+  // on the branches, 8a6a3839d and dd719c278 alike). Everything to check has
+  // been checked: the late refetch is dropped, not awaited.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 test('a single-line system question keeps its inline answers in the conversation', async ({ page, request }) => {
