@@ -232,7 +232,7 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
 
   test("TOPIC-BROWSER-01e: una tab promossa e CHIUSA torna disponibile alla finestra", async ({ page, request }) => {
     // The gap the pure state left open: `promoted` only ever emptied through
-    // «riporta nella chat». Closing the tab in the layout left the id there,
+    // the return-to-chat control. Closing the tab in the layout left the id there,
     // and from then on the window refused that context in silence.
     const topic = await createTopic(request, `E2E-TBW-Release-${Date.now()}`);
     const ctx = `tbw-release-${Date.now()}`;
