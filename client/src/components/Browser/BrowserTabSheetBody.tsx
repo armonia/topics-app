@@ -129,7 +129,6 @@ function Suggestion({
 }
 
 interface BrowserTabSheetBodyProps {
-  paneId: string;
   chrome: BrowserPaneChrome;
   /** The address being edited. The body only exists while there is one. */
   draft: string;
@@ -141,24 +140,21 @@ interface BrowserTabSheetBodyProps {
   downloadsOpen: number;
   /** The label span inside the tab: the sheet hangs from the tab around it. */
   anchorRef: React.RefObject<HTMLSpanElement | null>;
+  /** The panel, owned by `BrowserTabSheet`: its click-outside rule reads it. */
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  /** The mark the popovers opened FROM the sheet carry (the console panel, the
+   *  downloads list). Portalled out of it, they are still inside it. */
+  owner: string;
   onClose: () => void;
-  /** A press on one of the tab's own doors while the sheet is open: the sheet
-   *  closes AND the click that follows must not open it again. */
-  onDoorPressed: () => void;
 }
 
 export function BrowserTabSheetBody({
-  paneId, chrome, draft, onDraftChange, wantsCaret, downloadsOpen, anchorRef, onClose, onDoorPressed,
+  chrome, draft, onDraftChange, wantsCaret, downloadsOpen, anchorRef, panelRef, owner, onClose,
 }: BrowserTabSheetBodyProps) {
   const t = useT();
-  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const [copied, setCopied] = useState(false);
-
-  /** The mark the popovers opened FROM the sheet carry (the console panel, the
-   *  downloads list). Portalled out of it, they are still inside it. */
-  const owner = `browser-tab-sheet:${paneId}`;
 
   // THE SHEET IS MEASURED, NOT GUESSED, and placed by the same function as the
   // tab context menu: it clamps to the viewport and flips above the tab when
@@ -209,63 +205,6 @@ export function BrowserTabSheetBody({
     setFramesInteractive(false);
     return () => setFramesInteractive(true);
   }, []);
-
-  // A CLICK OUTSIDE CLOSES, AND THE CLICK STILL HAPPENS.
-  //
-  // Not `useDismissable`: that contract EATS the click that follows an outside
-  // pointerdown ("closing is all that click does"), which is right for a menu
-  // and wrong here, because a blank pane opens this sheet BY ITSELF - so the
-  // very next click anywhere (the X of a tab, a toggle in a drawer) would close
-  // the sheet and do nothing else. Measured on CI run 34050396220 (2026-09-06)
-  // when the address dropdown had that contract. Listening on `pointerdown`
-  // without swallowing keeps both: the sheet goes, the click lands.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const onDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (panelRef.current?.contains(target)) return;
-      if (target instanceof Element) {
-        // A popover the sheet itself opened is portalled OUT of it: a click in
-        // there is a click inside, and closing the sheet under it would take
-        // its own anchor away. ONLY those: any other glass surface open at the
-        // same time (the sheet of another pane, say) is outside like the rest.
-        if (target.closest('[data-popover-owner]')?.getAttribute('data-popover-owner') === owner) return;
-        // The tab's own doors (its label, its dots) TOGGLE: this press closes,
-        // and the click that follows is told not to reopen.
-        const door = target.closest('[data-sheet-door]');
-        if (door && anchorRef.current?.closest('[data-pane-id]')?.contains(door)) {
-          onDoorPressed();
-          return;
-        }
-      }
-      onClose();
-    };
-    document.addEventListener('pointerdown', onDown, true);
-    return () => document.removeEventListener('pointerdown', onDown, true);
-  }, [owner, anchorRef, onClose, onDoorPressed]);
-
-  // ESC CLOSES FROM ANYWHERE, not only from the address field: the downloads
-  // door never puts the caret there, and a click on any button of the sheet
-  // moves the focus off it (to BODY, on WebKit).
-  //
-  // In the BUBBLE phase, and the phase is what gives a popover of the sheet the
-  // first word. `useDismissable` listens in CAPTURE on this same document and
-  // stops propagation there, so the first Esc closes the downloads list or the
-  // console and never reaches this listener; the second one closes the sheet.
-  // `defaultPrevented` does NOT carry that precedence (`useDismissable` does
-  // not call `preventDefault`): measured, a capture listener here closed the
-  // list and the sheet together on the first Esc. The check stays for the
-  // handlers that did consume the key, the find bar's among them.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   const address = prettyUrl(chrome.url);
   const copyAddress = useCallback(() => {

@@ -10,8 +10,9 @@
  * 1,393,840 / 435,687.
  *
  * So the sheet is cut in two. What must LISTEN stays eager (the request
- * counters that decide when it opens, and the freeze of the page), what DRAWS
- * is `BrowserTabSheetBody`, behind this loader.
+ * counters that decide when it opens, the Esc and click-outside that close it,
+ * and the freeze of the page), what DRAWS is `BrowserTabSheetBody`, behind
+ * this loader.
  *
  * `lazyWarm`, NOT `React.lazy`: the tab warms the chunk on pointer-enter and on
  * focus, so by the time the click lands a warm body renders in the same pass as

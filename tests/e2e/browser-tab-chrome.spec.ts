@@ -61,11 +61,13 @@ const HOST = "127.0.0.1";
  * slot has a real image to swap out), and two console errors (the red cue).
  *
  * IT DECLARES A `<title>` AND THE TAB STILL WRITES THE ADDRESS, which is not a
- * contradiction: this site is framable, so on the web the pane renders it in a
- * cross-origin `<iframe>` (`useIframe` in `RemoteBrowserPanel`) and no
- * server-side page ever loads it. There is no title to read from a cross-origin
- * document, and the address is exactly the fallback the rule prescribes for a
- * page that cannot name itself. The title half of the rule is proved by
+ * contradiction: nobody reads that title. Measured on 2026-09-14, a pane opened
+ * here on this loopback address never navigates by itself and sits on the
+ * new-tab page, so the label is the address the store holds. And this site is
+ * NOT framable as far as the server knows: its probe refuses every loopback
+ * address (`isSafePublicUrl`), so a scene that needs the page in a real
+ * `<iframe>` has to fake that one answer and confirm the address itself (see
+ * TOPIC-BROWSER-02 at the bottom). The title half of the rule is proved by
  * BROWSER-TAB-LABEL-01, on a pane whose title is known.
  */
 function pagina(): string {
@@ -801,20 +803,46 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     const host = new URL(origin).host;
     const label = new RegExp(host.replace(/\./g, "\\."));
 
+    // THE PROBE'S ANSWER IS THE ONE THING FAKED. The server refuses to probe any
+    // loopback or private address (`isSafePublicUrl` in
+    // `server/browser-framing.ts`, an SSRF guard), so this site always comes
+    // back `framable: false` and the pane takes the co-browse surface: there is
+    // no frame anywhere, and step 5 waited 30 s for one that could not exist
+    // (CI run of 2026-09-14, three reds out of three). With the answer faked the
+    // web client takes its real iframe path, and the frame loads the real page.
+    await page.route(/\/api\/browsers\/framable/, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ framable: true }) }),
+    );
+
     await goToApp(page);
     await waitForTopicVisible(page, topic.id);
     await mountPane(page, topic.id, `${origin}/rapporto`);
     const tab = tabDelBrowser(page);
     await expect(tab).toContainText(label, { timeout: 60_000 });
+    const sheet = page.getByTestId("browser-tab-sheet");
+    const address = page.getByTestId("browser-tab-address-input");
+
+    // 0. THE PAGE IS LOADED, IN A FRAME. Opened on a loopback address, the pane
+    //    does not navigate by itself: measured on this branch AND on main, no
+    //    `nav` leaves the client and the pane sits on the new-tab page while
+    //    the tab shows the address from the store. So the address is confirmed
+    //    once from the sheet, as a person would, and the scene waits for the
+    //    frame instead of assuming it.
+    await tab.getByTestId("pane-tab-label").click();
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    await address.fill(`${origin}/rapporto`);
+    await address.press("Enter");
+    await expect(sheet).toHaveCount(0);
+    const frame = page.getByTestId("browser-iframe").first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await expect(frame).toHaveAttribute("src", `${origin}/rapporto`);
     await expectNoRowAboveThePage(page, "at rest the page starts at the pane's own edge");
 
     // 1. THE CLICK ON THE TAB OPENS THE SHEET, address focused AND SELECTED.
     //    "Focused" alone is not the requirement: without the selection,
     //    rewriting the address costs an extra keystroke every single time.
     await tab.getByTestId("pane-tab-label").click();
-    const sheet = page.getByTestId("browser-tab-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
-    const address = page.getByTestId("browser-tab-address-input");
     await expect(address).toBeFocused();
     const allSelected = await address.evaluate((el) => {
       const i = el as HTMLInputElement;
@@ -853,14 +881,12 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(sheet, "Esc from a button of the sheet closes it").toHaveCount(0);
 
     // 5. A CLICK ON THE PAGE CLOSES WITHOUT NAVIGATING. The page of this site
-    //    is a cross-origin IFRAME (`hostedIframe`), and a pointerdown inside a
-    //    frame is dispatched to the frame's document, never to the app's: the
-    //    sheet did not hear it, stayed open and let the focus go into the page.
-    //    The aim point is checked to be ON THE FRAME before the sheet opens -
-    //    a click on any other element of the app would close the sheet even
-    //    without the fix, and the step would prove nothing.
-    const frame = page.getByTestId("browser-iframe").first();
-    await expect(frame).toBeVisible({ timeout: 30_000 });
+    //    is a cross-origin IFRAME (`hostedIframe`, step 0), and a pointerdown
+    //    inside a frame is dispatched to the frame's document, never to the
+    //    app's: the sheet did not hear it, stayed open and let the focus go into
+    //    the page. The aim point is checked to be ON THE FRAME before the sheet
+    //    opens - a click on any other element of the app would close the sheet
+    //    even without the fix, and the step would prove nothing.
     const frameBox = (await frame.boundingBox())!;
     const aim = { x: frameBox.x + frameBox.width - 12, y: frameBox.y + frameBox.height - 12 };
     const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName ?? null, aim);
@@ -892,5 +918,88 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await address.click({ button: "right" });
     await expect(page.getByRole("menu"), "the tab's menu does not open from inside the sheet").toHaveCount(menusBefore);
     await expect(sheet).toBeVisible();
+  });
+
+  /**
+   * TOPIC-BROWSER-02 — "Esc closes without navigating" holds from the instant
+   * the sheet is open, not from the instant its body has arrived.
+   *
+   * The body is a lazy chunk. When the sheet opens on a cold chunk it is open
+   * in state and draws nothing until the chunk lands, and the Esc and
+   * click-outside listeners lived in the body: for that window the sheet was
+   * deaf. The Esc of the window was lost, and the sheet came up afterwards over
+   * whatever came next, taking the caret and the next Esc too. The window is
+   * widest where nothing warmed the chunk - a blank pane opens its sheet by
+   * itself, with no pointer near the tab - and measured on the setup of
+   * LAYOUT-40 (`pane-zoom.spec.ts`, 2026-09-14) the sheet surfaced under a zoom
+   * and took the Esc that was closing it.
+   *
+   * The chunk is HELD here, so the window lasts as long as the test wants
+   * instead of as long as the machine happens to take, and the sheet is opened
+   * by a click on the tab rather than by the blank-pane timer, which is not
+   * the thing under test. The first half is the control: held and released
+   * with no key, the sheet does come up, so the second half cannot be green
+   * because the click opened nothing.
+   */
+  test("TOPIC-BROWSER-02: the sheet hears Esc before its body has loaded", async ({ page, browser, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-02" });
+    const openedAt = Date.now();
+    const paneId = `browser:cold-${openedAt}`;
+    await seedPaneStore(request, () => ({
+      panes: { [paneId]: { id: paneId, type: "browser", url: `${site!.origin}/rapporto`, openedAt } },
+      groups: { "group:default": { id: "group:default", paneIds: [paneId], splitRatio: 1, splitAxis: "horizontal" } },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
+    const body = /\/assets\/BrowserTabSheetBody-[^/]*\.js$/;
+
+    /** Open the sheet with its body held back, and hand back the function that
+     *  lets the body through. One page per call: a second load in the same
+     *  context takes the chunk from memory and never asks for it. */
+    const openOnAColdBody = async (p: Page) => {
+      let letThrough!: () => void;
+      const held = new Promise<void>((ok) => { letThrough = ok; });
+      let asked = false;
+      await p.route(body, async (route) => { asked = true; await held; await route.continue(); });
+      await goToApp(p);
+      const tab = p.locator(`[data-pane-id="${paneId}"]`);
+      await expect(tab).toBeVisible({ timeout: 30_000 });
+      const arrived = p.waitForResponse(body);
+      await tab.getByTestId("pane-tab-label").click();
+      await expect.poll(() => asked, { timeout: 10_000 }).toBe(true);
+      await expect(p.getByTestId("browser-tab-sheet"), "held back, the body has drawn nothing").toHaveCount(0);
+      return async () => { letThrough(); await (await arrived).finished(); };
+    };
+
+    // Control, in a context of its own: nothing pressed, and the sheet comes up
+    // once its body can.
+    const control = await browser.newContext({ baseURL: E2E_BASE });
+    try {
+      const other = await control.newPage();
+      const release = await openOnAColdBody(other);
+      await release();
+      await expect(other.getByTestId("browser-tab-sheet"), "the click opened the sheet").toBeVisible({ timeout: 10_000 });
+    } finally {
+      await control.close();
+    }
+
+    // The window: Esc while the body is still on its way.
+    const release = await openOnAColdBody(page);
+    await page.keyboard.press("Escape");
+    await release();
+    // An absence needs a window to be one. The body renders in the frames right
+    // after its chunk has run, so a sheet that is coming back does it well
+    // inside this; a clean run pays the whole window, and it is short.
+    const cameBack = await page.evaluate(() => new Promise<boolean>((done) => {
+      const since = performance.now();
+      const look = () => {
+        if (document.querySelector('[data-testid="browser-tab-sheet"]')) return done(true);
+        if (performance.now() - since > 1_500) return done(false);
+        requestAnimationFrame(look);
+      };
+      look();
+    }));
+    expect(cameBack, "the Esc pressed while the body was loading closed the sheet").toBe(false);
   });
 });

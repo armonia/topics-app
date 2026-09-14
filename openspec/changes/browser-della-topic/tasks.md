@@ -93,6 +93,14 @@ video `.webm` degli spec, non resoconti.
       al passaggio del puntatore sulla tab: nell'ingresso eager aveva portato
       console e download, e la CI della PR #34 era fuori budget
       (entry_eager 1.403.155 raw / 439.747 gz contro 1.393.840 / 435.687).
+- [x] Rossi della CI della PR #34 (14/09). Il passo «clic sulla pagina» cercava
+      un iframe che non poteva esistere: la sonda del server rifiuta ogni
+      indirizzo loopback (`isSafePublicUrl`) e una pane aperta su loopback non
+      naviga da sola, anche su main; ora il test finge la sola risposta della
+      sonda e conferma l'indirizzo dal foglio. E Esc e clic fuori vivevano nel
+      corpo pigro: aperto su un chunk freddo il foglio era sordo, poi spuntava
+      e si prendeva l'Esc successivo (sotto uno zoom, misurato). Passati nella
+      metà eager, +603 raw / +181 gz, dentro il budget.
 
 ## Tornata 4: niente sopra la pagina
 - [ ] Icona di tipo nella tab (connessione persa, condivisa, Chromium), assente
