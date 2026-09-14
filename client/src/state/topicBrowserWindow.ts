@@ -29,6 +29,7 @@
 
 import { getTabId } from './pane/middleware/syncCrossTab';
 import { topicBrowserKeyFor as keyFor, topicIdFromKey } from './topicBrowserKey';
+import { createUiStatePersister } from './uiStatePersist';
 
 /** Who opened a sheet. Kept because the window treats them differently later
  *  (an agent-opened sheet must never reshape the layout on its own). */
@@ -298,22 +299,11 @@ async function uiGet<T>(key: string): Promise<T | null | undefined> {
   } catch { return undefined; }
 }
 
-const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-function uiPutDebounced(key: string, value: unknown, ms = 800): void {
-  const t = writeTimers.get(key);
-  if (t) clearTimeout(t);
-  writeTimers.set(key, setTimeout(() => {
-    writeTimers.delete(key);
-    fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: topic-browser keys, not pane state
-      method: 'PUT',
-      // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
-      // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
-      // our own write, or worse revert a newer local edit).
-      headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
-      body: JSON.stringify(value),
-    }).catch(() => {});
-  }, ms));
-}
+// Writes stay PENDING until the server answers, which is what keeps an inbound
+// frame from landing on a record whose PUT is still travelling (see
+// `uiStatePersist`).
+const writes = createUiStatePersister();
+const hasPendingWrite = (topicId: string) => writes.isPending(keyFor(topicId));
 
 // ── in-memory cache + subscription (React) ───────────────────────────────────
 
@@ -349,7 +339,7 @@ function commit(topicId: string, next: TopicBrowserWindowState): void {
   if (next === cur) return;
   cache.set(topicId, next);
   loaded.add(topicId);
-  uiPutDebounced(keyFor(topicId), next, next.tabs.length || next.promoted.length ? 800 : 0);
+  writes.put(keyFor(topicId), next, next.tabs.length || next.promoted.length ? 800 : 0);
   notify();
 }
 
@@ -358,7 +348,7 @@ function commit(topicId: string, next: TopicBrowserWindowState): void {
  *  write is left untouched: the un-flushed edit is newer than any inbound frame
  *  and is about to be persisted and re-broadcast. */
 function applyRemote(topicId: string, value: unknown): boolean {
-  if (!topicId || writeTimers.has(keyFor(topicId))) return false;
+  if (!topicId || hasPendingWrite(topicId)) return false;
   const sanitized = sanitizeTopicBrowserWindow(value);
   if (!sanitized) return false;
   loaded.add(topicId);
@@ -420,7 +410,7 @@ export function applyRemoteTopicWindowInit(data: Record<string, unknown>): Set<s
  *  (`undefined`) changes nothing. */
 export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTopicWindowInit(snapshot) : new Set<string>();
-  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
+  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !hasPendingWrite(id));
   if (!ids.length) return;
   const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
@@ -428,7 +418,7 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
     const value = values[i];
     if (value === undefined) return;
     if (value === null) {
-      if (!writeTimers.has(keyFor(id)) && cache.delete(id)) changed = true;
+      if (!hasPendingWrite(id) && cache.delete(id)) changed = true;
       return;
     }
     if (applyRemote(id, value)) changed = true;
@@ -448,9 +438,7 @@ export async function reloadTopicWindowsFromServer(snapshot?: Record<string, unk
  */
 export function forgetTopicWindow(topicId: string): void {
   if (!topicId) return;
-  const key = keyFor(topicId);
-  const t = writeTimers.get(key);
-  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  writes.cancel(keyFor(topicId));
   loaded.delete(topicId);
   if (cache.delete(topicId)) notify();
 }
@@ -463,8 +451,7 @@ export function forgetTopicWindow(topicId: string): void {
  * leaves its residue to whoever comes next.
  */
 export function __resetTopicWindows(): void {
-  for (const t of writeTimers.values()) clearTimeout(t);
-  writeTimers.clear();
+  writes.cancelAll();
   cache.clear();
   loaded.clear();
   loading.clear();

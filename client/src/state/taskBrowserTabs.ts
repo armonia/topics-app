@@ -20,8 +20,8 @@
  */
 
 import { useSyncExternalStore, useEffect } from 'react';
-import { getTabId } from './pane/middleware/syncCrossTab';
 import { requestTaskTabNavigate } from './taskTabNavigate';
+import { createUiStatePersister } from './uiStatePersist';
 
 /**
  * Chi ha deciso l'etichetta di una tab, in ordine di autorità crescente:
@@ -290,22 +290,11 @@ function releaseBrowserContext(contextId: string): void {
   void fetch(`/api/browsers/${encodeURIComponent(contextId)}`, { method: 'DELETE' }).catch(() => {});
 }
 
-const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-function uiPutDebounced(key: string, value: unknown, ms = 800): void {
-  const t = writeTimers.get(key);
-  if (t) clearTimeout(t);
-  writeTimers.set(key, setTimeout(() => {
-    writeTimers.delete(key);
-    fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
-      method: 'PUT',
-      // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
-      // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
-      // our own write, or worse revert a newer local edit).
-      headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
-      body: JSON.stringify(value),
-    }).catch(() => {});
-  }, ms));
-}
+// Writes stay PENDING until the server answers, which is what keeps an inbound
+// frame from landing on a record whose PUT is still travelling (see
+// `uiStatePersist`).
+const writes = createUiStatePersister();
+const hasPendingWrite = (taskId: string) => writes.isPending(keyFor(taskId));
 
 const KEY_PREFIX = 'task-browser-tabs:';
 const keyFor = (taskId: string) => `${KEY_PREFIX}${taskId}`;
@@ -371,7 +360,7 @@ function commit(taskId: string, next: TaskBrowserTabsState): void {
   if (next === cur) return;
   cache.set(taskId, next);
   loaded.add(taskId);
-  uiPutDebounced(keyFor(taskId), next, next.tabs.length ? 800 : 0);
+  writes.put(keyFor(taskId), next, next.tabs.length ? 800 : 0);
   notify();
 }
 
@@ -382,7 +371,7 @@ function commit(taskId: string, next: TaskBrowserTabsState): void {
  *  the task loaded — the frame carries the full per-task record, so it supersedes
  *  a still-in-flight initial GET. */
 function applyRemote(taskId: string, value: unknown): boolean {
-  if (!taskId || writeTimers.has(keyFor(taskId))) return false;
+  if (!taskId || hasPendingWrite(taskId)) return false;
   const sanitized = sanitizeTaskTabs(value);
   if (!sanitized) return false;
   loaded.add(taskId);
@@ -405,8 +394,7 @@ function applyRemote(taskId: string, value: unknown): boolean {
  * bisognerebbe sapere quali task ha creato qualcun altro.
  */
 export function __resetTaskTabs(): void {
-  for (const t of writeTimers.values()) clearTimeout(t);
-  writeTimers.clear();
+  writes.cancelAll();
   cache.clear();
   loaded.clear();
   loading.clear();
@@ -426,9 +414,7 @@ export function __resetTaskTabs(): void {
  *  server stays clean — and the boot sweep re-purges anything that slips. */
 export function forgetTaskTabs(taskId: string): void {
   if (!taskId) return;
-  const key = keyFor(taskId);
-  const t = writeTimers.get(key);
-  if (t) { clearTimeout(t); writeTimers.delete(key); }
+  writes.cancel(keyFor(taskId));
   loaded.delete(taskId);
   if (cache.delete(taskId)) notify();
 }
@@ -484,7 +470,7 @@ export function applyRemoteTaskTabsInit(data: Record<string, unknown>): Set<stri
  *  → `forgetTaskTabs`. */
 export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown>): Promise<void> {
   const alreadyApplied = snapshot ? applyRemoteTaskTabsInit(snapshot) : new Set<string>();
-  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !writeTimers.has(keyFor(id)));
+  const ids = [...loaded].filter((id) => !alreadyApplied.has(id) && !hasPendingWrite(id));
   if (!ids.length) return;
   const values = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;

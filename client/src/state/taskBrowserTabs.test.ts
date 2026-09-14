@@ -26,6 +26,7 @@ import {
   getTaskTabs,
   subscribeTaskTabs,
   taskBrowserTabs,
+  __resetTaskTabs,
 } from './taskBrowserTabs';
 
 const TASK = '125aafd5-0e15-4aa0-ab25-f00000000000';
@@ -409,5 +410,85 @@ describe('forgetTaskTabs (task archiviato)', () => {
     forgetTaskTabs('');
     unsub();
     expect(notified).toBe(0);
+  });
+});
+
+// ── a write stays protected until the server answers (card 0470f6df) ─────────
+// Touching the LAST tab writes with no debounce, so the PUT leaves at once, and
+// the protection used to end THERE instead of at the answer. In that round trip
+// a frame from another device landed in the cache, our own echo was then dropped
+// as an echo, and the two copies stayed apart until the next reconnection.
+
+describe('a PUT in flight keeps the record protected until it answers', () => {
+  const REAL_FETCH = globalThis.fetch;
+  let served: Map<string, unknown>;
+  let releasePut: (() => void) | null;
+  let fetched: string[];
+
+  beforeEach(() => {
+    served = new Map();
+    fetched = [];
+    releasePut = null;
+    (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+      const key = decodeURIComponent(String(url).replace('/api/ui-state/', ''));
+      if (init?.method === 'PUT') {
+        await new Promise<void>((resolve) => { releasePut = resolve; });
+        served.set(key, JSON.parse(String(init.body)));
+        return new Response('{}', { status: 200 });
+      }
+      if (init?.method === 'DELETE') return new Response('{}', { status: 200 });
+      fetched.push(key);
+      const value = served.get(key);
+      return new Response(JSON.stringify(value === undefined ? null : { value }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    };
+  });
+  afterEach(() => {
+    (globalThis as unknown as { fetch: unknown }).fetch = REAL_FETCH;
+    __resetTaskTabs();
+  });
+
+  const tick = () => new Promise((r) => setTimeout(r, 10));
+  const recordOf = (...ctx: string[]) => ({
+    tabs: ctx.map((c, i) => ({ contextId: c, url: 'u', title: 'T', seq: i })),
+    activeContextId: ctx[0] ?? null,
+    nextSeq: ctx.length,
+  });
+  const liveIds = (taskId: string) => liveTabs(getTaskTabs(taskId)).map((t) => t.contextId);
+
+  test('a frame from another device cannot land while our PUT travels', async () => {
+    const tid = uniq('inflight');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-i-0'));
+    served.set(key, recordOf('task-i-0'));
+
+    taskBrowserTabs.removeTab(tid, 'task-i-0');   // last tab: PUT with no debounce
+    await tick();                                  // timer fired, PUT suspended
+
+    applyRemoteTaskTabs(tid, recordOf('task-i-0', 'task-i-1'));
+    expect(liveIds(tid)).toEqual([]);              // the remote frame is the older one
+
+    releasePut!();
+    await tick();
+    expect((served.get(key) as { tabs: unknown[] }).tabs).toHaveLength(0);
+    expect(liveIds(tid)).toEqual([]);              // both copies agree
+  });
+
+  test('the resync GET is not even asked while our PUT travels', async () => {
+    const tid = uniq('inflight-get');
+    const key = `task-browser-tabs:${tid}`;
+    applyRemoteTaskTabs(tid, recordOf('task-g-0'));
+    served.set(key, recordOf('task-g-0'));
+
+    taskBrowserTabs.removeTab(tid, 'task-g-0');
+    await tick();
+
+    await resyncTaskTabsFromServer({});
+    expect(fetched).not.toContain(key);
+    expect(liveIds(tid)).toEqual([]);
+
+    releasePut!();
+    await tick();
   });
 });

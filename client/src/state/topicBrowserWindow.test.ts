@@ -461,3 +461,86 @@ describe('persistence (ui-state PUT/GET)', () => {
     expect(getTopicWindow(tid)).toEqual(EMPTY_TOPIC_BROWSER_WINDOW);
   });
 });
+
+// ── a write stays protected until the server answers (card 0470f6df) ─────────
+// Closing the LAST sheet writes with no debounce, so the PUT leaves at once, and
+// the protection used to end THERE instead of at the answer. In that round trip
+// a frame from another device landed in the cache, our own echo was then dropped
+// as an echo, and the two copies stayed apart until the next reconnection.
+
+describe('a PUT in flight keeps the record protected until it answers', () => {
+  const REAL_FETCH = globalThis.fetch;
+  let served: Map<string, unknown>;
+  let releasePut: (() => void) | null;
+  let fetched: string[];
+
+  beforeEach(() => {
+    served = new Map();
+    fetched = [];
+    releasePut = null;
+    (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+      const key = decodeURIComponent(String(url).replace('/api/ui-state/', ''));
+      if (init?.method === 'PUT') {
+        await new Promise<void>((resolve) => { releasePut = resolve; });
+        served.set(key, JSON.parse(String(init.body)));
+        return new Response('{}', { status: 200 });
+      }
+      fetched.push(key);
+      const value = served.get(key);
+      return new Response(JSON.stringify(value === undefined ? null : { value }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    };
+  });
+  afterEach(() => {
+    (globalThis as unknown as { fetch: unknown }).fetch = REAL_FETCH;
+    __resetTopicWindows();
+  });
+
+  const tick = () => new Promise((r) => setTimeout(r, 10));
+  const twoSheets = () => ({
+    mode: 'min',
+    tabs: [{ contextId: 'a', url: 'u', title: 'T', openedBy: 'user' }, { contextId: 'b', url: 'u', title: 'T', openedBy: 'user' }],
+    activeContextId: 'a',
+    promoted: [],
+    minPos: null,
+    expandedWidth: null,
+  });
+  const ids = (topicId: string) => getTopicWindow(topicId).tabs.map((t) => t.contextId);
+  const oneSheet = () => ({ ...twoSheets(), tabs: twoSheets().tabs.slice(0, 1) });
+
+  test('a frame from another device cannot land while our PUT travels', async () => {
+    const tid = uniqueId('inflight');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, oneSheet());
+    served.set(key, oneSheet());
+
+    topicBrowserWindow.close(tid, 'a');   // last sheet: PUT with no debounce
+    await tick();                          // timer fired, PUT suspended
+
+    applyTopicWindowFrame({ key, value: twoSheets(), sourceClientId: 'device-b' });
+    expect(ids(tid)).toEqual([]);          // the remote frame is the older one
+
+    releasePut!();
+    await tick();
+    expect((served.get(key) as { tabs: unknown[] }).tabs).toHaveLength(0);
+    expect(ids(tid)).toEqual([]);          // both copies agree
+  });
+
+  test('the resync GET is not even asked while our PUT travels', async () => {
+    const tid = uniqueId('inflight-get');
+    const key = `topic-browser:${tid}`;
+    applyRemoteTopicWindow(tid, oneSheet());
+    served.set(key, oneSheet());
+
+    topicBrowserWindow.close(tid, 'a');
+    await tick();
+
+    await reloadTopicWindowsFromServer({});
+    expect(fetched).not.toContain(key);
+    expect(ids(tid)).toEqual([]);
+
+    releasePut!();
+    await tick();
+  });
+});
