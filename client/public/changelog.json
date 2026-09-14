@@ -21,10 +21,30 @@
       "perf": [],
       "internal": [
         {
+          "it": "la grassezza del fixture e' un dato, non un tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un file non e' un altro solo perche' si chiama uguale",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "name the task id helper in English",
           "en": "",
           "scope": "ui-state",
           "breaking": false
+        },
+        {
+          "it": "la chiave del registro e' il contesto, non il contesto piu' la query",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un posto si presta, non si regala",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -50,7 +70,22 @@
           "scope": null
         },
         {
+          "it": "la decisione sul viewport la prende il wiring, e il Mac che riparte ritrova il suo posto",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i due test nuovi rimettono a posto il processo che hanno sporcato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il caso del ponte con un client attaccato non corre piu' contro se stesso",
           "en": "",
           "scope": null
         }
@@ -132,6 +167,31 @@
           "breaking": false
         },
         {
+          "it": "arbitro del viewport: chi comanda e' il dispositivo, non il socket",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il primo tocco parte prima della rivendicazione del viewport",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la copertura dell'arbitro entra nel gate delle PR",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il nome del filtro nel test della porta sola e' inglese anche per il cancello",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il contratto del protocollo conta anche il messaggio che chiede la misura",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "il pavimento «la pane è montata» scende a 10, perché il browser disegna 29 nodi in meno",
           "en": "",
           "scope": null,
@@ -157,6 +217,16 @@
         },
         {
           "it": "A wait that gives up quietly blames the wrong test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il Mac in loopback ha un'identita' stabile nell'arbitro del viewport",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ogni pane dice il proprio nome, e l'arbitro finalmente la riconosce",
           "en": "",
           "scope": null
         },
@@ -217,13 +287,39 @@
           "breaking": false
         },
         {
+          "it": "Residuo non committato, messo al sicuro dalla potatura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "browser condiviso: la misura della pagina la legge una funzione sola",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "il riconcilio parte anche se il primo aggancio al ponte fallisce",
           "en": "",
           "scope": null,
           "breaking": false
         },
         {
+          "it": "E2E dell'arbitro del viewport: chi guarda non rimpicciolisce chi usa",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "the address is part of the answer, and a live daemon forbids a sidecar",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il mirror deve essere la superficie in cima, non solo un elemento con un box",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la misura del viewport si chiede alla pagina, non si da' per scontata",
           "en": "",
           "scope": null,
           "breaking": false

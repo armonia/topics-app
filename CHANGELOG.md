@@ -9,7 +9,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **ui-state** · a counter that went backwards, and a deletion that counts as applied
 
 ### Sotto il cofano
+- la grassezza del fixture e' un dato, non un tempo
+- un file non e' un altro solo perche' si chiama uguale
 - **ui-state** · name the task id helper in English
+- la chiave del registro e' il contesto, non il contesto piu' la query
+- un posto si presta, non si regala
 
 ## 2.2.318 — 2026-09-14
 
@@ -18,7 +22,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - The roster test waits for the answer it asserts, not for a message on the way there
+- la decisione sul viewport la prende il wiring, e il Mac che riparte ritrova il suo posto
 - Il calo dei nodi del browser scritto con la misura: 3 sono di T4, 26 delle card prima
+- i due test nuovi rimettono a posto il processo che hanno sporcato
+- il caso del ponte con un client attaccato non corre piu' contro se stesso
 
 ## 2.2.317 — 2026-09-14
 
@@ -36,11 +43,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Move the daemon's two files into a module of their own
 - l'icona di condivisione solo dove la sessione è una scelta
 - commenti in inglese, e la citazione del requisito marcata allow-italian sulla sua riga
+- arbitro del viewport: chi comanda e' il dispositivo, non il socket
+- il primo tocco parte prima della rivendicazione del viewport
+- la copertura dell'arbitro entra nel gate delle PR
+- il nome del filtro nel test della porta sola e' inglese anche per il cancello
+- il contratto del protocollo conta anche il messaggio che chiede la misura
 - il pavimento «la pane è montata» scende a 10, perché il browser disegna 29 nodi in meno
 - a probe must not occupy the port, and a restarting server is not an absent one
 - Tornata 4 spuntata, con le tre cose che la misura ha cambiato
 - il commutatore di resa nel foglio solo su una pagina vera, come la pillola che sostituisce
 - A wait that gives up quietly blames the wrong test
+- il Mac in loopback ha un'identita' stabile nell'arbitro del viewport
+- ogni pane dice il proprio nome, e l'arbitro finalmente la riconosce
 - The waiting loop becomes testable, and its patience becomes a duration
 - il `.last()` sulla pagina era un lancio di moneta sull'UUID del topic
 - **ui-state** · pin the guards nothing was holding, and pay the entry budget
@@ -53,8 +67,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - il foglio ascolta Esc e clic fuori prima che arrivi il suo corpo
 - Port probe: one English name for the API the rest of the tree now imports
 - la variante del foglio pigro prende il suffisso 02b
+- Residuo non committato, messo al sicuro dalla potatura
+- browser condiviso: la misura della pagina la legge una funzione sola
 - il riconcilio parte anche se il primo aggancio al ponte fallisce
+- E2E dell'arbitro del viewport: chi guarda non rimpicciolisce chi usa
 - the address is part of the answer, and a live daemon forbids a sidecar
+- Il mirror deve essere la superficie in cima, non solo un elemento con un box
+- la misura del viewport si chiede alla pagina, non si da' per scontata
 
 ## 2.2.315 — 2026-09-14
 
