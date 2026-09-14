@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.323 — 2026-09-14
+
+### Sotto il cofano
+- Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
+
+## 2.2.322 — 2026-09-14
+
+### Sotto il cofano
+- La quota è sul libero: chi non è nostro ha la precedenza
+- Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
+- Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
+
 ## 2.2.321 — 2026-09-14
 
 ### Sotto il cofano

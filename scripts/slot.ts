@@ -45,7 +45,8 @@
  *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
 import { spawn } from "node:child_process";
-import { acquireSlot, slotCount, GATE_HELD_ENV, slotAcquiredLine } from "./gate-slot.ts";
+import { acquireSlot, defaultNameMaxWaitMs, slotCount, GATE_HELD_ENV, slotAcquiredLine } from "./gate-slot.ts";
+import { slotWaitingLine } from "../shared/slot-acquired.ts";
 
 /**
  * THE LOCK PROTOCOL LIVES IN `gate-slot.ts`, not here any more: the same
@@ -82,7 +83,21 @@ if (!cmd) {
 const slots = slotCount();
 let release: (() => void) | null = null;
 const queuedSince = Date.now();
-if (slots > 0) release = acquireSlot(slots, label);
+// The wrapped gates (test:unit, typecheck, lint, deadcode) wait for another
+// run of themselves longer than for a free slot (30 min against 10): see
+// `defaultNameMaxWaitMs`.
+// The first wait notice is preceded by the waiting line, so a caller timing
+// the command from outside stops its clock until the acquired line below.
+let waitingSaid = false;
+if (slots > 0) {
+  release = acquireSlot(slots, label, {
+    nameMaxWaitMs: defaultNameMaxWaitMs(),
+    onWait: (message) => {
+      if (!waitingSaid) { waitingSaid = true; console.error(slotWaitingLine(label)); }
+      console.error(message);
+    },
+  });
+}
 // Said even when the slot came at once (0 s): whoever times the command from
 // outside needs the line to exist, not only when the queue was long.
 console.error(slotAcquiredLine(label, Date.now() - queuedSince));

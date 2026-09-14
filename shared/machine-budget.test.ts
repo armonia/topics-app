@@ -23,12 +23,18 @@ import {
   admissionVerdict,
   budgetShare,
   estimatedAgentCost,
+  estimatedAgentMemCost,
   freezePlan,
+  reservedCost,
   machineBudget,
   type FreezeState,
   type FreezeTarget,
   type MachineBudgetSample,
 } from "./machine-budget";
+
+/** One more agent, priced by hand: 1 core-unit and a modest gigabyte, so the
+ *  CPU cases stay about the CPU. The memory cases set their own. */
+const agent = (coreUnits = 1, memGB = 1): { coreUnits: number; memGB: number } => ({ coreUnits, memGB });
 
 const sample = (over: Partial<MachineBudgetSample> = {}): MachineBudgetSample => ({
   cores: 12,
@@ -87,6 +93,21 @@ describe("budget against what the others leave", () => {
     expect(b.usableCoreUnits).toBeCloseTo(b.cpuCoreUnits, 5);
   });
 
+  test("others at half the machine halve the budget, not one grain more", () => {
+    const b = machineBudget(sample({ otherCoreUnits: 6 }), 0.8);
+    expect(b.usableCoreUnits).toBeCloseTo(9.6 / 2, 5);
+  });
+
+  test("OUR live agents never lower the ceiling: the brake cannot fulfil itself", () => {
+    // The invariant of the card: what WE burn is spent against the budget
+    // (`admissionVerdict` compares it), it does not shrink it. Otherwise the
+    // first agent that compiles shuts the door on everybody else for good.
+    const idle = machineBudget(sample({ ourCoreUnits: 0, otherCoreUnits: 2 }), 0.8);
+    const busy = machineBudget(sample({ ourCoreUnits: 9, otherCoreUnits: 2 }), 0.8);
+    expect(busy.usableCoreUnits).toBeCloseTo(idle.usableCoreUnits, 5);
+    expect(busy.cpuCoreUnits).toBeCloseTo(idle.cpuCoreUnits, 5);
+  });
+
   test("not measured is not zero: an unmeasured machine leaves the budget alone", () => {
     const b = machineBudget(sample({ otherCoreUnits: null, availableMemGB: null }), 0.8);
     expect(b.usableCoreUnits).toBeCloseTo(9.6, 5);
@@ -103,6 +124,13 @@ describe("budget against what the others leave", () => {
 });
 
 describe("the cost of one more agent", () => {
+  test("memory: no history prices it at the measured floor, never at zero", () => {
+    expect(estimatedAgentMemCost([])).toBe(1.5);
+    expect(estimatedAgentMemCost([0.01, 0.02, 0.03])).toBe(1.5);
+    expect(estimatedAgentMemCost([2, 3, 4])).toBe(3);
+    expect(estimatedAgentMemCost([40, 50, 60])).toBe(6);
+  });
+
   test("no history prices it at the floor, never at zero", () => {
     expect(estimatedAgentCost([])).toBe(0.5);
   });
@@ -118,7 +146,7 @@ describe("the cost of one more agent", () => {
 
 describe("admission", () => {
   test("an idle fleet admits", () => {
-    const v = admissionVerdict(sample({ ourCoreUnits: 0.2 }), 0.8, 1);
+    const v = admissionVerdict(sample({ ourCoreUnits: 0.2 }), 0.8, agent());
     expect(v.admit).toBe(true);
     expect(v.state).toBe("admitting");
     expect(v.blockedBy).toBe(null);
@@ -126,7 +154,7 @@ describe("admission", () => {
 
   test("the cost of the NEXT agent is what closes the door, not the reading alone", () => {
     // 9.2 of 9.6 used: under the budget, but one more agent does not fit.
-    const v = admissionVerdict(sample({ ourCoreUnits: 9.2 }), 0.8, 1);
+    const v = admissionVerdict(sample({ ourCoreUnits: 9.2 }), 0.8, agent());
     expect(v.admit).toBe(false);
     expect(v.blockedBy).toBe("cpu");
     expect(v.state).toBe("holding");
@@ -135,32 +163,106 @@ describe("admission", () => {
   test("once holding, it resumes lower than where it stopped", () => {
     const budget = 9.6;
     const justUnder = budget - 1.1; // admits from `admitting`, still holds from `holding`
-    expect(admissionVerdict(sample({ ourCoreUnits: justUnder }), 0.8, 1, "admitting").admit).toBe(true);
-    expect(admissionVerdict(sample({ ourCoreUnits: justUnder }), 0.8, 1, "holding").admit).toBe(false);
+    expect(admissionVerdict(sample({ ourCoreUnits: justUnder }), 0.8, agent(), "admitting").admit).toBe(true);
+    expect(admissionVerdict(sample({ ourCoreUnits: justUnder }), 0.8, agent(), "holding").admit).toBe(false);
     // It comes back at 80% of the budget, minus the cost of the one to admit.
     const back = budget * ADMIT_RESUME_FRACTION - 1.1;
-    expect(admissionVerdict(sample({ ourCoreUnits: back }), 0.8, 1, "holding").admit).toBe(true);
+    expect(admissionVerdict(sample({ ourCoreUnits: back }), 0.8, agent(), "holding").admit).toBe(true);
   });
 
   test("with nothing in flight the first one starts anyway, and says so", () => {
-    const v = admissionVerdict(sample({ ourCoreUnits: 20, running: 0 }), 0.8, 1);
+    const v = admissionVerdict(sample({ ourCoreUnits: 20, running: 0 }), 0.8, agent());
     expect(v.admit).toBe(true);
     expect(v.firstAgentExempt).toBe(true);
     // The exemption is not a free machine: the state stays "holding".
     expect(v.state).toBe("holding");
   });
 
+  test("FLOOR: a fully busy machine does not block the board for ever", () => {
+    // The others take everything: the usable ceiling is zero. With nothing in
+    // flight (`running: 0`) one starts anyway, and that floor of one slot is
+    // what stops a busy machine from freezing the board for ever.
+    const v = admissionVerdict(sample({ otherCoreUnits: 12, running: 0 }), 0.8, agent());
+    expect(v.usableCoreUnits).toBe(0);
+    expect(v.admit).toBe(true);
+    expect(v.firstAgentExempt).toBe(true);
+    // With one agent already in flight the floor is spent: the second waits.
+    expect(admissionVerdict(sample({ otherCoreUnits: 12, running: 1 }), 0.8, agent()).admit).toBe(false);
+  });
+
   test("memory blocks on its own axis", () => {
-    const v = admissionVerdict(sample({ ourMemGB: 30, availableMemGB: 20 }), 0.5, 1);
+    const v = admissionVerdict(sample({ ourMemGB: 30, availableMemGB: 20 }), 0.5, agent());
     expect(v.admit).toBe(false);
     expect(v.blockedBy).toBe("memory");
+  });
+
+  // THE NIGHT THE MEMORY AXIS WAS EMPTY, reproduced with the numbers measured
+  // on the machine at 22:20: sixteen agents in flight, swap at 11.7 GB of 13.3,
+  // load 145, and the gate saying yes. The old axis compared our footprint with
+  // 80% of the TOTAL memory (27.5 GB on this Mac), a line nothing reaches
+  // before the machine is already swapping, so it never fired once.
+  test("REGRESSION: half a gigabyte free blocks on memory, it does not admit", () => {
+    const measured: MachineBudgetSample = {
+      cores: 12, totalMemGB: 34.4, ourCoreUnits: 1.1, otherCoreUnits: 2,
+      ourMemGB: 13.8, availableMemGB: 0.5, running: 16,
+    };
+    const v = admissionVerdict(measured, 0.8, agent(1, 1.5));
+    expect(v.blockedBy).toBe("memory");
+    expect(v.admit).toBe(false);
+    // The sentence on the card is written from these two.
+    expect(v.costMemGB).toBe(1.5);
+    expect(v.freeQuotaMemGB).toBeCloseTo(0.4, 5);
+  });
+
+  test("with the memory really free, the same machine admits", () => {
+    const v = admissionVerdict(
+      { cores: 12, totalMemGB: 34.4, ourCoreUnits: 0.3, otherCoreUnits: 1, ourMemGB: 2, availableMemGB: 24, running: 0 },
+      0.8,
+      agent(1, 1.5),
+    );
+    expect(v.admit).toBe(true);
+    expect(v.blockedBy).toBe(null);
+  });
+
+  // The other half of the same defect: the cost of an agent lands minutes after
+  // its admission, so a gate that reads only the instant admits the whole queue
+  // against a calm the previous tick has already spent.
+  test("RESERVATION: ten admitted and not yet measured block, however quiet the probe is", () => {
+    const now = 1_000_000;
+    const cost = agent(1, 1.5);
+    const admittedAt = Array.from({ length: 10 }, (_, i) => now - i * 5_000);
+    const reserved = reservedCost(admittedAt, cost, now);
+    expect(reserved.pending).toBe(10);
+    const quiet = sample({ ourCoreUnits: 0.4, running: 10 });
+    expect(admissionVerdict(quiet, 0.8, cost).admit).toBe(true);
+    const withReservation = admissionVerdict(
+      { ...quiet, reservedCoreUnits: reserved.coreUnits, reservedMemGB: reserved.memGB },
+      0.8,
+      cost,
+    );
+    expect(withReservation.admit).toBe(false);
+    expect(withReservation.pendingAdmissions).toBe(10);
+  });
+
+  test("a reservation expires: past the warm-up window the measure speaks alone", () => {
+    const now = 1_000_000;
+    const old = Array.from({ length: 10 }, () => now - 10 * 60_000);
+    expect(reservedCost(old, agent(1, 1.5), now).pending).toBe(0);
+  });
+
+  test("OUR OWN AGENTS DO NOT SHRINK THE BUDGET, they spend it", () => {
+    // Same machine, same free memory: what changes is that the fleet is working.
+    const idle = sample({ ourCoreUnits: 0.2, ourMemGB: 2 });
+    const busy = sample({ ourCoreUnits: 4, ourMemGB: 12 });
+    expect(machineBudget(busy, 0.8).usableCoreUnits).toBe(machineBudget(idle, 0.8).usableCoreUnits);
+    expect(machineBudget(busy, 0.8).freeQuotaMemGB).toBe(machineBudget(idle, 0.8).freeQuotaMemGB);
   });
 
   test("what the others take shrinks what we may admit", () => {
     const busy = sample({ ourCoreUnits: 3, otherCoreUnits: 9 });
     // Budget 9.6, but only 3 core-units are actually free: 3 + 1 does not fit.
-    expect(admissionVerdict(busy, 0.8, 1).admit).toBe(false);
-    expect(admissionVerdict({ ...busy, otherCoreUnits: 0 }, 0.8, 1).admit).toBe(true);
+    expect(admissionVerdict(busy, 0.8, agent()).admit).toBe(false);
+    expect(admissionVerdict({ ...busy, otherCoreUnits: 0 }, 0.8, agent()).admit).toBe(true);
   });
 });
 
@@ -251,7 +353,7 @@ test("the eight cards of the card do not start together any more", () => {
     const v = admissionVerdict(
       { cores, totalMemGB: 32, ourCoreUnits, otherCoreUnits: 1, ourMemGB: 4, availableMemGB: 18, running },
       share,
-      cost,
+      { coreUnits: cost, memGB: 1 },
       state,
     );
     state = v.state;
