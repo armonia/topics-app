@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Puzzle, Boxes, MonitorPlay, CaseSensitive, Bot } from 'lucide-react';
+import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Boxes, CaseSensitive, Bot } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -15,7 +15,6 @@ import { BrowserNoticeStrip } from './BrowserNoticeStrip';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
 import { recordSiteVisit, noteSiteMeta } from '../../state/browserSiteHistory';
-import { BrowserPaneChip, ChipDot, type ChipTone } from './BrowserPaneChip';
 import { useBrowserDownloads } from '../../hooks/useBrowserDownloads';
 import type { DownloadsMenuProps } from './DownloadsMenu';
 import { PaneContextMenu } from './PaneContextMenu';
@@ -746,6 +745,54 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     onClear: clearDownloads,
   }), [browser.downloads, browser.downloadsSeq, dismissDownload, clearDownloads]);
 
+  // WHICH RENDER IS ACTIVE, DECIDED BEFORE THE PANE DESCRIBES ITSELF.
+  //
+  // The hosted-<iframe> branch shares this component and therefore this
+  // bridge: the page is then a real frame in THIS device, with no stream
+  // behind it, no server engine and no render mode to choose. Published
+  // ungated, `connectionState` put a connection glyph on the tab of a pane
+  // that has no connection to lose. So the decision is read here, above the
+  // commands — see the `useIframe` gates in both.
+  // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
+  // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
+  // in the project's own layout, and its persisted url reaches this panel as
+  // `initialUrl`. Read from the store alone, `knownUrl` was undefined for every
+  // such pane, so the address row came back under the tab on a page the tab
+  // was already naming (measured 2026-09-03 on a project browser tab: row
+  // visible, value empty, tab showing the url). The store still wins when it
+  // knows: a navigation supersedes the seed.
+  const storePaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
+  const knownPaneUrl = storePaneUrl ?? (isRealUrl(initialUrl) ? initialUrl : undefined);
+  // T2 — native <iframe> path (CodePen-style), early-return with the full
+  // toolbar. Used, in the WEB client only, when the server probed the current URL
+  // as framable — AND no agent is driving the pane (agents can't reach into a
+  // cross-origin iframe, so an agent flips the pane back to the streamed surface).
+  //
+  // localhost is NOT force-framed anymore: a local dev app that sends
+  // X-Frame-Options / frame-ancestors (e.g. Quadra on :3100 → SAMEORIGIN) loads
+  // BLANK in the iframe, which read as "il browser non fa nulla, resta bianco".
+  // Now localhost goes through the same framability probe; non-framable local
+  // apps fall to the DOM co-browse surface (the server renders them and mirrors
+  // the real DOM — works past the framing block AND cross-device).
+  //
+  // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and an
+  // SPA that frame-busts (`top.location = …`) would navigate the main frame away
+  // from Topics and destroy the app (WKWebView doesn't reliably honour the iframe
+  // `sandbox` top-nav restriction). Under Tauri we use the streaming path instead
+  // (a screenshot <img> driven by the server's headless browser), which can't
+  // touch the host frame. On web a hijack only swaps this one browser tab, and
+  // the sandbox (no `allow-top-navigation`) blocks it anyway.
+  // THE URL THE PANE IS ON, not just the one the socket has confirmed. After a
+  // remount - a tab that changed group - `browser.url` is empty for a beat while
+  // the store's url is already right (`knownPaneUrl`, the same reading the chrome
+  // bridge takes two hundred lines above). Deciding on `browser.url` alone sent
+  // the pane to the streaming surface for that beat, which paints a loader; and
+  // the hosted frame, seeing `useIframe` false, let go of the page it was
+  // holding. Measured on REORD-03: the moved pane landed on `topics-dom-cobrowse`
+  // with a spinner, and its frame was already hidden.
+  const paneUrl = isRealUrl(browser.url) ? browser.url : (knownPaneUrl ?? '');
+  const paneFramable = isRealUrl(browser.url) ? browser.framable : isUrlFramable(paneUrl);
+  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && paneFramable;
   // Same tab-is-the-chrome bridge as the Tauri branch. The shared pane has no
   // DevTools, no zoom, no device emulation and no console of its own, so it
   // simply does not publish those commands: the tab menu offers what exists.
@@ -758,18 +805,17 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
     backToSpawner: backToSpawner?.onBackToSpawner,
     toggleShare: onToggleShare,
+    // THE TWO SWITCHES THAT USED TO BE PILLS OVER THE PAGE (TOPIC-BROWSER-03),
+    // now rows of the sheet's Session section. Each is offered only where it
+    // means something: the engine one when the server says a real Chromium is
+    // installed (a switch with one position is a label), and neither of them on
+    // the iframe branch, which has no stream to configure.
+    setEngine: !useIframe && browser.engineToggleAvailable
+      ? (e: 'native' | 'chromium') => browser.setEngine(e)
+      : undefined,
+    setRenderMode: useIframe ? undefined : (m: 'dom' | 'video') => browser.setRenderMode(m),
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
-  }), [browser, sharedCanForget, onToggleShare, backToSpawner]);
-  // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
-  // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
-  // in the project's own layout, and its persisted url reaches this panel as
-  // `initialUrl`. Read from the store alone, `knownUrl` was undefined for every
-  // such pane, so the address row came back under the tab on a page the tab
-  // was already naming (measured 2026-09-03 on a project browser tab: row
-  // visible, value empty, tab showing the url). The store still wins when it
-  // knows: a navigation supersedes the seed.
-  const storePaneUrl = useBrowserPaneUrl(`browser:${contextId}`);
-  const knownPaneUrl = storePaneUrl ?? (isRealUrl(initialUrl) ? initialUrl : undefined);
+  }), [browser, sharedCanForget, onToggleShare, backToSpawner, useIframe]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
@@ -782,6 +828,13 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     downloadsStarted: streamDownloads.startedCount,
     shared: !!shared,
     shareMode,
+    // WHAT THIS PANE IS, published instead of drawn over the page. The engine
+    // pair travels only when the capability exists, so the sheet can tell "no
+    // second engine on this machine" from "running on the bundled one".
+    connection: useIframe ? undefined : browser.connectionState,
+    engine: !useIframe && browser.engineToggleAvailable ? browser.engine : undefined,
+    engineExtensions: !useIframe && browser.engineToggleAvailable ? browser.engineExtensions : undefined,
+    renderMode: useIframe ? undefined : browser.renderMode,
     history,
     downloadsMenu: streamDownloads,
     commands: sharedCommands,
@@ -981,36 +1034,6 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     return () => clearTimeout(id);
   }, [clickT]);
 
-  // T2 — native <iframe> path (CodePen-style), early-return with the full
-  // toolbar. Used, in the WEB client only, when the server probed the current URL
-  // as framable — AND no agent is driving the pane (agents can't reach into a
-  // cross-origin iframe, so an agent flips the pane back to the streamed surface).
-  //
-  // localhost is NOT force-framed anymore: a local dev app that sends
-  // X-Frame-Options / frame-ancestors (e.g. Quadra on :3100 → SAMEORIGIN) loads
-  // BLANK in the iframe, which read as "il browser non fa nulla, resta bianco".
-  // Now localhost goes through the same framability probe; non-framable local
-  // apps fall to the DOM co-browse surface (the server renders them and mirrors
-  // the real DOM — works past the framing block AND cross-device).
-  //
-  // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and an
-  // SPA that frame-busts (`top.location = …`) would navigate the main frame away
-  // from Topics and destroy the app (WKWebView doesn't reliably honour the iframe
-  // `sandbox` top-nav restriction). Under Tauri we use the streaming path instead
-  // (a screenshot <img> driven by the server's headless browser), which can't
-  // touch the host frame. On web a hijack only swaps this one browser tab, and
-  // the sandbox (no `allow-top-navigation`) blocks it anyway.
-  // THE URL THE PANE IS ON, not just the one the socket has confirmed. After a
-  // remount - a tab that changed group - `browser.url` is empty for a beat while
-  // the store's url is already right (`knownPaneUrl`, the same reading the chrome
-  // bridge takes two hundred lines above). Deciding on `browser.url` alone sent
-  // the pane to the streaming surface for that beat, which paints a loader; and
-  // the hosted frame, seeing `useIframe` false, let go of the page it was
-  // holding. Measured on REORD-03: the moved pane landed on `topics-dom-cobrowse`
-  // with a spinner, and its frame was already hidden.
-  const paneUrl = isRealUrl(browser.url) ? browser.url : (knownPaneUrl ?? '');
-  const paneFramable = isRealUrl(browser.url) ? browser.framable : isUrlFramable(paneUrl);
-  const useIframe = !isTauri && !!paneUrl && !browser.agentActive && paneFramable;
   // Task 052f53ef — while a native <iframe> is showing, the server-side headless
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
@@ -1083,41 +1106,20 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     );
   }
 
-  // Phase 30 BROWSER-CHAT-02 — connection indicator label + class. Computed
-  // outside JSX so the testid string-class is easy to assert in E2E.
-  const connectionLabel =
-    browser.connectionState === 'connected' ? 'Live' :
-    browser.connectionState === 'fallback-http' ? 'Polling' :
-    browser.connectionState === 'connecting' ? 'Connecting...' :
-    'Disconnected';
-
-  // Tone + the marker class E2E asserts on. The colours themselves now come from
-  // the measured tokens in BrowserPaneChip: `green-600`/`yellow-600` used to be
-  // written here by hand and measured 2,81:1 and 2,65:1 over their own tint in
-  // the light theme, against a 4,5 threshold for 11px text.
-  const connectionTone: ChipTone =
-    browser.connectionState === 'connected' ? 'ok'
-    : browser.connectionState === 'fallback-http' || browser.connectionState === 'connecting' ? 'warn'
-    : 'danger';
-
-  const connectionMarker =
-    browser.connectionState === 'connected' ? 'connection-live'
-    : browser.connectionState === 'fallback-http' ? 'connection-fallback'
-    : browser.connectionState === 'connecting' ? 'connection-connecting'
-    : 'connection-disconnected';
-
-  const connectionDotClass =
-    browser.connectionState === 'connected' ? 'bg-green-500 animate-pulse' :
-    browser.connectionState === 'fallback-http' ? 'bg-yellow-500' :
-    browser.connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-    'bg-red-500';
-
-  // Hide the pill in the steady 'connected' state — the pulsing green "Live" over
-  // a working (or errored, where the red nav strip already speaks) page is noise.
-  // It stays visible for the states that carry information: connecting, polling
-  // (fallback-http), and disconnected.
-  const hideConnectionPill = browser.connectionState === 'connected';
-
+  // NOTHING PERMANENT OVER THE PAGE (TOPIC-BROWSER-03).
+  //
+  // Three pills used to float here: the connection dot (top-right), the engine
+  // switch (top-left) and the render-mode switch (bottom-left). Two of them
+  // were SWITCHES parked over the content they were switching, and the third
+  // spent a permanent corner saying "connected" — the state that carries no
+  // information, which is why it already hid itself in the steady case.
+  //
+  // They are now the pane's published state: the tab draws ONE icon between
+  // favicon and title when this pane is not the default kind
+  // (`BrowserTabTypeIcon`), and the two switches live in the Session section of
+  // the tab's sheet, one click from the tab that names the page. The temporary,
+  // user-armed overlay (element-select in `DomCoBrowse`) stays: the rule is
+  // about permanent chrome, not about a mode you turned on and can see end.
 
   return (
     // `data-browser-pane`: THE anchor that says "this pane is mounted". It used
@@ -1144,61 +1146,6 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         tabIndex={0}
         onKeyDown={browser.onKeyDown}
       >
-        {/* Phase 30 BROWSER-CHAT-02 — connection indicator pillola (top-right).
-            Hidden on the settled happy path (see hideConnectionPill). */}
-        {!hideConnectionPill && (
-          <BrowserPaneChip
-            corner="top-right"
-            tone={connectionTone}
-            testId="browser-connection-indicator"
-            className={`browser-connection-indicator ${connectionMarker}`}
-            icon={<ChipDot className={connectionDotClass} />}
-          >
-            {connectionLabel}
-          </BrowserPaneChip>
-        )}
-
-        {/* Engine toggle (task 54601eeb) — Native ↔ real Chromium (extensions).
-            Shown only when the server advertises the capability
-            (un Chromium installato sulla macchina). Streaming-only:
-            an iframe pane has no server-side engine. */}
-        {browser.engineToggleAvailable && (
-          <BrowserPaneChip
-            corner="top-left"
-            tone={browser.engine === 'chromium' ? 'active' : 'neutral'}
-            testId="browser-engine-toggle"
-            onClick={() => browser.setEngine(browser.engine === 'chromium' ? 'native' : 'chromium')}
-            icon={<Puzzle size={12} className="flex-shrink-0" aria-hidden />}
-            title={browser.engine === 'chromium'
-              ? tr('browser.engine.real', { n: browser.engineExtensions })
-              : tr('browser.engine.native')}
-          >
-            {browser.engine === 'chromium' ? `Chromium · ${browser.engineExtensions}` : 'Nativo'}
-          </BrowserPaneChip>
-        )}
-
-        {/* T1 DOM co-browse toggle — DOM (native rrweb reconstruction) ↔ video (the
-            pixel stream). Shown once the pane is on a real page. DOM is the DEFAULT
-            (Option A): the real browser, native + cross-device-sharp, no video. Video
-            is the manual/auto fallback for canvas/WebGL/media the DOM can't rebuild. */}
-        {!!browser.url && browser.url !== 'about:blank' && (
-          <BrowserPaneChip
-            corner="bottom-left"
-            z={20} // above the co-browse surface, which paints its own layers
-            tone={browser.renderMode === 'dom' ? 'active' : 'neutral'}
-            testId="browser-render-toggle"
-            onClick={() => browser.setRenderMode(browser.renderMode === 'dom' ? 'video' : 'dom')}
-            icon={browser.renderMode === 'dom'
-              ? <Boxes size={12} className="flex-shrink-0" aria-hidden />
-              : <MonitorPlay size={12} className="flex-shrink-0" aria-hidden />}
-            title={browser.renderMode === 'dom'
-              ? tr('browser.mode.dom')
-              : tr('browser.mode.video')}
-          >
-            {browser.renderMode === 'dom' ? 'DOM' : 'Video'}
-          </BrowserPaneChip>
-        )}
-
         {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
             be invisible (pane stayed on the previous page / infinite
             "Starting browser…"). Cleared by the next navigation. */}
