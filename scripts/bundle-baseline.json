@@ -422,14 +422,13 @@
     "l'ha gia' guadagnato.",
     "",
     "2026-09-14, la finestra browser della topic: entry_eager registrato a",
-    "1.386.120 raw / 435.706 gz, misurato con `bun run build:client` e letto da",
+    "1.389.852 raw / 436.879 gz, misurato con `bun run build:client` e letto da",
     "`bun run check:bundle` sullo stesso bundle pubblicato. Il tetto vecchio",
-    "(427.144 +2% = 435.687) e' stato sfondato per 19 byte gz.",
+    "(427.144 +2% = 435.687) e' stato sfondato per 1.192 byte gz.",
     "",
     "Attribuzione, perche' il numero da solo non dice niente: main allo stesso",
-    "commit misura 435.106 gz, cioe' stava gia' a 19 byte dal tetto senza che",
-    "nessuno se ne accorgesse (la tolleranza assorbiva la deriva). Il ramo",
-    "aggiunge 600 gz, +0,14%, e sono tutti spiegati:",
+    "commit misura 435.441 gz: la deriva se l'era gia' mangiata quasi tutta la",
+    "tolleranza prima di noi. Il ramo aggiunge 1.438 gz, +0,33%, cosi spesi:",
     "  \u00b7 `useTopicBrowserPresence` (topicBrowserWindowLazy.ts): il lato eager",
     "    sa SOLO se la topic ha una finestra, in che modo e quanto larga, ed e'",
     "    quello che serve a ChatPanel per cedere lo spazio prima che esista",
@@ -438,6 +437,8 @@
     "    chunk suo).",
     "  \u00b7 il caso RECLAIM_PANE nel riduttore delle pane, che eager lo e' sempre",
     "    stato.",
+    "  \u00b7 `topicWindowDoor`: la porta che decide dove arriva un link, tre",
+    "    righe di registro, eager come chi apre i link.",
     "",
     "Cosa NON e' entrato, verificato sul chunk pubblicato: nessun modulo nuovo",
     "di node_modules, e i tre pezzi grossi restano chunk separati e pigri,",
@@ -450,8 +451,8 @@
   "updated": "2026-09-14",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1386120,
-    "gz": 435706
+    "raw": 1389852,
+    "gz": 436879
   },
   "critical_path": {
     "raw": 2012478,
