@@ -168,9 +168,11 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       await expect(windowEl).toBeVisible({ timeout: 10000 });
       const placed = (await windowEl.boundingBox())!;
 
-      // The other topic has no window of its own.
+      // The other topic shows no window. The first topic's window is PARKED
+      // (kept in the DOM, hidden) rather than unmounted, because unmounting it
+      // would destroy the page inside: either way, nothing is on screen here.
       await selectTopic(page, second.id);
-      await expect(windowEl).toHaveCount(0, { timeout: 10000 });
+      await expect(windowEl).not.toBeVisible({ timeout: 10000 });
 
       // Back, and after a full reload: same corner, same distance.
       await selectTopic(page, first.id);
@@ -268,6 +270,154 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       }, { timeout: 15000 }).not.toContain(ctx);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+
+  test("TOPIC-BROWSER-01g: dopo il ritorno nella finestra, riapri-tab-chiusa non duplica la pagina", async ({ page, request }) => {
+    // The invariant: a sheet is in the window OR in the layout, never both.
+    // Taking the page back used to CLOSE its pane, and a closed pane leaves an
+    // undo record: Cmd+Shift+T then re-opened the very page the window was
+    // already showing, and two panels fought over one native view.
+    const topic = await createTopic(request, `E2E-TBW-Undo-${Date.now()}`);
+    const ctx = `tbw-undo-${Date.now()}`;
+    try {
+      await seedWindow(request, topic.id, {
+        mode: "min", minPos: { right: 24, bottom: 24 }, expandedWidth: null,
+        tabs: [sheet(ctx)], activeContextId: ctx, promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toBeVisible({ timeout: 10000 });
+
+      await page.locator('[data-testid="topic-browser-open-as-tab"]').click();
+      await expect(page.locator(`[data-pane-id="browser:${ctx}"]`).first()).toBeVisible({ timeout: 10000 });
+
+      await page.locator('[data-testid="topic-browser-add"]').click();
+      await page.locator('[data-testid="topic-browser-add-existing"]').first().click();
+      await expect(page.locator(`[data-testid="topic-browser-tab"][data-context-id="${ctx}"]`)).toHaveCount(1, { timeout: 10000 });
+
+      await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+T" : "Control+Shift+T");
+
+      // The page stays where it is: in the window, once.
+      await expect(page.locator(`[data-pane-id="browser:${ctx}"]`)).toHaveCount(0);
+      await expect(page.locator(`[data-testid="topic-browser-sheet"][data-context-id="${ctx}"]`)).toHaveCount(1);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-01h: con tutte le pagine in prestito il menu «+» resta raggiungibile", async ({ page, request }) => {
+    // The window is down to its 36px bar, and that bar clips its own content:
+    // the menu that gives the page back was drawn inside it and was therefore
+    // unreachable by hand. It is a portal on the body now.
+    const topic = await createTopic(request, `E2E-TBW-Menu-${Date.now()}`);
+    const ctx = `tbw-menu-${Date.now()}`;
+    try {
+      await seedWindow(request, topic.id, {
+        mode: "min", minPos: { right: 24, bottom: 24 }, expandedWidth: null,
+        tabs: [sheet(ctx)], activeContextId: ctx, promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      await page.locator('[data-testid="topic-browser-open-as-tab"]').click();
+      await expect(windowEl).toHaveAttribute("data-mode", "loaned", { timeout: 10000 });
+
+      await page.locator('[data-testid="topic-browser-add"]').click();
+      const menu = page.locator('[data-testid="topic-browser-add-menu"]');
+      await expect(menu).toBeVisible();
+
+      // Not clipped by the bar: the menu is taller than the window it hangs
+      // from, and it is inside the viewport.
+      const bar = (await windowEl.boundingBox())!;
+      const box = (await menu.boundingBox())!;
+      expect(box.height).toBeGreaterThan(bar.height);
+      expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+
+      // And it works by hand, which is the whole point.
+      await menu.locator('[data-testid="topic-browser-add-existing"]').first().click();
+      await expect(page.locator(`[data-testid="topic-browser-tab"][data-context-id="${ctx}"]`)).toHaveCount(1, { timeout: 10000 });
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-01i: la finestra si trascina dalla barra, e la posizione sopravvive a una ricarica immediata", async ({ page, request }) => {
+    // Two bugs in one scenario: the drag only worked on the 6px of padding
+    // that no pointer ever finds, and the position was written behind an
+    // 800 ms debounce that a reload did not wait for.
+    const topic = await createTopic(request, `E2E-TBW-Drag-${Date.now()}`);
+    try {
+      await seedWindow(request, topic.id, {
+        mode: "min", minPos: { right: 40, bottom: 40 }, expandedWidth: null,
+        tabs: [sheet("tbw-drag-1")], activeContextId: "tbw-drag-1", promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      const before = (await windowEl.boundingBox())!;
+
+      // Grab the MIDDLE of the bar, where the empty space between the sheets
+      // and the buttons is, not its edge.
+      const bar = (await page.locator('[data-testid="topic-browser-bar"]').boundingBox())!;
+      await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(bar.x + bar.width / 2 - 120, bar.y + bar.height / 2 - 60, { steps: 12 });
+      await page.mouse.up();
+
+      const moved = (await windowEl.boundingBox())!;
+      expect(moved.x).toBeLessThan(before.x - 80);
+      expect(moved.y).toBeLessThan(before.y - 30);
+
+      // Reload NOW, inside the debounce window.
+      await page.reload();
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      const reloaded = (await windowEl.boundingBox())!;
+      expect(reloaded.x).toBeCloseTo(moved.x, 0);
+      expect(reloaded.y).toBeCloseTo(moved.y, 0);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("TOPIC-BROWSER-01j: cambiando topic la pagina della finestra e' parcheggiata, non distrutta", async ({ page, request }) => {
+    // Unmounting the window took RemoteBrowserPanel down with it, and with it
+    // the page: coming back reloaded the site and lost the history. Parked
+    // means the same DOM node comes back, which is the same page.
+    const first = await createTopic(request, `E2E-TBW-ParkA-${Date.now()}`);
+    const second = await createTopic(request, `E2E-TBW-ParkB-${Date.now()}`);
+    try {
+      await seedWindow(request, first.id, {
+        mode: "min", minPos: { right: 24, bottom: 24 }, expandedWidth: null,
+        tabs: [sheet("tbw-park-1")], activeContextId: "tbw-park-1", promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, first.id);
+      await waitForTopicVisible(page, second.id);
+      await selectTopic(page, first.id);
+      const sheetEl = page.locator('[data-testid="topic-browser-sheet"][data-context-id="tbw-park-1"]');
+      await expect(sheetEl).toBeVisible({ timeout: 10000 });
+
+      // Mark the live node: a node that survives is a page that was not rebuilt.
+      await sheetEl.evaluate((el) => { el.setAttribute("data-e2e-mark", "alive"); });
+
+      await selectTopic(page, second.id);
+      await expect(page.locator('[data-testid="topic-browser-window"]')).not.toBeVisible({ timeout: 10000 });
+
+      await selectTopic(page, first.id);
+      await expect(sheetEl).toBeVisible({ timeout: 10000 });
+      await expect(sheetEl).toHaveAttribute("data-e2e-mark", "alive");
+    } finally {
+      await deleteTopic(request, first.id).catch(() => {});
+      await deleteTopic(request, second.id).catch(() => {});
     }
   });
 

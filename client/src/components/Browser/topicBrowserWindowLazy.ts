@@ -62,6 +62,10 @@ export interface TopicBrowserPresence {
  *  the eager side, because `ChatPanel` has to cede exactly this much. */
 export const DEFAULT_EXPANDED_WIDTH = 520;
 
+/** The chat never cedes below this: an expanded window on a narrow pane would
+ *  otherwise push the conversation down to a sliver, or past zero. */
+export const MIN_CHAT_WIDTH = 320;
+
 const ABSENT: TopicBrowserPresence = { mode: 'hidden', expandedWidth: null, sheets: 0, promoted: 0 };
 
 const same = (a: TopicBrowserPresence, b: TopicBrowserPresence): boolean =>

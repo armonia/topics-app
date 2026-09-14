@@ -381,6 +381,16 @@ export function BrowserTabSheetBody({
         </>
       )}
 
+      {c.returnToTopicWindow && (
+        <>
+          <div className={POPOVER_DIVIDER} />
+          <button type="button" className={POPOVER_ITEM} onClick={run(c.returnToTopicWindow)} data-testid="browser-tab-return-to-window">
+            <CornerUpLeft size={13} className="shrink-0 text-app-text-tertiary" />
+            <span className="flex-1 text-left">{t('topicBrowser.returnToChat')}</span>
+          </button>
+        </>
+      )}
+
       {c.backToSpawner && (
         <>
           <div className={POPOVER_DIVIDER} />

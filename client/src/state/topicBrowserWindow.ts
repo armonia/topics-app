@@ -358,20 +358,58 @@ async function uiGet<T>(key: string): Promise<T | null | undefined> {
 }
 
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** What each pending timer would send, so a flush can send it without waiting. */
+const pendingWrites = new Map<string, unknown>();
+
+function uiPut(key: string, value: unknown, keepalive = false): void {
+  fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: topic-browser keys, not pane state
+    method: 'PUT',
+    // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
+    // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
+    // our own write, or worse revert a newer local edit).
+    headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
+    body: JSON.stringify(value),
+    keepalive,
+  }).catch(() => {});
+}
+
 function uiPutDebounced(key: string, value: unknown, ms = 800): void {
   const t = writeTimers.get(key);
   if (t) clearTimeout(t);
+  pendingWrites.set(key, value);
   writeTimers.set(key, setTimeout(() => {
     writeTimers.delete(key);
-    fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: topic-browser keys, not pane state
-      method: 'PUT',
-      // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
-      // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
-      // our own write, or worse revert a newer local edit).
-      headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
-      body: JSON.stringify(value),
-    }).catch(() => {});
+    pendingWrites.delete(key);
+    uiPut(key, value);
   }, ms));
+}
+
+/**
+ * Send every pending write NOW, because the page is going away.
+ *
+ * The debounce is 800 ms and a reload does not wait for it: dragging the window
+ * and hitting reload used to lose the position, and promoting a sheet then
+ * reloading used to persist the pane in the layout while the sheet was still in
+ * the window's `tabs` (the same page in both places). `keepalive` is what makes
+ * the request survive the unload. This mirrors what the pane store already does
+ * on pagehide (`syncServer.ts`).
+ */
+export function flushTopicWindowWrites(): void {
+  if (!pendingWrites.size) return;
+  for (const [key, value] of pendingWrites) {
+    const t = writeTimers.get(key);
+    if (t) clearTimeout(t);
+    writeTimers.delete(key);
+    uiPut(key, value, true);
+  }
+  pendingWrites.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushTopicWindowWrites);
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushTopicWindowWrites();
+  });
 }
 
 // ── in-memory cache + subscription (React) ───────────────────────────────────
@@ -524,6 +562,7 @@ export function forgetTopicWindow(topicId: string): void {
 export function __resetTopicWindows(): void {
   for (const t of writeTimers.values()) clearTimeout(t);
   writeTimers.clear();
+  pendingWrites.clear();
   cache.clear();
   loaded.clear();
   loading.clear();
@@ -549,6 +588,20 @@ export const topicBrowserWindow = {
   returnFromTab: (topicId: string, sheet: { contextId: string; url?: string; title?: string; openedBy?: TopicBrowserOpenedBy }) =>
     commit(topicId, returnFromTab(getTopicWindow(topicId), sheet)),
 };
+
+/**
+ * Which topic lent THIS page to the layout, if any.
+ *
+ * The window is the only thing that knows a tab is on loan: the pane itself
+ * carries no mark. A promoted tab that wants to go home asks this.
+ */
+export function findTopicOwningPromoted(contextId: string): string | null {
+  if (!contextId) return null;
+  for (const [topicId, state] of cache) {
+    if (state.promoted.includes(contextId)) return topicId;
+  }
+  return null;
+}
 
 export function subscribeTopicWindows(listener: () => void): () => void {
   listeners.add(listener);

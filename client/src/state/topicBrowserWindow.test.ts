@@ -26,6 +26,9 @@ import {
   applyTopicWindowFrame,
   reloadTopicWindowsFromServer,
   getTopicWindow,
+  findTopicOwningPromoted,
+  flushTopicWindowWrites,
+  updateSheet,
   forgetTopicWindow,
   subscribeTopicWindows,
   topicBrowserWindow,
@@ -377,6 +380,27 @@ describe('inbound ui-state (the store re-reads what it writes)', () => {
   });
 });
 
+describe('updateSheet (a page that navigates on its own)', () => {
+  const two = open(open(EMPTY_TOPIC_BROWSER_WINDOW, sheet('a')), sheet('b'));
+
+  test('records url and title of a sheet that is NOT the active one, without stealing focus', () => {
+    const after = updateSheet(two, 'a', { url: 'https://moved.test', title: 'Moved' });
+
+    expect(after.tabs.find((t) => t.contextId === 'a')).toMatchObject({ url: 'https://moved.test', title: 'Moved' });
+    expect(after.activeContextId).toBe(two.activeContextId);
+  });
+
+  test('a patch with neither field, and a patch for an unknown sheet, change nothing', () => {
+    expect(updateSheet(two, 'a', {})).toBe(two);
+    expect(updateSheet(two, 'ghost', { url: 'https://x.test' })).toBe(two);
+  });
+
+  test('leaves the other sheets alone', () => {
+    const after = updateSheet(two, 'a', { title: 'Moved' });
+    expect(after.tabs.find((t) => t.contextId === 'b')).toEqual(two.tabs.find((t) => t.contextId === 'b')!);
+  });
+});
+
 describe('persistence (ui-state PUT/GET)', () => {
   const REAL_FETCH = globalThis.fetch;
   let puts: { key: string; clientId: string | null; body: unknown }[];
@@ -413,6 +437,46 @@ describe('persistence (ui-state PUT/GET)', () => {
   });
 
   const settle = () => new Promise((r) => setTimeout(r, 1000));
+
+  test('flush sends the pending write NOW: a reload within the debounce keeps the position', async () => {
+    const tid = uniqueId('flush');
+    topicBrowserWindow.open(tid, sheet('a'));
+    topicBrowserWindow.move(tid, { right: 40, bottom: 90 });
+    // No settle(): this is the reload landing inside the 800 ms window.
+    expect(puts.filter((p) => p.key === `topic-browser:${tid}`)).toHaveLength(0);
+
+    flushTopicWindowWrites();
+
+    const sent = puts.filter((p) => p.key === `topic-browser:${tid}`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body).toMatchObject({ minPos: { right: 40, bottom: 90 } });
+  });
+
+  test('flush does not send the same state twice when the debounce would have fired anyway', async () => {
+    const tid = uniqueId('flush-once');
+    topicBrowserWindow.open(tid, sheet('a'));
+    flushTopicWindowWrites();
+    await settle();
+
+    expect(puts.filter((p) => p.key === `topic-browser:${tid}`)).toHaveLength(1);
+  });
+
+  test('with nothing pending, flush is a no-op', () => {
+    flushTopicWindowWrites();
+    expect(puts).toHaveLength(0);
+  });
+
+  test('findTopicOwningPromoted names the topic that lent a page, and only while it is on loan', async () => {
+    const tid = uniqueId('owner');
+    topicBrowserWindow.open(tid, sheet('a'));
+    expect(findTopicOwningPromoted('a')).toBeNull();
+
+    topicBrowserWindow.promoteToTab(tid, 'a');
+    expect(findTopicOwningPromoted('a')).toBe(tid);
+
+    topicBrowserWindow.returnFromTab(tid, sheet('a'));
+    expect(findTopicOwningPromoted('a')).toBeNull();
+  });
 
   test('a mutation persists the whole record under topic-browser:<topicId>, stamped with the client id', async () => {
     const tid = uniqueId('put');

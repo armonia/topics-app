@@ -52,7 +52,7 @@ import {
   type TopicBrowserWindowState,
 } from '../../state/topicBrowserWindow';
 import { usePaneStore } from '../../state/pane/store';
-import { findPaneLocation } from '../../state/pane/store';
+import { returnSheetToWindow } from './returnToTopicWindow';
 import {
   createPaneId,
   getBrowserContextFromPaneId,
@@ -61,13 +61,15 @@ import {
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { tauriInvoke } from '../../lib/shell/tauri';
-import { DEFAULT_EXPANDED_WIDTH } from './topicBrowserWindowLazy';
+import { DEFAULT_EXPANDED_WIDTH, MIN_CHAT_WIDTH } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
  *  so the reconciler must not read its absence as "the tab was closed". */
 const PROMOTION_GRACE_MS = 5000;
 /** Height of the window when every page of the topic is out on loan: the bar
  *  alone, which is the only thing that can bring one back. */
 const BAR_ONLY_HEIGHT = 36;
+/** A pointer that travelled less than this was a click, not a drag. */
+const DRAG_THRESHOLD_PX = 3;
 
 export interface TopicBrowserWindowProps {
   topicId: string;
@@ -131,8 +133,10 @@ function raiseNativeView(contextId: string): void {
 
 /** Tell the native views to re-measure: a window that MOVED without changing
  *  size fires no ResizeObserver, so nothing else would. */
-function requestReflow(): void {
-  window.dispatchEvent(new CustomEvent('browser:reflow-request'));
+function requestReflow(contextId?: string): void {
+  // Targeted when we know whose page moved: an untargeted request makes every
+  // native view in the app re-send its bounds, and here only one moved.
+  window.dispatchEvent(new CustomEvent('browser:reflow-request', { detail: contextId ? { contextId } : undefined }));
 }
 
 /** Freeze every native view for the length of a gesture, through the events the
@@ -153,6 +157,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const state = useTopicWindowState(topicId);
   const area = useAreaRect(areaRef);
   const [addOpen, setAddOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
+  // Where the "+" menu is drawn, in viewport coordinates: it is a portal on the
+  // body, because a window shrunk to its bar would clip it away otherwise, and
+  // that menu is the ONLY way back for a page lent to the layout.
+  const [menuAnchor, setMenuAnchor] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
   // Geometry while a gesture is in flight: the store only hears the result, so
   // a drag is one write instead of one per frame.
   const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null);
@@ -186,6 +195,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     return () => { if (timer) clearTimeout(timer); };
   }, [topicId, state.promoted, panes]);
 
+
   const active = state.tabs.find((t) => t.contextId === state.activeContextId) ?? state.tabs[0] ?? null;
 
   const expandedWidth = dragWidth ?? state.expandedWidth ?? DEFAULT_EXPANDED_WIDTH;
@@ -205,7 +215,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
     }
     if (state.mode === 'exp') {
-      const width = Math.min(expandedWidth, area.width);
+      // Same floor the chat uses for its padding: the two edges must be the
+      // same edge, and neither side may eat the other whole.
+      const width = Math.min(expandedWidth, Math.max(MIN_WINDOW_SIZE.width, area.width - MIN_CHAT_WIDTH));
       return { left: area.left + area.width - width, top: area.top, width, height: area.height };
     }
     const local = resolveMinRect(
@@ -216,21 +228,36 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
   }, [area, state, expandedWidth, dragPos, barOnly]);
 
+  // The last geometry the window really had, so a parked window can come back
+  // where it was instead of jumping to a corner for one frame.
+  const lastRect = useRef<Rect | null>(null);
+  if (rect) lastRect.current = rect;
+
   // Every geometry change is a reflow request: the page inside is composited by
   // the OS at a rectangle it was told once.
   useEffect(() => {
-    requestReflow();
+    // Parked: there is no geometry to announce, and raising a view that is off
+    // screen would put it over the topic the person is actually looking at.
+    if (!rect) return;
+    requestReflow(state.activeContextId ?? undefined);
     if (state.activeContextId) raiseNativeView(state.activeContextId);
-  }, [rect?.left, rect?.top, rect?.width, rect?.height, state.activeContextId]);
+  }, [rect?.left, rect?.top, rect?.width, rect?.height, state.activeContextId, rect]);
 
   const startMove = useCallback((e: React.PointerEvent) => {
     if (state.mode === 'exp' || !area) return;
+    // Anything the bar holds that answers a click of its own keeps its click:
+    // the drag is what is left of the bar, which is most of it.
+    if ((e.target as HTMLElement | null)?.closest('button, a, input, [role="menu"]')) return;
     const start = resolveMinRect(state, { width: area.width, height: area.height }, MIN_WINDOW_SIZE);
     const originX = e.clientX;
     const originY = e.clientY;
-    const release = freezeNativeViews();
+    // Freezing paints a still image over every native view: a bar that is only
+    // being clicked must not pay for it, so it is armed at the first real move.
+    let release: (() => void) | null = null;
     let latest = { right: area.width - start.left - start.width, bottom: area.height - start.top - start.height };
     const onMove = (ev: PointerEvent): void => {
+      if (!release && Math.abs(ev.clientX - originX) + Math.abs(ev.clientY - originY) < DRAG_THRESHOLD_PX) return;
+      release ??= freezeNativeViews();
       latest = {
         right: Math.max(0, Math.min(area.width - start.width, area.width - start.left - start.width - (ev.clientX - originX))),
         bottom: Math.max(0, Math.min(area.height - start.height, area.height - start.top - start.height - (ev.clientY - originY))),
@@ -242,7 +269,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       window.removeEventListener('pointerup', onUp);
       setDragPos(null);
       topicBrowserWindow.move(topicId, latest);
-      release();
+      release?.();
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -252,9 +279,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     if (state.mode !== 'exp' || !area) return;
     const originX = e.clientX;
     const startWidth = expandedWidth;
-    const release = freezeNativeViews();
+    let release: (() => void) | null = null;
     let latest = startWidth;
     const onMove = (ev: PointerEvent): void => {
+      if (!release && Math.abs(ev.clientX - originX) < DRAG_THRESHOLD_PX) return;
+      release ??= freezeNativeViews();
       latest = Math.max(
         EXPANDED_WIDTH_BOUNDS.min,
         Math.min(EXPANDED_WIDTH_BOUNDS.max, Math.min(area.width, startWidth - (ev.clientX - originX))),
@@ -266,7 +295,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       window.removeEventListener('pointerup', onUp);
       setDragWidth(null);
       topicBrowserWindow.setWidth(topicId, latest);
-      release();
+      release?.();
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -285,16 +314,8 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
 
   /** Take a pane out of the layout WITHOUT destroying its context. */
   const takeFromLayout = useCallback((contextId: string, url: string, title: string) => {
-    const paneId = createPaneId('browser', contextId);
-    const store = usePaneStore.getState();
-    const placed = findPaneLocation(store, paneId);
-    if (placed) store.dispatch({ type: 'CLOSE_PANE', payload: { id: paneId, groupId: placed.groupId, groupIndex: placed.groupIndex } });
     promotedAt.current.delete(contextId);
-    if (getTopicWindow(topicId).promoted.includes(contextId)) {
-      topicBrowserWindow.returnFromTab(topicId, { contextId, url, title });
-    } else {
-      topicBrowserWindow.open(topicId, { contextId, url, title });
-    }
+    returnSheetToWindow({ contextId, url, title }, topicId);
   }, [topicId]);
 
   /** The project's browser panes, offered by the «+»: they are in the layout,
@@ -307,9 +328,33 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     [panes, state.tabs],
   );
 
-  if (!topicId || !rect) return null;
+  useEffect(() => {
+    if (!addOpen) { setMenuAnchor(null); return; }
+    const anchor = addButtonRef.current?.getBoundingClientRect();
+    if (!anchor) return;
+    const width = 240;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, anchor.left));
+    // A window parked at the bottom of the screen has no room BELOW its bar:
+    // the menu then hangs upwards, which is the only place it fits.
+    const room = window.innerHeight - anchor.bottom - 12;
+    const height = Math.min(window.innerHeight * 0.5, 44 * (layoutBrowsers.length + 1) + 8);
+    const top = room >= height ? anchor.bottom + 4 : Math.max(8, anchor.top - 4 - height);
+    setMenuAnchor({ left, top, maxHeight: Math.min(height, window.innerHeight - 16) });
+    const onKey = (ev: KeyboardEvent): void => { if (ev.key === 'Escape') setAddOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, [addOpen, layoutBrowsers.length]);
+  if (!topicId) return null;
   if (!barOnly && (state.mode === 'hidden' || !state.tabs.length)) return null;
 
+  // The topic is not the one on screen (its chat pane is collapsed to zero, or
+  // it was never measured): the window is PARKED, not unmounted. Unmounting it
+  // would take RemoteBrowserPanel down with it and destroy the page, so coming
+  // back to the topic would reload it and lose the history. Parked means: kept
+  // in the DOM, hidden, and every sheet told it is not visible, which is what
+  // makes the shell take its native views off screen.
+  const parked = !rect;
+  const box = rect ?? lastRect.current;
   const expanded = state.mode === 'exp' && !barOnly;
 
   return createPortal(
@@ -320,13 +365,15 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       // declares the corner radius the shell rounds its page to.
       data-native-browser-slot=""
       data-native-radius={expanded ? 0 : 10}
+      data-parked={parked ? '' : undefined}
       className="fixed z-30 flex flex-col overflow-hidden bg-surface border border-app-border shadow-xl"
       style={{
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
+        left: box?.left ?? 0,
+        top: box?.top ?? 0,
+        width: box?.width ?? MIN_WINDOW_SIZE.width,
+        height: box?.height ?? MIN_WINDOW_SIZE.height,
         borderRadius: expanded ? 0 : 10,
+        display: parked ? 'none' : undefined,
       }}
     >
       {expanded && (
@@ -338,7 +385,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       )}
       <div
         data-testid="topic-browser-bar"
-        onPointerDown={(e) => { if (e.target === e.currentTarget) startMove(e); }}
+        onPointerDown={startMove}
         className={`flex items-center gap-1 px-1.5 h-9 flex-shrink-0 border-b border-app-border bg-surface ${expanded ? '' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
@@ -359,38 +406,18 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               />
             </button>
           ))}
-          <div className="relative">
-            <button
-              data-testid="topic-browser-add"
-              aria-label={tr('topicBrowser.add')}
-              title={tr('topicBrowser.add')}
-              onClick={() => setAddOpen((v) => !v)}
-              className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
-            >
-              <Plus size={13} />
-            </button>
-            {addOpen && (
-              <div data-testid="topic-browser-add-menu" className="absolute top-7 left-0 z-20 min-w-[220px] py-1 rounded-md border border-app-border bg-surface shadow-lg">
-                <button
-                  data-testid="topic-browser-add-new"
-                  onClick={() => { setAddOpen(false); topicBrowserWindow.open(topicId, { contextId: newBrowserContextId() }); }}
-                  className="w-full text-left px-3 py-1.5 text-compact hover:bg-app-hover"
-                >
-                  {tr('topicBrowser.newSheet')}
-                </button>
-                {layoutBrowsers.map((p) => (
-                  <button
-                    key={p.contextId}
-                    data-testid="topic-browser-add-existing"
-                    onClick={() => { setAddOpen(false); takeFromLayout(p.contextId, p.url, p.title); }}
-                    className="w-full text-left px-3 py-1.5 text-compact truncate hover:bg-app-hover"
-                  >
-                    {p.title || p.url}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            ref={addButtonRef}
+            data-testid="topic-browser-add"
+            aria-label={tr('topicBrowser.add')}
+            aria-haspopup="menu"
+            aria-expanded={addOpen}
+            title={tr('topicBrowser.add')}
+            onClick={() => setAddOpen((v) => !v)}
+            className="w-6 h-6 flex items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover"
+          >
+            <Plus size={13} />
+          </button>
         </div>
         <button
           data-testid="topic-browser-open-as-tab"
@@ -421,6 +448,39 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
           <X size={13} />
         </button>
       </div>
+      {addOpen && menuAnchor && createPortal(
+        <>
+          <div data-testid="topic-browser-add-backdrop" className="fixed inset-0 z-40" onPointerDown={() => setAddOpen(false)} />
+          <div
+            data-testid="topic-browser-add-menu"
+            role="menu"
+            className="fixed z-50 min-w-[220px] overflow-auto py-1 rounded-md border border-app-border bg-surface shadow-lg"
+            style={{ left: menuAnchor.left, top: menuAnchor.top, maxHeight: menuAnchor.maxHeight }}
+          >
+            <button
+              data-testid="topic-browser-add-new"
+              role="menuitem"
+              onClick={() => { setAddOpen(false); topicBrowserWindow.open(topicId, { contextId: newBrowserContextId() }); }}
+              className="w-full text-left px-3 py-1.5 text-compact hover:bg-app-hover"
+            >
+              {tr('topicBrowser.newSheet')}
+            </button>
+            {layoutBrowsers.map((p) => (
+              <button
+                key={p.contextId}
+                data-testid="topic-browser-add-existing"
+                data-context-id={p.contextId}
+                role="menuitem"
+                onClick={() => { setAddOpen(false); takeFromLayout(p.contextId, p.url, p.title); }}
+                className="w-full text-left px-3 py-1.5 text-compact truncate hover:bg-app-hover"
+              >
+                {p.title || p.url}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
       {/* Every sheet stays mounted, only the active one is visible: switching
           sheet must not reload a page, exactly like the tab ladder of a group. */}
       <div className="flex-1 min-h-0 relative">
@@ -435,7 +495,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
             <RemoteBrowserPanel
               contextId={t.contextId}
               initialUrl={t.url || undefined}
-              isVisible={t.contextId === active?.contextId}
+              isVisible={!parked && t.contextId === active?.contextId}
               onUrlChange={(url) => topicBrowserWindow.updateSheet(topicId, t.contextId, { url })}
               onTitleChange={(title) => topicBrowserWindow.updateSheet(topicId, t.contextId, { title })}
             />

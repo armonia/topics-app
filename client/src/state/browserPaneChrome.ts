@@ -43,6 +43,9 @@ export interface BrowserPaneCommands {
   openExternal?: () => void;
   /** Focus the chat this browser was opened from (when there is one). */
   backToSpawner?: () => void;
+  /** Put this page back into the topic window that lent it to the layout.
+   *  Only a promoted sheet has it: see `returnToTopicWindow.ts`. */
+  returnToTopicWindow?: () => void;
   toggleDevTools?: () => void;
   clearConsole?: () => void;
   /** Ask the TAB to open its sheet with the Downloads section already down.
