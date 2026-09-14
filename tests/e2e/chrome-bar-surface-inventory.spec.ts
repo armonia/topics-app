@@ -82,7 +82,7 @@ const NO_SHELL = -1;
  * `RemoteBrowserPanel` auto-focuses the address of a pane that has nowhere to
  * go, 50 ms after the pane becomes visible (`RemoteBrowserPanel.tsx`, the
  * `setTimeout(() => focusUrlBar(), 50)` guarded by `empty`), and the tab answers
- * by opening its address dropdown (`BrowserTabAddress`).
+ * by opening its sheet (`BrowserTabSheet`).
  *
  * Since 2026-09-06 that panel no longer REPLACES the label - the tab writes
  * "New tab" and keeps writing it - so the failure this dismissal was written

@@ -10,6 +10,7 @@ import {
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { expectNoRowAboveThePage } from "./helpers/browser-geometry";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -476,7 +477,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       const signal = page.getByTestId("browser-tab-downloads-signal");
       await expect(signal).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
-      await expect(page.locator('[data-testid="browser-url-input"]'), "no row over the page").toHaveCount(0);
+      await expectNoRowAboveThePage(page, "a download brings no row over the page");
       await expect(page.getByTestId("browser-tab-sheet"), "a download does not open the sheet").toHaveCount(0);
 
       // 2. THE CLICK ON THE CUE IS WHAT OPENS, with the sheet already on its
@@ -493,10 +494,13 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await expect(link).toHaveAttribute("href", "/media/browser/downloads/report.pdf");
       await expect(menu.locator('[data-testid="browser-download-entry"]')).toHaveText(/4 KB/);
 
-      // 3. IT IS DISMISSIBLE - the original complaint. Escape closes it, the
-      //    button inside the sheet reopens it.
+      // 3. IT IS DISMISSIBLE - the original complaint. Escape closes the LIST
+      //    and only the list: the first Esc is the popover's, and the sheet has
+      //    to survive it (a listener in capture on the document closed both at
+      //    once). The row inside the sheet reopens the list.
       await page.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
+      await expect(page.getByTestId("browser-tab-sheet"), "the first Esc leaves the sheet open").toHaveCount(1);
       await page.getByTestId("browser-tab-downloads").click();
       await expect(menu).toBeVisible();
 
@@ -505,6 +509,13 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
       await expect(cue).toHaveCount(0);
       await expect(signal).toHaveCount(0);
+
+      // 5. ...and ESC STILL CLOSES THE SHEET, although this door never put the
+      //    caret in the address field: the focus is nowhere near it.
+      await expect(page.getByTestId("browser-tab-sheet"), "dismissing an entry left the sheet open").toHaveCount(1);
+      await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("browser-tab-sheet"), "Esc closes the sheet from any focus").toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

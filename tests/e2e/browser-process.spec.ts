@@ -9,6 +9,7 @@ import {
   waitForTopicVisible,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { expectNoRowAboveThePage } from "./helpers/browser-geometry";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -78,7 +79,7 @@ async function openTabAddressEditor(page: import("@playwright/test").Page): Prom
   await tab.getByTestId("pane-tab-label").click();
   await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("browser-tab-address-input")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
+  await expectNoRowAboveThePage(page, "opening the sheet brings no row over the page");
 }
 
 // ── ScriptRunner Tests (PROCESS-01..05: PASS, unchanged from phase 27) ──
@@ -330,7 +331,7 @@ test.describe("RemoteBrowserPanel", () => {
       await expect(page.getByTestId("browser-tab-address-input")).toBeFocused();
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0);
-      await expect(page.locator('[data-testid="browser-url-input"]'), "no row under the tab").toHaveCount(0);
+      await expectNoRowAboveThePage(page, "no row under the tab");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

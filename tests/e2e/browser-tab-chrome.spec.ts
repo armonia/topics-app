@@ -49,6 +49,7 @@ import { clipDiConsegna } from "./helpers/clip";
 import { beat } from "./helpers/evidence";
 import { hermetic } from "./fixtures/hermetic";
 import { removeTmpDir } from "./helpers/file-project";
+import { expectNoRowAboveThePage, expectNoRowComesBack } from "./helpers/browser-geometry";
 
 hermetic(test);
 
@@ -113,33 +114,6 @@ async function mountPane(page: Page, topicId: string, url: string): Promise<void
 
 const tabDelBrowser = (page: Page) => page.locator('[data-pane-id^="browser:"]').first();
 
-/**
- * THE NEGATIVE THAT CAN STILL FAIL.
- *
- * "No address row above the page" used to be written as
- * `browser-url-input → count 0`, and since `BrowserToolbar` was deleted that
- * testid exists nowhere: the assertion passes over any app, including one that
- * grew a new strip tomorrow under another name. HERO-R-003, in one line.
- *
- * So it is measured as GEOMETRY instead, which is what the requirement is
- * actually about: the pane's page area starts at the pane's own top edge. A
- * chrome strip of any name, any testid, pushes it down and this goes red. The
- * find bar is the one admitted exception and it is a MODE - it exists only
- * while you are searching - so a scene that is not searching must not see it.
- */
-async function expectNoRowAboveThePage(page: Page, why: string): Promise<void> {
-  const pane = page.locator('[data-browser-pane]').first();
-  const gap = await pane.evaluate((el) => {
-    // The page area is the last flex child: the screenshot viewer, the frame
-    // slot or the native placeholder, depending on the render path.
-    const area = el.querySelector('[data-browser-frame-slot], [data-native-browser-slot]')
-      ?? el.lastElementChild;
-    if (!area) return -1;
-    return area.getBoundingClientRect().top - el.getBoundingClientRect().top;
-  });
-  expect(gap, why).toBeLessThanOrEqual(1);
-}
-
 test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the menu", () => {
   // The prologue waits for the server to launch a headless Chromium and load a
   // page in it: the default per-file ceiling is not for this family.
@@ -186,12 +160,11 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
         await goToApp(page);
         // THE SCENE NAVIGATES TOO. It runs on a FRESH page (the prologue's
         // video is thrown away), so the pane remounts from the store and comes
-        // up on `about:blank`: measured, the address bar was there with an
-        // EMPTY url, and it stayed. `showChrome` is `revealed ||
-        // !isRealUrl(url)`, and `about:blank` keeps that second term true
-        // forever - the row is the only way out of a blank pane, so hiding it
-        // there would be a trap, and the product is right. What was wrong was
-        // the scene: it asserted the chrome of a page it had never opened.
+        // up on `about:blank`: measured, back when a blank pane still kept an
+        // address row (`showChrome`, deleted on 2026-09-13), the row was there
+        // with an EMPTY url and it stayed - and the product was right, since
+        // that row was the only way out of a blank pane. What was wrong was the
+        // scene: it asserted the chrome of a page it had never opened.
         await mountPane(page, topicId, `${origin}/rapporto`);
         const tab = tabDelBrowser(page);
 
@@ -249,10 +222,10 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
    * so the menu opened without the address row.
    *
    * THE CURE, in `useBrowserChromeBridge`: a `knownUrl` that carries the
-   * store's value alongside the live one. `showChrome` now asks whether
-   * NEITHER of the two is real — so a genuinely blank pane keeps its bar,
-   * which down there is the only way out — and the address shown falls back to
-   * `knownUrl` until the browser has finished. It is not a lie: the tab's
+   * store's value alongside the live one, and the address shown falls back to
+   * it until the browser has finished. (The row itself, and `showChrome` with
+   * it, was deleted on 2026-09-13: what this scene guards now is that no row
+   * of any name comes back, measured as geometry.) It is not a lie: the tab's
    * label, a centimetre further up, was already showing that address. Before,
    * the two surfaces said different things about the same pane.
    *
@@ -279,8 +252,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
 
     // The two halves of the trade the card was selling, and which down here
-    // does not hold.
-    await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
+    // did not hold.
+    await expectNoRowAboveThePage(page, "the restored pane has no row above its page");
 
     // The three dots live in `opacity-0 group-hover:opacity-100`: without
     // hovering over the tab the button is there but transparent, and the click
@@ -378,13 +351,10 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     expect(hits, "il ritardo non ha intercettato nessuna richiesta di idratazione").toBeGreaterThan(0);
     await expect(tabDelBrowser(page)).toContainText(label, { timeout: 60_000 });
 
-    // The bar must NOT come back while the store stays silent. The cap is
-    // below the injected delay, or one would measure the after instead of the
-    // during.
-    await expect(
-      page.getByTestId("browser-url-input"),
-      "la barra e' tornata mentre il negozio non aveva ancora parlato",
-    ).toHaveCount(0, { timeout: 3_000 });
+    // The bar must NOT come back while the store stays silent. Measured on the
+    // first stable frame after mount, well inside the injected delay: waiting
+    // longer would measure the after instead of the during.
+    await expectNoRowAboveThePage(page, "a row came back while the store had not spoken yet");
   });
   test("BROWSER-CHROME-HYDRATE-01b: dentro una finestra di progetto la pane ripristinata non rimette la barra sotto la tab", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BROWSER-CHROME-HYDRATE-01b" });
@@ -411,37 +381,13 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
       // The pane was seeded with `title: "Rapporto"`, so here the tab names the
       // PAGE rather than the address: the same rule, the other branch of it.
       await expect(tabDelBrowser(page)).toContainText(/Rapporto/, { timeout: 60_000 });
-      // The claim is a negative one - the URL row must NOT come back on its own
-      // once the store has spoken - and `toHaveCount(0)` is true the instant it
-      // is asked. The condition that makes it mean something is not a fixed
-      // window but SETTLEMENT: the row's presence has stopped changing. A row
-      // that reappears restarts the quiet period and is then read as present,
-      // which is the failure we want; a clean run stops as soon as it is quiet.
-      const rowSettled = await page.waitForFunction(
-        (quiet) => {
-          const w = window as unknown as { __rowSeen?: number; __rowSince?: number };
-          const now = performance.now();
-          const count = document.querySelectorAll('[data-testid="browser-url-input"]').length;
-          if (w.__rowSeen !== count) {
-            w.__rowSeen = count;
-            w.__rowSince = now;
-            return null;
-          }
-          // An OBJECT, not the number: `waitForFunction` reads the return value
-          // as "am I done?", and a settled count of zero - the good case - is
-          // falsy, so returning it plainly would poll until the timeout.
-          return now - (w.__rowSince ?? now) >= quiet ? { count } : null;
-        },
-        2000,
-        { timeout: 30_000, polling: "raf" },
-      );
-      // The handle's type still admits the not-settled sentinel, which cannot
-      // reach here: `waitForFunction` only resolves on a truthy value. The
-      // fallback names that impossible case with a count no run can produce,
-      // so it would fail loudly instead of being asserted away.
-      const settledRow = (await rowSettled.jsonValue()) ?? { count: -1 };
-      expect(settledRow.count, "the URL row must not come back on its own").toBe(0);
-      await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
+      // The claim is a negative one - no row must come back on its own once
+      // the store has spoken - and a negative is true the instant it is asked.
+      // What makes it mean something is SETTLEMENT: the distance between the
+      // pane's top edge and its page area has stopped changing. A row that
+      // reappears restarts the quiet period and is then read as present, which
+      // is the failure we want; a clean run stops as soon as it is quiet.
+      await expectNoRowComesBack(page, "the URL row must not come back on its own");
     } finally {
       await resetProjectPanes(request, project).catch(() => {});
       removeTmpDir(project);
@@ -476,7 +422,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
 
     const tab = tabDelBrowser(page);
     await expect(tab).toContainText(label, { timeout: 60_000 });
-    await expect(page.getByTestId("browser-url-input")).toHaveCount(0, { timeout: 30_000 });
+    await expectNoRowAboveThePage(page, "a loaded pane has no row above its page");
 
     // (b) The click on the tab you are ALREADY in opens the dropdown, seeded
     //     with the address, and the label is still there underneath.
@@ -498,10 +444,9 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     // ...and it is at least as wide as the tab it hangs from.
     expect(panelBox.width).toBeGreaterThanOrEqual(Math.min(tabBox.width, 480) - 1);
 
-    // EXACTLY ONE ADDRESS FIELD IN THE PANE. The toolbar's own input only
-    // exists on a console/downloads reveal (`useBrowserChromeBridge`), so
-    // opening the dropdown must not produce a second one.
-    await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
+    // EXACTLY ONE ADDRESS FIELD, and it is not a row: opening the sheet must
+    // not push the page down to make room for a second one.
+    await expectNoRowAboveThePage(page, "opening the sheet brings no row over the page");
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
 
     // Escape closes it and gives nothing back but the label.
@@ -516,7 +461,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await editor.press("Enter");
     await expect(tab, "the tab writes where it went").toContainText(/seconda-pagina/, { timeout: 60_000 });
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(0);
-    await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
+    await expectNoRowAboveThePage(page, "a navigation brings no row back");
   });
 
   /**
@@ -649,8 +594,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
           await expect(dropdown).toBeVisible({ timeout: 15_000 });
           await expect(page.getByTestId("browser-tab-address-input")).toHaveValue(`${origin}/rapporto`);
           await expect(tab, "the label is not replaced by the field").toContainText(/Rapporto/);
-          // ONE address field in the pane: the toolbar does not show a second.
-          await expect(page.getByTestId("browser-url-input")).toHaveCount(0);
+          // ONE address field, in the sheet: nothing pushes the page down.
+          await expectNoRowAboveThePage(page, "the open sheet brings no row over the page");
           await beat(page, 1800);
 
           // 4. Escape gives the pane back, and the tab is where it was.
@@ -764,7 +709,7 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(tab).toContainText(/New tab|Nuova scheda/, { timeout: 30_000 });
     await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 30_000 });
     // The pane's ONLY address field is the one in the dropdown.
-    await expect(page.getByTestId("browser-url-input"), "no second address field").toHaveCount(0);
+    await expectNoRowAboveThePage(page, "a blank pane has no row above its page");
     await expect(page.getByTestId("browser-tab-address-input")).toHaveCount(1);
     // And the tab is still readable while the panel is open.
     await expect(tab).toContainText(/New tab|Nuova scheda/);
@@ -833,11 +778,19 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
    * the sheet, so one that went back behind a dropdown tomorrow would not be
    * found here.
    *
-   * ZOOM AND DEVICE ARE NOT ASSERTED, and that is a fact about the environment
-   * and not an omission. They are native-pane capabilities (`useTauriBrowser`
-   * publishes `setZoom`/`setDevice`); a pane running in Chromium never wires
-   * them, so the sheet correctly does not draw rows for commands that do not
-   * exist. Demanding them here would measure the harness, not the product.
+   * ZOOM, DEVICE AND THE CONSOLE ARE NOT ASSERTED, and that is a fact about the
+   * environment and not an omission. They are native-pane capabilities
+   * (`useTauriBrowser` publishes `setZoom`/`setDevice`, and only the native
+   * branch of `RemoteBrowserPanel` hands the sheet `consoleEntries` and
+   * `clearConsole`); a pane running in Chromium never wires them, so the sheet
+   * correctly does not draw rows for commands that do not exist. Demanding them
+   * here would measure the harness, not the product. The same goes for the
+   * console half of "no address row, ever": until 2026-09-13 opening the
+   * console brought the row back (`showChrome`/`revealed`), and that code is
+   * gone - the console panel is a `Menu` anchored to the sheet's own button.
+   * A step here guarded it behind `if (consoleRow.count())`, which is always
+   * false in Chromium: it never ran, so it was removed rather than kept as
+   * scenery. The download half is in `browser-ws-streaming.spec.ts`.
    */
   test("TOPIC-BROWSER-02: one click on the tab gives the address ready, with the commands in plain sight", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-BROWSER-02" });
@@ -875,8 +828,8 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(sheet.getByTestId("browser-tab-back")).toBeVisible();
     await expect(sheet.getByTestId("browser-tab-forward")).toBeVisible();
     await expect(sheet.getByTestId("browser-tab-copy-url")).toBeVisible();
-    // ...and none of the surfaces the requirement deletes.
-    await expect(page.getByTestId("browser-tab-menu-panel"), "no dropdown menu").toHaveCount(0);
+    // ...and none of the surfaces the requirement deletes: no row pushes the
+    // page down while the sheet is open.
     await expectNoRowAboveThePage(page, "the sheet does not push the page down");
 
     // 3. ESC DOES NOT NAVIGATE. An edited, unconfirmed address is thrown away:
@@ -887,16 +840,57 @@ test.describe("BROWSER-TAB-CHROME: the tab carries the address, the icon and the
     await expect(tab, "the tab stayed on the page it was on").toContainText(/rapporto/);
     await expect(tab).not.toContainText(/seconda-pagina/);
 
-    // 4. THE CONSOLE OPENS FROM THE SHEET AND BRINGS NO ROW BACK. This is the
-    //    "no address row, ever" scenario: the console was one of the two events
-    //    that used to put the row back over the page.
+    // 4. ESC CLOSES FROM A BUTTON OF THE SHEET TOO, not only from the address
+    //    field. A click on any button takes the focus off the field (to BODY
+    //    on WebKit), and until the sheet listened on the document an Esc from
+    //    there did nothing: the sheet stayed, and on the desktop app the page
+    //    stayed frozen under it.
     await tab.getByTestId("pane-tab-label").click();
     await expect(sheet).toBeVisible({ timeout: 10_000 });
-    const consoleRow = sheet.getByTestId("browser-tab-console");
-    if (await consoleRow.count()) {
-      await consoleRow.click();
-      await expect(page.getByTestId("browser-console-panel")).toBeVisible({ timeout: 10_000 });
-      await expectNoRowAboveThePage(page, "opening the console brings no row back");
-    }
+    await sheet.getByTestId("browser-tab-copy-url").click();
+    await expect(address, "the focus left the address field").not.toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(sheet, "Esc from a button of the sheet closes it").toHaveCount(0);
+
+    // 5. A CLICK ON THE PAGE CLOSES WITHOUT NAVIGATING. The page of this site
+    //    is a cross-origin IFRAME (`hostedIframe`), and a pointerdown inside a
+    //    frame is dispatched to the frame's document, never to the app's: the
+    //    sheet did not hear it, stayed open and let the focus go into the page.
+    //    The aim point is checked to be ON THE FRAME before the sheet opens -
+    //    a click on any other element of the app would close the sheet even
+    //    without the fix, and the step would prove nothing.
+    const frame = page.getByTestId("browser-iframe").first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    const frameBox = (await frame.boundingBox())!;
+    const aim = { x: frameBox.x + frameBox.width - 12, y: frameBox.y + frameBox.height - 12 };
+    const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName ?? null, aim);
+    expect(hit, "the aim point is on the page's frame").toBe("IFRAME");
+
+    await tab.getByTestId("pane-tab-label").click();
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    const sheetBox = (await sheet.boundingBox())!;
+    expect(
+      aim.x > sheetBox.x + sheetBox.width || aim.y > sheetBox.y + sheetBox.height,
+      "the aim point is outside the sheet",
+    ).toBe(true);
+    await address.fill(`${origin}/seconda-pagina`);
+    await page.mouse.click(aim.x, aim.y);
+    await expect(sheet, "a click on the page closes the sheet").toHaveCount(0);
+    await expect(tab, "the tab stayed on the page it was on").toContainText(/rapporto/);
+    await expect(tab).not.toContainText(/seconda-pagina/);
+    // ...and the frame takes the pointer again once the sheet is gone.
+    await expect
+      .poll(() => page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName ?? null, aim))
+      .toBe("IFRAME");
+
+    // 6. A RIGHT CLICK IN THE SHEET IS THE SHEET'S. The sheet is portalled, and
+    //    React bubbles along the component tree: the contextmenu reached the
+    //    TAB and opened the tab's menu over the field (`fromThisTab`).
+    await tab.getByTestId("pane-tab-label").click();
+    await expect(sheet).toBeVisible({ timeout: 10_000 });
+    const menusBefore = await page.getByRole("menu").count();
+    await address.click({ button: "right" });
+    await expect(page.getByRole("menu"), "the tab's menu does not open from inside the sheet").toHaveCount(menusBefore);
+    await expect(sheet).toBeVisible();
   });
 });
