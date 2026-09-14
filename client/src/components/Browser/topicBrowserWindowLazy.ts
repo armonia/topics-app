@@ -95,6 +95,22 @@ export function expandedInsetCss(requestedWidth: number): string {
   return `max(0px, min(${requestedWidth}px, calc(100% - ${MIN_CHAT_WIDTH}px)))`;
 }
 
+/**
+ * Is there a window to mount for this topic?
+ *
+ * HIDDEN IS NOT ABSENT. The X puts the window away and KEEPS its sheets, so a
+ * hidden window with pages behind it still has to be mounted: it is the only
+ * thing that draws the command bringing it back. Gated on the mode alone, the
+ * X unmounted the component that owns `topic-browser-reopen`, and the pages of
+ * that topic became unreachable for good.
+ *
+ * One predicate because there are two mounts (`ChatPanel` and `ChatPane`), and
+ * two copies of this rule is how one of them ends up wrong.
+ */
+export function hasTopicBrowserWindow(presence: TopicBrowserPresence): boolean {
+  return presence.mode !== 'hidden' || presence.sheets > 0 || presence.promoted > 0;
+}
+
 const ABSENT: TopicBrowserPresence = { mode: 'hidden', expandedWidth: null, sheets: 0, promoted: 0 };
 
 const same = (a: TopicBrowserPresence, b: TopicBrowserPresence): boolean =>

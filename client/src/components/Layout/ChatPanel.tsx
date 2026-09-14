@@ -16,7 +16,7 @@ import { ChatPane } from '../Chat/ChatPane';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useSessionMessages } from '../../state/useSessionMessages';
-import { TopicBrowserWindow, useTopicBrowserPresence, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
 import type { SendMessageOptions } from '@/hooks/useChat';
 
 function errorMessage(e: unknown): string {
@@ -130,8 +130,8 @@ export function ChatPanel({
 
   return (
     <>
-      <div ref={chatAreaRef} data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: expandedInsetCss(browserInset) } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
-        {(browserWindow.mode !== 'hidden' || browserWindow.promoted > 0) && (
+      <div ref={chatAreaRef} data-testid="chat-panel" data-chat-topic-id={topic.id} role="region" aria-label={`${topic.name} panel`} style={browserInset ? { paddingRight: expandedInsetCss(browserInset) } : undefined} className={`relative flex flex-col flex-1 min-h-0 bg-surface chrome-passthrough-y transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+        {hasTopicBrowserWindow(browserWindow) && (
           <Suspense fallback={null}>
             <TopicBrowserWindow topicId={topic.id} areaRef={chatAreaRef} projectPath={topic.projectPath ?? undefined} />
           </Suspense>

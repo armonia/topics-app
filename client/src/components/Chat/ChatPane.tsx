@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
-import { TopicBrowserWindow, useTopicBrowserPresence, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -1650,6 +1650,9 @@ function ChatPaneComponent({
   return (
     <div
       ref={paneRootRef}
+      // Whose conversation this subtree is: `openLink` walks up from the clicked
+      // anchor to find out which topic's window may claim the link.
+      data-chat-topic-id={topic.id}
       // `chrome-passthrough-y` and not `overflow-hidden`: the transcript inside
       // rises by the height of the chrome bar and has to be PAINTED up there,
       // not just laid out there. The horizontal containment is unchanged. See
@@ -1662,7 +1665,7 @@ function ChatPaneComponent({
       onPointerDownCapture={() => markDraftTouched(topic.id)}
       onKeyDownCapture={() => markDraftTouched(topic.id)}
     >
-      {ownsBrowserWindow && (browserWindow.mode !== 'hidden' || browserWindow.promoted > 0) && (
+      {ownsBrowserWindow && hasTopicBrowserWindow(browserWindow) && (
         <Suspense fallback={null}>
           <TopicBrowserWindow topicId={topic.id} areaRef={paneRootRef} projectPath={topic.projectPath ?? undefined} />
         </Suspense>
