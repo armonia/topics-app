@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
@@ -8,6 +8,18 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 hermetic(test);
+
+/**
+ * The pane shell of ONE topic. Every visited pane stays mounted, the hidden ones
+ * with `display: none`, and the shells sit in the DOM sorted by pane key
+ * (`paneShellOrder`), which for a chat is the topic's random UUID. So
+ * `page.locator(x).last()` does not mean "the topic just opened": it means
+ * whichever topic id sorts last, a coin flip per run. When the Tool Cards topic
+ * of the first test wins it, `.last()` lands on its hidden copy (a `/recap` chip
+ * reported as hidden, a meta row that exists, a user message that says
+ * `/recap`). A query about the conversation on screen is scoped to its shell.
+ */
+const paneOf = (page: Page, topicId: string) => page.locator(`[data-pane-shell="${topicId}"]`);
 
 /**
  * Che cosa si LEGGE dentro la card di un tool.
@@ -190,12 +202,13 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       await page.keyboard.press("Escape");
       await openTopic(page, new RegExp(fresh.name));
 
-      const group = page.locator('[data-testid="tool-group-row"]').last();
+      const pane = paneOf(page, fresh.id);
+      const group = pane.locator('[data-testid="tool-group-row"]').last();
       await expect(group).toBeVisible({ timeout: 15_000 });
       await expect(group).toContainText("3/4 azioni");
 
       // Il corpo è aperto (l'azione in corso si vede) e il chevron lo dice.
-      const running = page.locator('[data-testid="tool-call-row-lv-4"]');
+      const running = pane.locator('[data-testid="tool-call-row-lv-4"]');
       await expect(running).toBeVisible();
       await expect(group.locator('[data-testid="tool-group-chevron"]')).toHaveAttribute("data-open", "true");
 
@@ -214,7 +227,7 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       // La corsa di sola azione NON si porta dietro la riga dei metadati: la
       // durata di ogni passo è già in fondo alla sua riga, e riservare 14px per
       // messaggio per ripeterla in hover era spazio speso per niente.
-      const rowWork = page.locator('[data-testid="chat-message"][data-role="assistant"]').last();
+      const rowWork = pane.locator('[data-testid="chat-message"][data-role="assistant"]').last();
       await expect(rowWork.locator('[data-testid="message-meta-row"]')).toHaveCount(0);
 
       await group.screenshot({ path: "test-results/tool-group-live.png" });
@@ -348,16 +361,16 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       await page.keyboard.press("Escape");
       await openTopic(page, new RegExp(fresh.name));
 
-      // `.last()`: il primo test di questo file semina anche lui un `/recap`, e
-      // la sua pane resta montata — due chip a schermo, una per topic.
-      const cmd = page.locator('[data-testid="user-slash-command"]').last();
+      // The first test of this file seeds a `/recap` too, and its pane stays
+      // mounted (hidden): the chip is looked up in THIS topic's shell, where
+      // there is exactly one, not with `.last()` on the page (see `paneOf`).
+      const cmd = paneOf(page, fresh.id).locator('[data-testid="user-slash-command"]');
       await expect(cmd).toBeVisible({ timeout: 15_000 });
       await expect(cmd).toHaveAttribute("data-command", "recap");
       await expect(cmd).toContainText("/recap");
 
-      // UNA VOLTA SOLA — e «una volta» si conta DENTRO IL TURNO, non a schermo:
-      // le pane dei test precedenti restano montate, e i loro `/recap` sono
-      // chip legittimi (stessa ragione del `.last()` qui sopra).
+      // ONCE, counted inside the turn: the panes of the previous tests stay
+      // mounted, and their `/recap` chips are legitimate.
       //
       // Il turno apriva anche con una riga «questo turno gira /recap»: stesso
       // nome, stessa icona, a un centimetro dal chip, e nessuna delle due
@@ -408,9 +421,10 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       await page.keyboard.press("Escape");
       await openTopic(page, new RegExp(fresh.name));
 
-      // Scoped all'ULTIMO messaggio: le pane dei test precedenti restano
-      // montate, e i loro `/recap` sono chip legittimi.
-      const ultimo = page.locator('[data-testid="chat-message"][data-role="user"]').last();
+      // Scoped to this topic's shell: the panes of the previous tests stay
+      // mounted, and their `/recap` chips are legitimate (see `paneOf`).
+      const ultimo = paneOf(page, fresh.id).locator('[data-testid="chat-message"][data-role="user"]').last();
+      await expect(ultimo).toBeVisible();
       await expect(ultimo).toContainText("Projects/topics-app");
       await expect(ultimo.locator('[data-testid="user-slash-command"]')).toHaveCount(0);
     } finally {
