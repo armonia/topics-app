@@ -68,13 +68,16 @@ describe("relay · l'ibernazione è obbligatoria", () => {
     expect(CODICE).toContain("getTags");
   });
 
-  it("il battito lo risponde il runtime con `setWebSocketAutoResponse`", () => {
-    // Like `acceptWebSocket`, a ping answered in `webSocketMessage` works
-    // exactly the same: it just wakes the hibernated object on every beat of
-    // every installation. Nothing at runtime shows it; this line does.
-    // `relay-do.run.test.ts` checks the same thing executed, against a stand-in.
-    // A CALL, not the name: the name alone is also in the `Stato` declaration.
-    expect(CODICE).toMatch(/\.setWebSocketAutoResponse\(\s*new WebSocketRequestResponsePair\(\s*PING_FRAME,\s*PONG_FRAME\s*\)/);
+  it("il battito NON lo risponde il runtime: niente `setWebSocketAutoResponse`", () => {
+    // The runtime answers an auto-response on every accepted socket without
+    // reading tags, and nobody has shown on a real deploy that a socket orphaned
+    // by the deploy stops being answered. If it does not, the machine's
+    // heartbeat gets a pong from a dead thread and never sees the zombie of
+    // 13/09 that card ab420f38 has to catch. The pong stays in
+    // `webSocketMessage`, for the current machine only, until a trial deploy
+    // proves otherwise (task 3.3 of the relay change).
+    // A CALL, not the name: the name may appear in a comment explaining why.
+    expect(CODICE).not.toMatch(/\.setWebSocketAutoResponse\s*\(/);
   });
 });
 

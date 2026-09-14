@@ -81,12 +81,6 @@ class CoppiaFinta {
 }
 (globalThis as unknown as { WebSocketPair: unknown }).WebSocketPair = CoppiaFinta;
 
-/** The runtime's auto-response pair: the relay builds one in its constructor
- *  and Bun has no such global. Nothing here sends the beat, so it only has to
- *  exist; `relay-do.run.test.ts` is where the runtime's answer is imitated. */
-(globalThis as unknown as { WebSocketRequestResponsePair: unknown }).WebSocketRequestResponsePair =
-  class { constructor(readonly request: string, readonly response: string) {} };
-
 /** Lo stato del Durable Object, ridotto a ciò che il relay usa: i TAG sono
  *  l'unica memoria, com'è sotto ibernazione. */
 class StatoFinto {
@@ -96,8 +90,6 @@ class StatoFinto {
     return [...this.tag.keys()].filter((w) => tag === undefined || (this.tag.get(w) ?? []).includes(tag));
   }
   getTags(ws: object): string[] { return this.tag.get(ws) ?? []; }
-  /** The beat's auto-response: registered by the constructor, unused here. */
-  setWebSocketAutoResponse(): void {}
 }
 
 type StatoDelDO = ConstructorParameters<typeof SessioneRelay>[0];

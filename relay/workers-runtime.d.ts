@@ -28,15 +28,6 @@ interface WebSocketPair {
 }
 declare const WebSocketPair: { new (): WebSocketPair };
 
-/** A request the runtime answers on its own, without waking the Durable Object:
- *  `state.setWebSocketAutoResponse(pair)`. Matched against the whole incoming
- *  text message, byte for byte. */
-declare class WebSocketRequestResponsePair {
-  constructor(request: string, response: string);
-  readonly request: string;
-  readonly response: string;
-}
-
 /** The name of a Durable Object instance. Opaque on purpose: the Worker only
  *  ever mints one from a string and hands it straight back to `get`. */
 interface DurableObjectId {

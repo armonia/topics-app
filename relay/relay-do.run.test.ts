@@ -88,14 +88,6 @@ function CoppiaFinta(this: unknown) {
 }
 (globalThis as unknown as { WebSocketPair: unknown }).WebSocketPair = CoppiaFinta;
 
-/** The runtime's auto-response pair. Bun has no such global, and the relay
- *  builds one in its constructor: without this every test here dies there. */
-class RequestResponsePairStub {
-  constructor(readonly request: string, readonly response: string) {}
-}
-(globalThis as unknown as { WebSocketRequestResponsePair: unknown }).WebSocketRequestResponsePair =
-  RequestResponsePairStub;
-
 /**
  * Lo stato del Durable Object, ridotto a ciò che il relay usa davvero.
  *
@@ -120,10 +112,6 @@ class StatoFinto {
   getTags(ws: CapoFinto): string[] {
     return this.tag.get(ws) ?? [];
   }
-
-  /** What the relay asked the runtime to answer on its own, if anything. */
-  autoResponse: RequestResponsePairStub | null = null;
-  setWebSocketAutoResponse(pair: RequestResponsePairStub): void { this.autoResponse = pair; }
 
   dimentica(ws: CapoFinto): void { this.tag.delete(ws); }
 }
@@ -157,26 +145,9 @@ function scena() {
     return { suo, mio, res };
   }
 
-  /** How many messages reached the object, i.e. woke it. */
-  let wakeUps = 0;
-
-  /**
-   * A message received on that socket, delivered the way the runtime does.
-   *
-   * Including the part that never reaches the object: a text that is exactly
-   * the registered auto-response request, on an accepted socket, is answered
-   * by the runtime itself. The runtime does not read tags, so neither does this.
-   */
-  async function parla(a: Aggancio, m: unknown): Promise<void> {
-    const text = typeof m === "string" ? m : JSON.stringify(m);
-    const pair = stato.autoResponse;
-    if (pair !== null && text === pair.request && stato.getWebSockets().includes(a.suo)) {
-      a.suo.send(pair.response);
-      return;
-    }
-    wakeUps += 1;
-    await oggetto.webSocketMessage(a.suo as unknown as WebSocket, text);
-  }
+  /** Un messaggio ricevuto dal relay su quella socket, come fa il runtime. */
+  const parla = (a: Aggancio, m: unknown) =>
+    oggetto.webSocketMessage(a.suo as unknown as WebSocket, JSON.stringify(m));
 
   /** Il filo cade. Il runtime chiama il metodo e poi la socket sparisce
    *  dall'elenco: qui si riproduce lo stesso ordine. */
@@ -185,7 +156,7 @@ function scena() {
     stato.dimentica(a.suo);
   }
 
-  return { stato, oggetto, collega, parla, chiudi, wakeUps: () => wakeUps };
+  return { stato, oggetto, collega, parla, chiudi };
 }
 
 /** L'identificatore che il relay ha assegnato, letto dal `ready`. */
@@ -545,52 +516,27 @@ describe("relay-do eseguito · un canale di SESSIONE, non un link", () => {
     expect(newHost.mio.letti().at(-1)).toEqual({ t: "to-guest", to: sessionId, payload: "ancora-vivo" });
   });
 
-  it("il battito della macchina lo risponde il runtime, senza svegliare l'oggetto", async () => {
-    // RELAY-02: an idle installation accrues no duration. The beat arrives
-    // every twenty seconds per installation, so an answer written in
-    // `webSocketMessage` would wake a hibernated object on every one of them.
-    const s = scena();
-    const host = await s.collega("host");
-    const before = s.wakeUps();
-
-    await s.parla(host, { t: "ping" });
-    expect(host.mio.letti().at(-1)).toEqual({ t: "pong" });
-    expect(s.wakeUps()).toBe(before);
-  });
-
-  it("la sfrattata riceve anch'essa il pong del runtime, ma e' la chiusura 4000 che le fa rifare il filo", async () => {
-    // The runtime does not read tags: the replaced host is answered like the
-    // current one. Its thread is not left relying on silence, it is closed.
-    const s = scena();
-    const oldHost = await s.collega("host");
-    const newHost = await s.collega("host");
-
-    await s.parla(oldHost, { t: "ping" });
-    expect(oldHost.mio.letti().at(-1)).toEqual({ t: "pong" });
-    expect(oldHost.suo.chiusa).toMatchObject({ code: 4000, motivo: "sostituita" });
-
-    await s.parla(newHost, { t: "ping" });
-    expect(newHost.mio.letti().at(-1)).toEqual({ t: "pong" });
-  });
-
-  it("un ping scritto diversamente arriva all'oggetto: risponde alla macchina corrente, non alla sfrattata ne' a un ospite", async () => {
-    // The fallback for the bytes the runtime does not match. Below the
-    // current-host check, and only for the side the protocol lets ask.
+  it("al battito della macchina corrente risponde, e a quello della sfrattata o di un ospite no", async () => {
+    // A deploy replaces this object and the machine's thread is left open
+    // towards nobody: no close arrives, so the only thing that can tell the
+    // difference is a question with an answer. The evicted socket asking the
+    // same question must get silence (and the 4000 close it already got),
+    // which is what makes it rebuild. A guest does not ask: no answer either.
     const s = scena();
     const oldHost = await s.collega("host");
     const newHost = await s.collega("host");
     const guest = await s.collega("device");
-    const spelledOut = '{ "t": "ping" }';
 
-    await s.parla(newHost, spelledOut);
+    await s.parla(newHost, { t: "ping" });
     expect(newHost.mio.letti().at(-1)).toEqual({ t: "pong" });
 
+    expect(oldHost.suo.chiusa).toMatchObject({ code: 4000, motivo: "sostituita" });
     const oldBefore = oldHost.mio.letti().length;
-    await s.parla(oldHost, spelledOut);
+    await s.parla(oldHost, { t: "ping" });
     expect(oldHost.mio.letti()).toHaveLength(oldBefore);
 
     const guestBefore = guest.mio.letti().length;
-    await s.parla(guest, spelledOut);
+    await s.parla(guest, { t: "ping" });
     expect(guest.mio.letti()).toHaveLength(guestBefore);
   });
 
