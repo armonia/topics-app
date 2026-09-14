@@ -138,6 +138,9 @@ function raiseNativeView(contextId: string): void {
 
 /** Tell the native views to re-measure: a window that MOVED without changing
  *  size fires no ResizeObserver, so nothing else would. */
+/** The plane of the scrim that closes the "+" menu: below the menu, above all. */
+const MENU_SCRIM_LAYER = 'z-40';
+
 function requestReflow(contextId?: string): void {
   // Targeted when we know whose page moved: an untargeted request makes every
   // native view in the app re-send its bounds, and here only one moved.
@@ -465,7 +468,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       </div>
       {addOpen && menuAnchor && createPortal(
         <>
-          <div data-testid="topic-browser-add-backdrop" className="fixed inset-0 z-40" onPointerDown={() => setAddOpen(false)} />
+          <div data-testid="topic-browser-add-backdrop" className={`fixed inset-0 ${MENU_SCRIM_LAYER}`} onPointerDown={() => setAddOpen(false)} />
           <div
             data-testid="topic-browser-add-menu"
             role="menu"
