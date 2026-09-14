@@ -124,8 +124,8 @@ function useAreaRect(areaRef: AreaRef): Rect | null {
 function useComposerFloor(areaRef: AreaRef): number {
   const [floor, setFloor] = useState(0);
   useEffect(() => {
-    const el = areaRef.current;
-    if (!el) return;
+    const root = areaRef.current;
+    if (!root) return;
     let composer: Element | null = null;
     const sizes = new ResizeObserver(() => read());
     // The composer slides with an INLINE transform and changes class when it
@@ -137,7 +137,11 @@ function useComposerFloor(areaRef: AreaRef): number {
     const areaSize = new ResizeObserver(() => read());
 
     function read(): void {
-      const next = el.querySelector('[data-testid="chat-input-area"]');
+      // Re-read the ref: an observer can fire in the same frame the pane
+      // unmounts, and then there is no area left to measure against.
+      const host = areaRef.current;
+      if (!host) return;
+      const next = host.querySelector('[data-testid="chat-input-area"]');
       if (next !== composer) {
         sizes.disconnect();
         styles.disconnect();
@@ -148,13 +152,13 @@ function useComposerFloor(areaRef: AreaRef): number {
         }
       }
       const box = composer?.getBoundingClientRect();
-      const bounds = el.getBoundingClientRect();
+      const bounds = host.getBoundingClientRect();
       setFloor(box && box.height > 0 ? Math.max(0, Math.round(bounds.bottom - box.top)) : 0);
     }
 
     read();
-    mounts.observe(el, { childList: true });
-    areaSize.observe(el);
+    mounts.observe(root, { childList: true });
+    areaSize.observe(root);
     window.addEventListener('resize', read);
     return () => {
       sizes.disconnect();

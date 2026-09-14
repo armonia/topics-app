@@ -1050,4 +1050,102 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
       removeTmpDir(projectPath);
     }
   });
+
+  test("TOPIC-BROWSER-01r: minimizzata nella posizione predefinita, la finestra non copre il composer", async ({ page, request }) => {
+    // THE DEFAULT CORNER WAS ON THE SEND BUTTON.
+    //
+    // 01l and 01q state the law for the DOCKED window, which cedes width. This
+    // is the other window: the floating one, in the corner nobody chose, in a
+    // topic where nothing was ever dragged. 24px from the bottom of a 1280x800
+    // area put its 420x320 body exactly over the band the composer occupies,
+    // so `elementFromPoint` on the send button answered the window — in every
+    // topic, from the first delivery on. The window measures that band now
+    // (`useComposerFloor`) and `resolveMinRect` keeps off it.
+    //
+    // A SEEDED CONVERSATION IN BOTH HALVES, and it is load-bearing, not decor:
+    // in an empty topic the composer is CENTERED in the middle of the pane, so
+    // a window parked in the bottom-right corner overlaps nothing whatever the
+    // floor says. Measured on the empty state this scenario would be green on
+    // the very defect it exists for (HERO-R-003). Docked at the bottom by a
+    // transcript, the two rectangles finally have somewhere to collide.
+    //
+    // TWO HOSTS, because the composer and the area are different components in
+    // each: a standalone topic renders `ChatPanel`, a topic inside a project
+    // renders a `ChatPane` whose root carries the topic id — and the floor is
+    // read from the area root, whichever one it is.
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-floor-"));
+    const solo = await createTopic(request, `E2E-TBW-FloorSolo-${Date.now()}`);
+    const inProject = await createTopic(request, `E2E-TBW-FloorProj-${Date.now()}`, { projectPath });
+
+    /** The two controls a person needs to send a message, checked the only way
+     *  that answers: whatever sits on their center pixel must BE them. */
+    const composerIsReachable = async (where: string): Promise<void> => {
+      const send = page.locator('[aria-label="Invia il messaggio"]').first();
+      const input = page.locator('[data-testid="chat-message-input"]').first();
+      await expect(send).toBeVisible({ timeout: 10000 });
+      await expect(input).toBeVisible({ timeout: 10000 });
+
+      // THE PRECONDITION, measured. The claim below is about a window that is
+      // in the way; a window drawn somewhere else entirely would satisfy it
+      // without ever being tested. The send button has to be in the window's
+      // own column, and only the vertical band may separate them.
+      const win = (await page.locator('[data-testid="topic-browser-window"]').boundingBox())!;
+      const sendBox = (await send.boundingBox())!;
+      const sendCenterX = sendBox.x + sendBox.width / 2;
+      expect(
+        sendCenterX >= win.x && sendCenterX <= win.x + win.width,
+        `${where}: il bottone di invio non e' nella colonna della finestra, lo scenario non misura niente`,
+      ).toBe(true);
+
+      expect(await reachable(send), `${where}: la finestra sta sul bottone di invio`).toBe(true);
+      expect(await reachable(input), `${where}: la finestra sta sul campo di testo`).toBe(true);
+    };
+
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+
+      // (a) A STANDALONE TOPIC. `minPos: null` is the whole point: no drag ever
+      // happened here, so the corner is the one the code picks by itself.
+      await seedConversation(request, solo.id);
+      await seedWindow(request, solo.id, {
+        mode: "min", minPos: null, expandedWidth: null,
+        tabs: [sheet("tbw-floor-solo")], activeContextId: "tbw-floor-solo", promoted: [],
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, solo.id);
+      await selectTopic(page, solo.id);
+
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 10000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await waitForConversation(page);
+      await composerIsReachable("topic autonoma");
+
+      // (b) THE SAME TOPIC AREA, HOSTED BY A PROJECT. One pane: the
+      // conversation alone, the full width of the project window.
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      await seedProjectLayout(request, projectPath, inProject.id, null);
+      await seedConversation(request, inProject.id);
+      await seedWindow(request, inProject.id, {
+        mode: "min", minPos: null, expandedWidth: null,
+        tabs: [sheet("tbw-floor-proj")], activeContextId: "tbw-floor-proj", promoted: [],
+      });
+
+      await goToApp(page);
+      const chatTab = page.locator(`[data-pane-id="chat:${inProject.id}"]`).first();
+      await expect(chatTab).toBeVisible({ timeout: 20000 });
+      await chatTab.click();
+      await expect(windowEl).toBeVisible({ timeout: 15000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await waitForConversation(page);
+      await composerIsReachable("topic dentro un progetto");
+    } finally {
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, solo.id).catch(() => {});
+      await deleteTopic(request, inProject.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
 });
