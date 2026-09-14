@@ -602,12 +602,19 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     return unsub;
   }, [onWSMessage, onFocusPanel, onBrowserNavigateUrl]);
 
-  // 8b. Phase 30 BROWSER-CHAT-04 — DOM-event variant for /browser slash command
-  // (and any other client-side producer). Mirrors the WS browser:navigate flow
-  // but skips the WS hop. Sourced from ChatPane.handleSlashCommand.
+  // 8b. Phase 30 BROWSER-CHAT-04 — DOM-event variant of 8: same flow, without
+  // the WS hop.
+  //
+  // TWO PRODUCERS SHARE THIS EVENT NAME, and they want opposite things:
+  //   · `ChatPane.handleSlashCommand` — `/browser <url>` typed by the user, who
+  //     is asking to LOOK: it goes into the topic's window, expanded;
+  //   · `TaskDetail` — the browser tabs of a task, replayed into the layout,
+  //     which the card keeps unchanged.
+  // The composer MARKS its own event (`source: 'slash-command'`) and that mark
+  // is the only thing that separates them. See the branch below.
   useEffect(() => {
     const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ topicId?: string; url?: string }>;
+      const ce = e as CustomEvent<{ topicId?: string; url?: string; source?: string }>;
       if (!ce.detail?.url) return;
       // Ownership: la stessa regola del ramo WS, e ora la stessa funzione
       // (groupClaimsBrowserNavigate) — questa era la copia CORRETTA, l'altra
@@ -619,10 +626,22 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // (resolveContextIdForTopic === topic.id), so bind the pane to it — same
         // reason as the WS browser:navigate path: keep the native CDP target on
         // the id the agent's tools resolve to.
-        // `/browser <url>` is an EXPLICIT request to look, so the window opens
-        // EXPANDED - unlike the agent's open, which at most wakes a hidden
-        // window into minimised.
-        if (!paneForContext(prev, ce.detail?.topicId)
+        // THIS EVENT HAS TWO PRODUCERS, and only one of them is `/browser`.
+        // The other is the task drawer (`TaskDetail`), which replays the
+        // browser tabs of a task and must keep landing in the layout: the card
+        // says "links from a task: unchanged". They are told apart by the mark
+        // the composer puts on its own event, NOT by guessing from the shape of
+        // the detail - `contextId` is present on one and absent on the other
+        // today, which is an accident and not a rule. Anyone widening this back
+        // to the bare event name breaks the task drawer in silence, which is
+        // how it was found: four e2e reds and a drawer that stopped opening
+        // panes.
+        //
+        // Only the typed command is an EXPLICIT request to look, so only it
+        // opens the window, and EXPANDED - unlike the agent's open (effect 8),
+        // which at most wakes a hidden window into minimised.
+        if (ce.detail?.source === 'slash-command'
+          && !paneForContext(prev, ce.detail?.topicId)
           && openInTopicWindow(ce.detail?.topicId, { contextId: ce.detail?.topicId ?? '', url: navigateUrl, openedBy: 'user', mode: 'exp' })) {
           return prev;
         }

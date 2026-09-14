@@ -1103,8 +1103,12 @@ function ChatPaneComponent({
       // Loosely-coupled signal: layout layer listens for browser:open-and-navigate
       // and ensureBrowserPane + navigates. Mirrors the existing browser:navigate
       // CustomEvent pattern used by server-driven detection.
+      // `source` is what tells this apart from the OTHER producer of the same
+      // event (the task drawer): only the command typed in the composer is an
+      // explicit request to LOOK, so only it opens the topic's window expanded.
+      // See the handler in `usePaneOrdering` (effect 8b).
       window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
-        detail: { topicId: topic.id, url: normalized },
+        detail: { topicId: topic.id, url: normalized, source: 'slash-command' },
       }));
       setCommandResult({ type: 'success', message: tr('chat.command.openingBrowser', { url: normalized }) });
       return true;

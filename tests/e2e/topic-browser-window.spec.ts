@@ -1269,6 +1269,59 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     }
   });
 
+  /** The DOM door, fired the way its two producers fire it. `source` is the
+   *  only thing that separates them. */
+  async function openAndNavigate(
+    page: Page,
+    topicId: string,
+    url: string,
+    source?: string,
+  ): Promise<void> {
+    await page.evaluate(
+      ({ tid, u, src }) => {
+        window.dispatchEvent(
+          new CustomEvent("browser:open-and-navigate", {
+            detail: { topicId: tid, url: u, ...(src ? { source: src } : {}) },
+          }),
+        );
+      },
+      { tid: topicId, u: url, src: source },
+    );
+  }
+
+  test("TOPIC-BROWSER-04c: solo il comando del composer va nella finestra, il resto nel layout", async ({ page, request }) => {
+    // `browser:open-and-navigate` has TWO producers: `/browser` typed in the
+    // composer, and the task drawer replaying a task's tabs. Only the first
+    // asks to LOOK, so only the first opens the window - and the mark on the
+    // event is the whole difference. Widen the rule back to the bare event
+    // name and this scenario goes red, which is why it exists.
+    const typed = await createTopic(request, `E2E-TBW-Slash-${Date.now()}`);
+    const replayed = await createTopic(request, `E2E-TBW-Replay-${Date.now()}`);
+    try {
+      await resetPaneStore(request, [typed.id, replayed.id]);
+      await goToApp(page);
+      await waitForTopicVisible(page, typed.id);
+      await selectTopic(page, typed.id);
+      await expect(page.locator('[data-testid="chat-panel"]').first()).toBeVisible({ timeout: 15000 });
+
+      // (a) The typed command: the window, EXPANDED, and no pane in the layout.
+      await openAndNavigate(page, typed.id, AGENT_URL("dal-composer"), "slash-command");
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 15000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "exp");
+      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
+
+      // (b) The same event WITHOUT the mark, on another topic of the same
+      // group: unchanged, i.e. a pane of the layout.
+      await openAndNavigate(page, replayed.id, AGENT_URL("dal-task"));
+      await expect(page.locator(`[data-pane-id="browser:${replayed.id}"]`)).toHaveCount(1, { timeout: 15000 });
+    } finally {
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, typed.id).catch(() => {});
+      await deleteTopic(request, replayed.id).catch(() => {});
+    }
+  });
+
   test("TOPIC-BROWSER-04b: con la scheda gia' promossa a tab, naviga la tab e nessuna finestra compare", async ({ page, request }) => {
     const topic = await createTopic(request, `E2E-TBW-AgentTab-${Date.now()}`);
     const url = AGENT_URL("sulla-tab");
