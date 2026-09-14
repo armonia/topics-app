@@ -74,17 +74,22 @@ test.describe.serial("Provider/Model picker", () => {
     // model id in `data-model` (the label shown is the friendly one, which
     // varies per provider) — matching on the attribute keeps this selector
     // independent of how the row is displayed.
+    //
+    // The engine picked here is `claude-code` on purpose, never "the first
+    // button": the isolated test server (scripts/start-test-server.sh) makes
+    // it ready, while the first engine in the list is "Claude (API)", which
+    // is not — clicking it left no enabled model and the test fell back to a
+    // conditional skip (card ac9e80cc). Ready is guaranteed, so the skip is
+    // gone: this is a hard assertion now.
     const popover = page.getByTestId("provider-model-popover");
     await popover.waitFor({ state: "visible", timeout: 5_000 });
-    const runtime = popover.locator('button[data-provider]').first();
-    if (await runtime.count() > 0) await runtime.click();
+    const runtime = popover.locator('button[data-provider="claude-code"]');
+    await expect(runtime).toBeVisible({ timeout: 5_000 });
+    await runtime.click();
     const enabledModel = popover
       .locator("button:not([disabled])[data-model]")
       .first();
-
-    if (await enabledModel.count() === 0) {
-      test.skip(true, "No 'ready' provider with models available in this environment");
-    }
+    await expect(enabledModel).toBeVisible({ timeout: 5_000 });
     await enabledModel.click();
 
     // Send message
