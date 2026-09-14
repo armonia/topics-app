@@ -16,7 +16,7 @@ import {
   __resetTaskTabs,
 } from './taskBrowserTabs';
 
-const uniq = (p: string) => `${p}-${Math.random().toString(36).slice(2)}`;
+const uniqueTaskId = (p: string) => `${p}-${Math.random().toString(36).slice(2)}`;
 
 describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   const REAL_FETCH = globalThis.fetch;
@@ -86,7 +86,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   };
 
   test('an OLDER frame arriving while our PUT travels is dropped', async () => {
-    const tid = uniq('seq-older');
+    const tid = uniqueTaskId('seq-older');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-i-0'), 100);
     served.set(key, recordOf('task-i-0'));
@@ -104,7 +104,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   });
 
   test('a NEWER frame arriving before our PUT answers is adopted, not lost', async () => {
-    const tid = uniq('seq-newer');
+    const tid = uniqueTaskId('seq-newer');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-n-0'), 100);
     served.set(key, recordOf('task-n-0'));
@@ -122,7 +122,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   });
 
   test('a resync GET issued before a close does not resurrect the tab', async () => {
-    const tid = uniq('seq-read');
+    const tid = uniqueTaskId('seq-read');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-r-0'), 100);
     served.set(key, recordOf('task-r-0'));
@@ -144,7 +144,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   });
 
   test('a PUT that fails releases the frame it was holding', async () => {
-    const tid = uniq('seq-failed');
+    const tid = uniqueTaskId('seq-failed');
     applyRemoteTaskTabs(tid, recordOf('task-f-0'), 100);
 
     taskBrowserTabs.removeTab(tid, 'task-f-0');
@@ -160,7 +160,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // ever came back for it: the write settled, the frame another device had sent
   // while the socket was down was gone, and the two copies stayed apart.
   test('a key the resync skipped is re-read when its write settles', async () => {
-    const tid = uniq('seq-owed');
+    const tid = uniqueTaskId('seq-owed');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-o-0'), 100);
     served.set(key, recordOf('task-o-0'));
@@ -187,7 +187,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // old row) puts the closed tab back and the resync defect returns through the
   // door opened to fix it.
   test('a read owed to a resync does not resurrect a close committed while it travels', async () => {
-    const tid = uniq('seq-owed-stale');
+    const tid = uniqueTaskId('seq-owed-stale');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-w-0'), 100);
     served.set(key, recordOf('task-w-0'));
@@ -217,7 +217,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // against the OTHER devices, so a GET that left when the row said [b] put [b]
   // back over a [c] that had landed meanwhile, and the copies stayed apart.
   test('an owed read does not undo a newer frame that landed while it travelled', async () => {
-    const tid = uniq('read-seq-owed');
+    const tid = uniqueTaskId('read-seq-owed');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-ro-0'), 100);
     served.set(key, recordOf('task-ro-0'));
@@ -244,7 +244,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   });
 
   test('the bulk resync does not undo a newer frame either', async () => {
-    const tid = uniq('read-seq-bulk');
+    const tid = uniqueTaskId('read-seq-bulk');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-rb-0'), 100);
     served.set(key, recordOf('task-rb-0'));
@@ -269,7 +269,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // be wedged -- and these keys are excluded from `ui-state:init`, so the read
   // refused as "old" is the only thing that realigns them.
   test('a seq that went backwards does not wedge a key we never wrote', async () => {
-    const tid = uniq('regress-unwritten');
+    const tid = uniqueTaskId('regress-unwritten');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-g-a'), 500);
     served.set(key, recordOf('task-g-a'));
@@ -293,7 +293,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   });
 
   test('a seq that went backwards does not wedge a key we wrote ourselves', async () => {
-    const tid = uniq('regress-written');
+    const tid = uniqueTaskId('regress-written');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-h-a', 'task-h-x'), 100);
     served.set(key, recordOf('task-h-a', 'task-h-x'));
@@ -318,7 +318,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // Two resyncs can overlap (a socket that goes and comes back sends two inits):
   // the older GET answering LAST must not undo what the newer one applied.
   test('an overlapping read answered last does not undo the newer read', async () => {
-    const tid = uniq('overlap-reads');
+    const tid = uniqueTaskId('overlap-reads');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-o-a'), 100);
     served.set(key, recordOf('task-o-b'));
@@ -348,7 +348,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // every frame from the other devices reads as our own past and is dropped,
   // for as many writes as the rollback threw away.
   test('a seq that went backwards does not make us drop the other devices', async () => {
-    const tid = uniq('rollback-frames');
+    const tid = uniqueTaskId('rollback-frames');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-r-old', 'task-r-x'), 100);
     served.set(key, recordOf('task-r-old', 'task-r-x'));
@@ -372,7 +372,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   });
 
   test('a frame dropped after a rollback is not overwritten by our next edit', async () => {
-    const tid = uniq('rollback-commit');
+    const tid = uniqueTaskId('rollback-commit');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-s-old', 'task-s-x'), 100);
     served.set(key, recordOf('task-s-old', 'task-s-x'));
@@ -401,7 +401,7 @@ describe('a write in flight is arbitrated by server_seq, not by a flag', () => {
   // A record forgotten because its task was archived must not be resurrected by
   // a GET issued before the archiving: the deletion is an applied value too.
   test('a read answered after the task was forgotten does not resurrect it', async () => {
-    const tid = uniq('forget-during-read');
+    const tid = uniqueTaskId('forget-during-read');
     const key = `task-browser-tabs:${tid}`;
     applyRemoteTaskTabs(tid, recordOf('task-t-a'), 100);
     served.set(key, recordOf('task-t-c'));
