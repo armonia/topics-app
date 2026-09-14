@@ -10,6 +10,7 @@ import {
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { expectNoRowAboveThePage } from "./helpers/browser-geometry";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -443,7 +444,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("menu Download: la voce compare nella toolbar, si apre da sé, si toglie e si svuota [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+  test("Download: the cue appears in the tab, the click opens the sheet, and no row over the page [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -467,28 +468,54 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
         state: "completed",
       });
 
-      // 1. Il download si annuncia da solo: bottone nella toolbar + menu aperto
-      //    (la vecchia striscia in fondo alla pane non c'è più).
-      const button = page.locator('[data-testid="browser-downloads-button"]');
-      await expect(button).toBeVisible({ timeout: 5000 });
-      await expect(page.locator('[data-testid="browser-download-strip"]')).toHaveCount(0);
-      const menu = page.locator('[data-testid="browser-downloads-menu"]');
+      // 1. THE FILE ANNOUNCES ITSELF AND OPENS NOTHING. The cue lights up in
+      //    the tab's quiet rail; the page stays uncovered and live. No address
+      //    row over the page, and no old strip at the foot of the pane either.
+      // AT REST it is the inert signal in the quiet rail; the pressable twin
+      // lives in the command rail, which only exists under the pointer (the two
+      // rails take turns by design: `index.css`, `.row-trail`).
+      const signal = page.getByTestId("browser-tab-downloads-signal");
+      await expect(signal).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
+      await expectNoRowAboveThePage(page, "a download brings no row over the page");
+      await expect(page.getByTestId("browser-tab-sheet"), "a download does not open the sheet").toHaveCount(0);
+
+      // 2. THE CLICK ON THE CUE IS WHAT OPENS, with the sheet already on its
+      //    Downloads section - and without taking the address caret.
+      await page.locator('[data-pane-id^="browser:"]').first().hover();
+      const cue = page.getByTestId("browser-tab-downloads-cue");
+      await cue.click();
+      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 5000 });
+      await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
+      const menu = page.getByTestId("browser-downloads-menu");
       await expect(menu).toBeVisible({ timeout: 5000 });
       const link = menu.locator('[data-testid="browser-download-item"]');
       await expect(link).toContainText("report.pdf");
       await expect(link).toHaveAttribute("href", "/media/browser/downloads/report.pdf");
       await expect(menu.locator('[data-testid="browser-download-entry"]')).toHaveText(/4 KB/);
 
-      // 2. È CHIUDIBILE — il reclamo originale. Esc lo chiude, il bottone lo riapre.
+      // 3. IT IS DISMISSIBLE - the original complaint. Escape closes the LIST
+      //    and only the list: the first Esc is the popover's, and the sheet has
+      //    to survive it (a listener in capture on the document closed both at
+      //    once). The row inside the sheet reopens the list.
       await page.keyboard.press("Escape");
       await expect(menu).toHaveCount(0);
-      await button.click();
+      await expect(page.getByTestId("browser-tab-sheet"), "the first Esc leaves the sheet open").toHaveCount(1);
+      await page.getByTestId("browser-tab-downloads").click();
       await expect(menu).toBeVisible();
 
-      // 3. La voce si toglie a mano, e con l'ultima sparisce anche il bottone
-      //    (a riposo la toolbar torna com'era).
+      // 4. An entry is dismissed by hand, and with the last one the tab's cue
+      //    goes too: at rest the rail is back the way it was.
       await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
-      await expect(button).toHaveCount(0);
+      await expect(cue).toHaveCount(0);
+      await expect(signal).toHaveCount(0);
+
+      // 5. ...and ESC STILL CLOSES THE SHEET, although this door never put the
+      //    caret in the address field: the focus is nowhere near it.
+      await expect(page.getByTestId("browser-tab-sheet"), "dismissing an entry left the sheet open").toHaveCount(1);
+      await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("browser-tab-sheet"), "Esc closes the sheet from any focus").toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

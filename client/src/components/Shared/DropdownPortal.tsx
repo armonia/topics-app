@@ -10,8 +10,8 @@ interface DropdownPortalProps {
 
 /**
  * DropdownPortal — retained as a thin, API-compatible wrapper over the `Menu`
- * primitive. Its five call-sites (TopicTree, TopicItem, BrowserToolbar,
- * BreadcrumbNav) keep the exact same props but now inherit, for free, the flip/
+ * primitive. Its call-sites (TopicTree, BreadcrumbNav) keep the exact same
+ * props but now inherit, for free, the flip/
  * clamp placement, Escape + capture-phase outside-close, roving keyboard nav,
  * `role="menu"`, focus-restore and the `Z_POPOVER` token that `Menu` provides.
  * New code should import `Menu` directly; this shim exists so the migration
