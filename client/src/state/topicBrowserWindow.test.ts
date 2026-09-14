@@ -151,11 +151,11 @@ describe('resolveMinRect (the corner survives a resize of the app)', () => {
   // A composer DOCKED at the bottom: there is no room underneath, so the
   // window has to start above it. The old default corner (24px from the
   // bottom) sat right on the send button.
-  const DOCKED_COMPOSER = { top: 900 - 140, bottom: 900 };
+  const DOCKED_COMPOSER = { top: 900 - 140, bottom: 900, centered: false };
   // A composer CENTERED in an empty topic: the bottom of the area is free,
   // and that is where the window belongs. Pushing it above a centered
   // composer would pin it to the ceiling and kill the drag.
-  const CENTERED_COMPOSER = { top: 340, bottom: 448 };
+  const CENTERED_COMPOSER = { top: 340, bottom: 448, centered: true };
 
   test('the default corner sits ABOVE a docked composer, never on top of it', () => {
     const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
@@ -188,7 +188,7 @@ describe('resolveMinRect (the corner survives a resize of the app)', () => {
     const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, {
       width: 600,
       height: 360,
-      composer: { top: 60, bottom: 360 },
+      composer: { top: 60, bottom: 360, centered: false },
     });
     expect(r.top).toBeGreaterThanOrEqual(0);
     expect(r.top + r.height).toBeLessThanOrEqual(360);

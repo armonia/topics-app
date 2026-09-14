@@ -45,12 +45,12 @@ import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
-  FLOAT_MARGIN_PX,
   MIN_WINDOW_SIZE,
+  type ComposerBand,
   EXPANDED_WIDTH_BOUNDS,
   getTopicWindow,
   resolveMinRect,
-  resolveComposerFloor,
+  resolveComposerAvoidance,
   subscribeTopicWindows,
   topicBrowserWindow,
   type TopicBrowserWindowState,
@@ -123,8 +123,8 @@ function useAreaRect(areaRef: AreaRef): Rect | null {
  *  transcript pushes it, and sits in the MIDDLE while the topic is empty.
  *  The floating window keeps off that band, so the send button stays
  *  clickable. Null while there is nothing to measure. */
-function useComposerBand(areaRef: AreaRef): { top: number; bottom: number } | null {
-  const [band, setBand] = useState<{ top: number; bottom: number } | null>(null);
+function useComposerBand(areaRef: AreaRef): ComposerBand | null {
+  const [band, setBand] = useState<ComposerBand | null>(null);
   useEffect(() => {
     const root = areaRef.current;
     if (!root) return;
@@ -153,13 +153,14 @@ function useComposerBand(areaRef: AreaRef): { top: number; bottom: number } | nu
           styles.observe(composer, { attributes: true, attributeFilter: ['style', 'class'] });
         }
       }
-      const box = composer?.getBoundingClientRect();
+      const box = (composer?.querySelector('form') ?? composer)?.getBoundingClientRect();
       const bounds = host.getBoundingClientRect();
       setBand(
         box && box.height > 0
           ? {
               top: Math.max(0, Math.round(box.top - bounds.top)),
               bottom: Math.max(0, Math.round(box.bottom - bounds.top)),
+              centered: composer?.getAttribute('data-composer-centered') === 'true',
             }
           : null,
       );
@@ -356,8 +357,10 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     // Freezing paints a still image over every native view: a bar that is only
     // being clicked must not pay for it, so it is armed at the first real move.
     let release: (() => void) | null = null;
-    const floor = resolveComposerFloor({ height: area.height, composer: band ?? undefined }, start.height);
-    const floorBottom = floor > 0 ? Math.min(floor + FLOAT_MARGIN_PX, Math.max(0, area.height - start.height)) : 0;
+    const guard = resolveComposerAvoidance(
+      { height: area.height, composer: band ?? undefined },
+      start.height,
+    );
     let latest = { right: area.width - start.left - start.width, bottom: area.height - start.top - start.height };
     const onMove = (ev: PointerEvent): void => {
       if (!release && Math.abs(ev.clientX - originX) + Math.abs(ev.clientY - originY) < DRAG_THRESHOLD_PX) return;
@@ -366,7 +369,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
         right: Math.max(0, Math.min(area.width - start.width, area.width - start.left - start.width - (ev.clientX - originX))),
         // Clamped at the source too, not only on the way out: what gets
         // persisted is a position the window can actually hold.
-        bottom: Math.max(floorBottom, Math.min(area.height - start.height, area.height - start.top - start.height - (ev.clientY - originY))),
+        bottom: Math.max(guard.floor, Math.min(area.height - start.height, area.height - start.top - start.height - (ev.clientY - originY))),
       };
       setDragPos(latest);
     };

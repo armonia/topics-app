@@ -279,50 +279,62 @@ export function reconcilePromoted(
  *  between the floating window and the composer below it. */
 export const FLOAT_MARGIN_PX = 24;
 
-/** How high the window has to start so it clears the composer: 0 while it
- *  still fits underneath, the whole band from the composer's top otherwise. */
-export function resolveComposerFloor(
-  area: { height: number; composer?: { top: number; bottom: number } },
+/** The composer, as an obstacle: where its BAR lies inside the area (px from
+ *  the top) and whether the topic is still empty, which centres it. */
+export type ComposerBand = { top: number; bottom: number; centered: boolean };
+
+/** Where the window may sit so it does not cover the composer: `floor` is the
+ *  lowest `bottom` a drag may reach, `defaultBottom` the one it starts from.
+ *
+ *  Two cases, and the difference is measured, not assumed. A DOCKED composer
+ *  leaves no room underneath, so the window climbs above its bar. A CENTRED
+ *  composer (an empty topic) leaves the whole lower half free, so the window
+ *  keeps the bottom corner, tucked just under the bar when the corner itself
+ *  would touch it.
+ *
+ *  The floor is NOT applied while the composer is centred: there the free band
+ *  is 18px tall (measured at 1280x800), a clamp would pin the window and kill
+ *  the vertical drag, and the state is transient anyway since the composer
+ *  docks with the first message. */
+export function resolveComposerAvoidance(
+  area: { height: number; composer?: ComposerBand },
   height: number,
-): number {
+): { floor: number; defaultBottom: number } {
   const band = area.composer;
-  if (!band || band.bottom <= band.top) return 0;
+  if (!band || band.bottom <= band.top) return { floor: 0, defaultBottom: FLOAT_MARGIN_PX };
   const below = area.height - band.bottom;
-  if (below >= height + FLOAT_MARGIN_PX) return 0;
-  return Math.max(0, Math.round(area.height - band.top));
+  if (below >= height) {
+    return { floor: 0, defaultBottom: Math.min(FLOAT_MARGIN_PX, Math.round(below - height)) };
+  }
+  const climb = Math.max(0, Math.round(area.height - band.top));
+  return { floor: band.centered ? 0 : climb + FLOAT_MARGIN_PX, defaultBottom: climb + FLOAT_MARGIN_PX };
 }
 
 /** Where the minimized window really sits, given the size of the topic area.
  *  Anchored to the bottom-right: a narrower area moves `left`, never the
  *  distance from the corner, which is why the window survives a resize.
  *
- *  `area.composer` is where the composer lies, in px from the top of the area.
- *  The window is not allowed to overlap it, by default or after a drag: the
- *  default corner used to be 24px from the bottom, which in a 1280x800 topic
- *  put the window right over the send button, «Invia il messaggio». allow-italian: quoted UI label
- *  Measured: elementFromPoint on that button answered the window, in every
- *  topic, from the first delivery on. A floating window is not allowed to
- *  stand between a person and sending their message.
+ *  `area.composer` is the composer as an obstacle. The window does not cover
+ *  it: the default corner used to be 24px from the bottom, which in a 1280x800
+ *  topic put the window right on the send button, «Invia il messaggio», in
+ *  every topic and since the first delivery. allow-italian: quoted UI label
+ *  A floating window is not allowed to stand between a person and sending
+ *  their message.
  *
- *  It is a BAND, not a floor, because the composer is not always at the
- *  bottom: an empty topic centres it, and then the free room is BELOW it.
- *  So the window keeps the bottom corner whenever it still fits under the
- *  composer, and only climbs above the composer when it does not. Reading it
- *  as a floor pinned the window to the top of an empty topic and killed the
- *  vertical drag. When the area is too short for either, the window keeps
- *  what is left instead of being pushed out of the top. */
+ *  When the area is too short for either side the window keeps what is left,
+ *  instead of being pushed out of the top. */
 export function resolveMinRect(
   state: TopicBrowserWindowState,
-  area: { width: number; height: number; composer?: { top: number; bottom: number } },
+  area: { width: number; height: number; composer?: ComposerBand },
   size: { width: number; height: number } = MIN_WINDOW_SIZE,
 ): { left: number; top: number; width: number; height: number } {
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
-  const floor = resolveComposerFloor(area, height);
-  const pos = state.minPos ?? { right: FLOAT_MARGIN_PX, bottom: floor + FLOAT_MARGIN_PX };
+  const avoid = resolveComposerAvoidance(area, height);
+  const pos = state.minPos ?? { right: FLOAT_MARGIN_PX, bottom: avoid.defaultBottom };
   const right = Math.min(pos.right, Math.max(0, area.width - width));
   const maxBottom = Math.max(0, area.height - height);
-  const minBottom = floor > 0 ? Math.min(floor + FLOAT_MARGIN_PX, maxBottom) : 0;
+  const minBottom = Math.min(avoid.floor, maxBottom);
   const bottom = Math.min(Math.max(pos.bottom, minBottom), maxBottom);
   return { left: area.width - right - width, top: area.height - bottom - height, width, height };
 }
