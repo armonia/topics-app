@@ -6,8 +6,8 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { smoothedOther, DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
-import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
+import { smoothedOther, newOtherLoadState, DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
+import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff, machineBudget } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
 /** A fleet reading with only the two fields the count cap looks at written by
@@ -89,8 +89,8 @@ describe("effectiveDispatchCap — quanti agenti insieme, now", () => {
 });
 
 describe("structuralDispatchCapacity — quanti ne regge in REGIME, non now", () => {
-  test("non guarda il carico: due letture di fila danno lo stesso numero", () => {
-    // La raccomandazione viva può cambiare fra due chiamate (il load si muove);
+  test("non guarda il carico: due readings di fila danno lo stesso numero", () => {
+    // La raccomandazione viva può saltare fra due chiamate (il load si muove);
     // questa no, ed è il motivo per cui la quota di core divide per questa.
     expect(structuralDispatchCapacity()).toBe(structuralDispatchCapacity());
   });
@@ -103,7 +103,7 @@ describe("structuralDispatchCapacity — quanti ne regge in REGIME, non now", ()
   });
 
   test("la raccomandazione viva non la supera mai: è il tetto meno ciò che il carico si è già preso", () => {
-    // A riposo il carico non morde e le due letture coincidono; underCeiling carico la
+    // A riposo il carico non morde e le due readings coincidono; underCeiling carico la
     // viva scende SOTTO la strutturale. Mai il contrario: la strutturale è il
     // tetto, la viva è il tetto meno quello che il carico si è già preso.
     expect(computeDispatchCapacity().recommended).toBeLessThanOrEqual(structuralDispatchCapacity());
@@ -293,9 +293,9 @@ describe("il pavimento sulla memoria", () => {
   ].join("\n");
 
   test("il pavimento resta coerente col numero nuovo: la sera NO, la macchina sana SI'", () => {
-    // ITEM 3 DELLA CARD, e il verso che non si vede: cambiando il significato
+    // ITEM 3 DELLA CARD, e il verso che non si vede: jumpsando il significato
     // di `availableMemGB` senza ritoccare `DISPATCH_MEM_FLOOR_GB` si poteva
-    // rendere il cancello molto piu' severo SENZA cambiare un numero - una
+    // rendere il cancello molto piu' severo SENZA jumpsare un numero - una
     // politica nuova entrata di soppiatto, col silenzio come sintomo. Qui i due
     // campioni veri passano dal pavimento VERO, non da una soglia di comodo.
     const thatNight = [
@@ -519,22 +519,70 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(b.slots).toBe(2);
   });
 
-  test("the median smooths a one-second spike, but not a load that lasts", () => {
-    const history: number[] = [];
-    // Three quiet readings, then a one-second spike: the median does not move,
-    // so the door does not close because the machine coughed once.
-    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
-    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
-    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
-    expect(smoothedOther(11, history)).toBeCloseTo(1, 5);
-    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
-    // A real load lasts: three high readings out of five and the median takes it.
-    expect(smoothedOther(9, history)).toBeCloseTo(1, 5);
-    expect(smoothedOther(9, history)).toBeCloseTo(9, 5);
-    expect(smoothedOther(9, history)).toBeCloseTo(9, 5);
-    // Not measured does not enter the history and does not use it up.
-    expect(smoothedOther(null, history)).toBeNull();
-    expect(history).toHaveLength(5);
+  test("the median smooths a one second spike, but not a load that lasts", () => {
+    const state = newOtherLoadState();
+    // The dispatcher tick is ~10 s, so five readings sit inside the 45 s
+    // window. Three quiet readings, then a one second spike: the median does
+    // not move, so the door does not shut over a cough of the machine.
+    expect(smoothedOther(1, state, 0)).toBeCloseTo(1, 5);
+    expect(smoothedOther(1, state, 10_000)).toBeCloseTo(1, 5);
+    expect(smoothedOther(1, state, 20_000)).toBeCloseTo(1, 5);
+    expect(smoothedOther(11, state, 30_000)).toBeCloseTo(1, 5);
+    expect(smoothedOther(1, state, 40_000)).toBeCloseTo(1, 5);
+    // A real load lasts: half a window above it and the median takes it.
+    expect(smoothedOther(9, state, 50_000)).toBeCloseTo(1, 5);
+    expect(smoothedOther(9, state, 60_000)).toBeCloseTo(9, 5);
+    expect(smoothedOther(9, state, 70_000)).toBeCloseTo(9, 5);
+    // Not measured does not enter the history and does not consume it.
+    expect(smoothedOther(null, state, 80_000)).toBeNull();
+    expect(state.samples).toHaveLength(5);
+  });
+
+  test("it widens only when the WHOLE window is under: half a quiet is not enough", () => {
+    const state = newOtherLoadState();
+    for (let i = 0; i < 5; i++) smoothedOther(9, state, i * 10_000);
+    expect(state.held).toBeCloseTo(9, 5);
+    // Two quiet readings: the machine MIGHT have freed up, but the load is
+    // still inside the window. The ceiling does not reopen on a trough.
+    expect(smoothedOther(1, state, 50_000)).toBeCloseTo(9, 5);
+    expect(smoothedOther(1, state, 60_000)).toBeCloseTo(9, 5);
+    // When the last high reading falls out of the window, the ceiling widens.
+    smoothedOther(1, state, 70_000);
+    smoothedOther(1, state, 80_000);
+    expect(smoothedOther(1, state, 90_000)).toBeCloseTo(1, 5);
+  });
+
+  test("the window is TIME, not a count of readings: more readers do not shorten it", () => {
+    // Three different readers (tick, panel, governor) sample at the same
+    // instant. With a window counted in readings the history would already be
+    // full of "now"; with a window of time, the reading from a minute ago is
+    // out anyway and the one from twenty seconds ago is in anyway.
+    const state = newOtherLoadState();
+    smoothedOther(1, state, 0);
+    for (const t of [80_000, 80_000, 80_000]) smoothedOther(9, state, t);
+    expect(state.samples).toHaveLength(3);
+    smoothedOther(9, state, 100_000);
+    expect(state.samples.length).toBeGreaterThan(1);
+  });
+
+  test("HYSTERESIS: an alternating burst does NOT make the ceiling oscillate", () => {
+    // The proof the card asks for: somebody else's CPU slams between 1 and 11
+    // core-units at every tick. Without a band the usable ceiling would jump
+    // between 8.8 and 0.8 at every breath of the machine; here it settles on
+    // one number and stays there.
+    const state = newOtherLoadState();
+    const usable = (other: number, at: number) =>
+      machineBudget(
+        { cores: 12, totalMemGB: 32, ourCoreUnits: 0, otherCoreUnits: smoothedOther(other, state, at), ourMemGB: 0, availableMemGB: 16, running: 0 },
+        0.8,
+      ).usableCoreUnits;
+    const readings: number[] = [];
+    for (let i = 0; i < 12; i++) readings.push(usable(i % 2 ? 11 : 1, i * 10_000));
+    // One single transition across twelve readings, then it stops moving.
+    const jumps = readings.filter((v, i) => i > 0 && Math.abs(v - readings[i - 1]!) > 1e-9).length;
+    expect(jumps).toBe(1);
+    const steady = readings.slice(6);
+    for (const v of steady) expect(v).toBeCloseTo(steady[0]!, 5);
   });
 
   test("agenti che compilano: il tetto scende underCeiling lo strutturale", () => {
@@ -593,6 +641,19 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
     // così piccola che il tetto strutturale è già il pavimento (due o meno) il
     // freno non ha spazio per mordere, e la riga giustamente non lo dice.
     if (strutturale > 2) expect(cap.reason).toContain("ridotto a");
+  });
+
+  // The memory figures the panel can explain a memory hold with. Which axis
+  // blocks travels as `admission`, from the dispatcher (task-dispatcher-pressure).
+  test("the wire carries what one agent costs in memory and the share of the free it is compared with", () => {
+    const priceList = { coreUnits: () => [0.5], memGB: () => [2] };
+    const cap = computeDispatchCapacity(
+      4, () => fleetReading({ coreUnits: 0.2, cores }), false, () => 0.3,
+      { share: 0.8, frozen: 0 }, priceList,
+    );
+    expect(cap.agentCostMemGB).toBe(2);
+    // Rounded to one decimal like every other figure on the wire: 0.8 x 0.3.
+    expect(cap.freeQuotaMemGB).toBe(0.2);
   });
 
   test("senza sonda (Windows, cache fredda) resta il conto storico sul load", () => {
@@ -686,7 +747,7 @@ describe("il pavimento della memoria segue il runtime", () => {
 
   test("il disco viene prima della RAM, su entrambi i runtime", () => {
     // Un disco pieno rompe (SQLite smette di scrivere) mentre la RAM degrada:
-    // l'ordine non cambia col runtime.
+    // l'ordine non jumpsa col runtime.
     for (const processi of [true, false]) {
       const r = dispatchResourceBlock("/tmp", () => 1, ram(0.5), processi);
       expect(r).toContain("Disco quasi pieno");
