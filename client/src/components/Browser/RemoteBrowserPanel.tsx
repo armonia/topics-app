@@ -728,6 +728,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   usePaneHold(browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
+  // The way home for a page lent by a topic's window. It has to be HERE too and
+  // not only on the native branch: on the web this is the only branch there is,
+  // and without it a promoted tab has no reachable way back.
+  const returnToTopicWindow = useReturnToTopicWindow(contextId, { url: browser.url, title: browser.title });
   const [forgetOpen, setForgetOpen] = useState(false);
 
   // I download della pane CONDIVISA finiscono sul server, non su questo
@@ -809,6 +813,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     forward: () => { void browser.goForward(); },
     openExternal: () => { if (browser.url) openExternalOnce(browser.url); },
     backToSpawner: backToSpawner?.onBackToSpawner,
+    returnToTopicWindow,
     toggleShare: onToggleShare,
     // THE TWO SWITCHES THAT USED TO BE PILLS OVER THE PAGE (TOPIC-BROWSER-03),
     // now rows of the sheet's Session section. Each is offered only where it
@@ -825,7 +830,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       ? (m: 'dom' | 'video') => browser.setRenderMode(m)
       : undefined,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
-  }), [browser, sharedCanForget, onToggleShare, backToSpawner, useIframe]);
+  }), [browser, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while

@@ -38,6 +38,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
@@ -66,7 +67,7 @@ import {
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { tauriInvoke } from '../../lib/shell/tauri';
-import { DEFAULT_EXPANDED_WIDTH, MIN_CHAT_WIDTH } from './topicBrowserWindowLazy';
+import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
  *  so the reconciler must not read its absence as "the tab was closed". */
 const PROMOTION_GRACE_MS = 5000;
@@ -138,9 +139,6 @@ function raiseNativeView(contextId: string): void {
 
 /** Tell the native views to re-measure: a window that MOVED without changing
  *  size fires no ResizeObserver, so nothing else would. */
-/** The plane of the scrim that closes the "+" menu: below the menu, above all. */
-const MENU_SCRIM_LAYER = 'z-40';
-
 function requestReflow(contextId?: string): void {
   // Targeted when we know whose page moved: an untargeted request makes every
   // native view in the app re-send its bounds, and here only one moved.
@@ -230,9 +228,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       return { left: area.left + local.left, top: area.top + local.top, width: local.width, height: local.height };
     }
     if (state.mode === 'exp') {
-      // Same floor the chat uses for its padding: the two edges must be the
-      // same edge, and neither side may eat the other whole.
-      const width = Math.min(expandedWidth, Math.max(MIN_WINDOW_SIZE.width, area.width - MIN_CHAT_WIDTH));
+      // The same number the chat cedes, from the same function: the window's
+      // left edge and the chat's padding are one edge, not two formulas.
+      const width = expandedInsetFor(area.width, expandedWidth);
       return { left: area.left + area.width - width, top: area.top, width, height: area.height };
     }
     const local = resolveMinRect(
@@ -363,7 +361,27 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     return () => { window.removeEventListener('keydown', onKey); };
   }, [addOpen, layoutBrowsers.length]);
   if (!topicId) return null;
-  if (!barOnly && (state.mode === 'hidden' || !state.tabs.length)) return null;
+  if (!barOnly && !state.tabs.length) return null;
+  // Hidden, but the topic still HAS pages: the X puts the window away,
+  // it does not throw the pages away, so there must be a way back.
+  if (!barOnly && state.mode === "hidden") {
+    if (!rect) return null;
+    return createPortal(
+      <button
+        type="button"
+        data-testid="topic-browser-reopen"
+        title={tr("topicBrowser.reopen")}
+        aria-label={tr("topicBrowser.reopen")}
+        onClick={() => topicBrowserWindow.setMode(topicId, "min")}
+        className="fixed rounded-full border border-app-border bg-surface px-3 py-1.5 text-xs shadow-lg"
+        style={{ left: rect.left + rect.width - 220, top: rect.top + rect.height - 44 }}
+      >
+        {tr("topicBrowser.reopen")}
+      </button>,
+      document.body,
+    );
+  }
+
 
   // The topic is not the one on screen (its chat pane is collapsed to zero, or
   // it was never measured): the window is PARKED, not unmounted. Unmounting it
@@ -468,12 +486,22 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
       </div>
       {addOpen && menuAnchor && createPortal(
         <>
-          <div data-testid="topic-browser-add-backdrop" className={`fixed inset-0 ${MENU_SCRIM_LAYER}`} onPointerDown={() => setAddOpen(false)} />
+          <div
+            data-testid="topic-browser-add-backdrop"
+            className="fixed inset-0"
+            style={{ zIndex: Z_POPOVER_SCRIM }}
+            onPointerDown={() => setAddOpen(false)}
+          />
           <div
             data-testid="topic-browser-add-menu"
             role="menu"
-            className="fixed z-50 min-w-[220px] overflow-auto py-1 rounded-md border border-app-border bg-surface shadow-lg"
-            style={{ left: menuAnchor.left, top: menuAnchor.top, maxHeight: menuAnchor.maxHeight }}
+            className="fixed min-w-[220px] overflow-auto py-1 rounded-md border border-app-border bg-surface shadow-lg"
+            style={{
+              left: menuAnchor.left,
+              top: menuAnchor.top,
+              maxHeight: menuAnchor.maxHeight,
+              zIndex: Z_CONTEXT_MENU,
+            }}
           >
             <button
               data-testid="topic-browser-add-new"

@@ -66,6 +66,35 @@ export const DEFAULT_EXPANDED_WIDTH = 520;
  *  otherwise push the conversation down to a sliver, or past zero. */
 export const MIN_CHAT_WIDTH = 320;
 
+/**
+ * HOW MUCH THE CHAT ACTUALLY CEDES, computed ONCE for both sides.
+ *
+ * The window's left edge and the chat's right padding have to be the SAME
+ * edge. They were two formulas: the window floored its width at its own
+ * minimum, the padding did not, and between 320 and 740 px of area the window
+ * came out wider than the space the chat had given up. The difference landed
+ * on the composer, which the page then covered (measured at 900 px: 96 px of
+ * "send" under the window, and `elementFromPoint` returning the window).
+ *
+ * So there is one number now, and whoever needs it asks for it. The chat's
+ * floor wins over the window's preferred minimum: a window a bit narrower than
+ * it would like is a nuisance, a covered composer is a broken chat.
+ */
+export function expandedInsetFor(areaWidth: number, requestedWidth: number): number {
+  return Math.max(0, Math.min(requestedWidth, areaWidth - MIN_CHAT_WIDTH));
+}
+
+/**
+ * The same rule as `expandedInsetFor`, written for CSS.
+ *
+ * The chat pads ITSELF, so it cannot pass its own width in: `100%` is that
+ * width (padding grows inward, the border box does not move). Same clamp, same
+ * floor, stated next to the function it has to agree with.
+ */
+export function expandedInsetCss(requestedWidth: number): string {
+  return `max(0px, min(${requestedWidth}px, calc(100% - ${MIN_CHAT_WIDTH}px)))`;
+}
+
 const ABSENT: TopicBrowserPresence = { mode: 'hidden', expandedWidth: null, sheets: 0, promoted: 0 };
 
 const same = (a: TopicBrowserPresence, b: TopicBrowserPresence): boolean =>

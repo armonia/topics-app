@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
-import { TopicBrowserWindow, useTopicBrowserPresence, DEFAULT_EXPANDED_WIDTH, MIN_CHAT_WIDTH } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, DEFAULT_EXPANDED_WIDTH, expandedInsetCss } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -341,7 +341,7 @@ function ChatPaneComponent({
   // The topic's browser window, when no `ChatPanel` above is already drawing
   // it. Expanded it takes width away from this pane ALONE: the padding lives
   // inside the pane, so the grid keeps tiling the columns it always tiled, and
-  // the clamp is `MIN_CHAT_WIDTH` of THIS pane, not of the whole window.
+  // the clamp is the chat minimum of THIS pane, not of the whole window.
   const browserWindow = useTopicBrowserPresence(
     ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
   );
@@ -1655,7 +1655,7 @@ function ChatPaneComponent({
       // not just laid out there. The horizontal containment is unchanged. See
       // the block on `.chrome-passthrough-y` in index.css.
       className="relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full"
-      style={browserInset ? { paddingRight: `max(0px, min(${browserInset}px, calc(100% - ${MIN_CHAT_WIDTH}px)))` } : undefined}
+      style={browserInset ? { paddingRight: expandedInsetCss(browserInset) } : undefined}
       // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
       // nuova non si richiude più da sola. In cattura, perché deve valere anche
       // per i clic che un figlio si tiene per sé. Vedi `state/draftPane.ts`.

@@ -13,7 +13,7 @@
  * page the window is now showing, and the same contextId would end up in two
  * panels fighting over `set_bounds` of one native view.
  */
-import { useCallback, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters/paneConfig';
 import { reclaimProjectBrowserPane } from '../../state/pane/adapters/projectBrowserPanes';
@@ -69,6 +69,22 @@ export function returnSheetToWindow(sheet: ReturningSheet, topicId?: string): st
  * under the pane: the window can take the page back from its own bar, and the
  * item must disappear with it.
  */
+/**
+ * The decision behind the command, as a pure function: is there a way home
+ * for this page, and what does taking it do.
+ *
+ * Split out of the hook so it can be tested without a renderer: this project
+ * has no hook-testing harness, and "the item appears only for a lent page" is
+ * exactly the part worth pinning down.
+ */
+export function returnCommandFor(
+  owner: string | null,
+  sheet: ReturningSheet,
+): (() => void) | undefined {
+  if (!owner) return undefined;
+  return () => { returnSheetToWindow(sheet); };
+}
+
 export function useReturnToTopicWindow(
   contextId: string,
   page: { url?: string; title?: string },
@@ -80,8 +96,8 @@ export function useReturnToTopicWindow(
   );
   const url = page.url;
   const title = page.title;
-  const back = useCallback(() => {
-    returnSheetToWindow({ contextId, url, title });
-  }, [contextId, url, title]);
-  return owner ? back : undefined;
+  return useMemo(
+    () => returnCommandFor(owner, { contextId, url, title }),
+    [owner, contextId, url, title],
+  );
 }

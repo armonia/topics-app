@@ -537,6 +537,7 @@ const IT: Dict = {
   'topicBrowser.expand': 'Espandi',
   'topicBrowser.minimize': 'Riduci',
   'topicBrowser.close': 'Chiudi la finestra',
+  'topicBrowser.reopen': 'Riapri la finestra del browser',
   'topicBrowser.returnToChat': 'Riporta nella chat',
   'browser.toolbar.more': 'Altri controlli',
   'browser.openSystem': 'Apri nel browser di sistema',

@@ -534,6 +534,7 @@ const EN = {
   'topicBrowser.expand': 'Expand',
   'topicBrowser.minimize': 'Minimize',
   'topicBrowser.close': 'Close the window',
+  'topicBrowser.reopen': 'Reopen the browser window',
   'topicBrowser.returnToChat': 'Back into the chat',
   'browser.toolbar.more': 'More controls',
   'browser.openSystem': 'Open in system browser',
