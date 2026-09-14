@@ -74,6 +74,39 @@ describe("the gate slot, per name", () => {
     third!();
   });
 
+  it("a gate waits for ANOTHER RUN OF ITSELF past the count deadline, when told to", () => {
+    // 14/09 01:08: two full unit suites alive together, 11 GB each, because
+    // the second had waited the count deadline and then run alongside. The
+    // wrappers now give the name lock its own, longer wait: here the count
+    // wait is 100 ms and the name wait 2 s, and the second run is held for the
+    // name one. (2 s and not less: the lock is polled every 700 ms, so a wait
+    // shorter than two polls cannot tell the two deadlines apart.)
+    fresh();
+    const first = acquireSlot(4, "test:unit", opts());
+    const started = Date.now();
+    const second = acquireSlot(4, "test:unit", { maxWaitMs: 100, nameMaxWaitMs: 2000, onWait: () => {} });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2000);
+    // Still a limit, never forever (SLOT-02): past it the command runs.
+    expect(second).not.toBeNull();
+    second!();
+    first!();
+  });
+
+  it("without a name wait of its own, name and count share ONE deadline, as before", () => {
+    // The bun-test preload and the e2e shards do not pass `nameMaxWaitMs`.
+    // With the name busy AND the only slot busy, their whole wait must stay one
+    // deadline: a second deadline restarted after the name would double it.
+    fresh();
+    const holder = acquireSlot(1, "lint", opts());
+    const started = Date.now();
+    const second = acquireSlot(1, "lint", { maxWaitMs: 1500, onWait: () => {} });
+    const waited = Date.now() - started;
+    expect(second).toBeNull(); // gave up on the count, ran unthrottled
+    // One deadline plus at most one poll (700 ms), never two deadlines.
+    expect(waited).toBeLessThan(1500 + 1000);
+    holder!();
+  });
+
   it("a DIFFERENT gate is not held back by it", () => {
     fresh();
     const heard: string[] = [];
