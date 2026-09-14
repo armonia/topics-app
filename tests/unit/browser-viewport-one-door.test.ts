@@ -51,7 +51,7 @@ const SOURCES = [
   "client/src/hooks/useRemoteBrowser.ts",
 ];
 
-const APPLIES_VIEWPORT = /browserService\.resize\(|\.setViewportSize\(/;
+const VIEWPORT_CALL = /browserService\.resize\(|\.setViewportSize\(/;
 
 describe("una porta sola sul viewport condiviso", () => {
   it("il resize che arriva da un socket passa dall'arbitro", () => {
@@ -109,7 +109,7 @@ describe("una porta sola sul viewport condiviso", () => {
   it("nessun altro file applica un viewport alla pagina condivisa", () => {
     for (const relative of SOURCES) {
       const source = readFileSync(join(ROOT, relative), "utf-8");
-      if (!APPLIES_VIEWPORT.test(source)) continue;
+      if (!VIEWPORT_CALL.test(source)) continue;
       expect(
         DOORS.has(relative),
         `${relative} applica un viewport fuori dalle porte dichiarate in questo test`,
