@@ -188,9 +188,9 @@ video `.webm` degli spec, non resoconti.
       soddisfatto).
 - [x] `chrome-bar-surface-inventory`: il pavimento «la pane è montata» scende da
       20 a 10. Il browser contava 49 nodi quando quel numero è stato scritto e
-      conta 20 adesso in quella scena (le pillole sono una parte di quel calo,
-      circa mezza dozzina di nodi: quelle che lo stato consente di disegnare
-      sono poche), quindi 20
+      conta 20 adesso in quella scena (di quel calo T4 ne toglie 3, l'icona del
+      commutatore di resa: misurato su WebKit, 23 nodi a 8a6a3839d e 20 dopo;
+      gli altri 26 erano già usciti con le card precedenti), quindi 20
       voleva dire «esattamente quello del browser» e bocciava la pane che doveva
       far passare.
 

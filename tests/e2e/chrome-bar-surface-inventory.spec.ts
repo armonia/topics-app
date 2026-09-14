@@ -73,11 +73,11 @@ const cell = (page: Page) => page.locator('[data-pane-shell][data-pane-visible="
  * LOWERED FROM 20 TO 10 ON 2026-09-14, and by a measurement rather than to get
  * a red to go away. The browser pane counted 49 when this floor was written and
  * counts 20 in this scene now, after `TOPIC-BROWSER-03` emptied the page area.
- * The three pills are only part of that drop and it is worth not overstating
- * them: on the pane this spec probes only the ones the state allows are ever
- * drawn (the connection pill hides while connected, the render switch needs a
- * real page), so they are about half a dozen nodes, and the rest of the 29 is
- * the rest of the chrome this card and the one before it took out of the pane.
+ * Most of that drop is not this card's: measured
+ * on WebKit, the pane counted 23 before TOPIC-BROWSER-03 (8a6a3839d) and 20
+ * after it, and the whole difference is the render switch's icon
+ * (`button#browser-engine-toggle svg path`, 3 nodes). The other 26 had already
+ * left the pane with the cards before it.
  * What decides the floor is the number that was measured, 20, not its
  * breakdown. A floor of 20 therefore stopped meaning "far below the real counts" and
  * started meaning "exactly the browser's", which fails on the pane it was meant
