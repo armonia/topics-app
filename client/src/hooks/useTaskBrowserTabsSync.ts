@@ -52,8 +52,17 @@ import { getTabId } from '../state/pane/middleware/syncCrossTab';
  * the order they were attached, so frames reach the store in the order they
  * arrived, before and after the chunk has loaded.
  */
-let topicWindowStore: Promise<typeof import('../state/topicBrowserWindow')> | null = null;
-const loadTopicWindowStore = () => (topicWindowStore ??= import('../state/topicBrowserWindow'));
+// Destructured on purpose, not `import(...)` handed around whole: knip reads a
+// bare `import()` as opaque and would count every export of the store as used
+// (`check:deadcode-blindspots`).
+const importTopicWindowStore = async () => {
+  const { applyTopicWindowFrame, reloadTopicWindowsFromServer, forgetTopicWindow } = await import(
+    '../state/topicBrowserWindow'
+  );
+  return { applyTopicWindowFrame, reloadTopicWindowsFromServer, forgetTopicWindow };
+};
+let topicWindowStore: ReturnType<typeof importTopicWindowStore> | null = null;
+const loadTopicWindowStore = () => (topicWindowStore ??= importTopicWindowStore());
 
 /**
  * Route one WS frame. Exported so the routing can be tested without React; the
