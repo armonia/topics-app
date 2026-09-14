@@ -23,12 +23,19 @@
  * every agent and every child of theirs: tsc, eslint, bun test, vite, the
  * Chromium of an e2e run).
  *
- * THE BUDGET IS A CEILING, NOT A RIGHT. What is usable right now is
- * `min(budget, what the others leave free)`. On an idle machine the two are the
- * same number; on a machine whose owner is compiling something else, ours
- * shrinks. The opposite policy (take the budget whatever else is running) is
- * how a background fleet makes a laptop unusable while staying inside its
- * declared share.
+ * THE BUDGET IS A CEILING, NOT A RIGHT, AND LA QUOTA È SUL LIBERO. What is
+ * usable right now is `share x what the others leave free`, never more than
+ * `share x cores`. On an idle machine the two are the same number; on a machine
+ * whose owner is compiling something else, ours shrinks — and it shrinks BY THE
+ * SHARE, so the part we leave behind grows with the part they took.
+ *
+ * Deciso da Attilio il 14/09/2026: «la % di uso del PC deve essere uso del
+ * libero, così i processi che non ha aperto Topics hanno la priorità». Prima la
+ * regola era `min(share x cores, libero)`: al 80% su 12 core con 7,3 core presi
+ * da altri, Topics poteva prendersi TUTTI i 4,7 core rimasti. Ora ne prende
+ * 3,8 e ne lascia 0,9 a chi cresce. The opposite policy (take the budget
+ * whatever else is running) is how a background fleet makes a laptop unusable
+ * while staying inside its declared share.
  *
  * WHY A MODULE OF ITS OWN, pure, in `shared/`. Three readers that do not talk
  * to each other otherwise: the dispatcher gate, the settings slider, and the
@@ -97,11 +104,13 @@ export interface MachineBudgetSample {
 export interface MachineBudget {
   /** `share x cores`, the ceiling we set ourselves. */
   cpuCoreUnits: number;
-  /** `min(cpuCoreUnits, cores - other)`, the ceiling reality allows right now. */
+  /** `min(cpuCoreUnits, share x (cores - other))`: la quota del LIBERO, cioè il
+   *  tetto che la realtà concede adesso lasciando crescere chi non è nostro. */
   usableCoreUnits: number;
   /** `share x totalMemGB`. */
   memGB: number;
-  /** `min(memGB, ourMemGB + availableMemGB)`: what the machine can still give. */
+  /** `min(memGB, ourMemGB + share x availableMemGB)`: le pagine che teniamo già
+   *  più la nostra quota di quelle libere. */
   usableMemGB: number;
 }
 
@@ -111,18 +120,24 @@ export function machineBudget(sample: MachineBudgetSample, share: number): Machi
   // What the others leave free. A machine can be measured over its own core
   // count (the sum of instantaneous percentages of a scheduler under pressure
   // does exceed it), so this floors at zero instead of going negative.
+  //
+  // LA QUOTA È SUL LIBERO: `share x libero`, non `libero`. Chi non è nostro
+  // tiene sempre la sua fetta della parte che avanza, così un processo che
+  // cresce trova spazio senza dover aspettare che noi ci ritiriamo.
   const freeOfOthers = sample.otherCoreUnits == null
-    ? cpuCoreUnits
+    ? cores
     : Math.max(0, cores - Math.max(0, sample.otherCoreUnits));
   const memGB = Math.max(0.25, sample.totalMemGB * share);
-  // Ours + free is what memory we could reach: the pages we already hold do not
-  // have to be found again. Not measured (`null`) means the budget stands alone.
+  // Ours + our share of the free is what memory we could reach: the pages we
+  // already hold do not have to be found again, e della memoria libera
+  // prendiamo la stessa quota che prendiamo della CPU. Not measured (`null`)
+  // means the budget stands alone.
   const reachableMemGB = sample.availableMemGB == null
     ? memGB
-    : Math.max(0, sample.ourMemGB) + Math.max(0, sample.availableMemGB);
+    : Math.max(0, sample.ourMemGB) + Math.max(0, sample.availableMemGB) * share;
   return {
     cpuCoreUnits,
-    usableCoreUnits: Math.min(cpuCoreUnits, freeOfOthers),
+    usableCoreUnits: Math.min(cpuCoreUnits, freeOfOthers * share),
     memGB,
     usableMemGB: Math.min(memGB, reachableMemGB),
   };

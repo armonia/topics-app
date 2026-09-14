@@ -59,11 +59,32 @@ describe("budget against what the others leave", () => {
     expect(machineBudget(sample(), 0.8).cpuCoreUnits).toBeCloseTo(9.6, 5);
   });
 
-  test("usable is what the others leave free, when that is less than the budget", () => {
-    // Somebody else is compiling: 8 of the 12 cores are theirs.
+  test("usable is our SHARE of what the others leave free, not all of it", () => {
+    // Somebody else is compiling: 8 of the 12 cores are theirs, 4 restano.
+    // Di quei 4 ne prendiamo l'80%, e 0,8 li lasciamo a chi sta crescendo.
     const b = machineBudget(sample({ otherCoreUnits: 8 }), 0.8);
     expect(b.cpuCoreUnits).toBeCloseTo(9.6, 5);
-    expect(b.usableCoreUnits).toBeCloseTo(4, 5);
+    expect(b.usableCoreUnits).toBeCloseTo(3.2, 5);
+  });
+
+  test("più gli altri prendono, più lasciamo: la parte non nostra cresce col carico altrui", () => {
+    const light = machineBudget(sample({ otherCoreUnits: 2 }), 0.8);
+    const heavy = machineBudget(sample({ otherCoreUnits: 9 }), 0.8);
+    // Libero 10 → noi 8, lasciati 2. Libero 3 → noi 2,4, lasciati 0,6.
+    expect(light.usableCoreUnits).toBeCloseTo(8, 5);
+    expect(heavy.usableCoreUnits).toBeCloseTo(2.4, 5);
+    expect(10 - light.usableCoreUnits).toBeCloseTo(2, 5);
+    expect(3 - heavy.usableCoreUnits).toBeCloseTo(0.6, 5);
+  });
+
+  test("una macchina tutta occupata non ci lascia niente, e il numero resta zero, mai negativo", () => {
+    const b = machineBudget(sample({ otherCoreUnits: 30 }), 0.8);
+    expect(b.usableCoreUnits).toBe(0);
+  });
+
+  test("su una macchina libera la quota del libero è la quota di sempre", () => {
+    const b = machineBudget(sample({ otherCoreUnits: 0 }), 0.8);
+    expect(b.usableCoreUnits).toBeCloseTo(b.cpuCoreUnits, 5);
   });
 
   test("not measured is not zero: an unmeasured machine leaves the budget alone", () => {
@@ -72,11 +93,12 @@ describe("budget against what the others leave", () => {
     expect(b.usableMemGB).toBeCloseTo(b.memGB, 5);
   });
 
-  test("the memory we already hold counts as reachable", () => {
-    // 60% of 32 GB is 19.2; we hold 6 and 8 are free, so 14 is the real ceiling.
+  test("the memory we already hold counts as reachable, e della libera prendiamo la quota", () => {
+    // 60% of 32 GB is 19.2; we hold 6 and 8 are free: dei liberi ne prendiamo
+    // il 60% (4,8), quindi 10,8, e 3,2 GB restano a chi non è nostro.
     const b = machineBudget(sample({ ourMemGB: 6, availableMemGB: 8 }), 0.6);
     expect(b.memGB).toBeCloseTo(19.2, 5);
-    expect(b.usableMemGB).toBeCloseTo(14, 5);
+    expect(b.usableMemGB).toBeCloseTo(10.8, 5);
   });
 });
 

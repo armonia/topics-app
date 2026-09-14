@@ -6,7 +6,7 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
+import { smoothedOther, DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, fleetSlotBudget, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -494,13 +494,47 @@ describe("fleetSlotBudget — il freno vivo è un credito, non una divisione", (
     expect(su12(3, 3).slots).toBe(6);
   });
 
-  test("il carico ALTRUI non entra nel conto: la sonda misura solo noi", () => {
+  test("il carico altrui NON MISURATO non entra nel conto: la sonda misura solo noi", () => {
     // Il caso del 12/08, numeri veri: load 13 su 12 core, ma la NOSTRA flotta a
-    // 0,75 core. Il vecchio conto dava 1 slot. Qui la quota è quasi intatta,
-    // perché il load della macchina non è un ingresso di questa funzione: gli
-    // unici due sono quanto teniamo NOI e quanti siamo.
+    // 0,75 core. Il vecchio conto dava 1 slot. Senza una misura di CHI NON È
+    // NOSTRO la quota resta quella della macchina intera: il load, da solo, non
+    // è un ingresso di questa funzione.
     expect(su12(0.75, 0).slots).toBe(5);
     expect(su12(0.75, 0).freeCores).toBeCloseTo(5.25, 5);
+  });
+
+  test("LA QUOTA È SUL LIBERO: chi non è nostro ha la precedenza (14/09/2026)", () => {
+    // Stessa macchina, ma adesso sappiamo che 8 dei 12 core sono di qualcun
+    // altro: la quota della flotta è metà di quello che resta, non metà del PC.
+    const b = fleetSlotBudget({ cores: 12, ourCoreUnits: 0, running: 0, otherCoreUnits: 8 });
+    expect(b.budgetCores).toBeCloseTo(2, 5);
+    expect(b.slots).toBe(2);
+    // E la vecchia regola (quota sulla macchina intera) darebbe il triplo.
+    expect(su12(0, 0).budgetCores).toBe(6);
+  });
+
+  test("una macchina occupata del tutto lascia il pavimento, non lo zero", () => {
+    const b = fleetSlotBudget({ cores: 12, ourCoreUnits: 0, running: 0, otherCoreUnits: 12 });
+    expect(b.budgetCores).toBe(1);
+    expect(b.slots).toBe(2);
+  });
+
+  test("la mediana smussa il picco di un secondo, ma non un carico che dura", () => {
+    const history: number[] = [];
+    // Tre letture tranquille, poi il picco di un secondo: la mediana non si
+    // muove, quindi la porta non si chiude per un colpo di tosse della macchina.
+    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
+    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
+    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
+    expect(smoothedOther(11, history)).toBeCloseTo(1, 5);
+    expect(smoothedOther(1, history)).toBeCloseTo(1, 5);
+    // Un carico vero dura: tre letture alte su cinque e la mediana lo prende.
+    expect(smoothedOther(9, history)).toBeCloseTo(1, 5);
+    expect(smoothedOther(9, history)).toBeCloseTo(9, 5);
+    expect(smoothedOther(9, history)).toBeCloseTo(9, 5);
+    // Non misurato non entra nella storia e non la consuma.
+    expect(smoothedOther(null, history)).toBeNull();
+    expect(history).toHaveLength(5);
   });
 
   test("agenti che compilano: il tetto scende underCeiling lo strutturale", () => {
