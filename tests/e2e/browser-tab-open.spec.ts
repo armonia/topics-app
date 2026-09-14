@@ -267,7 +267,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04d (3b): agent-controlling-overlay appears+disappears on agent_active=true/false WS broadcast [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04d (3b): l'agente al volante non oscura la pagina: strato senza inchiostro + icona nella scheda [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -295,15 +295,33 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       browserProcessPageV2.broadcastAgentActive(true);
       await expect(overlay).toBeVisible({ timeout: 5000 });
 
+      // AND IT PAINTS NOTHING. That is the whole point: the layer is left only
+      // to swallow clicks, and the page underneath stays readable. A dark wash
+      // or a blur here would be exactly the defect that was reported.
+      const paint = await overlay.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { opacity: cs.opacity, filter: cs.backdropFilter, pointer: cs.pointerEvents };
+      });
+      expect(Number(paint.opacity)).toBeLessThan(0.02);
+      expect(paint.filter === "none" || paint.filter === "").toBe(true);
+      expect(paint.pointer).not.toBe("none");
+
+      // AND THE FACT IS STILL LEGIBLE: the tab's icon says who is at the wheel.
+      // Without this assertion, "remove the overlay" would be indistinguishable
+      // from hiding the state altogether.
+      const agentIcon = page.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]');
+      await expect(agentIcon).toHaveCount(1, { timeout: 5000 });
+
       // Inject agent_active=false — overlay must disappear within ~5s.
       browserProcessPageV2.broadcastAgentActive(false);
       await expect(overlay).toBeHidden({ timeout: 5000 });
+      await expect(agentIcon).toHaveCount(0, { timeout: 5000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 
-  test("BROWSER-CHAT-04e: Take control button releases agent lock + sends WS take_control [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04e: un clic sulla pagina riprende il controllo e manda take_control [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -329,10 +347,11 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       const overlay = page.locator('[data-testid="agent-controlling-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
 
-      // Click Take control button.
-      const takeBtn = page.locator('[data-testid="browser-take-control-button"]');
-      await expect(takeBtn).toBeVisible({ timeout: 5000 });
-      await takeBtn.click();
+      // THE BUTTON IS GONE: the gesture is a click on the page, which is what a
+      // person does anyway when they want to step in. The transparent layer is
+      // what catches it.
+      await expect(page.locator('[data-testid="browser-take-control-button"]')).toHaveCount(0);
+      await overlay.click({ position: { x: 20, y: 20 } });
 
       // Verify outbound take_control message recorded (eventually).
       await expect

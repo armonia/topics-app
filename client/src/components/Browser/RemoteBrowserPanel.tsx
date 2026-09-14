@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Boxes, CaseSensitive, Bot } from 'lucide-react';
+import { Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Boxes, CaseSensitive } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
@@ -28,6 +28,7 @@ import { installViewportZoomGuard } from '../../lib/viewportZoomGuard';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import { useTaskTabLoginState } from '../../hooks/useTaskTabLoginState';
 import { useT } from '../../hooks/useT';
+import { useToast } from '../Shared/Toast';
 import type { Topic } from '../../types';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { usePaneAlive } from '../../state/paneLiveness';
@@ -428,6 +429,11 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     deviceMode: browser.deviceMode,
     shared: !!shared,
     shareMode,
+    // The agent at the wheel is a fact of the TAB now, on this path too: the
+    // native webview composites above the DOM, so this branch never had an
+    // overlay to remove, and the icon is the only cue it can carry.
+    agentActive: browser.agentActive,
+    agentAction: browser.agentAction,
     history,
     consoleEntries: browser.consoleEntries,
     downloadsMenu: downloads,
@@ -718,6 +724,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const tr = useT();
+  const toast = useToast();
   const browser = useRemoteBrowser(contextId, isVisible);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   // Vedi il gemello nel ramo Tauri: login salvato dall'agente → reiniettato una
@@ -806,6 +813,20 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // DevTools, no zoom, no device emulation and no console of its own, so it
   // simply does not publish those commands: the tab menu offers what exists.
   const sharedCanForget = !!siteHostOf(browser.url);
+
+  // TAKING THE WHEEL BACK, and saying so without stopping anything.
+  //
+  // The gesture is a plain click on the page (the transparent layer below
+  // swallows it) or the agent glyph in the tab. Both land here, and both get
+  // the same three-second toast: the state that just ended was invisible by
+  // design, so ending it has to be ANNOUNCED or the click would look ignored.
+  // The notice is not a dialog on purpose - it must not be the darkening box
+  // coming back with a shorter life.
+  const takeControl = browser.takeControl;
+  const takeControlFromAgent = useCallback(() => {
+    takeControl();
+    toast.info(tr('browser.agent.tookControl'), 3000);
+  }, [takeControl, toast, tr]);
   const sharedCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
     navigate: (u: string) => { void browser.navigate(u); },
@@ -830,7 +851,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       ? (m: 'dom' | 'video') => browser.setRenderMode(m)
       : undefined,
     forgetSite: sharedCanForget ? () => setForgetOpen(true) : undefined,
-  }), [browser, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe]);
+    // Offered only while one is driving: a command that ends a state nobody is
+    // in is a dead door, and the tab hides the glyph that would open it anyway.
+    takeControl: browser.agentActive ? takeControlFromAgent : undefined,
+  }), [browser, sharedCanForget, onToggleShare, backToSpawner, returnToTopicWindow, useIframe, takeControlFromAgent]);
   const chromeBridge = useBrowserChromeBridge(contextId, {
     url: browser.url,
     // The store's url, which on a restored pane is already right while
@@ -857,6 +881,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     engine: !useIframe && browser.engineToggleAvailable ? browser.engine : undefined,
     engineExtensions: !useIframe && browser.engineToggleAvailable ? browser.engineExtensions : undefined,
     renderMode: useIframe ? undefined : browser.renderMode,
+    agentActive: browser.agentActive,
+    agentAction: browser.agentAction,
     history,
     downloadsMenu: streamDownloads,
     commands: sharedCommands,
@@ -1324,32 +1350,34 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           document.body,
         )}
 
-        {/* Phase 30 BROWSER-CHAT-04 — agent lock overlay. Renders when the WS
-            broadcasts agent_active=true (handler in useRemoteBrowser surfaces
-            the message). pointer-events:auto on the overlay swallows clicks
-            so the underlying screenshot stays untouched while the agent acts. */}
+        {/* THE AGENT DRIVES AND YOU KEEP WATCHING. Until 2026-09-14 this was a
+            `bg-black/40 backdrop-blur` sheet with a box in the middle naming
+            the agent's action and a hand-written English button, in an Italian
+            UI, parked over the page in defiance of TOPIC-BROWSER-03. The whole point of an agent browsing is that you
+            SEE what it does, and the app was hiding exactly that.
+
+            What is left draws NOTHING: `opacity-0` is not a trick, it is the
+            requirement (nothing permanent is painted above the page), and it is
+            also what keeps the geometry witness honest, which admits a layer
+            with no ink. The layer still exists for the one thing it was always
+            good for - swallowing the clicks, so a stray click does not fight the
+            agent halfway through a form.
+
+            THE FIRST CLICK TAKES THE WHEEL BACK. It is the gesture a person
+            makes anyway when they want to intervene, and the toast that follows
+            says it happened. Where the fact lives now: the tab's type icon,
+            `data-kind="agent"`, whose title carries the action. */}
         {browser.agentActive && (
-          <div
-            className="absolute inset-0 z-30 bg-black/40 backdrop-blur-[1px] flex items-center justify-center pointer-events-auto"
+          <button
+            type="button"
+            onClick={takeControlFromAgent}
+            className="absolute inset-0 z-30 w-full h-full opacity-0 cursor-pointer"
             data-testid="agent-controlling-overlay"
-          >
-            <div className="flex flex-col items-center gap-3 bg-surface/90 px-6 py-4 rounded-lg shadow-xl border border-app-border">
-              <div className="flex items-center gap-2 text-app-text">
-                <Bot className="w-5 h-5 shrink-0" aria-hidden="true" />
-                <span className="text-body-lg font-medium">
-                  {browser.agentAction ? `L'agente: ${browser.agentAction}` : "L'agente sta controllando…"}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={browser.takeControl}
-                className="px-3 py-1.5 text-compact font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
-                data-testid="browser-take-control-button"
-              >
-                Take control
-              </button>
-            </div>
-          </div>
+            aria-label={tr('browser.agent.takeControl')}
+            title={browser.agentAction
+              ? tr('browser.tab.kind.agentDoing', { action: browser.agentAction })
+              : tr('browser.tab.kind.agent')}
+          />
         )}
 
         {/* Phase 30 BROWSER-CHAT-04 — select-element overlay (Cursor Cmd+Shift+E pattern).

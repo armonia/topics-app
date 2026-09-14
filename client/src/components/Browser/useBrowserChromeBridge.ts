@@ -69,6 +69,10 @@ export interface BrowserChromeBridgeInput {
   engine?: 'native' | 'chromium';
   engineExtensions?: number;
   renderMode?: 'dom' | 'video';
+  /** An agent is driving this pane, and what it is doing. The tab draws it as
+   *  its type icon; nothing is drawn over the page for it. */
+  agentActive?: boolean;
+  agentAction?: string | null;
   /** What the SHEET shows and the tab cannot: this pane's address list, the
    *  console rows behind the tally, the downloads with their actions. They
    *  travel through the registry for the same reason the tally does - the sheet
@@ -147,6 +151,7 @@ export function useBrowserChromeBridge(
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
     zoom, deviceMode, shared, shareMode, connection, engine, engineExtensions,
     renderMode, history, consoleEntries, downloadsMenu, commands,
+    agentActive, agentAction,
   } = input;
 
   /**
@@ -183,6 +188,8 @@ export function useBrowserChromeBridge(
     engine,
     engineExtensions,
     renderMode,
+    agentActive,
+    agentAction: agentAction ?? undefined,
     history: history ?? EMPTY_HISTORY,
     consoleEntries,
     downloadsMenu,
@@ -200,6 +207,7 @@ export function useBrowserChromeBridge(
     urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
     shareMode, connection, engine, engineExtensions, renderMode,
+    agentActive, agentAction,
     history, consoleEntries, downloadsMenu, input.downloadsStarted,
     addressEditRequest, downloadsOpenRequest, commands, focusAddress, openDownloads,
   ]);
