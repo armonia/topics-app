@@ -1193,8 +1193,13 @@ test.describe("TOPIC-BROWSER-01 la finestra browser della topic", () => {
  * `requestBrowserSolo` that split the cell in two.
  */
 test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () => {
+  // These two drive the agent's REAL route, which spins up a browser context
+  // and its CDP target: the same real work that makes `browser-open-pane-orphan`
+  // ask for 90 s. The default 30 s ran out with trace and video on, while every
+  // assertion was still true - a budget that expires under load is not a red.
   test.beforeEach(async ({}, testInfo) => {
     testInfo.annotations.push({ type: "spec", description: "TOPIC-BROWSER-04" });
+    testInfo.setTimeout(90_000);
   });
 
   /** What the agent asks to open: `data:` so the scenario measures the layout
