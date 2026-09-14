@@ -13,6 +13,10 @@
  *    the reload button IN ITS PLACE. Reload is the single most used browser
  *    command and it now costs no width at all: at rest the slot shows where you
  *    are, under the pointer it shows what you want to do to it.
+ *  - `BrowserTabTypeIcon`: WHAT KIND of browser tab this is (shared, real
+ *    Chromium, connection gone) between the favicon and the title, and nothing
+ *    at all on the default kind. It is where the three pills that used to float
+ *    over the page ended up — see `TOPIC-BROWSER-03`.
  *  - `BrowserTabMenuButton`: the three dots, which OPEN THE TAB SHEET
  *    (`BrowserTabSheet`) where everything else lives in plain sight. They carry
  *    the console-error count as a badge, because an error nobody surfaces is an
@@ -24,10 +28,10 @@
  * and the dots stay away until there is something behind them.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { RotateCw, MoreVertical, AlertCircle, Download } from 'lucide-react';
+import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2 } from 'lucide-react';
 import { BrowserFavicon } from './BrowserFavicon';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
-import { DANGER_TEXT } from '../../lib/popoverStyles';
+import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useT } from '../../hooks/useT';
 
@@ -89,6 +93,121 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
           <RotateCw size={14} className={chrome?.loading ? 'animate-spin' : ''} />
         </button>
       )}
+    </span>
+  );
+}
+
+/**
+ * WHAT KIND OF BROWSER TAB THIS IS — one icon, between the favicon and the
+ * title, and only when the answer is not the default one.
+ *
+ * THE DEFAULT KIND DRAWS NOTHING. A tab on its own device's view, not shared,
+ * connected, on the server's bundled engine is what a browser tab simply *is*:
+ * an icon there would be a badge every tab carries, i.e. no information at all,
+ * paid for in the label's width on a 200px tab.
+ *
+ * ONE ICON, NOT THREE. Until 2026-09-14 these three facts were three pills
+ * floating over the page itself (connection top-right, engine top-left, render
+ * mode bottom-left) — switches parked on top of what they switched, which is
+ * what `TOPIC-BROWSER-03` forbids. The switches moved into the sheet, where a
+ * click can reach them; what stays here is only the ANSWER, and the tab has
+ * room for one. So they are ordered by what a person needs to know first:
+ *
+ *  1. THE CONNECTION IS NOT THERE. A page that stopped updating looks exactly
+ *     like a page that has nothing new to show, so this is the only one of the
+ *     three that explains something you can otherwise misread.
+ *  2. THIS IS NOT THE USUAL ENGINE. Running on the real Chromium means the
+ *     extensions and the profile are in play — worth saying, because it changes
+ *     what the page does.
+ *  3. THIS PANE IS SHARED. The page is on the server and another device can be
+ *     looking at it.
+ *
+ * The render mode (DOM ↔ video) is deliberately NOT here: both render the same
+ * page and the difference is visible in the page itself, so it stays a switch in
+ * the sheet without an icon of its own.
+ */
+export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
+  const chrome = useBrowserPaneChrome(paneId);
+  const t = useT();
+  if (!chrome) return null;
+
+  // ABSENT MEANS CONNECTED, not "unknown": the native and iframe panes have no
+  // streaming socket, and a pane with no socket cannot have lost one. Reading
+  // absence as a problem would have put a warning glyph on every native tab.
+  const connection = chrome.connection ?? 'connected';
+
+  // FOUR STATES, FOUR GLYPHS, and `fallback-http` keeps its own on purpose: it
+  // is not "connecting" (the page IS updating, over polling) and not "gone".
+  // Folding it into the spinner would have said "still trying" about a link
+  // that already settled, which is the one wrong thing you can say about a
+  // degraded connection.
+  const kind =
+    connection === 'disconnected' ? 'disconnected'
+    : connection === 'connecting' ? 'connecting'
+    : connection === 'fallback-http' ? 'degraded'
+    : chrome.engine === 'chromium' ? 'chromium'
+    // SHARED IS THE EFFECTIVE RENDER, and the pane publishes it as such: true
+    // only where the page actually lives on the server and another device can
+    // therefore be looking at it. An iframe pane draws the page with this
+    // device's own engine and publishes `shared: false`, so the icon stays off
+    // the default kind without this line having to guess.
+    //
+    // It was briefly gated on `shareMode` too, to keep the icon off panes where
+    // sharing is not a CHOICE. That reading silenced it on the entire web
+    // client, where `shareMode` is undefined (there is no native view to choose
+    // instead) and every streaming pane is genuinely the shared session: the
+    // one place the icon has something to say, it said nothing. The fact is
+    // worth an icon wherever it holds - "your phone can be watching this" does
+    // not stop being true because you could not have had it otherwise.
+    : chrome.shared ? 'shared'
+    : undefined;
+  if (!kind) return null;
+
+  const Glyph =
+    kind === 'disconnected' ? WifiOff
+    : kind === 'connecting' ? Loader2
+    : kind === 'degraded' ? WifiLow
+    : kind === 'chromium' ? Puzzle
+    : MonitorSmartphone;
+
+  const label =
+    kind === 'disconnected' ? t('browser.tab.kind.disconnected')
+    : kind === 'connecting' ? t('browser.tab.kind.connecting')
+    : kind === 'degraded' ? t('browser.tab.kind.degraded')
+    : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
+    : t('browser.tab.kind.shared');
+
+  // THE LINK STATES KEEP THEIR COLOUR, the other two do not.
+  //
+  // The pill said "Polling" in yellow and "Connecting..." with a pulsing yellow
+  // dot; here the text is gone and only an 11px glyph is left, so in the muted
+  // ink of a tab's quiet rail "the connection is degraded" would have been
+  // legible exactly to whoever already knew. Red stays reserved for the state
+  // that is BROKEN (same rule as the console cue a few pixels to the right) and
+  // amber carries the two that are WORKING BADLY - the measured pair in
+  // `popoverStyles`, not a hand-picked yellow, because 11px is normal-text
+  // contrast and `amber-400` alone misses it in the light theme.
+  //
+  // Chromium and shared are facts, not faults: muted ink, no colour spent.
+  const tone =
+    kind === 'disconnected' ? DANGER_TEXT
+    : kind === 'connecting' || kind === 'degraded' ? WARNING_TEXT
+    : 'text-app-text-faint';
+
+  return (
+    <span
+      className={`flex items-center justify-center w-3 h-3 flex-shrink-0 ${tone}`}
+      title={label}
+      aria-label={label}
+      data-testid="browser-tab-type-icon"
+      data-kind={kind}
+      // The RAW connection state, not the glyph's name: `degraded` and
+      // `connecting` are two different link states and a test that cannot tell
+      // them apart cannot prove the state machine never hangs in 'connecting'
+      // (`browser-ws-streaming`). Absent on the panes that have no socket.
+      data-connection={chrome.connection}
+    >
+      <Glyph size={11} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
     </span>
   );
 }

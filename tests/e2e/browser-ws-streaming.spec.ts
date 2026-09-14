@@ -391,17 +391,24 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      const indicator = page.locator('[data-testid="browser-connection-indicator"]');
+      // THE CONNECTION IS REPORTED IN THE TAB, not over the page. The pill that
+      // used to sit in the page's top-right corner is gone with the other two
+      // (TOPIC-BROWSER-03): the pane publishes its state and the tab draws one
+      // icon for it, carrying the raw state in `data-connection`.
+      const indicator = page.getByTestId("browser-tab-type-icon").first();
       await expect(indicator).toBeVisible({ timeout: 10000 });
-      // No WS → the state machine must move to fallback-http (the "Polling"
-      // pill), never hang in 'connecting'. The visible surface is now the WebRTC
-      // <video>, which needs the WS to signal — with no WS there's no JPEG
-      // fallback render anymore (design: "zero JPEG shown"), so we assert on the
-      // connection STATE the machine reports, not a screenshot.
-      await expect(indicator).toHaveClass(/connection-fallback/, {
+      // No WS → the state machine must move to fallback-http, never hang in
+      // 'connecting'. The visible surface is now the WebRTC <video>, which needs
+      // the WS to signal — with no WS there's no JPEG fallback render anymore
+      // (design: "zero JPEG shown"), so we assert on the connection STATE the
+      // machine reports, not a screenshot. The two states are told apart by the
+      // attribute and not by the glyph: 'degraded' and 'connecting' are
+      // different links, and a locator that cannot separate them cannot prove
+      // the machine never hangs.
+      await expect(indicator).toHaveAttribute("data-connection", "fallback-http", {
         timeout: PERF.fallback_http_grace_ms_ceiling,
       });
-      await expect(indicator).not.toHaveClass(/connection-connecting/);
+      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

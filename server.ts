@@ -12,7 +12,7 @@ import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
-import type { ServerWebSocket } from "bun";
+import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
@@ -21,6 +21,7 @@ import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, topicsHome,
+  listenWithSquatterFallback, PortTakenError,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -51,7 +52,7 @@ import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinis
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
-import { sondaPorta, messaggioEsito, sondaRealeDeps } from "./server/lib/port-squatter";
+import { probePort, verdictMessage, realProbeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
 import { startLoopLagSampler } from "./server/lib/loop-lag-sampler";
 import { configureNativeHistorySource } from "./server/providers/native/history-rehydrate";
@@ -4401,7 +4402,41 @@ function withHttpLog(
 
 const fetchCompresso = withHttpLog(withJsonCompression(opzioniServer.fetch));
 
-const server = Bun.serve<WSData>({ ...opzioniServer, fetch: fetchCompresso });
+// ─── Bind, then ask who is there ────────────────────────────────────────────
+// The bind is the question: the kernel answers EADDRINUSE or it does not. Only
+// then does the probe run, and only a CONFIRMED foreign process moves us to an
+// ephemeral port; Topics on the other end, or an answer nobody could read,
+// stops the boot instead of opening a second universe on another port.
+// See `listenWithSquatterFallback` in server/services/daemon-state.ts.
+let server: Server<WSData>;
+try {
+  const attempt = await listenWithSquatterFallback(
+    PORT,
+    (port) => Bun.serve<WSData>({ ...opzioniServer, port, fetch: fetchCompresso }),
+  );
+  server = attempt.listener;
+  if (attempt.movedToEphemeral) {
+    const holder = attempt.probed?.stato === "estraneo"
+      ? `pid ${attempt.probed.pid ?? "?"}${attempt.probed.comando ? ` (${attempt.probed.comando})` : ""}`
+      : "a foreign process";
+    console.warn(
+      `[Daemon] port ${PORT} is held by ${holder}: listening on ${server.port} instead. ` +
+      `The state file records the real port so the desktop can find us.`
+    );
+  }
+} catch (err) {
+  if (err instanceof PortTakenError) {
+    console.error(`[Daemon] ${err.message}`);
+    process.exit(1);
+  }
+  throw err;
+}
+
+// THE REAL PORT IS THE ONE THE CHILDREN MUST USE. `PORT` in the environment is
+// what the MCP child (server/providers/claude-code.ts) and the hooks build
+// their base URL from; if we moved, that value now points at the squatter.
+// Overwrite it BEFORE anything spawns.
+process.env.PORT = String(server.port ?? PORT);
 
 // Da qui in poi un file locale si può MOSTRARE senza che nessuno navighi su
 // `file://`: l'agente chiede il file, la pane va su `/api/media` di questo
@@ -5566,8 +5601,8 @@ ctx.requestIp = (req: Request) =>
 
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
-console.log(`🚀 Topics App running at ${proto}://localhost:${PORT}`);
-console.log(`📡 WebSocket available at ${wsProto}://localhost:${PORT}/ws`);
+console.log(`🚀 Topics App running at ${proto}://localhost:${server.port ?? PORT}`);
+console.log(`📡 WebSocket available at ${wsProto}://localhost:${server.port ?? PORT}/ws`);
 if (useTls) console.log(`🔒 TLS enabled (cert: ${tlsCert})`);
 console.log(`🌐 BrowserService available (lazy Chromium, WebSocket at /ws/browser/:id)`);
 
@@ -5595,8 +5630,8 @@ console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonStat
 // qualcun altro. Vedi `server/lib/port-squatter.ts`.
 setTimeout(() => {
   const porta = server.port ?? PORT;
-  void sondaPorta(porta, sondaRealeDeps(process.pid))
-    .then((esito) => { const msg = messaggioEsito(porta, esito); if (msg) console.warn(msg); })
+  void probePort(porta, realProbeDeps(process.pid))
+    .then((esito) => { const msg = verdictMessage(porta, esito); if (msg) console.warn(msg); })
     .catch(() => { /* una sonda che fallisce non deve disturbare il boot */ });
 }, 2000).unref?.();
 

@@ -31,7 +31,7 @@ import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRight, RotateCw, ExternalLink, Copy, Check, Clock, Compass,
   Code2, Trash2, Minus, Plus, MonitorSmartphone, CornerUpLeft,
-  Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal,
+  Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Puzzle, Boxes, MonitorPlay,
 } from 'lucide-react';
 import { BrowserFavicon } from './BrowserFavicon';
 import { ConsoleBadge } from './BrowserDevControls';
@@ -522,27 +522,85 @@ export function BrowserTabSheetBody({
         </>
       )}
 
-      {/* 7. SESSION: this device's, not "sharing with other people". */}
-      {c.toggleShare && (
+      {/* 7. SESSION: this device's, not "sharing with other people".
+          WHERE WHAT-THIS-PANE-IS IS DECIDED, all of it, in one place: which
+          session, which engine, how the page is rendered. The last two used to
+          be pills floating over the page — switches parked on top of the thing
+          they switch, which is what `TOPIC-BROWSER-03` forbids. They belong
+          with the session because that is what they are: the same three
+          questions about how this tab is being served.
+
+          The heading appears if ANY of the three exists: the web build has no
+          share toggle, a machine with no second Chromium has no engine to
+          choose, and the native pane has no render mode. */}
+      {(c.toggleShare || c.setEngine || c.setRenderMode) && (
         <>
           <div className={POPOVER_DIVIDER} />
           <SectionLabel>{t('browser.tab.sheet.session')}</SectionLabel>
-          <button
-            type="button"
-            className={POPOVER_ITEM}
-            onClick={() => c.toggleShare?.()}
-            data-testid="browser-tab-share"
-            data-share-mode={chrome.shareMode ?? (chrome.shared ? 'shared' : 'native')}
-            aria-pressed={chrome.shared}
-            title={t('browser.tab.session.hint')}
-          >
-            <MonitorSmartphone size={13} className={`shrink-0 ${chrome.shared ? 'text-green-600 dark:text-green-400' : 'text-app-text-tertiary'}`} />
-            <span className="flex-1 text-left">
-              {chrome.shareMode === 'auto'
-                ? t('browser.tab.session.auto')
-                : chrome.shared ? t('browser.tab.session.shared') : t('browser.tab.session.native')}
-            </span>
-          </button>
+          {c.toggleShare && (
+            <button
+              type="button"
+              className={POPOVER_ITEM}
+              onClick={() => c.toggleShare?.()}
+              data-testid="browser-tab-share"
+              data-share-mode={chrome.shareMode ?? (chrome.shared ? 'shared' : 'native')}
+              aria-pressed={chrome.shared}
+              title={t('browser.tab.session.hint')}
+            >
+              <MonitorSmartphone size={13} className={`shrink-0 ${chrome.shared ? 'text-green-600 dark:text-green-400' : 'text-app-text-tertiary'}`} />
+              <span className="flex-1 text-left">
+                {chrome.shareMode === 'auto'
+                  ? t('browser.tab.session.auto')
+                  : chrome.shared ? t('browser.tab.session.shared') : t('browser.tab.session.native')}
+              </span>
+            </button>
+          )}
+          {/* ENGINE. Offered only where there is a second engine to move to:
+              the command is absent unless the server says a real Chromium is
+              installed. And the bundled one is NOT called "native" — that word
+              already names the device's own webview, a different thing
+              entirely; this is the server's Playwright. */}
+          {c.setEngine && (
+            <button
+              type="button"
+              className={POPOVER_ITEM}
+              onClick={() => c.setEngine?.(chrome.engine === 'chromium' ? 'native' : 'chromium')}
+              data-testid="browser-tab-engine"
+              data-engine={chrome.engine ?? 'native'}
+              aria-pressed={chrome.engine === 'chromium'}
+              title={chrome.engine === 'chromium'
+                ? t('browser.engine.real', { n: String(chrome.engineExtensions ?? 0) })
+                : t('browser.engine.native')}
+            >
+              <Puzzle size={13} className={`shrink-0 ${chrome.engine === 'chromium' ? 'text-primary' : 'text-app-text-tertiary'}`} />
+              <span className="flex-1 text-left">
+                {chrome.engine === 'chromium'
+                  ? t('browser.tab.engine.chromium', { n: String(chrome.engineExtensions ?? 0) })
+                  : t('browser.tab.engine.playwright')}
+              </span>
+            </button>
+          )}
+          {/* RENDER. DOM is the default: the page rebuilt in THIS device's own
+              engine, sharp and cross-device. Video is the fallback for what the
+              DOM cannot rebuild (canvas, WebGL, media). */}
+          {c.setRenderMode && (
+            <button
+              type="button"
+              className={POPOVER_ITEM}
+              onClick={() => c.setRenderMode?.(chrome.renderMode === 'dom' ? 'video' : 'dom')}
+              data-testid="browser-tab-render"
+              data-render-mode={chrome.renderMode ?? 'dom'}
+              aria-pressed={chrome.renderMode === 'dom'}
+              title={chrome.renderMode === 'dom' ? t('browser.mode.dom') : t('browser.mode.video')}
+            >
+              {chrome.renderMode === 'dom'
+                ? <Boxes size={13} className="shrink-0 text-primary" />
+                : <MonitorPlay size={13} className="shrink-0 text-app-text-tertiary" />}
+              <span className="flex-1 text-left">
+                {chrome.renderMode === 'dom' ? t('browser.tab.render.dom') : t('browser.tab.render.video')}
+              </span>
+            </button>
+          )}
         </>
       )}
 

@@ -75,7 +75,9 @@ export function BrowserPaneChip({
   );
 }
 
-/** The pulsing/steady dot the connection pill leads with. */
-export function ChipDot({ className }: { className: string }) {
-  return <span className={`w-1.5 h-1.5 rounded-full ${className}`} aria-hidden />;
-}
+// `ChipDot` lived here until 2026-09-14: the pulsing dot the CONNECTION pill led
+// with. That pill is gone with the other two (TOPIC-BROWSER-03 — nothing
+// permanent over the page) and the connection now reaches the tab as an icon,
+// so the dot had no caller left. What remains of this module is the one chip
+// that is still allowed above a page: the element-select mode in `DomCoBrowse`,
+// which is temporary and armed by the user.
