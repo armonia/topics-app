@@ -275,19 +275,36 @@ export function reconcilePromoted(
   return { ...state, promoted: live };
 }
 
+/** Breathing room between the floating window and the edges of the area, and
+ *  between the floating window and the composer below it. */
+export const FLOAT_MARGIN_PX = 24;
+
 /** Where the minimized window really sits, given the size of the topic area.
  *  Anchored to the bottom-right: a narrower area moves `left`, never the
- *  distance from the corner, which is why the window survives a resize. */
+ *  distance from the corner, which is why the window survives a resize.
+ *
+ *  `area.floor` is the band along the bottom edge the composer occupies. The
+ *  floating window sits ABOVE it, and a drag cannot park it back on top: the
+ *  default corner used to be 24px from the bottom, which in a 1280x800 topic
+ *  put the window right over the send button, «Invia il messaggio». allow-italian: quoted UI label
+ *  Measured: elementFromPoint on that button answered the window, in every
+ *  topic, from the first delivery on.
+ *  A floating window is not allowed to stand between a person and sending
+ *  their message. When the area is too short to honour the band, the window
+ *  keeps what is left instead of being pushed out of the top. */
 export function resolveMinRect(
   state: TopicBrowserWindowState,
-  area: { width: number; height: number },
+  area: { width: number; height: number; floor?: number },
   size: { width: number; height: number } = MIN_WINDOW_SIZE,
 ): { left: number; top: number; width: number; height: number } {
-  const pos = state.minPos ?? { right: 24, bottom: 24 };
+  const floor = Math.max(0, Math.round(area.floor ?? 0));
+  const pos = state.minPos ?? { right: FLOAT_MARGIN_PX, bottom: floor + FLOAT_MARGIN_PX };
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
   const right = Math.min(pos.right, Math.max(0, area.width - width));
-  const bottom = Math.min(pos.bottom, Math.max(0, area.height - height));
+  const maxBottom = Math.max(0, area.height - height);
+  const minBottom = floor > 0 ? Math.min(floor + FLOAT_MARGIN_PX, maxBottom) : 0;
+  const bottom = Math.min(Math.max(pos.bottom, minBottom), maxBottom);
   return { left: area.width - right - width, top: area.height - bottom - height, width, height };
 }
 

@@ -147,6 +147,32 @@ describe('resolveMinRect (the corner survives a resize of the app)', () => {
     expect(r.left).toBe(1440 - 24 - MIN_WINDOW_SIZE.width);
     expect(r.top).toBe(900 - 24 - MIN_WINDOW_SIZE.height);
   });
+
+  test('the default corner sits ABOVE the composer, never on top of it', () => {
+    const floor = 140;
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900, floor });
+    // Its bottom edge stops where the composer band starts, plus the margin.
+    expect(r.top + r.height).toBe(900 - floor - 24);
+  });
+
+  test('a position dragged over the composer is pulled back above it', () => {
+    const floor = 140;
+    const parked = { ...EMPTY_TOPIC_BROWSER_WINDOW, minPos: { right: 24, bottom: 0 } };
+    const r = resolveMinRect(parked, { width: 1440, height: 900, floor });
+    expect(r.top + r.height).toBe(900 - floor - 24);
+  });
+
+  test('with no composer to measure nothing moves', () => {
+    const bare = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900 });
+    const zero = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 1440, height: 900, floor: 0 });
+    expect(zero.top).toBe(bare.top);
+  });
+
+  test('an area too short to honour the floor keeps the window inside it', () => {
+    const r = resolveMinRect(EMPTY_TOPIC_BROWSER_WINDOW, { width: 600, height: 360, floor: 300 });
+    expect(r.top).toBeGreaterThanOrEqual(0);
+    expect(r.top + r.height).toBeLessThanOrEqual(360);
+  });
 });
 
 describe('promoteToTab / returnFromTab (the invariant)', () => {
