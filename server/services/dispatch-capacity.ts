@@ -705,10 +705,10 @@ export function fleetSlotBudget(input: {
   cores: number;
   ourCoreUnits: number;
   running: number;
-  /** La CPU di chi NON è nostro, se misurata. La quota della flotta si prende
-   *  su quello che resta: chi non l'ha aperto Topics ha la precedenza (deciso
-   *  il 14/09/2026, vedi `shared/machine-budget.ts`). `null` = non misurato,
-   *  e allora vale la macchina intera, mai zero. */
+  /** The CPU of whatever is NOT ours, when measured. The fleet share is taken
+   *  on what is left: whatever Topics did not start has the priority (decided
+   *  on 2026-09-14, see `shared/machine-budget.ts`). `null` = not measured,
+   *  and then the whole machine counts, never zero. */
   otherCoreUnits?: number | null;
 }): {
   slots: number;
@@ -727,25 +727,61 @@ export function fleetSlotBudget(input: {
 }
 
 /**
- * LA CPU ALTRUI, SMUSSATA. Il tetto adesso si prende sulla parte libera, quindi
- * ogni picco di un secondo di qualcun altro chiuderebbe la porta a una card che
- * poi resta ferma per un tick intero. Teniamo le ultime letture e usiamo la
- * MEDIANA: un picco isolato non entra, un carico vero (che dura più di metà
- * della finestra) sì. Cinque campioni perché il tick del dispatcher è di ~10 s:
- * copre il minuto, che è la scala su cui un `bun test` o una build di qualcun
- * altro si vedono davvero.
+ * SOMEBODY ELSE'S CPU, SMOOTHED, and this is the hysteresis of the whole
+ * budget. The ceiling is now taken on the FREE part of the machine, so every
+ * one second spike of somebody else would shut the door on a card that then
+ * sits still for a whole tick, and a load that comes and goes would make the
+ * ceiling jump between its extremes with nothing having changed.
  *
- * `null` (non misurato) non entra nella storia e non la consuma: restituisce
- * `null`, cioè «macchina intera», che è la risposta prudente di sempre.
+ * THE WINDOW IS 45 SECONDS OF WALL CLOCK, not a count of readings, and the
+ * difference matters because this smoother has several callers at different
+ * cadences: the dispatcher tick (~10 s), the settings panel, the governor.
+ * With a window of five readings, three callers would have squeezed it down to
+ * fifteen seconds without anybody choosing that. 45 s is the scale on which
+ * somebody else's `bun test` or build is visibly there while a burst of `tsc`
+ * is not; under 30 s the ceiling follows every breath of the machine, over a
+ * minute it answers with a load that is already over.
+ *
+ * NARROWING AND WIDENING ARE NOT SYMMETRIC, and that asymmetry IS the band:
+ *  · we narrow (their load counts as higher) on the MEDIAN of the window, so it
+ *    takes a load that holds for half of it. One isolated spike never moves a
+ *    median, which is why it is not the mean.
+ *  · we widen only when the WHOLE window is under the value in force. Half a
+ *    window of quiet is not a machine that has gone quiet: it is the trough of
+ *    something still running, and taking it would give back a ceiling we are
+ *    about to take away again. The alternating burst of the card stabilises
+ *    here, on the busy reading, instead of flipping every ten seconds.
+ * Their load has the priority, so the ambiguous case resolves their way; the
+ * floor of slots is what keeps the board moving anyway.
+ *
+ * `null` (not measured) does not enter the history and does not consume it: it
+ * returns `null`, that is "the whole machine", the prudent answer as always.
  */
-const OTHER_SAMPLES = 5;
-const otherHistory: number[] = [];
-export function smoothedOther(other: number | null | undefined, history: number[] = otherHistory): number | null {
+export const OTHER_WINDOW_MS = 45_000;
+type OtherSample = { at: number; coreUnits: number };
+export type OtherLoadState = { samples: OtherSample[]; held: number | null };
+export const newOtherLoadState = (): OtherLoadState => ({ samples: [], held: null });
+const otherState = newOtherLoadState();
+
+export function smoothedOther(
+  other: number | null | undefined,
+  state: OtherLoadState = otherState,
+  now: number = Date.now(),
+): number | null {
   if (other == null || !Number.isFinite(other)) return null;
-  history.push(Math.max(0, other));
-  if (history.length > OTHER_SAMPLES) history.shift();
-  const sorted = [...history].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)] ?? null;
+  const samples = state.samples;
+  samples.push({ at: now, coreUnits: Math.max(0, other) });
+  // Drop what fell out of the window. Anything dated in the future is kept: a
+  // clock that jumped backwards must not empty the history.
+  let cut = 0;
+  while (cut < samples.length && now - samples[cut]!.at > OTHER_WINDOW_MS) cut++;
+  if (cut) samples.splice(0, cut);
+  const sorted = samples.map((s) => s.coreUnits).sort((a, b) => a - b);
+  const median = sorted[Math.ceil(sorted.length / 2) - 1] ?? 0;
+  const peak = sorted[sorted.length - 1] ?? 0;
+  const held = state.held;
+  if (held == null || median >= held || peak < held) state.held = median;
+  return state.held;
 }
 
 /**
@@ -799,10 +835,16 @@ export function computeDispatchCapacity(
   // Il prezzo di ammissione dipende dal runtime (vedi `GB_PER_AGENT_*`).
   const byMem = Math.max(1, Math.floor(totalMemGB / (agentsAreProcesses ? GB_PER_AGENT_CLI : GB_PER_AGENT_NATIVE)));
   const structural = Math.min(byCores, byMem);
+  // ONE SAMPLE FOR BOTH BRAKES, and it is where somebody else's CPU gets
+  // smoothed (`budgetSample` calls `smoothedOther`). Assembled before the live
+  // brake so the slot count and the "by resources" budget decide on the very
+  // same number: two smoothers over one machine are two ceilings that
+  // contradict each other on screen sooner or later.
+  const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
   // Il freno vivo: la CPU che la flotta si sta già mangiando, non quella della
   // macchina intera (vedi la nota in testa al file).
   const budget = fleet
-    ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running, otherCoreUnits: smoothedOther(fleet.otherCoreUnits) })
+    ? fleetSlotBudget({ cores, ourCoreUnits: fleet.coreUnits, running, otherCoreUnits: sample.otherCoreUnits })
     : null;
   const live = budget ? budget.slots : loadAverageSlots(cores, load1);
 
@@ -824,7 +866,6 @@ export function computeDispatchCapacity(
   // what is left of it once the rest of the machine has taken its share, and
   // what we are taking now (agents and their gates together).
   const share = clamp(budgetKnob.share, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX);
-  const sample = budgetSample(fleet, availMemGB, cores, totalMemGB, running);
   const budgetNow = machineBudget(sample, share);
   const round = (n: number) => Math.round(n * 10) / 10;
   return {
@@ -833,16 +874,19 @@ export function computeDispatchCapacity(
     totalMemGB: Math.round(totalMemGB * 10) / 10,
     load1: Math.round(load1 * 100) / 100,
     oursCores: fleet ? Math.round(fleet.coreUnits * 10) / 10 : null,
-    // La quota della flotta è sul LIBERO come tutto il resto: qui si riporta
-    // quella vera, non `cores × quota`, altrimenti il pannello mostra un tetto
-    // che il freno non applica.
+    // The fleet share is taken on WHAT IS FREE like everything else here: this
+    // reports the real one, not `cores x share`, or the panel would draw a
+    // ceiling the brake does not apply.
     budgetCores: budget ? Math.round(budget.budgetCores * 10) / 10 : Math.round(cores * FLEET_CPU_SHARE * 10) / 10,
     budgetShare: share,
     budgetCoreUnits: round(budgetNow.cpuCoreUnits),
     usableCoreUnits: round(budgetNow.usableCoreUnits),
     usedCoreUnits: fleet ? round(sample.ourCoreUnits) : null,
     usedMemGB: fleet ? round(sample.ourMemGB) : null,
-    otherCoreUnits: fleet ? round(fleet.otherCoreUnits) : null,
+    // The SMOOTHED reading, not the raw one: the panel has to show the number
+    // the gate decided on, otherwise a spike appears on screen that no ceiling
+    // ever reacted to.
+    otherCoreUnits: sample.otherCoreUnits == null ? null : round(sample.otherCoreUnits),
     frozen: Math.max(0, budgetKnob.frozen),
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
     reason,
@@ -859,6 +903,13 @@ export function computeDispatchCapacity(
  * `bun test`, the Chromium of an e2e run). Without the probe every one of our
  * own terms is `null` or zero, and `machineBudget` then reads the budget as the
  * whole answer: not measured must never be able to shrink it.
+ *
+ * SOMEBODY ELSE'S CPU ENTERS SMOOTHED (`smoothedOther`), and it enters HERE
+ * because this is the one door every reader of the "by resources" mode goes
+ * through: the admission gate, the governor that freezes running work, and the
+ * settings panel. Smoothing it further up would have left the gate deciding on
+ * the raw reading, which is the ceiling that jumps at every breath of the
+ * machine.
  */
 export function budgetSample(
   fleet: FleetLoadReading | null,
@@ -871,7 +922,7 @@ export function budgetSample(
     cores,
     totalMemGB,
     ourCoreUnits: fleet ? fleet.coreUnits + fleet.scriptsCoreUnits : 0,
-    otherCoreUnits: fleet ? fleet.otherCoreUnits : null,
+    otherCoreUnits: fleet ? smoothedOther(fleet.otherCoreUnits) : null,
     ourMemGB: fleet ? fleet.memGB : 0,
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? availMemGB : null,
     running,

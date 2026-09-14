@@ -87,6 +87,21 @@ describe("budget against what the others leave", () => {
     expect(b.usableCoreUnits).toBeCloseTo(b.cpuCoreUnits, 5);
   });
 
+  test("others at half the machine halve the budget, not one grain more", () => {
+    const b = machineBudget(sample({ otherCoreUnits: 6 }), 0.8);
+    expect(b.usableCoreUnits).toBeCloseTo(9.6 / 2, 5);
+  });
+
+  test("OUR live agents never lower the ceiling: the brake cannot fulfil itself", () => {
+    // The invariant of the card: what WE burn is spent against the budget
+    // (`admissionVerdict` compares it), it does not shrink it. Otherwise the
+    // first agent that compiles shuts the door on everybody else for good.
+    const idle = machineBudget(sample({ ourCoreUnits: 0, otherCoreUnits: 2 }), 0.8);
+    const busy = machineBudget(sample({ ourCoreUnits: 9, otherCoreUnits: 2 }), 0.8);
+    expect(busy.usableCoreUnits).toBeCloseTo(idle.usableCoreUnits, 5);
+    expect(busy.cpuCoreUnits).toBeCloseTo(idle.cpuCoreUnits, 5);
+  });
+
   test("not measured is not zero: an unmeasured machine leaves the budget alone", () => {
     const b = machineBudget(sample({ otherCoreUnits: null, availableMemGB: null }), 0.8);
     expect(b.usableCoreUnits).toBeCloseTo(9.6, 5);
@@ -94,8 +109,8 @@ describe("budget against what the others leave", () => {
   });
 
   test("the memory we already hold counts as reachable, e della libera prendiamo la quota", () => {
-    // 60% of 32 GB is 19.2; we hold 6 and 8 are free: dei liberi ne prendiamo
-    // il 60% (4,8), quindi 10,8, e 3,2 GB restano a chi non è nostro.
+    // 60% of 32 GB is 19.2; we hold 6 and 8 are free: of the free ones we take
+    // 60% (4.8), so 10.8, and 3.2 GB stay with whatever is not ours.
     const b = machineBudget(sample({ ourMemGB: 6, availableMemGB: 8 }), 0.6);
     expect(b.memGB).toBeCloseTo(19.2, 5);
     expect(b.usableMemGB).toBeCloseTo(10.8, 5);
@@ -148,6 +163,18 @@ describe("admission", () => {
     expect(v.firstAgentExempt).toBe(true);
     // The exemption is not a free machine: the state stays "holding".
     expect(v.state).toBe("holding");
+  });
+
+  test("FLOOR: a fully busy machine does not block the board for ever", () => {
+    // The others take everything: the usable ceiling is zero. With nothing in
+    // flight (`running: 0`) one starts anyway, and that floor of one slot is
+    // what stops a busy machine from freezing the board for ever.
+    const v = admissionVerdict(sample({ otherCoreUnits: 12, running: 0 }), 0.8, 1);
+    expect(v.usableCoreUnits).toBe(0);
+    expect(v.admit).toBe(true);
+    expect(v.firstAgentExempt).toBe(true);
+    // With one agent already in flight the floor is spent: the second waits.
+    expect(admissionVerdict(sample({ otherCoreUnits: 12, running: 1 }), 0.8, 1).admit).toBe(false);
   });
 
   test("memory blocks on its own axis", () => {
