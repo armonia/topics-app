@@ -1340,6 +1340,33 @@ export const providersApi = {
     });
   },
 
+  /**
+   * The endpoints somebody configured by hand. The token is write-only across
+   * this boundary: it goes out in `saveEndpoint`, and what comes back says
+   * `hasToken`, never the secret itself.
+   */
+  async listEndpoints(): Promise<{ endpoints: DirectEndpointView[] }> {
+    return request<{ endpoints: DirectEndpointView[] }>('/providers/endpoints');
+  },
+
+  async testEndpoint(endpoint: DirectEndpointInput): Promise<{ ok: boolean; models: string[]; error?: string }> {
+    return request<{ ok: boolean; models: string[]; error?: string }>('/providers/endpoints/test', {
+      method: 'POST',
+      body: JSON.stringify(endpoint),
+    });
+  },
+
+  async saveEndpoint(endpoint: DirectEndpointInput): Promise<{ ok: boolean; endpoint: DirectEndpointView; models: string[] }> {
+    return request<{ ok: boolean; endpoint: DirectEndpointView; models: string[] }>('/providers/endpoints', {
+      method: 'POST',
+      body: JSON.stringify(endpoint),
+    });
+  },
+
+  async deleteEndpoint(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/providers/endpoints/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
   async configureClaude(apiKey: string, model?: string, maxTokens?: number) {
     return request<{ ok: boolean; provider: unknown }>('/providers/claude/configure', {
       method: 'POST',
@@ -1456,6 +1483,7 @@ export interface AppBehaviorSettings {
  */
 export type { ToolGrant } from '../../../shared/types';
 import type { ToolGrant, DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
+import type { DirectEndpointInput, DirectEndpointView } from '../../../shared/direct-endpoints';
 export type { DiscordDetailLevel, AgentRuntime } from '../../../shared/types';
 
 export const toolGrantsApi = {

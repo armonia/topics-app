@@ -31,6 +31,28 @@ export interface DirectEndpointConfig {
   contextWindows?: Record<string, number>;
 }
 
+/**
+ * What a client is allowed to see about an endpoint: the config, plus whether
+ * a token exists. Never the token.
+ */
+export interface DirectEndpointView extends DirectEndpointConfig {
+  hasToken: boolean;
+}
+
+/** What a client may send. `id` absent means "a new one"; `token` is optional
+ * on an update and then the stored one is kept. */
+export interface DirectEndpointInput {
+  id?: string;
+  label: string;
+  baseUrl: string;
+  auth?: DirectEndpointAuth;
+  token?: string;
+  modelFilter?: string[];
+  timeoutMs?: number;
+  includeUsage?: boolean;
+  contextWindows?: Record<string, number>;
+}
+
 export const DIRECT_PROVIDER_PREFIX = "direct-";
 const MAX_LABEL_LENGTH = 60;
 const MIN_TIMEOUT_MS = 1_000;
