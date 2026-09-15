@@ -3405,9 +3405,10 @@ SHALL essere esplicita e persistente per macchina (riga riservata
 
 1. **Per numero** (`count`) — quella di sempre, e SHALL restare il DEFAULT:
    quanti agenti insieme (`auto`, numero fisso, nessun tetto).
-2. **A budget** (`resources`) — UNA manopola: «Topics può usare fino al N% di
-   questo computer» (default 60%). La percentuale SHALL valere su ENTRAMBI gli
-   assi: budget di CPU = `N% × core` in core-unità, budget di RAM = `N% × RAM`.
+2. **A budget** (`resources`) — UNA manopola: «Topics può usare il N% di ciò
+   che è libero» (default 60%). La percentuale SHALL valere su ENTRAMBI gli
+   assi: tetto di CPU = `N% × core` in core-unità, tetto di RAM = `N% × RAM`, e
+   dentro quel tetto la parte usabile è la quota del libero (sotto).
    In questa modalità il tetto NUMERICO non si applica: è l'alternativa, non un
    secondo freno sovrapposto.
 
@@ -3417,10 +3418,15 @@ agente e i suoi figli (tsc, eslint, bun test, vite, il Chromium degli e2e) —
 campionato per differenza di CPU, mai un load average. Il `load1` descrive
 soprattutto le app di chi sta al computer e non dice quanto stiamo prendendo noi.
 
-**IL BUDGET È UN TETTO, NON UN DIRITTO.** L'usabile SHALL essere
-`min(budget, quello che gli altri lasciano libero)`. Su una macchina ferma i due
-numeri coincidono; su una macchina occupata da altri la nostra fetta si stringe,
-e l'interfaccia SHALL dirlo invece di promettere un numero che nessuno può avere.
+**IL BUDGET È UN TETTO, NON UN DIRITTO, E LA QUOTA È SUL LIBERO.** L'usabile
+SHALL essere `min(N% × core, N% × (core − CPU altrui))`, e per la memoria
+`min(N% × RAM, memoria nostra + N% × memoria libera)`: chi non è di Topics tiene
+sempre la sua fetta di ciò che avanza, quindi la parte che lasciamo cresce con
+quella che gli altri prendono (deciso il 14/09/2026). La CPU altrui entra
+smussata sulla mediana delle ultime letture, perché un picco di un secondo non
+chiuda la porta. Su una macchina ferma usabile e tetto coincidono; su una
+macchina occupata da altri la nostra fetta si stringe, e l'interfaccia SHALL
+dirlo invece di promettere un numero che nessuno può avere.
 
 **AMMISSIONE UNO PER TICK, CON ISTERESI.** Si ammette UN agente per giro, e solo
 se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la MEDIANA
@@ -3465,11 +3471,26 @@ tutta la macchina, oltre al conteggio degli slot: tre worktree che consegnano
 insieme facevano partire tre `eslint` (1,3 GB in due, misurato), e serializzare
 due corse dello stesso cancello non costa lavoro in più.
 
-**L'INTERFACCIA parla in percentuale di PC.** Nelle impostazioni la manopola è UN
-cursore in %, che dice anche cosa compra sui due assi. L'anello della colonna si
-riempie con `uso / budget` (non resta vuoto: in questa modalità «quanto è pieno»
-è esattamente la domanda) e il popover legge «Topics usa il N% del PC su un
-budget del M%», più i check congelati quando ce ne sono.
+L'attesa per il PROPRIO nome SHALL essere più lunga di quella per uno slot
+(30 minuti, `TOPICS_GATE_NAME_MAX_WAIT_MS`: con i 10 dello slot resta sotto i 50 che `update_task` aspetta i check) e restare un limite: dieci minuti
+erano meno di una suite unit intera su una macchina carica, e il 14/09/2026 alle
+01:08 due `test:unit:shards` da 11 GB l'uno giravano insieme perché il secondo
+aveva finito la sua attesa ed era partito «accanto». Mentre un cancello aspetta
+se stesso il suo orologio NON SHALL correre: `slot.ts` stampa la riga di attesa
+e i check pre-review fermano la scadenza fino alla riga di slot acquisito.
+
+**L'INTERFACCIA parla in core a disposizione, una volta sola.** Nelle
+impostazioni restano a vista: quanti agenti lavorano con l'anello accanto, la
+manopola «N% del libero», e UNA riga «Topics usa X dei Y core a disposizione»
+col verdetto. Il verdetto SHALL essere quello del cancello (`admission` sulla
+lettura della capacità: stesso campione, stesso costo misurato, stessa isteresi,
+e dice quale asse trattiene), mai ricalcolato nel client; senza `admission` non
+si disegna. Spiegazione, tetto a macchina ferma, portata per macchina e check
+congelati stanno sotto «Come funziona», chiuso. L'anello della colonna si
+riempie con `uso / usabile`, e un usabile misurato a zero è pieno e oltre, non
+un tetto assente. Il popover dice la quota, agenti e core in una riga, i check
+congelati quando ce ne sono e la spesa. Il motivo scritto sulla card in coda
+usa le stesse parole.
 
 **Le impostazioni della board stanno in UN dropdown**, ancorato al ⚙ della
 toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
@@ -3490,7 +3511,7 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 - **AND** un agente già in volo mentre Topics tiene 5,8 core-unità
 - **WHEN** il dispatcher fa il suo giro
 - **THEN** nessun dispatch nuovo parte
-- **AND** le card in coda portano il motivo `resource_pressure` con la % del PC e le core-unità, e il tono dice che riparte da sola
+- **AND** le card in coda portano il motivo `resource_pressure` con i core usati su quelli a disposizione, la quota e il costo di un agente, e il tono dice che riparte da sola
 
 #### Scenario: non si riparte dove ci si è fermati
 - **GIVEN** la coda trattenuta dal budget
@@ -3504,12 +3525,18 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 
 #### Scenario: quello che prendono gli altri stringe il budget
 - **GIVEN** un budget dell'80% su 12 core e altri processi che ne tengono 10
-- **THEN** l'usabile SHALL essere 2 core-unità, non 9,6, e la riga sulla card SHALL dire perché
+- **THEN** l'usabile SHALL essere l'80% dei 2 core rimasti, 1,6 core-unità, non 9,6, e la riga sulla card SHALL dire perché
 
 #### Scenario: sopra il budget si congela un check, e riparte da solo
 - **GIVEN** due check runner vivi e l'uso sopra il budget per due letture
 - **THEN** UNO solo viene congelato, il più recente, e la sua card lo dice
 - **AND** quando l'uso torna sotto il 70% del budget per due letture il check viene scongelato, con l'orologio del suo timeout fermo per tutta la pausa
+
+#### Scenario: il verdetto del pannello è quello del cancello
+- **GIVEN** la modalità «a budget», Topics a 3,4 core-unità su 3,8 a disposizione e un agente che ne costa 0,5
+- **WHEN** si apre il pannello
+- **THEN** la riga dice «i nuovi aspettano», perché è ciò che il cancello risponde (3,4 + 0,5 > 3,8), e non «partirebbe» come direbbe `uso < usabile`
+- **AND** con la memoria a trattenere dice «i nuovi aspettano: memoria piena»
 
 #### Scenario: la misura non presa non blocca niente
 - **GIVEN** una macchina dove la sonda non risponde
@@ -3706,17 +3733,18 @@ mostrare pieno o vuoto come se fosse una misura. Senza tetto l'anello è vuoto e
 la parola è «senza limite»: un riempimento contro l'infinito non significa
 niente.
 
-**Il freno «per risorse» non ha un tetto da riempire.** In quella modalità il
-numero non si applica (KANBAN-75): l'anello resta vuoto e la parola nomina il
-freno, invece di disegnare una frazione contro un tetto che non decide niente.
-Per la stessa ragione, sopra il tetto la lettura NON si scrive come frazione:
-«4 di 2» si legge come un avanzamento su un totale.
+**Il freno «per risorse» si riempie sull'usabile.** In quella modalità il
+numero non si applica (KANBAN-75): l'anello si riempie con `uso / core a
+disposizione` e la parola nomina il freno. Sopra il tetto la lettura NON si
+scrive come frazione: «4 di 2» si legge come un avanzamento su un totale.
 
-**I numeri esistono, a un clic.** Il popover SHALL dire la modalità del tetto, la
-derivazione del limite effettivo (`12 core → 4`, e SOLO quando è la macchina ad
-averlo derivato), gli agenti in volo, i core della flotta sulla quota, il load
-della macchina, la memoria libera, la spesa delle ultime 24 ore e la porta alle
-impostazioni.
+**I numeri esistono, a un clic, e ognuno una volta.** Il popover SHALL dire la
+modalità del tetto (a budget: la quota del libero), la derivazione del limite
+effettivo (`12 core → 4`, e SOLO quando è la macchina ad averlo derivato), gli
+agenti in volo (a budget: nella stessa riga dei core a disposizione), i check
+congelati quando ce ne sono, la spesa delle ultime 24 ore e la porta alle
+impostazioni. Load della macchina e memoria libera non ci sono: descrivevano le
+app di chi sta al computer e non decidevano niente.
 
 MISURA: `client/src/components/Board/dispatchLoad.test.ts` per la lettura pura
 (sotto, al, oltre il tetto; sonda muta; tetto spento; numero fisso) ed e2e

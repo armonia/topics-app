@@ -171,7 +171,9 @@ async function main(): Promise<void> {
         if (tick === 0) firstTickStarts = 3 - before;
         break;
       }
-      const v = admissionVerdict(sample(used, started), share, cost, state);
+      // The probe drives the CPU axis: memory is priced low on purpose so the
+      // only thing that can close the door here is the burner.
+      const v = admissionVerdict(sample(used, started), share, { coreUnits: cost, memGB: 0.1 }, state);
       state = v.state;
       if (v.admit) { started++; if (tick === 0) firstTickStarts++; }
     }
