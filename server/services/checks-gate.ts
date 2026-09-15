@@ -61,9 +61,9 @@ export type ChecksLeg = ChecksVerdict | { pending: true } | ChecksInterrupted | 
  * It used to come back as `null`, the same word as "this board declares no
  * checks", and the delivery gate reads that as "go on": a reload with a leg in
  * flight moved the card to review with `checksState: running` and nothing
- * measured. An interrupted run is its own outcome, the delivery answers "call
- * again" and the card does not move. Like `null` it is not retained: the next
- * leg, after the restart, starts a fresh run.
+ * measured. An interrupted run is its own outcome: the delivery answers like a
+ * leg still in flight and the card does not move. Like `null` it is not
+ * retained: the next leg, after the restart, starts a fresh run.
  */
 export type ChecksInterrupted = { interrupted: true };
 

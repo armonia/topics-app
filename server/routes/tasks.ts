@@ -100,10 +100,6 @@ import {
  */
 const DONE_FEED_LIMIT = 120;
 
-/** How long a delivery whose checks the shutdown cut is told to wait before
- *  calling again: a watcher reload is back in seconds, a full restart in tens. */
-const CHECKS_INTERRUPTED_RETRY_AFTER_S = 60;
-
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
   invalid_input: 400,
@@ -1080,8 +1076,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (!checks.length) return null;
     // A server on its way out starts no round: the realign below would run a
     // merge in the worktree that the exit can cut in half, and the round would
-    // be interrupted before its first command anyway.
-    if (reviewChecksStopping()) return { interrupted: true };
+    // be interrupted before its first command anyway. The leg is HELD for its
+    // length, like a leg with a round in flight, so the socket close answers it
+    // and the client retries that silence within its grace. Answered at once,
+    // the client calls again in a tight loop for the whole exit (~3.5 s of
+    // provider grace), and every call spends one of its legs.
+    if (reviewChecksStopping()) {
+      await Bun.sleep(legMs);
+      return { interrupted: true };
+    }
     // THE CHECKS MEASURE THE TREE THAT LANDS. On 2026-09-04 three cards
     // (4c4ac437, 882f81b9, c8039b35) burnt a turn each on an "inherited" red:
     // a bloat baseline main had already moved while their branch sat on an
@@ -2245,23 +2248,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // again": the task does not move until there is one, and the MCP client
     // (callUpdateTask) is the one that polls.
     const outcome = await runChecksGate(taskId, projectId, legMs).catch(() => null);
+    const legInFlight = (task: Task | undefined) => json({
+      pending: true,
+      code: "review_checks_running",
+      legMs,
+      status: task?.status ?? null,
+      checksState: task?.checksState ?? "running",
+    }, 202);
     // THE SERVER STOPPED THE ROUND: nothing was measured, so this is neither a
     // red nor "no checks". Read as `null` it let the PATCH go on and the card
     // entered review with `checksState: running` on every watcher reload. The
-    // card stays where it is and the agent is told to call again once the
-    // server is back; the round that follows measures the delivery from scratch.
+    // answer is the one of a leg still in flight, not an error: the only
+    // client (`callUpdateTask`) calls again, meets the closed socket and
+    // retries it within its transport grace, and after the restart a fresh
+    // round measures the delivery. A 503 was thrown at the agent instead, which
+    // cannot wait a minute and called again into the dead server.
     if (outcome && "interrupted" in outcome) {
       pendingDeliveries.delete(taskId);
       checksWaitSince.delete(taskId);
-      const retry = json({
-        error:
-          "the pre-review checks were interrupted because the server is restarting: nothing was measured " +
-          "and the task did not move. call update_task(status='review') again in a minute, once the server is back",
-        code: "review_checks_interrupted",
-        retryAfterMs: CHECKS_INTERRUPTED_RETRY_AFTER_S * 1000,
-      }, 503);
-      retry.headers.set("Retry-After", String(CHECKS_INTERRUPTED_RETRY_AFTER_S));
-      return retry;
+      return legInFlight(svc.get(taskId, { projectId })?.task);
     }
     if (outcome && "pending" in outcome) {
       // Remembered with the body as sent: the server re-issues THIS request
@@ -2269,13 +2274,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (body && typeof body === "object") pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
       const task = svc.get(taskId, { projectId })?.task;
       tellChatAboutChecksWait(chat.sessionKey, chat.topicId, taskId, projectId, task);
-      return json({
-        pending: true,
-        code: "review_checks_running",
-        legMs,
-        status: task?.status ?? null,
-        checksState: task?.checksState ?? "running",
-      }, 202);
+      return legInFlight(task);
     }
     pendingDeliveries.delete(taskId);
     checksWaitSince.delete(taskId);

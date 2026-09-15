@@ -94,9 +94,10 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
  * A run killed here is not a red: the code was never measured. So after the
  * kill the round throws `ChecksInterruptedError` instead of returning the
  * killed run, and the gate turns it into an INTERRUPTED outcome (checks-gate.ts):
- * nothing is recorded, the delivery waiting on the round answers 503 "call
- * again" without moving the card, and the card is measured again after the
- * restart. The same flag stops any command that has not started yet.
+ * nothing is recorded, the delivery waiting on the round answers like a leg
+ * still in flight without moving the card, and the client's next leg, retried
+ * across the restart, measures it again. The same flag stops any command that
+ * has not started yet.
  */
 let stopping = false;
 
@@ -105,7 +106,7 @@ export function throwIfStopping(): void {
 }
 
 /** The server is on its way out: a delivery that would start a new round (and
- *  realign its branch first) is told to call again instead. */
+ *  realign its branch first) is held for its leg instead. */
 export function reviewChecksStopping(): boolean {
   return stopping;
 }

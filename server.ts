@@ -6309,7 +6309,7 @@ async function gracefulShutdown(signal: string) {
   // the same cards' checks beside it (15/09/2026: four unit trees at once).
   // After the thaw, because a stopped process holds a SIGTERM until it is
   // continued. The rounds throw instead of recording the killed run as a red,
-  // and a delivery waiting on one answers 503 "call again" without moving.
+  // and a delivery waiting on one answers "still running" without moving.
   try { await stopReviewChecks(); } catch { /* best effort on the way out */ }
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo

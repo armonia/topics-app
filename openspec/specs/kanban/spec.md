@@ -1098,11 +1098,16 @@ spegnimento non ha misurato niente: il giro SHALL interrompersi senza esito e
 nessun comando successivo SHALL partire. «Senza esito» NON è «nessun check»: il
 cancello lo riportava come `null`, la stessa parola di una board senza comandi,
 e la consegna passava in review con i check ancora «in corso» a ogni reload del
-watcher. La consegna in attesa di quel giro SHALL rispondere 503 con
-`review_checks_interrupted` e `Retry-After`, dicendo all'agente di richiamare,
-e la card NON SHALL muoversi; una consegna che arriva mentre il server si sta
-spegnendo SHALL avere la stessa risposta senza riallineare il ramo. La card si
-rimisura quando l'agente richiama, dopo il riavvio.
+watcher. La consegna in attesa di quel giro SHALL rispondere come una gamba
+ancora in volo (202 `review_checks_running`), NON con un errore, e la card NON
+SHALL muoversi. L'agente non SHALL ritentare a mano: il client (`update_task`)
+richiama da solo, trova il socket chiuso dall'uscita e ritenta quel silenzio
+dentro la sua grazia di trasporto, e dopo il riavvio un giro nuovo rimisura la
+consegna. Un 503 arrivava invece all'agente come errore, e l'agente richiamava
+subito dentro il server morto. Una consegna che arriva mentre il server si sta
+spegnendo SHALL aspettare la sua gamba prima della stessa risposta, senza
+riallineare il ramo: risposta subito, il client richiamerebbe a raffica per
+tutta l'uscita, spendendo una gamba a chiamata.
 
 #### Scenario: con CI il semaforo resta acceso
 - **GIVEN** due check della board sullo stesso cancello, con `CI=1` e nessun conteggio nell'ambiente del server
@@ -1121,8 +1126,13 @@ rimisura quando l'agente richiama, dopo il riavvio.
 #### Scenario: lo spegnimento non manda in review una consegna senza check
 - **GIVEN** una card in lavorazione che consegna con `PATCH status=review`, e la sua gamba in volo su un check `sleep 120` (oppure su un giro fermo nell'attesa di memoria)
 - **WHEN** il server ferma i check
-- **THEN** la risposta SHALL essere 503 `review_checks_interrupted` con `Retry-After` e l'invito a richiamare, e la card SHALL restare `in_progress`
-- **AND** una seconda consegna prima dell'uscita SHALL avere la stessa risposta senza riallineare il ramo
+- **THEN** la risposta SHALL essere 202 `review_checks_running`, la stessa di una gamba in volo, e la card SHALL restare `in_progress`
+- **AND** una consegna che arriva prima dell'uscita SHALL aspettare la sua gamba prima della stessa risposta, senza riallineare il ramo
+
+#### Scenario: il client di update_task attraversa il riavvio da solo
+- **GIVEN** una consegna con i check in corso e il client MCP `update_task` in attesa
+- **WHEN** le gambe ricevono in fila 202, 202 interrotta dallo spegnimento, `ECONNREFUSED` e poi 200 dal server nuovo
+- **THEN** `update_task` SHALL risolversi con la card in `review`, senza errori per l'agente
 
 #### Scenario: la coda per lo slot non consuma il tetto
 - **GIVEN** un comando che aspetta 1,5 s uno slot, stampa la riga di `slot.ts` e poi lavora 1,5 s, sotto un tetto di 2 s
