@@ -482,6 +482,21 @@ describe("perché questa card è ferma", () => {
     expect(deriveQueueReason({ ...base, status: "in_progress", dispatchState: "working" }, { ...ctx, ...block })).toBeNull();
   });
 
+  test("in corso in coda a dispatch spento: dice l'interruttore, non un pavimento vecchio", () => {
+    // The night of 14/09 in its second half: the floor holds, someone turns
+    // dispatch off by hand, the floor clears. The tick returns before it
+    // publishes, so the block it published last is still the floor. The todo
+    // card on the same board says "dispatch off", and so must the held resume:
+    // otherwise it reads "memory almost gone" forever, about memory that is back.
+    const stale = { dispatchBlock: { kind: "resources" as const, reason: "Memoria quasi finita: 4,1 GB disponibili." } };
+    const held = reason({ status: "in_progress", dispatchState: "queued" }, { ...stale, autoDispatch: false });
+    expect(held).toMatchObject({ kind: "dispatch_off", tone: "stalled", detail: "dispatch spento" });
+    expect(held.title).not.toContain("4,1 GB");
+    expect(reason({ status: "todo" }, { ...stale, autoDispatch: false }).kind).toBe("dispatch_off");
+    // With the switch on, the same block is still the answer.
+    expect(reason({ status: "in_progress", dispatchState: "queued" }, stale).kind).toBe("resource_floor");
+  });
+
   test("uno step fuori da todo tace: chi lo lavora lo dice `deriveSubtaskWork`", () => {
     for (const status of ["backlog", "in_progress"]) {
       expect(deriveQueueReason(

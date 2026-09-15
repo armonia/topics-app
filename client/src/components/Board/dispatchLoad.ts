@@ -234,9 +234,14 @@ export function admissionVerdictText(a: DispatchAdmission): VerdictText {
   // Held on the CPU while one more agent would fit under the ceiling: that is
   // the resume line (once holding, the gate restarts under 80% of it), and the
   // cost alone would read as a contradiction of the numbers beside it.
+  // The number printed is the one the USE beside it has to reach. The gate
+  // compares use PLUS the cost of one more agent with 80% of the usable, so the
+  // use resumes at that line minus the cost, not at the line itself: printing
+  // the bare 80% said "under 4.4" next to a use of 3.5 that was still holding.
   const { usedCoreUnits: used, usableCoreUnits: usable } = a;
   if (used != null && usable != null && used + a.costCoreUnits <= usable) {
-    return wait('board.dispatch.verdictWaitCpuResume', { resume: oneDecimal(usable * ADMIT_RESUME_FRACTION) });
+    const resume = Math.max(0, usable * ADMIT_RESUME_FRACTION - a.costCoreUnits);
+    return wait('board.dispatch.verdictWaitCpuResume', { resume: oneDecimal(resume) });
   }
   return wait('board.dispatch.verdictWaitCpu', { cost: oneDecimal(a.costCoreUnits) });
 }

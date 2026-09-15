@@ -1071,9 +1071,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   /** L'ultimo motivo di blocco già annunciato, per non ripeterlo a ogni tick. */
   let lastAdmissionBlock: string | null = null;
+  /** THE FLOOR, read without saying it: `admissionBlock` is the one that logs
+   *  the episode, and the panel's preview must not. */
+  function floorReason(): string | null {
+    return deps.resourceBlock?.() ?? null;
+  }
   function admissionBlock(): string | null {
     try {
-      const reason = deps.resourceBlock?.() ?? null;
+      const reason = floorReason();
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
       // del server» — solo che nel log non ci finiva niente: il messaggio
@@ -1177,8 +1182,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * card said "the machine has no room". The floor holds in count mode as well,
    * so it is the one verdict a count-mode reading carries.
    *
-   * `deps.resourceBlock` and not `admissionBlock()`: that one logs the episode
-   * and moves its dedup state, and a panel polling every 15 s must not.
+   * `floorReason()` and not `admissionBlock()`: that one logs the episode and
+   * moves its dedup state, and a panel polling every 15 s must not.
    */
   function admissionPreview(): DispatchAdmission | null {
     try {
@@ -1186,7 +1191,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0, reason });
       const drain = drainBlock();
       if (drain) return held("drain", drain);
-      const floor = (() => { try { return deps.resourceBlock?.() ?? null; } catch { return null; } })();
+      const floor = (() => { try { return floorReason(); } catch { return null; } })();
       if (floor) return held("floor", floor);
       const gcap = deps.svc.getGlobalCap();
       if (capMode(gcap) !== "resources") return null;

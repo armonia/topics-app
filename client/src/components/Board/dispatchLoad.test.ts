@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation, loadAdvice, loadToneClass, loadWordKey } from './dispatchLoad';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
+import { admissionVerdict } from '../../../../shared/machine-budget';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   recommended: 4,
@@ -221,10 +222,33 @@ describe('admissionVerdictText', () => {
       .toMatchObject({ key: 'board.dispatch.verdictWaitMemoryFootprint', params: { ours: '22.0', ceiling: '20.4' } });
     expect(admissionVerdictText({ ...base, blockedBy: 'cpu', usedCoreUnits: 6.5, usableCoreUnits: 6.6 }))
       .toMatchObject({ key: 'board.dispatch.verdictWaitCpu', params: { cost: '0.5' } });
-    // Held under the ceiling: the resume line, 80% of the usable.
+    // Held under the ceiling: the resume line, 80% of the usable less the cost.
     expect(admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: 1, usedCoreUnits: 4.4, usableCoreUnits: 5.5 }))
-      .toMatchObject({ key: 'board.dispatch.verdictWaitCpuResume', params: { resume: '4.4' } });
+      .toMatchObject({ key: 'board.dispatch.verdictWaitCpuResume', params: { resume: '3.4' } });
     expect(admissionVerdictText({ ...base, blockedBy: 'drain', reason: 'Riavvio del server in arrivo.' }).key).toBe('board.dispatch.verdictWaitDrain');
+  });
+
+  test('the resume number is the one the gate really restarts at, cost included', () => {
+    // Share 0.5 of 12 cores, others burning 1, one agent priced at 1 core: the
+    // usable is 5.5 and the gate, once holding, compares use + cost with 4.4.
+    // The panel used to print "under 4.4" beside a use of 3.5 that still held.
+    const sample = (ours: number) => ({
+      cores: 12, totalMemGB: 32, ourCoreUnits: ours, otherCoreUnits: 1, ourMemGB: 2, availableMemGB: null, running: 2,
+    });
+    const cost = { coreUnits: 1, memGB: 1.5 };
+    const held = admissionVerdict(sample(3.5), 0.5, cost, 'holding');
+    expect(held).toMatchObject({ admit: false, blockedBy: 'cpu', usableCoreUnits: 5.5 });
+    const text = admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: held.costCoreUnits,
+      usedCoreUnits: held.usedCoreUnits, usableCoreUnits: held.usableCoreUnits });
+    expect(text.key).toBe('board.dispatch.verdictWaitCpuResume');
+    const printed = Number(text.params!.resume);
+    // The use beside the sentence is not yet under the printed line...
+    expect(held.usedCoreUnits).toBeGreaterThan(printed);
+    // ...and at the printed line the gate does restart.
+    expect(admissionVerdict(sample(printed), 0.5, cost, 'holding').admit).toBe(true);
+    // A cost above 80% of the usable never prints a negative number.
+    expect(admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: 5, usedCoreUnits: 0.5, usableCoreUnits: 5.5 }).params)
+      .toEqual({ resume: '0.0' });
   });
 
   test('the floor is said in its own first sentence, the rest one hover away', () => {

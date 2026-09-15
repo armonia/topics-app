@@ -280,26 +280,35 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     h.machine.pressure = { ...QUIET, ourCoreUnits: 2, otherCoreUnits: 1, ourMemGB: 9, availableMemGB: 5.5, running: 3 };
     floor.reason = "Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
     seedTask(h.db, "fl1");
+    const lines = (word: string) => h.logLines.filter((l) => l.includes(word));
 
-    await h.dispatcher.tick(PID);
-    await flush();
-    // The gate holds for real: this is what the preview has to agree with.
-    expect(h.topicsCreated).toHaveLength(0);
-    const said = h.logLines.filter((l) => l.includes("coda ferma")).length;
-
+    // A panel polls BEFORE any tick has read the floor. The log's dedup state is
+    // still empty, so a preview that went through the logging read would write
+    // the episode here; only the tick may.
     expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor", firstAgentExempt: false });
     expect(h.dispatcher.admissionPreview?.()?.reason).toContain("5.5 GB disponibili");
     // In count mode there is no budget verdict, but the floor holds there too.
     h.svc.setGlobalCap({ mode: "count" });
     expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor" });
-    // A panel polling the preview does not write the episode into the log.
-    expect(h.logLines.filter((l) => l.includes("coda ferma"))).toHaveLength(said);
+    expect(lines("coda ferma")).toHaveLength(0);
 
-    // The floor lifts: count mode has nothing to say, the budget admits again.
+    h.svc.setGlobalCap({ mode: "resources" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The gate holds for real, and the tick says so once: the log does capture it.
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(lines("coda ferma")).toHaveLength(1);
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor" });
+
+    // The floor lifts: count mode has nothing to say, the budget admits again,
+    // and a poll does not announce the restart the tick has not seen yet.
     floor.reason = null;
+    h.svc.setGlobalCap({ mode: "count" });
     expect(h.dispatcher.admissionPreview?.()).toBeNull();
     h.svc.setGlobalCap({ mode: "resources" });
     expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null });
+    expect(lines("coda ripartita")).toHaveLength(0);
+    expect(lines("coda ferma")).toHaveLength(1);
   });
 
   it("the preview says a planned restart holds the queue, in count mode too", () => {

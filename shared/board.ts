@@ -1249,8 +1249,14 @@ export function deriveQueueReason(
     // budget holds it, and after a forced restart that is every cut turn at
     // once: twelve queued chips with no reason while nothing starts.
     // The machine-wide block is the answer the todo branch already gives, so
-    // it is given here with the same words.
+    // it is given here with the same words, and in the same order: the switch
+    // first. With dispatch off the tick returns before it publishes a block, so
+    // the one still published is stale (a floor that has cleared long ago), and
+    // nothing will resume this card until someone turns dispatch back on.
     if (task.status === 'in_progress' && task.dispatchState === 'queued' && !task.parentTaskId && ctx.dispatchBlock) {
+      if (!ctx.autoDispatch) {
+        return { kind: 'dispatch_off', tone: 'stalled', key: 'board.queue.dispatchOff' };
+      }
       return machineBlockReason(ctx.dispatchBlock);
     }
     // `queued` compreso: fuori da `todo` quel chip non è la parola vaga che

@@ -3466,7 +3466,10 @@ una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
 non dire. Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
 è trattenuto da pavimento o budget (chip `queued`): il motivo SHALL viaggiare
 anche sulla riga (`dispatch_error`), e un «in coda» senza perché su una card
-che non partirà è la stessa bugia in un'altra colonna.
+che non partirà è la stessa bugia in un'altra colonna. Nello stesso ordine della
+card in Todo: a dispatch spento quella card SHALL dire l'interruttore
+(`dispatch_off`), perché il tick esce prima di pubblicare e il blocco rimasto è
+quello di prima, un pavimento magari rientrato da ore.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
@@ -3494,7 +3497,9 @@ modalità, e in «per numero» sono gli unici verdetti che la lettura porta (la
 notte del 14/09/2026 il pavimento dei 6 GB era l'unico freno che teneva, e il
 pannello diceva in verde «un agent nuovo partirebbe»). Il verdetto SHALL nominare
 l'asse CON i due numeri che quell'asse ha confrontato: la CPU col costo di un
-agent (o la linea di rientro all'80% quando l'agent starebbe sotto il tetto), la
+agent (o, quando l'agent starebbe sotto il tetto, la linea sotto cui l'USO deve
+scendere perché riparta: l'80% dell'usabile meno il costo di un agent, perché il
+cancello confronta uso più costo con quell'80%), la
 memoria con «servono X GB, liberi per Topics Y GB» quando non ci sta nella quota
 del libero e con «Topics tiene X GB su un tetto di Y GB» quando è l'impronta a
 superare il tetto, il pavimento con la sua prima frase. Lo stesso vale per la
