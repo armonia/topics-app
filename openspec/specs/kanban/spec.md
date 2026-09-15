@@ -3463,7 +3463,10 @@ si riassorbe da solo, il carico sì. Per questo il motivo di coda del budget è 
 tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
 (`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
 una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
-non dire.
+non dire. Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
+è trattenuto da pavimento o budget (chip `queued`): il motivo SHALL viaggiare
+anche sulla riga (`dispatch_error`), e un «in coda» senza perché su una card
+che non partirà è la stessa bugia in un'altra colonna.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
@@ -3485,12 +3488,27 @@ manopola «N% del libero», e UNA riga «Topics usa X dei Y core a disposizione�
 col verdetto. Il verdetto SHALL essere quello del cancello (`admission` sulla
 lettura della capacità: stesso campione, stesso costo misurato, stessa isteresi,
 e dice quale asse trattiene), mai ricalcolato nel client; senza `admission` non
-si disegna. Spiegazione, tetto a macchina ferma, portata per macchina e check
+si disegna. Il verdetto SHALL seguire l'ordine del tick: un riavvio in arrivo e
+il PAVIMENTO (`dispatchResourceBlock`) vengono prima del budget, in ENTRAMBE le
+modalità, e in «per numero» sono gli unici verdetti che la lettura porta (la
+notte del 14/09/2026 il pavimento dei 6 GB era l'unico freno che teneva, e il
+pannello diceva in verde «un agent nuovo partirebbe»). Il verdetto SHALL nominare
+l'asse CON i due numeri che quell'asse ha confrontato: la CPU col costo di un
+agent (o la linea di rientro all'80% quando l'agent starebbe sotto il tetto), la
+memoria con «servono X GB, liberi per Topics Y GB» quando non ci sta nella quota
+del libero e con «Topics tiene X GB su un tetto di Y GB» quando è l'impronta a
+superare il tetto, il pavimento con la sua prima frase. Lo stesso vale per la
+riga scritta sulla card: le due clausole della memoria hanno due frasi, perché
+quella della quota stampata quando scatta l'impronta si contraddice da sola. I
+numeri della riga viva SHALL essere quelli del cancello (misura più i turni
+ammessi negli ultimi 90 secondi, detti come «N appena partiti»), non la sonda
+nuda. Spiegazione, tetto a macchina ferma, portata per macchina e check
 congelati stanno sotto «Come funziona», chiuso. L'anello della colonna si
 riempie con `uso / usabile`, e un usabile misurato a zero è pieno e oltre, non
-un tetto assente. Il popover dice la quota, agenti e core in una riga, i check
-congelati quando ce ne sono e la spesa. Il motivo scritto sulla card in coda
-usa le stesse parole.
+un tetto assente. Il popover dice la quota, agenti e core in una riga, la
+memoria che il cancello ha confrontato, i check congelati quando ce ne sono e la
+spesa. Il chip «Fermane N» risponde a una domanda sul NUMERO e in «per risorse»
+NON SHALL comparire. Il motivo scritto sulla card in coda usa le stesse parole.
 
 **Le impostazioni della board stanno in UN dropdown**, ancorato al ⚙ della
 toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
@@ -3535,8 +3553,14 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 #### Scenario: il verdetto del pannello è quello del cancello
 - **GIVEN** la modalità «a budget», Topics a 3,4 core-unità su 3,8 a disposizione e un agente che ne costa 0,5
 - **WHEN** si apre il pannello
-- **THEN** la riga dice «i nuovi aspettano», perché è ciò che il cancello risponde (3,4 + 0,5 > 3,8), e non «partirebbe» come direbbe `uso < usabile`
-- **AND** con la memoria a trattenere dice «i nuovi aspettano: memoria piena»
+- **THEN** la riga dice «i nuovi aspettano: CPU», perché è ciò che il cancello risponde (3,4 + 0,5 > 3,8), e non «partirebbe» come direbbe `uso < usabile`
+- **AND** con la memoria a trattenere dice «i nuovi aspettano: memoria» con i GB che servono e quelli liberi per Topics, oppure con quanti ne tiene Topics contro il suo tetto
+
+#### Scenario: il pavimento tiene la coda e il pannello lo dice
+- **GIVEN** 5,5 GB disponibili sotto il pavimento nativo di 6 GB, con la CPU dentro il budget
+- **WHEN** si apre il pannello, in «a budget» o in «per numero»
+- **THEN** il verdetto è `floor` e dice la prima frase del pavimento, e l'anello della colonna è pieno con la parola «fermo: niente spazio»
+- **AND** il chip «Fermane N» non compare in «a budget»
 
 #### Scenario: la misura non presa non blocca niente
 - **GIVEN** una macchina dove la sonda non risponde
@@ -3738,13 +3762,23 @@ numero non si applica (KANBAN-75): l'anello si riempie con `uso / core a
 disposizione` e la parola nomina il freno. Sopra il tetto la lettura NON si
 scrive come frazione: «4 di 2» si legge come un avanzamento su un totale.
 
+**Quando il cancello trattiene, l'anello lo dice.** Se `admission` risponde no,
+in qualunque modalità, l'anello SHALL essere pieno e la parola SHALL nominare
+l'asse («aspetta: CPU», «aspetta: memoria», «fermo: niente spazio», «fermo:
+riavvio») invece del freno: un anello al 61% con «a budget» mentre la memoria
+tiene la coda, o «3 di 4» mentre il pavimento non ammette nessuno, si leggono
+come posto libero.
+
 **I numeri esistono, a un clic, e ognuno una volta.** Il popover SHALL dire la
 modalità del tetto (a budget: la quota del libero), la derivazione del limite
 effettivo (`12 core → 4`, e SOLO quando è la macchina ad averlo derivato), gli
 agenti in volo (a budget: nella stessa riga dei core a disposizione), i check
 congelati quando ce ne sono, la spesa delle ultime 24 ore e la porta alle
-impostazioni. Load della macchina e memoria libera non ci sono: descrivevano le
-app di chi sta al computer e non decidevano niente.
+impostazioni. A budget dice anche la memoria che il cancello ha confrontato
+(quanti GB tiene Topics, quanti ne restano liberi per Topics, quanti ne chiede un
+agent) e, quando il cancello trattiene, il verdetto con i suoi numeri. Il load
+della macchina e la memoria libera grezza non ci sono: descrivevano le app di chi
+sta al computer e non decidevano niente.
 
 MISURA: `client/src/components/Board/dispatchLoad.test.ts` per la lettura pura
 (sotto, al, oltre il tetto; sonda muta; tetto spento; numero fisso) ed e2e
@@ -3763,6 +3797,10 @@ popover e la stessa lettura nel pannello.
 - **GIVEN** l'indicatore nell'header, con il tetto in automatico su una macchina da 12 core
 - **WHEN** ci si clicca sopra
 - **THEN** si apre un popover che dice «12 core → 4» e porta alle impostazioni
+
+#### Scenario: la memoria trattiene e l'anello non mostra posto
+- **GIVEN** il freno a budget, la CPU di Topics al 61% dell'usabile e `admission` che trattiene sulla memoria
+- **THEN** l'anello è pieno, la parola è «aspetta: memoria» e il popover dice i GB che il cancello ha confrontato
 
 ### Requirement: KANBAN-80 — Il modello di dispatch salvato resta visibile anche col suo provider giù
 

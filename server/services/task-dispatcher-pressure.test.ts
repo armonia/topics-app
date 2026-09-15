@@ -263,9 +263,106 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.topicsCreated).toHaveLength(1);
-    // Outside the budget mode there is no verdict to preview.
+    // Outside the budget mode, with no floor holding, there is no verdict to preview.
     h.svc.setGlobalCap({ mode: "count" });
     expect(h.dispatcher.admissionPreview?.()).toBeNull();
+  });
+
+  // THE NIGHT'S SHAPE: 5.5 GB available on a native runtime, under the 6 GB
+  // floor and well over the point where the budget's memory axis fires (1.5 GB
+  // of cost against 60% of 5.5). The floor was the only brake that held, and the
+  // panel said in green that a new agent would start.
+  it("the preview says the floor holds, in either mode, before the budget is asked", async () => {
+    const floor = { reason: null as string | null };
+    const h = harness({ resourceBlock: () => floor.reason });
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.6 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 2, otherCoreUnits: 1, ourMemGB: 9, availableMemGB: 5.5, running: 3 };
+    floor.reason = "Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
+    seedTask(h.db, "fl1");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The gate holds for real: this is what the preview has to agree with.
+    expect(h.topicsCreated).toHaveLength(0);
+    const said = h.logLines.filter((l) => l.includes("coda ferma")).length;
+
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor", firstAgentExempt: false });
+    expect(h.dispatcher.admissionPreview?.()?.reason).toContain("5.5 GB disponibili");
+    // In count mode there is no budget verdict, but the floor holds there too.
+    h.svc.setGlobalCap({ mode: "count" });
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor" });
+    // A panel polling the preview does not write the episode into the log.
+    expect(h.logLines.filter((l) => l.includes("coda ferma"))).toHaveLength(said);
+
+    // The floor lifts: count mode has nothing to say, the budget admits again.
+    floor.reason = null;
+    expect(h.dispatcher.admissionPreview?.()).toBeNull();
+    h.svc.setGlobalCap({ mode: "resources" });
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null });
+  });
+
+  it("the preview says a planned restart holds the queue, in count mode too", () => {
+    const h = harness();
+    h.svc.setGlobalCap({ auto: false, max: 4 });
+    expect(h.dispatcher.admissionPreview?.()).toBeNull();
+    h.dispatcher.drain("test");
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "drain" });
+  });
+
+  // The panel printed the bare probe ("2.0 of 6.6") while the gate decided on
+  // the probe plus the turns admitted in the last ninety seconds ("6.5 of 6.6"
+  // on the card). The preview carries the gate's own numbers.
+  it("the preview carries the numbers the gate decided on, reservation included", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 1, running: 2 };
+    seedTask(h.db, "rs1");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated).toHaveLength(1);
+
+    // One turn launched a moment ago, priced at 1 core-unit and 1.5 GB: the
+    // probe still says 1, the gate counts 2, and 1.5 GB of the 20 free are gone.
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({
+      admit: true,
+      usedCoreUnits: 2,
+      usableCoreUnits: 5.5,
+      pendingAdmissions: 1,
+      costMemGB: 1.5,
+      freeQuotaMemGB: 9.25,
+      ourMemGB: 3,
+      memClause: null,
+    });
+  });
+
+  // A resume held by the floor sat in the In-progress column with a bare queued chip: no reason
+  // on the row (the chip write cleared it) and none from the mapper (the
+  // machine-wide block was read only for Todo cards).
+  it("a resume held by the floor carries its reason on the row and on the card", async () => {
+    const floorText = "Memoria quasi finita: 4.1 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
+    const h = harness({ resourceBlock: () => floorText });
+    boardOn(h);
+    const ts = new Date().toISOString();
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-held')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, assigned_topic_id, created_at, updated_at, dispatch_attempts, priority)
+       VALUES ('rh1', ?, 'held resume', 'in_progress', 'topic-held', ?, ?, 1, 2)`,
+      [PID, ts, ts],
+    );
+    try {
+      await h.dispatcher.resume("rh1", "continua");
+      expect(h.topicsCreated).toHaveLength(0);
+      expect(h.task("rh1")!.dispatchState).toBe("queued");
+      expect(h.task("rh1")!.dispatchError).toContain("4.1 GB disponibili");
+      // The tick publishes the machine-wide block; the In-progress card reads it.
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    } finally {
+      h.dispatcher.shutdown();
+    }
   });
 
   it("exempts the first agent: an empty fleet starts even on a busy machine", async () => {
@@ -299,6 +396,16 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     const notes = h.notes("m1", "Non c'è memoria per un altro agent");
     expect(notes).toHaveLength(1);
     expect(notes[0]!.content).toContain("50%");
+    // THE FOOTPRINT CLAUSE fired, not the quota: 10 GB of the 20 free is our
+    // share and one more agent needs 1.5. The sentence names what Topics holds
+    // against its ceiling, never "needs 1,5 GB, 10,0 GB free", which by its own
+    // numbers would admit.
+    expect(notes[0]!.content).toContain("Topics tiene 20,0 GB");
+    expect(notes[0]!.content).toContain("(16,0 GB)");
+    expect(notes[0]!.content).not.toContain("ne servono");
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({
+      blockedBy: "memory", memClause: "footprint", ourMemGB: 20, usableMemGB: 16,
+    });
   });
 
   // The axis the machine actually hits: the RAM is gone, our footprint is
@@ -315,7 +422,11 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     await flush();
 
     expect(h.topicsCreated).toHaveLength(0);
-    expect(h.notes("m2", "Non c'è memoria per un altro agent")).toHaveLength(1);
+    const notes = h.notes("m2", "Non c'è memoria per un altro agent");
+    expect(notes).toHaveLength(1);
+    // The quota clause: the two numbers the axis compared.
+    expect(notes[0]!.content).toContain("ne servono 1,5 GB, liberi per Topics 0,4 GB");
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ blockedBy: "memory", memClause: "quota" });
   });
 
   it("ramps ONE new dispatch per tick, and ignores the numeric cap: three cards on a cap of 1, three ticks, three agents", async () => {

@@ -8,9 +8,11 @@
  * @covers KANBAN-79
  */
 import { describe, test, expect } from 'bun:test';
-import { dispatchLoadReading, limitDerivation, loadToneClass, loadWordKey } from './dispatchLoad';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation, loadAdvice, loadToneClass, loadWordKey } from './dispatchLoad';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
-import type { DispatchCapacity } from '../../lib/board';
+import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   recommended: 4,
@@ -154,6 +156,114 @@ describe('dispatchLoadReading', () => {
     const r = dispatchLoadReading(stateWith(2, { cap: { auto: false, max: 2, mode: 'count', budgetShare: 0.8 } }));
     expect(r.limit).toBe(2);
     expect(r.tone).toBe('full');
+  });
+});
+
+/**
+ * THE GATE HOLDS, AND THE RING SAYS SO. The reading used to fill with the CPU
+ * alone and to say "a budget" whatever the gate answered: memory holding the
+ * queue drew a neutral ring at 61%, and the 6 GB floor under a count cap drew
+ * "3 of 4", which reads as a free slot.
+ */
+describe('the gate holds', () => {
+  const resources = { auto: false, max: 5, mode: 'resources' as const, budgetShare: 0.6 };
+  const wait = (blockedBy: 'cpu' | 'memory' | 'floor' | 'drain', over: Partial<DispatchAdmission> = {}): DispatchAdmission =>
+    ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0.5, ...over });
+
+  test('memory holds on the budget brake: full ring, the word names memory', () => {
+    const r = dispatchLoadReading(stateWith(16, {
+      cap: resources,
+      capacity: machine({ running: 16, usedCoreUnits: 4, usableCoreUnits: 6.6, admission: wait('memory') }),
+    }));
+    expect(r.heldBy).toBe('memory');
+    expect(r.fill).toBe(1);
+    expect(r.tone).toBe('full');
+    expect(loadWordKey(r)).toBe('board.gauge.wait.memory');
+    expect(loadToneClass(r)).toContain('amber');
+  });
+
+  test('the floor holds by count: "3 of 4" is not a free slot', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+    }));
+    expect(r.limit).toBe(4);
+    expect(r.fill).toBe(1);
+    expect(r.tone).toBe('over');
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floor');
+    expect(loadToneClass(r)).toContain('rose');
+    // A pass is not a hold: the exemption keeps the ordinary reading.
+    const exempt = dispatchLoadReading(stateWith(0, {
+      cap: resources,
+      capacity: machine({ running: 0, usedCoreUnits: 1, usableCoreUnits: 6.6, admission: { admit: true, blockedBy: 'cpu', firstAgentExempt: true, costCoreUnits: 0.5 } }),
+    }));
+    expect(exempt.heldBy).toBe(null);
+    expect(loadWordKey(exempt)).toBe('board.gauge.byResources');
+  });
+
+  test('the ring fills with the gate\'s use, reservation included, not the bare probe', () => {
+    const r = dispatchLoadReading(stateWith(4, {
+      cap: resources,
+      capacity: machine({ running: 4, usedCoreUnits: 2, usableCoreUnits: 6.6,
+        admission: { admit: true, blockedBy: null, firstAgentExempt: false, costCoreUnits: 1, usedCoreUnits: 3.3, usableCoreUnits: 6.6, pendingAdmissions: 1 } }),
+    }));
+    expect(r.fill).toBeCloseTo(0.5, 5);
+    expect(gateCoreNumbers(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6 }))).toEqual({ used: 2, usable: 6.6, pending: 0 });
+  });
+});
+
+describe('admissionVerdictText', () => {
+  const base = { admit: false, firstAgentExempt: false, costCoreUnits: 0.5 };
+
+  test('each axis says the two numbers it compared', () => {
+    expect(admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'quota', costMemGB: 4, freeQuotaMemGB: 3.3, ourMemGB: 9, usableMemGB: 12.3 }))
+      .toMatchObject({ key: 'board.dispatch.verdictWaitMemory', params: { cost: '4.0', free: '3.3' }, tone: 'wait' });
+    expect(admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'footprint', costMemGB: 1.5, freeQuotaMemGB: 4.2, ourMemGB: 22, usableMemGB: 20.4 }))
+      .toMatchObject({ key: 'board.dispatch.verdictWaitMemoryFootprint', params: { ours: '22.0', ceiling: '20.4' } });
+    expect(admissionVerdictText({ ...base, blockedBy: 'cpu', usedCoreUnits: 6.5, usableCoreUnits: 6.6 }))
+      .toMatchObject({ key: 'board.dispatch.verdictWaitCpu', params: { cost: '0.5' } });
+    // Held under the ceiling: the resume line, 80% of the usable.
+    expect(admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: 1, usedCoreUnits: 4.4, usableCoreUnits: 5.5 }))
+      .toMatchObject({ key: 'board.dispatch.verdictWaitCpuResume', params: { resume: '4.4' } });
+    expect(admissionVerdictText({ ...base, blockedBy: 'drain', reason: 'Riavvio del server in arrivo.' }).key).toBe('board.dispatch.verdictWaitDrain');
+  });
+
+  test('the floor is said in its own first sentence, the rest one hover away', () => {
+    const reason = 'Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria.';
+    const v = admissionVerdictText({ ...base, blockedBy: 'floor', reason });
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitFloor', tone: 'wait', title: reason });
+    expect(v.params).toEqual({ reason: 'memoria quasi finita, 5.5 GB disponibili, sotto il pavimento di 6 GB' });
+  });
+
+  test('without numbers (an old server) the axis is still named, nothing invented', () => {
+    expect(admissionVerdictText({ ...base, blockedBy: 'memory' }).key).toBe('board.dispatch.verdictWaitMemoryBare');
+    expect(admissionVerdictText({ admit: true, blockedBy: null, firstAgentExempt: false, costCoreUnits: 0.5 })).toMatchObject({ key: 'board.dispatch.verdictGo', tone: 'go' });
+  });
+});
+
+/**
+ * THE ADVICE CHIP answers a count question. In "per risorse" `recommended` is
+ * still the count figure, and the chip drew a red "Fermane 12" on a machine
+ * whose gate admitted the next agent.
+ */
+describe('loadAdvice', () => {
+  test('by count, over the recommendation: stop the difference', () => {
+    expect(loadAdvice(stateWith(16, { capacity: machine({ running: 16, recommended: 4 }) }))).toEqual({ over: 12, severe: true });
+    expect(loadAdvice(stateWith(3, { capacity: machine({ running: 3, recommended: 4 }) }))).toBe(null);
+  });
+
+  test('by resources, and with the mode unread, it says nothing', () => {
+    expect(loadAdvice(stateWith(16, {
+      cap: { auto: false, max: 5, mode: 'resources', budgetShare: 0.6 },
+      capacity: machine({ running: 16, recommended: 4 }),
+    }))).toBe(null);
+    expect(loadAdvice(stateWith(16, { cap: null, capacity: machine({ running: 16, recommended: 4 }) }))).toBe(null);
+  });
+
+  test('the chip draws what loadAdvice says, not its own arithmetic', () => {
+    const src = readFileSync(join(import.meta.dir, 'KanbanBoardPane.tsx'), 'utf8');
+    const chip = src.slice(src.indexOf('function LoadAdviceChip'), src.indexOf('function MissionsMenu'));
+    expect(chip).toContain('loadAdvice(');
+    expect(chip).not.toMatch(/-\s*cap\.recommended/);
   });
 });
 

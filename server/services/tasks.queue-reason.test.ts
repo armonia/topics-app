@@ -102,6 +102,23 @@ describe("la ragione della coda arriva dal server, con la card", () => {
     expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
   });
 
+  test("un resume trattenuto in In corso legge lo stesso blocco della macchina", () => {
+    const t = s.create({ projectId: PID, text: "Ripresa trattenuta" });
+    mv(s, t.id, "in_progress");
+    s.setDispatchState({ taskId: t.id, state: "queued", error: "Memoria quasi finita: 4,1 GB disponibili." });
+    try {
+      // No block: the chip speaks for itself, as before.
+      expect(s.get(t.id)!.task.queueReason).toBeNull();
+      setDispatchBlock({ kind: "resources", reason: "Memoria quasi finita: 4,1 GB disponibili." });
+      expect(s.get(t.id)!.task.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+      // An agent really at work on the same card is untouched by the block.
+      s.setDispatchState({ taskId: t.id, state: "working" });
+      expect(s.get(t.id)!.task.queueReason).toBeNull();
+    } finally {
+      setDispatchBlock(null);
+    }
+  });
+
   test("la fila si conta su TUTTE le board: il tetto agenti è machine-wide", () => {
     // È il caso che il client non può calcolare: l'altra board non è nella sua
     // lista, ma il suo task consuma lo stesso slot.

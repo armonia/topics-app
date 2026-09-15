@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
@@ -857,8 +857,27 @@ const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
  *
  * Exported for the test, which asserts on the numbers and not on the prose.
  */
-export function machineBudgetMessage(verdict: AdmissionVerdict, cores: number, share: number): string {
+export function machineBudgetMessage(
+  verdict: AdmissionVerdict,
+  cores: number,
+  share: number,
+  /** Our footprint and its ceiling, as the gate compared them. Absent = only
+   *  the quota clause can be told. */
+  mem?: { ourMemGB: number; usableMemGB: number },
+): string {
   if (verdict.blockedBy === "memory") {
+    // TWO CLAUSES, TWO SENTENCES. The axis also holds when our footprint is
+    // over its ceiling while the next agent would fit in the free quota (two
+    // 11 GB shard runs on a 34 GB Mac). Printing the quota there wrote "needs
+    // 1,5 GB, 4,2 GB free for Topics", which by its own numbers admits, and
+    // hid the real cause: what Topics is already holding.
+    if (mem && memoryClause(verdict, mem) === "footprint") {
+      return (
+        `Non c'è memoria per un altro agent: Topics tiene ${itNumber(mem.ourMemGB)} GB, ` +
+        `oltre il ${asPercent(share)} della RAM (${itNumber(mem.usableMemGB)} GB). ` +
+        `Non ne parte un altro finché non scende: riparte da sé, niente è andato perso.`
+      );
+    }
     // The memory sentence says the two numbers the axis actually compared: what
     // one more agent costs, and the share of the FREE memory it did not fit in.
     // "Topics is at its memory ceiling" was true of a footprint nobody could
@@ -880,6 +899,20 @@ export function machineBudgetMessage(verdict: AdmissionVerdict, cores: number, s
     `(quota ${asPercent(share)} del libero${squeezed}); un agent nuovo ne costa ${itNumber(verdict.costCoreUnits)}. ` +
     `Non ne parte un altro finché non scende: riparte da sé, niente è andato perso.`
   );
+}
+
+/**
+ * Which memory clause a `memory` verdict fired on. The quota comes first: when
+ * the next agent does not fit in the free share, that is the sentence that
+ * explains itself, whatever the footprint. `null` when memory did not hold.
+ */
+export function memoryClause(
+  verdict: Pick<AdmissionVerdict, "blockedBy" | "costMemGB" | "freeQuotaMemGB">,
+  mem: { ourMemGB: number; usableMemGB: number },
+): "quota" | "footprint" | null {
+  if (verdict.blockedBy !== "memory") return null;
+  if (verdict.freeQuotaMemGB != null && verdict.costMemGB > verdict.freeQuotaMemGB) return "quota";
+  return mem.ourMemGB > mem.usableMemGB ? "footprint" : "quota";
 }
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
@@ -1105,7 +1138,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * same reservation for the turns still warming up: the panel cannot say
    * "would start" on numbers the gate did not decide on.
    */
-  function budgetVerdict(gcap: GlobalDispatchCap): { verdict: AdmissionVerdict; sample: MachineBudgetSample; share: number } | null {
+  function budgetVerdict(gcap: GlobalDispatchCap): {
+    verdict: AdmissionVerdict;
+    sample: MachineBudgetSample;
+    share: number;
+    /** Our footprint and its ceiling, from the very sample the verdict read
+     *  (reservation included): the two numbers of the footprint clause. */
+    mem: { ourMemGB: number; usableMemGB: number };
+  } | null {
     const sample = deps.budgetSample?.() ?? null;
     if (!sample) return null;
     const share = budgetShare(gcap);
@@ -1122,20 +1162,51 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const now = Date.now();
     const warming = [...inFlight.values()].map((slot) => slot.sessionAt);
     const reserved = reservedCost(warming, cost, now);
-    const verdict = admissionVerdict(
-      { ...sample, reservedCoreUnits: reserved.coreUnits, reservedMemGB: reserved.memGB },
-      share,
-      cost,
-      budgetGate,
-    );
-    return { verdict, sample, share };
+    const gated: MachineBudgetSample = { ...sample, reservedCoreUnits: reserved.coreUnits, reservedMemGB: reserved.memGB };
+    const verdict = admissionVerdict(gated, share, cost, budgetGate);
+    // Read off the same function the verdict read, on the same sample: not a
+    // second copy of the arithmetic.
+    const mem = { ourMemGB: Math.max(0, sample.ourMemGB), usableMemGB: machineBudget(gated, share).usableMemGB };
+    return { verdict, sample, share, mem };
   }
+  /**
+   * THE PANEL'S VERDICT, IN THE TICK'S ORDER. The tick stops at a drain and at
+   * the floor before the budget is ever asked, so the preview does too: it used
+   * to run only the budget, and on the night the 6 GB floor was the one brake
+   * that fired the panel said in green "a new agent would start" while every
+   * card said "the machine has no room". The floor holds in count mode as well,
+   * so it is the one verdict a count-mode reading carries.
+   *
+   * `deps.resourceBlock` and not `admissionBlock()`: that one logs the episode
+   * and moves its dedup state, and a panel polling every 15 s must not.
+   */
   function admissionPreview(): DispatchAdmission | null {
     try {
+      const held = (blockedBy: "floor" | "drain", reason: string): DispatchAdmission =>
+        ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0, reason });
+      const drain = drainBlock();
+      if (drain) return held("drain", drain);
+      const floor = (() => { try { return deps.resourceBlock?.() ?? null; } catch { return null; } })();
+      if (floor) return held("floor", floor);
       const gcap = deps.svc.getGlobalCap();
       if (capMode(gcap) !== "resources") return null;
-      const v = budgetVerdict(gcap)?.verdict;
-      return v ? { admit: v.admit, blockedBy: v.blockedBy, firstAgentExempt: v.firstAgentExempt, costCoreUnits: v.costCoreUnits } : null;
+      const computed = budgetVerdict(gcap);
+      if (!computed) return null;
+      const { verdict: v, mem } = computed;
+      return {
+        admit: v.admit,
+        blockedBy: v.blockedBy,
+        firstAgentExempt: v.firstAgentExempt,
+        costCoreUnits: v.costCoreUnits,
+        usedCoreUnits: v.usedCoreUnits,
+        usableCoreUnits: v.usableCoreUnits,
+        pendingAdmissions: v.pendingAdmissions,
+        costMemGB: v.costMemGB,
+        freeQuotaMemGB: v.freeQuotaMemGB,
+        ourMemGB: mem.ourMemGB,
+        usableMemGB: mem.usableMemGB,
+        memClause: memoryClause(v, mem),
+      };
     } catch { return null; }
   }
   function pressureBlock(): string | null {
@@ -1145,7 +1216,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (capMode(gcap) !== "resources") { lastPressureAxis = null; budgetGate = "admitting"; return null; }
       const computed = budgetVerdict(gcap);
       if (!computed) return null;
-      const { verdict, sample, share } = computed;
+      const { verdict, sample, share, mem } = computed;
       budgetGate = verdict.state;
       if (verdict.firstAgentExempt) {
         // Not a block, but not a free machine either: the log says why the
@@ -1156,7 +1227,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } else {
         firstAgentExemptNoted = false;
       }
-      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share);
+      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
       if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
       else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
       lastPressureAxis = reason ? verdict.blockedBy : null;
@@ -3676,7 +3747,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
       // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
       // il suo turno», lo stesso dei dispatch.
-      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+      // The REASON rides on the row with the chip (as `markPlanWait` does): a
+      // resume held by the floor, a drain or the budget in the In-progress
+      // column otherwise showed a bare queued chip whose tooltip said "no reason recorded", while
+      // the reason sat in a service comment the card never shows.
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock ?? null })); } catch { /* best-effort */ }
       if (!waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
         try {

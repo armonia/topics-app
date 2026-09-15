@@ -461,6 +461,27 @@ describe("perché questa card è ferma", () => {
     expect(deriveQueueReason({ ...base, status: "in_progress", assignedTo: "io" }, ctx)).toBeNull();
   });
 
+  // A RESUME HELD BY THE MACHINE: `resume` writes `queued` on an In-progress card
+  // when the floor or the budget holds it. With the block known that chip is
+  // not "an agent about to be born", it is the same wait a Todo card has, and
+  // it says so in the same words; without a block it stays quiet as before.
+  test("in corso in coda con la macchina ferma: dice perché, come in Todo", () => {
+    const held = reason({ status: "in_progress", dispatchState: "queued" }, {
+      dispatchBlock: { kind: "resources", reason: "Memoria quasi finita: 4,1 GB disponibili." },
+    });
+    expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    expect(held.title).toContain("4,1 GB");
+    const pressure = deriveQueueReason(
+      { ...base, status: "in_progress", dispatchState: "queued" },
+      { ...ctx, dispatchBlock: { kind: "pressure" as never, reason: "Topics usa 6,5 dei 6,6 core." } },
+    );
+    expect(pressure).toMatchObject({ kind: "resource_pressure", tone: "waiting" });
+    // A step keeps its parent's sentence, and an agent at work has nothing to add.
+    const block = { dispatchBlock: { kind: "resources" as const, reason: "Disco quasi pieno." } };
+    expect(deriveQueueReason({ ...base, status: "in_progress", dispatchState: "queued", parentTaskId: "p1" }, { ...ctx, ...block, parentStatus: "in_progress" })).toBeNull();
+    expect(deriveQueueReason({ ...base, status: "in_progress", dispatchState: "working" }, { ...ctx, ...block })).toBeNull();
+  });
+
   test("uno step fuori da todo tace: chi lo lavora lo dice `deriveSubtaskWork`", () => {
     for (const status of ["backlog", "in_progress"]) {
       expect(deriveQueueReason(

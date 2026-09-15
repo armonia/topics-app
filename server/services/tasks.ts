@@ -2179,6 +2179,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     // «3 davanti» non è un'attesa più corta o più lunga: è un numero su una
     // coda di cui questa card non fa parte.
     const inCoda = r.status === "todo" && !r.parent_task_id;
+    const heldResume = r.status === "in_progress" && r.dispatch_state === DISPATCH_CHIP_QUEUED && !r.parent_task_id;
     try {
       return deriveQueueReason(
         {
@@ -2235,8 +2236,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // fell through to the queue branch and said "in coda, la prossima" on
           // a board that had not moved in hours. Only for a card really in the
           // queue: outside it, this block is not what it waits on
-          // (`dispatch-block-signal.ts`).
-          dispatchBlock: inCoda ? currentDispatchBlock() : null,
+          // (`dispatch-block-signal.ts`). A resume held in the In-progress column
+          // waits on the same block through the same door (`resume` writes the
+          // `queued` chip), so it reads it too: without it the chip had no reason.
+          dispatchBlock: inCoda || heldResume ? currentDispatchBlock() : null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,
