@@ -614,7 +614,10 @@ misurata. Un server che esce da solo durante il rinvio SHALL interrompere
 l'attesa: non c'è più niente da ricaricare.
 
 Il SIGTERM SHALL restare raggiungibile per un server che tace ANCHE dopo aver
-superato la soglia: quello è davvero muto, e lì tagliare è la risposta giusta.
+superato la soglia, ma solo dopo averlo richiesto per tutta la finestra che il
+server stesso si concederebbe (vedi RGATE-05): un server maturo che non risponde
+è quasi sempre un server in swap, non uno muto, e il 14/09/2026 tagliarlo dopo
+due minuti di richieste corte ha interrotto tre card a metà turno.
 
 #### Scenario: evento di ricaricamento su un server appena nato
 - **GIVEN** un server vivo da meno della soglia dichiarata
@@ -622,7 +625,7 @@ superato la soglia: quello è davvero muto, e lì tagliare è la risposta giusta
 
 #### Scenario: evento di ricaricamento su un server maturo che non risponde
 - **GIVEN** un server vivo da più della soglia dichiarata
-- **THEN** il sorvegliante SHALL procedere, e il SIGTERM SHALL restare disponibile
+- **THEN** il sorvegliante SHALL procedere a richiederlo, e il SIGTERM SHALL restare disponibile allo scadere della finestra
 
 #### Scenario: il server esce da solo mentre si aspetta la sua nascita
 - **GIVEN** un rinvio in corso

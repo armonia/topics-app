@@ -270,6 +270,33 @@ export function dispatchDoor(args: { cards: number; chatsHolding: number }): "op
 }
 
 /**
+ * HOW MANY HOLDERS ARE CHATS, for `dispatchDoor`.
+ *
+ * A card turn is not only a card: it runs through `/api/chat` like any chat,
+ * so its session is ALSO a key in the stream register. Counting every stream
+ * key as a chat made each card in flight hold the door open by itself: on
+ * 2026-09-14 "drain: 3 in volo" was followed by "drain tolto" with only the
+ * three card topics streaming and no person anywhere, the cards kept starting
+ * behind a pending restart (4, 8, 15 turns at 208, 268, 328 s), and twelve of
+ * them were cut when that restart finally came.
+ *
+ * `cardSessionKeys` is required on purpose: a caller that forgets it does not
+ * compile, instead of silently reopening the door for every card.
+ */
+export function chatsHolding(args: {
+  streamKeys: readonly string[];
+  brokerOpenKeys: readonly string[];
+  parkedKeys: readonly string[];
+  cardSessionKeys: Iterable<string>;
+}): number {
+  const cards = new Set(args.cardSessionKeys);
+  const notCard = (key: string) => !cards.has(key);
+  return args.streamKeys.filter(notCard).length
+    + args.brokerOpenKeys.filter(notCard).length
+    + args.parkedKeys.filter(notCard).length;
+}
+
+/**
  * WHAT THE CAP IS FOR, now that it does not cut.
  *
  * `quiescenceVerdict` never returns "scaduto" for work that will not come back:
