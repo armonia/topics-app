@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.324",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del freno della flotta in un file loro: CI di main rossa su check:bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.323",
     "date": "2026-09-14",
     "sections": {
@@ -9,6 +35,16 @@
       "internal": [
         {
           "it": "Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il wire porta l'asse che blocca: le fixture del client lo dichiarano",
           "en": "",
           "scope": null
         }
@@ -25,6 +61,11 @@
       "internal": [
         {
           "it": "La quota è sul libero: chi non è nostro ha la precedenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto sul libero non salta piu' a ogni respiro della macchina",
           "en": "",
           "scope": null
         },

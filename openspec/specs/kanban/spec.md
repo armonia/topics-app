@@ -1073,6 +1073,67 @@ quando ottiene lo slot, con i secondi di coda; il runner dei check SHALL
 leggere stderr man mano e da quella riga far ripartire il tetto; il commento
 sulla card SHALL dire il tempo di esecuzione e, a parte, quello di coda.
 
+Il semaforo dei cancelli NON SHALL spegnersi per i check della board. I comandi
+girano con `CI=1` (Playwright lo legge), e `CI` senza un conteggio esplicito
+spegneva il semaforo: il 15/09/2026 due `test:unit:shards` di due card hanno
+girato affiancati per 741 e 744 secondi, entrambi «0 s in coda». Il runner dei
+check SHALL quindi passare il numero di slot in modo esplicito (quello
+dell'ambiente del server se c'è, altrimenti il default della macchina), e un
+valore esplicito, `0` compreso, SHALL arrivare intatto.
+
+Un comando NUOVO NON SHALL partire con la memoria libera sotto il pavimento
+(`DISPATCH_MEM_FLOOR_NATIVE_GB`, 6 GB). Nessun freno davanti a un check leggeva
+la memoria, e l'ammissione non ne vede il costo: la card entra a memoria libera
+e consegna decine di minuti dopo un albero unit da 4-11 GB. Il comando SHALL
+aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. SHALL
+fallire aperto: un giro aspetta al massimo 30 minuti IN TOTALE, poi i comandi
+rimasti partono comunque; una lettura non disponibile non fa aspettare.
+
+Uno spegnimento del server SHALL portarsi via gli alberi dei check in corso, e
+NON SHALL scriverne un verdetto. `slot.ts` lancia il comando in un gruppo di
+processi suo, e al riavvio l'albero restava vivo figlio di pid 1 mentre il
+server nuovo rilanciava i check delle stesse card: il 15/09/2026 alle 02:04
+quattro alberi unit vivi insieme, due orfani. Un comando ucciso dallo
+spegnimento non ha misurato niente: il giro SHALL interrompersi senza esito e
+nessun comando successivo SHALL partire. «Senza esito» NON è «nessun check»: il
+cancello lo riportava come `null`, la stessa parola di una board senza comandi,
+e la consegna passava in review con i check ancora «in corso» a ogni reload del
+watcher. La consegna in attesa di quel giro SHALL rispondere come una gamba
+ancora in volo (202 `review_checks_running`), NON con un errore, e la card NON
+SHALL muoversi. L'agente non SHALL ritentare a mano: il client (`update_task`)
+richiama da solo, trova il socket chiuso dall'uscita e ritenta quel silenzio
+dentro la sua grazia di trasporto, e dopo il riavvio un giro nuovo rimisura la
+consegna. Un 503 arrivava invece all'agente come errore, e l'agente richiamava
+subito dentro il server morto. Una consegna che arriva mentre il server si sta
+spegnendo SHALL aspettare la sua gamba prima della stessa risposta, senza
+riallineare il ramo: risposta subito, il client richiamerebbe a raffica per
+tutta l'uscita, spendendo una gamba a chiamata.
+
+#### Scenario: con CI il semaforo resta acceso
+- **GIVEN** due check della board sullo stesso cancello, con `CI=1` e nessun conteggio nell'ambiente del server
+- **THEN** SHALL girare uno dopo l'altro, e uno dei due SHALL riportare il tempo di coda
+
+#### Scenario: sotto il pavimento di memoria il comando aspetta
+- **GIVEN** memoria libera sotto il pavimento per 1,5 s e un tetto di 1 s
+- **THEN** il comando SHALL partire solo dopo, e finire verde e non scaduto
+- **AND** con la memoria sempre sotto, il giro SHALL aspettare il suo limite UNA volta e poi far partire tutti i comandi
+
+#### Scenario: lo spegnimento non inventa un rosso
+- **GIVEN** un check in corso e un secondo in attesa
+- **WHEN** il server si spegne
+- **THEN** l'albero del primo SHALL essere ucciso, il secondo NON SHALL partire, e il giro SHALL finire senza verdetto
+
+#### Scenario: lo spegnimento non manda in review una consegna senza check
+- **GIVEN** una card in lavorazione che consegna con `PATCH status=review`, e la sua gamba in volo su un check `sleep 120` (oppure su un giro fermo nell'attesa di memoria)
+- **WHEN** il server ferma i check
+- **THEN** la risposta SHALL essere 202 `review_checks_running`, la stessa di una gamba in volo, e la card SHALL restare `in_progress`
+- **AND** una consegna che arriva prima dell'uscita SHALL aspettare la sua gamba prima della stessa risposta, senza riallineare il ramo
+
+#### Scenario: il client di update_task attraversa il riavvio da solo
+- **GIVEN** una consegna con i check in corso e il client MCP `update_task` in attesa
+- **WHEN** le gambe ricevono in fila 202, 202 interrotta dallo spegnimento, `ECONNREFUSED` e poi 200 dal server nuovo
+- **THEN** `update_task` SHALL risolversi con la card in `review`, senza errori per l'agente
+
 #### Scenario: la coda per lo slot non consuma il tetto
 - **GIVEN** un comando che aspetta 1,5 s uno slot, stampa la riga di `slot.ts` e poi lavora 1,5 s, sotto un tetto di 2 s
 - **THEN** il comando SHALL finire verde, non ucciso, e l'esito SHALL riportare il tempo di coda
@@ -3428,13 +3489,37 @@ chiuda la porta. Su una macchina ferma usabile e tetto coincidono; su una
 macchina occupata da altri la nostra fetta si stringe, e l'interfaccia SHALL
 dirlo invece di promettere un numero che nessuno può avere.
 
-**AMMISSIONE UNO PER TICK, CON ISTERESI.** Si ammette UN agente per giro, e solo
-se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la MEDIANA
-degli ultimi agenti misurati, mai una costante. Una volta trattenuta, la coda
+**AMMISSIONE UNA ALLA VOLTA, CON ISTERESI.** Si ammette UN agente alla volta, e
+solo se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la
+MEDIANA degli ultimi misurati, mai una costante. «Una alla volta» SHALL valere
+per TUTTO il dispatcher e per ogni porta: fra due partenze passano almeno 9
+secondi (`ADMISSION_SPACING_MS`), che la partenza sia un dispatch nuovo, una
+ripresa (riavvio, rifiuto in review, risposta a una domanda) o venga da un'altra
+board. Un resume che trova la rampa chiusa aspetta nella coda delle attese di
+slot, col chip `queued` e senza nota nel thread. Il giro di `reconcile` SHALL
+essere uno solo alla volta: chi arriva a giro in corso riceve quel giro. Prima la
+rampa era un contatore del singolo `tick(progetto)`: tre board ammettevano tre
+card per giro, tre giri sovrapposti ne prendevano tre, e un riavvio con sedici
+turni tagliati ne faceva ripartire dodici nello stesso istante. Una volta trattenuta, la coda
 SHALL ripartire sotto l'80% del budget e non alla soglia stessa: fra un dispatch
 e la lettura che lo vede passano secondi, e senza quel salto la coda si svuota
 tutta contro una misura vecchia (misurato il 07/09/2026: otto card in un tick a
 load 12 su 12 core, e dieci minuti dopo load 155 con 13,4 GB di swap).
+
+**IL PREZZO DELLA MEMORIA È QUELLO DI UNA CARD, E SI TIENE PER TUTTO IL TURNO.**
+Il costo in memoria di un agente SHALL essere la mediana dei picchi delle ultime
+9 card, e il picco di una card è il footprint massimo dell'albero di processi dei
+suoi check pre-review in un giro, un numero per card. Non il footprint delle
+sessioni: col runtime nativo una card non ha un processo suo, e i suoi tool e i
+suoi check sono figli del server, quindi la mediana girava sui terminali della
+persona e restava sul pavimento mentre un `test:unit:shards` teneva 11 GB. Senza
+campioni (dopo ogni riavvio del server) una card vale 4 GB, con un tetto di 6.
+La prenotazione degli agenti ammessi SHALL durare 90 secondi sull'asse CPU e
+TUTTO il turno sull'asse memoria: i cancelli di un agente arrivano da due a sei
+minuti dopo la partenza (mediana 160 s, misurata il 14/09/2026), e una
+prenotazione che scade prima fa entrare la coda contro una lettura che sta per
+cambiare. Sul rigioco di quella notte (24 GB liberi, 20 card, quota 80%) erano
+20 partenze in 4 minuti; con prezzo e prenotazione sono al massimo 5 in 5 minuti.
 
 **IL CONTROLLO DINAMICO: si congela l'eccesso.** Rifiutare il prossimo agente non
 fa niente per una macchina che è già oltre. Quando l'uso supera il budget per DUE
@@ -3446,6 +3531,22 @@ dell'utente restano vivi sempre. Un check congelato SHALL fermare anche il PROPR
 orologio, perché un'attesa nostra non è uno stallo, e SHALL essere detto nel
 thread della card («congelata per carico, riprende da sola»).
 
+**La lettura del controllo è SOLO la CPU, e la memoria NON SHALL congelare
+niente.** Il 15/09/2026 si è provato l'asse memoria (il peggiore fra la CPU sul
+budget e il pavimento sulla memoria libera), perché sotto thrash la CPU legge
+quasi zero, e un congelamento per memoria non ha via d'uscita: un SIGSTOP non
+restituisce la memoria che l'albero congelato tiene, quindi la lettura che l'ha
+congelato non rientra da sola, e il congelamento ferma anche la scadenza del
+check e il timer di `slot.ts` nello stesso albero. Misurato col governatore
+vero: due corse congelate a 5,5 GB restavano congelate dopo 1080 letture, e
+dopo altre 1080 a 8,0 GB, sopra il pavimento a cui il dispatcher ammette. Due
+corse congelate tengono entrambe le corsie del cancello dei check, nessuna card
+viene più misurata e il freno non si apre mai, contro la regola che ogni freno
+fallisce aperto. La leva della memoria è l'attesa PRIMA che un check parta
+(KANBAN-15), che non ferma niente di già avviato e ha un limite. Un check
+congelato per la CPU SHALL scongelarsi quando la CPU scende, qualunque cosa
+dica la memoria.
+
 Gli AGENTI non si congelano con un segnale, ed è una decisione: un CLI fermato a
 metà stream API può perdere la connessione, e la CPU non è lì — con otto agenti in
 volo gli agenti stessi valevano il 5,7% della macchina mentre i loro cancelli
@@ -3455,7 +3556,9 @@ tenevano il resto. Quello che li trattiene è l'ammissione.
 quanto carica sia la macchina, e il verdetto lo DICHIARA (`firstAgentExempt`).
 Senza, chi lavora sul proprio Mac tiene il budget superato da solo, la coda non
 parte mai, e il modo in cui lo si scopre è che qualcuno guarda dodici card ferme
-e conclude che il dispatcher è rotto.
+e conclude che il dispatcher è rotto. «Zero» SHALL contare anche le corse di
+check pre-review in volo: una coda ferma dietro uno shard da 11 GB non è una coda
+che non parte mai, parte quando lo shard finisce.
 
 **Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
 il pavimento) vale in ENTRAMBE le modalità e vince sul budget: un disco pieno non
@@ -3463,7 +3566,41 @@ si riassorbe da solo, il carico sì. Per questo il motivo di coda del budget è 
 tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
 (`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
 una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
-non dire.
+non dire. Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
+è trattenuto da pavimento, spesa delle 24 ore o budget (chip `queued`): il motivo
+SHALL viaggiare anche sulla riga (`dispatch_error`), e un «in coda» senza perché
+su una card che non partirà è la stessa bugia in un'altra colonna. Quel motivo
+SHALL essere il blocco della SUA attesa, scritto da `resume` quando la trattiene e
+creduto solo finché la riga dice la stessa frase, MAI il blocco pubblicato dal
+tick: il tick gira solo sulle board con todo in coda ed esce prima di pubblicare a
+board in pausa, quindi svuotata la coda a mano o messa in pausa la board il
+blocco pubblicato resta un pavimento rientrato. Il resume trattenuto solo dal
+tetto, quello che parte e ogni altra scrittura del chip lo tolgono. Non dice
+l'interruttore: `resume` rivaluta la sua attesa a ogni giro anche a dispatch
+spento, e riparte appena il blocco rientra.
+
+Il pavimento di memoria SHALL avere isteresi e prenotazione, in entrambe le
+modalità. Una volta fermo riparte solo con spazio per un agente in più sopra il
+pavimento (pavimento più il prezzo di una card), non alla soglia stessa: il 14/09
+un confronto nudo con 6 GB ha scritto 30 «coda ferma» e 30 «coda ripartita» in
+undici minuti, e ogni apertura lasciava passare turni. Alla lettura SHALL
+sottrarsi il prezzo dei turni partiti nella finestra di 90 secondi, e un giro per
+numero SHALL rileggerlo dopo ogni partenza: il tetto numerico prenderebbe tutti i
+posti liberi su una lettura sola, e in quella modalità nient'altro guarda la
+memoria libera. La frase del pavimento, che va nel log e nel thread della card,
+SHALL tenere separati i due termini: la memoria tenuta per gli agenti che stanno
+partendo compare solo se ne sta partendo qualcuno, «sotto il pavimento» solo se
+la lettura stessa è sotto, e quando a trattenere è l'isteresi la frase dice che
+aspetta di tornare sopra il pavimento più il prezzo di una card («Riparto sopra N
+GB»). Una prenotazione grande quanto la lettura non SHALL comparire come una sua
+parte: la card leggeva «3.9 GB disponibili, di cui 4.0 tenuti per l'agente che sta
+partendo», e la frase dice invece che quei GB sono già tutti tenuti per chi parte.
+Il prezzo citato è quello che il cancello usa, non una misura vecchia. Una
+sola somma dei due termini scriveva «9 GB disponibili, di cui 4 tenuti per gli
+agenti che partono, sotto il pavimento di 6 GB» con nessun agente in partenza.
+Le tre frasi sono un solo episodio: «coda ferma» si scrive una volta. La riga del
+log del riavvio SHALL contare le riprese partite davvero e, a parte, quelle
+rimaste in attesa di un posto.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
@@ -3478,6 +3615,10 @@ erano meno di una suite unit intera su una macchina carica, e il 14/09/2026 alle
 aveva finito la sua attesa ed era partito «accanto». Mentre un cancello aspetta
 se stesso il suo orologio NON SHALL correre: `slot.ts` stampa la riga di attesa
 e i check pre-review fermano la scadenza fino alla riga di slot acquisito.
+Il cancello per nome SHALL valere anche per i check della board, che girano con
+`CI=1`: il runner passa il numero di slot esplicito (KANBAN-15), e senza
+strozzatura `slot.ts` NON SHALL stampare la riga di slot acquisito, che su una
+card si leggeva come «0 s in coda» di un semaforo mai partito.
 
 **L'INTERFACCIA parla in core a disposizione, una volta sola.** Nelle
 impostazioni restano a vista: quanti agenti lavorano con l'anello accanto, la
@@ -3485,12 +3626,29 @@ manopola «N% del libero», e UNA riga «Topics usa X dei Y core a disposizione�
 col verdetto. Il verdetto SHALL essere quello del cancello (`admission` sulla
 lettura della capacità: stesso campione, stesso costo misurato, stessa isteresi,
 e dice quale asse trattiene), mai ricalcolato nel client; senza `admission` non
-si disegna. Spiegazione, tetto a macchina ferma, portata per macchina e check
+si disegna. Il verdetto SHALL seguire l'ordine del tick: un riavvio in arrivo e
+il PAVIMENTO (`dispatchResourceBlock`) vengono prima del budget, in ENTRAMBE le
+modalità, e in «per numero» sono gli unici verdetti che la lettura porta (la
+notte del 14/09/2026 il pavimento dei 6 GB era l'unico freno che teneva, e il
+pannello diceva in verde «un agent nuovo partirebbe»). Il verdetto SHALL nominare
+l'asse CON i due numeri che quell'asse ha confrontato: la CPU col costo di un
+agent (o, quando l'agent starebbe sotto il tetto, la linea sotto cui l'USO deve
+scendere perché riparta: l'80% dell'usabile meno il costo di un agent, perché il
+cancello confronta uso più costo con quell'80%), la
+memoria con «servono X GB, liberi per Topics Y GB» quando non ci sta nella quota
+del libero e con «Topics tiene X GB su un tetto di Y GB» quando è l'impronta a
+superare il tetto, il pavimento con la sua prima frase. Lo stesso vale per la
+riga scritta sulla card: le due clausole della memoria hanno due frasi, perché
+quella della quota stampata quando scatta l'impronta si contraddice da sola. I
+numeri della riga viva SHALL essere quelli del cancello (misura più i turni
+ammessi negli ultimi 90 secondi, detti come «N appena partiti»), non la sonda
+nuda. Spiegazione, tetto a macchina ferma, portata per macchina e check
 congelati stanno sotto «Come funziona», chiuso. L'anello della colonna si
 riempie con `uso / usabile`, e un usabile misurato a zero è pieno e oltre, non
-un tetto assente. Il popover dice la quota, agenti e core in una riga, i check
-congelati quando ce ne sono e la spesa. Il motivo scritto sulla card in coda
-usa le stesse parole.
+un tetto assente. Il popover dice la quota, agenti e core in una riga, la
+memoria che il cancello ha confrontato, i check congelati quando ce ne sono e la
+spesa. Il chip «Fermane N» risponde a una domanda sul NUMERO e in «per risorse»
+NON SHALL comparire. Il motivo scritto sulla card in coda usa le stesse parole.
 
 **Le impostazioni della board stanno in UN dropdown**, ancorato al ⚙ della
 toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
@@ -3502,7 +3660,11 @@ libero, ammissione uno per tick con isteresi, ordine di congelamento, due
 letture per decidere, e il rigioco delle otto card del 07/09);
 `server/services/budget-governor.test.ts` per il congelamento vero;
 `server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
-dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
+dispatcher; `server/services/task-dispatcher-admission.test.ts` per le porte
+(rigioco della notte del 14/09, rampa fra board e riprese, un giro di reconcile
+alla volta, esenzione con check in volo, pavimento con isteresi);
+`server/lib/card-memory-peaks.test.ts` per il prezzo per card dal picco dei
+check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
 `bun run probe:budget` come banco sintetico su processi veri (bruciatore, `ps
 -o stat` che dice `T`); e2e sul dropdown e sull'anello.
 
@@ -3522,6 +3684,25 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 - **GIVEN** la stessa macchina carica e ZERO agenti vivi
 - **WHEN** il dispatcher fa il suo giro
 - **THEN** un agente parte, e il verdetto dichiara l'esenzione invece di sostenere che la macchina è libera
+- **AND** con una corsa di check pre-review in volo non parte, perché la macchina ha già lavoro nostro
+
+#### Scenario: la notte del 14/09 non riparte
+- **GIVEN** la modalità «a budget» all'80%, 24 GB liberi, 20 card in Todo e un giro ogni 10 secondi
+- **AND** agenti che per 160 s costano un decimo di core e poi 2 core e 2 GB
+- **THEN** nei primi 5 minuti partono al massimo 5 agenti
+
+#### Scenario: la rampa è del dispatcher, non della board
+- **GIVEN** tre board con card in Todo, oppure un riavvio con sei turni tagliati
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** parte UNA card, le altre aspettano col chip `queued` e partono una per giro
+- **AND** un giro fermo sulla sonda del commit di consegna mentre un'altra board fa partire la sua non ne fa partire una seconda
+- **AND** la riga del log del riavvio dice «1 da capo» e «5 in attesa di un posto»
+
+#### Scenario: il pavimento non sfarfalla
+- **GIVEN** la coda ferma sotto il pavimento di 6 GB
+- **WHEN** la memoria disponibile risale a 6,5 GB
+- **THEN** non parte niente finché non c'è spazio per un agente in più sopra il pavimento
+- **AND** con 9 GB disponibili e nessun agente in partenza la card legge «sopra il pavimento» e «Riparto sopra» il pavimento più il prezzo di una card, senza memoria tenuta per agenti che non partono
 
 #### Scenario: quello che prendono gli altri stringe il budget
 - **GIVEN** un budget dell'80% su 12 core e altri processi che ne tengono 10
@@ -3532,11 +3713,22 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 - **THEN** UNO solo viene congelato, il più recente, e la sua card lo dice
 - **AND** quando l'uso torna sotto il 70% del budget per due letture il check viene scongelato, con l'orologio del suo timeout fermo per tutta la pausa
 
+#### Scenario: la memoria sotto il pavimento non congela niente
+- **GIVEN** la CPU a riposo (0,4 core-unità su ~3,5) e 2 GB di memoria libera, sotto il pavimento di 6 GB
+- **THEN** in 1080 letture NON SHALL essere congelato nessun check
+- **AND** due check congelati per la CPU SHALL scongelarsi appena la CPU scende, con la memoria ancora sotto il pavimento
+
 #### Scenario: il verdetto del pannello è quello del cancello
 - **GIVEN** la modalità «a budget», Topics a 3,4 core-unità su 3,8 a disposizione e un agente che ne costa 0,5
 - **WHEN** si apre il pannello
-- **THEN** la riga dice «i nuovi aspettano», perché è ciò che il cancello risponde (3,4 + 0,5 > 3,8), e non «partirebbe» come direbbe `uso < usabile`
-- **AND** con la memoria a trattenere dice «i nuovi aspettano: memoria piena»
+- **THEN** la riga dice «i nuovi aspettano: CPU», perché è ciò che il cancello risponde (3,4 + 0,5 > 3,8), e non «partirebbe» come direbbe `uso < usabile`
+- **AND** con la memoria a trattenere dice «i nuovi aspettano: memoria» con i GB che servono e quelli liberi per Topics, oppure con quanti ne tiene Topics contro il suo tetto
+
+#### Scenario: il pavimento tiene la coda e il pannello lo dice
+- **GIVEN** 5,5 GB disponibili sotto il pavimento nativo di 6 GB, con la CPU dentro il budget
+- **WHEN** si apre il pannello, in «a budget» o in «per numero»
+- **THEN** il verdetto è `floor` e dice la prima frase del pavimento, e l'anello della colonna è pieno con la parola «fermo: niente spazio»
+- **AND** il chip «Fermane N» non compare in «a budget»
 
 #### Scenario: la misura non presa non blocca niente
 - **GIVEN** una macchina dove la sonda non risponde
@@ -3738,13 +3930,23 @@ numero non si applica (KANBAN-75): l'anello si riempie con `uso / core a
 disposizione` e la parola nomina il freno. Sopra il tetto la lettura NON si
 scrive come frazione: «4 di 2» si legge come un avanzamento su un totale.
 
+**Quando il cancello trattiene, l'anello lo dice.** Se `admission` risponde no,
+in qualunque modalità, l'anello SHALL essere pieno e la parola SHALL nominare
+l'asse («aspetta: CPU», «aspetta: memoria», «fermo: niente spazio», «fermo:
+riavvio») invece del freno: un anello al 61% con «a budget» mentre la memoria
+tiene la coda, o «3 di 4» mentre il pavimento non ammette nessuno, si leggono
+come posto libero.
+
 **I numeri esistono, a un clic, e ognuno una volta.** Il popover SHALL dire la
 modalità del tetto (a budget: la quota del libero), la derivazione del limite
 effettivo (`12 core → 4`, e SOLO quando è la macchina ad averlo derivato), gli
 agenti in volo (a budget: nella stessa riga dei core a disposizione), i check
 congelati quando ce ne sono, la spesa delle ultime 24 ore e la porta alle
-impostazioni. Load della macchina e memoria libera non ci sono: descrivevano le
-app di chi sta al computer e non decidevano niente.
+impostazioni. A budget dice anche la memoria che il cancello ha confrontato
+(quanti GB tiene Topics, quanti ne restano liberi per Topics, quanti ne chiede un
+agent) e, quando il cancello trattiene, il verdetto con i suoi numeri. Il load
+della macchina e la memoria libera grezza non ci sono: descrivevano le app di chi
+sta al computer e non decidevano niente.
 
 MISURA: `client/src/components/Board/dispatchLoad.test.ts` per la lettura pura
 (sotto, al, oltre il tetto; sonda muta; tetto spento; numero fisso) ed e2e
@@ -3763,6 +3965,10 @@ popover e la stessa lettura nel pannello.
 - **GIVEN** l'indicatore nell'header, con il tetto in automatico su una macchina da 12 core
 - **WHEN** ci si clicca sopra
 - **THEN** si apre un popover che dice «12 core → 4» e porta alle impostazioni
+
+#### Scenario: la memoria trattiene e l'anello non mostra posto
+- **GIVEN** il freno a budget, la CPU di Topics al 61% dell'usabile e `admission` che trattiene sulla memoria
+- **THEN** l'anello è pieno, la parola è «aspetta: memoria» e il popover dice i GB che il cancello ha confrontato
 
 ### Requirement: KANBAN-80 — Il modello di dispatch salvato resta visibile anche col suo provider giù
 

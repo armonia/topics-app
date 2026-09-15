@@ -12,7 +12,8 @@
  *     `pressure`, and the line is written once per episode. Under it: it starts.
  *  2. The first agent is exempt: an empty fleet starts even on a busy machine.
  *  3. The memory axis blocks on its own.
- *  4. In this mode the numeric cap does not apply, and the ramp is one per tick.
+ *  4. In this mode the numeric cap does not apply, and the ramp is one start per
+ *     poll on a clock the whole dispatcher shares.
  *  5. The hard floor still wins over the budget, in both modes.
  *  6. REGRESSION: in `count` mode the probe is never consulted and the number
  *     rules exactly as before.
@@ -20,12 +21,12 @@
  *     default budget; a written budget comes back clamped.
  * @covers KANBAN-75
  */
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, setSystemTime } from "bun:test";
 import { Database } from "bun:sqlite";
 import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, budgetShare, capMode, type MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { currentDispatchBlock } from "./dispatch-block-signal";
+import { currentDispatchBlock, heldResumeBlock, setDispatchBlock } from "./dispatch-block-signal";
 import { readGlobalCap } from "./dispatch-capacity";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -263,10 +264,185 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.topicsCreated).toHaveLength(1);
-    // Outside the budget mode there is no verdict to preview.
+    // Outside the budget mode, with no floor holding, there is no verdict to preview.
     h.svc.setGlobalCap({ mode: "count" });
     expect(h.dispatcher.admissionPreview?.()).toBeNull();
   });
+
+  // THE NIGHT'S SHAPE: 5.5 GB available on a native runtime, under the 6 GB
+  // floor and well over the point where the budget's memory axis fires (1.5 GB
+  // of cost against 60% of 5.5). The floor was the only brake that held, and the
+  // panel said in green that a new agent would start.
+  it("the preview says the floor holds, in either mode, before the budget is asked", async () => {
+    const floor = { reason: null as string | null };
+    const h = harness({ resourceBlock: () => floor.reason });
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.6 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 2, otherCoreUnits: 1, ourMemGB: 9, availableMemGB: 5.5, running: 3 };
+    floor.reason = "Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
+    seedTask(h.db, "fl1");
+    const lines = (word: string) => h.logLines.filter((l) => l.includes(word));
+
+    // A panel polls BEFORE any tick has read the floor. The log's dedup state is
+    // still empty, so a preview that went through the logging read would write
+    // the episode here; only the tick may.
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor", firstAgentExempt: false });
+    expect(h.dispatcher.admissionPreview?.()?.reason).toContain("5.5 GB disponibili");
+    // In count mode there is no budget verdict, but the floor holds there too.
+    h.svc.setGlobalCap({ mode: "count" });
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor" });
+    expect(lines("coda ferma")).toHaveLength(0);
+
+    h.svc.setGlobalCap({ mode: "resources" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The gate holds for real, and the tick says so once: the log does capture it.
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(lines("coda ferma")).toHaveLength(1);
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "floor" });
+
+    // The floor lifts: count mode has nothing to say, the budget admits again,
+    // and a poll does not announce the restart the tick has not seen yet.
+    // Lifted means memory came back: at 5.5 GB one more card priced at 4 GB
+    // would still not fit in 60% of the free, and the budget would say memory.
+    floor.reason = null;
+    h.machine.pressure = { ...h.machine.pressure, availableMemGB: 12 };
+    h.svc.setGlobalCap({ mode: "count" });
+    expect(h.dispatcher.admissionPreview?.()).toBeNull();
+    h.svc.setGlobalCap({ mode: "resources" });
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null });
+    expect(lines("coda ripartita")).toHaveLength(0);
+    expect(lines("coda ferma")).toHaveLength(1);
+  });
+
+  it("the preview says a planned restart holds the queue, in count mode too", () => {
+    const h = harness();
+    h.svc.setGlobalCap({ auto: false, max: 4 });
+    expect(h.dispatcher.admissionPreview?.()).toBeNull();
+    h.dispatcher.drain("test");
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ admit: false, blockedBy: "drain" });
+  });
+
+  // The panel printed the bare probe ("2.0 of 6.6") while the gate decided on
+  // the probe plus the turns admitted in the last ninety seconds ("6.5 of 6.6"
+  // on the card). The preview carries the gate's own numbers.
+  it("the preview carries the numbers the gate decided on, reservation included", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 1, running: 2 };
+    seedTask(h.db, "rs1");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated).toHaveLength(1);
+
+    // One turn launched a moment ago, priced at 1 core-unit and at the 4 GB
+    // floor of a card's memory: the probe still says 1, the gate counts 2, and
+    // 4 GB of the 20 free are held for it, so 50% of 16 is left.
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({
+      admit: true,
+      usedCoreUnits: 2,
+      usableCoreUnits: 5.5,
+      pendingAdmissions: 1,
+      costMemGB: 4,
+      freeQuotaMemGB: 8,
+      ourMemGB: 3,
+      memClause: null,
+    });
+  });
+
+  // A resume held by the floor sat in the In-progress column with a bare queued
+  // chip. Its reason is the block of ITS hold, written by the hold itself: the
+  // block the tick publishes is refreshed only on boards the tick reaches.
+  const FLOOR_TEXT = "Memoria quasi finita: 4.1 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
+  function inProgressCard(h: ReturnType<typeof harness>, id: string): void {
+    const ts = new Date().toISOString();
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [`topic-${id}`]);
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, assigned_topic_id, created_at, updated_at, dispatch_attempts, priority)
+       VALUES (?, ?, 'held resume', 'in_progress', ?, ?, ?, 1, 2)`,
+      [id, PID, `topic-${id}`, ts, ts],
+    );
+  }
+
+  it("a held resume says the block of its own hold, and stops the moment its hold says otherwise", async () => {
+    const floor = { reason: FLOOR_TEXT as string | null };
+    const gates = { n: 0 };
+    const h = harness({ resourceBlock: () => floor.reason, checksRunning: () => gates.n });
+    boardOn(h);
+    inProgressCard(h, "rh1");
+    try {
+      // Still holding: the reason is on the row and on the card, no tick needed.
+      await h.dispatcher.resume("rh1", "continua");
+      expect(h.topicsCreated).toHaveLength(0);
+      expect(h.task("rh1")!.dispatchError).toContain("4.1 GB disponibili");
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+      // The floor clears while the cap is full: the re-evaluation holds on the cap
+      // alone, and the card has no machine reason left.
+      floor.reason = null;
+      gates.n = 99;
+      await h.dispatcher.resume("rh1", "");
+      expect(h.task("rh1")!.dispatchState).toBe("queued");
+      expect(h.task("rh1")!.queueReason).toBeNull();
+      // The budget holds it: a wait that passes by itself, in its own tone.
+      gates.n = 0;
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      h.machine.pressure = { ...QUIET, ourCoreUnits: 5.8, running: 2 };
+      await h.dispatcher.resume("rh1", "");
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_pressure", tone: "waiting" });
+      h.svc.setGlobalCap({ mode: "count" });
+      // The 24h spend holds it: the todo card's sentence, with its kind.
+      const spend = h.svc as unknown as { getSpendCaps: () => object; agentSpend: () => object };
+      spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 1_000 });
+      spend.agentSpend = () => ({ cents24h: 1_200, centsTotal: 1_200, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 });
+      await h.dispatcher.resume("rh1", "");
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "spend_cap" });
+      expect(h.task("rh1")!.dispatchError).toStartWith("Tetto di spesa giornaliero raggiunto");
+      // Room again: it starts, and the hold's entry goes with the wait.
+      const heldText = h.task("rh1")!.dispatchError;
+      spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 0 });
+      gates.n = 0;
+      void h.dispatcher.resume("rh1", "");   // the turn never ends in this harness
+      await flush();
+      expect(h.task("rh1")!.dispatchState).toBe("working");
+      expect(heldResumeBlock("rh1", heldText)).toBeNull();
+    } finally {
+      h.dispatcher.shutdown();
+    }
+  });
+
+  // The two gestures of a floor night that leave the published block behind:
+  // the queue emptied by hand (the reconcile ticks only boards with queued
+  // todos) and the board paused (the tick returns before it publishes).
+  for (const [gesture, card] of [["the queue emptied", "stale-backlog"], ["the board paused", "stale-paused"]] as const) {
+    it(`a floor published and cleared with ${gesture} is not what a held resume says`, async () => {
+      const floor = { reason: FLOOR_TEXT as string | null };
+      const gates = { n: 0 };
+      const h = harness({ resourceBlock: () => floor.reason, checksRunning: () => gates.n });
+      boardOn(h);
+      const todo = seedTask(h.db);
+      try {
+        await h.dispatcher.tick(PID);
+        await flush();
+        expect(currentDispatchBlock()?.kind).toBe("resources");
+        if (gesture === "the queue emptied") h.db.run("UPDATE tasks SET status = 'backlog', dispatch_state = NULL WHERE id = ?", [todo]);
+        else h.svc.updateBoardSettings(PID, { dispatchPaused: true });
+        floor.reason = null;
+        await h.dispatcher.reconcile({ reason: "poll" });
+        await flush();
+        // The premise: the published block is still the floor that has cleared.
+        expect(currentDispatchBlock()?.kind).toBe("resources");
+        inProgressCard(h, card);
+        gates.n = 99;
+        await h.dispatcher.resume(card, "rivedi il punto 2");
+        expect(h.task(card)!.dispatchState).toBe("queued");
+        expect(h.task(card)!.queueReason).toBeNull();
+      } finally {
+        h.dispatcher.shutdown();
+        setDispatchBlock(null);
+      }
+    });
+  }
 
   it("exempts the first agent: an empty fleet starts even on a busy machine", async () => {
     const h = harness();
@@ -299,6 +475,16 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     const notes = h.notes("m1", "Non c'è memoria per un altro agent");
     expect(notes).toHaveLength(1);
     expect(notes[0]!.content).toContain("50%");
+    // THE FOOTPRINT CLAUSE fired, not the quota: 10 GB of the 20 free is our
+    // share and one more agent needs 1.5. The sentence names what Topics holds
+    // against its ceiling, never "needs 1,5 GB, 10,0 GB free", which by its own
+    // numbers would admit.
+    expect(notes[0]!.content).toContain("Topics tiene 20,0 GB");
+    expect(notes[0]!.content).toContain("(16,0 GB)");
+    expect(notes[0]!.content).not.toContain("ne servono");
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({
+      blockedBy: "memory", memClause: "footprint", ourMemGB: 20, usableMemGB: 16,
+    });
   });
 
   // The axis the machine actually hits: the RAM is gone, our footprint is
@@ -315,10 +501,14 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     await flush();
 
     expect(h.topicsCreated).toHaveLength(0);
-    expect(h.notes("m2", "Non c'è memoria per un altro agent")).toHaveLength(1);
+    const notes = h.notes("m2", "Non c'è memoria per un altro agent");
+    expect(notes).toHaveLength(1);
+    // The quota clause: the two numbers the axis compared.
+    expect(notes[0]!.content).toContain("ne servono 4,0 GB, liberi per Topics 0,4 GB");
+    expect(h.dispatcher.admissionPreview?.()).toMatchObject({ blockedBy: "memory", memClause: "quota" });
   });
 
-  it("ramps ONE new dispatch per tick, and ignores the numeric cap: three cards on a cap of 1, three ticks, three agents", async () => {
+  it("ramps ONE new dispatch per poll, and ignores the numeric cap: three cards on a cap of 1, three polls, three agents", async () => {
     const h = harness();
     boardOn(h);
     h.svc.setGlobalCap({ auto: false, max: 1, mode: "resources" });
@@ -326,28 +516,42 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     // would read the same quiet measure, so the round admits one card only.
     h.machine.pressure = { ...QUIET, ourCoreUnits: 0.2, running: 0 };
     seedTask(h.db, "n1"); seedTask(h.db, "n2"); seedTask(h.db, "n3");
+    const t0 = Date.now();
+    try {
+      setSystemTime(new Date(t0));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(1);
+      // The others are told where they are, and nothing holds the whole queue.
+      expect(h.task("n2")!.dispatchState).toBe("queued");
+      expect(h.task("n3")!.dispatchState).toBe("queued");
+      expect(currentDispatchBlock()).toBeNull();
 
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(1);
-    // The others are told where they are, and nothing holds the whole queue.
-    expect(h.task("n2")!.dispatchState).toBe("queued");
-    expect(h.task("n3")!.dispatchState).toBe("queued");
-    expect(currentDispatchBlock()).toBeNull();
+      // The ramp is a clock, not a counter of calls: a second tick at the same
+      // instant (another board, a grace timer) starts nothing.
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(1);
 
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(2);
+      setSystemTime(new Date(t0 + 10_000));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(2);
 
-    // Third tick, third agent: the cap of 1 never applied, the ramp did.
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(3);
+      // Third poll, third agent: the cap of 1 never applied, the ramp did.
+      setSystemTime(new Date(t0 + 20_000));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(3);
 
-    // Nothing left: a fourth tick starts nothing.
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(3);
+      // Nothing left: a fourth poll starts nothing.
+      setSystemTime(new Date(t0 + 30_000));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(3);
+    } finally {
+      setSystemTime();
+    }
   });
 
   it("the hard floor wins over the budget: a full disk is not a wait that passes", async () => {
