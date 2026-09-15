@@ -8,7 +8,7 @@ import { mkdirSync } from 'node:fs';
 import type { ProvidersSnapshot } from '../../shared/types';
 import { projectIdForPath } from '../../shared/board';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTask, deleteTopic, resetPaneStore, seedProjectPane } from './helpers/api-fixtures';
+import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from './helpers/api-fixtures';
 import { canonicalTmpDir, removeTmpDir } from './helpers/file-project';
 
 hermetic(test);
@@ -45,24 +45,19 @@ async function openProjectBoard(page: Page) {
     if (!await row.isVisible()) await page.getByRole('button', { name: 'Toggle sidebar' }).click();
     await row.click();
   }
+  const board = projectWindow.getByTestId('kanban-board');
+  // Idempotent: the project layout can already carry a persisted kanban pane
+  // (projectLayoutSync hydrates server panes on load), in which case the
+  // singleton is not offered again in the add menu at all.
+  if (await board.isVisible().catch(() => false)) return;
   await expect(projectWindow).toBeVisible();
   const trigger = projectWindow.locator('[data-testid="pane-add-menu-trigger"]:visible').last();
   await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
   const item = page.getByTestId('pane-add-menu-kanban');
-  // Under load the menu can open and close within the same tick (the portal
-  // mounts, then a stray blur/resize event closes it before the click lands).
-  // Retry the trigger click a couple of times and wait for the item itself,
-  // not just the portal wrapper, before clicking it. Same shape as the retry
-  // loop in board-column-elastic-width.spec.ts.
-  let menuOpened = false;
-  for (let attempt = 0; attempt < 3 && !menuOpened; attempt++) {
-    await trigger.click();
-    menuOpened = await item.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true).catch(() => false);
-    if (!menuOpened) await page.keyboard.press('Escape');
-  }
-  if (!menuOpened) throw new Error('pane-add-menu never showed a Board entry');
+  await item.waitFor({ state: 'visible', timeout: 5_000 });
   await item.click();
-  await expect(projectWindow.getByTestId('kanban-board')).toBeVisible();
+  await expect(board).toBeVisible();
 }
 
 for (const device of [
@@ -82,6 +77,11 @@ for (const device of [
       let longTaskId: string | undefined;
       try {
         await resetPaneStore(request, []);
+        // The project path is module-level and shared across the desktop and
+        // phone runs of this test: without this, the desktop run's kanban
+        // pane survives in `topics-project-panes-<hash>` and the phone run's
+        // add menu no longer offers Board (it is already an open singleton).
+        await resetProjectPanes(request, projectPath);
         await seedProjectPane(request, projectPath);
         await request.put('/api/ui-state/settings', { data: { language: device.locale } });
         await page.addInitScript((language) => localStorage.setItem('app-settings', JSON.stringify({ language })), device.locale);
