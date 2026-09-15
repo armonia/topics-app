@@ -71,6 +71,28 @@ function defaultMaxWaitMs(): number {
 }
 const POLL_MS = 700;
 
+/**
+ * HOW LONG A GATE WAITS FOR ANOTHER RUN OF ITSELF, longer than the count wait on
+ * purpose, and still a limit (SLOT-02: it fails open, never forever).
+ *
+ * Ten minutes was the same deadline as the count, and it is shorter than a full
+ * unit suite on a loaded machine. Measured 14/09/2026 at 01:08: two
+ * `test:unit:shards` from two cards alive together, 11 GB each, because the
+ * second one had waited its ten minutes and then started "alongside". Running
+ * alongside on a machine that is already slow makes both slower, which makes the
+ * next overlap longer: the fail-open was feeding the swap it should prevent.
+ * The holder is still reaped when it dies (`reapStale`) and killed at its
+ * wall-clock limit (`TOPICS_GATE_MAX_RUN_MS`), so a long wait here cannot be a
+ * wait on nobody. Thirty minutes plus the ten of the count stays under the 50
+ * minutes an agent's `update_task` waits for its checks.
+ */
+export function defaultNameMaxWaitMs(): number {
+  const raw = process.env.TOPICS_GATE_NAME_MAX_WAIT_MS;
+  if (raw == null || raw === "") return 30 * 60_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : 30 * 60_000;
+}
+
 /** True when this process is already covered by a slot somebody else took. */
 export function alreadyHeld(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = env[GATE_HELD_ENV];
@@ -151,6 +173,10 @@ function nameLockPath(dir: string, label: string): string {
 interface AcquireOptions {
   /** How long to queue before giving up and running unthrottled. */
   maxWaitMs?: number;
+  /** How long to wait for another run of the SAME gate, when that must be
+   *  longer than the count wait (the check wrappers: see
+   *  `defaultNameMaxWaitMs`). Absent = the same as `maxWaitMs`. */
+  nameMaxWaitMs?: number;
   /** Where the wait notices go. Silent by default in a test process. */
   onWait?: (message: string) => void;
 }
@@ -165,7 +191,8 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
   const notify = opts.onWait ?? ((m: string) => console.error(m));
   try {
     mkdirSync(dir, { recursive: true });
-    const deadline = Date.now() + maxWaitMs;
+    const startedAt = Date.now();
+    const nameDeadline = startedAt + (opts.nameMaxWaitMs ?? maxWaitMs);
     let announced = false;
     // The name lock comes first (see `nameLockPath`), and it is released with
     // the numbered slot: two files, one lifetime, so a caller cannot end up
@@ -176,8 +203,8 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
       reapStale(dir);
       releaseName = takeFile(nameLockPath(dir, label));
       if (releaseName) break;
-      if (Date.now() >= deadline) {
-        notify(`[slot] ${label}: another ${label} has been running for ${Math.round(maxWaitMs / 60_000)} min, running alongside it.`);
+      if (Date.now() >= nameDeadline) {
+        notify(`[slot] ${label}: another ${label} has been running for ${Math.round((opts.nameMaxWaitMs ?? maxWaitMs) / 60_000)} min, running alongside it.`);
         break;
       }
       if (!announcedName) {
@@ -187,6 +214,11 @@ export function acquireSlot(slots: number, label: string, opts: AcquireOptions =
       Bun.sleepSync(POLL_MS);
     }
     const withName = (release: () => void): (() => void) => () => { release(); releaseName?.(); };
+    // With a name wait of its own, the count gets its own wait from here: time
+    // spent behind the same gate is not time spent behind the others. Without
+    // one (the bun-test preload, the e2e shards) there is ONE deadline for the
+    // two, as before: those callers must not start waiting twice as long.
+    const deadline = opts.nameMaxWaitMs == null ? startedAt + maxWaitMs : Date.now() + maxWaitMs;
     for (;;) {
       reapStale(dir);
       for (let i = 0; i < slots; i++) {
