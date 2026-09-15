@@ -28,7 +28,7 @@
  * and the dots stay away until there is something behind them.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2 } from 'lucide-react';
+import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot } from 'lucide-react';
 import { BrowserFavicon } from './BrowserFavicon';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
@@ -141,8 +141,15 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   // Folding it into the spinner would have said "still trying" about a link
   // that already settled, which is the one wrong thing you can say about a
   // degraded connection.
+  // THE AGENT COMES FIRST, and it is the one kind that is not a property of
+  // the pane but a thing happening right now. Until 2026-09-14 it was said by
+  // covering the page with `bg-black/40 backdrop-blur` and a box in the middle:
+  // the single moment you most want to watch the page was the moment the page
+  // was taken away. The fact moved here; over the page only the transparent
+  // layer that swallows the clicks is left.
   const kind =
-    connection === 'disconnected' ? 'disconnected'
+    chrome.agentActive ? 'agent'
+    : connection === 'disconnected' ? 'disconnected'
     : connection === 'connecting' ? 'connecting'
     : connection === 'fallback-http' ? 'degraded'
     : chrome.engine === 'chromium' ? 'chromium'
@@ -164,14 +171,22 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   if (!kind) return null;
 
   const Glyph =
-    kind === 'disconnected' ? WifiOff
+    kind === 'agent' ? Bot
+    : kind === 'disconnected' ? WifiOff
     : kind === 'connecting' ? Loader2
     : kind === 'degraded' ? WifiLow
     : kind === 'chromium' ? Puzzle
     : MonitorSmartphone;
 
+  // THE TITLE SAYS WHAT THE AGENT IS DOING, when the pane knows: the action was
+  // the one thing the removed box carried that the glyph alone cannot, and a
+  // tooltip is where a running commentary belongs.
   const label =
-    kind === 'disconnected' ? t('browser.tab.kind.disconnected')
+    kind === 'agent'
+      ? (chrome.agentAction
+        ? t('browser.tab.kind.agentDoing', { action: chrome.agentAction })
+        : t('browser.tab.kind.agent'))
+    : kind === 'disconnected' ? t('browser.tab.kind.disconnected')
     : kind === 'connecting' ? t('browser.tab.kind.connecting')
     : kind === 'degraded' ? t('browser.tab.kind.degraded')
     : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
@@ -190,9 +205,41 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   //
   // Chromium and shared are facts, not faults: muted ink, no colour spent.
   const tone =
-    kind === 'disconnected' ? DANGER_TEXT
+    kind === 'agent' ? 'text-primary'
+    : kind === 'disconnected' ? DANGER_TEXT
     : kind === 'connecting' || kind === 'degraded' ? WARNING_TEXT
     : 'text-app-text-faint';
+
+  const glyph = (
+    <Glyph size={11} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
+  );
+
+  // THE AGENT GLYPH IS A BUTTON, the other four are not. Every other kind
+  // reports a fact you cannot act on from a 11px box; this one names a state
+  // that the person may want to END, and the page underneath is now visible and
+  // untouched, so the tab is the only place left holding a handle. It is also
+  // the handle on the paths where the page itself cannot carry one (the native
+  // pane composites above the DOM: a transparent layer over it would catch
+  // nothing).
+  if (kind === 'agent' && chrome.commands.takeControl) {
+    const takeControl = chrome.commands.takeControl;
+    return (
+      <button
+        type="button"
+        className={`flex items-center justify-center w-3 h-3 flex-shrink-0 ${tone} hover:opacity-70 transition-opacity`}
+        title={`${label} - ${t('browser.agent.takeControl')}`}
+        aria-label={t('browser.agent.takeControl')}
+        data-testid="browser-tab-type-icon"
+        data-kind={kind}
+        data-connection={chrome.connection}
+        onPointerDown={swallow}
+        onDoubleClick={swallow}
+        onClick={(e) => { swallow(e); takeControl(); }}
+      >
+        {glyph}
+      </button>
+    );
+  }
 
   return (
     <span
@@ -207,7 +254,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
       // (`browser-ws-streaming`). Absent on the panes that have no socket.
       data-connection={chrome.connection}
     >
-      <Glyph size={11} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
+      {glyph}
     </span>
   );
 }

@@ -574,6 +574,10 @@ const IT: Dict = {
   'browser.tab.kind.degraded': 'Collegamento degradato: la pagina si aggiorna a intervalli',
   'browser.tab.kind.chromium': 'Chromium reale · {n} estensioni',
   'browser.tab.kind.shared': 'Sessione condivisa fra i tuoi dispositivi',
+  'browser.tab.kind.agent': 'L\'agente sta guidando questa scheda',
+  'browser.tab.kind.agentDoing': 'L\'agente: {action}',
+  'browser.agent.takeControl': 'Riprendi il controllo',
+  'browser.agent.tookControl': 'Hai ripreso il controllo della pagina',
   'browser.tab.session.auto': 'Sessione: automatica',
   'browser.tab.session.hint': 'Solo di questo dispositivo. L\'automatica è nativa e veloce da solo, e si condivide da sé quando un altro tuo dispositivo apre la stessa scheda.',
 

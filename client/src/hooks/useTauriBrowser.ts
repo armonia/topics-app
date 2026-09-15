@@ -28,7 +28,7 @@
  * sta in `nativeNavIsFresh` (lib/shell/browserPagePoll).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { startNativeExecutorSocket } from './nativeExecutorSocket';
+import { startNativeExecutorSocket, type NativeExecutorSocketRun } from './nativeExecutorSocket';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { onBeforeBundleReload } from '../lib/devBundleReload';
@@ -728,6 +728,21 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   isVisibleRef.current = isVisible;
   const agentActiveRef = useRef(agentActive);
   agentActiveRef.current = agentActive;
+  // The live executor socket of this pane, reached by `takeControl` below.
+  const executorRunRef = useRef<NativeExecutorSocketRun | null>(null);
+
+  /**
+   * TAKING THE WHEEL BACK ON THE NATIVE SHELL.
+   *
+   * The state is cleared here and not only on the server's answer: the glyph
+   * that ends it is the only sign the person has, so it must go out under the
+   * gesture. The server broadcasts `agent_active=false` right after, and a
+   * second false is a no-op.
+   */
+  const takeControl = useCallback(() => {
+    setAgentActive(false);
+    executorRunRef.current?.takeControl();
+  }, []);
 
   /** Returns true if this call actually changed the native visibility. */
   const setNativeVisible = useCallback(async (visible: boolean): Promise<boolean> => {
@@ -1590,7 +1605,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         if (active && action) setAgentAction(action);
       },
     });
-    return () => run.stop();
+    executorRunRef.current = run;
+    return () => {
+      executorRunRef.current = null;
+      run.stop();
+    };
     // setNativeVisible is useCallback([id]), so it never re-opens the socket on
     // its own — isVisible/agentActive are read through refs for that reason.
   }, [id, setNativeVisible]);
@@ -1837,6 +1856,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     loading,
     agentActive,
     agentAction,
+    takeControl,
     ready,
     viewId,
     faviconUrl,
@@ -1884,7 +1904,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     freeze,
     thaw,
   }), [
-    url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
+    url, title, loading, agentActive, agentAction, takeControl, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, paneContext, clearPaneContext, readSelection,

@@ -571,6 +571,10 @@ const EN = {
   'browser.tab.kind.degraded': 'Degraded link: the page updates by polling',
   'browser.tab.kind.chromium': 'Real Chromium · {n} extensions',
   'browser.tab.kind.shared': 'Session shared across your devices',
+  'browser.tab.kind.agent': 'An agent is driving this tab',
+  'browser.tab.kind.agentDoing': 'The agent: {action}',
+  'browser.agent.takeControl': 'Take back control',
+  'browser.agent.tookControl': 'You are driving the page again',
   'browser.tab.session.auto': 'Session: automatic',
   'browser.tab.session.hint': 'This device only. Automatic is native and fast on your own, and shares itself when another of your devices opens the same tab.',
 
