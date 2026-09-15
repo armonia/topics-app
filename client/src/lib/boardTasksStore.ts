@@ -19,8 +19,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { BoardTask } from './board';
-import { boardRowsCacheKey, readBoardRowsCache, serializeBoardRowsCache } from './boardRowsCache';
-import { createThrottledLocalWriter } from './throttledLocalWrite';
+import { boardRowsCacheWriter, readBoardRowsCache, serializeBoardRowsCache } from './boardRowsCache';
 
 /** The scope of the cross-project feed inside the rows cache. */
 export const ALL_BOARDS_SCOPE = 'all';
@@ -50,7 +49,7 @@ const listeners = new Set<() => void>();
 // The cache paints the next boot; current readers observe the store immediately.
 // Defer both serialization and storage through the existing fixed-window writer,
 // which also flushes the latest snapshot on pagehide / document-hidden.
-const cacheWriter = createThrottledLocalWriter({ key: boardRowsCacheKey(ALL_BOARDS_SCOPE) });
+const cacheWriter = boardRowsCacheWriter(ALL_BOARDS_SCOPE);
 
 /** La lista, o quella vuota finché la prima lettura non è tornata. */
 export function getBoardTasks(): readonly BoardTask[] {

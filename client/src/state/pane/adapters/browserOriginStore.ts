@@ -28,6 +28,8 @@ import type { ClosedTabRecord } from './closedTabRecord';
 const KEY = 'topics-browser-origin-v1';
 /** LRU cap. Each entry is tiny (a url + a path); 200 covers any realistic pin set. */
 const MAX = 200;
+/** An unchanged origin refreshes its LRU timestamp at most this often. */
+const ORIGIN_REFRESH_MS = 10 * 60_000;
 
 export interface BrowserOrigin {
   projectPath: string;
@@ -81,6 +83,21 @@ export function recordBrowserOrigin(
   if (!url || url === 'about:blank') return;
   const map = read();
   const prev = map[contextId];
+  // THE SAME ORIGIN IS NOT A WRITE. `updatePane` reports the url again on
+  // every tick of a live page, and each `setItem` of this map appends to
+  // WebKit's journal: measured on 15/09/2026, 642 rewrites in 12 minutes
+  // (one a second, 8 KB each) from two panes sitting on the same address.
+  // Refreshing `ts` only matters for the LRU cut at MAX entries, and an entry
+  // refreshed once per window keeps its rank just as well.
+  if (
+    prev &&
+    prev.projectPath === projectPath &&
+    prev.url === url &&
+    (title === undefined || title === prev.title) &&
+    Date.now() - prev.ts < ORIGIN_REFRESH_MS
+  ) {
+    return;
+  }
   map[contextId] = {
     projectPath,
     url,
