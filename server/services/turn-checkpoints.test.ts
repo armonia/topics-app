@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import {
   CHECKPOINT_REF_ROOT,
   captureTurnCheckpoint,
@@ -26,7 +27,18 @@ import {
 } from "./turn-checkpoints";
 
 let repo: string;
-const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" }).trim();
+/**
+ * The git of the test, with the preload's isolated environment (GATE-09).
+ *
+ * Without `env` the spawn does not carry what the preload set at RUNTIME, so
+ * this git reads the machine's own config: on the development box that means
+ * a `core.hooksPath` whose `prepare-commit-msg` fires two `curl --max-time 2`
+ * per commit. Alone the file stayed green; inside the sharded suite the two
+ * tests that compare git's state went red on card 2e7e769c, which is the
+ * symptom that gate was written for.
+ */
+const git = (...a: string[]) =>
+  execFileSync("git", a, { cwd: repo, encoding: "utf8", env: gitEnv() }).trim();
 const SESSION = "topic-42/session";
 
 beforeEach(() => {

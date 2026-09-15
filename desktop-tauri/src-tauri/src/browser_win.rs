@@ -621,6 +621,49 @@ pub fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<u
         .map_err(|_| "forget site timeout".to_string())?
 }
 
+/// Put this pane's WebView2 on top of the other child webviews of its window,
+/// without moving it, resizing it or taking the keyboard.
+///
+/// Z order between child webviews is CREATION ORDER here too, and for the same
+/// reason as AppKit: wry gives every child webview a container HWND of its own
+/// (`webview2/mod.rs`, `create_container_hwnd`), born with `SetWindowPos
+/// HWND_TOP`, and every later `set_bounds` passes `SWP_NOZORDER`, so nothing in
+/// the resize path ever reorders. The window a pane covers stays covered.
+///
+/// `controller().ParentWindow()` IS that container HWND, not the toplevel: the
+/// same handle `windows_repaint::sink_to_bottom` pushes DOWN after a rebuild,
+/// read the other way round. `SWP_NOACTIVATE` keeps the focus where it is, so
+/// whoever is typing goes on typing, which is the AppKit arm's
+/// `first-responder-survives-the-raise`.
+///
+/// Fire-and-forget like the navigation ops: `browser_raise` is a synchronous
+/// Tauri command, so it already runs on the thread that owns the window
+/// messages, and waiting on a channel here would wait on itself.
+pub fn raise(wv: &tauri::Webview) -> Result<(), String> {
+    wv.with_webview(|platform| unsafe {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        };
+        // `ParentWindow` answers through an out parameter: the handle starts
+        // null and stays null when the call fails.
+        let mut hwnd = HWND::default();
+        if platform.controller().ParentWindow(&mut hwnd).is_err() || hwnd.is_invalid() {
+            return;
+        }
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    })
+    .map_err(|e| e.to_string())
+}
+
 /// Le navigazioni semplici, che WebView2 espone direttamente sull'interfaccia
 /// base. `go_to_index` non c'e sopra: vedi [`nav_entries`].
 ///
