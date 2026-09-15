@@ -570,8 +570,7 @@ export function dispatchResourceBlock(
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
   const cardGB = Math.max(0, hold.cardGB);
   const starting = Math.max(0, hold.startingCards);
-  // Two facts, kept apart: summed, they read "4 GB kept for the agents that are
-  // starting" at 9 GB with nobody starting.
+  // Two facts, kept apart: summed, they read "4 GB kept for the starting agents" with nobody starting.
   const reserved = starting * cardGB;
   const margin = hold.holding ? cardGB : 0;
   const net = mem == null ? Number.NaN : mem - reserved;
@@ -579,12 +578,15 @@ export function dispatchResourceBlock(
     const gb = (n: number) => n.toFixed(1);
     const who = starting === 1 ? "l'agente che sta partendo" : `i ${starting} agenti che stanno partendo`;
     const kept = reserved > 0 ? `, di cui ${gb(reserved)} tenuti per ${who}` : "";
-    // "Under the floor" only when the reading itself is under it.
-    const head = mem < floor
-      ? `Memoria quasi finita: ${gb(mem)} GB disponibili${kept}, sotto il pavimento di ${floor} GB.`
-      : net < floor
-        ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ma ${gb(reserved)} sono tenuti per ${who}, che la lettura non vede ancora, e i ${gb(net)} che restano non coprono il pavimento di ${floor} GB.`
-        : `Memoria in risalita: ${gb(mem)} GB disponibili${kept}, sopra il pavimento di ${floor} GB ma senza posto per un agente in più.`;
+    // A reservation as large as the reading (as printed) is all of it, not "of which"; "under" only when the reading is.
+    const promised = `tutti già tenuti per ${who}, che la lettura non vede ancora`;
+    const head = reserved > 0 && Number(gb(reserved)) >= Number(gb(mem))
+      ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ${mem < floor ? `sotto il pavimento di ${floor} GB, e ${promised}.` : `${promised}: non ne resta niente per il pavimento di ${floor} GB.`}`
+      : mem < floor
+        ? `Memoria quasi finita: ${gb(mem)} GB disponibili${kept}, sotto il pavimento di ${floor} GB.`
+        : net < floor
+          ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ma ${gb(reserved)} sono tenuti per ${who}, che la lettura non vede ancora, e i ${gb(net)} che restano non coprono il pavimento di ${floor} GB.`
+          : `Memoria in risalita: ${gb(mem)} GB disponibili${kept}, sopra il pavimento di ${floor} GB ma senza posto per un agente in più.`;
     const costo = agentsAreProcesses
       ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
       : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check (shard unit, e2e) si prezza ${gb(cardGB)} GB`;

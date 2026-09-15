@@ -3504,7 +3504,10 @@ SHALL tenere separati i due termini: la memoria tenuta per gli agenti che stanno
 partendo compare solo se ne sta partendo qualcuno, «sotto il pavimento» solo se
 la lettura stessa è sotto, e quando a trattenere è l'isteresi la frase dice che
 aspetta di tornare sopra il pavimento più il prezzo di una card («Riparto sopra N
-GB»). Il prezzo citato è quello che il cancello usa, non una misura vecchia. Una
+GB»). Una prenotazione grande quanto la lettura non SHALL comparire come una sua
+parte: la card leggeva «3.9 GB disponibili, di cui 4.0 tenuti per l'agente che sta
+partendo», e la frase dice invece che quei GB sono già tutti tenuti per chi parte.
+Il prezzo citato è quello che il cancello usa, non una misura vecchia. Una
 sola somma dei due termini scriveva «9 GB disponibili, di cui 4 tenuti per gli
 agenti che partono, sotto il pavimento di 6 GB» con nessun agente in partenza.
 Le tre frasi sono un solo episodio: «coda ferma» si scrive una volta. La riga del

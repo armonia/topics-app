@@ -616,6 +616,18 @@ describe("il pavimento della memoria segue il runtime", () => {
     expect(r).not.toContain("1,5 GB");
   });
 
+  test("a reservation as large as the reading is never printed as a part of it", () => {
+    // Under the floor: "5.9 GB disponibili, di cui 8.0 tenuti" was the sentence.
+    const under = dispatchResourceBlock("/tmp", disco, ram(5.9), false, { cardGB: 4, startingCards: 2, holding: true });
+    expect(under).toContain("5.9 GB disponibili, sotto il pavimento di 6 GB, e tutti già tenuti per i 2 agenti che stanno partendo");
+    // Over the floor: "ma 8.0 sono tenuti ... e i -1.0 che restano".
+    const over = dispatchResourceBlock("/tmp", disco, ram(7), false, { cardGB: 4, startingCards: 2, holding: false });
+    expect(over).toContain("7.0 GB disponibili, tutti già tenuti per i 2 agenti che stanno partendo, che la lettura non vede ancora: non ne resta niente");
+    for (const r of [under, over]) expect(r).not.toMatch(/di cui|che restano/);
+    // A reservation smaller than the reading is still "of which".
+    expect(dispatchResourceBlock("/tmp", disco, ram(5), false, { cardGB: 2, startingCards: 1, holding: false })).toContain("5.0 GB disponibili, di cui 2.0 tenuti");
+  });
+
   test("il disco viene prima della RAM, su entrambi i runtime", () => {
     // Un disco pieno rompe (SQLite smette di scrivere) mentre la RAM degrada:
     // l'ordine non jumpsa col runtime.

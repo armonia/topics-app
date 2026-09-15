@@ -16,8 +16,8 @@
  *  6. The first-agent exemption does not apply while our checks are running.
  *  7. The memory floor holds until there is room for one more agent above it,
  *     a count-mode tick re-reads it after each start, and its sentence names a
- *     reservation only while an agent is starting and "under the floor" only
- *     when the reading is.
+ *     reservation only while an agent is starting, never as a part of a reading
+ *     smaller than it, and "under the floor" only when the reading is.
  *  8. A tick parked on the delivery probe does not start a second card after
  *     another board's tick started one in the gap.
  * @covers KANBAN-75
@@ -361,6 +361,34 @@ describe("the exemption and the floor", () => {
     expect(held).not.toContain("partendo");
     const note = (h.svc.get("nine-1")?.comments ?? []).map((c) => c.content);
     expect(note).toEqual([held]);
+  });
+
+  it("a reading that drops under the reservation of the starting agent is not «of which» that reservation", async () => {
+    let avail = 6.2;
+    const h = harness({
+      agentMemSamples: () => [],
+      resourceBlock: (hold) => dispatchResourceBlock("/tmp", () => 500, () => avail, false, hold),
+    });
+    h.svc.setGlobalCap({ auto: false, max: 4 });
+    for (let i = 0; i < 2; i++) seedTodo(h.db, `drop-${i}`);
+    const t0 = Date.now();
+    setSystemTime(new Date(t0));
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+
+    // 30 s later, inside the warm-up window, the reading is 3.9 GB and the agent
+    // still holds its 4 GB: the card read "3.9 GB available, of which 4.0 kept".
+    avail = 3.9;
+    setSystemTime(new Date(t0 + 30_000));
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+    const held = currentDispatchBlock()?.reason ?? "";
+    expect(held).toContain("3.9 GB disponibili, sotto il pavimento di 6 GB, e tutti già tenuti per l'agente che sta partendo");
+    const notes = (h.svc.get("drop-1")?.comments ?? []).map((c) => c.content);
+    expect(notes.at(-1)).toBe(held);
+    for (const said of [...notes, ...h.lines("coda ferma")]) expect(said).not.toContain("di cui");
   });
 });
 
