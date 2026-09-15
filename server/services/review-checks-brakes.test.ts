@@ -301,6 +301,52 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     }
   });
 
+  test("W3, a first round of three commands: the other round goes when the first command exits, and the next command of the first round waits its turn", async () => {
+    // The next command of a round asks in the same microtask turn its
+    // predecessor exits, before the other round's 5 s poll: without the turn it
+    // took the spacing back each time and the other round waited 95 s here.
+    for (const secondRunsSec of [40, 300]) {
+      _resetReleaseSpacing();
+      const clock = steppedClock();
+      const floor: MemoryFloor = { held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep };
+      const first = memoryWaiter(floor);
+      const second = memoryWaiter(floor);
+      const t0 = clock.now();
+      const sec = () => (clock.now() - t0) / 1000;
+      const at: Record<string, number> = {};
+      const runFor = async (ms: number) => { const until = clock.now() + ms; while (clock.now() < until) await clock.sleep(0); };
+      void (async () => {
+        for (const name of ["typecheck", "lint", "deadcode"]) {
+          const exited = await first(name);
+          at[name] = sec();
+          await runFor(30_000);
+          exited();
+        }
+      })();
+      await clock.settle();
+      void (async () => {
+        const exited = await second("static-rails");
+        at.second = sec();
+        await runFor(secondRunsSec * 1000);
+        exited();
+        at.secondExit = sec();
+      })();
+      await runUntil(clock, () => at.lint !== undefined && at.second !== undefined, 20 * 60_000);
+      expect(at.typecheck).toBe(0);
+      expect(at.second).toBeGreaterThanOrEqual(30);
+      expect(at.second).toBeLessThanOrEqual(35);
+      if (secondRunsSec === 40) {
+        expect(at.lint).toBeGreaterThanOrEqual(at.secondExit);
+        expect(at.lint).toBeLessThanOrEqual(at.secondExit + 5);
+      } else {
+        expect(at.secondExit).toBeUndefined();
+        expect(at.lint).toBeGreaterThanOrEqual(at.second + 120);
+        expect(at.lint).toBeLessThanOrEqual(at.second + 125);
+      }
+      expect(lines().some((l) => l.includes('"lint" waits: another delivery has been waiting longer'))).toBe(true);
+    }
+  });
+
   test("a round's own next command is not spaced from its predecessor, which has exited", async () => {
     const clock = steppedClock();
     const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });

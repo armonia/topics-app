@@ -86,7 +86,9 @@ sono partiti sullo stesso giro. Il comando SHALL quindi aspettare anche:
   dopo un'interruzione non deve ripartire dentro lo swap che l'ha interrotto;
 - 120 secondi dalla partenza di un comando di un ALTRO giro ancora vivo: un rilascio
   per finestra, fra i giri; il comando successivo dello stesso giro non aspetta il
-  suo predecessore, che è finito.
+  suo predecessore, che è finito, ma cede il turno a un giro che aspettava già da
+  prima (altrimenti un giro di tre comandi si riprende il rilascio a ogni uscita e
+  l'altro aspetta tutta la sua fase locale).
 Non c'è un prezzo per comando: con la suite unit letta dalla CI della PR
 (`github-ci:unit`, KANBAN-84) nessun comando di consegna di topics-app supera 1 GB
 (tsc 460 MB, build vite 316 MB, misurati il 15/09), e la riga è il pavimento. SHALL
@@ -148,7 +150,7 @@ tutta l'uscita, spendendo una gamba a chiamata.
 
 #### Scenario: un rilascio per finestra fra i giri
 - **GIVEN** due giri che aspettano con 11 GB nella finestra
-- **THEN** parte un comando solo, e l'altro parte quando il primo finisce o 120 s dopo il suo rilascio
+- **THEN** parte un comando solo, e l'altro parte quando il primo finisce o 120 s dopo il suo rilascio, anche se il primo giro ha altri comandi dietro
 
 #### Scenario: lo swap sostenuto vince sul fallire aperto
 - **GIVEN** un limite di 5 minuti, 5 GB per tutto il tempo e lo swap sostenuto dal minuto 4 al minuto 9

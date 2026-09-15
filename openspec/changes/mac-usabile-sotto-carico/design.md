@@ -113,11 +113,14 @@ bassa come i comandi (KANBAN-78).
 
 La spinta avviene SOLO dopo che tutti i comandi locali sono verdi. Il motivo non è il
 tempo (in parallelo si risparmierebbero ~10 minuti) ma la pubblicazione: il repo è
-pubblico, e `test:unit` contiene i due cancelli che decidono se un checkout si può
-pubblicare (`no-personal-data-tracked`, `no-home-paths-tracked`). Un commit che li
-viola non deve arrivare su GitHub. Al rollout si aggiunge anche
-`bun run check:security --only=secrets` in coda a `static-rails` (vedi Rollout),
-perché la protezione dei push di GitHub è spenta.
+pubblico, e due cancelli decidono se un checkout si può pubblicare
+(`no-personal-data-tracked`, `no-home-paths-tracked`). Un commit che li viola non deve
+arrivare su GitHub, e sul runner non misurano niente: la home si ricava dalla macchina
+(là è `runner`) e `.personal-terms` non è tracciato. Stavano dentro `test:unit`, che dalla
+tornata 3 si legge dalla CI (D15); quindi al rollout la coda di `static-rails` diventa
+`bun run check:security --only=data,home,secrets` (vedi Rollout): due `bun test` e la
+ricerca dei segreti, ~6 s, locali e prima della spinta. I segreti ci sono perché la
+protezione dei push di GitHub è spenta.
 
 Il check CI si misura sempre DOPO i comandi, qualunque sia la sua posizione
 nell'elenco dichiarato.
@@ -379,7 +382,7 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 2. Codice e test su un ramo, PR, CI verde, merge.
 3. Il watcher ricarica il server; le sessioni nuove prendono le 240 gambe.
 4. SOLO ADESSO: `PATCH /api/boards/topics-app-ar3jt5/settings` con `reviewChecks` =
-   le cinque righe attuali, con `&& bun run check:security --only=secrets` in coda a
+   le cinque righe attuali, con `&& bun run check:security --only=data,home,secrets` in coda a
    `static-rails`, e `{ "name": "e2e-ci", "cmd": "github-ci:e2e" }` al posto di
    `e2e-touched`. Al contrario, il runner vecchio passerebbe `github-ci:e2e` a `sh`:
    uscita 127, rosso su ogni consegna.
@@ -391,8 +394,9 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 ## Rischi
 
 - **Pubblico prima della review.** Vedi D12. La protezione dei push di GitHub è spenta;
-  prima della spinta girano `test:unit` (dati personali, percorsi di casa) e, dal
-  rollout, `check:security --only=secrets`.
+  prima della spinta gira, dal rollout, `check:security --only=data,home,secrets` in coda
+  a `static-rails` (dati personali, percorsi di casa, segreti): dopo la tornata 3
+  `test:unit` non gira più nel worktree, e l'hook pre-push cerca solo `.personal-terms`.
 - **Attesa.** Giro locale (media 10,6 min, max 29,2) più CI (14-42 min). Nel modo a conteggio
   del tetto la card in attesa tiene il suo posto (è `in_progress`): meno card in parallelo.
   Oltre le 240 gambe il turno si chiude e il dispatcher riprende l'agente consumando un
@@ -453,6 +457,8 @@ passo saltato, annullato, assente o job finito prima = non misurato (97). `await
 serve tutte le righe CI dichiarate con UNA spinta, UNA bozza e UN giro di sondaggi: ogni riga
 si chiude quando ha il suo esito, e alla scadenza le righe ancora aperte sono non misurate
 senza toccare le altre. Costo: un rosso unit arriva dopo la spinta, su un repo pubblico.
+I due cancelli di pubblicazione che stavano nella suite non vanno con lei: restano locali, in
+`static-rails` (D3).
 
 ### D16. `mem-signal.ts`: una sonda con la storia
 

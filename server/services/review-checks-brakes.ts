@@ -31,6 +31,12 @@ import type { HeldMemory, SwapVerdict } from "./mem-signal";
  *    interruption must not start straight into the thrash that is under way;
  *  - 120 s since a command of ANOTHER round was released, while it still runs:
  *    one release per window across rounds;
+ *  - its turn: a round that has been waiting since before this wait began goes
+ *    first. The next command of a round asks the moment the previous one exits,
+ *    in the same microtask turn, while the other round only reads again at its
+ *    next 5 s poll: without the turn a three-command round took the spacing
+ *    back every time and the other round waited for its whole local phase
+ *    (95 s instead of 35 with three 30 s commands);
  *  - a full 2-minute window whose lowest reading is over the floor.
  * The command's deadline is not running during the wait: it is armed at spawn.
  *
@@ -65,11 +71,13 @@ const MEMORY_POLL_MS = 5_000;
 /** One release per window across rounds: the herd of 15/09 (four commands on one poll) cannot recur. */
 export const RELEASE_SPACING_MS = 120_000;
 
-export type WaitReason = "swap" | "measuring" | "room" | "spacing";
+export type WaitReason = "swap" | "measuring" | "room" | "spacing" | "turn";
 
 type Release = { round: symbol; name: string; at: number; running: boolean };
 /** The last command released by any round: the spacing reads it. */
 let lastRelease: Release | null = null;
+/** Rounds waiting right now, with the moment their current wait began: the turn reads it. */
+const waitingSince = new Map<symbol, number>();
 
 export function releaseDecision(i: {
   held: HeldMemory;
@@ -77,6 +85,8 @@ export function releaseDecision(i: {
   floorGB: number;
   /** The last release, when it belongs to ANOTHER round. */
   otherRoundRelease: { at: number; running: boolean } | null;
+  /** Another round has been waiting since before this wait began. */
+  olderWaiter?: boolean;
   now: number;
   spentMs: number;
   maxWaitMs: number;
@@ -87,7 +97,7 @@ export function releaseDecision(i: {
     return { release: false, wait: "spacing", anyway: false };
   }
   const room: WaitReason | null = i.held.heldGB == null ? "measuring" : i.held.heldGB < i.floorGB ? "room" : null;
-  if (!room) return { release: true, wait: null, anyway: false };
+  if (!room) return i.olderWaiter ? { release: false, wait: "turn", anyway: false } : { release: true, wait: null, anyway: false };
   if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
   return { release: false, wait: room, anyway: false };
 }
@@ -99,6 +109,8 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
       return `[review-checks] "${name}" waits: the Mac is in sustained swap (swapins ${gb(swap.pagesReadBackPerS)}/s, memory debt +${gb(swap.debtGBPerMin)} GB/min)`;
     case "spacing":
       return `[review-checks] "${name}" waits: "${lastRelease?.name ?? "?"}" of another delivery started ${Math.round((now - (lastRelease?.at ?? now)) / 1000)} s ago, one release per 2 min`;
+    case "turn":
+      return `[review-checks] "${name}" waits: another delivery has been waiting longer, it starts first`;
     case "measuring":
       return `[review-checks] "${name}" waits: free memory measured for ${Math.round(held.coveredMs / 1000)} s of the 120 s window`;
     case "room":
@@ -125,28 +137,34 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
   return async (name) => {
     const from = now();
     let said: WaitReason | null = null;
-    for (;;) {
-      const t = now();
-      const held = read(floor.held, unmeasured);
-      const swap = read(floor.swap, calm);
-      const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
-      const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, now: t, spentMs: spentMs + (t - from), maxWaitMs });
-      // A round being stopped starts nothing, so it holds no release either.
-      if (signal?.aborted || stopping) return () => {};
-      if (d.release) {
-        const waited = t - from;
-        spentMs += waited;
-        if (d.anyway) console.warn(`[review-checks] no room after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway, swap not sustained`);
-        else if (said) console.warn(`[review-checks] "${name}" starts after ${Math.round(waited / 1000)} s`);
-        const mine: Release = { round, name, at: t, running: true };
-        lastRelease = mine;
-        return () => { mine.running = false; };
+    waitingSince.set(round, from);
+    try {
+      for (;;) {
+        const t = now();
+        const held = read(floor.held, unmeasured);
+        const swap = read(floor.swap, calm);
+        const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
+        const olderWaiter = [...waitingSince].some(([r, since]) => r !== round && since < from);
+        const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, olderWaiter, now: t, spentMs: spentMs + (t - from), maxWaitMs });
+        // A round being stopped starts nothing, so it holds no release either.
+        if (signal?.aborted || stopping) return () => {};
+        if (d.release) {
+          const waited = t - from;
+          spentMs += waited;
+          if (d.anyway) console.warn(`[review-checks] no room after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway, swap not sustained`);
+          else if (said) console.warn(`[review-checks] "${name}" starts after ${Math.round(waited / 1000)} s`);
+          const mine: Release = { round, name, at: t, running: true };
+          lastRelease = mine;
+          return () => { mine.running = false; };
+        }
+        if (d.wait !== said) {
+          said = d.wait;
+          console.warn(waitLine(name, d.wait!, held, swap, floor.floorGB, t));
+        }
+        await sleep(pollMs);
       }
-      if (d.wait !== said) {
-        said = d.wait;
-        console.warn(waitLine(name, d.wait!, held, swap, floor.floorGB, t));
-      }
-      await sleep(pollMs);
+    } finally {
+      waitingSince.delete(round);
     }
   };
 }
@@ -154,6 +172,7 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
 /** Test seam: the spacing is process-wide, a test file is not. */
 export function _resetReleaseSpacing(): void {
   lastRelease = null;
+  waitingSince.clear();
 }
 
 /**
