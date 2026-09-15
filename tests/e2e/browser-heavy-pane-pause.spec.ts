@@ -95,6 +95,10 @@ test.describe("heavy native browser pane", () => {
 
     // The pane is the focused one: its own tab clicked, whatever the baseline focused.
     await page.locator(`[data-pane-id="${paneId}"]`).getByTestId("pane-tab-label").click();
+    // On a tab that was already active that click is also a door of the tab sheet.
+    // Left open, the dots pressed later would CLOSE it (a door toggles) instead of opening it.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0, { timeout: 10_000 });
     const glyph = page.locator(`[data-pane-id="${paneId}"] [data-testid="browser-tab-type-icon"]`);
     await page.clock.runFor(25_000);
     await expect(glyph).toHaveAttribute("data-kind", "heavy", { timeout: 10_000 });

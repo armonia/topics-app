@@ -264,11 +264,16 @@ mod tests {
     }
 
     /// The Windows twin of `webview_cpu_comes_from_the_sample`: one read of a busy
-    /// child per sample gives a real share of a core, not the gap between two
-    /// syscalls.
+    /// child per sample gives the share of a core the child really used over the
+    /// window, not the gap between two syscalls.
+    ///
+    /// The reference is the child's own CPU time read independently around the two
+    /// samples, so the bar follows whatever share a shared CI VM grants the loop.
+    /// CI run 34996028402 read 12.5% for a `powershell` child sampled right after
+    /// spawn: four 15.6 ms ticks, a process still starting .NET rather than looping.
     #[cfg(target_os = "windows")]
     #[test]
-    fn a_busy_process_reads_a_real_share_of_a_core() {
+    fn a_busy_process_reads_the_cpu_time_it_used_over_the_window() {
         struct BusyChild(std::process::Child);
         impl Drop for BusyChild {
             fn drop(&mut self) {
@@ -277,19 +282,37 @@ mod tests {
             }
         }
         let child = BusyChild(
-            std::process::Command::new("powershell")
-                .args(["-NoProfile", "-Command", "while ($true) {}"])
+            std::process::Command::new("cmd")
+                .args(["/d", "/c", "for /l %i in (0,0,1) do @rem"])
                 .spawn()
                 .expect("spawn a busy child"),
         );
         let pid = child.0.id();
+        let cpu_of = |pid: u32| super::imp::read_process(pid).expect("the child is readable").0;
+
+        // In the loop before measuring: 50 ms of CPU already spent.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while cpu_of(pid) < 50_000_000 {
+            assert!(Instant::now() < deadline, "the busy child never started spending CPU");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
         let pids: std::collections::HashSet<u32> = [pid].into_iter().collect();
+        let (outer_cpu0, outer_t0) = (cpu_of(pid), Instant::now());
         let first = super::imp::sample(&pids);
         assert_eq!(first.get(&pid).and_then(|r| r.0), None, "a first read has no window");
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(1_000));
         let second = super::imp::sample(&pids);
+        let (outer_cpu1, outer_t1) = (cpu_of(pid), Instant::now());
         let pct = second.get(&pid).and_then(|r| r.0).expect("the second read has a delta");
-        assert!(pct >= 20.0, "a busy loop over 500 ms reads {pct}% of a core");
+        let reference = cpu_delta_percent(Some((outer_cpu0, outer_t0)), outer_cpu1, outer_t1).unwrap();
+
+        // The CPU clock advances in 15.6 ms ticks: four of them over one second.
+        assert!(reference >= 10.0, "the child got {reference}% of a core: nothing to compare against");
+        assert!(
+            (pct - reference).abs() <= 7.0,
+            "sample read {pct}% of a core, the child's own CPU time says {reference}%"
+        );
         drop(child);
     }
 }
