@@ -19,14 +19,14 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 import { freezableRuns } from "../services/budget-governor";
-import { _resetReviewChecksStop, _resetSwapBrake, createSwapBrake, stopReviewChecks } from "../services/review-checks-brakes";
-import { killProcessTree } from "../lib/process-tree";
+import { _resetReviewChecksStop, _resetSwapBrake, createSwapBrake, killCheckTree, stopReviewChecks } from "../services/review-checks-brakes";
+import { getDescendantPids } from "../lib/process-tree";
 import { callUpdateTask } from "../mcp/topics-mcp-server";
 
 describe("a server shutdown during the pre-review checks of a delivery", () => {
@@ -133,8 +133,11 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
     const leg = d.deliver();
     await until(() => freezableRuns().some((r) => r.taskId === d.id), "the check tree is running");
     const run = freezableRuns().find((r) => r.taskId === d.id)!;
+    // The first run has marked itself and forked its sleep: a brake landing
+    // before the `touch` would leave no mark, and the restarted round would sleep.
+    await until(async () => existsSync(measured) && (await getDescendantPids(run.pid, { fresh: true })).size > 1, "the first run is sleeping");
     run.treeKB = 8e9 / 1024;
-    createSwapBrake({ kill: (pid) => killProcessTree(pid), note: () => {}, log: () => {} })
+    createSwapBrake({ kill: killCheckTree, note: () => {}, log: () => {} })
       .tick({ sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 }, freezableRuns());
 
     await expectLegInFlight((await leg)!);

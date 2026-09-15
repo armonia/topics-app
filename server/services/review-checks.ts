@@ -25,14 +25,13 @@ export type { ReviewCheck, CheckRun } from "../../shared/board";
 import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
-import { memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
+import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
 import { slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { killProcessTree } from "../lib/process-tree";
 import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
 
@@ -472,7 +471,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
    */
   const killTree = () => {
     const pid = proc?.pid;
-    if (pid) void killProcessTree(pid).catch(() => { /* gia' morto */ });
+    if (pid) void killCheckTree(pid).catch(() => { /* gia' morto */ });
   };
   const onAbort = () => { killTree(); };
   try {
@@ -481,6 +480,9 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     // the person using this machine. See server/lib/low-priority.ts.
     proc = Bun.spawn(lowPriorityArgv(["/bin/sh", "-lc", check.cmd]), {
       cwd: opts.cwd,
+      // Its own process group, so a kill reaches what the shell forks after
+      // the descendants snapshot (`killCheckTree`).
+      detached: true,
       stdout: "pipe",
       // stderr NELLO stesso flusso di stdout: il messaggio di un compilatore sta
       // di là, l'ordine fra i due conta, e due code separate lo perdono.

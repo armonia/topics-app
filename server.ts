@@ -88,7 +88,7 @@ import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { createSwapBrake, stopReviewChecks } from "./server/services/review-checks-brakes";
+import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
 import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
@@ -4875,7 +4875,7 @@ setActiveBudgetGovernor(budgetGovernor);
 taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
 /** Under sustained swap the youngest heavy check round is interrupted, never red, and restarts by itself. */
 const swapBrake = createSwapBrake({
-  kill: killProcessTree,
+  kill: killCheckTree,
   note: (taskId, text) => {
     try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
     catch { /* a note that cannot be written must not stop the brake */ }

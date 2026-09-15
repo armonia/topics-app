@@ -20,6 +20,7 @@ import {
   _resetSwapBrake,
   createSwapBrake,
   forgetDelivery,
+  killCheckTree,
   memoryWaiter,
   releaseDecision,
   stopReviewChecks,
@@ -28,7 +29,6 @@ import {
 } from "./review-checks-brakes";
 import { heldMemory, type HeldMemory, type MemSample, type SwapVerdict } from "./mem-signal";
 import { _resetCardMemPeaks, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
-import { killProcessTree } from "../lib/process-tree";
 
 const CALM: SwapVerdict = { sustained: false, pagesReadBackPerS: 1, debtGBPerMin: 0, coveredMs: 60_000 };
 const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 };
@@ -126,19 +126,23 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
 
   test("a server shutdown kills the running tree, starts nothing after it, and records no verdict", async () => {
     const marker = join(cwd, "ran-after-shutdown");
+    const started = join(cwd, "shutdown-probe-started");
     const round = runReviewChecks(
       // 120 s, three times the widest window below (10 s x the slack cap of 4):
       // a round that waited for the command instead of killing it cannot pass.
-      [{ name: "lungo", cmd: "sleep 120" }, { name: "dopo", cmd: `touch ${marker}` }],
+      // The `( &)` grandchild is reparented to pid 1 before any snapshot of the
+      // descendants, and holds the round's pipe: only the process group reaches it.
+      [{ name: "lungo", cmd: `(sleep 120 &); touch ${started}; sleep 120` }, { name: "dopo", cmd: `touch ${marker}` }],
       { cwd, taskId: "shutdown-probe", timeoutMs: 300_000 },
     );
     const outcome = round.then(() => "resolved", (e: unknown) => e);
     let run = freezableRuns().find((r) => r.taskId === "shutdown-probe");
-    for (let i = 0; !run && i < 200; i++) {
+    for (let i = 0; !(run && existsSync(started)) && i < 400; i++) {
       await Bun.sleep(25);
       run = freezableRuns().find((r) => r.taskId === "shutdown-probe");
     }
     expect(run).toBeDefined();
+    expect(existsSync(started)).toBe(true);
     const stoppedAt = Date.now();
     try {
       expect(await stopReviewChecks()).toBe(1);
@@ -150,6 +154,19 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     expect(Date.now() - stoppedAt).toBeLessThan(stretched(10_000));
     expect(() => process.kill(run!.pid, 0)).toThrow();
     expect(existsSync(marker)).toBe(false);
+  }, 150_000);
+
+  test("a timed-out command takes the grandchild its shell orphaned with it, and the round returns", async () => {
+    const started = join(cwd, "timeout-probe-started");
+    const at = Date.now();
+    const runs = await runReviewChecks(
+      [{ name: "orfano", cmd: `(sleep 120 &); touch ${started}; sleep 120` }],
+      { cwd, timeoutMs: stretched(1500) },
+    );
+    expect(existsSync(started)).toBe(true);
+    expect(runs[0].timedOut).toBe(true);
+    // Not held by the orphan's pipe until its 120 s end.
+    expect(Date.now() - at).toBeLessThan(stretched(10_000));
   }, 150_000);
 
   test("the shutdown, the route and the governor are wired: gracefulShutdown stops the checks after the thaw, the route passes the floor, the governor reads the CPU only", () => {
@@ -176,6 +193,8 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     const beat = server.slice(server.indexOf("const dispatchTimer = setInterval("));
     expect(beat.indexOf("memSignal.sample()")).toBeGreaterThan(-1);
     expect(beat.indexOf("swapBrake.tick(memSignal.swap(), freezableRuns())")).toBeGreaterThan(beat.indexOf("memSignal.sample()"));
+    // The brake kills a check the way the round's own kill does: with its process group.
+    expect(server).toMatch(/createSwapBrake\(\{\s*kill:\s*killCheckTree,/);
     const route = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
     expect(route).toContain("memoryFloor: opts?.checksMemoryFloor,");
   });
@@ -427,7 +446,7 @@ describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery,
       expect(typeof run!.roundStartedAt).toBe("number");
       run!.treeKB = 8 * GB;
       const logs: string[] = [];
-      createSwapBrake({ kill: (pid) => killProcessTree(pid), note: () => {}, log: (l) => logs.push(l) }).tick(SUSTAINED, [run!]);
+      createSwapBrake({ kill: killCheckTree, note: () => {}, log: (l) => logs.push(l) }).tick(SUSTAINED, [run!]);
       const killedAt = Date.now();
       const err = await outcome;
       expect(err).toBeInstanceOf(ChecksInterruptedError);

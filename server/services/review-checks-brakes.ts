@@ -187,9 +187,14 @@ export function reviewChecksStopping(): boolean {
   return stopping;
 }
 
+/** A check command is spawned `detached` (review-checks.ts `runOne`): its kill
+ *  signals the process group too, which holds what the shell forked after the
+ *  descendants snapshot or reparented to pid 1 before it. */
+export const killCheckTree = (pid: number): Promise<void> => killProcessTree(pid, undefined, { group: true });
+
 /** Kills every running check tree and stops the rounds from starting another
  *  command. Resolves once the SIGTERMs are sent; returns how many trees. */
-export async function stopReviewChecks(kill: (pid: number) => Promise<void> = killProcessTree): Promise<number> {
+export async function stopReviewChecks(kill: (pid: number) => Promise<void> = killCheckTree): Promise<number> {
   stopping = true;
   const live = freezableRuns();
   await Promise.all(live.map((run) => kill(run.pid).catch(() => { /* already gone */ })));
