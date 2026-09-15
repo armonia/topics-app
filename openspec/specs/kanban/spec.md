@@ -3580,8 +3580,13 @@ l'interruttore: `resume` rivaluta la sua attesa a ogni giro anche a dispatch
 spento, e riparte appena il blocco rientra.
 
 Quella scrittura SHALL avvenire solo quando l'attesa CAMBIA: un altro tipo di
-blocco o altre parole, a numeri esclusi. La stessa attesa con un'altra lettura
-SHALL rinfrescare riga e chip al massimo una volta ogni 60 secondi. Il 15/09 ogni
+blocco, oppure altre parole a numeri esclusi. Per il pavimento della macchina le
+parole non contano, conta la risorsa (Memoria, Disco): un episodio di memoria
+passa per tre frasi («sotto il pavimento», «tenuti per chi parte», «in
+risalita»), e con l'isteresi il compositore passa dall'una all'altra proprio a
+6,0 GB, dove oscillavano le letture del 15/09. La stessa attesa con un'altra
+lettura o un'altra di quelle frasi SHALL rinfrescare riga e chip al massimo una
+volta ogni 60 secondi. Il 15/09 ogni
 ritentativo (ogni 5-6,75 s) riscriveva `dispatch_error` con i GB del momento
 (5,7, 5,9, 6,0), toccava `updated_at` e mandava `task:updated` a ogni client:
 sette card ferme facevano circa 70 frame al minuto, e ognuno rifaceva l'albero
@@ -3740,10 +3745,10 @@ check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
 - **AND** il chip «Fermane N» non compare in «a budget»
 
 #### Scenario: un resume trattenuto non riscrive la card a ogni lettura
-- **GIVEN** sette card In corso trattenute dal pavimento, con una lettura di memoria diversa a ogni ritentativo
+- **GIVEN** sette card In corso trattenute dal pavimento del runtime nativo, con letture di memoria che attraversano i 6,0 GB (5,7, 5,9, 6,0, 5,8, 6,1) e quindi frasi che passano da «sotto il pavimento» a «in risalita»
 - **WHEN** ritentano ogni 6 secondi per due minuti
-- **THEN** ogni card riceve al massimo due `task:updated` (l'attesa e il rinfresco dei numeri dopo un minuto) e resta `queued` con il motivo `resource_floor`
-- **AND** un cambio di tipo (pavimento, spesa delle 24 ore) o di parole («sotto il pavimento», «in risalita») arriva al ritentativo successivo
+- **THEN** ogni card riceve al massimo due `task:updated` (l'attesa e il rinfresco dopo un minuto) e resta `queued` con il motivo `resource_floor`
+- **AND** un cambio di tipo (pavimento, spesa delle 24 ore) o di risorsa (Memoria, Disco) arriva al ritentativo successivo, mentre il passaggio fra le frasi dello stesso episodio di memoria arriva col rinfresco
 
 #### Scenario: la misura non presa non blocca niente
 - **GIVEN** una macchina dove la sonda non risponde

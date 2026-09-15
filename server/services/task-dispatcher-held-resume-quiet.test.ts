@@ -6,14 +6,17 @@
  * reading of that instant, touched `updated_at` and broadcast `task:updated`.
  * Seven held cards made about 70 frames a minute to every client.
  *
- * The real service and dispatcher, a fake floor whose reading moves at every
- * retry. The retries are driven by hand at the cadence the timer keeps, with the
- * system clock moved between them, so two minutes take milliseconds.
- *  1. Seven cards held for two minutes: at most two frames and two row writes
- *     per card, and the card still reads the kind of its hold.
- *  2. A change of kind (floor, then the 24h spend, then the floor again) and a
- *     change of the words (under the floor, then climbing back) are written at
- *     the very next retry.
+ * The real service, dispatcher and floor composer (`dispatchResourceBlock`, the
+ * native runtime's floor of 6 GB, with its hysteresis): only the memory and disk
+ * readings are injected. The retries are driven by hand at the cadence the timer
+ * keeps, with the system clock moved between them, so two minutes take
+ * milliseconds.
+ *  1. Seven cards held for two minutes by readings that cross 6.0 GB, where the
+ *     composer swings between "under the floor" and "climbing back": at most two
+ *     frames and two row writes per card, and the card still reads the kind.
+ *  2. A change of kind (floor, then the 24h spend, then the floor again) or of
+ *     resource (memory, then disk) is written at the very next retry; the swing
+ *     between the sentences of one memory episode waits for the minute refresh.
  * @covers KANBAN-75
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
@@ -24,6 +27,7 @@ import type { TurnEndInfo } from "../providers/stop-reason";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
+import { dispatchResourceBlock } from "./dispatch-capacity";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -69,14 +73,12 @@ function freshDb(): Database {
 
 const PID = "alpha-abc123";
 
-/** The floor's sentence as the 15/09 cards carried it, with the reading of the moment. */
-const under = (gb: number) =>
-  `Memoria quasi finita: ${gb.toFixed(1)} GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.`;   // allow-italian: the sentence shown on the card
-const climbing = (gb: number) =>
-  `Memoria in risalita: ${gb.toFixed(1)} GB disponibili, sopra il pavimento di 6 GB ma senza posto per un agente in più.`;   // allow-italian: the sentence shown on the card
-
-/** The same readings the rows showed that morning, cycled so no two retries in a row agree. */
-const READINGS = [5.7, 5.9, 6.0, 5.8];
+/**
+ * The readings the rows showed that morning (5.7, 5.9, 6.0, 5.8), plus the swing
+ * of a tenth around 6.0 the production DB also shows: under 6 the composer
+ * writes "under the floor", from 6.0 up, while holding, "climbing back".
+ */
+const READINGS = [5.7, 5.9, 6.0, 5.8, 6.1, 5.9];
 
 const dispatchers: { shutdown(): void }[] = [];
 afterEach(() => {
@@ -88,7 +90,8 @@ function harness() {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const frames: string[] = [];
-  const floor = { next: (): string | null => null };
+  /** The injected probes; `null` memory = no reading, the composer holds nothing. */
+  const floor = { memGB: null as number | null, diskGB: 100 };
   const deps: DispatcherDeps = {
     svc,
     attempts: createTaskAttemptStore(db),
@@ -104,7 +107,7 @@ function harness() {
     graceMs: 0,
     retryBackoffMs: 0,
     log: () => {},
-    resourceBlock: () => floor.next(),
+    resourceBlock: (hold) => dispatchResourceBlock("/", () => floor.diskGB, () => floor.memGB, false, hold),
   };
   const dispatcher = createTaskDispatcher(deps);
   dispatchers.push(dispatcher);
@@ -131,7 +134,6 @@ describe("a held resume writes its chip when the hold changes, not at every retr
   it("seven cards held by a moving memory reading for two minutes: at most two frames and two writes per card", async () => {
     const h = harness();
     let read = 0;
-    h.floor.next = () => under(READINGS[read++ % READINGS.length]!);
     const ids = Array.from({ length: 7 }, (_, i) => `held-${i}`);
     for (const id of ids) heldCard(h.db, id);
 
@@ -141,18 +143,25 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     for (let retry = 0; retry < 20; retry++) {
       setSystemTime(new Date(t0 + retry * 6_000));
       for (const id of ids) {
+        h.floor.memGB = READINGS[read++ % READINGS.length]!;
         await h.dispatcher.resume(id, retry === 0 ? "continua" : "");
         updatedAt.get(id)!.add(h.task(id).updatedAt);
       }
     }
 
+    // The swing is really there: the composer wrote both sentences on these readings.
+    const sentences = new Set<string>();
+    for (const gb of READINGS) {
+      sentences.add(dispatchResourceBlock("/", () => 100, () => gb, false, { cardGB: 4, startingCards: 0, holding: true })!.split(":")[0]!);
+    }
+    expect([...sentences].sort()).toEqual(["Memoria in risalita", "Memoria quasi finita"]);
     for (const id of ids) {
       // Two, not one: the first hold, and the refresh of its numbers a minute later.
       expect(h.framesOf(id)).toBe(2);
       expect(updatedAt.get(id)!.size).toBeLessThanOrEqual(2);
       // Quiet, not blind: still queued, and the card still reads the floor.
       expect(h.task(id).dispatchState).toBe("queued");
-      expect(h.task(id).dispatchError).toContain("sotto il pavimento di 6 GB");
+      expect(h.task(id).dispatchError).toStartWith("Memoria ");
       expect(h.task(id).queueReason).toMatchObject({ kind: "resource_floor" });
     }
     // Nothing started while the floor held.
@@ -161,44 +170,55 @@ describe("a held resume writes its chip when the hold changes, not at every retr
 
   it("a change of kind or of words is written at the next retry, and the card reads the new kind", async () => {
     const h = harness();
-    let gb = 5.7;
-    h.floor.next = () => under(gb);
+    h.floor.memGB = 5.7;
     heldCard(h.db, "switch");
     const t0 = Date.now();
     let at = 0;
-    const retry = async () => {
-      setSystemTime(new Date(t0 + (at += 6_000)));
+    const retry = async (stepMs = 6_000) => {
+      setSystemTime(new Date(t0 + (at += stepMs)));
       await h.dispatcher.resume("switch", "");
     };
 
     await h.dispatcher.resume("switch", "continua");
     expect(h.framesOf("switch")).toBe(1);
-    gb = 5.9;
+    expect(h.task("switch").dispatchError).toStartWith("Memoria quasi finita: 5.7 GB");
+    h.floor.memGB = 5.9;
     await retry();
     expect(h.framesOf("switch")).toBe(1);
 
-    // The words change inside the same kind: climbing back is another sentence.
-    h.floor.next = () => climbing(6.4);
+    // Climbing back is another sentence of the SAME episode: no frame now...
+    h.floor.memGB = 6.4;
     await retry();
+    expect(h.framesOf("switch")).toBe(1);
+    // ...and the minute refresh brings the sentence of now.
+    await retry(60_000);
     expect(h.framesOf("switch")).toBe(2);
     expect(h.task("switch").dispatchError).toStartWith("Memoria in risalita: 6.4 GB");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
 
+    // Another resource inside the same kind: the disk fills, written at once.
+    h.floor.diskGB = 5;
+    await retry();
+    expect(h.framesOf("switch")).toBe(3);
+    expect(h.task("switch").dispatchError).toStartWith("Disco quasi pieno: 5.0 GB");
+    expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
+    h.floor.diskGB = 100;
+
     // The floor clears and the 24h spend holds it: another kind, written at once.
-    h.floor.next = () => null;
+    h.floor.memGB = null;
     const spend = h.svc as unknown as { getSpendCaps: () => object; agentSpend: () => object };
     spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 1_000 });
     spend.agentSpend = () => ({ cents24h: 1_200, centsTotal: 1_200, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 });
     await retry();
-    expect(h.framesOf("switch")).toBe(3);
+    expect(h.framesOf("switch")).toBe(4);
     expect(h.task("switch").dispatchError).toStartWith("Tetto di spesa giornaliero raggiunto");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "spend_cap" });
 
     // And back to the floor: written at once again, with the reading of now.
     spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 0 });
-    h.floor.next = () => under(5.2);
+    h.floor.memGB = 5.2;
     await retry();
-    expect(h.framesOf("switch")).toBe(4);
+    expect(h.framesOf("switch")).toBe(5);
     expect(h.task("switch").dispatchError).toContain("5.2 GB disponibili");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
   });

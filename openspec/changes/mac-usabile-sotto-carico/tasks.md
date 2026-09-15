@@ -5,8 +5,8 @@ verifica avversaria e CI verde prima del merge. I test pesanti (suite unit,
 e2e, typecheck completo) girano in CI o sul PC, mai sul Mac mentre è in swap.
 
 ## Tornata 1: coda senza tempesta
-- [x] Un resume trattenuto riscrive `dispatch_state`/`dispatch_error` e trasmette `task:updated` solo quando il motivo cambia (tipo di blocco o testo a numeri esclusi), con un rinfresco al massimo ogni 60 s dei numeri
-- [x] Test: 7 card trattenute per 2 minuti di retry producono al massimo 2 frame per card, e un cambio di tipo di blocco arriva subito
+- [x] Un resume trattenuto riscrive `dispatch_state`/`dispatch_error` e trasmette `task:updated` solo quando il motivo cambia (tipo di blocco, testo a numeri esclusi, e per il pavimento la sola risorsa Memoria/Disco), con un rinfresco al massimo ogni 60 s dei numeri
+- [x] Test: 7 card trattenute per 2 minuti di retry con il compositore vero e letture a cavallo di 6,0 GB producono al massimo 2 frame per card, e un cambio di tipo di blocco o di risorsa arriva subito
 
 ## Tornata 2: e2e degli agenti in CI
 - [ ] Envelope (`buildKickoff`, `CODE_GATES_RULE`) e `docs/board-protocol.md`: niente `check:e2e-touched`, `playwright test` o build del client per gli e2e sul Mac; l'agente scrive lo spec e la prova arriva dalla CI

@@ -719,9 +719,23 @@ const RESUME_SLOT_RETRY_MS = 5_000;
  */
 const HELD_RESUME_REFRESH_MS = 60_000;
 
-/** The hold's sentence with its figures blanked: "5.9 GB" and "6.0 GB" say the same thing. */
-function holdGist(reason: string | null | undefined): string | null {
-  return reason == null ? null : reason.replace(/\d+(?:[.,]\d+)*/g, "#");
+/**
+ * Which WAIT a held resume's sentence describes: two sentences with the same key
+ * are the same wait, and the second one is only a refresh.
+ *
+ * Figures never count: "5.9 GB" and "6.0 GB" say the same thing. And for the
+ * machine floor (`resources`) the words do not count either, only the RESOURCE,
+ * the first word ("Memoria", "Disco"), the same key `admissionBlock` logs by. One
+ * memory episode goes through three sentences (under the floor, reserved for
+ * the agents starting, climbing back towards the restart line), and with the
+ * hysteresis holding the composer turns "under" into "climbing" exactly at the
+ * floor: on the 15/09 readings (5.7, 5.9, 6.0, 5.8) a key on the words still
+ * rewrote the card about every other retry.
+ */
+function holdKey(kind: DispatchBlockKind | null, reason: string | null): string {
+  if (reason == null) return `${kind}:`;
+  if (kind === "resources") return `${kind}:${reason.split(/[\s:]/)[0]}`;
+  return `${kind}:${reason.replace(/\d+(?:[.,]\d+)*/g, "#")}`;
 }
 
 /**
@@ -981,8 +995,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
   const waitingForSlot = new Set<string>();
-  /** When each held resume last wrote its chip (clock ms): see `HELD_RESUME_REFRESH_MS`. */
-  const heldWrittenAt = new Map<string, number>();
+  /** What each held resume last wrote on its chip, and when (clock ms): see `HELD_RESUME_REFRESH_MS`. */
+  const heldWritten = new Map<string, { at: number; key: string; reason: string | null }>();
   /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
   let boardCursor = 0;
   let resumeStagger = 0;
@@ -1491,7 +1505,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds?.[0]);
     }
     waitingForSlot.delete(taskId);
-    heldWrittenAt.delete(taskId);
+    heldWritten.delete(taskId);
   }
 
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
@@ -3796,25 +3810,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // card already reads it (`heldResumeBlock`): the card says the block that
       // holds THIS resume, never the one the tick published last.
       //
-      // ONLY WHEN THE HOLD CHANGED, or its numbers are a minute old. The row we
-      // compare against is the one this call just read (`t`), so a chip written
-      // by anyone else (a start, a park) is never mistaken for ours. No separate
-      // kind comparison: every kind composes its own sentence (floor, spend,
-      // pressure, drain, the cap alone writes none), so equal words mean equal
-      // kind, and a floor that swings from "under" to "climbing" is new words.
+      // ONLY WHEN THE WAIT CHANGED, or its numbers are a minute old. "Changed" is
+      // another kind, or for the same kind another `holdKey`: other words for
+      // spend, pressure and the drain, another resource for the floor, whose
+      // three sentences of one memory episode are one wait (see `holdKey`). The
+      // row must still carry the very sentence we wrote last, so a chip written
+      // by anyone else (a start, a park) is never mistaken for ours.
       // When the write is skipped the kind entry is left alone too, because
       // `heldResumeBlock` believes it only while it matches the sentence the row
       // still carries; refreshing it alone would blank the card's reason.
       const kind = hold?.kind ?? null;
-      const lastWrite = heldWrittenAt.get(taskId);
-      const sameHold = lastWrite != null
-        && clock() - lastWrite < HELD_RESUME_REFRESH_MS
+      const key = holdKey(kind, floorBlock);
+      const last = heldWritten.get(taskId);
+      const sameHold = last != null
+        && clock() - last.at < HELD_RESUME_REFRESH_MS
         && t.dispatchState === CHIP_QUEUED
-        && holdGist(t.dispatchError) === holdGist(floorBlock);
+        && (t.dispatchError ?? null) === last.reason
+        && last.key === key;
       if (!sameHold) {
         setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
         try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
-        heldWrittenAt.set(taskId, clock());
+        heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
       }
       if (!rampWait && !waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
@@ -5328,7 +5344,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
     waitingForSlot.clear();
-    heldWrittenAt.clear();
+    heldWritten.clear();
     spendHeldNoted.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
