@@ -118,7 +118,10 @@ test.describe("heavy native browser pane", () => {
     await page.clock.runFor(3_000);
     await page.clock.runFor(1_000);
     await expect(page.getByTestId("browser-paused")).toBeVisible({ timeout: 10_000 });
-    await page.locator(`[data-pane-id="${paneId}"]`).getByTestId("browser-tab-menu").click();
+    // The dots are `opacity-0` until the tab is hovered: the label takes the click otherwise.
+    const tab = page.locator(`[data-pane-id="${paneId}"]`);
+    await tab.hover();
+    await tab.getByTestId("browser-tab-menu").click();
     await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0, { timeout: 10_000 });
