@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
-import { TerminalInputQueue } from './inputQueue';
+import { TerminalInputQueue, nextInputBands } from './inputQueue';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
@@ -262,6 +262,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const attachedRef = useRef(false);
   const [inputHeld, setInputHeld] = useState(false);
   const inputHeldRef = useRef(false);
+  // The loss has its OWN band, and deliberately not the "not connected" one
+  // above: that band is about a dead bridge and it leaves at the first byte of
+  // output, which here is exactly the wrong moment. What was typed is gone for
+  // good, the terminal is alive again and about to print a prompt, so a notice
+  // that disappears on that prompt is a notice nobody reads. This one stays
+  // until the next keystroke proves the reader is back.
+  const [inputLost, setInputLost] = useState(false);
+  const inputLostRef = useRef(false);
   const heldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputQueueRef = useRef<TerminalInputQueue | null>(null);
 
@@ -526,16 +534,22 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       socket: () => termRef.current?.ws,
       attached: () => attachedRef.current,
       onStateChange: (state) => {
-        if (state.discarded) {
-          // What was typed is gone: reuse the band that already says exactly
-          // that, and take the flag down so the next loss can raise it again.
-          inputQueue.acknowledgeDiscarded();
-          setInputDropped(true);
+        // Which band to show is decided by `nextInputBands`, a pure function
+        // with its own tests: this callback only applies the answer.
+        const next = nextInputBands(state, {
+          held: inputHeldRef.current,
+          lost: inputLostRef.current,
+        });
+        // Take the flag down so the NEXT loss can raise the band again; the
+        // band itself stays up on its own state until the reader types.
+        if (state.discarded) inputQueue.acknowledgeDiscarded();
+        if (next.held !== inputHeldRef.current) {
+          inputHeldRef.current = next.held;
+          setInputHeld(next.held);
         }
-        // Typing proves the reader is there: no need to wait out the grace.
-        if (state.pendingBytes > 0 && !inputHeldRef.current) {
-          inputHeldRef.current = true;
-          setInputHeld(true);
+        if (next.lost !== inputLostRef.current) {
+          inputLostRef.current = next.lost;
+          setInputLost(next.lost);
         }
       },
     });
@@ -767,7 +781,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const initialWs = connectWs();
 
     term.onData((data) => {
-      inputQueue.send(data);
+      // A key that actually reaches the PTY is the proof the loss is over:
+      // that, and not a byte of output, is what takes the band down.
+      if (inputQueue.send(data) === 'sent' && inputLostRef.current) {
+        inputLostRef.current = false;
+        setInputLost(false);
+      }
     });
 
     term.onResize(({ cols, rows }) => {
@@ -797,6 +816,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       attachedRef.current = false;
       if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
       inputHeldRef.current = false;
+      inputLostRef.current = false;
       if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
       reconnectRef.current = null;
       detachTouchScroll();
@@ -1037,7 +1057,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // The virtual keyboard goes through the same door as the physical one: a
   // Ctrl+C tapped while the pane is reattaching used to vanish too.
   const sendToTerminal = (data: string) => {
-    inputQueueRef.current?.send(data);
+    if (inputQueueRef.current?.send(data) === 'sent' && inputLostRef.current) {
+      inputLostRef.current = false;
+      setInputLost(false);
+    }
   };
 
   return (
@@ -1264,7 +1287,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             opposite, so the pane has to say it in words: what you type is held
             and will be delivered, not echoed. It leaves on its own at
             `replay-end`, and it never shows on a normal fast attach. */}
-        {inputHeld && !inputDropped && !stale && (
+        {inputHeld && !inputDropped && !inputLost && !stale && (
           <div
             data-testid="terminal-input-held"
             className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-sky-600 text-white text-mini font-medium"
@@ -1273,7 +1296,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             <span>{t('terminal.inputHeld')}</span>
           </div>
         )}
-        {inputDropped && !stale && (
+        {inputLost && !stale && (
+          <div
+            data-testid="terminal-input-lost"
+            className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-white text-mini font-medium"
+          >
+            <AlertTriangle size={12} />
+            <span>{t('terminal.inputLost')}</span>
+          </div>
+        )}
+        {inputDropped && !inputLost && !stale && (
           <div
             data-testid="terminal-input-dropped"
             className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-white text-mini font-medium"

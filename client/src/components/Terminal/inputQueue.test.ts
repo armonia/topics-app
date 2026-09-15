@@ -3,6 +3,7 @@ import {
   TerminalInputQueue,
   TERMINAL_INPUT_QUEUE_MAX_AGE_MS,
   TERMINAL_INPUT_QUEUE_MAX_BYTES,
+  nextInputBands,
   type InputQueueState,
 } from './inputQueue';
 
@@ -22,18 +23,36 @@ function harness(opts: { maxBytes?: number; maxAgeMs?: number } = {}) {
   let readyState = 1;
   let attached = true;
   const socket = { get readyState() { return readyState; }, send: (d: string) => { sent.push(d); } };
+  // Fake timers on the same fake clock: the expiry has to be observable
+  // WITHOUT a keystroke, which is the whole point of block 3.
+  type Pending = { at: number; fn: () => void };
+  const timers = new Map<number, Pending>();
+  let nextTimerId = 1;
   const queue = new TerminalInputQueue({
     socket: () => socket,
     attached: () => attached,
     onStateChange: (s) => states.push({ ...s }),
     now: () => clock,
+    setTimer: (fn, ms) => {
+      const id = nextTimerId++;
+      timers.set(id, { at: clock + ms, fn });
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimer: (id) => { timers.delete(id as unknown as number); },
     ...opts,
   });
+  const runDueTimers = () => {
+    for (const [id, p] of [...timers]) {
+      if (p.at <= clock) { timers.delete(id); p.fn(); }
+    }
+  };
   return {
     queue,
     sent,
     states,
-    advance(ms: number) { clock += ms; },
+    /** Move the clock AND let any timer that came due actually fire. */
+    advance(ms: number) { clock += ms; runDueTimers(); },
+    pendingTimers: () => timers.size,
     /** The socket is gone and the attach with it: this is what a reload does. */
     drop() { readyState = 3; attached = false; },
     /** The socket is back but the session has not proven it is alive yet. */
@@ -76,7 +95,9 @@ describe('TerminalInputQueue', () => {
     expect(h.sent).toEqual(['x']);
   });
 
-  test('past the byte ceiling the extra input is discarded, and it says so', () => {
+  test('past the byte ceiling the whole queue goes, and it says so', () => {
+    // Not just the overflowing key: keeping the prefix and dropping the middle
+    // delivers a mutilated command line. Nothing is delivered at all.
     const h = harness({ maxBytes: 4 });
     h.drop();
     h.queue.send('abcd');
@@ -84,10 +105,12 @@ describe('TerminalInputQueue', () => {
     expect(h.queue.state.discarded).toBe(true);
     h.attach();
     h.queue.flush();
-    expect(h.sent).toEqual(['abcd']);
+    expect(h.sent).toEqual([]);
   });
 
-  test('input older than the age limit is dropped instead of delivered late', () => {
+  test('input older than the age limit takes the whole queue with it', () => {
+    // The survivor is not innocent: it is the TAIL of the line whose head just
+    // expired, and delivering it alone is how `sudo ` becomes `rm -rf build`.
     const h = harness({ maxAgeMs: 1_000 });
     h.drop();
     h.queue.send('old');
@@ -95,7 +118,7 @@ describe('TerminalInputQueue', () => {
     h.queue.send('new');
     h.attach();
     h.queue.flush();
-    expect(h.sent).toEqual(['new']);
+    expect(h.sent).toEqual([]);
     expect(h.queue.state.discarded).toBe(true);
   });
 
@@ -124,11 +147,99 @@ describe('TerminalInputQueue', () => {
     h.queue.send('b');
     expect(h.queue.state.discarded).toBe(true);
     h.queue.acknowledgeDiscarded();
-    expect(h.queue.state).toEqual({ pendingBytes: 1, discarded: false });
+    // The warning is down, the queue stays empty and poisoned: telling the
+    // reader is not the same as pretending the loss did not happen.
+    expect(h.queue.state).toEqual({ pendingBytes: 0, discarded: false });
+    expect(h.queue.send('c')).toBe('discarded');
   });
 
   test('the shipped limits are the ones the pane relies on', () => {
     expect(TERMINAL_INPUT_QUEUE_MAX_BYTES).toBe(8192);
-    expect(TERMINAL_INPUT_QUEUE_MAX_AGE_MS).toBe(10_000);
+    expect(TERMINAL_INPUT_QUEUE_MAX_AGE_MS).toBe(15_000);
+  });
+
+  // ---- The adversarial review of PR #55: the limits themselves did damage.
+
+  test('a command straddling the expiry delivers NOTHING, not its tail', () => {
+    // The one that matters: `sudo ` expires, `rm -rf build\r` survives, and an
+    // age filter that keeps the young entries hands the shell the tail alone.
+    const h = harness({ maxAgeMs: 10_000 });
+    h.drop();
+    h.queue.send('sudo ');
+    h.advance(9_000);
+    h.queue.send('rm -rf build\r');
+    h.advance(2_500);
+    h.attach();
+    expect(h.queue.flush()).toBe(0);
+    expect(h.sent).toEqual([]);
+  });
+
+  test('a discard poisons the queue: the keys after it are refused, not stitched on', () => {
+    // 8185 bytes held, 101 more discarded for the ceiling, then Enter: keeping
+    // the Enter means running whatever the hole left behind.
+    const h = harness({ maxBytes: 8192 });
+    h.drop();
+    h.queue.send('x'.repeat(8185));
+    expect(h.queue.send('y'.repeat(101))).toBe('discarded');
+    expect(h.queue.send('\r')).toBe('discarded');
+    h.attach();
+    expect(h.queue.flush()).toBe(0);
+    expect(h.sent).toEqual([]);
+  });
+
+  test('the attach un-poisons the queue, so the next line is held normally', () => {
+    const h = harness({ maxBytes: 16 });
+    h.drop();
+    h.queue.send('x'.repeat(20));
+    h.attach();
+    h.queue.flush();
+    h.drop();
+    expect(h.queue.send('ls\r')).toBe('queued');
+    h.attach();
+    expect(h.queue.flush()).toBe(3);
+    expect(h.sent).toEqual(['ls\r']);
+  });
+
+  test('the expiry fires on its own, without a keystroke to notice it', () => {
+    // The band promised delivery for 30 s because nothing re-read the clock.
+    const h = harness({ maxAgeMs: 15_000 });
+    h.drop();
+    h.queue.send('ls\r');
+    expect(h.queue.state).toEqual({ pendingBytes: 3, discarded: false });
+    h.advance(15_001);
+    expect(h.queue.state).toEqual({ pendingBytes: 0, discarded: true });
+  });
+
+  test('nothing is left ticking once the queue is emptied', () => {
+    const h = harness();
+    h.drop();
+    h.queue.send('ls\r');
+    h.queue.clear();
+    expect(h.pendingTimers()).toBe(0);
+  });
+
+  test('the pane bands follow the queue: a loss replaces the promise of delivery', () => {
+    // This is the pane<->queue wiring. Without it nothing went red when the
+    // callback simply forgot to raise a band.
+    expect(nextInputBands({ pendingBytes: 0, discarded: false }, { held: false, lost: false }))
+      .toEqual({ held: false, lost: false });
+    expect(nextInputBands({ pendingBytes: 3, discarded: false }, { held: false, lost: false }))
+      .toEqual({ held: true, lost: false });
+    // Delivered: the promise comes down.
+    expect(nextInputBands({ pendingBytes: 0, discarded: false }, { held: true, lost: false }))
+      .toEqual({ held: false, lost: false });
+    // Lost: the promise comes down and the loss goes up, never both.
+    expect(nextInputBands({ pendingBytes: 0, discarded: true }, { held: true, lost: false }))
+      .toEqual({ held: false, lost: true });
+    // The loss survives the states that follow it: only a delivered keystroke
+    // takes it down, and that is the pane's call, not this function's.
+    expect(nextInputBands({ pendingBytes: 0, discarded: false }, { held: false, lost: true }))
+      .toEqual({ held: false, lost: true });
+  });
+
+  test('the age limit clears the measured reattach window', () => {
+    // ~11,5 s of server restart plus up to 3 s of reconnect backoff: an expiry
+    // under that would throw away input the attach was about to deliver.
+    expect(TERMINAL_INPUT_QUEUE_MAX_AGE_MS).toBeGreaterThanOrEqual(14_500);
   });
 });

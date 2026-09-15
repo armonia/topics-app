@@ -669,15 +669,32 @@ qualunque id e rifiuta solo dopo. All'aggancio SHALL svuotare la coda nell'ORDIN
 di battitura e UNA VOLTA SOLA.
 
 La coda SHALL avere due limiti, e superarli SHALL essere detto invece che
-subito: un tetto di byte (8 KB) e una scadenza (10 s), oltre i quali l'input si
+taciuto: un tetto di byte (8 KB) e una scadenza (15 s, sopra la finestra
+misurata di ~11,5 s più il backoff di riaggancio), oltre i quali l'input si
 scarta. Un comando consegnato mezzo minuto dopo, contro un prompt che chi
 scriveva non sta più guardando, è peggio di un tasto perso.
 
-Entrambe le porte SHALL passare di qui: la tastiera fisica (`term.onData`) e
-quella virtuale delle pane touch (`sendToTerminal`).
+Quando si scarta, SHALL scartare TUTTA la coda, e SHALL rifiutare quanto viene
+dopo finché non c'è un aggancio (o la pane muore). I tasti trattenuti sono una
+RIGA DI COMANDO, non eventi indipendenti: consegnare quel che sopravvive a una
+perdita parziale è peggio che non consegnare niente. Scadere i più vecchi e
+tenere i giovani consegna la CODA della riga senza la testa (`sudo ` scade,
+`rm -rf build\r` arriva, e parte); scartare per il tetto e tenere il resto
+lascia un BUCO in mezzo e consegna lo stesso l'Invio finale. Entrambi
+riprodotti sulla PR #55.
+
+Tutte e tre le porte SHALL passare di qui: la tastiera fisica (`term.onData`),
+quella virtuale delle pane touch (`sendToTerminal`) e l'incolla di un'immagine,
+che manda il suo `\x16` per la stessa strada.
 
 Finché l'aggancio non è provato la pane SHALL dirlo con un segno visibile, che
-SHALL sparire da solo a `replay-end`.
+SHALL sparire da solo a `replay-end`. La scadenza SHALL essere sorvegliata da un
+TIMER e non solo riletta al prossimo tasto: senza, una pane lasciata sola
+continua a promettere la consegna di input che è già troppo vecchio per partire.
+La perdita SHALL avere una frase PROPRIA, distinta da «il terminale non è
+connesso», e SHALL sopravvivere al primo byte di output: quando la perdita si
+scopre il terminale è vivo e sta per stampare un prompt, e un avviso che se ne
+va su quel prompt non lo legge nessuno.
 
 #### Scenario: tre tasti battuti a socket caduto
 - **GIVEN** una pane il cui socket è caduto e si sta riagganciando
@@ -695,3 +712,18 @@ SHALL sparire da solo a `replay-end`.
 - **WHEN** l'aggancio riesce
 - **THEN** l'input scaduto o eccedente NON SHALL essere consegnato
 - **AND** la pane SHALL mostrare che quello che si è scritto è andato perso
+
+#### Scenario: una riga a cavallo della scadenza non consegna la sua coda
+- **GIVEN** `sudo ` battuto e, nove secondi dopo, `rm -rf build` con l'Invio
+- **WHEN** l'aggancio riesce dopo che il primo pezzo è scaduto
+- **THEN** NON SHALL essere consegnato nulla, nemmeno il pezzo ancora giovane
+
+#### Scenario: dopo uno scarto i tasti successivi non vengono ricuciti
+- **GIVEN** una coda al tetto di byte, un pezzo scartato e poi un Invio battuto
+- **WHEN** l'aggancio riesce
+- **THEN** il flush SHALL consegnare zero byte
+
+#### Scenario: la scadenza si vede senza battere un tasto
+- **GIVEN** input in coda e nessuno che tocca la tastiera
+- **WHEN** passa la scadenza
+- **THEN** la pane NON SHALL più promettere la consegna, di sua iniziativa

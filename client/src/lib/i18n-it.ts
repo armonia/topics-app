@@ -2117,6 +2117,7 @@ const IT: Dict = {
   'terminal.err.renameFailed': 'Rinomina non riuscita: il server ha rifiutato.',
   'terminal.err.renameUnreachable': 'Rinomina non riuscita: il server non risponde.',
   'terminal.inputDropped': 'Il terminale non è connesso: quello che scrivi va perso.',
+  'terminal.inputLost': 'Quello che hai scritto durante il riaggancio era troppo vecchio per partire: riscrivilo.',
   'terminal.inputHeld': 'Riaggancio in corso: quello che scrivi è in coda e parte appena la sessione risponde.',
   // ── Le tre parole che ogni superficie riscriveva per conto suo.
   'common.close': 'Chiudi',
