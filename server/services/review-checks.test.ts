@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { readFileSync } from "fs";
-import { slotAcquiredLine } from "../../shared/slot-acquired";
+import { slotAcquiredLine, slotWaitingLine } from "../../shared/slot-acquired";
 import { gateSlowdownLine } from "../../shared/gate-slowdown";
 import { slackMs } from "../../tests/helpers/time-slack";
 import {
@@ -274,6 +274,21 @@ describe("runReviewChecks", () => {
     expect(runs[0].timedOut).toBe(false);
     expect(runs[0].ok).toBe(true);
     expect(runs[0].queuedMs).toBe(2000);
+  }, 20_000);
+
+  test("the waiting line stops the clock: a gate queued behind itself is not killed before it starts", async () => {
+    // The waiting line at once, 1.5 s of queue, the acquired line, 0.5 s of
+    // work, against a 1 s cap. Without the pause the cap (armed at spawn) kills
+    // it in the middle of the queue: 14/09, the name wait got longer than the
+    // check deadline, and the checks behind a unit suite would die unstarted.
+    const waiting = slotWaitingLine("test:unit");
+    const acquired = slotAcquiredLine("test:unit", 1500);
+    const runs = await runReviewChecks(
+      [{ name: "dietro a se stesso", cmd: `echo '${waiting}' 1>&2; sleep ${sleepFor(1500)}; echo '${acquired}' 1>&2; sleep ${sleepFor(500)}` }],
+      { cwd, timeoutMs: stretched(1000) },
+    );
+    expect(runs[0].timedOut).toBe(false);
+    expect(runs[0].ok).toBe(true);
   }, 20_000);
 
   test("a declared slowdown stretches the cap: fewer shards is a plan, not a hang", async () => {

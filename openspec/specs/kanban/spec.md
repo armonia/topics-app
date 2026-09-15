@@ -3471,6 +3471,14 @@ tutta la macchina, oltre al conteggio degli slot: tre worktree che consegnano
 insieme facevano partire tre `eslint` (1,3 GB in due, misurato), e serializzare
 due corse dello stesso cancello non costa lavoro in più.
 
+L'attesa per il PROPRIO nome SHALL essere più lunga di quella per uno slot
+(30 minuti, `TOPICS_GATE_NAME_MAX_WAIT_MS`: con i 10 dello slot resta sotto i 50 che `update_task` aspetta i check) e restare un limite: dieci minuti
+erano meno di una suite unit intera su una macchina carica, e il 14/09/2026 alle
+01:08 due `test:unit:shards` da 11 GB l'uno giravano insieme perché il secondo
+aveva finito la sua attesa ed era partito «accanto». Mentre un cancello aspetta
+se stesso il suo orologio NON SHALL correre: `slot.ts` stampa la riga di attesa
+e i check pre-review fermano la scadenza fino alla riga di slot acquisito.
+
 **L'INTERFACCIA parla in core a disposizione, una volta sola.** Nelle
 impostazioni restano a vista: quanti agenti lavorano con l'anello accanto, la
 manopola «N% del libero», e UNA riga «Topics usa X dei Y core a disposizione»

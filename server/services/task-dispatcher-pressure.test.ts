@@ -296,9 +296,26 @@ describe("the cap by resources: over the budget nothing starts, under it it does
 
     expect(h.topicsCreated).toHaveLength(0);
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
-    const notes = h.notes("m1", "quota di memoria");
+    const notes = h.notes("m1", "Non c'è memoria per un altro agent");
     expect(notes).toHaveLength(1);
     expect(notes[0]!.content).toContain("50%");
+  });
+
+  // The axis the machine actually hits: the RAM is gone, our footprint is
+  // modest, and the old comparison (footprint against the whole-machine budget)
+  // could not see it. Half a gigabyte free is the reading of the night at 22:20.
+  it("blocks on memory when the machine has none left, whatever our footprint is", async () => {
+    const h = harness();
+    boardOn(h);
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    h.machine.pressure = { ...QUIET, ourCoreUnits: 1.1, ourMemGB: 3, availableMemGB: 0.5, running: 2 };
+    seedTask(h.db, "m2");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.topicsCreated).toHaveLength(0);
+    expect(h.notes("m2", "Non c'è memoria per un altro agent")).toHaveLength(1);
   });
 
   it("ramps ONE new dispatch per tick, and ignores the numeric cap: three cards on a cap of 1, three ticks, three agents", async () => {
