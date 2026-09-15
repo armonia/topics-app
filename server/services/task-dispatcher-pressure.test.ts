@@ -25,7 +25,7 @@ import { Database } from "bun:sqlite";
 import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, budgetShare, capMode, type MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { currentDispatchBlock } from "./dispatch-block-signal";
+import { currentDispatchBlock, heldResumeBlock, setDispatchBlock } from "./dispatch-block-signal";
 import { readGlobalCap } from "./dispatch-capacity";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -346,33 +346,98 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     });
   });
 
-  // A resume held by the floor sat in the In-progress column with a bare queued chip: no reason
-  // on the row (the chip write cleared it) and none from the mapper (the
-  // machine-wide block was read only for Todo cards).
-  it("a resume held by the floor carries its reason on the row and on the card", async () => {
-    const floorText = "Memoria quasi finita: 4.1 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
-    const h = harness({ resourceBlock: () => floorText });
-    boardOn(h);
+  // A resume held by the floor sat in the In-progress column with a bare queued
+  // chip. Its reason is the block of ITS hold, written by the hold itself: the
+  // block the tick publishes is refreshed only on boards the tick reaches.
+  const FLOOR_TEXT = "Memoria quasi finita: 4.1 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria: niente è andato perso.";
+  function inProgressCard(h: ReturnType<typeof harness>, id: string): void {
     const ts = new Date().toISOString();
-    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-held')");
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [`topic-${id}`]);
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, assigned_topic_id, created_at, updated_at, dispatch_attempts, priority)
-       VALUES ('rh1', ?, 'held resume', 'in_progress', 'topic-held', ?, ?, 1, 2)`,
-      [PID, ts, ts],
+       VALUES (?, ?, 'held resume', 'in_progress', ?, ?, ?, 1, 2)`,
+      [id, PID, `topic-${id}`, ts, ts],
     );
+  }
+
+  it("a held resume says the block of its own hold, and stops the moment its hold says otherwise", async () => {
+    const floor = { reason: FLOOR_TEXT as string | null };
+    const gates = { n: 0 };
+    const h = harness({ resourceBlock: () => floor.reason, checksRunning: () => gates.n });
+    boardOn(h);
+    inProgressCard(h, "rh1");
     try {
+      // Still holding: the reason is on the row and on the card, no tick needed.
       await h.dispatcher.resume("rh1", "continua");
       expect(h.topicsCreated).toHaveLength(0);
-      expect(h.task("rh1")!.dispatchState).toBe("queued");
       expect(h.task("rh1")!.dispatchError).toContain("4.1 GB disponibili");
-      // The tick publishes the machine-wide block; the In-progress card reads it.
-      await h.dispatcher.tick(PID);
-      await flush();
       expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+      // The floor clears while the cap is full: the re-evaluation holds on the cap
+      // alone, and the card has no machine reason left.
+      floor.reason = null;
+      gates.n = 99;
+      await h.dispatcher.resume("rh1", "");
+      expect(h.task("rh1")!.dispatchState).toBe("queued");
+      expect(h.task("rh1")!.queueReason).toBeNull();
+      // The budget holds it: a wait that passes by itself, in its own tone.
+      gates.n = 0;
+      h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+      h.machine.pressure = { ...QUIET, ourCoreUnits: 5.8, running: 2 };
+      await h.dispatcher.resume("rh1", "");
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "resource_pressure", tone: "waiting" });
+      h.svc.setGlobalCap({ mode: "count" });
+      // The 24h spend holds it: the todo card's sentence, with its kind.
+      const spend = h.svc as unknown as { getSpendCaps: () => object; agentSpend: () => object };
+      spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 1_000 });
+      spend.agentSpend = () => ({ cents24h: 1_200, centsTotal: 1_200, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 });
+      await h.dispatcher.resume("rh1", "");
+      expect(h.task("rh1")!.queueReason).toMatchObject({ kind: "spend_cap" });
+      expect(h.task("rh1")!.dispatchError).toStartWith("Tetto di spesa giornaliero raggiunto");
+      // Room again: it starts, and the hold's entry goes with the wait.
+      const heldText = h.task("rh1")!.dispatchError;
+      spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: 0 });
+      gates.n = 0;
+      void h.dispatcher.resume("rh1", "");   // the turn never ends in this harness
+      await flush();
+      expect(h.task("rh1")!.dispatchState).toBe("working");
+      expect(heldResumeBlock("rh1", heldText)).toBeNull();
     } finally {
       h.dispatcher.shutdown();
     }
   });
+
+  // The two gestures of a floor night that leave the published block behind:
+  // the queue emptied by hand (the reconcile ticks only boards with queued
+  // todos) and the board paused (the tick returns before it publishes).
+  for (const [gesture, card] of [["the queue emptied", "stale-backlog"], ["the board paused", "stale-paused"]] as const) {
+    it(`a floor published and cleared with ${gesture} is not what a held resume says`, async () => {
+      const floor = { reason: FLOOR_TEXT as string | null };
+      const gates = { n: 0 };
+      const h = harness({ resourceBlock: () => floor.reason, checksRunning: () => gates.n });
+      boardOn(h);
+      const todo = seedTask(h.db);
+      try {
+        await h.dispatcher.tick(PID);
+        await flush();
+        expect(currentDispatchBlock()?.kind).toBe("resources");
+        if (gesture === "the queue emptied") h.db.run("UPDATE tasks SET status = 'backlog', dispatch_state = NULL WHERE id = ?", [todo]);
+        else h.svc.updateBoardSettings(PID, { dispatchPaused: true });
+        floor.reason = null;
+        await h.dispatcher.reconcile({ reason: "poll" });
+        await flush();
+        // The premise: the published block is still the floor that has cleared.
+        expect(currentDispatchBlock()?.kind).toBe("resources");
+        inProgressCard(h, card);
+        gates.n = 99;
+        await h.dispatcher.resume(card, "rivedi il punto 2");
+        expect(h.task(card)!.dispatchState).toBe("queued");
+        expect(h.task(card)!.queueReason).toBeNull();
+      } finally {
+        h.dispatcher.shutdown();
+        setDispatchBlock(null);
+      }
+    });
+  }
 
   it("exempts the first agent: an empty fleet starts even on a busy machine", async () => {
     const h = harness();

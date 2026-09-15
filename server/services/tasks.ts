@@ -33,7 +33,7 @@ import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readGlobalCap, readSpendCaps } from "./dispatch-capacity";
-import { currentDispatchBlock } from "./dispatch-block-signal";
+import { currentDispatchBlock, heldResumeBlock } from "./dispatch-block-signal";
 import { liveAgentCount } from "./agent-census";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
@@ -2237,9 +2237,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // a board that had not moved in hours. Only for a card really in the
           // queue: outside it, this block is not what it waits on
           // (`dispatch-block-signal.ts`). A resume held in the In-progress column
-          // waits on the same block through the same door (`resume` writes the
-          // `queued` chip), so it reads it too: without it the chip had no reason.
-          dispatchBlock: inCoda || heldResume ? currentDispatchBlock() : null,
+          // says the block that holds ITS resume, written by that hold and
+          // believed only while the row carries the same sentence: the published
+          // block is refreshed only by a tick that reaches it, and a board with
+          // no todos or a paused one leaves it at a floor that has cleared.
+          dispatchBlock: inCoda ? currentDispatchBlock() : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,
           projectless: r.project_id === UNASSIGNED_PROJECT_ID,
           openSubtasks: r.status === "review" ? (b.openChildren.get(r.id) ?? 0) : 0,

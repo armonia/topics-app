@@ -3464,12 +3464,17 @@ tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
 (`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
 una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
 non dire. Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
-è trattenuto da pavimento o budget (chip `queued`): il motivo SHALL viaggiare
-anche sulla riga (`dispatch_error`), e un «in coda» senza perché su una card
-che non partirà è la stessa bugia in un'altra colonna. Nello stesso ordine della
-card in Todo: a dispatch spento quella card SHALL dire l'interruttore
-(`dispatch_off`), perché il tick esce prima di pubblicare e il blocco rimasto è
-quello di prima, un pavimento magari rientrato da ore.
+è trattenuto da pavimento, spesa delle 24 ore o budget (chip `queued`): il motivo
+SHALL viaggiare anche sulla riga (`dispatch_error`), e un «in coda» senza perché
+su una card che non partirà è la stessa bugia in un'altra colonna. Quel motivo
+SHALL essere il blocco della SUA attesa, scritto da `resume` quando la trattiene e
+creduto solo finché la riga dice la stessa frase, MAI il blocco pubblicato dal
+tick: il tick gira solo sulle board con todo in coda ed esce prima di pubblicare a
+board in pausa, quindi svuotata la coda a mano o messa in pausa la board il
+blocco pubblicato resta un pavimento rientrato. Il resume trattenuto solo dal
+tetto, quello che parte e ogni altra scrittura del chip lo tolgono. Non dice
+l'interruttore: `resume` rivaluta la sua attesa a ogni giro anche a dispatch
+spento, e riparte appena il blocco rientra.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su

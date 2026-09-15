@@ -34,7 +34,7 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap } from "./dispatch-capacity";
-import { publishDispatchBlock } from "./dispatch-block-signal";
+import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
@@ -1475,6 +1475,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * darlo, ed è la stessa fine che faceva prima.
    */
   function clearSlotWait(taskId: string, inherit: boolean): void {
+    setHeldResumeBlock(taskId, null);
     const wait = slotWaits.get(taskId);
     if (wait) {
       clearTimeout(wait.timer);
@@ -3693,6 +3694,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch { return text; }
   }
 
+  /**
+   * What holds a resume, in the order its door asks, and WHICH machine block it
+   * is. `kind` is null for a drain and for the holds that are this card's own (a
+   * provider hold, the per-card spend cap): the machine sentences on the card
+   * do not describe them.
+   */
+  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null } | null {
+    const own = taskPlanWait(t)?.reason ?? drainBlock();
+    if (own) return { reason: own, kind: null };
+    const floor = admissionBlock();
+    if (floor) return { reason: floor, kind: "resources" };
+    const day = spendBrake.dayBlock();
+    if (day) return { reason: daySpendSentence(day), kind: "spend" };
+    const card = spendBrake.taskBlock(t.agentCostCents);
+    if (card) return { reason: card, kind: null };
+    const pressure = pressureBlock();
+    return pressure ? { reason: pressure, kind: "pressure" } : null;
+  }
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -3742,7 +3762,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // resumed turn is a full agent turn on the same machine: letting it through
     // over the threshold would be the count-mode leak (resumes outside the
     // cap) reborn under another name.
-    const floorBlock = taskPlanWait(t)?.reason ?? drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
+    const hold = resumeHold(t);
+    const floorBlock = hold?.reason ?? null;
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
@@ -3756,7 +3777,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // resume held by the floor, a drain or the budget in the In-progress
       // column otherwise showed a bare queued chip whose tooltip said "no reason recorded", while
       // the reason sat in a service comment the card never shows.
-      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock ?? null })); } catch { /* best-effort */ }
+      // The hold's KIND rides beside it, written before the chip so the emitted
+      // card already reads it (`heldResumeBlock`): the card says the block that
+      // holds THIS resume, never the one the tick published last.
+      setHeldResumeBlock(taskId, hold?.kind ? { kind: hold.kind, reason: hold.reason } : null);
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
       if (!waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
         try {
@@ -5217,7 +5242,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Un dispatcher spento non deve svegliarsi fra 5s per riprendere un task su
     // un DB che non è più il suo — ed è anche il modo in cui i test, che ne
     // creano uno per caso, non si passano le attese a vicenda.
-    for (const w of slotWaits.values()) clearTimeout(w.timer);
+    for (const [taskId, w] of slotWaits) { clearTimeout(w.timer); setHeldResumeBlock(taskId, null); }
     slotWaits.clear();
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();

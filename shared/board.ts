@@ -1006,6 +1006,9 @@ export interface QueueContext {
    * travels because those numbers are the answer ("2.1 GB free against a floor
    * of 3"), and recomputing them on the client would mean measuring another
    * machine.
+   *
+   * For a resume held in the In-progress column it is the block of THAT hold,
+   * not the published one (`heldResumeBlock` in `dispatch-block-signal.ts`).
    */
   dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend' | 'plan'; reason: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
@@ -1248,15 +1251,13 @@ export function deriveQueueReason(
     // puts the same `queued` chip on an In-progress card when the floor or the
     // budget holds it, and after a forced restart that is every cut turn at
     // once: twelve queued chips with no reason while nothing starts.
-    // The machine-wide block is the answer the todo branch already gives, so
-    // it is given here with the same words, and in the same order: the switch
-    // first. With dispatch off the tick returns before it publishes a block, so
-    // the one still published is stale (a floor that has cleared long ago), and
-    // nothing will resume this card until someone turns dispatch back on.
+    // The block here is the one that holds THIS resume (the mapper passes the
+    // hold's own, never the tick's), and it is said with the words the todo
+    // branch uses. Not the switch first: `resume` re-evaluates its hold on its
+    // own timer whatever the switch says, so with dispatch off this card still
+    // starts the moment the floor clears, and "nothing starts until you turn
+    // dispatch back on" would be the false sentence.
     if (task.status === 'in_progress' && task.dispatchState === 'queued' && !task.parentTaskId && ctx.dispatchBlock) {
-      if (!ctx.autoDispatch) {
-        return { kind: 'dispatch_off', tone: 'stalled', key: 'board.queue.dispatchOff' };
-      }
       return machineBlockReason(ctx.dispatchBlock);
     }
     // `queued` compreso: fuori da `todo` quel chip non è la parola vaga che
