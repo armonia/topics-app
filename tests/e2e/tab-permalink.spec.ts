@@ -235,10 +235,18 @@ test.describe("Permalink di una tab — il produttore", () => {
     // target the server declares nonexistent produced a click that opened
     // nothing and said nothing. The right channel is the FALLBACK
     // (`lib/deepLinkClick`: "nothing opened → open it like any other link"),
-    // i.e. the link door — which since commit 8b733b1fb is `openLink`: a TAB of
-    // the Topics browser, claimed by the standalone group this chat lives in,
-    // and the system browser only on an explicit gesture. The content is at
-    // least SEEN, and seen HERE.
+    // i.e. the link door (`openLink`), and the system browser only on an
+    // explicit gesture. The content is at least SEEN, and seen HERE.
+    //
+    // WHERE "here" is has moved, and the rule that moved it is the subject of
+    // this file's sibling, not of this test: `LINK-TAB-02` and
+    // `TOPIC-BROWSER-04` take the links of a topic's OWN chat out of the layout
+    // and put them in that topic's browser window. So the door no longer
+    // dispatches `browser:open-tab` at all on this path (the window answers
+    // before it, see `lib/topicWindowDoor`), and the fallback is observed where
+    // it now lands: a sheet of the window. What this test pins is unchanged and
+    // is the whole point of TABLINK-09: a dead permalink is not a mute click.
+
     const morto = `${E2E_BASE}/tab/chat/11111111-1111-4111-8111-111111111111`;
     await seedMessage(request, {
       sessionKey: `topic:${mainId.slice(0, 8)}`,
@@ -266,12 +274,21 @@ test.describe("Permalink di una tab — il produttore", () => {
     const before = page.url();
     await anchor.click();
 
-    // The link went through the door: that URL, exactly once.
-    await expect.poll(() => openedLinks(page), { timeout: 10000 }).toEqual([morto]);
-    // And the door led somewhere: a tab of the Topics browser, mounted in THIS
-    // window — not in the system browser.
+    // The link went through the door, and the door led somewhere: the topic's
+    // browser window, with ONE sheet, on that URL. With the browser WS mocked
+    // no title ever arrives, so the tab is labelled with its own url.
+    const windowEl = page.locator('[data-testid="topic-browser-window"]');
+    await expect(windowEl).toBeVisible({ timeout: 10000 });
+    const tabs = windowEl.locator('[data-testid="topic-browser-tab"]');
+    await expect(tabs).toHaveCount(1, { timeout: 10000 });
+    await expect(tabs.first()).toHaveText(morto);
+    // And a real page surface is mounted in THIS window, not in the system
+    // browser: the sheet renders the same `RemoteBrowserPanel` a pane does.
     await expect(page.locator("[data-browser-pane]")).toBeVisible({ timeout: 10000 });
     expect(await openedExternal(page)).toEqual([]);
+    // The layout never saw the event: that is what keeps this opening from
+    // moving a pane the user did not touch.
+    expect(await openedLinks(page)).toEqual([]);
     // The SPA did not navigate: the fallback opens a tab, it does not move this one.
     expect(page.url()).toBe(before);
     // And no ghost CHAT tab: the fallback is not a licence to materialise.

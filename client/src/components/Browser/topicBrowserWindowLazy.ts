@@ -20,6 +20,7 @@
  */
 import { useEffect, useState, type ComponentProps, type ComponentType } from 'react';
 import { lazyWarm, warm } from '../../lib/lazyWarm';
+import { registerTopicWindowDoor } from '../../lib/topicWindowDoor';
 // Type-only: erased from the output, so the body stays out of this chunk.
 import type { TopicBrowserWindow as Window } from './TopicBrowserWindow';
 import type { TopicBrowserMode } from '../../state/topicBrowserWindow';
@@ -208,6 +209,38 @@ export function useTopicBrowserPresence(topicId: string): TopicBrowserPresence {
     return () => { alive = false; stop(); };
   }, [topicId]);
   return topicId && entry.topicId === topicId ? entry.presence : ABSENT;
+}
+
+/**
+ * OPEN THE DOOR OF THIS TOPIC, for as long as its chat is on screen.
+ *
+ * Called with EXACTLY the expression the presence hook gets, so the two rules
+ * that decide whether a window is possible at all - wide enough, and this pane
+ * is the one that would draw it - are written once. An empty string is "no
+ * door": a draft, a viewport under 768 px, or a chat pane with a `ChatPanel`
+ * above it that already owns the window.
+ *
+ * The body is async because the store is a lazy chunk, and the answer to the
+ * caller is not: see `topicWindowDoor` for why that is sound.
+ */
+export function useTopicWindowDoor(topicId: string): void {
+  useEffect(() => {
+    if (!topicId) return;
+    return registerTopicWindowDoor(topicId, (sheet) => {
+      void store().then(async (s) => {
+        // The row has to be read before it is written: opening onto an
+        // un-hydrated window would publish an empty one over the sheets this
+        // device has not seen yet.
+        await s.ensureTopicWindowLoaded(topicId);
+        s.topicBrowserWindow.open(
+          topicId,
+          { contextId: sheet.contextId, url: sheet.url, openedBy: sheet.openedBy },
+          sheet.mode,
+        );
+      });
+      return true;
+    });
+  }, [topicId]);
 }
 
 /** Bring a parked window back into the topic. The command lives in the
