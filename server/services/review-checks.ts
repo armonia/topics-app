@@ -24,7 +24,7 @@
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
-import { registerFreezableRun } from "./budget-governor";
+import { registerFreezableRun, type FreezableRun } from "./budget-governor";
 import { memoryWaiter, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
 import { slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
@@ -494,16 +494,6 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         ...opts.env,
       },
     });
-    // The tree, not the shell: the memory is in the grandchildren (bun test,
-    // tsc). A reading that fails is skipped, never a reason to stop the gate.
-    const rootPid = proc.pid;
-    if (rootPid && opts.onTreeKB) {
-      const read = opts.sampleTreeKB ?? treeFootprintKB;
-      const report = opts.onTreeKB;
-      sampler = setInterval(() => {
-        void read(rootPid).then((kb) => { if (kb != null && kb > 0) report(kb); }).catch(() => {});
-      }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
-    }
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
     // moment the command really starts, and the cap is restarted from there:
@@ -536,8 +526,8 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
      * Same rule the board already applies to the slot queue, which is why
      * `clockFrom` exists here at all. */
     let frozenAt = 0;
-    releaseFreezable = proc.pid
-      ? registerFreezableRun({
+    const entry: FreezableRun | null = proc.pid
+      ? {
           id: `${opts.taskId ?? "check"}:${check.name}:${proc.pid}`,
           pid: proc.pid,
           name: check.name,
@@ -550,8 +540,24 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
             frozenAt = 0;
             armTimer();
           },
-        })
-      : () => {};
+        }
+      : null;
+    releaseFreezable = entry ? registerFreezableRun(entry) : () => {};
+    // The tree, not the shell: the memory is in the grandchildren (bun test,
+    // tsc). A reading that fails is skipped, never a reason to stop the gate.
+    // The registry entry carries the latest reading too (`[memsig]`, the swap brake).
+    const rootPid = proc.pid;
+    if (rootPid && opts.onTreeKB) {
+      const read = opts.sampleTreeKB ?? treeFootprintKB;
+      const report = opts.onTreeKB;
+      sampler = setInterval(() => {
+        void read(rootPid).then((kb) => {
+          if (kb == null || kb <= 0) return;
+          if (entry) entry.treeKB = kb;
+          report(kb);
+        }).catch(() => {});
+      }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
+    }
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";

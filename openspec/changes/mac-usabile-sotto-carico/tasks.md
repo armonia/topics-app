@@ -31,7 +31,11 @@ Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15
   - [x] Envelope (`UNIT_CI_KICKOFF_LINE`, fan-out, `CODE_GATES_RULE`) e `docs/board-protocol.md`: la suite unit intera si legge dalla CI, `bun test <file>` mirato resta ammesso; `board-protocol-parity` ancora la regola
   - [x] Test con risposte finte di GitHub (`ci-evidence`, `tasks.checks-ci`, `review-checks`, `task-dispatcher`, `board-protocol-parity`)
   - [ ] Rollout, SOLO dopo il merge: `PATCH /api/boards/topics-app-ar3jt5/settings` con `{ "name": "unit-ci", "cmd": "github-ci:unit" }` al posto della riga `test:unit`
-- [ ] Pavimento riaperto solo con la memoria sopra la riga (pavimento + prezzo) per una finestra di tempo; finestra piena anche al boot; prenotazione per la vita del turno
+- [x] Pavimento riaperto solo con la memoria sopra la riga (pavimento + prezzo) per una finestra di tempo; finestra piena anche al boot; prenotazione per la vita del turno
+  - [x] `server/services/mem-signal.ts`: campione asincrono (`probeVm`, `parseVmStat`) sul battito da 10 s, minimo dei 2 minuti con buchi > 30 s che svuotano la finestra, verdetto di swap (swap-in >= 10/s E debito compressore + swap usato >= +0,5 GB/min su 60 s); soglie provvisorie, senza cancello di calibrazione di 7 giorni prima del merge
+  - [x] Pavimento su una riga sola (pavimento, o pavimento + prezzo con lavoro nostro in volo); prenotazione per la vita del turno contata una volta (asse budget in «per risorse», pavimento in «per numero»); l'asse budget legge il minimo della finestra; frasi «Memoria» con la lettura più bassa dei 2 minuti
+  - [x] Riga `[memsig]` ogni 60 s nel log del server (non decide niente)
+  - [x] Test M1-M6, C1-C2, D1-D7 (`mem-signal`, `dispatch-capacity`, `task-dispatcher-admission`, `task-dispatcher-held-resume-quiet`), mutanti: minimo della finestra sostituito dall'ultima lettura (D1, D2, D4, D5, D7, M1 rossi), prenotazione contata su tutti e due gli assi (D4, D5 rossi), prezzo mai sulla riga (D4, D6 rossi)
 - [ ] Attesa dei check: rilascio con il prezzo del comando, uno per finestra, `e2e-touched` sotto slot
 - [ ] Con swap sostenuto Topics interrompe il giro di check più giovane (interrotto, riparte da solo), al massimo 1 ogni 2 min e 2 per giro
 - [ ] Barra di esito: stalli [LAG], swap-in/s e load prima e dopo, non il conteggio delle righe di log

@@ -161,9 +161,9 @@ export interface DispatcherDeps {
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
    * mai: una guardia che non si sa misurare non deve poter fermare la board.
    *
-   * `hold` is what the reading cannot see yet, as separate facts: the price of
-   * one card, the local turns admitted in the last warm-up window, and whether
-   * the floor is already holding (see `floorReason`).
+   * `hold` is what the reading cannot see, as separate facts: the price of one
+   * card, the memory kept for the local turns in flight, and whether any of our
+   * work is on the machine (see `floorReason`).
    */
   resourceBlock?: (hold: MemoryFloorHold) => string | null;
   /**
@@ -1071,24 +1071,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       .map(([, slot]) => slot.sessionAt);
   }
   /**
-   * THE FLOOR, read with what the reading cannot see yet, and without saying it
+   * THE FLOOR, read with what the reading cannot see, and without saying it
    * (`admissionBlock` is the one that logs).
    *
-   * Two terms, and the floor used to have neither. A bare `avail < 6` read by
-   * `vm_stat` at every tick and every queued resume flapped on the line: 30
-   * «coda ferma» and 30 «coda ripartita» in eleven minutes on 14/09/2026, each
-   * opening letting turns through. So:
-   *  - HYSTERESIS: once holding, it reopens only with room for one more agent
-   *    above the floor, not at the floor itself;
-   *  - RESERVATION: the local turns started inside the warm-up window count at
-   *    their price, because an agent's gates show up in the reading minutes
-   *    after the start. Without it four resumes passed the floor in eleven
-   *    seconds on four readings of the same 6.0 GB, and in count mode nothing
-   *    else in the dispatcher looks at free memory.
+   * The reading is the lowest of a 2-minute window (`mem-signal.ts`), which is
+   * the hysteresis: a bare `avail < 6` flapped 30 times in eleven minutes on
+   * 14/09/2026, and a warm-up reservation plus a holding margin still reopened
+   * on single readings three times on 15/09.
+   *
+   * THE LIFE-OF-TURN RESERVATION IS CHARGED ONCE. An agent's first memory burst
+   * comes a median 160 s after its start, and a turn waiting on a human or on
+   * the checks waiter still owns what it will spend. In resources mode the
+   * budget axis already reserves the price of every local turn for its whole
+   * life (`reservedCost().memGB`), so the floor charges nothing more: charged
+   * on both axes, one turn in flight put the line at 6 + 4 + 4 = 14 GB, above
+   * anything this Mac reads. In count mode the floor is the only memory brake,
+   * so it charges N x price itself.
    */
   function floorReason(): string | null {
-    const startingCards = reservedCost(localLaunches(), { coreUnits: 0, memGB: 0 }, Date.now()).pending;
-    return deps.resourceBlock?.({ cardGB: agentMemPrice(), startingCards, holding: lastAdmissionBlock != null }) ?? null;
+    const price = agentMemPrice();
+    const launches = localLaunches();
+    const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+    const resources = inResourcesMode();
+    const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
+    return deps.resourceBlock?.({
+      cardGB: price,
+      reservedGB: reserved,
+      reservedCards: resources ? 0 : launches.length,
+      ourWorkRunning: launches.length + Math.max(0, checks) > 0,
+    }) ?? null;
   }
   function admissionBlock(): string | null {
     try {
