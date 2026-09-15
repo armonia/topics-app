@@ -11780,7 +11780,10 @@ mod perf_cpu_tests {
     /// never the 500 ms window the sample covers.
     #[test]
     fn webview_cpu_comes_from_the_sample() {
+        // Both maps this test writes are shared: the CPU baselines, and the pid
+        // map that `webview_usage_tests` clears on every case.
         let _serial = PERF_CPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _map = super::webview_usage_tests::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let child = BusyChild(
             std::process::Command::new("sh")
                 .args(["-c", "while :; do :; done"])
@@ -11992,7 +11995,7 @@ mod webview_usage_tests {
     /// parallelo: senza serializzare, un test azzera la mappa mentre un altro la
     /// legge (visto: due rossi intermittenti alla prima stesura). Il lock rende
     /// questi quattro sequenziali fra loro senza rallentare il resto della suite.
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    pub(super) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn guard() -> std::sync::MutexGuard<'static, ()> {
         TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
@@ -12017,7 +12020,7 @@ mod webview_usage_tests {
         // kernel ha nel frattempo riassegnato quel pid a qualcun altro.
         set_map(&[("viva", 1), ("morta", 999_999)]);
         let live: HashSet<i32> = [1].into_iter().collect();
-        let out = collect_webview_usage(&live);
+        let out = collect_webview_usage(&live, &Default::default());
         assert_eq!(out.len(), 1, "solo la webview viva");
         assert_eq!(out[0].label, "viva");
         assert_eq!(out[0].pid, 1);
@@ -12030,8 +12033,8 @@ mod webview_usage_tests {
         // mostrata in colonna si rimescolerebbe a ogni campionamento.
         set_map(&[("zeta", 1), ("alfa", 1), ("mezzo", 1)]);
         let live: HashSet<i32> = [1].into_iter().collect();
-        let a: Vec<String> = collect_webview_usage(&live).into_iter().map(|w| w.label).collect();
-        let b: Vec<String> = collect_webview_usage(&live).into_iter().map(|w| w.label).collect();
+        let a: Vec<String> = collect_webview_usage(&live, &Default::default()).into_iter().map(|w| w.label).collect();
+        let b: Vec<String> = collect_webview_usage(&live, &Default::default()).into_iter().map(|w| w.label).collect();
         assert_eq!(a, b, "due letture, stesso ordine");
         assert_eq!(a, vec!["alfa", "mezzo", "zeta"], "ordinate per label");
     }
@@ -12043,7 +12046,7 @@ mod webview_usage_tests {
         // direbbe "tutte ferme", che e' un'altra affermazione.
         set_map(&[]);
         let live: HashSet<i32> = [1, 2, 3].into_iter().collect();
-        assert!(collect_webview_usage(&live).is_empty());
+        assert!(collect_webview_usage(&live, &Default::default()).is_empty());
     }
 
     #[test]
