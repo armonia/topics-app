@@ -62,4 +62,9 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     expect(board).toContain("E2E NEVER RUNS ON THIS MACHINE (decided 2026-09-15)");
     expect(dispatcher).toContain("`- ${CODE_GATES_RULE}`");
   });
+
+  test("both say a board without the CI row measures no e2e, and the agent says so", () => {
+    expect(doc).toContain("E2E IS NOT MEASURED BY THIS BOARD");
+    expect(dispatcher).toContain("E2E IS NOT MEASURED BY THIS BOARD");
+  });
 });

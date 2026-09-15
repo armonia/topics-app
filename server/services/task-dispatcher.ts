@@ -2221,8 +2221,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const E2E_CI_KICKOFF_LINE =
     "- E2E RUNS ON GITHUB CI, NEVER HERE: once the gates above are green the board (not you) pushes the commit it measured to your branch, " +
     "opens or reuses a draft pull request and waits for the e2e jobs of that exact commit (15-45 min; `update_task` stays open, do not call it again). " +
-    "The repo is public: your commits become public at that moment. That CI run is your e2e proof (the E2E rule of the code gates holds). A red job comes back with its name and `gh run view --job <id> --log-failed`; " +
+    "The repo is public: your commits become public at that moment. The proof of your e2e spec comes from the CI of your branch, which the board reads when you deliver. A red job comes back with its name and `gh run view --job <id> --log-failed`; " +
     "no verdict for that commit (cancelled, superseded, timed out, GitHub unreachable) is NOT MEASURED: not your red, and the card still stays out of review.";
+
+  // The same question on a board WITHOUT that row: nobody pushes, nobody reads a
+  // CI, and the agent must not believe otherwise (the boards of other projects).
+  const E2E_NOT_MEASURED_KICKOFF_LINE =
+    "- E2E IS NOT MEASURED BY THIS BOARD: it declares no CI e2e check, so when you deliver nobody pushes your branch and no CI is read, and you do not push either. " +
+    "If you wrote or changed an e2e spec, say so in the delivery comment with its path: it is measured by the project CI once the branch is published, or on the Windows PC, not before.";
 
   function buildKickoff(task: Task): string {
     // I comandi che il server farà girare da solo alla consegna. Dirglielo PRIMA
@@ -2326,7 +2332,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- PRE-REVIEW CHECKS: run the targeted tests for the code you changed. On delivery the board runs ${checks.length === 1 ? "this declared gate" : "these declared gates"} in your worktree — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. If one fails, review is refused and its output comes back to you.`,
             ]
           : []),
-        ...(ciE2e ? [E2E_CI_KICKOFF_LINE] : []),
+        ciE2e ? E2E_CI_KICKOFF_LINE : E2E_NOT_MEASURED_KICKOFF_LINE,
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
         "- If you need a human decision to go on:",
         `  1. comment_task(task_id="${task.id}", content=<the question, on one line>, options=[<option 1>, <option 2>, ...])`,
@@ -2815,7 +2821,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- Before you finish, run ${checks.length === 1 ? "this command" : "these commands"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: the server re-runs them on the chosen attempt, and a red attempt starts at a disadvantage.`,
             ]
           : []),
-        ...(ciE2e ? ["- E2E runs on GitHub CI for the attempt that is chosen, never here."] : []),
+        ciE2e
+          ? "- E2E runs on GitHub CI for the attempt that is chosen, never here."
+          : "- E2E is not measured by this board, here or on any CI: if you wrote or changed an e2e spec, name it in your closing report.",
         "- Lean context: Grep to find, Read in slices (offset/limit) on files over ~400 lines. Long commands (build/test/install) in the background with run_script + read_process_output, never sitting blocked on the command.",
         "- Close the turn with 2-3 sentences: which route you chose, what you changed and where to look. It is the only thing the human reads of you in the comparison — write it well.",
         ...languageLine(langFor(task.projectId)),

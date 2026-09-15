@@ -32,6 +32,19 @@ scaricare Chromium in una postazione dove Chromium non deve esserci. `--list`
 SHALL restare identico ovunque, ed e' il modo in cui un agente sul Mac vede quali
 spec tocca il suo diff.
 
+Il diff SHALL partire dal merge base con il ramo di base. Senza merge base (il
+checkout della pull request è profondo un commit) il cancello SHALL uscire 2 invece di
+contare solo i file non committati: fino al 15/09/2026 il passo della CI stampava
+«1 changed file(s) ... Nothing to run here» su una PR da 32 file e usciva 0, su ogni
+PR. Il passo della CI SHALL portare la storia del base e del commit in prova
+(`git fetch --unshallow`) prima di lanciarlo, e il suo conteggio dei file committati
+SHALL coincidere con quello della PR.
+
+#### Scenario: il checkout superficiale della PR non passa per verde
+- **GIVEN** un clone profondo un commit del merge di una PR con 3 file, e il base scaricato con `--depth=100`
+- **THEN** la lista dei file cambiati SHALL essere assente (uscita 2)
+- **AND** dopo la riga di fetch del passo della CI la lista SHALL avere i 3 file committati
+
 #### Scenario: gli identificativi si leggono ovunque siano dichiarati
 - **GIVEN** un file che dichiara identificativi come attributo, come espressione e come stringa interpolata
 - **THEN** la lettura SHALL trovarli tutti

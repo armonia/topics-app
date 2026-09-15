@@ -4085,6 +4085,8 @@ describe("l'envelope non parla italiano", () => {
     expect(checksLine).toContain("this declared gate");
     expect(kickoff).not.toContain("github-ci:e2e");
     expect(kickoff).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
+    expect(kickoff.split("\n").find((r) => r.includes("E2E RUNS ON GITHUB CI"))).toContain("CI of your branch, which the board reads when you deliver");
+    expect(kickoff).not.toContain("E2E IS NOT MEASURED BY THIS BOARD");
     expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
     const plain = await envelopeDiKickoff();
@@ -4092,14 +4094,33 @@ describe("l'envelope non parla italiano", () => {
     plain.h.dispatcher.shutdown();
   });
 
+  it("without the CI row nothing claims the board reads a CI, and the agent is told to say so (15/09/2026)", async () => {
+    for (const fanOut of [undefined, 2]) {
+      const { h, kickoff } = await envelopeDiKickoff(fanOut);
+      expect(kickoff).not.toMatch(/which the board reads|board reads when you deliver/);
+      expect(kickoff).toMatch(fanOut ? /E2E is not measured by this board[^\n]*name it in your closing report/ : /E2E IS NOT MEASURED BY THIS BOARD[^\n]*delivery comment/);
+      h.dispatcher.shutdown();
+    }
+    const { h, kickoff } = await envelopeDiKickoff(2, [E2E_CI_CHECK]);
+    expect(kickoff).not.toContain("E2E is not measured by this board");
+    h.dispatcher.shutdown();
+  });
+
   it("without the CI row too, the kickoff forbids local e2e and keeps targeted bun test (15/09/2026)", async () => {
     for (const fanOut of [undefined, 2]) {
       const { h, kickoff } = await envelopeDiKickoff(fanOut);
       const rule = kickoff.split("\n").find((r) => r.includes("E2E NEVER RUNS ON THIS MACHINE")) ?? "";
-      for (const word of ["check:e2e-touched", "--list", "playwright test", "client build", "install or launch a browser", "CI of your branch", "Targeted `bun test <file>` stays allowed"]) {
+      for (const word of ["check:e2e-touched", "--list", "playwright test", "client build", "install or launch a browser", "Targeted `bun test <file>` stays allowed"]) {
         expect(rule).toContain(word);
       }
-      expect(extractPreviewRule(kickoff) ?? kickoff).not.toContain("Playwright clip (`recordVideo");
+      // The VIDEO branch names no browser-driven clip at all: not in any wording,
+      // not behind a clause about another machine.
+      const video = (extractPreviewRule(kickoff) ?? PREVIEW_RULE).split("\n").find((r) => r.startsWith("· VIDEO")) ?? "";
+      expect(video).toContain("screencapture -V");
+      expect(video).not.toMatch(/playwright|recordVideo|chromium/i);
+      const clip = video.slice(video.indexOf("A clip is"));
+      expect(clip.slice(0, clip.indexOf(". "))).toMatch(/ALREADY ON SCREEN[^.]*browser_focus_tab/);
+      expect(video).toContain("headless");
       h.dispatcher.shutdown();
     }
   });

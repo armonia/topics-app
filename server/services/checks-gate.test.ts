@@ -61,6 +61,19 @@ describe("createChecksGate", () => {
     expect(giri).toBe(2);
   });
 
+  test("a leg on a new commit that joins a live run of the old one never carries its verdict", async () => {
+    const gate = createChecksGate();
+    let finish: (v: typeof verde) => void = () => {};
+    const commits: string[] = [];
+    const run = (commit: string) => async () => { commits.push(commit); return commit === "aa" ? new Promise<typeof verde>((r) => { finish = r; }) : verde; };
+    expect(await gate.leg("t1", { commit: "aa", legMs: 5, run: run("aa") })).toEqual({ pending: true });
+    const leg = gate.leg("t1", { commit: "bb", legMs: 500, run: run("bb") });
+    finish(verde);
+    expect(await leg).toEqual({ pending: true });
+    expect(await gate.leg("t1", { commit: "bb", legMs: 500, run: run("bb") })).toEqual(verde);
+    expect(commits).toEqual(["aa", "bb"]);
+  });
+
   test("verdictFor: la stessa consegna e' un verdetto per QUESTO commit, non una chiave nota", async () => {
     const gate = createChecksGate();
     const run = async () => verde;

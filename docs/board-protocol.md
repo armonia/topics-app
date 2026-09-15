@@ -82,8 +82,24 @@ In 15 ore del 15/09 gli agenti avevano lanciato da se' 21 `check:e2e-touched`, 7
 dalla portata del kill del turno, mentre il Mac arrivava a load 253. La regola sta in
 `CODE_GATES_RULE` («E2E NEVER RUNS ON THIS MACHINE»): niente `check:e2e-touched`
 (tranne `--list`), niente `playwright test`, niente build del client fatte per gli
-e2e, nessun browser installato o avviato; l'agente scrive o cambia la spec e la
-prova arriva dalla CI del ramo. `bun test <file>` mirato resta ammesso.
+e2e, nessun browser installato o avviato; l'agente scrive o cambia la spec.
+`bun test <file>` mirato resta ammesso. Chi misura quella spec dipende dalla board,
+e l'envelope lo dice con una riga sola: con `github-ci:e2e` la CI del ramo, letta
+alla consegna; senza (le board degli altri progetti) nessuno, e la riga
+«E2E IS NOT MEASURED BY THIS BOARD» chiede all'agente di scriverlo nel commento di
+consegna con il percorso della spec. Prima la regola affermava su ogni board che la board
+leggeva la CI del ramo, anche dove nessuno spinge e nessuno legge niente.
+
+Il passo della CI che sceglie le spec toccate misurava il vuoto fino al 15/09: il
+checkout della PR e' profondo un commit, `git merge-base` usciva 1 e lo script
+contava solo `git status` («1 changed file(s)» su una PR da 32 file, exit 0). Ora
+il passo fa `git fetch --unshallow` del base e del commit in prova, e senza merge
+base lo script esce 2. Due guardie sulla stessa strada: un'eccezione del lettore
+della CI e' NON MISURATO (prima diventava «nessun gate» e la card entrava in
+review), e un verdetto vale solo per il commit che ha misurato (una gamba arrivata
+su una head nuova durante l'attesa risponde pending e il giro riparte). Il push
+della consegna passa dalla guardia `pre-push` dei nomi tolti dalla storia anche da
+un worktree: l'elenco `.personal-terms` si legge dal checkout principale.
 
 **Il tetto vero e' il PIANO, non la CPU (dal 04/09/2026).** Otto agent nativi e
 le chat della persona stanno sulla stessa OAuth del piano Claude: alle 13:00Z
@@ -167,10 +183,16 @@ queste regole.
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
 
-   **Su questo Mac il video non si registra con Playwright** (dal 15/09/2026:
-   niente Chromium qui). `PREVIEW_RULE` manda a registrare la tab del task con
-   `screencapture -V <secondi> -R <x,y,w,h> <file>.mov`; la clip Playwright qui
-   sotto resta per il PC Windows e la CI.
+   **Su questo Mac nessuna clip nasce da un browser** (dal 15/09/2026: niente
+   Chromium qui). Una tab del task che nessuna finestra mostra gira in un browser
+   headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
+   `screencapture -R` filmerebbe lo schermo di chi lavora, non quella pagina.
+   `PREVIEW_RULE` ammette `screencapture -V <secondi> -R <x,y,w,h> <file>.mov` solo
+   su una superficie GIA' a schermo, e per una pane browser solo dopo
+   `browser_focus_tab`; altrimenti la prova del comportamento e' la sua spec e2e,
+   nominata nel commento di consegna, con uno screenshot o un diagramma come
+   anteprima. La clip qui sotto resta per il PC Windows e la CI, e l'envelope non
+   la nomina.
 
    **Come nasce un video ≤20s, senza tagliarlo dopo.** `tests/e2e/helpers/clip.ts`:
    `clipDiConsegna` apre un contesto DEDICATO con `recordVideo` acceso sul solo

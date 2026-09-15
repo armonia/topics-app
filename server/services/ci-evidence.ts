@@ -198,6 +198,18 @@ async function call<T>(argv: string[], cwd: string, parse: (out: string) => T): 
   }
 }
 
+/**
+ * The array under `field` of a GitHub answer, or an exception the caller turns
+ * into a failed read. `gh api` can exit 0 with a body that has no such array
+ * (`{"total_count":0}`, an error object): parsed as-is it was `undefined`, and
+ * `runs.filter` threw far from here, inside the delivery.
+ */
+export function listField<T>(out: string, field: string): T[] {
+  const value = (JSON.parse(out) as Record<string, unknown> | null)?.[field];
+  if (!Array.isArray(value)) throw new Error(`no "${field}" array in the answer`);
+  return value as T[];
+}
+
 /** The real port: git and gh as argv spawns, never a shell string. */
 export function githubPort(): GithubPort {
   return {
@@ -239,9 +251,9 @@ export function githubPort(): GithubPort {
       });
     },
     runs: (repo, sha) => call(["gh", "api", `repos/${repo}/actions/runs?head_sha=${sha}&event=pull_request&per_page=20`], process.cwd(),
-      (o) => (JSON.parse(o) as { workflow_runs: GithubRun[] }).workflow_runs),
+      (o) => listField<GithubRun>(o, "workflow_runs")),
     jobs: (repo, runId) => call(["gh", "api", `repos/${repo}/actions/runs/${runId}/jobs?filter=latest&per_page=100`], process.cwd(),
-      (o) => (JSON.parse(o) as { jobs: GithubJob[] }).jobs),
+      (o) => listField<GithubJob>(o, "jobs")),
     mergeState: (repo, pr) => call(["gh", "pr", "view", String(pr), "--repo", repo, "--json", "mergeable"], process.cwd(),
       (o) => String((JSON.parse(o) as Record<string, unknown>).mergeable ?? "")),
   };

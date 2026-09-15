@@ -241,6 +241,26 @@ e SOLO dai job `prepare-e2e` ed `e2e (N)`:
   assenti o non autenticati, cinque letture di fila fallite, nessun verdetto entro
   60 minuti dalla spinta.
 
+Un verdetto SHALL valere solo per il commit che ha misurato. Una gamba di consegna
+arrivata con la testa del worktree su un altro commit, mentre la corsa del commit
+precedente è ancora viva, NON SHALL portarsi via il verdetto (né il nulla) di quella
+corsa: SHALL rispondere 202 `review_checks_running`, e la gamba dopo SHALL misurare la
+testa attuale. L'attesa della CI arriva a 60 minuti, e senza questa regola una card
+entrava in review, e poi landava, su un commit che nessun check aveva visto.
+
+Un lettore della CI che lancia un'eccezione diversa dallo spegnimento SHALL dare
+«non misurato» con il messaggio dell'eccezione: prima diventava il nulla di una corsa
+esplosa, che la consegna legge come «nessun check», e la card entrava in review senza
+verdetto e2e. Una risposta di GitHub che esce 0 senza l'elenco atteso
+(`workflow_runs`, `jobs`) SHALL contare come lettura fallita.
+
+La spinta SHALL passare dalla guardia `pre-push` del repository anche quando parte da
+un worktree, con l'elenco dei nomi tolti dalla storia letto dal checkout principale
+(il file non è tracciato, e un worktree non ne ha una copia): fino al 15/09/2026 da un
+worktree la guardia non trovava l'elenco, usciva 0 e la consegna pubblicava i commit
+intermedi prima della review. Una spinta fermata dalla guardia SHALL essere «non
+misurato», e il ramo remoto NON SHALL riceverla.
+
 Il testo di un «non misurato» della CI NON SHALL consigliare di installare le
 dipendenze del worktree, e il testo di un rosso SHALL dire che sono rossi gli e2e
 della CI invece di un codice di uscita.
@@ -268,12 +288,28 @@ quello di fan-out. `docs/board-protocol.md` SHALL portare la stessa regola.
 **Anche senza la riga.** Ogni envelope di kickoff, di qualunque board, SHALL dire
 all'agente che su questa macchina non lancia `check:e2e-touched` (tranne `--list`),
 `playwright test`, build del client fatte per gli e2e, né installa o avvia un browser,
-in primo piano o in background; che l'e2e lo scrive o lo cambia nella spec, e che la
-prova viene dalla CI del ramo; e che `bun test <file>` mirato resta ammesso. Il
-15/09/2026, in 15 ore, gli agenti avevano lanciato da sé 21 `check:e2e-touched`, 71
-`playwright test` e 27 build del client, 99 su 119 in background con `&`, e la board li
-rifaceva alla consegna. Il ramo video della regola dell'anteprima NON SHALL mandare a
-registrare una clip con Playwright su questa macchina.
+in primo piano o in background; che l'e2e lo scrive o lo cambia nella spec; e che
+`bun test <file>` mirato resta ammesso. Il 15/09/2026, in 15 ore, gli agenti avevano
+lanciato da sé 21 `check:e2e-touched`, 71 `playwright test` e 27 build del client, 99
+su 119 in background con `&`, e la board li rifaceva alla consegna.
+
+Chi misura quella spec SHALL dirlo una riga sola, secondo la board. Con la riga
+`github-ci:e2e`: la CI del ramo, letta dalla board alla consegna. Senza: l'envelope
+NON SHALL affermare che la board legge una CI, e SHALL dire che questa board non misura
+l'e2e, che nessuno spinge il ramo alla consegna, e di scrivere nel commento di consegna
+il percorso della spec cambiata (la misura la CI del progetto quando il ramo si
+pubblica, o il PC). Il fan-out dice lo stesso nel suo resoconto finale. Il 15/09/2026
+le board di quattro altri progetti non dichiaravano la riga, e la regola di
+prima diceva a tutti che la board leggeva la CI del ramo.
+
+Il ramo video della regola dell'anteprima NON SHALL nominare Playwright,
+`recordVideo` o Chromium in nessuna forma, nemmeno per un'altra macchina. Una tab del
+task che nessuna finestra mostra gira in un browser headless avviato su questa
+macchina, e `screencapture -R` filmerebbe lo schermo di chi lavora: la clip SHALL
+essere `screencapture` di una superficie già a schermo, per una pane browser solo dopo
+`browser_focus_tab`; altrimenti la prova del comportamento SHALL essere la sua spec
+e2e, nominata nel commento di consegna, con uno screenshot o un diagramma come
+anteprima.
 
 #### Scenario: tutti i job e2e verdi sul commit consegnato
 - **GIVEN** una board con `true` e `github-ci:e2e`, e una run `pull_request` del commit consegnato con `prepare-e2e` ed `e2e (1)`..`e2e (4)` conclusi `success`
@@ -315,6 +351,20 @@ registrare una clip con Playwright su questa macchina.
 - **THEN** il server NON SHALL forzare, e l'esito SHALL essere «non misurato»
 - **AND** con una testa remota che il reflog contiene, il server SHALL forzare con quella testa come lease
 
+#### Scenario: la testa cambia durante l'attesa della CI
+- **GIVEN** una consegna su `abc1234` con la CI in attesa, e la testa del worktree passata a `def5678`
+- **WHEN** arriva una seconda gamba e poi la CI di `abc1234` risponde verde
+- **THEN** la seconda gamba SHALL rispondere 202 e la card SHALL restare `in_progress`
+- **AND** la gamba dopo SHALL chiedere la CI di `def5678`, e la card SHALL entrare in review con `checksCommit` `def5678`
+
+#### Scenario: il lettore della CI lancia un'eccezione
+- **GIVEN** un lettore che lancia `TypeError`, oppure `gh api` che esce 0 con `{"total_count":0}`
+- **THEN** l'esito SHALL essere «non misurato» e la consegna SHALL rispondere 409, con la card `in_progress`
+
+#### Scenario: la guardia dei nomi ferma la spinta da un worktree
+- **GIVEN** un worktree con un commit intermedio che contiene un nome dell'elenco del checkout principale, tolto dal commit dopo
+- **THEN** la spinta SHALL fallire, l'esito SHALL essere «non misurato», nessuna PR SHALL essere aperta e il ramo remoto NON SHALL esistere
+
 #### Scenario: una consegna senza commit propri
 - **GIVEN** un ramo senza commit oltre main
 - **THEN** il server NON SHALL spingere né aprire una PR, e la riga SHALL essere verde con la nota
@@ -339,4 +389,5 @@ registrare una clip con Playwright su questa macchina.
 #### Scenario: l'envelope vieta l'e2e locale anche a una board senza la riga
 - **GIVEN** una board che dichiara solo `bun run typecheck`
 - **THEN** il kickoff SHALL dire di non lanciare `check:e2e-touched`, `playwright test` e le build del client per gli e2e su questa macchina, e che `bun test <file>` resta ammesso
-- **AND** la regola dell'anteprima NON SHALL indicare una clip Playwright come modo di registrare il video
+- **AND** il kickoff SHALL dire che questa board non misura l'e2e e di nominare la spec nel commento di consegna, e NON SHALL dire che la board legge la CI
+- **AND** il ramo video della regola dell'anteprima NON SHALL contenere `playwright`, `recordVideo` o `chromium` in nessuna forma, e SHALL legare `screencapture` a una superficie già a schermo e a `browser_focus_tab`

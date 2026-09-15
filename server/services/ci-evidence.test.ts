@@ -5,13 +5,16 @@
  * @covers KANBAN-15
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_CI_CHECK } from "../../shared/board";
 import {
   CI_E2E_DEADLINE_MS,
   awaitE2eEvidence,
   ciCheckRun,
+  githubPort,
+  listField,
   readE2eEvidence,
   repoFromRemote,
   pushRejectedAsNonFastForward,
@@ -228,6 +231,97 @@ describe("awaitE2eEvidence", () => {
   });
 });
 
+describe("GitHub answers without the expected list", () => {
+  test("a body with no array is an error, not an undefined list that throws later", () => {
+    expect(listField<GithubRun>('{"workflow_runs":[{"id":1}]}', "workflow_runs")).toEqual([{ id: 1 } as GithubRun]);
+    expect(() => listField('{"total_count":0}', "workflow_runs")).toThrow("no \"workflow_runs\" array");
+    expect(() => listField('{"jobs":{"id":1}}', "jobs")).toThrow();
+    expect(() => listField("null", "jobs")).toThrow();
+  });
+
+  test("runs() through a gh that exits 0 with {\"total_count\":0} is a failed read, and the wait ends NOT MEASURED", async () => {
+    const bin = mkdtempSync(join(tmpdir(), "ci-evidence-gh-"));
+    const oldPath = process.env.PATH;
+    try {
+      writeFileSync(join(bin, "gh"), "#!/bin/sh\necho '{\"total_count\":0}'\n");
+      chmodSync(join(bin, "gh"), 0o755);
+      process.env.PATH = `${bin}:${oldPath}`;
+      const got = await githubPort().runs("o/r", SHA);
+      expect(got.ok).toBe(false);
+      const { port } = fakePort({ runs: githubPort().runs });
+      const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+      expect(row.notMeasured).toBe(true);
+      expect(row.tail).toContain("GitHub reads failed");
+    } finally {
+      process.env.PATH = oldPath;
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the delivery push goes through the repo's push guard, from a worktree too", () => {
+  const TERM = "Zzyzx Quiverleaf"; // invented, like the push guard's own test
+
+  test("an intermediate commit with a removed name is NOT MEASURED and never reaches the remote", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ci-evidence-push-guard-"));
+    const main = join(root, "main");
+    const wt = join(root, "wt");
+    const bare = join(root, "origin.git");
+    const hooks = join(root, "hooks");
+    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    delete env.TOPICS_PERSONAL_TERMS;
+    const git = (cwd: string, ...args: string[]): string => {
+      const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+      return p.stdout.toString().trim();
+    };
+    const savedTerms = process.env.TOPICS_PERSONAL_TERMS;
+    delete process.env.TOPICS_PERSONAL_TERMS;
+    // The test preload points core.hooksPath at nothing through GIT_CONFIG_*,
+    // which beats the repo config: for this push the hooks are the point.
+    const hookKey = Object.keys(process.env).find((k) => k.startsWith("GIT_CONFIG_KEY_") && process.env[k] === "core.hooksPath");
+    const hookValueKey = hookKey?.replace("KEY", "VALUE");
+    const savedHooks = hookValueKey ? process.env[hookValueKey] : undefined;
+    try {
+      mkdirSync(main);
+      mkdirSync(hooks);
+      git(root, "init", "-q", "--bare", bare);
+      git(main, "init", "-q", "-b", "main");
+      // The repo's own hook and guard, at the paths the hook looks them up.
+      copyFileSync(join(import.meta.dir, "../../scripts/git-hooks/pre-push"), join(hooks, "pre-push"));
+      chmodSync(join(hooks, "pre-push"), 0o755);
+      mkdirSync(join(main, "scripts"));
+      for (const f of ["check-push-clean.ts", "personal-terms.ts"]) copyFileSync(join(import.meta.dir, "../../scripts", f), join(main, "scripts", f));
+      writeFileSync(join(main, ".gitignore"), ".personal-terms\n");
+      git(main, "add", "-A");
+      git(main, "commit", "-q", "-m", "base");
+      git(main, "remote", "add", "origin", bare);
+      git(main, "push", "-q", "--no-verify", "origin", "main");
+      git(main, "config", "core.hooksPath", hooks);
+      if (hookValueKey) process.env[hookValueKey] = hooks;
+      writeFileSync(join(main, ".personal-terms"), `${TERM}\n`);
+      git(main, "worktree", "add", "-q", "-b", "topics/card", wt);
+      writeFileSync(join(wt, "note.txt"), `asked by ${TERM}\n`);
+      git(wt, "add", "-A");
+      git(wt, "commit", "-q", "-m", "wip");
+      writeFileSync(join(wt, "note.txt"), "asked by the reviewer\n");
+      git(wt, "commit", "-q", "-am", "the name goes away");
+      const sha = git(wt, "rev-parse", "HEAD");
+
+      const { port, calls } = fakePort({ push: githubPort().push });
+      const row = await awaitE2eEvidence({ cwd: wt, sha, taskId: "12345678-card" }, { port, ...fakeClock(), stopping: () => false });
+      expect(row.notMeasured).toBe(true);
+      expect(row.tail).toContain("push failed");
+      expect(calls.pr).toBe(0);
+      expect(git(main, "ls-remote", "origin", "refs/heads/topics/card")).toBe("");
+    } finally {
+      if (savedTerms !== undefined) process.env.TOPICS_PERSONAL_TERMS = savedTerms;
+      if (hookValueKey && savedHooks !== undefined) process.env[hookValueKey] = savedHooks;
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
 describe("contracts", () => {
   test("ci.yml still has the jobs and the tier this reader relies on", () => {
     const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
@@ -238,7 +332,7 @@ describe("contracts", () => {
     expect(e2e).toMatch(/^ {4}needs: prepare-e2e$/m);
     expect(e2e).toContain("E2E_TIER: pr");
     expect(e2e).toContain("if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}");
-    expect(e2e).toContain("check:e2e-touched --base=FETCH_HEAD");
+    expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
   });
 
   test("the client waits past the CI deadline plus the slowest local round, and below the CLI tool timeout", () => {

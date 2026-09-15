@@ -68,7 +68,7 @@ import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOut
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
-import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
+import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
 import { reviewChecksStopping, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
@@ -1182,8 +1182,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (ciCheck && runs.length === localChecks.length && runs.every((r) => r.ok)) {
           // Waiting on GitHub holds no CPU: give the lane to the next card's run.
           lane.release();
+          // A reader that throws measured nothing: NOT MEASURED, like its own
+          // docstring promises. Left to the gate, the exception became the `null`
+          // of a run that blew up, which the delivery reads as "no gate at all",
+          // and the card entered review with no e2e verdict. Only a shutdown
+          // passes through, as the interrupted outcome it already has.
           runs.push(ref.commit && opts?.ciE2eEvidence
-            ? await opts.ciE2eEvidence({ cwd: ref.cwd, sha: ref.commit, taskId })
+            ? await opts.ciE2eEvidence({ cwd: ref.cwd, sha: ref.commit, taskId }).catch((err: unknown) => {
+              if (err instanceof ChecksInterruptedError) throw err;
+              return ciNotMeasured(ciCheck, `the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
+            })
             : ciNotMeasured(ciCheck, ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit"));
           throwIfStopping();
         }

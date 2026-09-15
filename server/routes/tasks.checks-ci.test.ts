@@ -36,11 +36,11 @@ describe("a delivery on a board that declares the CI e2e row", () => {
   afterEach(() => { _resetReviewChecksStop(); });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
-  async function deliveryWith(commands: string[], ci: CiReader | null) {
+  async function deliveryWith(commands: string[], ci: CiReader | null, head = { commit: "abc1234" }) {
     const calls = { ci: 0 };
     let gate: ChecksGate | null = null;
     const router = createTasksRouter(makeCtx(db, broadcasts), undefined, {
-      taskCheckoutRef: async () => ({ cwd, commit: "abc1234" }),
+      taskCheckoutRef: async () => ({ cwd, commit: head.commit }),
       realignForChecks: async () => ({ ok: true, note: null }),
       onChecksGate: (g: ChecksGate) => { gate = g; },
       ...(ci ? { ciE2eEvidence: async (input: Parameters<CiReader>[0]) => { calls.ci += 1; return ci(input); } } : {}),
@@ -124,6 +124,47 @@ describe("a delivery on a board that declares the CI e2e row", () => {
     settle(greenCi);
     const done = (await d.deliver())!;
     expect(done.status).toBe(200);
+  }, 30_000);
+
+  test("a reader that throws anything but a shutdown is NOT MEASURED, and the card stays out of review", async () => {
+    const d = await deliveryWith(["true", E2E_CI_CHECK.cmd], async () => {
+      throw new TypeError("undefined is not an object (evaluating 'runs.filter')");
+    });
+    const resp = (await d.deliver())!;
+    expect(resp.status).toBe(409);
+    const body = await resp.json();
+    expect(body.code).toBe("review_needs_green_checks");
+    expect(body.error).toContain("runs.filter");
+    const task = await d.read();
+    expect(task.status).toBe("in_progress");
+    expect(task.checksState).toBe("unknown");
+  }, 30_000);
+
+  test("a green CI of an older head does not let a newer head into review", async () => {
+    let settle: (run: CheckRun) => void = () => {};
+    const head = { commit: "abc1234" };
+    const seen: string[] = [];
+    const d = await deliveryWith(["true", E2E_CI_CHECK.cmd], (input) => {
+      seen.push(input.sha);
+      return input.sha === "abc1234" ? new Promise<CheckRun>((r) => { settle = r; }) : Promise.resolve(greenCi);
+    }, head);
+    expect((await d.deliver(300))!.status).toBe(202);
+    for (let i = 0; i < 200 && d.calls.ci === 0; i++) await Bun.sleep(10);
+    head.commit = "def5678";
+    const second = d.deliver(5_000);
+    await Bun.sleep(50);
+    settle(greenCi);
+    const resp = (await second)!;
+    expect(resp.status).toBe(202);
+    expect((await d.read()).status).toBe("in_progress");
+    // The next leg measures the head that is there now, and only that verdict counts.
+    let last = (await d.deliver())!;
+    for (let i = 0; i < 20 && last.status === 202; i++) last = (await d.deliver())!;
+    expect(last.status).toBe(200);
+    expect(seen).toEqual(["abc1234", "def5678"]);
+    const task = await d.read();
+    expect(task.status).toBe("review");
+    expect(task.checksCommit).toBe("def5678");
   }, 30_000);
 
   test("a shutdown during the CI wait answers still running and records no verdict", async () => {

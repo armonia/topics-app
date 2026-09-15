@@ -285,11 +285,21 @@ export function createChecksGate(opts: {
       const gamba = new Promise<ChecksLeg>((resolve) => {
         timer = setTimeout(() => resolve({ pending: true }), legMs);
       });
+      let got: ChecksLeg;
       try {
-        return await Promise.race([corsa.promise, gamba]);
+        got = await Promise.race([corsa.promise, gamba]);
       } finally {
         if (timer) clearTimeout(timer);
       }
+      // A VERDICT BELONGS TO THE COMMIT IT MEASURED. A leg that joined a live
+      // run of an older head must not carry that run's verdict (nor its `null`)
+      // out as its own: the card would enter review, and land, on a commit that
+      // no check has seen. Since 15/09/2026 a run can stay live for an hour
+      // waiting on the pull request CI, so the head moving under it is no longer
+      // rare. The leg answers pending; the next one finds the old run ended on
+      // another commit, drops it and starts a run on the current head.
+      if (corsa.commit !== commit && (got === null || "ok" in got)) return { pending: true };
+      return got;
     },
   };
 }
