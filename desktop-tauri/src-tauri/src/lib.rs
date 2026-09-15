@@ -7632,7 +7632,7 @@ fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), Stri
 /// pause: a detached Web Inspector or the DevTools window takes the key/foreground
 /// state from the Topics window, so without this exemption debugging a heavy page
 /// would freeze the page being debugged.
-// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: the tauri devtools API on WKWebView and WebKitGTK; on WebView2 wry answers a constant false, so the foreground window is matched against the pane's own processes.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: the tauri devtools API on WKWebView and WebKitGTK; on WebView2 wry answers a constant false, so the top-level windows of the pane's own processes are searched for its DevTools window.
 #[tauri::command]
 fn browser_devtools_open(app: tauri::AppHandle, id: String) -> Result<bool, String> {
     no_abort("browser_devtools_open", move || {
@@ -7642,7 +7642,7 @@ fn browser_devtools_open(app: tauri::AppHandle, id: String) -> Result<bool, Stri
         #[cfg(target_os = "windows")]
         {
             let _ = wv;
-            return Ok(crate::pane_process_win::foreground_is_pane(&label));
+            return Ok(crate::pane_process_win::inspector_open(&label));
         }
         #[cfg(not(target_os = "windows"))]
         Ok(wv.is_devtools_open())

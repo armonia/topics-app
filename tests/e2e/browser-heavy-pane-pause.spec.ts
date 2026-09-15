@@ -15,7 +15,8 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { seedPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -64,11 +65,17 @@ async function fakeHeavyShell(page: Page, ctx: string, png: string): Promise<voi
     };
     w.__TAURI_INTERNALS__ = {
       metadata: { currentWindow: { label: "main" } },
-      invoke: (cmd: string) => {
+      invoke: (cmd: string, args?: unknown) => {
         w.__calls.push(cmd);
         if (cmd === "perf_metrics") return Promise.resolve(perf);
         if (cmd === "browser_screenshot") return Promise.resolve(png);
-        if (cmd === "browser_eval_js") return Promise.resolve("");
+        // The 120 ms poll that reads the in-page click counter: `window.__bump`
+        // stands for a click the person gives inside the native page.
+        if (cmd === "browser_eval_js") {
+          const js = String((args as { js?: string } | undefined)?.js ?? "");
+          const bump = (window as unknown as { __bump?: number }).__bump ?? 0;
+          return Promise.resolve(js.includes("JSON.stringify({k:") ? JSON.stringify({ k: bump, m: null }) : "");
+        }
         if (cmd === "browser_devtools_open") return Promise.resolve(false);
         if (cmd.startsWith("browser_take_") || cmd === "browser_download_progress") return Promise.resolve([]);
         return Promise.resolve(null);
@@ -162,5 +169,75 @@ test.describe("heavy native browser pane", () => {
     await expect(page.getByTestId("browser-paused")).toHaveCount(0);
     expect((await calls(page)).filter((c) => c === "browser_screenshot")).toEqual([]);
     await setWindowFocus(page, true);
+  });
+  test("the topic's browser window pauses while the chat is used, and the window or a click in its page keeps it live", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-HEAVY-03" });
+    // The window is not a pane of the layout: its focus is its own
+    // (`useSurfaceFocus`), handed to the page by three props of the mount site.
+    // Each act below goes red when one of them is missing.
+    const ctx = "heavy-topic-window-probe";
+    await resetPaneStore(request, []);
+    const topic = await createTopic(request, `E2E-Heavy-TBW-${Date.now()}`);
+    try {
+      const seeded = await request.put(`${E2E_BASE}/api/ui-state/topic-browser:${topic.id}`, {
+        data: {
+          mode: "exp", minPos: null, expandedWidth: 480, promoted: [], activeContextId: ctx,
+          tabs: [{ contextId: ctx, url: "https://example.com/", title: "Example", openedBy: "user" }],
+        },
+        ignoreHTTPSErrors: true,
+      });
+      expect(seeded.ok()).toBeTruthy();
+      await page.clock.install();
+      await fakeHeavyShell(page, ctx, PNG_1X1);
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await page.locator(`[data-topic-id="${topic.id}"]`).first().click();
+      const win = page.locator('[data-testid="topic-browser-window"]:not([data-parked])');
+      await expect(win).toBeVisible({ timeout: 15_000 });
+      await expect.poll(async () => (await calls(page)).filter((c) => c === "browser_open").length, { timeout: 30_000 }).toBe(1);
+      const composer = page.locator(`[data-chat-topic-id="${topic.id}"] [data-testid="chat-message-input"]`).first();
+      const paused = win.getByTestId("browser-paused");
+      const tab = win.locator(`[data-testid="topic-browser-tab"][data-context-id="${ctx}"]`);
+
+      // (hasFocus) The window has the page, the verdict comes, then the person types in the chat.
+      await tab.click();
+      await page.clock.runFor(25_000);
+      await expect(paused).toHaveCount(0);
+      await composer.click();
+      await page.clock.runFor(3_000);
+      await page.clock.runFor(1_000);
+      await expect(paused, "the chat took the focus and the heavy page did not pause").toBeVisible({ timeout: 10_000 });
+
+      // (captureProps) A click on the window itself gives the page back, and it stays live.
+      await tab.click();
+      await expect.soft(paused, "a click on the window did not give the focus back").toHaveCount(0, { timeout: 10_000 });
+      await page.clock.runFor(4_000);
+      await expect.soft(paused, "a click on the window did not keep the page live").toHaveCount(0);
+      // Riprendi, whatever the act above left.
+      if (await paused.count()) await win.getByTestId("browser-paused-resume").click();
+      await expect(paused).toHaveCount(0, { timeout: 10_000 });
+
+      // (onSelfFocus) Back to the chat, then a click inside the native page before the dwell ends.
+      await composer.click();
+      await page.clock.runFor(1_000);
+      await page.evaluate(() => { (window as unknown as { __bump: number }).__bump = 1; });
+      await page.clock.runFor(3_000);
+      await page.clock.runFor(1_000);
+      await expect.soft(paused, "a click inside the native page did not keep it live").toHaveCount(0);
+
+      // Riprendi: paused from the chat again, the button brings it back.
+      await composer.click();
+      await page.clock.runFor(3_000);
+      await page.clock.runFor(1_000);
+      await expect(paused).toBeVisible({ timeout: 10_000 });
+      await win.getByTestId("browser-paused-resume").click();
+      await expect(paused).toHaveCount(0, { timeout: 10_000 });
+
+      const after = await calls(page);
+      expect(after.filter((c) => ["browser_reload", "browser_navigate", "browser_close"].includes(c))).toEqual([]);
+      expect(after.filter((c) => c === "browser_open")).toHaveLength(1);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
   });
 });

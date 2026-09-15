@@ -48,18 +48,35 @@ pub(crate) fn label_cpu(per_pid: &[Option<f32>]) -> Option<f32> {
     per_pid.iter().copied().try_fold(0.0f32, |acc, v| v.map(|x| acc + x))
 }
 
-/// Whether a foreground window of process `pid` belongs to the pane whose
-/// environment is `entry` (browser pid, every pid). WebView2 draws the DevTools
-/// of a pane in a top-level window of that pane's browser process, and wry 0.55
-/// answers `is_devtools_open` with a constant `false` there, so the foreground
-/// window is the only reading of "the inspector of this pane has the focus".
+/// Whether process `pid` belongs to the pane whose environment is `entry`
+/// (browser pid, every pid).
 pub(crate) fn pane_owns_pid(entry: Option<&(u32, Vec<u32>)>, pid: u32) -> bool {
     pid != 0 && entry.is_some_and(|(_, pids)| pids.contains(&pid))
 }
 
+/// One top-level window, as `EnumWindows` lists it.
+pub(crate) struct TopWindow {
+    pub pid: u32,
+    pub visible: bool,
+    pub title: String,
+}
+
+/// Whether the inspector of the pane whose environment is `entry` is open.
+///
+/// WebView2 draws the DevTools of a pane in a top-level window of that pane's
+/// browser process, titled `DevTools - <page>`, and wry 0.55 answers
+/// `is_devtools_open` with a constant `false`. So the answer is whether such a
+/// window EXISTS, wherever the focus is: the inspector stays open while the
+/// person pastes one of its errors into the chat, which is exactly when the
+/// Topics window has the foreground. The title keeps out the other visible
+/// windows of the same process (a popup the page opened, a `<select>` list).
+pub(crate) fn pane_inspector_open(entry: Option<&(u32, Vec<u32>)>, windows: &[TopWindow]) -> bool {
+    windows.first().is_some_and(|w| pane_owns_pid(entry, w.pid))
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
-    use super::{cpu_delta_percent, filetime_to_ns, label_cpu, pane_owns_pid};
+    use super::{cpu_delta_percent, filetime_to_ns, label_cpu, pane_inspector_open, TopWindow};
     use std::collections::{HashMap, HashSet};
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
@@ -68,10 +85,11 @@ mod imp {
     };
     use webview2_com::TrySuspendCompletedHandler;
     use windows::core::Interface;
-    use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, HWND, LPARAM};
     use windows::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
     use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible};
 
     /// label -> (browser process id, every process id of its environment).
     type PidMap = HashMap<String, (u32, Vec<u32>)>;
@@ -181,17 +199,28 @@ mod imp {
         out
     }
 
-    /// The foreground window is one of pane `label`'s own processes: its DevTools
-    /// window, read after the Topics window lost the focus to it. The pids come
-    /// from the last `perf_metrics` sample, which a heavy verdict implies.
-    pub(crate) fn foreground_is_pane(label: &str) -> bool {
-        let hwnd = unsafe { GetForegroundWindow() };
-        if hwnd.0.is_null() {
-            return false;
-        }
+    unsafe extern "system" fn list_window(hwnd: HWND, out: LPARAM) -> BOOL {
+        let windows = unsafe { &mut *(out.0 as *mut Vec<TopWindow>) };
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-        pane_pids().lock().map(|m| pane_owns_pid(m.get(label), pid)).unwrap_or(false)
+        let mut buf = [0u16; 64];
+        let len = unsafe { GetWindowTextW(hwnd, &mut buf) }.max(0) as usize;
+        windows.push(TopWindow {
+            pid,
+            visible: unsafe { IsWindowVisible(hwnd) }.as_bool(),
+            title: String::from_utf16_lossy(&buf[..len]),
+        });
+        BOOL(1)
+    }
+
+    /// Whether pane `label` has its DevTools window open, focused or not. The
+    /// pids come from the last `perf_metrics` sample, which a heavy verdict implies.
+    pub(crate) fn inspector_open(label: &str) -> bool {
+        let mut windows: Vec<TopWindow> = Vec::new();
+        if unsafe { EnumWindows(Some(list_window), LPARAM(&mut windows as *mut Vec<TopWindow> as isize)) }.is_err() {
+            return false;
+        }
+        pane_pids().lock().map(|m| pane_inspector_open(m.get(label), &windows)).unwrap_or(false)
     }
 
     pub(crate) fn collect_webview_usage() -> Vec<crate::WebviewUsage> {
@@ -254,21 +283,45 @@ mod imp {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) use imp::{collect_webview_usage, foreground_is_pane, refresh_webview_process_ids, try_suspend_blocking};
+pub(crate) use imp::{collect_webview_usage, inspector_open, refresh_webview_process_ids, try_suspend_blocking};
 
 #[cfg(test)]
 mod tests {
-    use super::{cpu_delta_percent, filetime_to_ns, label_cpu, pane_owns_pid};
+    use super::{cpu_delta_percent, filetime_to_ns, label_cpu, pane_inspector_open, pane_owns_pid, TopWindow};
     use std::time::{Duration, Instant};
 
+    fn window(pid: u32, visible: bool, title: &str) -> TopWindow {
+        TopWindow { pid, visible, title: title.to_string() }
+    }
+
     #[test]
-    fn the_inspector_of_a_pane_is_a_window_of_its_own_environment() {
+    fn the_processes_of_a_pane_are_the_ones_of_its_own_environment() {
         let pane = (40u32, vec![40u32, 41, 42]);
         assert!(pane_owns_pid(Some(&pane), 40));
         assert!(pane_owns_pid(Some(&pane), 42));
         assert!(!pane_owns_pid(Some(&pane), 7), "the Topics window or another app");
         assert!(!pane_owns_pid(None, 40), "a pane never sampled has no processes to match");
-        assert!(!pane_owns_pid(Some(&(0, vec![0])), 0), "no foreground window reads pid 0");
+        assert!(!pane_owns_pid(Some(&(0, vec![0])), 0), "a window whose process is unknown reads pid 0");
+    }
+
+    /// Listed in z-order, as `EnumWindows` gives them: the Topics window on top
+    /// because the person went back to the chat, the inspector right under it.
+    #[test]
+    fn the_inspector_is_open_while_the_chat_has_the_focus() {
+        let pane = (40u32, vec![40u32, 41, 42]);
+        let chat_on_top = [window(7, true, "Topics"), window(40, true, "DevTools - example.com/")];
+        assert!(pane_inspector_open(Some(&pane), &chat_on_top));
+
+        let inspector_on_top = [window(40, true, "DevTools - example.com/"), window(7, true, "Topics")];
+        assert!(pane_inspector_open(Some(&pane), &inspector_on_top));
+
+        let other_pane = [window(7, true, "Topics"), window(90, true, "DevTools - other.com/")];
+        assert!(!pane_inspector_open(Some(&pane), &other_pane), "the inspector of another pane");
+        let closed = [window(7, true, "Topics"), window(40, false, "DevTools - example.com/")];
+        assert!(!pane_inspector_open(Some(&pane), &closed), "a hidden window of the browser process");
+        let popup = [window(40, true, "Example"), window(7, true, "Topics")];
+        assert!(!pane_inspector_open(Some(&pane), &popup), "a page window of the same process is not the inspector");
+        assert!(!pane_inspector_open(None, &chat_on_top), "a pane never sampled");
     }
 
     #[test]

@@ -52,8 +52,8 @@ superficie e la sua finestra non e' nota come senza fuoco; un'anteprima pesante 
 fianco alla chat in cui si scrive SHALL andare in pausa, anche nella finestra browser
 del topic, il cui fuoco e' l'ultimo tocco (pointerdown o focus) dentro la finestra
 contro uno fuori. Un agente che la guida, un'operazione in volo, l'inspector aperto
-(su WebView2 letto dalla finestra in primo piano, che appartiene ai processi della
-pane) o un elemento a schermo intero la SHALL tenere viva; un'esenzione trovata a
+(su WebView2 letto dall'esistenza di una finestra DevTools dei processi della pane,
+ovunque sia il fuoco) o un elemento a schermo intero la SHALL tenere viva; un'esenzione trovata a
 fine sosta SHALL riarmare la sosta, non annullarla. Il fuoco della
 finestra SHALL arrivare dal guscio con un evento `topics:window-focus` su tutte e tre
 le finestre (principale, pop-out, finestra gruppo); finche' nessuno risponde vale
