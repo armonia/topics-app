@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.329 — 2026-09-15
+
+### Sotto il cofano
+- La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti
+- Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0
+
 ## 2.2.328 — 2026-09-15
 
 ### Sotto il cofano

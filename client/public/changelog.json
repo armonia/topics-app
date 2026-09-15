@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.329",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.328",
     "date": "2026-09-15",
     "sections": {
