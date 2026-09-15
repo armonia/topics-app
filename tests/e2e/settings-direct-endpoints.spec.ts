@@ -2,21 +2,19 @@
  * Adding, testing and removing an endpoint somebody runs themselves, with
  * every request intercepted: no real endpoint, no token, no generation.
  *
- * A configured endpoint is a chat connection, and MP-TASK-01 keeps it out of
- * the task pickers: one round trip, no file or bash tool, no update_task, so a
- * card handed to one would never close. That boundary is a pure function and
- * it is asserted where it can actually break, in
- * shared/direct-endpoints-boundaries.test.ts. What this spec holds is the
- * other half: the endpoint IS offered for a chat.
+ * Which provider the composer offers is NOT asserted here: the page hydrates
+ * its snapshot from the live WebSocket as well as from HTTP, so a stubbed
+ * /providers/snapshot gets overwritten and the row appears only when the
+ * ordering happens to favour it. That half lives in
+ * shared/direct-endpoints-boundaries.test.ts, where the rule is a pure
+ * function and can actually break.
  *
  * @covers MP-DIRECT-01
- * @covers MP-DIRECT-04
  */
 import { expect, test, type Page } from '@playwright/test';
-import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from '../../shared/types';
 import { hermetic } from './fixtures/hermetic';
-import { goToApp, openTopic } from './helpers';
+import { goToApp } from './helpers';
 import { openProfileMenu } from './helpers/open-perf-panel';
 
 hermetic(test);
@@ -37,35 +35,6 @@ function nativeEntry(): ProviderSnapshotEntry {
     status: 'ready',
     models: ['claude-opus-4-8'],
     defaultModel: 'claude-opus-4-8',
-    requirements: [],
-    capabilities: ['streaming', 'history', 'coding-tasks'],
-    isDefault: true,
-    fetchedAt: new Date().toISOString(),
-  } as ProviderSnapshotEntry;
-}
-
-function directEntry(): ProviderSnapshotEntry {
-  return {
-    name: 'direct-local-llama',
-    label: 'Local llama',
-    status: 'ready',
-    models: ['qwen38-27b-200k'],
-    defaultModel: 'qwen38-27b-200k',
-    requirements: [],
-    capabilities: ['streaming', 'history'],
-    modelContextWindows: { 'qwen38-27b-200k': 200_192 },
-    isDefault: false,
-    fetchedAt: new Date().toISOString(),
-  } as ProviderSnapshotEntry;
-}
-
-function codingEntry(): ProviderSnapshotEntry {
-  return {
-    name: 'claude',
-    label: 'Claude Code',
-    status: 'ready',
-    models: ['claude-sonnet-4'],
-    defaultModel: 'claude-sonnet-4',
     requirements: [],
     capabilities: ['streaming', 'history', 'coding-tasks'],
     isDefault: true,
@@ -203,43 +172,5 @@ test.describe('Settings · endpoints you run yourself', () => {
     // The row says a token is set; the secret itself is nowhere in the DOM.
     await expect(page.getByTestId(`direct-endpoint-${ENDPOINT.id}`)).toContainText('token');
     expect(await page.content()).not.toContain('tok-e2e-secret');
-  });
-});
-
-test.describe.serial('A configured endpoint in the chat picker', () => {
-  test.use({ viewport: { width: 1280, height: 900 } });
-
-  let topicId = '';
-  let topicName = '';
-
-  test.beforeAll(async ({ request }) => {
-    topicName = 'Direct endpoint E2E ' + Date.now();
-    topicId = (await createTopic(request, topicName)).id;
-  });
-
-  test.afterAll(async ({ request }) => {
-    if (topicId) await deleteTopic(request, topicId);
-  });
-
-  // The pane store is shared by the whole serial suite: without this reset the
-  // picker matches once per mounted chat pane and the locator goes strict-mode.
-  test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, [topicId]);
-  });
-
-  test('it is offered for a chat, with the window it declares', async ({ page }) => {
-    test.info().annotations.push({ type: 'spec', description: 'MP-DIRECT-04' });
-    await mockEndpoints(page, { providers: [nativeEntry(), directEntry(), codingEntry()] });
-    await goToApp(page);
-    await page.keyboard.press('Escape');
-    await openTopic(page, new RegExp(topicName));
-
-    const chatPicker = page.getByTestId('provider-model-picker');
-    await chatPicker.waitFor({ state: 'visible', timeout: 15_000 });
-    await chatPicker.click();
-    const popover = page.getByTestId('provider-model-popover');
-    await expect(popover).toBeVisible();
-    // The endpoint is selectable for a chat: that is the whole feature.
-    await expect(popover.locator('[data-provider="direct-local-llama"]').first()).toBeVisible();
   });
 });
