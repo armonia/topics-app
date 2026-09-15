@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -2542,10 +2542,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // The budget knob travels with the reading: the gauge, the panel and the
       // gate have to answer from ONE number, or the slider promises a share the
       // dispatcher is not applying.
-      return json(computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
-        share: budgetShare(svc.getGlobalCap()),
-        frozen: activeFrozenCount(),
-      }));
+      let admission: DispatchAdmission | null = null;
+      try { admission = dispatcher?.admissionPreview?.() ?? null; } catch { /* best-effort */ }
+      return json({
+        ...computeDispatchCapacity(running, undefined, resolveAgentRuntime() === "cli", undefined, {
+          share: budgetShare(svc.getGlobalCap()),
+          frozen: activeFrozenCount(),
+        }),
+        admission,
+      });
     }
 
     // GET /api/all-boards/publish-status — per-project "commits not yet pushed"
