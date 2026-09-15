@@ -849,6 +849,52 @@ test.describe("Ingrandimento della sola cella", () => {
       expect(await cellBoxes(page)).toEqual(rest);
     }
   });
+
+  test("uscire dallo zoom non fa riaprire da sola la scheda di una pane browser vuota", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-40" });
+    // WHY THIS LIVES IN THE ZOOM FILE. An empty browser pane puts the caret in
+    // its address sheet by itself, which is right ON THE PANE YOU JUST OPENED
+    // and wrong as a consequence of a LAYOUT change: leaving the zoom hands the
+    // hidden panes their cells back, and the sheet used to surface ~50ms later,
+    // over whatever gesture came next. It then ate the Escape aimed at the zoom,
+    // which is the intermittent red of the scenario above (card c4d48d3e).
+    // The pane has to be a browser NOBODY's conversation owns: `browser:${t1}`
+    // is t1's own, so the zoom set would keep its cell on screen and the cell
+    // would never lose - and regain - its box, which is the whole mechanism.
+    const strayBrowser = `browser:zoomempty-${STAMP}`;
+    await seedGrid(page, request, {
+      paneIds: [t1, strayBrowser, t2],
+      soloCells: [[strayBrowser], [t2]],
+    });
+    const sheet = page.getByTestId("browser-tab-sheet");
+
+    // The wanted half, first, and it is the precondition of the rest: a pane
+    // born empty DOES open its sheet, and one Escape is enough to be rid of it.
+    await expect(sheet, "una pane vuota apre la sua scheda alla nascita").toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+
+    await pinTab(page, t1);
+    await tab(page, t1).dblclick();
+    await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(true);
+    await tab(page, t1).dblclick();
+    await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(false);
+
+    // Waiting FOR the sheet and asking that it never comes: a plain count would
+    // read the instant before the deferred open, which is green on the bug.
+    const surfaced = await sheet
+      .waitFor({ state: "visible", timeout: 3_000 })
+      .then(() => true)
+      .catch(() => false);
+    expect(surfaced, "nessuna scheda e' comparsa da sola dopo l'uscita dallo zoom").toBe(false);
+
+    // And the consequence the person actually feels: the next Escape is the
+    // zoom's, because there is nothing in front of it to spend it on.
+    await tab(page, t1).dblclick();
+    await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => zoomed(page), { timeout: 5_000 }).toBe(false);
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

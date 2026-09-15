@@ -176,7 +176,10 @@ describe("tombstone sync PUT durability", () => {
   test("the last-synced-JSON guard skips a redundant publish of unchanged content", async () => {
     installFetch(true);
     addTerminalTombstone("terminal:dupcheck");
-    await waitFor(() => fetchCalls.length > 0);
+    // Wait for the first write to be ACKED, not merely started: snapshotting
+    // the counter mid-flight makes the later `toBe` read a call that belongs
+    // to this same write (red only on a loaded machine).
+    await waitFor(() => fetchCalls.length > 0 && !__getUnackedTombstoneSyncKeys().includes(TERMINAL_KEY));
     const callsAfterFirst = fetchCalls.length;
 
     // No-op write: clearing an id that isn't in the set rewrites the same

@@ -106,6 +106,17 @@ const layout = (paneId: string) => ({
 /** Il sync è debounced a 500 ms: si aspetta oltre. */
 const settle = () => new Promise((r) => setTimeout(r, 650));
 
+/**
+ * Wait for the WRITE, not for the clock: under a loaded fleet the debounce
+ * timer lands well past 650 ms, so a fixed sleep reads a PUT that has not
+ * happened yet. Fixed sleeps stay only where the assertion is "nothing more
+ * was written".
+ */
+async function waitForPuts(n: number, budgetMs = 10_000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (putBodies.length < n && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+}
+
 beforeEach(() => {
   __resetProjectSyncForTests();
   installFetch();
@@ -127,7 +138,7 @@ describe("canale di progetto — non riscrive ciò che ha già scritto", () => {
     // c'entra, ed è il motivo per cui i due save sono separati da un `settle`
     // invece che sparati insieme.
     saveProjectLayout(KEY, PROJECT, layout("terminal:aaa"));
-    await settle();
+    await waitForPuts(1);
     expect(putBodies.length).toBe(1);
 
     saveProjectLayout(KEY, PROJECT, layout("terminal:aaa"));
@@ -141,11 +152,11 @@ describe("canale di progetto — non riscrive ciò che ha già scritto", () => {
     // `syncServer.ts`, che passava i suoi test e non faceva arrivare al server
     // la chiusura di una scheda.
     saveProjectLayout(KEY, PROJECT, layout("terminal:aaa"));
-    await settle();
+    await waitForPuts(1);
     saveProjectLayout(KEY, PROJECT, layout("terminal:aaa"));
     await settle();
     saveProjectLayout(KEY, PROJECT, layout("terminal:bbb"));
-    await settle();
+    await waitForPuts(2);
     expect(putBodies.length).toBe(2);
     expect(putBodies[1]).toContain("terminal:bbb");
   });
@@ -154,11 +165,11 @@ describe("canale di progetto — non riscrive ciò che ha già scritto", () => {
     // A → B → A. Il terzo save torna a un corpo già visto, ma non è quello che
     // il server ha adesso: saltarlo lascerebbe il server su B per sempre.
     saveProjectLayout(KEY, PROJECT, layout("terminal:aaa"));
-    await settle();
+    await waitForPuts(1);
     saveProjectLayout(KEY, PROJECT, layout("terminal:bbb"));
-    await settle();
+    await waitForPuts(2);
     saveProjectLayout(KEY, PROJECT, layout("terminal:aaa"));
-    await settle();
+    await waitForPuts(3);
     expect(putBodies.length).toBe(3);
     expect(putBodies[2]).toContain("terminal:aaa");
   });
