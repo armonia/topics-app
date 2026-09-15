@@ -3428,13 +3428,37 @@ chiuda la porta. Su una macchina ferma usabile e tetto coincidono; su una
 macchina occupata da altri la nostra fetta si stringe, e l'interfaccia SHALL
 dirlo invece di promettere un numero che nessuno può avere.
 
-**AMMISSIONE UNO PER TICK, CON ISTERESI.** Si ammette UN agente per giro, e solo
-se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la MEDIANA
-degli ultimi agenti misurati, mai una costante. Una volta trattenuta, la coda
+**AMMISSIONE UNA ALLA VOLTA, CON ISTERESI.** Si ammette UN agente alla volta, e
+solo se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la
+MEDIANA degli ultimi misurati, mai una costante. «Una alla volta» SHALL valere
+per TUTTO il dispatcher e per ogni porta: fra due partenze passano almeno 9
+secondi (`ADMISSION_SPACING_MS`), che la partenza sia un dispatch nuovo, una
+ripresa (riavvio, rifiuto in review, risposta a una domanda) o venga da un'altra
+board. Un resume che trova la rampa chiusa aspetta nella coda delle attese di
+slot, col chip `queued` e senza nota nel thread. Il giro di `reconcile` SHALL
+essere uno solo alla volta: chi arriva a giro in corso riceve quel giro. Prima la
+rampa era un contatore del singolo `tick(progetto)`: tre board ammettevano tre
+card per giro, tre giri sovrapposti ne prendevano tre, e un riavvio con sedici
+turni tagliati ne faceva ripartire dodici nello stesso istante. Una volta trattenuta, la coda
 SHALL ripartire sotto l'80% del budget e non alla soglia stessa: fra un dispatch
 e la lettura che lo vede passano secondi, e senza quel salto la coda si svuota
 tutta contro una misura vecchia (misurato il 07/09/2026: otto card in un tick a
 load 12 su 12 core, e dieci minuti dopo load 155 con 13,4 GB di swap).
+
+**IL PREZZO DELLA MEMORIA È QUELLO DI UNA CARD, E SI TIENE PER TUTTO IL TURNO.**
+Il costo in memoria di un agente SHALL essere la mediana dei picchi delle ultime
+9 card, e il picco di una card è il footprint massimo dell'albero di processi dei
+suoi check pre-review in un giro, un numero per card. Non il footprint delle
+sessioni: col runtime nativo una card non ha un processo suo, e i suoi tool e i
+suoi check sono figli del server, quindi la mediana girava sui terminali della
+persona e restava sul pavimento mentre un `test:unit:shards` teneva 11 GB. Senza
+campioni (dopo ogni riavvio del server) una card vale 4 GB, con un tetto di 6.
+La prenotazione degli agenti ammessi SHALL durare 90 secondi sull'asse CPU e
+TUTTO il turno sull'asse memoria: i cancelli di un agente arrivano da due a sei
+minuti dopo la partenza (mediana 160 s, misurata il 14/09/2026), e una
+prenotazione che scade prima fa entrare la coda contro una lettura che sta per
+cambiare. Sul rigioco di quella notte (24 GB liberi, 20 card, quota 80%) erano
+20 partenze in 4 minuti; con prezzo e prenotazione sono al massimo 5 in 5 minuti.
 
 **IL CONTROLLO DINAMICO: si congela l'eccesso.** Rifiutare il prossimo agente non
 fa niente per una macchina che è già oltre. Quando l'uso supera il budget per DUE
@@ -3455,7 +3479,9 @@ tenevano il resto. Quello che li trattiene è l'ammissione.
 quanto carica sia la macchina, e il verdetto lo DICHIARA (`firstAgentExempt`).
 Senza, chi lavora sul proprio Mac tiene il budget superato da solo, la coda non
 parte mai, e il modo in cui lo si scopre è che qualcuno guarda dodici card ferme
-e conclude che il dispatcher è rotto.
+e conclude che il dispatcher è rotto. «Zero» SHALL contare anche le corse di
+check pre-review in volo: una coda ferma dietro uno shard da 11 GB non è una coda
+che non parte mai, parte quando lo shard finisce.
 
 **Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
 il pavimento) vale in ENTRAMBE le modalità e vince sul budget: un disco pieno non
@@ -3464,6 +3490,17 @@ tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
 (`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
 una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
 non dire.
+
+Il pavimento di memoria SHALL avere isteresi e prenotazione, in entrambe le
+modalità. Una volta fermo riparte solo con spazio per un agente in più sopra il
+pavimento (pavimento più il prezzo di una card), non alla soglia stessa: il 14/09
+un confronto nudo con 6 GB ha scritto 30 «coda ferma» e 30 «coda ripartita» in
+undici minuti, e ogni apertura lasciava passare turni. Alla lettura SHALL
+sottrarsi il prezzo dei turni partiti nella finestra di 90 secondi, e un giro per
+numero SHALL rileggerlo dopo ogni partenza: il tetto numerico prenderebbe tutti i
+posti liberi su una lettura sola, e in quella modalità nient'altro guarda la
+memoria libera. La riga del log del riavvio SHALL contare le riprese partite
+davvero e, a parte, quelle rimaste in attesa di un posto.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
@@ -3502,7 +3539,11 @@ libero, ammissione uno per tick con isteresi, ordine di congelamento, due
 letture per decidere, e il rigioco delle otto card del 07/09);
 `server/services/budget-governor.test.ts` per il congelamento vero;
 `server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
-dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
+dispatcher; `server/services/task-dispatcher-admission.test.ts` per le porte
+(rigioco della notte del 14/09, rampa fra board e riprese, un giro di reconcile
+alla volta, esenzione con check in volo, pavimento con isteresi);
+`server/lib/card-memory-peaks.test.ts` per il prezzo per card dal picco dei
+check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
 `bun run probe:budget` come banco sintetico su processi veri (bruciatore, `ps
 -o stat` che dice `T`); e2e sul dropdown e sull'anello.
 
@@ -3522,6 +3563,23 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 - **GIVEN** la stessa macchina carica e ZERO agenti vivi
 - **WHEN** il dispatcher fa il suo giro
 - **THEN** un agente parte, e il verdetto dichiara l'esenzione invece di sostenere che la macchina è libera
+- **AND** con una corsa di check pre-review in volo non parte, perché la macchina ha già lavoro nostro
+
+#### Scenario: la notte del 14/09 non riparte
+- **GIVEN** la modalità «a budget» all'80%, 24 GB liberi, 20 card in Todo e un giro ogni 10 secondi
+- **AND** agenti che per 160 s costano un decimo di core e poi 2 core e 2 GB
+- **THEN** nei primi 5 minuti partono al massimo 5 agenti
+
+#### Scenario: la rampa è del dispatcher, non della board
+- **GIVEN** tre board con card in Todo, oppure un riavvio con sei turni tagliati
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** parte UNA card, le altre aspettano col chip `queued` e partono una per giro
+- **AND** la riga del log del riavvio dice «1 da capo» e «5 in attesa di un posto»
+
+#### Scenario: il pavimento non sfarfalla
+- **GIVEN** la coda ferma sotto il pavimento di 6 GB
+- **WHEN** la memoria disponibile risale a 6,5 GB
+- **THEN** non parte niente finché non c'è spazio per un agente in più sopra il pavimento
 
 #### Scenario: quello che prendono gli altri stringe il budget
 - **GIVEN** un budget dell'80% su 12 core e altri processi che ne tengono 10

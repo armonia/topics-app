@@ -12,7 +12,8 @@
  *     `pressure`, and the line is written once per episode. Under it: it starts.
  *  2. The first agent is exempt: an empty fleet starts even on a busy machine.
  *  3. The memory axis blocks on its own.
- *  4. In this mode the numeric cap does not apply, and the ramp is one per tick.
+ *  4. In this mode the numeric cap does not apply, and the ramp is one start per
+ *     poll on a clock the whole dispatcher shares.
  *  5. The hard floor still wins over the budget, in both modes.
  *  6. REGRESSION: in `count` mode the probe is never consulted and the number
  *     rules exactly as before.
@@ -20,7 +21,7 @@
  *     default budget; a written budget comes back clamped.
  * @covers KANBAN-75
  */
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, setSystemTime } from "bun:test";
 import { Database } from "bun:sqlite";
 import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, budgetShare, capMode, type MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
@@ -318,7 +319,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     expect(h.notes("m2", "Non c'è memoria per un altro agent")).toHaveLength(1);
   });
 
-  it("ramps ONE new dispatch per tick, and ignores the numeric cap: three cards on a cap of 1, three ticks, three agents", async () => {
+  it("ramps ONE new dispatch per poll, and ignores the numeric cap: three cards on a cap of 1, three polls, three agents", async () => {
     const h = harness();
     boardOn(h);
     h.svc.setGlobalCap({ auto: false, max: 1, mode: "resources" });
@@ -326,28 +327,42 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     // would read the same quiet measure, so the round admits one card only.
     h.machine.pressure = { ...QUIET, ourCoreUnits: 0.2, running: 0 };
     seedTask(h.db, "n1"); seedTask(h.db, "n2"); seedTask(h.db, "n3");
+    const t0 = Date.now();
+    try {
+      setSystemTime(new Date(t0));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(1);
+      // The others are told where they are, and nothing holds the whole queue.
+      expect(h.task("n2")!.dispatchState).toBe("queued");
+      expect(h.task("n3")!.dispatchState).toBe("queued");
+      expect(currentDispatchBlock()).toBeNull();
 
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(1);
-    // The others are told where they are, and nothing holds the whole queue.
-    expect(h.task("n2")!.dispatchState).toBe("queued");
-    expect(h.task("n3")!.dispatchState).toBe("queued");
-    expect(currentDispatchBlock()).toBeNull();
+      // The ramp is a clock, not a counter of calls: a second tick at the same
+      // instant (another board, a grace timer) starts nothing.
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(1);
 
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(2);
+      setSystemTime(new Date(t0 + 10_000));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(2);
 
-    // Third tick, third agent: the cap of 1 never applied, the ramp did.
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(3);
+      // Third poll, third agent: the cap of 1 never applied, the ramp did.
+      setSystemTime(new Date(t0 + 20_000));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(3);
 
-    // Nothing left: a fourth tick starts nothing.
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topicsCreated).toHaveLength(3);
+      // Nothing left: a fourth poll starts nothing.
+      setSystemTime(new Date(t0 + 30_000));
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topicsCreated).toHaveLength(3);
+    } finally {
+      setSystemTime();
+    }
   });
 
   it("the hard floor wins over the budget: a full disk is not a wait that passes", async () => {

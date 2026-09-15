@@ -507,12 +507,13 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   // The memory figures the panel can explain a memory hold with. Which axis
   // blocks travels as `admission`, from the dispatcher (task-dispatcher-pressure).
   test("the wire carries what one agent costs in memory and the share of the free it is compared with", () => {
-    const priceList = { coreUnits: () => [0.5], memGB: () => [2] };
+    // 5 GB, over the 4 GB floor a card is priced at when nothing is measured.
+    const priceList = { coreUnits: () => [0.5], memGB: () => [5] };
     const cap = computeDispatchCapacity(
       4, () => fleetReading({ coreUnits: 0.2, cores }), false, () => 0.3,
       { share: 0.8, frozen: 0 }, priceList,
     );
-    expect(cap.agentCostMemGB).toBe(2);
+    expect(cap.agentCostMemGB).toBe(5);
     // Rounded to one decimal like every other figure on the wire: 0.8 x 0.3.
     expect(cap.freeQuotaMemGB).toBe(0.2);
   });

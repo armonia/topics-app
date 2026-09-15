@@ -31,6 +31,7 @@ import { cpus, loadavg } from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { killProcessTree } from "../lib/process-tree";
+import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
 
 /**
@@ -272,6 +273,30 @@ interface RunOpts {
   /** The card these checks belong to. It travels so a run frozen for load can
    *  say so in the right thread; absent = no note, everything else unchanged. */
   taskId?: string;
+  /** The footprint of a command's whole process tree, in KB. Injected by the
+   *  tests; the default is the kernel's (`treeFootprintKB`). */
+  sampleTreeKB?: (pid: number) => Promise<number | null>;
+  /** How often the tree is sampled while a command runs. */
+  treeSampleMs?: number;
+}
+
+/**
+ * Three seconds: a unit shard or a tsc holds its peak for tens of seconds, and
+ * one sample costs a shared `ps` table plus one `proc_pid_rusage` per process.
+ */
+const TREE_SAMPLE_MS = 3_000;
+
+/** Options one command is run with, the round's plus the tree sampler. */
+interface RunOneOpts {
+  cwd: string;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  env?: Record<string, string>;
+  taskId?: string;
+  sampleTreeKB?: (pid: number) => Promise<number | null>;
+  treeSampleMs?: number;
+  /** Called with every tree reading, so the round can keep its peak. */
+  onTreeKB?: (kb: number) => void;
 }
 
 /**
@@ -371,13 +396,24 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   const slack = timeSlack({ load: load1, cores, forced: process.env[TIME_SLACK_ENV] });
   const env = { [TIME_SLACK_ENV]: String(slack) };
   if (slack > 1) console.log(`[review-checks] ${timeSlackNote(slack, load1, cores)}`);
+  // THE ROUND'S MEMORY PEAK, which is what the admission gate prices one more
+  // card at (`server/lib/card-memory-peaks.ts`). The commands run one after the
+  // other, so the highest reading of any of them is the card's peak.
+  let peakKB = 0;
+  const onTreeKB = (kb: number) => { if (kb > peakKB) peakKB = kb; };
   for (const [i, check] of checks.entries()) {
     if (opts.signal?.aborted) break;
-    const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId });
+    const run = await exec(check, {
+      cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId,
+      sampleTreeKB: opts.sampleTreeKB, treeSampleMs: opts.treeSampleMs, onTreeKB,
+    });
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
   }
+  // An aborted round measured a card cut in half: its peak would price the
+  // next agent low, so it is not recorded. KB to the gate's gigabytes (1e9).
+  if (opts.taskId && peakKB > 0 && !opts.signal?.aborted) recordCardMemPeak(opts.taskId, (peakKB * 1024) / 1e9);
   return runs;
 }
 
@@ -390,14 +426,12 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
  * della macchina nelle impostazioni della board, e gli agenti che girano qui
  * hanno già una shell.
  */
-async function runOne(
-  check: ReviewCheck,
-  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal; env?: Record<string, string>; taskId?: string },
-): Promise<CheckRun> {
+async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
   const started = Date.now();
   let proc: ReturnType<typeof Bun.spawn> | null = null;
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let sampler: ReturnType<typeof setInterval> | null = null;
   /** Deregistration from the freeze registry, hoisted so the `finally` can call
    *  it: a registry entry that outlives its process would send signals to a
    *  recycled pid. */
@@ -434,6 +468,16 @@ async function runOne(
       // here honours (Bun, Node, Playwright, tsc), and stdout is a pipe anyway.
       env: { ...process.env, CI: "1", NO_COLOR: "1", ...opts.env },
     });
+    // The tree, not the shell: the memory is in the grandchildren (bun test,
+    // tsc). A reading that fails is skipped, never a reason to stop the gate.
+    const rootPid = proc.pid;
+    if (rootPid && opts.onTreeKB) {
+      const read = opts.sampleTreeKB ?? treeFootprintKB;
+      const report = opts.onTreeKB;
+      sampler = setInterval(() => {
+        void read(rootPid).then((kb) => { if (kb != null && kb > 0) report(kb); }).catch(() => {});
+      }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
+    }
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
     // moment the command really starts, and the cap is restarted from there:
@@ -549,6 +593,7 @@ async function runOne(
     };
   } finally {
     if (timer) clearTimeout(timer);
+    if (sampler) clearInterval(sampler);
     releaseFreezable();
     opts.signal?.removeEventListener("abort", onAbort);
   }

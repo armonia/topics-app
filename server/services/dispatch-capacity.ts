@@ -52,7 +52,8 @@ import os from "node:os";
 import { statfsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
-import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, type FleetLoadReading } from "../lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, type FleetLoadReading } from "../lib/fleet-usage";
+import { recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
@@ -564,6 +565,8 @@ export function dispatchResourceBlock(
    * file misura la macchina, non decide le politiche.
    */
   agentsAreProcesses = true,
+  /** GB already spoken for: the turns just admitted, plus one agent's price while the floor holds (the hysteresis lives in the dispatcher). */
+  reservedMemGB = 0,
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -573,11 +576,13 @@ export function dispatchResourceBlock(
   }
   const mem = (() => { try { return readAvailMemGB(); } catch { return null; } })();
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
-  if (memoryTooTight(mem, floor)) {
+  const reserved = Math.max(0, reservedMemGB);
+  if (memoryTooTight(mem == null ? null : mem - reserved, floor)) {
     const costo = agentsAreProcesses
       ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
       : "Con il runtime nativo la sessione pesa 2,3 MB, ma i check che lancia (shard unit, e2e) ne chiedono ~1,5 GB";
-    return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${floor} GB. ` +
+    const kept = reserved > 0 ? `, di cui ${reserved.toFixed(1)} tenuti per gli agenti che partono` : "";
+    return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili${kept}, sotto il pavimento di ${floor} GB. ` +
       `${costo}, e sotto questa riga la macchina va in swap. ` +
       `Riprendo appena si libera memoria: niente è andato perso.`;
   }
@@ -823,7 +828,7 @@ export function computeDispatchCapacity(
    *  reason as the probes: a test must be able to fix what an agent costs. */
   priceList: { coreUnits: () => number[]; memGB: () => number[] } = {
     coreUnits: fleetSessionCoreUnits,
-    memGB: fleetSessionMemGB,
+    memGB: recentCardMemPeaksGB,
   },
 ): DispatchCapacity {
   const cores = machineCores();
