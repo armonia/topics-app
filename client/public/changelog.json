@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.332",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Prova del rosso, secondo giro: la topic nuova si seleziona dalla sua tab, come in topic-browser-window.spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il freno sullo swap legge davvero lo swap: sysctl e lsof per percorso assoluto sotto launchd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La fotografia forense dopo un SIGKILL legge chi tiene la 3333: lsof per percorso assoluto anche nel wrapper",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'inspector di una pane su Windows e' aperto finche' la sua finestra DevTools esiste, e la finestra del topic torna a passare il fuoco alla pagina",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.331",
     "date": "2026-09-15",
     "sections": {
@@ -18,7 +49,17 @@
           "scope": null
         },
         {
+          "it": "Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio",
           "en": "",
           "scope": null
         }
@@ -74,7 +115,22 @@
           "scope": null
         },
         {
+          "it": "Un pannello browser che consuma molto va in pausa senza il fuoco e torna vivo senza ricaricare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del bloat torna verde su main: task-dispatcher.ts registrato a 5444",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Sotto swap sostenuto Topics interrompe da solo il giro di check piu' giovane, mai rosso, e l'attesa dei check non rilascia piu' su una lettura sola ne' in branco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del guscio su macOS compilano con la firma nuova, e la guardia dell'occlusione legge l'effetto giusto",
           "en": "",
           "scope": null
         },
@@ -84,7 +140,17 @@
           "scope": null
         },
         {
+          "it": "La spec del pannello pesante apre il foglio della tab come fa la spec della tab: prima l'hover",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il cancello del bloat torna verde su main dopo le tre PR fuse insieme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello pesante apre il foglio dopo averlo chiuso, e la CPU di un processo Windows si confronta col suo stesso tempo di CPU",
           "en": "",
           "scope": null
         }
