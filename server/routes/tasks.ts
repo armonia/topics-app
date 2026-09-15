@@ -1022,19 +1022,40 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * beside every `set` and removed beside every `delete`; the map stays the fast
    * path, the table is read once at boot.
    */
+  /**
+   * What the round in flight is measuring: the commit its checkout was on when
+   * it started, after the realign. Set by `runChecksGate` once it has a ref,
+   * dropped when a verdict is recorded - so "no entry" means "this delivery
+   * never got as far as realigning", and the restarted round must realign.
+   */
+  const roundCommit = new Map<string, string | null>();
+
   function rememberDelivery(taskId: string, pathname: string, body: Record<string, unknown>): void {
     pendingDeliveries.set(taskId, { pathname, body });
     savePendingDelivery(ctx.db, {
       taskId, pathname, body,
-      // What the round is measuring, as the round itself recorded it. It is
-      // what tells the restarted delivery "same delivery": without it the new
-      // round merges main into the worktree a second time.
-      commit: (() => { try { return svc.get(taskId)?.task.checksCommit ?? null; } catch { return null; } })(),
+      // THE COMMIT OF *THIS* ROUND, not of the last one measured.
+      //
+      // It used to be `svc.get(taskId).task.checksCommit`, which is whatever
+      // the previous round recorded, and a delivery that never started a round
+      // wrote it anyway: `runChecksGate` answers `interrupted` to a leg that
+      // arrives while the server is on its way out BEFORE it resolves a
+      // checkout, so the row got the old commit. If that stale commit happened
+      // to be the worktree HEAD (a redelivery with no new commit of its own),
+      // at boot `sameDelivery` read "same delivery" and skipped the realign
+      // entirely - the checks then measured a base main had moved away from,
+      // which is the 2026-09-04 regression the block at `runChecksGate`
+      // describes, while the log claimed "nessun riallineamento in più".
+      //
+      // `roundCommit` is written by the round itself, once its checkout is
+      // known, and only a round that got that far can claim "already realigned".
+      commit: roundCommit.get(taskId) ?? null,
     });
   }
 
   function forgetDeliveryMemo(taskId: string): void {
     pendingDeliveries.delete(taskId);
+    roundCommit.delete(taskId);
     forgetPendingDelivery(ctx.db, taskId);
   }
 
@@ -1129,35 +1150,63 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * the round measures the tree it already realigned instead of merging main a
    * second time.
    *
-   * Cards that have moved on in the meantime (already in review, closed,
-   * deleted) are only forgotten: their verdict either landed or no longer
-   * matters.
+   * ONLY FOR A CARD THAT IS STILL DELIVERING. The filter used to be "not in
+   * review, not done, not gone", which let through every card that had left
+   * `in_progress` by another door: the «Ferma» button parks it in `backlog`
+   * (`release({requeue:false})`), the dispatcher's boot reconcile requeues an
+   * orphan to `todo`. The re-issue then ran the WHOLE round for it — tsc,
+   * eslint, `bun test`, vite launched by nobody on the Mac that had just
+   * rebooted for lack of memory, which is the exact resource this change
+   * defends — wrote `checks_state = 'pass'` and a service comment on a parked
+   * card, and only the final transition was refused with a 409, suite already
+   * run. A green badge on a delivery that never happened.
    */
   function resumePendingDeliveries(): void {
     let entries: PendingDelivery[] = [];
     try { entries = loadPendingDeliveries(ctx.db); } catch { entries = []; }
     for (const entry of entries) {
-      // `archived` is not a status here: an archived card is gone from `list`
-      // and `get` answers nothing for it, which the `!task` arm already covers.
-      let task: Task | undefined;
-      try { task = svc.get(entry.taskId)?.task; } catch { task = undefined; }
-      if (!task || task.status === "review" || task.status === "done") {
+      if (!stillDelivering(entry.taskId)) {
         forgetPendingDelivery(ctx.db, entry.taskId);
         continue;
       }
       restoredDeliveries.set(entry.taskId, entry.commit);
       pendingDeliveries.set(entry.taskId, { pathname: entry.pathname, body: entry.body });
       console.warn(
-        `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono sullo stesso commit ` +
-        `(${entry.commit?.slice(0, 7) ?? "commit ignoto"}), nessun riallineamento in più`,
+        `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono ` +
+        (entry.commit
+          ? `sullo stesso commit (${entry.commit.slice(0, 7)}), nessun riallineamento in più`
+          : "con un riallineamento su main: il giro tagliato non era arrivato a farlo"),
       );
       // A tick, not a microtask: the router is still being built, and the
       // re-issue goes back in through `tasksRouter`.
       setTimeout(() => {
+        // Asked again, at the moment of the action: this sweep runs while
+        // `createTasksRouter` is still being built (server.ts), and the
+        // dispatcher's boot reconcile — which requeues the orphans of the
+        // killed process — only runs its first pass later, asynchronously. A
+        // card requeued in between must not get a round either.
+        if (!stillDelivering(entry.taskId)) {
+          pendingDeliveries.delete(entry.taskId);
+          restoredDeliveries.delete(entry.taskId);
+          forgetPendingDelivery(ctx.db, entry.taskId);
+          return;
+        }
         if (!pendingDeliveries.delete(entry.taskId)) return;
         reissueDelivery(entry.taskId, entry.pathname, entry.body, "riavvio del server");
       }, 0);
     }
+  }
+
+  /**
+   * Is this card still the one that delivered? `in_progress` is the only status
+   * a delivery can come back to: review and done are past it, backlog and todo
+   * are a card someone took back. `archived` is not a status here — an archived
+   * card answers nothing from `get`, which the missing-task arm covers.
+   */
+  function stillDelivering(taskId: string): boolean {
+    let task: Task | undefined;
+    try { task = svc.get(taskId)?.task; } catch { return false; }
+    return !!task && task.status === "in_progress";
   }
 
   async function runChecksGate(
@@ -1201,7 +1250,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // gone, so nothing in memory can say "same delivery": the row says it, by
     // the commit the round was measuring. The worktree is still on the tree the
     // first realign produced, and merging main into it again would write a
-    // second merge commit into a delivery nobody re-made.
+    // second merge commit into a delivery nobody re-made. A row whose commit is
+    // null says "this round never got as far as a checkout": it matches only a
+    // worktree whose own HEAD is unreadable, where a realign has nothing to
+    // merge into anyway - and `roundCommit` is what keeps that null honest.
     const restoredCommit = restoredDeliveries.get(taskId);
     const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null)
       || swapInterruptedDelivery(taskId, before?.commit ?? null)
@@ -1231,6 +1283,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
+    // Past the realign, on a known checkout: from here on THIS is the commit
+    // the delivery is measuring, and the one a restart has to carry over.
+    roundCommit.set(taskId, ref.commit ?? null);
     // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);
@@ -1311,6 +1366,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Measured: whatever brought this delivery back, it is no longer a
         // delivery of a dead process, and its next leg is a NEW one.
         restoredDeliveries.delete(taskId);
+        roundCommit.delete(taskId);
         // Green is service bookkeeping; red is a visible outcome. The thread
         // keeps only the compact verdict and first failure. Commands and logs
         // remain in checks_json, rendered by the expandable ChecksSection.

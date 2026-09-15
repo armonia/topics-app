@@ -17,7 +17,7 @@
  * The clocks are injected: the memory wait is not measured in real seconds, and
  * a test that slept through one would be measuring the machine it runs on.
  *
- * @covers RGATE-07, KANBAN-15, KANBAN-84
+ * @covers RGATE-07, RGATE-08, KANBAN-15, KANBAN-84
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
@@ -177,6 +177,98 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     // realign: the CI evidence is read for the delivery, not for the leg.
     expect(calls.ci).toBe(2);
     expect(d.counts.realigns).toBe(1);
+    expect(d.remembered()).toEqual([]);
+  }, 60_000);
+
+  /**
+   * ONLY A CARD THAT IS STILL DELIVERING GETS ITS ROUND BACK.
+   *
+   * The sweep used to re-issue for anything that was not review/done/gone, so
+   * a card parked by the stop button (`backlog`) or requeued by the boot
+   * reconcile (`todo`) got the WHOLE bar run for it right after a reload that
+   * happened because the Mac had no memory left - the exact resource this
+   * change defends - plus a `checks_state = 'pass'` and a service comment on a
+   * delivery nobody was making. Only the final transition was refused, 409,
+   * with the suite already run.
+   */
+  async function waitingDelivery(started: string) {
+    const d = await delivery([{ name: "bar", cmd: `touch ${started}` }], {
+      checksMemoryFloor: memoryFloor(() => 1),
+    });
+    const leg = d.deliver();
+    await until(async () => (await d.read()).checksState === "running", "the round is waiting for memory");
+    await stopReviewChecks();
+    expect((await leg)!.status).toBe(202);
+    expect(d.remembered()).toEqual([{ task_id: d.id, commit_sha: "abc1234" }]);
+    // The reload clears the stale «running» light (`clearStaleChecksRuns`).
+    db.prepare("UPDATE tasks SET checks_state = NULL WHERE id = ?").run(d.id);
+    _resetReviewChecksStop();
+    return d;
+  }
+
+  /** What the boot must NOT have done for a card that stopped delivering. */
+  async function nothingRan(d: Awaited<ReturnType<typeof waitingDelivery>>, started: string, status: string) {
+    await until(() => d.remembered().length === 0, "the forgotten row is gone");
+    // One tick past the re-issue that must not happen.
+    await Bun.sleep(150);
+    const task = await d.read();
+    expect(task.status).toBe(status);
+    expect(task.checksState ?? null).toBeNull();
+    expect(await Bun.file(started).exists()).toBe(false);
+    // The first round's realign is the only one: the boot started no round.
+    expect(d.counts.realigns).toBe(1);
+    expect(await d.comments()).not.toContain("Checks pre-review");
+  }
+
+  test("a card parked by «Ferma» while the server was down is forgotten, not re-delivered", async () => {
+    const started = join(cwd, `parked-${Date.now()}`);
+    const d = await waitingDelivery(started);
+    // `release({requeue:false})` behind the button: backlog, dispatch stopped.
+    db.prepare("UPDATE tasks SET status = 'backlog', dispatch_state = 'stopped' WHERE id = ?").run(d.id);
+
+    d.boot({ checksMemoryFloor: memoryFloor(() => 8) });
+    await nothingRan(d, started, "backlog");
+  }, 60_000);
+
+  test("a card the boot reconcile requeues after the sweep is not re-delivered either", async () => {
+    const started = join(cwd, `requeued-${Date.now()}`);
+    const d = await waitingDelivery(started);
+
+    // The sweep runs inside `createTasksRouter`, synchronously; the
+    // dispatcher's boot reconcile requeues the orphans of the killed process
+    // later and asynchronously (server.ts). This is that window: the card is
+    // still `in_progress` when the row is read, and `todo` when the re-issue
+    // would fire a tick later.
+    d.boot({ checksMemoryFloor: memoryFloor(() => 8) });
+    db.prepare("UPDATE tasks SET status = 'todo', dispatch_state = 'queued' WHERE id = ?").run(d.id);
+    await nothingRan(d, started, "todo");
+  }, 60_000);
+
+  test("a delivery cut before it ever realigned realigns at the boot, instead of inheriting an old commit", async () => {
+    const started = join(cwd, `never-realigned-${Date.now()}`);
+    const d = await delivery([{ name: "bar", cmd: `touch ${started}` }], {});
+    // The trace of an EARLIER round, on the commit the worktree is still on: a
+    // redelivery with no new commit of its own, or a merge that changed nothing.
+    db.prepare("UPDATE tasks SET checks_commit = 'abc1234' WHERE id = ?").run(d.id);
+
+    // The leg arrives while the server is already stopping: `runChecksGate`
+    // answers `interrupted` before it resolves a checkout, so no round started
+    // and nothing was realigned.
+    await stopReviewChecks();
+    expect((await d.deliver(200))!.status).toBe(202);
+    expect(d.counts.realigns).toBe(0);
+    // The row carries no commit, because this delivery measured none. Taking
+    // the card's `checksCommit` here wrote 'abc1234' - the worktree HEAD - and
+    // the boot read it as "already realigned".
+    expect(d.remembered()).toEqual([{ task_id: d.id, commit_sha: null }]);
+
+    _resetReviewChecksStop();
+    d.boot();
+    await until(async () => (await d.read()).status === "review", "the re-issued delivery reached review");
+    // THE realign, the one this delivery never had: without it the checks
+    // measure a base main has moved away from (the 2026-09-04 inherited red).
+    expect(d.counts.realigns).toBe(1);
+    expect((await d.read()).checksState).toBe("pass");
     expect(d.remembered()).toEqual([]);
   }, 60_000);
 });
