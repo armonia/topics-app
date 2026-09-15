@@ -108,7 +108,6 @@ const declared = declarations();
 const PINNED_GAPS = [
   "browser_go_to_index on webview2",
   "browser_raise on webkitgtk",
-  "browser_raise on webview2",
   "browser_take_nav_errors on webkitgtk",
   "browser_take_nav_errors on webview2",
   "browser_take_nav_state on webkitgtk",

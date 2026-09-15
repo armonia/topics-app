@@ -254,16 +254,22 @@ richiesta esplicita di guardare.
 - **Trascinamento dal vivo che non regge.** Chiuso in tornata 0 per prudenza: si
   trascina da fermo, col percorso già in uso. La scelta è dedotta dal pavimento
   IPC, non dimostrata dal video del criterio (§Trascinare).
-- **Ordine z fra due viste native.** Misurato **solo su WKWebView**
-  (`tools/wkzprobe z`): è l'ordine di creazione, e `browser_raise` lo corregge.
-  Sugli altri due motori il braccio ora **c'è**, ma è cablaggio letto nel
-  sorgente, non un numero.
-  Su WebView2 il meccanismo è lo stesso di AppKit, letto in wry 0.55.1: ogni
-  HWND figlio nasce con `SetWindowPos(HWND_TOP)` (`webview2/mod.rs:270`) e
-  `set_bounds` passa `SWP_NOZORDER` (`:1456`). `browser_win::raise` rimette
-  quell'HWND in cima con lo stesso `SetWindowPos`, `HWND_TOP` più
+- **Ordine z fra due viste native.** Misurato su **WKWebView e WebView2**
+  (`tools/wkzprobe z`, un backend per motore): è l'ordine di creazione, e
+  `browser_raise` lo corregge. Su WebKitGTK il braccio c'è ma è cablaggio letto
+  nel sorgente, non un numero.
+  Su WebView2 il meccanismo è lo stesso di AppKit: ogni HWND figlio nasce con
+  `SetWindowPos(HWND_TOP)` (`webview2/mod.rs:270`) e `set_bounds` passa
+  `SWP_NOZORDER` (`:1456`). `browser_win::raise` rimette quell'HWND in cima con
+  lo stesso `SetWindowPos`, `HWND_TOP` più
   `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`: è `windows_repaint::sink_to_bottom`
-  letto al contrario, sullo stesso handle.
+  letto al contrario, sullo stesso handle. Misurato il 15/09 sul PC Windows,
+  sei verdetti su sei veri, e **falsificato**: commentando quel solo
+  `SetWindowPos`, `raise-wins` diventa falso e gli altri cinque restano veri.
+  Un verdetto è più debole degli altri, ed è scritto nel README della sonda:
+  le render window di WebView2 stanno in altri processi, quindi
+  `first-responder-survives-the-raise` verifica che `SWP_NOACTIVATE` non sposti
+  il fuoco dal container, non una pagina che sta davvero scrivendo.
   Su WebKitGTK la vista è un figlio del `GtkFixed` e `put` accoda
   (`webkitgtk/mod.rs:620`): `browser_linux::raise` chiama `GdkWindow::raise`
   sulla finestra del widget, con la guardia `has_window`. Senza quella guardia
@@ -273,9 +279,9 @@ richiesta esplicita di guardare.
   pagina, che è esattamente ciò che `page-survives-the-raise` vieta, e per di
   più sposta il fuoco. L'innalzamento della sola `GdkWindow` non tocca né l'una
   né l'altro.
-  Cosa resta aperto: nessuno dei due bracci è passato sotto una sonda. Finché
-  non lo è, la loro riga resta in `PINNED_GAPS`
-  (`tests/unit/browser-platform-parity.test.ts`) e il loro `ENGINES-GAP` in
-  `lib.rs`, perché i test di parità dimostrano la dichiarazione, non il
-  movimento. Resta anche da non dimenticare di chiamare il comando quando nasce
-  una vista nuova mentre la finestra è aperta.
+  Cosa resta aperto: **WebKitGTK**, che nessuna sonda ha toccato. La sua riga
+  resta in `PINNED_GAPS` (`tests/unit/browser-platform-parity.test.ts`) con il
+  suo `ENGINES-GAP` in `lib.rs`, perché i test di parità dimostrano la
+  dichiarazione e non il movimento: restano verdi anche rimettendo
+  `let _ = wv;` al posto della chiamata. Resta anche da non dimenticare di
+  chiamare il comando quando nasce una vista nuova mentre la finestra è aperta.
