@@ -17,6 +17,29 @@
  */
 export const SLOT_ACQUIRED_PREFIX = "[slot] acquired";
 
+/**
+ * THE OTHER LINE: the command is QUEUED, and its clock has not started.
+ *
+ * Printed once, before the first wait notice. Whoever times the command from
+ * outside (the review checks) stops its deadline on this line and restarts it
+ * on the acquired one: a gate waiting behind another run of itself is our own
+ * wait, not a hang, and a deadline that kept running through it killed checks
+ * that had not started yet.
+ */
+export const SLOT_WAITING_PREFIX = "[slot] waiting";
+
+export function slotWaitingLine(label: string): string {
+  return `${SLOT_WAITING_PREFIX} ${label}: queued behind another run, the command has not started`;
+}
+
+const WAITING_RE = /(?:^|\n)\[slot\] waiting /;
+
+/** At the start of a line only: a command that merely mentions the text in
+ *  its output must not stop its own deadline. */
+export function hasSlotWaiting(text: string): boolean {
+  return WAITING_RE.test(text);
+}
+
 export function slotAcquiredLine(label: string, queuedMs: number): string {
   return `${SLOT_ACQUIRED_PREFIX} ${label}: ${Math.max(0, Math.round(queuedMs / 1000))} s in the queue, the command starts now`;
 }
