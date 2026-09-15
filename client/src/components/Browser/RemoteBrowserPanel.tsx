@@ -328,6 +328,7 @@ function useBackToSpawner(
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const tr = useT();
+  const toast = useToast();
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   const dl = useBrowserDownloads(contextId);
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
@@ -384,6 +385,15 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   // The tab is the chrome: publish what the tab draws, and decide when the
   // address row exists at all. See `useBrowserChromeBridge`.
   const canForget = !!siteHostOf(browser.url);
+  // TAKING THE WHEEL BACK, on the shell where the page cannot carry the gesture.
+  // A native child view composites ABOVE the DOM, so no transparent layer over
+  // it would catch a click: the tab's agent glyph is the handle, and it gets
+  // the same wire and the same short notice as the streaming pane.
+  const nativeTakeControl = browser.takeControl;
+  const takeControlFromAgent = useCallback(() => {
+    nativeTakeControl();
+    toast.info(tr('browser.agent.tookControl'), 3000);
+  }, [nativeTakeControl, toast, tr]);
   const chromeCommands = useMemo(() => ({
     reload: () => { void browser.reload(); },
     navigate: (u: string) => { void browser.navigate(u); },
@@ -402,7 +412,10 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     // occlusion watcher to measure it (see `BrowserTabSheet`).
     freeze: browser.freeze,
     thaw: browser.thaw,
-  }), [browser, canForget, onToggleShare, backToSpawner, returnToTopicWindow]);
+    // Offered only while one is driving: a command that ends a state nobody is
+    // in is a dead door, and the tab hides the glyph that would open it anyway.
+    takeControl: browser.agentActive ? takeControlFromAgent : undefined,
+  }), [browser, canForget, onToggleShare, backToSpawner, returnToTopicWindow, takeControlFromAgent]);
   // Subscribed, not sampled: on a restored pane this lands AFTER the mount.
   // A browser pane INSIDE A PROJECT WINDOW is not in the pane store: it lives
   // in the project's own layout, and its persisted url reaches this panel as

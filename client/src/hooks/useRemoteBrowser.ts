@@ -903,6 +903,16 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       detachViewerChannel = null;
       if (!mountedRef.current || wsRef.current !== ws) return;
       updateConnectionState('disconnected');
+      // A SOCKET THAT DIED IS NOT REPORTING AN AGENT ANY MORE.
+      //
+      // `agent_active=false` is broadcast from the lock's finally block: on a
+      // dead socket it never arrives, so the flag would stay true forever. The
+      // tab draws the agent before the link state, so a server restart in the
+      // middle of an agent turn showed a robot instead of the broken-link
+      // glyph, and the invisible layer over the page went on eating clicks for
+      // a turn nobody was driving. Same reading as the native pane's executor
+      // socket (see nativeExecutorSocket `onDead`).
+      setState(s => (s.agentActive ? { ...s, agentActive: false, agentAction: null } : s));
       // The WebRTC signaling rode this WS — drop the PC so a reconnect renegotiates.
       teardownWebrtc();
       // (a) Floor: after a 2s grace, degrade to HTTP polling so the pane stays
