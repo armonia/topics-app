@@ -179,6 +179,9 @@ type Spawned = { code: number; out: string; err: string };
  * (96 s with a 95 s hook; never with an ssh on a half-open connection), and the
  * delivery's 60 minute deadline, checked only after the push, was never reached.
  */
+/** How long the output of an exited call may keep draining through a lingering child. */
+const EXIT_DRAIN_MS = 2_000;
+
 export function spawnCapped(argv: string[], cwd: string, capMs = CI_CALL_TIMEOUT_MS): Promise<Spawned> {
   return new Promise((resolve) => {
     const ownGroup = process.platform !== "win32";
@@ -207,6 +210,16 @@ export function spawnCapped(argv: string[], cwd: string, capMs = CI_CALL_TIMEOUT
     child.stderr?.on("data", (d: Buffer) => { err += d.toString(); });
     child.on("error", (e) => settle({ code: 127, out, err: e.message }));
     child.on("close", (code, signal) => settle({ code: code ?? (signal ? 137 : 1), out, err }));
+    // The call is over when git exits. A child it left behind holding the pipe
+    // must not turn a finished push into a timeout: give the output a moment to
+    // drain, then answer with git's own code and kill what is left.
+    child.on("exit", (code, signal) => {
+      setTimeout(() => {
+        if (settled) return;
+        try { if (ownGroup && child.pid) process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+        settle({ code: code ?? (signal ? 137 : 1), out, err });
+      }, EXIT_DRAIN_MS).unref?.();
+    });
     timer = setTimeout(() => {
       try {
         if (ownGroup && child.pid) process.kill(-child.pid, "SIGKILL");

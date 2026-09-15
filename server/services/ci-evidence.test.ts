@@ -152,6 +152,14 @@ describe("spawnCapped", () => {
     expect(alive).toBe(false);
   });
 
+  test("a call that exits while a child it left still holds the pipe answers with its own code", async () => {
+    const started = performance.now();
+    const r = await spawnCapped(["sh", "-c", "echo ok; sleep 20 & exit 0"], tmpdir(), 15_000);
+    expect(performance.now() - started).toBeLessThan(6_000);
+    expect(r.code).toBe(0);
+    expect(r.out).toBe("ok\n");
+  });
+
   test("a call that ends on its own keeps its exit code and output", async () => {
     const r = await spawnCapped(["sh", "-c", "echo out; echo err >&2; exit 3"], tmpdir(), 10_000);
     expect(r).toEqual({ code: 3, out: "out\n", err: "err\n" });
