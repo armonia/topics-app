@@ -1073,6 +1073,57 @@ quando ottiene lo slot, con i secondi di coda; il runner dei check SHALL
 leggere stderr man mano e da quella riga far ripartire il tetto; il commento
 sulla card SHALL dire il tempo di esecuzione e, a parte, quello di coda.
 
+Il semaforo dei cancelli NON SHALL spegnersi per i check della board. I comandi
+girano con `CI=1` (Playwright lo legge), e `CI` senza un conteggio esplicito
+spegneva il semaforo: il 15/09/2026 due `test:unit:shards` di due card hanno
+girato affiancati per 741 e 744 secondi, entrambi «0 s in coda». Il runner dei
+check SHALL quindi passare il numero di slot in modo esplicito (quello
+dell'ambiente del server se c'è, altrimenti il default della macchina), e un
+valore esplicito, `0` compreso, SHALL arrivare intatto.
+
+Un comando NUOVO NON SHALL partire con la memoria libera sotto il pavimento
+(`DISPATCH_MEM_FLOOR_NATIVE_GB`, 6 GB). Nessun freno davanti a un check leggeva
+la memoria, e l'ammissione non ne vede il costo: la card entra a memoria libera
+e consegna decine di minuti dopo un albero unit da 4-11 GB. Il comando SHALL
+aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. SHALL
+fallire aperto: un giro aspetta al massimo 30 minuti IN TOTALE, poi i comandi
+rimasti partono comunque; una lettura non disponibile non fa aspettare.
+
+Uno spegnimento del server SHALL portarsi via gli alberi dei check in corso, e
+NON SHALL scriverne un verdetto. `slot.ts` lancia il comando in un gruppo di
+processi suo, e al riavvio l'albero restava vivo figlio di pid 1 mentre il
+server nuovo rilanciava i check delle stesse card: il 15/09/2026 alle 02:04
+quattro alberi unit vivi insieme, due orfani. Un comando ucciso dallo
+spegnimento non ha misurato niente: il giro SHALL interrompersi senza esito e
+nessun comando successivo SHALL partire. «Senza esito» NON è «nessun check»: il
+cancello lo riportava come `null`, la stessa parola di una board senza comandi,
+e la consegna passava in review con i check ancora «in corso» a ogni reload del
+watcher. La consegna in attesa di quel giro SHALL rispondere 503 con
+`review_checks_interrupted` e `Retry-After`, dicendo all'agente di richiamare,
+e la card NON SHALL muoversi; una consegna che arriva mentre il server si sta
+spegnendo SHALL avere la stessa risposta senza riallineare il ramo. La card si
+rimisura quando l'agente richiama, dopo il riavvio.
+
+#### Scenario: con CI il semaforo resta acceso
+- **GIVEN** due check della board sullo stesso cancello, con `CI=1` e nessun conteggio nell'ambiente del server
+- **THEN** SHALL girare uno dopo l'altro, e uno dei due SHALL riportare il tempo di coda
+
+#### Scenario: sotto il pavimento di memoria il comando aspetta
+- **GIVEN** memoria libera sotto il pavimento per 1,5 s e un tetto di 1 s
+- **THEN** il comando SHALL partire solo dopo, e finire verde e non scaduto
+- **AND** con la memoria sempre sotto, il giro SHALL aspettare il suo limite UNA volta e poi far partire tutti i comandi
+
+#### Scenario: lo spegnimento non inventa un rosso
+- **GIVEN** un check in corso e un secondo in attesa
+- **WHEN** il server si spegne
+- **THEN** l'albero del primo SHALL essere ucciso, il secondo NON SHALL partire, e il giro SHALL finire senza verdetto
+
+#### Scenario: lo spegnimento non manda in review una consegna senza check
+- **GIVEN** una card in lavorazione che consegna con `PATCH status=review`, e la sua gamba in volo su un check `sleep 120` (oppure su un giro fermo nell'attesa di memoria)
+- **WHEN** il server ferma i check
+- **THEN** la risposta SHALL essere 503 `review_checks_interrupted` con `Retry-After` e l'invito a richiamare, e la card SHALL restare `in_progress`
+- **AND** una seconda consegna prima dell'uscita SHALL avere la stessa risposta senza riallineare il ramo
+
 #### Scenario: la coda per lo slot non consuma il tetto
 - **GIVEN** un comando che aspetta 1,5 s uno slot, stampa la riga di `slot.ts` e poi lavora 1,5 s, sotto un tetto di 2 s
 - **THEN** il comando SHALL finire verde, non ucciso, e l'esito SHALL riportare il tempo di coda
@@ -3446,6 +3497,22 @@ dell'utente restano vivi sempre. Un check congelato SHALL fermare anche il PROPR
 orologio, perché un'attesa nostra non è uno stallo, e SHALL essere detto nel
 thread della card («congelata per carico, riprende da sola»).
 
+**La lettura del controllo è SOLO la CPU, e la memoria NON SHALL congelare
+niente.** Il 15/09/2026 si è provato l'asse memoria (il peggiore fra la CPU sul
+budget e il pavimento sulla memoria libera), perché sotto thrash la CPU legge
+quasi zero, e un congelamento per memoria non ha via d'uscita: un SIGSTOP non
+restituisce la memoria che l'albero congelato tiene, quindi la lettura che l'ha
+congelato non rientra da sola, e il congelamento ferma anche la scadenza del
+check e il timer di `slot.ts` nello stesso albero. Misurato col governatore
+vero: due corse congelate a 5,5 GB restavano congelate dopo 1080 letture, e
+dopo altre 1080 a 8,0 GB, sopra il pavimento a cui il dispatcher ammette. Due
+corse congelate tengono entrambe le corsie del cancello dei check, nessuna card
+viene più misurata e il freno non si apre mai, contro la regola che ogni freno
+fallisce aperto. La leva della memoria è l'attesa PRIMA che un check parta
+(KANBAN-15), che non ferma niente di già avviato e ha un limite. Un check
+congelato per la CPU SHALL scongelarsi quando la CPU scende, qualunque cosa
+dica la memoria.
+
 Gli AGENTI non si congelano con un segnale, ed è una decisione: un CLI fermato a
 metà stream API può perdere la connessione, e la CPU non è lì — con otto agenti in
 volo gli agenti stessi valevano il 5,7% della macchina mentre i loro cancelli
@@ -3478,6 +3545,10 @@ erano meno di una suite unit intera su una macchina carica, e il 14/09/2026 alle
 aveva finito la sua attesa ed era partito «accanto». Mentre un cancello aspetta
 se stesso il suo orologio NON SHALL correre: `slot.ts` stampa la riga di attesa
 e i check pre-review fermano la scadenza fino alla riga di slot acquisito.
+Il cancello per nome SHALL valere anche per i check della board, che girano con
+`CI=1`: il runner passa il numero di slot esplicito (KANBAN-15), e senza
+strozzatura `slot.ts` NON SHALL stampare la riga di slot acquisito, che su una
+card si leggeva come «0 s in coda» di un semaforo mai partito.
 
 **L'INTERFACCIA parla in core a disposizione, una volta sola.** Nelle
 impostazioni restano a vista: quanti agenti lavorano con l'anello accanto, la
@@ -3531,6 +3602,11 @@ dispatcher; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome
 - **GIVEN** due check runner vivi e l'uso sopra il budget per due letture
 - **THEN** UNO solo viene congelato, il più recente, e la sua card lo dice
 - **AND** quando l'uso torna sotto il 70% del budget per due letture il check viene scongelato, con l'orologio del suo timeout fermo per tutta la pausa
+
+#### Scenario: la memoria sotto il pavimento non congela niente
+- **GIVEN** la CPU a riposo (0,4 core-unità su ~3,5) e 2 GB di memoria libera, sotto il pavimento di 6 GB
+- **THEN** in 1080 letture NON SHALL essere congelato nessun check
+- **AND** due check congelati per la CPU SHALL scongelarsi appena la CPU scende, con la memoria ancora sotto il pavimento
 
 #### Scenario: il verdetto del pannello è quello del cancello
 - **GIVEN** la modalità «a budget», Topics a 3,4 core-unità su 3,8 a disposizione e un agente che ne costa 0,5

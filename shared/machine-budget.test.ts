@@ -25,6 +25,7 @@ import {
   estimatedAgentCost,
   estimatedAgentMemCost,
   freezePlan,
+  governorReading,
   reservedCost,
   machineBudget,
   type FreezeState,
@@ -328,6 +329,51 @@ describe("freezing what is already running", () => {
     const p = freezePlan({ used: 8, budget: 9.6, targets: checks(1) }, s);
     expect(p.state.frozen).toEqual(["check-0"]);
     expect(p.thaw).toBe(null);
+  });
+});
+
+/**
+ * THE GOVERNOR READS THE CPU, NEVER MEMORY. On 15/09/2026 it was made to read
+ * `floor / free memory` as well, and a freeze on memory had no way out: a
+ * SIGSTOP frees nothing, two frozen runs held both lanes of the checks gate,
+ * and a probe kept them frozen for 2160 samples, the last 1080 above the
+ * floor. The memory lever is the wait before a check starts, not the freeze.
+ */
+describe("the governor reads the CPU only: low memory freezes nothing", () => {
+  const checks: FreezeTarget[] = [
+    { id: "check-old", kind: "check", startedAt: 1 },
+    { id: "check-new", kind: "check", startedAt: 2 },
+  ];
+  /** 12 cores, 60% share, others burning ~6 core-units: a CPU budget of ~3.5. */
+  const machine = (ourCoreUnits: number, availableMemGB: number): MachineBudgetSample => ({
+    cores: 12, totalMemGB: 24, ourCoreUnits, otherCoreUnits: 6.2, ourMemGB: 14, availableMemGB, running: 2,
+  });
+  /** Threads the state through `n` readings and collects every signal. */
+  const replay = (reading: { used: number; budget: number }, n: number, from: FreezeState = EMPTY_FREEZE_STATE) => {
+    let state = from;
+    const frozen: string[] = []; const thawed: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const plan = freezePlan({ ...reading, targets: checks }, state);
+      state = plan.state;
+      if (plan.freeze) frozen.push(plan.freeze);
+      if (plan.thaw) thawed.push(plan.thaw);
+    }
+    return { state, frozen, thawed };
+  };
+
+  test("the 15/09 replay: CPU at rest and 2 GB free, far under the 6 GB floor, never freezes a check", () => {
+    expect(replay(governorReading(machine(0.4, 2), 0.6), 1080).frozen).toEqual([]);
+  });
+
+  test("a check frozen for the CPU thaws when the CPU comes down, with memory still under the floor", () => {
+    const heldForCpu: FreezeState = { overSamples: 0, underSamples: 0, frozen: ["check-old", "check-new"] };
+    const { state, thawed } = replay(governorReading(machine(0.4, 2), 0.6), 8, heldForCpu);
+    expect(thawed).toEqual(["check-new", "check-old"]);
+    expect(state.frozen).toEqual([]);
+  });
+
+  test("the CPU axis still freezes: over its budget for two readings, with memory to spare", () => {
+    expect(replay(governorReading(machine(6, 20), 0.6), 2).frozen).toEqual(["check-new"]);
   });
 });
 

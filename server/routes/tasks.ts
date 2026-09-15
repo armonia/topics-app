@@ -69,6 +69,7 @@ import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../serv
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
+import { reviewChecksStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -98,6 +99,10 @@ import {
  * the feed stops tracking the lifetime of the installation.
  */
 const DONE_FEED_LIMIT = 120;
+
+/** How long a delivery whose checks the shutdown cut is told to wait before
+ *  calling again: a watcher reload is back in seconds, a full restart in tens. */
+const CHECKS_INTERRUPTED_RETRY_AFTER_S = 60;
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -410,6 +415,14 @@ export interface TasksRouterOpts {
    * e senza accoppiamenti circolari.
    */
   onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
+  /**
+   * The memory a pre-review command waits for before it starts: a delivery's
+   * unit tree is 4-11 GB, and nothing else holds it back once the card was
+   * admitted. Passed by `server.ts` with the real probe. Absent = the checks
+   * never wait on memory, which is what the route tests need: their result must
+   * not depend on how much memory the machine running them has left.
+   */
+  checksMemoryFloor?: MemoryFloor;
 }
 
 /**
@@ -1065,6 +1078,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     let checks: ReviewCheck[] = [];
     try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
     if (!checks.length) return null;
+    // A server on its way out starts no round: the realign below would run a
+    // merge in the worktree that the exit can cut in half, and the round would
+    // be interrupted before its first command anyway.
+    if (reviewChecksStopping()) return { interrupted: true };
     // THE CHECKS MEASURE THE TREE THAT LANDS. On 2026-09-04 three cards
     // (4c4ac437, 882f81b9, c8039b35) burnt a turn each on an "inherited" red:
     // a bloat baseline main had already moved while their branch sat on an
@@ -1134,6 +1151,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           cwd: ref.cwd,
           // So a run frozen for load can say so in THIS card's thread.
           taskId,
+          // No new command starts under the memory floor (see `MemoryFloor`).
+          memoryFloor: opts?.checksMemoryFloor,
           onProgress: (_run, i, total) => {
             try {
               const t = svc.recordChecks({
@@ -2226,6 +2245,24 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // again": the task does not move until there is one, and the MCP client
     // (callUpdateTask) is the one that polls.
     const outcome = await runChecksGate(taskId, projectId, legMs).catch(() => null);
+    // THE SERVER STOPPED THE ROUND: nothing was measured, so this is neither a
+    // red nor "no checks". Read as `null` it let the PATCH go on and the card
+    // entered review with `checksState: running` on every watcher reload. The
+    // card stays where it is and the agent is told to call again once the
+    // server is back; the round that follows measures the delivery from scratch.
+    if (outcome && "interrupted" in outcome) {
+      pendingDeliveries.delete(taskId);
+      checksWaitSince.delete(taskId);
+      const retry = json({
+        error:
+          "the pre-review checks were interrupted because the server is restarting: nothing was measured " +
+          "and the task did not move. call update_task(status='review') again in a minute, once the server is back",
+        code: "review_checks_interrupted",
+        retryAfterMs: CHECKS_INTERRUPTED_RETRY_AFTER_S * 1000,
+      }, 503);
+      retry.headers.set("Retry-After", String(CHECKS_INTERRUPTED_RETRY_AFTER_S));
+      return retry;
+    }
     if (outcome && "pending" in outcome) {
       // Remembered with the body as sent: the server re-issues THIS request
       // on the same path when the run ends, should the client stop polling.
