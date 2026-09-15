@@ -13,9 +13,10 @@
  * @covers MP-DIRECT-04
  */
 import { expect, test, type Page } from '@playwright/test';
+import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 import type { ProvidersSnapshot, ProviderSnapshotEntry } from '../../shared/types';
 import { hermetic } from './fixtures/hermetic';
-import { goToApp } from './helpers';
+import { goToApp, openTopic } from './helpers';
 import { openProfileMenu } from './helpers/open-perf-panel';
 
 hermetic(test);
@@ -205,16 +206,36 @@ test.describe('Settings · endpoints you run yourself', () => {
   });
 });
 
-test.describe('A configured endpoint in the chat picker', () => {
+test.describe.serial('A configured endpoint in the chat picker', () => {
   test.use({ viewport: { width: 1280, height: 900 } });
+
+  let topicId = '';
+  let topicName = '';
+
+  test.beforeAll(async ({ request }) => {
+    topicName = 'Direct endpoint E2E ' + Date.now();
+    topicId = (await createTopic(request, topicName)).id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // The pane store is shared by the whole serial suite: without this reset the
+  // picker matches once per mounted chat pane and the locator goes strict-mode.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
+  });
 
   test('it is offered for a chat, with the window it declares', async ({ page }) => {
     test.info().annotations.push({ type: 'spec', description: 'MP-DIRECT-04' });
     await mockEndpoints(page, { providers: [nativeEntry(), directEntry(), codingEntry()] });
     await goToApp(page);
+    await page.keyboard.press('Escape');
+    await openTopic(page, new RegExp(topicName));
 
-    const chatPicker = page.getByTestId('provider-model-picker').last();
-    await expect(chatPicker).toBeVisible();
+    const chatPicker = page.getByTestId('provider-model-picker');
+    await chatPicker.waitFor({ state: 'visible', timeout: 15_000 });
     await chatPicker.click();
     const popover = page.getByTestId('provider-model-popover');
     await expect(popover).toBeVisible();
