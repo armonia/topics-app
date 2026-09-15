@@ -301,8 +301,10 @@ cache dal dispositivo, e il ritardo della scrittura non SHALL introdurre nessuno
 spostamento di layout al ricarico (vedi PERF-01).
 
 #### Scenario: una raffica di scritture nella stessa finestra
-- **GIVEN** cento scritture consecutive della stessa chiave
+- **GIVEN** cento scritture consecutive della stessa chiave, dopo la prima
+  scrittura della sessione
 - **THEN** SHALL raggiungere il giornale UNA sola volta, con l'ultimo valore
+  (uno scrittore con prima scrittura immediata aggiunge quella sola, in testa)
 
 #### Scenario: lo stesso identico contenuto
 - **GIVEN** un valore uguale byte per byte a quello già memorizzato

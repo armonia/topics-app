@@ -18,10 +18,12 @@
  * THE TWO CUTS, and neither one is a heuristic:
  *
  *  1. COALESCE. Writes inside the debounce window become one write. Trailing
- *     only, no leading edge: unlike a re-read the user is watching (see
- *     `burstCoalescer`, which fires the first event immediately and for good
- *     reason), NOBODY reads this cache until the next boot. Being 2 seconds
- *     late costs nothing measurable and saves the whole burst. The window is
+ *     by default: unlike a re-read the user is watching (see `burstCoalescer`,
+ *     which fires the first event immediately and for good reason), a seed is
+ *     read on the next mount or boot, not now. Being 2 seconds late costs
+ *     nothing measurable and saves the whole burst. A writer with a LONG
+ *     window (the board rows, one minute) opts into `firstWriteImmediate`, so
+ *     the seed exists right after the first read of the session. The window is
  *     FIXED from the first write of the burst, not restarted by each new one: a
  *     sliding window would never fire while an agent streams updates, which is
  *     precisely the hour that needs to be persisted.

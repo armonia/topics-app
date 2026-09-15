@@ -77,3 +77,36 @@ test('board cache folds distinct updates, flushes the last state on hide, and re
   expect(result.quota).toEqual({ live: 23, saved: 22 });
   expect(result.recovered).toEqual({ live: 24, saved: 24 });
 });
+
+test('a project board seed goes through the same minute window: first write at once, the next one waits', () => {
+  const cachePath = resolve(import.meta.dir, 'boardRowsCache.ts');
+  const script = `
+    let saves = 0;
+    const data = new Map(), timers = new Map(), delays = [];
+    let timerId = 0;
+    globalThis.localStorage = {
+      getItem: (key) => data.get(key) ?? null,
+      setItem: (key, value) => { saves++; data.set(key, value); },
+    };
+    globalThis.window = { addEventListener: () => {} };
+    globalThis.document = { visibilityState: 'visible', addEventListener: () => {} };
+    globalThis.setTimeout = (handler, ms) => { delays.push(ms); timers.set(++timerId, handler); return timerId; };
+    globalThis.clearTimeout = (id) => timers.delete(id);
+    const { writeBoardRowsCache } = await import(${JSON.stringify(cachePath)});
+    const row = (tokens) => [{ id: 't0', projectId: 'p', text: 'task', status: 'in_progress', agentTokens: tokens }];
+    writeBoardRowsCache('p|live', row(1));
+    const first = { saves, timers: timers.size };
+    for (let i = 2; i <= 30; i++) writeBoardRowsCache('p|live', row(i));
+    const burst = { saves, timers: timers.size, windowMs: Math.min(...delays) };
+    for (const run of [...timers.values()]) run();
+    const flushed = { saves, saved: JSON.parse(data.get('board-rows-cache:p|live'))[0].agentTokens };
+    process.stdout.write(JSON.stringify({ first, burst, flushed }));
+  `;
+  const child = Bun.spawnSync([process.execPath, '-e', script], { stdout: 'pipe', stderr: 'pipe' });
+  expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
+  const result = JSON.parse(new TextDecoder().decode(child.stdout));
+  // Before 15/09 the project board wrote synchronously on every read.
+  expect(result.first).toEqual({ saves: 1, timers: 0 });
+  expect(result.burst).toEqual({ saves: 1, timers: 1, windowMs: 60_000 });
+  expect(result.flushed).toEqual({ saves: 2, saved: 30 });
+});
