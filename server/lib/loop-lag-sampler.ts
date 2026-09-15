@@ -8,11 +8,14 @@
  * same 60 s tick took their `t0` only when people had finished, so their
  * apparent latency was exactly the duration of people.
  *
- * That shape rules the handler out. `/api/people` is four queries over tables
- * of 3, 3 and 7 rows, with no spawn and nothing awaited before it in the router
- * chain: a handler cannot be slow on that, and it cannot make OTHER handlers
- * late. The thread was not busy, it was STOPPED. The candidate is the machine
- * around it: on the same day this process was 564 MB with 384 MB of it
+ * That shape was read as ruling the handler out, and it did not. The note said
+ * `/api/people` is four queries over tables of 3, 3 and 7 rows; it also ran
+ * `statistichePersona` for every visible person, two all-time aggregates over
+ * `messages` that read about 46 MB of pages per call. Measured on 2026-09-15
+ * with a per-process rusage sampler: 46 MB read -> 0.45-11 s, 0.3 MB -> under
+ * 45 ms, and 35% of all stall time since 07/09 inside that route. The list no
+ * longer computes them unless asked (`?stats=1`). What follows about the machine
+ * still holds for the rest: on the same day this process was 564 MB with 384 MB of it
  * compressed by the kernel, on a machine with 11.3 of 12 GB of swap in use, so
  * a route touched once a minute is cold and its first instruction pays a
  * page-in against an SSD the agent fleet is already saturating.

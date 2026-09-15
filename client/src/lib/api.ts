@@ -1764,9 +1764,16 @@ export interface PersonSummary {
 }
 
 export const peopleApi = {
-  /** The directory. Does NOT touch GitHub: the faces come from the server cache. */
-  async list(): Promise<{ people: PersonWithProfile[] }> {
-    return request<{ people: PersonWithProfile[] }>('/people');
+  /**
+   * The directory. Does NOT touch GitHub: the faces come from the server cache.
+   *
+   * `stats` is null on every row unless asked for: the aggregates behind it
+   * read tens of MB per call, and the hooks that poll this list every minute
+   * only draw a name and a face. Ask with `{ stats: true }` where the numbers
+   * are on screen.
+   */
+  async list(opts: { stats?: boolean } = {}): Promise<{ people: PersonWithProfile[] }> {
+    return request<{ people: PersonWithProfile[] }>(opts.stats ? '/people?stats=1' : '/people');
   },
   /** One person: HERE the server goes and fetches the fresh GitHub profile. */
   async get(id: string): Promise<PersonWithProfile> {

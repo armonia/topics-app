@@ -143,6 +143,20 @@ chiamata in uscita.
 - **GIVEN** una richiesta dell'elenco persone
 - **THEN** SHALL essere fatte ZERO chiamate di rete
 
+L'elenco delle persone NON SHALL calcolare le statistiche se non gli vengono
+chieste esplicitamente: senza la richiesta `stats` SHALL essere `null` su ogni
+riga. Tre letture automatiche chiedono l'elenco ogni minuto per nome, faccia e
+«sono io», e le statistiche sono due aggregati su tutti i messaggi: misurato il
+15/09/2026, quella rotta conteneva il 35% del tempo in cui il loop del server è
+rimasto fermo dal 07/09, fino a 11 s a chiamata con la macchina sotto pressione
+di memoria. Lo schermo che disegna i numeri dall'elenco (il proprio profilo) le
+chiede; il profilo singolo le porta sempre, nei limiti degli interruttori.
+
+#### Scenario: la lettura automatica dell'elenco
+- **GIVEN** una richiesta dell'elenco persone senza chiedere le statistiche
+- **THEN** `stats` SHALL essere `null` su ogni riga e NESSUNA query SHALL toccare i messaggi
+- **AND** con la richiesta esplicita le statistiche SHALL tornare, rispettando l'interruttore di ciascuno
+
 ### Requirement: PROFILE-05 — Il biglietto da visita si regge da solo, e non disegna quello che non ha
 
 Il riquadro pubblicabile del profilo — quello destinato a un README letto fuori
