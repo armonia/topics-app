@@ -139,6 +139,12 @@ export interface BrowserPaneChrome {
   agentActive?: boolean;
   agentAction?: string;
   /**
+   * The page keeps burning CPU (native pane only): `cpu` is % of one core, and
+   * `paused` says the pane is sitting behind a still until it gets the focus.
+   * Absent when the pane is not heavy, which is almost always.
+   */
+  heavy?: { paused: boolean; cpu: number };
+  /**
    * What the sheet shows and the tab does not: the pane's own address list,
    * the console rows behind the tally, and the downloads with their actions.
    *

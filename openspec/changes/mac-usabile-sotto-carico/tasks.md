@@ -47,9 +47,21 @@ Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15
   - [ ] Rollout, SOLO dopo il merge: nessun PATCH oltre a quello di `unit-ci` qui sopra; le soglie restano provvisorie finché B3 non le conferma
 
 ## Tornata 4: pannelli browser pesanti
-- [ ] Consumo misurato per pannello nativo
-- [ ] Sopra soglia: segnale nella tab, vivo solo col fuoco, fermo immagine con UI chiara, ritorno senza ricaricare
-- [ ] Semantica di fuoco corretta su macOS, Windows e finestre staccate
+Disegno di tornata con la critica: delta in `specs/remote-browser` (BROWSER-HEAVY-01..05).
+- [x] Consumo misurato per pannello nativo
+  - [x] macOS: una lettura per pid per campione (`sample_cpu`, `collect_webview_usage` dal campione) e test Rust su un figlio occupato
+  - [x] Windows: processi dell'ambiente WebView2 per pane, `GetProcessTimes` con la stessa regola, `browser_try_suspend`; regole del delta testate sulle tre OS
+  - [x] Client: righe `webviews` da `usePerfMetrics` e lettore di ripiego per documento; attribuzione (pid condivisi, generazioni)
+- [x] Sopra soglia: segnale nella tab, vivo solo col fuoco, fermo immagine con UI chiara, ritorno senza ricaricare
+  - [x] Verdetto a tempo (`heavyPanes.ts`) e regola di vita (`nativePaneLive.ts`) con sosta di 2 s
+  - [x] Pausa e ritorno in `useNativePanePause`: fermo prima di nascondere, ritorno che adotta il fermo come freeze, freeze rifiutato a pane in pausa, fermo a 1x
+  - [x] Glifi `Gauge` / `CirclePause` dopo quelli di connessione, agente sempre primo; scheda in pausa con «Riprendi»; chiavi it/en
+  - [x] Poll: eval fermi in pausa, drain con la pane a schermo o usata, download con cancello e download in corso, tutti fermi a finestra senza fuoco
+  - [x] Test: banchi bun dell'hook (pausa, ritorno, overlay, freeze, op dell'agente, ricarica), download, moduli puri; spec e2e per la CI
+- [x] Semantica di fuoco corretta su macOS, Windows e finestre staccate
+  - [x] `window_focus.rs`: evento su principale, pop-out e finestra gruppo (tre chiamate contate da un test), `window_focus_state` (`isKeyWindow` / `GetForegroundWindow`)
+  - [x] `hasFocus` per sito di montaggio; `onSelfFocus` nuovo per il gruppo del task
+- [ ] Barra (P1..X del disegno), SOLO con un guscio rilasciato e la macchina calma: vedi rollout
 
 ## Tornata 5: browser remoto degli agenti su WebKit
 - [ ] Card separata sulla board
