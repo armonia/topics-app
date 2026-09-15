@@ -1698,7 +1698,13 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // (2026-08-28) — the whole of which the window spent showing a bare red dot.
     // Retracted below the moment an answer arrives, so a machine whose server is
     // simply slow never keeps the sentence.
-    if seen_before {
+    //
+    // AND ONLY WHERE THE MARKER IS THE REASON, which is the same condition the
+    // `WaitForKnownServer` branch applies at the end (board card c0faad1d). With a
+    // daemon pid alive on this machine the shell would wait for that server with or
+    // without the marker, so offering to delete it here for the ~42s of the search
+    // is offering a way out that leads back to the same wait.
+    if seen_before && !daemon_pid_is_alive() {
         set_degraded_marker(Some(marker.display().to_string()));
     }
     // SHAPE-AWARE discovery, not just "some server is here", and the rule that
@@ -1755,6 +1761,10 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             // recycled pid the button sends somebody to delete a file and land
             // right back on this same wait (reproduced 2026-09-14). Same for a
             // marker that is not there: the path was published regardless.
+            //
+            // This is a RETRACTION when the pid came alive during the search, and
+            // the client has to be able to hear it: it asks again for as long as it
+            // is disconnected instead of keeping the first yes (`bootDegraded.ts`).
             let marker_is_the_reason = seen_before && !facts.state_pid_alive;
             set_degraded_marker(
                 marker_is_the_reason.then(|| marker.display().to_string()),
