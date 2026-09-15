@@ -48,7 +48,22 @@
           "scope": null
         },
         {
+          "it": "La change dice il vero sul raise: bracci cablati, misura ancora aperta",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misura il raise del browser su WebView2, non solo su WKWebView",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto",
           "en": "",
           "scope": null
         },
@@ -100,12 +115,27 @@
           "scope": null
         },
         {
+          "it": "Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso",
           "en": "",
           "scope": null
         },
         {
           "it": "Il wire porta l'asse che blocca: le fixture del client lo dichiarano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il git del test dei checkpoint porta l'ambiente isolato del preload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine",
           "en": "",
           "scope": null
         }
@@ -126,6 +156,11 @@
           "scope": null
         },
         {
+          "it": "Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il tetto sul libero non salta piu' a ogni respiro della macchina",
           "en": "",
           "scope": null
@@ -137,6 +172,11 @@
         },
         {
           "it": "Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente",
           "en": "",
           "scope": null
         }

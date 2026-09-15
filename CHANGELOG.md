@@ -13,7 +13,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board
 - La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa
 - Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire
+- La change dice il vero sul raise: bracci cablati, misura ancora aperta
 - Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick
+- Misura il raise del browser su WebView2, non solo su WKWebView
+- Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto
 - I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro
 
 ## 2.2.324 — 2026-09-15
@@ -27,16 +30,21 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
+- Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
 - Il wire porta l'asse che blocca: le fixture del client lo dichiarano
+- Il git del test dei checkpoint porta l'ambiente isolato del preload
+- Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine
 
 ## 2.2.322 — 2026-09-14
 
 ### Sotto il cofano
 - La quota è sul libero: chi non è nostro ha la precedenza
+- Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio
 - Il tetto sul libero non salta piu' a ogni respiro della macchina
 - Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
 - Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
+- Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente
 
 ## 2.2.321 — 2026-09-14
 
