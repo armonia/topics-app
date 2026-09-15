@@ -473,6 +473,30 @@ export function freezePlan(
   return { state: { overSamples, underSamples, frozen }, freeze: null, thaw: null };
 }
 
+/**
+ * WHAT THE GOVERNOR READS: our CPU against the usable CPU budget, and NOTHING
+ * about memory. That is a decision, and it was tried the other way.
+ *
+ * On 15/09/2026 the reading took the worse of the CPU and `floor / free memory`,
+ * because under thrash the CPU reads ~0 (0.4 of 3.5 core-units with 9.9 GB of
+ * swap). A memory freeze has no way out. A SIGSTOP gives back none of the memory
+ * the frozen tree holds, so the reading that froze it cannot come back by
+ * itself; the freeze also stops the run's own deadline and the `slot.ts` timer
+ * in the same tree. Probed with the real governor: two runs frozen at 5.5 GB
+ * stayed frozen for 1080 samples, and 1080 more at 8.0 GB, above the floor the
+ * dispatcher admits at. Two frozen runs hold both lanes of the checks gate, so
+ * no card is measured again and the brake never opens: against the rule that
+ * every brake fails open.
+ *
+ * The memory lever is the wait BEFORE a check starts (`MemoryFloor` in the
+ * check runner), which costs nothing already running and fails open on a
+ * limit. Here a check frozen for the CPU thaws when the CPU comes down,
+ * whatever the memory says.
+ */
+export function governorReading(sample: MachineBudgetSample, share: number): { used: number; budget: number } {
+  return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
+}
+
 /** Checks before agents; inside a kind, the one that started last. */
 function nextVictim(targets: readonly FreezeTarget[], frozen: readonly string[]): FreezeTarget | null {
   const taken = new Set(frozen);

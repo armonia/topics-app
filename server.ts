@@ -82,10 +82,11 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock } from "./server/services/dispatch-capacity";
 import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, procFootprintKB } from "./server/lib/fleet-usage";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
+import { stopReviewChecks } from "./server/services/review-checks-brakes";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -224,7 +225,7 @@ import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
-import { budgetShare, capMode, machineBudget, TURN_ERROR_PREFIX } from "./shared/board";
+import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -2447,6 +2448,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     checksGateRunningCount = () => gate.runningCount();
     checksGateIsRunning = (taskId) => gate.isRunning(taskId);
   },
+  // No new pre-review command starts under the floor the admission uses
+  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, and the next bar would start).
+  checksMemoryFloor: { read: () => availableMemGB(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -4821,7 +4825,8 @@ const budgetGovernor = createBudgetGovernor({
       if (!fleet) return null;
       const share = budgetShare(cap);
       const sample = budgetSample(fleet, availableMemGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
-      return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
+      // The CPU only: a freeze on memory has no way out (see `governorReading`).
+      return governorReading(sample, share);
     } catch { return null; }
   },
   signalTree: signalProcessTree,
@@ -6300,6 +6305,14 @@ async function gracefulShutdown(signal: string) {
   // continue: the one thing that could send it SIGCONT is the loop that is
   // about to stop. Thaw before anything else goes away.
   try { await budgetGovernor.thawAll(); } catch { /* best effort on the way out */ }
+  // Then the check trees go. `slot.ts` runs each command in a process group of
+  // its own, so without this a reload left every running check reparented to
+  // pid 1, finishing a verdict nobody would read while the new server started
+  // the same cards' checks beside it (15/09/2026: four unit trees at once).
+  // After the thaw, because a stopped process holds a SIGTERM until it is
+  // continued. The rounds throw instead of recording the killed run as a red,
+  // and a delivery waiting on one answers "still running" without moving.
+  try { await stopReviewChecks(); } catch { /* best effort on the way out */ }
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
   // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva

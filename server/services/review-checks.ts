@@ -25,6 +25,8 @@ export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun } from "./budget-governor";
+import { memoryWaiter, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
+import { slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
@@ -272,6 +274,9 @@ interface RunOpts {
   /** The card these checks belong to. It travels so a run frozen for load can
    *  say so in the right thread; absent = no note, everything else unchanged. */
   taskId?: string;
+  /** Wait for free memory before each declared command (see `MemoryFloor`).
+   *  Absent = no wait: the tests stay independent of this machine's memory. */
+  memoryFloor?: MemoryFloor;
 }
 
 /**
@@ -350,8 +355,10 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   // warm worktree pays nothing.
   const probe = opts.missingInstallRoots ?? missingInstallRootsOnDisk;
   const missing = checks.length ? probe(opts.cwd) : [];
+  throwIfStopping();
   if (missing.length && !opts.signal?.aborted) {
     const prep = await installMissingDeps(missing, { cwd: opts.cwd, timeoutMs, signal: opts.signal }, exec);
+    throwIfStopping();
     // A green install is plumbing, not a verdict: it stays out of the report so
     // the reviewer keeps reading the gates they declared. A red one is the whole
     // story, and stops the round.
@@ -371,9 +378,14 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   const slack = timeSlack({ load: load1, cores, forced: process.env[TIME_SLACK_ENV] });
   const env = { [TIME_SLACK_ENV]: String(slack) };
   if (slack > 1) console.log(`[review-checks] ${timeSlackNote(slack, load1, cores)}`);
+  const waitForMemory = memoryWaiter(opts.memoryFloor, opts.signal);
   for (const [i, check] of checks.entries()) {
+    await waitForMemory(check.name);
+    throwIfStopping();
     if (opts.signal?.aborted) break;
     const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId });
+    // Killed by the shutdown: what came back is not a measurement.
+    throwIfStopping();
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
@@ -432,7 +444,21 @@ async function runOne(
       // the WHOLE tail - the failing spec and its error had scrolled out of the
       // 40 lines the report keeps. `NO_COLOR` alone is the standard every tool
       // here honours (Bun, Node, Playwright, tsc), and stdout is a pipe anyway.
-      env: { ...process.env, CI: "1", NO_COLOR: "1", ...opts.env },
+      //
+      // THE SLOT COUNT GOES EXPLICITLY, because `CI` alone switches the gate
+      // semaphore off: `slotCount` returns 0 under `CI` when no count is set,
+      // and `slot.ts` then takes neither a slot nor the one-run-per-name lock.
+      // `CI` stays (Playwright reads it), so the count has to win over it.
+      // Measured 15/09/2026: two cards' `test:unit:shards` ran 741 s and 744 s
+      // side by side, both "0 s in the queue", on a server whose env had no
+      // `TOPICS_GATE_SLOTS`. An explicit value, "0" included, is kept.
+      env: {
+        ...process.env,
+        CI: "1",
+        TOPICS_GATE_SLOTS: process.env.TOPICS_GATE_SLOTS || String(slotCount({})),
+        NO_COLOR: "1",
+        ...opts.env,
+      },
     });
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the

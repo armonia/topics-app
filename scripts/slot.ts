@@ -99,8 +99,13 @@ if (slots > 0) {
   });
 }
 // Said even when the slot came at once (0 s): whoever times the command from
-// outside needs the line to exist, not only when the queue was long.
-console.error(slotAcquiredLine(label, Date.now() - queuedSince));
+// outside needs the line to exist, not only when the queue was long. Said too
+// when the wait gave up and runs unthrottled, because the waiting line stopped
+// that caller's clock and only this line restarts it.
+// NOT said with the throttle off: nothing was acquired and nobody waited, and
+// the line would make a card report a queue of "0 s" for a semaphore that never
+// ran (15/09/2026, two board checks side by side under `CI`).
+if (slots > 0) console.error(slotAcquiredLine(label, Date.now() - queuedSince));
 
 // `-c`, NOT `-lc`. A login shell sources the user's profile, and this machine's
 // profile exports a NODE_OPTIONS that eslint refuses to start under
