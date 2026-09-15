@@ -2,6 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.325 — 2026-09-15
+
+### Sotto il cofano
+- Il riavvio non taglia piu' le card che il server sta proteggendo
+- Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola
+- Il pannello del carico dice quello che il cancello decide, con i suoi numeri
+- Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva
+- I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review
+- La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board
+- La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa
+- Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire
+- Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick
+- I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro
+
 ## 2.2.324 — 2026-09-15
 
 ### Sotto il cofano

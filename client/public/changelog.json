@@ -1,5 +1,66 @@
 [
   {
+    "version": "2.2.325",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il riavvio non taglia piu' le card che il server sta proteggendo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello del carico dice quello che il cancello decide, con i suoi numeri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.324",
     "date": "2026-09-15",
     "sections": {
