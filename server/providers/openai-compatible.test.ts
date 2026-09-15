@@ -5,12 +5,13 @@
  * @covers MP-DIRECT-01
  * @covers MP-DIRECT-03
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { OpenAICompatibleProvider, describeContextOverflow } from "./openai-compatible";
 import { validateDirectEndpoint, type DirectEndpointConfig } from "../../shared/direct-endpoints";
 import type { StreamHandler } from "./types";
 
-const realFetch = globalThis.fetch;
+let realFetch: typeof fetch;
+beforeEach(() => { realFetch = globalThis.fetch; });
 afterEach(() => { globalThis.fetch = realFetch; });
 
 function endpoint(overrides: Record<string, unknown> = {}): DirectEndpointConfig {

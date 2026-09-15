@@ -4,7 +4,7 @@
  *
  * @covers MP-DIRECT-01
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,8 @@ import { createDirectEndpointsRouter } from "./direct-endpoints";
 import { readEndpointSecret } from "../services/direct-endpoint-store";
 
 const roots: string[] = [];
-const realFetch = globalThis.fetch;
+let realFetch: typeof fetch;
+beforeEach(() => { realFetch = globalThis.fetch; });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
