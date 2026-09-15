@@ -487,6 +487,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   return createPortal(
     <div
       data-testid="topic-browser-window"
+      {...focus.captureProps}
       data-mode={barOnly ? 'loaned' : (expanded ? 'exp' : 'min')}
       // The window is not an overlay for the native views it contains, and it
       // declares the corner radius the shell rounds its page to.
@@ -638,6 +639,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               onUrlChange={(url) => topicBrowserWindow.updateSheet(topicId, t.contextId, { url })}
               onTitleChange={(title) => topicBrowserWindow.updateSheet(topicId, t.contextId, { title })}
               hasFocus={focus.focused}
+              onSelfFocus={focus.claim}
             />
           </div>
         ))}

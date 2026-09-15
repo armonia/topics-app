@@ -71,7 +71,7 @@ pub(crate) struct TopWindow {
 /// Topics window has the foreground. The title keeps out the other visible
 /// windows of the same process (a popup the page opened, a `<select>` list).
 pub(crate) fn pane_inspector_open(entry: Option<&(u32, Vec<u32>)>, windows: &[TopWindow]) -> bool {
-    windows.first().is_some_and(|w| pane_owns_pid(entry, w.pid))
+    windows.iter().any(|w| w.visible && w.title.starts_with("DevTools") && pane_owns_pid(entry, w.pid))
 }
 
 #[cfg(target_os = "windows")]
