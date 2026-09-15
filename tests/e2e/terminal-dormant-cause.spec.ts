@@ -92,8 +92,8 @@ test.describe("The cause line on a dormant pane", () => {
     await expect(line).toBeVisible({ timeout: 15_000 });
     // The hour is the reader's own clock, so it is derived here the same way.
     const clock = new Date("2026-09-14T23:03:00.000Z");
-    const hhmm = `${String(clock.getHours()).padStart(2, "0")}:${String(clock.getMinutes()).padStart(2, "0")}`;
-    await expect(line).toContainText(hhmm);
+    const wallClock = `${String(clock.getHours()).padStart(2, "0")}:${String(clock.getMinutes()).padStart(2, "0")}`;
+    await expect(line).toContainText(wallClock);
     await expect(line).toContainText("In Progress");
   });
 
