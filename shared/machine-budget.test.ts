@@ -125,10 +125,12 @@ describe("budget against what the others leave", () => {
 });
 
 describe("the cost of one more agent", () => {
-  test("memory: no history prices it at the measured floor, never at zero", () => {
-    expect(estimatedAgentMemCost([])).toBe(1.5);
-    expect(estimatedAgentMemCost([0.01, 0.02, 0.03])).toBe(1.5);
-    expect(estimatedAgentMemCost([2, 3, 4])).toBe(3);
+  // Four and not 1.5: an empty ledger (every reload) priced a card at 1.5 GB,
+  // and 24 GB free admitted fifteen of them on 14/09/2026.
+  test("memory: no history prices a card at four gigabytes, never at a session's megabytes", () => {
+    expect(estimatedAgentMemCost([])).toBe(4);
+    expect(estimatedAgentMemCost([0.01, 0.02, 0.03])).toBe(4);
+    expect(estimatedAgentMemCost([4, 5, 5.5])).toBe(5);
     expect(estimatedAgentMemCost([40, 50, 60])).toBe(6);
   });
 
@@ -245,10 +247,20 @@ describe("admission", () => {
     expect(withReservation.pendingAdmissions).toBe(10);
   });
 
-  test("a reservation expires: past the warm-up window the measure speaks alone", () => {
+  test("on the CPU a reservation expires: past the warm-up window the measure speaks alone", () => {
     const now = 1_000_000;
     const old = Array.from({ length: 10 }, () => now - 10 * 60_000);
     expect(reservedCost(old, agent(1, 1.5), now).pending).toBe(0);
+    expect(reservedCost(old, agent(1, 1.5), now).coreUnits).toBe(0);
+  });
+
+  // The memory of an agent arrives in bursts, minutes after its start (median
+  // 160 s on 14/09/2026): a reservation that ended at 90 s let the whole queue
+  // in against a reading that was about to change.
+  test("on memory a reservation lasts the whole turn: ten agents ten minutes old still hold their price", () => {
+    const now = 1_000_000;
+    const old = Array.from({ length: 10 }, () => now - 10 * 60_000);
+    expect(reservedCost(old, agent(1, 1.5), now).memGB).toBeCloseTo(15, 5);
   });
 
   test("OUR OWN AGENTS DO NOT SHRINK THE BUDGET, they spend it", () => {

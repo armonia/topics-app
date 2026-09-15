@@ -83,7 +83,8 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { availableMemGB, budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock } from "./server/services/dispatch-capacity";
-import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, procFootprintKB } from "./server/lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
+import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { stopReviewChecks } from "./server/services/review-checks-brakes";
@@ -1548,11 +1549,12 @@ const taskDispatcher = createTaskDispatcher({
   agentCostSamples: () => {
     try { return fleetSessionCoreUnits(); } catch { return []; }
   },
-  // The same price list in gigabytes. The memory axis of the gate compares ONE
-  // agent against the free memory, so it needs what an agent really holds on
-  // this machine, not a constant written once.
+  // The same price list in gigabytes, and it is priced per CARD: the peak of
+  // the process tree of each card's pre-review checks. The per-session
+  // footprint it used to read cannot see a native card, whose tools and checks
+  // are children of this server (server/lib/card-memory-peaks.ts).
   agentMemSamples: () => {
-    try { return fleetSessionMemGB(); } catch { return []; }
+    try { return recentCardMemPeaksGB(); } catch { return []; }
   },
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -1651,12 +1653,15 @@ const taskDispatcher = createTaskDispatcher({
   // Si rilegge a ogni tick invece di fissarlo al boot: chi cambia runtime in
   // Impostazioni si aspetta che valga da subito, e questa lettura costa una
   // riga di SQLite già in cache.
-  resourceBlock: () =>
+  // `hold` is the dispatcher's: the price of one card, the turns it has just
+  // admitted, and whether the floor is already holding (its hysteresis).
+  resourceBlock: (hold) =>
     dispatchResourceBlock(
       ctx.worktreeManager.worktreesDir(),
       undefined,
       undefined,
       resolveAgentRuntime() === "cli",
+      hold,
     ),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
