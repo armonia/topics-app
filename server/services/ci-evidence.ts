@@ -19,8 +19,10 @@
  * anything else is NOT MEASURED (exit 97), never a pass.
  *
  * Between two polls no child process is alive: each git/gh call is a short argv
- * spawn at agent priority with its own 60 s cap, and it never throws.
+ * spawn at agent priority with its own 60 s cap on its whole process group, and it
+ * never throws.
  */
+import { spawn } from "node:child_process";
 import { E2E_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
@@ -169,22 +171,50 @@ export interface GithubPort {
 
 type Spawned = { code: number; out: string; err: string };
 
-async function spawnCapped(argv: string[], cwd: string): Promise<Spawned> {
-  try {
-    const proc = Bun.spawn(lowPriorityArgv(argv), {
-      cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
-    });
-    const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* already gone */ } }, CI_CALL_TIMEOUT_MS);
-    try {
-      const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      return { code: await proc.exited, out, err };
-    } finally {
+/**
+ * One git or gh call, capped for real. The child leads its own process group and
+ * the cap kills the whole group, then answers without waiting for the pipes:
+ * `git push` runs the pre-push hook and `ssh` as children, and a SIGKILL of git
+ * alone left them holding stdout, so the call returned only when they exited
+ * (96 s with a 95 s hook; never with an ssh on a half-open connection), and the
+ * delivery's 60 minute deadline, checked only after the push, was never reached.
+ */
+export function spawnCapped(argv: string[], cwd: string, capMs = CI_CALL_TIMEOUT_MS): Promise<Spawned> {
+  return new Promise((resolve) => {
+    const ownGroup = process.platform !== "win32";
+    let out = "";
+    let err = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (r: Spawned) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      resolve(r);
+    };
+    const [bin, ...args] = lowPriorityArgv(argv);
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(bin!, args, {
+        cwd, detached: ownGroup, stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
+      });
+    } catch (e) {
+      settle({ code: 127, out: "", err: e instanceof Error ? e.message : String(e) });
+      return;
     }
-  } catch (e) {
-    return { code: 127, out: "", err: e instanceof Error ? e.message : String(e) };
-  }
+    child.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+    child.stderr?.on("data", (d: Buffer) => { err += d.toString(); });
+    child.on("error", (e) => settle({ code: 127, out, err: e.message }));
+    child.on("close", (code, signal) => settle({ code: code ?? (signal ? 137 : 1), out, err }));
+    timer = setTimeout(() => {
+      try {
+        if (ownGroup && child.pid) process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch { /* already gone */ }
+      settle({ code: 137, out, err: `${err}\nkilled after ${Math.round(capMs / 1000)} s`.trim() });
+    }, capMs);
+  });
 }
 
 const failed = (argv: string[], r: Spawned): { ok: false; error: string } =>

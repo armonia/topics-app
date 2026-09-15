@@ -32,6 +32,15 @@ scaricare Chromium in una postazione dove Chromium non deve esserci. `--list`
 SHALL restare identico ovunque, ed e' il modo in cui un agente sul Mac vede quali
 spec tocca il suo diff.
 
+La stessa regola SHALL valere nella configurazione di Playwright, perche' non
+tutte le strade passano da questo script: la barra di una change che dice
+`npx playwright test`, e `qa:gate`, che lancia gli shard. Su un Mac fuori da
+GitHub Actions `playwright test` SHALL rifiutare mentre carica la
+configurazione, prima del server di test e di qualunque browser, con un
+messaggio che rimanda alla CI della pull request; `--list` SHALL restare ammesso
+(lo usano il pianificatore degli shard e `check:test-skips`). `qa:gate` su un Mac
+SHALL saltare l'E2E dicendolo, invece di chiudere la barra rossa.
+
 Il diff SHALL partire dal merge base con il ramo di base. Senza merge base (il
 checkout della pull request è profondo un commit) il cancello SHALL uscire 2 invece di
 contare solo i file non committati: fino al 15/09/2026 il passo della CI stampava
@@ -59,3 +68,7 @@ SHALL coincidere con quello della PR.
 - **AND** `check:e2e-touched` senza `--list` SHALL uscire 97 senza avviare Playwright
 - **AND** fuori da un Mac, o con `GITHUB_ACTIONS=true`, la guardia NON SHALL rifiutare
 
+#### Scenario: Playwright sul Mac rifiuta prima di lanciare un browser
+- **GIVEN** un Mac con `GITHUB_ACTIONS` assente
+- **THEN** `playwright test <spec>` SHALL uscire non zero con il messaggio che rimanda alla CI della pull request, senza avviare il server di test ne' un browser
+- **AND** `playwright test <spec> --list` SHALL uscire 0 elencando i test

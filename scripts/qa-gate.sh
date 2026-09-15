@@ -102,6 +102,13 @@ if [ "$VELOCE" = "0" ]; then
   esegui test:unit bun run test:unit
 fi
 
+if [ "$SENZA_E2E" = "0" ] && [ "$(uname -s)" = "Darwin" ] && [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  # Chromium does not run on the owner's Mac (playwright.config.ts refuses):
+  # the e2e of a branch is the pull request CI, not a red bar here.
+  echo "== E2E: not on this Mac, the pull request CI runs it =="
+  SENZA_E2E=1
+fi
+
 if [ "$SENZA_E2E" = "0" ]; then
   echo "== E2E (2 shard) =="
   esegui e2e ./scripts/e2e-shards.sh

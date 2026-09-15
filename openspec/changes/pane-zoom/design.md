@@ -782,12 +782,12 @@ bun test shared/shortcuts.test.ts                                   # ⌘E e ⌥
 bun run gen:shortcuts && git diff --exit-code -- desktop-tauri/src-tauri/src   # COERENZA registro <-> allowlist, NON copertura: una riga senza `native` passa verde
 (cd desktop-tauri/src-tauri && cargo test --lib)                    # TRE test: i due della tabella Windows col caso 'e' AGGIUNTO (`app_chords_from_the_registry_are_forwarded` = Ctrl+E inoltrato, `alt_is_never_ours` = Ctrl+Alt+E no), piu' quello macOS su `app_chord_dispatch_js` col parametro `alt` (⌥⌘E non arriva come ⌘E). `page_chords_stay_with_the_page` NON si tocca. Verde senza i casi nuovi = verde per omissione
 bun test client/src/hooks/                                          # il test del chiavistello: dopo un park, no-op su tutte e cinque le vie di NATIVEPARK-01
-npx playwright test tests/e2e/pane-zoom.spec.ts
-npx playwright test tests/e2e/pane-residency-cap.spec.ts            # con il seed a >= 3 gruppi e l'asserzione puntuale sulla tab attiva di ogni cella collassata
-npx playwright test tests/e2e/grid-split.spec.ts tests/e2e/tab-sync.spec.ts tests/e2e/draft-pane-lifecycle.spec.ts
-npx playwright test tests/e2e/split-dnd-matrix.spec.ts tests/e2e/pane-over-pane-group.spec.ts tests/e2e/project-tabs.spec.ts tests/e2e/floating-splits-ground.spec.ts tests/e2e/regression-fixes.spec.ts tests/e2e/project-sidebar-rail.spec.ts
-npx playwright test tests/e2e/drag-regions.spec.ts
-npx playwright test tests/e2e/escape-modal-guard.spec.ts
+# e2e in PR CI: tests/e2e/pane-zoom.spec.ts
+# e2e in PR CI: tests/e2e/pane-residency-cap.spec.ts            # con il seed a >= 3 gruppi e l'asserzione puntuale sulla tab attiva di ogni cella collassata
+# e2e in PR CI: tests/e2e/grid-split.spec.ts tests/e2e/tab-sync.spec.ts tests/e2e/draft-pane-lifecycle.spec.ts
+# e2e in PR CI: tests/e2e/split-dnd-matrix.spec.ts tests/e2e/pane-over-pane-group.spec.ts tests/e2e/project-tabs.spec.ts tests/e2e/floating-splits-ground.spec.ts tests/e2e/regression-fixes.spec.ts tests/e2e/project-sidebar-rail.spec.ts
+# e2e in PR CI: tests/e2e/drag-regions.spec.ts
+# e2e in PR CI: tests/e2e/escape-modal-guard.spec.ts
 bun run check:occlusion                                             # il modulo vero dentro WebKit: lo zoom non entra fra gli occlusori
 bun run check:spec-coverage                                         # prima dell'archiviazione e' rosso AL CONTRARIO, e si LEGGE: nota qui sotto
 bun run check:untraced-tests
@@ -796,7 +796,7 @@ bun run check:ui-language && bun run check:comment-language && bun run check:emd
 bun run check:deadcode
 bun run test:unit
 bun run check:e2e-touched --list                                    # l'E2E lo misura la CI della PR (github-ci:e2e), qui solo l'elenco
-bun run qa:gate                                                     # la barra intera in un comando
+bun run qa:gate                                                     # la barra intera in un comando; su un Mac salta l'E2E, che misura la CI della PR
 ```
 
 **Cosa fa davvero `check:spec-coverage` mentre la change e' aperta.** Il suo

@@ -21,6 +21,7 @@ import {
   type GithubJob,
   type GithubPort,
   type GithubRun,
+  spawnCapped,
 } from "./ci-evidence";
 import { ChecksInterruptedError } from "./checks-gate";
 import { CHECKS_LEG_MS } from "./checks-gate";
@@ -133,6 +134,29 @@ function fakeClock() {
 }
 
 const input = { cwd: "/tmp/wt", sha: SHA, taskId: "12345678-card" };
+
+describe("spawnCapped", () => {
+  // `git push` runs its hook and ssh as children: a cap that killed git alone
+  // waited for them to close the pipe (96 s with a 95 s hook), forever with ssh.
+  test("the cap kills the child's whole group and answers without waiting for its pipes", async () => {
+    const started = performance.now();
+    const r = await spawnCapped(["sh", "-c", "sleep 30 & echo $!; wait"], tmpdir(), 500);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(r.code).toBe(137);
+    const grandchild = Number(r.out.trim());
+    expect(grandchild).toBeGreaterThan(0);
+    let alive = true;
+    for (let i = 0; i < 40 && alive; i++) {
+      try { process.kill(grandchild, 0); await Bun.sleep(50); } catch { alive = false; }
+    }
+    expect(alive).toBe(false);
+  });
+
+  test("a call that ends on its own keeps its exit code and output", async () => {
+    const r = await spawnCapped(["sh", "-c", "echo out; echo err >&2; exit 3"], tmpdir(), 10_000);
+    expect(r).toEqual({ code: 3, out: "out\n", err: "err\n" });
+  });
+});
 
 describe("awaitE2eEvidence", () => {
   test("a gh auth error on the pull request is NOT MEASURED at once, without polling", async () => {
@@ -268,7 +292,7 @@ describe("the delivery push goes through the repo's push guard, from a worktree 
     const wt = join(root, "wt");
     const bare = join(root, "origin.git");
     const hooks = join(root, "hooks");
-    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const env: Record<string, string | undefined> = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
     delete env.TOPICS_PERSONAL_TERMS;
     const git = (cwd: string, ...args: string[]): string => {
       const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
