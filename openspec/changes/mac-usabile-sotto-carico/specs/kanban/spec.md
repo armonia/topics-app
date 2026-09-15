@@ -10,13 +10,13 @@ una persona nelle impostazioni della board: nessun default SHALL essere dedotto
 dal progetto. SHALL girare nel worktree DELLA CONSEGNA, in sequenza e
 nell'ordine dichiarato, e SHALL fermarsi al primo rosso.
 
-Una riga dichiarata può essere un check di EVIDENZA invece di un comando: la riga
-`github-ci:e2e` (`E2E_CI_CHECK`). Quella riga NON SHALL essere passata a una
-shell, SHALL essere misurata DOPO tutti i comandi, qualunque sia la sua posizione
-nell'elenco, e solo se sono tutti verdi, secondo KANBAN-84. Il suo esito entra nel
-verdetto come quello di un comando: il suo «non misurato» è `unknown`, il suo
-rosso è `fail`, e un elenco di esiti che non la contiene è più corto dei comandi
-dichiarati.
+Una riga dichiarata può essere un check di EVIDENZA invece di un comando: le righe
+`github-ci:e2e` (`E2E_CI_CHECK`) e `github-ci:unit` (`UNIT_CI_CHECK`). Quelle righe
+NON SHALL essere passate a una shell, SHALL essere misurate DOPO tutti i comandi,
+qualunque sia la loro posizione nell'elenco, e solo se sono tutti verdi, secondo
+KANBAN-84. Il loro esito entra nel verdetto come quello di un comando: il «non
+misurato» è `unknown`, il rosso è `fail`, e un elenco di esiti che non ne contiene
+una è più corto dei comandi dichiarati.
 
 Quando al worktree mancano le dipendenze, il sistema SHALL installarle PRIMA dei
 comandi dichiarati. Senza, i cancelli morivano su un'uscita 127 indistinguibile
@@ -210,6 +210,25 @@ dell'agente: quella notte gli agenti hanno scaricato `chromium-1217` nella cache
 questo Mac per farlo girare, contro la regola della postazione. La stessa misura, e
 di più, gira già nella CI di ogni pull request.
 
+**La suite unit.** Una board SHALL poter dichiarare anche la riga `github-ci:unit`
+(`UNIT_CI_CHECK`, nome `unit-ci`) al posto di `test:unit`. Il 15/09/2026 una card
+dentro `test:unit:shards` teneva sul Mac un albero da 2,4 a 11 GB, e la stessa suite
+gira nel job `check` di ogni pull request. Il suo verdetto SHALL venire dalla stessa
+run che legge la riga e2e, e SOLO dalla conclusione del passo `Unit + integration
+tests` del job `check`: VERDE solo con quel passo `success` su quel commit; ROSSO con
+`failure`, e il referto SHALL portare il comando del log del job `check`; NON
+MISURATO con il passo saltato, annullato o assente, o con il job `check` finito prima
+del passo. Il passo SHALL essere letto appena è concluso, anche con il resto del job
+ancora in corso. Con entrambe le righe dichiarate la consegna SHALL fare UNA spinta,
+aprire o riusare UNA PR e usare UN solo giro di sondaggi per le due righe; ogni riga
+SHALL avere il suo esito, e una riga ancora in attesa alla scadenza SHALL essere «non
+misurato» senza toccare l'esito dell'altra. Il testo di un rosso SHALL dire che sono
+rossi i test unit della CI. L'envelope di kickoff di una board con la riga SHALL dire
+che la suite unit intera si legge dalla CI della PR, che su questa macchina non si
+lancia `test:unit` né `test:unit:shards`, e che `bun test <file>` mirato resta
+ammesso; con la sola riga unit la riga e2e dell'envelope SHALL restare quella di una
+board che non misura l'e2e.
+
 **Il commit.** La misura SHALL riguardare ESATTAMENTE il commit su cui la board ha
 misurato i comandi (quello dopo il riallineamento su main). Il server, e mai
 l'agente, SHALL spingere quel commit sul ramo della card
@@ -316,6 +335,19 @@ anteprima.
 - **WHEN** la card consegna
 - **THEN** la card SHALL entrare in review con `checksState: pass`
 - **AND** il referto della riga SHALL portare il link della PR e della run
+
+#### Scenario: il passo unit verde sul commit consegnato
+- **GIVEN** una board con `true` e `github-ci:unit`, e il passo `Unit + integration tests` del job `check` concluso `success` nella run `pull_request` del commit
+- **THEN** la riga SHALL essere verde, anche con altri passi del job ancora in corso o rossi
+
+#### Scenario: il job check finisce prima del passo unit
+- **GIVEN** il job `check` concluso `failure` nella preparazione, con il passo unit `skipped` o assente
+- **THEN** la riga unit SHALL essere «non misurato», MAI verde
+
+#### Scenario: e2e e unit dalla stessa spinta
+- **GIVEN** una board con `github-ci:unit`, `true` e `github-ci:e2e`, il passo unit concluso al secondo sondaggio e i job e2e al quarto
+- **THEN** il commit SHALL essere spinto una volta, la PR aperta una volta, e le due righe SHALL arrivare nell'ordine dichiarato dopo i comandi locali
+- **AND** un lettore che risponde senza la riga unit SHALL dare `unknown`, mai `pass`
 
 #### Scenario: una run verde di un altro commit non vale
 - **GIVEN** una run verde il cui `head_sha` è un altro commit, oppure una run `push` verde dello stesso commit, e nessuna run `pull_request` del commit consegnato

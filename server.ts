@@ -88,7 +88,7 @@ import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { stopReviewChecks } from "./server/services/review-checks-brakes";
-import { awaitE2eEvidence } from "./server/services/ci-evidence";
+import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -2483,7 +2483,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     checksGateIsOffLane = (taskId) => gate.isOffLane(taskId);
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
-  ciE2eEvidence: (input) => awaitE2eEvidence(input),
+  ciEvidence: (input) => awaitCiEvidence(input),
   // No new pre-review command starts under the floor the admission uses
   // (15/09/2026: 5.9 GB free and 9.9 GB of swap, and the next bar would start).
   checksMemoryFloor: { read: () => availableMemGB(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },

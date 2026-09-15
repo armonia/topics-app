@@ -26,6 +26,11 @@ Disegno, file per file e test con i mutanti: `design.md` (sezione «Tornata 2»)
   - [ ] Fuori da questa tornata e ancora su Chromium: lo screenshot dell'anteprima del server (`browser-service.ts`, tornata 5) e `bun run qa:gate` senza opzioni
 
 ## Tornata 3: segnale di memoria e freno sul lavoro in volo
+Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15, KANBAN-84).
+- [x] `test:unit` alla consegna letto dalla CI della PR (risposta del 15/09 17:20): riga `github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`), verdetto = passo `Unit + integration tests` del job `check` nella run `pull_request` del commit consegnato; una spinta, una PR in bozza e un giro di sondaggi per e2e e unit (`awaitCiEvidence`); passo saltato, annullato, assente o job finito prima = non misurato
+  - [x] Envelope (`UNIT_CI_KICKOFF_LINE`, fan-out, `CODE_GATES_RULE`) e `docs/board-protocol.md`: la suite unit intera si legge dalla CI, `bun test <file>` mirato resta ammesso; `board-protocol-parity` ancora la regola
+  - [x] Test con risposte finte di GitHub (`ci-evidence`, `tasks.checks-ci`, `review-checks`, `task-dispatcher`, `board-protocol-parity`)
+  - [ ] Rollout, SOLO dopo il merge: `PATCH /api/boards/topics-app-ar3jt5/settings` con `{ "name": "unit-ci", "cmd": "github-ci:unit" }` al posto della riga `test:unit`
 - [ ] Pavimento riaperto solo con la memoria sopra la riga (pavimento + prezzo) per una finestra di tempo; finestra piena anche al boot; prenotazione per la vita del turno
 - [ ] Attesa dei check: rilascio con il prezzo del comando, uno per finestra, `e2e-touched` sotto slot
 - [ ] Con swap sostenuto Topics interrompe il giro di check più giovane (interrotto, riparte da solo), al massimo 1 ogni 2 min e 2 per giro

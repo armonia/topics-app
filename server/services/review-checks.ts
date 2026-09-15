@@ -22,7 +22,7 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import { isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
+import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun } from "./budget-governor";
 import { memoryWaiter, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
@@ -699,6 +699,11 @@ export function formatChecksWait(args: {
   return `${parts.join(" · ")}. ${footer}`;
 }
 
+/** What a red CI evidence row measured, in the words of the card. */
+function ciRedWhy(row: CheckRun): string {
+  return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);
@@ -750,7 +755,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
     ].join("\n\n");
   }
-  const why = ci ? "e2e rossi sulla CI della PR" : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
   return [
     `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
@@ -776,6 +781,6 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   if (checksVerdict(runs) === "unknown") {
     return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
   }
-  const why = ci ? "e2e rossi sulla CI della PR" : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }

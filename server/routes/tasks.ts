@@ -421,11 +421,12 @@ export interface TasksRouterOpts {
    */
   checksMemoryFloor?: MemoryFloor;
   /**
-   * Reads the pull request CI e2e verdict for the delivered commit (KANBAN-84),
-   * called only after every local command is green and the lane is given back.
-   * Absent with a declared `github-ci:e2e` row = NOT MEASURED, never a pass.
+   * Reads the pull request CI verdicts for the delivered commit (KANBAN-84): one
+   * row per declared `github-ci:*` check, from one push and one poll loop, called
+   * only after every local command is green and the lane is given back.
+   * Absent with a declared CI row = NOT MEASURED, never a pass.
    */
-  ciE2eEvidence?: (input: { cwd: string; sha: string; taskId: string }) => Promise<CheckRun>;
+  ciEvidence?: (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun[]>;
 }
 
 /**
@@ -1131,9 +1132,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
-    // The CI evidence row never reaches a shell: it is read after the local commands.
+    // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
-    const ciCheck = checks.find(isCiEvidenceCheck) ?? null;
+    const ciChecks = checks.filter(isCiEvidenceCheck);
 
     return checksGate.leg(taskId, {
       commit: ref.commit ?? null,
@@ -1179,7 +1180,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             } catch { /* una spia persa non ferma il gate */ }
           },
         });
-        if (ciCheck && runs.length === localChecks.length && runs.every((r) => r.ok)) {
+        if (ciChecks.length && runs.length === localChecks.length && runs.every((r) => r.ok)) {
           // Waiting on GitHub holds no CPU: give the lane to the next card's run.
           lane.release();
           // A reader that throws measured nothing: NOT MEASURED, like its own
@@ -1187,12 +1188,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // of a run that blew up, which the delivery reads as "no gate at all",
           // and the card entered review with no e2e verdict. Only a shutdown
           // passes through, as the interrupted outcome it already has.
-          runs.push(ref.commit && opts?.ciE2eEvidence
-            ? await opts.ciE2eEvidence({ cwd: ref.cwd, sha: ref.commit, taskId }).catch((err: unknown) => {
+          const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+          const ciRuns = ref.commit && opts?.ciEvidence
+            ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
               if (err instanceof ChecksInterruptedError) throw err;
-              return ciNotMeasured(ciCheck, `the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
+              return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
             })
-            : ciNotMeasured(ciCheck, ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit"));
+            : unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit");
+          // One row per declared CI check, whatever the reader answered.
+          runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
           throwIfStopping();
         }
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
