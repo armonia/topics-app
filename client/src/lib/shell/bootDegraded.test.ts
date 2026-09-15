@@ -15,7 +15,7 @@
  * present and no server, the app said "Reconnecting" forever and named nothing.
  */
 import { describe, test, expect } from 'bun:test';
-import { degradedNotice, parseBootDegraded } from './bootDegraded';
+import { degradedNotice, parseBootDegraded, watchBootDegraded } from './bootDegraded';
 
 describe('boot verdict from the shell', () => {
   test('the degraded answer carries the cause and the way out', () => {
@@ -86,5 +86,48 @@ describe('a "no" may just be early, so it is not remembered', () => {
   test('and the same shell later answers degraded, with the path', () => {
     const late = parseBootDegraded({ degraded: true, markerPath: '/x/external-server-seen', port: 3333 });
     expect(late?.markerPath).toBe('/x/external-server-seen');
+  });
+});
+
+describe('a "yes" is not remembered either: the shell takes it back', () => {
+  // THE BUG THIS PINS DOWN (board card c0faad1d). The shell publishes the
+  // marker's path BEFORE the search, then retracts it on the branch where
+  // deleting the marker would change nothing (a live daemon pid on the port,
+  // `WaitForKnownServer`). The client cached the first yes and stopped asking,
+  // so the bar offered "delete the marker and reopen" for the rest of the
+  // session and the button answered "not degraded".
+  const marker = { markerPath: '/x/external-server-seen', port: 3333 };
+
+  /** Every report the surface received, in order. */
+  function collect(answers: (typeof marker | null)[]) {
+    const seen: (typeof marker | null)[] = [];
+    let n = 0;
+    return new Promise<(typeof marker | null)[]>((resolve) => {
+      const stop = watchBootDegraded(
+        (d) => {
+          seen.push(d);
+          if (seen.length === answers.length) {
+            stop();
+            resolve(seen);
+          }
+        },
+        1,
+        () => Promise.resolve(answers[Math.min(n++, answers.length - 1)]),
+      );
+    });
+  }
+
+  test('the retraction reaches the surface: yes, then no, is a no', async () => {
+    expect(await collect([marker, null])).toEqual([marker, null]);
+  });
+
+  test('so the sentence and its button stop being drawn', async () => {
+    const [first, second] = await collect([marker, null]);
+    expect(degradedNotice(first, 'offline')).not.toBeNull();
+    expect(degradedNotice(second, 'offline')).toBeNull();
+  });
+
+  test('and a late yes still arrives, which is why the asking never stops', async () => {
+    expect(await collect([null, null, marker])).toEqual([null, null, marker]);
   });
 });

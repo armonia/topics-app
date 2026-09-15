@@ -518,6 +518,39 @@ pub fn forget_site_blocking(wv: &tauri::Webview, names: Vec<String>) -> Result<u
         .map_err(|_| "forget site timeout".to_string())?
 }
 
+/// Put this pane's WebView on top of the other child webviews of its window,
+/// without moving it, resizing it or taking the keyboard.
+///
+/// Same hole as the other two engines, reached by a third road: wry puts every
+/// child webview into the window's `GtkFixed` with `Fixed::put`
+/// (`webkitgtk/mod.rs`), which APPENDS, and `set_bounds` only calls `move_`,
+/// which never reorders. So a pane born after the floating browser window
+/// covers it for good.
+///
+/// A GtkFixed has no reorder call, and taking the widget out to put it back in
+/// would tear down the web process view along with its page. What decides the
+/// stacking of a widget that owns its GdkWindow is the GdkWindow, and that one
+/// does have a `raise`: it restacks the native window above its siblings
+/// without touching geometry, focus or the page.
+///
+/// A widget WITHOUT its own GdkWindow draws into its parent's, and `window()`
+/// would then answer the toplevel: raising that would lift the whole
+/// application above the other applications on the desktop, which is a much
+/// louder bug than the one being fixed. Hence the `has_window` guard, and the
+/// gap stays declared in the shell until a probe on a real WebKitGTK says which
+/// of the two a WebKitWebView is.
+pub fn raise(wv: &tauri::Webview) -> Result<(), String> {
+    on_view(wv, |v| {
+        use gtk::prelude::WidgetExt;
+        if !v.has_window() {
+            return;
+        }
+        if let Some(w) = v.window() {
+            w.raise();
+        }
+    })
+}
+
 pub fn go_back(wv: &tauri::Webview) -> Result<(), String> {
     on_view(wv, |v| v.go_back())
 }

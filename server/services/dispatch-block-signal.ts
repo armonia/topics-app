@@ -54,6 +54,50 @@ export function currentDispatchBlock(): DispatchBlock | null {
 }
 
 /**
+ * A RESUME HELD BY THE MACHINE carries its own block, not the one above.
+ *
+ * `resume` puts the `queued` chip on an In-progress card when the floor, the
+ * 24h spend or the budget holds it, and it re-evaluates that hold on its own
+ * timer every few seconds. The block the TICK publishes is not that answer: the
+ * tick runs only on boards with queued todos, and it returns before publishing
+ * on a paused board or with dispatch off. Empty the queue by hand or pause the
+ * board during a floor night, and the published block stays at a floor that has
+ * cleared: the held card read "memory almost gone" about memory that was back.
+ *
+ * So the hold writes its block here, keyed by the card, just before it writes
+ * the chip, and the mapper believes it only while the ROW still carries the same
+ * sentence (`dispatch_error`). The resume that finds room, the one held by the
+ * cap alone and every other writer of that chip write another sentence or none,
+ * so a leftover entry cannot speak: it is exactly as fresh as the row. After a
+ * restart the map is empty and the card says nothing until its resume holds again.
+ */
+const heldResumes = new Map<string, DispatchBlock>();
+
+/** The block that holds this card's resume right now; `null` = none of the machine's. */
+export function setHeldResumeBlock(taskId: string, block: DispatchBlock | null): void {
+  if (block) heldResumes.set(taskId, block);
+  else heldResumes.delete(taskId);
+}
+
+/** The held resume's block, only while the row still says its sentence. */
+export function heldResumeBlock(taskId: string, rowReason: string | null | undefined): DispatchBlock | null {
+  const held = heldResumes.get(taskId);
+  return held && rowReason != null && held.reason === rowReason ? held : null;
+}
+
+/**
+ * The 24h spend fragment as the card reads it. `dayBlock` returns the FRAGMENT
+ * its log line embeds ("spesa: $12 negli ultimi 24h su un tetto di $10"), and a   allow-italian: the quoted fragment the brake returns
+ * fragment dropped alone on a card reads like a truncated string. One sentence
+ * for the todo card and the held resume, so the two cannot drift apart.
+ */
+export function daySpendSentence(daySpendBlock: string): string {
+  return `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
+    + "Non parte niente su nessuna board finché la finestra delle 24 ore non scorre, "   // allow-italian: the sentence shown on the card
+    + "oppure finché non alzi il tetto dalle impostazioni della board.";                 // allow-italian: the sentence shown on the card
+}
+
+/**
  * The tick's verdict, published and turned into the line for the thread.
  *
  * Both arguments come straight out of the two brakes the tick already reads
@@ -61,9 +105,7 @@ export function currentDispatchBlock(): DispatchBlock | null {
  * one place that decides which of them wins and what it READS like, so the chip
  * and the thread line cannot drift apart.
  *
- * The spend one is re-composed: `dayBlock` returns the FRAGMENT its log line
- * embeds ("spesa: $12 negli ultimi 24h su un tetto di $10"), and a fragment   allow-italian: the quoted fragment the brake returns
- * dropped alone on a card reads like a truncated string. The floor's message is
+ * The spend one is re-composed (`daySpendSentence`). The floor's message is
  * already a sentence, with its numbers, and it travels as it is.
  *
  * THE ORDER, when more than one holds: floor, then spend, then pressure. The
@@ -89,11 +131,7 @@ export function publishDispatchBlock(
    *  there is no reading, or the window is under the threshold. */
   planBlock: string | null = null,
 ): string | null {
-  const spend = daySpendBlock
-    ? `Tetto di spesa giornaliero raggiunto (${daySpendBlock.replace(/^spesa:\s*/, "")}). `
-      + "Non parte niente su nessuna board finché la finestra delle 24 ore non scorre, "   // allow-italian: the sentence shown on the card
-      + "oppure finché non alzi il tetto dalle impostazioni della board."                  // allow-italian: the sentence shown on the card
-    : null;
+  const spend = daySpendBlock ? daySpendSentence(daySpendBlock) : null;
   setDispatchBlock(
     resourceFloor ? { kind: "resources", reason: resourceFloor }
       : spend ? { kind: "spend", reason: spend }

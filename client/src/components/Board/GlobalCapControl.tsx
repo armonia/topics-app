@@ -55,9 +55,10 @@ import {
   budgetShare, capMode, livePressureBand,
   BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
 } from '../../lib/board';
-import type { DispatchCapMode, ThresholdBand } from '../../lib/board';
+import type { DispatchAdmission, DispatchCapMode, ThresholdBand } from '../../lib/board';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { DispatchLoadSummary } from './DispatchLoadGauge';
+import { admissionVerdictText, gateCoreNumbers, type VerdictText } from './dispatchLoad';
 import {
   currentCapLimit,
   saveGlobalCap,
@@ -125,6 +126,27 @@ function RunningLine({ className, children }: { className: string; children: Rea
   );
 }
 
+const VERDICT_TEXT: Record<VerdictText['tone'], string> = { go: SUCCESS_TEXT, first: WARNING_TEXT, wait: DANGER_TEXT };
+
+/**
+ * The gate's verdict, in the words of `admissionVerdictText`: the axis that
+ * holds and the two numbers it compared. The composed sentence of the floor
+ * stays one hover away, the panel keeps its one line.
+ */
+function Verdict({ admission }: { admission: DispatchAdmission }) {
+  const tr = useT();
+  const v = admissionVerdictText(admission);
+  return (
+    <span
+      data-testid="global-cap-verdict"
+      data-admit={admission.admit}
+      data-blocked-by={admission.blockedBy ?? 'none'}
+      title={v.title}
+      className={`font-medium ${VERDICT_TEXT[v.tone]}`}
+    >{tr(v.key, v.params)}</span>
+  );
+}
+
 /** What is true but not read at every opening: closed until asked for. */
 function HowItWorks({ children }: { children: ReactNode }) {
   const tr = useT();
@@ -171,6 +193,12 @@ function CountBrake() {
               ? tr('board.dispatch.runningOver', { running, cap: limit })
               : tr('board.dispatch.running', { running, cap: limit })}
       </RunningLine>
+      {/* THE FLOOR HOLDS IN THIS MODE TOO, and it was said nowhere: "3 di 4"
+          reads as a free slot while no agent can start. The capacity reading
+          carries a verdict here only when the floor or a drain holds. */}
+      {s.capacity?.admission && !s.capacity.admission.admit && (
+        <p className="text-mini leading-snug"><Verdict admission={s.capacity.admission} /></p>
+      )}
       {full && (
         <p className="text-mini leading-snug text-amber-300/80">
           {tr(over ? 'board.dispatch.capOver' : 'board.dispatch.capFull')}
@@ -254,8 +282,10 @@ function ResourcesBrake() {
   // "How it works", moves under the finger with the label.
   const [shownShare, setShownShare] = useState<number | null>(null);
   const shown = shownShare ?? share;
-  const used = cap?.usedCoreUnits ?? null;
-  const usable = Math.max(0, cap?.usableCoreUnits ?? 0);
+  // The numbers the gate DECIDED ON (probe plus the turns still warming up),
+  // not the bare probe: "2.0 of 6.6" in green beside "new ones wait" was the
+  // two sides of the same line counting differently.
+  const { used, usable, pending } = gateCoreNumbers(cap);
   // THE VERDICT IS THE GATE'S, read off the wire (`admission`), never worked
   // out here: `used >= usable` ignored the cost of the agent to admit, the 80%
   // resume line and the memory axis, and said "would start" while the gate
@@ -284,22 +314,11 @@ function ResourcesBrake() {
         >
           {used == null || cores <= 0
             ? tr('board.dispatch.liveLoading')
-            : tr('board.dispatch.liveFree', { used: used.toFixed(1), usable: usable.toFixed(1) })}
+            : pending > 0
+              ? tr(pending === 1 ? 'board.dispatch.liveFreePendingOne' : 'board.dispatch.liveFreePending', { used: used.toFixed(1), usable: usable.toFixed(1), n: pending })
+              : tr('board.dispatch.liveFree', { used: used.toFixed(1), usable: usable.toFixed(1) })}
         </span>
-        {admission && used != null && (
-          <span
-            data-testid="global-cap-verdict"
-            data-admit={admission.admit}
-            data-blocked-by={admission.blockedBy ?? 'none'}
-            className={`font-medium ${!admission.admit ? DANGER_TEXT : admission.firstAgentExempt ? WARNING_TEXT : SUCCESS_TEXT}`}
-          >
-            {!admission.admit
-              ? tr(admission.blockedBy === 'memory' ? 'board.dispatch.verdictWaitMemory' : 'board.dispatch.verdictWait')
-              : admission.firstAgentExempt
-                ? tr('board.dispatch.verdictFirst')
-                : tr('board.dispatch.verdictGo')}
-          </span>
-        )}
+        {admission && (used != null || !admission.admit) && <Verdict admission={admission} />}
       </p>
 
       <HowItWorks>

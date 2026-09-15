@@ -52,13 +52,14 @@ import os from "node:os";
 import { statfsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
-import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, type FleetLoadReading } from "../lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, type FleetLoadReading } from "../lib/fleet-usage";
+import { recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
-import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, machineBudget } from "../../shared/board";
+import { AGENT_COST_FLOOR_MEM_GB, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, machineBudget } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -306,18 +307,11 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  * and 0,08 GB (the freeze, seen) nobody has ever sampled anything.
  *
  * HOW BIG THE UNMEASURED GAP REALLY IS - narrower than "7,4 down to 0,08".
- * The gate is a plain `available < 6`: it flips at SIX and nowhere else (there
- * is no "margin minus seat price" rule anywhere - `byMem` divides TOTAL memory,
- * not available). So the whole stretch below 6 needs no sampling at all: the
- * admission verdict there is already REFUSE whatever the reading turns out to
- * be. What is genuinely unknown AND decision-relevant is only the band where
- * the gate is open and nobody has ever measured:
- *
- *     6,00 .. 7,39 GB   - 1,4 GB wide, gate OPEN, never sampled
- *
- * And at the worst healthy peak seen under real load (7,39 GB, ten checks at
- * once, tree at 5,17 GB) the gate still admits, with 1,39 GB above the floor.
- * The board at full tilt is not sitting on the threshold.
+ * From a standing start the gate flips at SIX (the dispatcher adds the turns
+ * still warming up and, once holding, one card's price: see `MemoryFloorHold`),
+ * so below 6 the verdict is REFUSE whatever the reading. The unknown that
+ * matters is 6,00 .. 7,39 GB, gate open and never sampled; at the worst healthy
+ * peak under real load (7,39 GB, ten checks at once) the gate still admits.
  *
  * The other thing still unknown is different in kind and does NOT change the
  * verdict: where the machine starts to PAY - the first swapout. Anchors are the
@@ -534,6 +528,15 @@ export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_ME
   return availableGB < floorGB;
 }
 
+/** What the reading cannot show yet, as separate facts so the sentence names each: one card's
+ *  price (median of the recent check peaks), the local turns inside the warm-up window, and
+ *  whether the floor already holds (then it reopens only with room for one more card above it). */
+export interface MemoryFloorHold {
+  cardGB: number;
+  startingCards: number;
+  holding: boolean;
+}
+
 /**
  * Perché NON si può ammettere un altro agente adesso, o `null` se si può.
  * La frase finisce sulla card, quindi dice il numero: «non c'è posto» senza il
@@ -547,23 +550,15 @@ export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_ME
  */
 export function dispatchResourceBlock(
   worktreesPath: string,
-  /** La misura, iniettabile: il caso che conta è «disco quasi pieno», e senza
-   *  questa cucitura si potrebbe provare solo riempiendo il disco per davvero —
-   *  cioè non si proverebbe, e la frase che finisce sulla card non l'avrebbe mai
-   *  letta nessuno prima di un incidente. */
+  /** Injectable probe: "disk almost full" is otherwise provable only by filling a real disk. */
   readFreeGB: (p: string) => number | null = freeDiskGB,
-  /** Idem per la memoria: il caso che conta è «RAM quasi finita», e provarlo
-   *  per davvero vorrebbe dire mandare in swap la macchina di chi sviluppa. */
+  /** Same for memory: proving "RAM almost gone" for real would send the developer's Mac into swap. */
   readAvailMemGB: () => number | null = availableMemGB,
-  /**
-   * Gli agenti di questa macchina sono PROCESSI o no?
-   *
-   * È la domanda che decide il pavimento, e prima non veniva fatta: si teneva
-   * il margine di cinque CLI anche quando gli agenti costano 2,3 MB l'uno. Il
-   * chiamante lo sa (legge `agent_runtime`), qui si riceve e basta — questo
-   * file misura la macchina, non decide le politiche.
-   */
+  /** Are this machine's agents PROCESSES? It decides the floor (CLI or native); the caller knows it
+   *  from `agent_runtime`, and this file measures the machine without setting policy. */
   agentsAreProcesses = true,
+  /** What the dispatcher knows and the reading cannot see yet (see `MemoryFloorHold`). */
+  hold: MemoryFloorHold = { cardGB: AGENT_COST_FLOOR_MEM_GB, startingCards: 0, holding: false },
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -573,13 +568,32 @@ export function dispatchResourceBlock(
   }
   const mem = (() => { try { return readAvailMemGB(); } catch { return null; } })();
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
-  if (memoryTooTight(mem, floor)) {
+  const cardGB = Math.max(0, hold.cardGB);
+  const starting = Math.max(0, hold.startingCards);
+  // Two facts, kept apart: summed, they read "4 GB kept for the starting agents" with nobody starting.
+  const reserved = starting * cardGB;
+  const margin = hold.holding ? cardGB : 0;
+  const net = mem == null ? Number.NaN : mem - reserved;
+  if (mem != null && memoryTooTight(net, floor + margin)) {
+    const gb = (n: number) => n.toFixed(1);
+    const who = starting === 1 ? "l'agente che sta partendo" : `i ${starting} agenti che stanno partendo`;
+    const kept = reserved > 0 ? `, di cui ${gb(reserved)} tenuti per ${who}` : "";
+    // A reservation as large as the reading (as printed) is all of it, not "of which"; "under" only when the reading is.
+    const promised = `tutti già tenuti per ${who}, che la lettura non vede ancora`;
+    const head = reserved > 0 && Number(gb(reserved)) >= Number(gb(mem))
+      ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ${mem < floor ? `sotto il pavimento di ${floor} GB, e ${promised}.` : `${promised}: non ne resta niente per il pavimento di ${floor} GB.`}`
+      : mem < floor
+        ? `Memoria quasi finita: ${gb(mem)} GB disponibili${kept}, sotto il pavimento di ${floor} GB.`
+        : net < floor
+          ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ma ${gb(reserved)} sono tenuti per ${who}, che la lettura non vede ancora, e i ${gb(net)} che restano non coprono il pavimento di ${floor} GB.`
+          : `Memoria in risalita: ${gb(mem)} GB disponibili${kept}, sopra il pavimento di ${floor} GB ma senza posto per un agente in più.`;
     const costo = agentsAreProcesses
       ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
-      : "Con il runtime nativo la sessione pesa 2,3 MB, ma i check che lancia (shard unit, e2e) ne chiedono ~1,5 GB";
-    return `Memoria quasi finita: ${mem!.toFixed(1)} GB disponibili, sotto il pavimento di ${floor} GB. ` +
-      `${costo}, e sotto questa riga la macchina va in swap. ` +
-      `Riprendo appena si libera memoria: niente è andato perso.`;
+      : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check (shard unit, e2e) si prezza ${gb(cardGB)} GB`;
+    const tail = margin > 0
+      ? `Riparto sopra ${gb(floor + margin)} GB${reserved > 0 ? " al netto degli agenti che partono" : ""}, il pavimento più il prezzo di una card: ripartire alla soglia stessa fa sfarfallare la coda. Niente è andato perso.`
+      : "Riprendo appena si libera memoria: niente è andato perso.";
+    return `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}`;
   }
   // THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back
   // out is the honest move rather than the tidy one.
@@ -823,7 +837,7 @@ export function computeDispatchCapacity(
    *  reason as the probes: a test must be able to fix what an agent costs. */
   priceList: { coreUnits: () => number[]; memGB: () => number[] } = {
     coreUnits: fleetSessionCoreUnits,
-    memGB: fleetSessionMemGB,
+    memGB: recentCardMemPeaksGB,
   },
 ): DispatchCapacity {
   const cores = machineCores();
@@ -874,8 +888,8 @@ export function computeDispatchCapacity(
   const share = clamp(budgetKnob.share, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX);
   const budgetNow = machineBudget(sample, share);
   const round = (n: number) => Math.round(n * 10) / 10;
-  // What one more agent is priced at in memory, from the live sessions (the
-  // same price list the gate uses). WHICH AXIS BLOCKS is not computed here:
+  // What one more agent is priced at in memory, from the check peaks of the
+  // last cards (the same price list the gate uses). WHICH AXIS BLOCKS is not computed here:
   // it travels as `admission`, the dispatcher's own verdict with its
   // reservation and hysteresis, so there is one answer and not two.
   const agentCost = {

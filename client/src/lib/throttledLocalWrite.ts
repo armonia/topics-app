@@ -18,10 +18,12 @@
  * THE TWO CUTS, and neither one is a heuristic:
  *
  *  1. COALESCE. Writes inside the debounce window become one write. Trailing
- *     only, no leading edge: unlike a re-read the user is watching (see
- *     `burstCoalescer`, which fires the first event immediately and for good
- *     reason), NOBODY reads this cache until the next boot. Being 2 seconds
- *     late costs nothing measurable and saves the whole burst. The window is
+ *     by default: unlike a re-read the user is watching (see `burstCoalescer`,
+ *     which fires the first event immediately and for good reason), a seed is
+ *     read on the next mount or boot, not now. Being 2 seconds late costs
+ *     nothing measurable and saves the whole burst. A writer with a LONG
+ *     window (the board rows, one minute) opts into `firstWriteImmediate`, so
+ *     the seed exists right after the first read of the session. The window is
  *     FIXED from the first write of the burst, not restarted by each new one: a
  *     sliding window would never fire while an agent streams updates, which is
  *     precisely the hour that needs to be persisted.
@@ -54,6 +56,13 @@ export interface ThrottledWriterOptions {
   key: string;
   /** How long a burst coalesces. Default 2000 ms. */
   debounceMs?: number;
+  /**
+   * The first write of this writer's life goes out at once, the window applies
+   * from the second one on. For a long window on a seed: the copy exists
+   * right after the first read (a reload a few seconds later still paints from
+   * it), and what the window saves is the stream of rewrites after that.
+   */
+  firstWriteImmediate?: boolean;
   /** Injectable for the tests. Defaults to `localStorage`. */
   storage?: WriterStorage;
   /** Injectable for the tests. Defaults to the global `setTimeout`. */
@@ -122,11 +131,17 @@ export function createThrottledLocalWriter(opts: ThrottledWriterOptions): Thrott
 
   let pending: WriterValue | null = null;
   let timer: unknown = null;
+  let immediateLeft = opts.firstWriteImmediate === true;
 
   const writer: ThrottledWriter = {
     write(value: WriterValue): void {
       if (!storage) return;
       pending = value;
+      if (immediateLeft) {
+        immediateLeft = false;
+        writer.flush();
+        return;
+      }
       if (timer !== null) return; // the burst rides the timer already armed
       timer = schedule(() => {
         timer = null;
