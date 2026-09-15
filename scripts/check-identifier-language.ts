@@ -122,6 +122,11 @@ export const PROJECT_WORDS = new Set([
   // `pane-zoom`). "Zoom out" would be a different thing — it is the browser's
   // page scale, which this app also has.
   "unzoom",
+  // The platform's own name for an embedded browser view: Tauri's `Webview`,
+  // WebView2, and the `webviews` rows of the shell's `perf_metrics` payload
+  // (`WebviewUsage` in lib.rs). A row of that list has no other honest name
+  // (2026-09-15, `client/src/lib/shell/heavyPanes.ts`).
+  "webview",
   // `vm_stat` calls a page written out to swap a "swapout", one word: the rate
   // of those is how a Mac says it has started paying for memory it does not
   // have (2026-09-11, `dispatch-capacity.ts`).

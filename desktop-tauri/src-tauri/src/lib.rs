@@ -39,6 +39,12 @@ mod browser_linux;
 #[cfg(target_os = "windows")]
 mod browser_win;
 mod window_recompose;
+mod window_focus;
+// Per-pane process usage and suspend on WebView2. Compiled everywhere so its
+// pure delta rules are tested on the three CI runners; the WebView2 half is
+// `cfg(windows)` inside.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod pane_process_win;
 #[cfg(target_os = "windows")]
 mod windows_repaint;
 
@@ -310,8 +316,17 @@ fn refresh_webview_content_pids(app: &tauri::AppHandle) {
 /// sua ultima misura, che sarebbe un numero vero riferito a un processo che non
 /// esiste. Non si sfoltisce la mappa qui: e' `refresh_webview_content_pids` a
 /// riscriverla, e questa funzione resta di sola lettura.
+///
+/// The CPU figure comes from `cpu_by_pid`, the ONE read of each pid that the
+/// sample loop already took (`sample_cpu`). Reading the counter a second time
+/// here measured the ~100 us since the first read: 0.0 in 32 of 40 samples and
+/// 61-468% in the others on a pane burning a steady 18.6% (15/09). A WebContent
+/// the sample did not cover gets `None`, never zero.
 #[cfg(target_os = "macos")]
-fn collect_webview_usage(live: &std::collections::HashSet<i32>) -> Vec<WebviewUsage> {
+fn collect_webview_usage(
+    live: &std::collections::HashSet<i32>,
+    cpu_by_pid: &std::collections::HashMap<i32, f32>,
+) -> Vec<WebviewUsage> {
     const MB: f64 = 1_048_576.0;
     let map = match webview_content_pid_map().lock() {
         Ok(m) => m,
@@ -324,7 +339,7 @@ fn collect_webview_usage(live: &std::collections::HashSet<i32>) -> Vec<WebviewUs
             label: label.clone(),
             pid,
             memory_mb: proc_memory(pid).map(|(fp, _)| fp as f64 / MB).unwrap_or(0.0),
-            cpu_percent: proc_cpu_percent(pid, live),
+            cpu_percent: cpu_by_pid.get(&pid).copied(),
         })
         .collect();
     // Ordine stabile: una `HashMap` itera a caso, e una lista che si rimescola a
@@ -779,6 +794,91 @@ const PERF_SAMPLE_WINDOW: std::time::Duration = std::time::Duration::from_millis
 static PERF_LAST: std::sync::OnceLock<std::sync::Mutex<Option<(std::time::Instant, PerfMetrics)>>> =
     std::sync::OnceLock::new();
 
+/// Which bucket a process falls in. The same partition drives both the CPU and
+/// the memory rows of the dropdown, so the two describe the same thing.
+enum PerfBucket {
+    Renderer,
+    Gpu,
+    Other,
+}
+
+fn perf_bucket(name: &str) -> PerfBucket {
+    if name.contains("WebContent") {
+        PerfBucket::Renderer
+    } else if name.contains("GPU") {
+        PerfBucket::Gpu
+    } else {
+        PerfBucket::Other
+    }
+}
+
+/// One CPU sample of a pid set: the app totals, the renderer/GPU split, and the
+/// per-pid figure every other consumer of the same sample must reuse.
+struct CpuSample {
+    total: f32,
+    renderer: f32,
+    gpu: f32,
+    /// Pids that produced a delta, out of `pids` found alive.
+    sampled: u32,
+    pids: u32,
+    buckets: std::collections::HashMap<i32, PerfBucket>,
+    /// Only the pids that produced `Some`: absent means "not measured".
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    by_pid: std::collections::HashMap<i32, f32>,
+}
+
+/// Read each pid's CPU counter exactly once. A second read of the same pid in
+/// the same `perf_metrics` call measures the microseconds since the first one,
+/// which is how the per-webview figure used to be noise (see
+/// `collect_webview_usage`).
+fn sample_cpu(sys: &mut sysinfo::System, pids: &[i32]) -> CpuSample {
+    let sysinfo_pids: Vec<sysinfo::Pid> = pids
+        .iter()
+        .map(|&p| sysinfo::Pid::from_u32(p as u32))
+        .collect();
+    let mut out = CpuSample {
+        total: 0.0,
+        renderer: 0.0,
+        gpu: 0.0,
+        sampled: 0,
+        pids: 0,
+        buckets: std::collections::HashMap::new(),
+        by_pid: std::collections::HashMap::new(),
+    };
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&sysinfo_pids), true);
+    // L'insieme vivo, per potare i campioni dei pid morti.
+    #[cfg(target_os = "macos")]
+    let live: std::collections::HashSet<i32> = pids.iter().copied().collect();
+    for (raw, spid) in pids.iter().zip(sysinfo_pids.iter()) {
+        let Some(p) = sys.process(*spid) else { continue };
+        out.pids += 1;
+        // sysinfo resta per il NOME (che decide il bucket, e con esso lo split
+        // renderer/gpu anche della memoria) e per il ramo non-macOS. Per la
+        // CPU, su macOS, il delta ce lo calcoliamo noi: vedi `PERF_CPU_PREV`.
+        #[cfg(target_os = "macos")]
+        let sample = proc_cpu_percent(*raw, &live);
+        #[cfg(not(target_os = "macos"))]
+        let sample = Some(p.cpu_usage());
+        // Il bucket si calcola SEMPRE: decide anche lo split della memoria,
+        // che non dipende dall'avere una baseline di CPU.
+        let b = perf_bucket(&p.name().to_string_lossy());
+        // Un pid senza campione precedente NON contribuisce zero: non
+        // contribuisce affatto, e `sampled` dice quanti hanno contato.
+        if let Some(cpu) = sample {
+            out.sampled += 1;
+            out.total += cpu;
+            match b {
+                PerfBucket::Renderer => out.renderer += cpu,
+                PerfBucket::Gpu => out.gpu += cpu,
+                PerfBucket::Other => {}
+            }
+            out.by_pid.insert(*raw, cpu);
+        }
+        out.buckets.insert(*raw, b);
+    }
+    out
+}
+
 #[tauri::command]
 fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     let version = app.package_info().version.to_string();
@@ -829,75 +929,14 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     #[cfg(not(target_os = "macos"))]
     let (pids, partial) = (vec![own.as_u32() as i32], true);
 
-    // CPU still comes from sysinfo: it derives per-process CPU from the change in
-    // CPU time between refreshes, and PERF_SYS persists so each poll diffs against
-    // the previous one. Refreshing only OUR pids keeps this off the full process
-    // table. Reads 0.0 until the second poll establishes a baseline.
-    let sysinfo_pids: Vec<sysinfo::Pid> = pids
-        .iter()
-        .map(|&p| sysinfo::Pid::from_u32(p as u32))
-        .collect();
-    // Which bucket a process falls in. The same partition drives both the CPU and
-    // the memory rows of the dropdown, so the two describe the same thing.
-    enum Bucket {
-        Renderer,
-        Gpu,
-        Other,
-    }
-    fn bucket(name: &str) -> Bucket {
-        if name.contains("WebContent") {
-            Bucket::Renderer
-        } else if name.contains("GPU") {
-            Bucket::Gpu
-        } else {
-            Bucket::Other
-        }
-    }
-
-    let mut cpu_percent = 0.0f32;
-    let mut cpu_renderer = 0.0f32;
-    let mut cpu_gpu = 0.0f32;
-    // Copertura della misura di CPU: quanti pid hanno prodotto un delta, su
-    // quanti ne abbiamo interrogati. Serve a non far passare una somma parziale
-    // per il totale dell'app.
-    let mut cpu_sampled = 0u32;
-    let mut cpu_pids = 0u32;
-    let mut buckets: std::collections::HashMap<i32, Bucket> = std::collections::HashMap::new();
-    {
+    // CPU still comes from sysinfo's process table for the NAME (the bucket) and
+    // off macOS; the per-pid delta on macOS is ours (`PERF_CPU_PREV`). Refreshing
+    // only OUR pids keeps this off the full process table.
+    let cpu = {
         let mut sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&sysinfo_pids), true);
-        // L'insieme vivo, per potare i campioni dei pid morti.
-        #[cfg(target_os = "macos")]
-        let live: std::collections::HashSet<i32> = pids.iter().copied().collect();
-        for (raw, spid) in pids.iter().zip(sysinfo_pids.iter()) {
-            let Some(p) = sys.process(*spid) else { continue };
-            cpu_pids += 1;
-            // sysinfo resta per il NOME (che decide il bucket, e con esso lo split
-            // renderer/gpu anche della memoria) e per il ramo non-macOS. Per la
-            // CPU, su macOS, il delta ce lo calcoliamo noi: vedi `PERF_CPU_PREV`.
-            #[cfg(target_os = "macos")]
-            let sample = proc_cpu_percent(*raw, &live);
-            #[cfg(not(target_os = "macos"))]
-            let sample = Some(p.cpu_usage());
-            // Il bucket si calcola SEMPRE: decide anche lo split della memoria,
-            // che non dipende dall'avere una baseline di CPU. Prima il `continue`
-            // non c'era perche' non c'era niente da saltare — lo zero inventato
-            // teneva insieme i due percorsi per caso.
-            let b = bucket(&p.name().to_string_lossy());
-            // Un pid senza campione precedente NON contribuisce zero: non
-            // contribuisce affatto, e `cpu_sampled` dice quanti hanno contato.
-            if let Some(cpu) = sample {
-                cpu_sampled += 1;
-                cpu_percent += cpu;
-                match b {
-                    Bucket::Renderer => cpu_renderer += cpu,
-                    Bucket::Gpu => cpu_gpu += cpu,
-                    Bucket::Other => {}
-                }
-            }
-            buckets.insert(*raw, b);
-        }
-    }
+        sample_cpu(&mut sys, &pids)
+    };
+    let buckets = &cpu.buckets;
 
     // Memory does NOT come from sysinfo: its `memory()` is resident size, which
     // for these panes is wildly misleading — measured, 20 WebContent processes
@@ -924,8 +963,8 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
         footprint += pf;
         resident += rs;
         match buckets.get(&pid) {
-            Some(Bucket::Renderer) => renderer += pf,
-            Some(Bucket::Gpu) => gpu += pf,
+            Some(PerfBucket::Renderer) => renderer += pf,
+            Some(PerfBucket::Gpu) => gpu += pf,
             _ => {}
         }
     }
@@ -943,11 +982,11 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
         // Nessun pid con baseline ⇒ nessuna misura, e si dice `null`. Con almeno
         // un pid campionato la somma e' vera; se e' parziale lo dicono
         // `cpu_sampled`/`cpu_pids`, non un totale silenziosamente basso.
-        cpu_percent: if cpu_sampled == 0 { None } else { Some(cpu_percent) },
-        cpu_renderer,
-        cpu_gpu,
-        cpu_sampled,
-        cpu_pids,
+        cpu_percent: if cpu.sampled == 0 { None } else { Some(cpu.total) },
+        cpu_renderer: cpu.renderer,
+        cpu_gpu: cpu.gpu,
+        cpu_sampled: cpu.sampled,
+        cpu_pids: cpu.pids,
         process_count: pids.len() as u32,
         partial,
         // Legge quanto raccolto FINORA e chiede il giro successivo: la lettura
@@ -959,11 +998,20 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
                 // `live` era locale al blocco di campionamento, chiuso sopra;
                 // `pids` no, ed e' la stessa lista.
                 let alive: std::collections::HashSet<i32> = pids.iter().copied().collect();
-                let out = collect_webview_usage(&alive);
+                let out = collect_webview_usage(&alive, &cpu.by_pid);
                 refresh_webview_content_pids(&app);
                 out
             }
-            #[cfg(not(target_os = "macos"))]
+            // WebView2: every pane has its own environment, so its processes
+            // are its own. Same one-read-per-pid rule, same "reads for the next
+            // round" pid refresh.
+            #[cfg(target_os = "windows")]
+            {
+                let out = pane_process_win::collect_webview_usage();
+                pane_process_win::refresh_webview_process_ids(&app);
+                out
+            }
+            #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
             {
                 Vec::new()
             }
@@ -7580,6 +7628,45 @@ fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), Stri
     })
 }
 
+/// Whether the pane's inspector is open. Read once when a heavy pane is about to
+/// pause: a detached Web Inspector or the DevTools window takes the key/foreground
+/// state from the Topics window, so without this exemption debugging a heavy page
+/// would freeze the page being debugged.
+// ENGINES: wkwebview, webview2, webkitgtk - portable: the tauri devtools API answers on the three engines.
+#[tauri::command]
+fn browser_devtools_open(app: tauri::AppHandle, id: String) -> Result<bool, String> {
+    no_abort("browser_devtools_open", move || {
+        use tauri::Manager;
+        let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+        Ok(wv.is_devtools_open())
+    })
+}
+
+/// Ask the engine to suspend a pane that is already hidden, after a heavy pane
+/// paused. `true` only when WebView2 confirmed the suspend.
+// ENGINES: wkwebview, webview2, webkitgtk - per-engine arms below: TrySuspend on WebView2; WKWebView and WebKitGTK answer false because hiding the view is their whole pause.
+#[tauri::command]
+async fn browser_try_suspend(app: tauri::AppHandle, id: String) -> Result<bool, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "windows")]
+        {
+            return crate::pane_process_win::try_suspend_blocking(&wv);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = wv;
+            Ok(false)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Return AppKit first-responder to the MAIN webview (the React chrome). A native
 /// browser pane is a sibling WKWebView that can hold keyboard first-responder, so
 /// after interacting with a page a tab click can feel "stuck" in the pane. The tab
@@ -9214,6 +9301,9 @@ async fn window_detach(
             }
         });
     }
+    // The pages of this window learn when it gains or loses focus: its heavy
+    // browser panes pause and its pane polls stop while it is not focused.
+    window_focus::wire(&win.as_ref().window(), label.clone());
 
     // The menu accelerators live in the window they were typed in, so every
     // window we build arms its own hook (see `menu_chords_win`).
@@ -9390,6 +9480,8 @@ async fn window_detach_space(
                     }
                 });
             }
+            // Same focus signal as `window_detach`: a group window hosts panes too.
+            window_focus::wire(&win.as_ref().window(), label.clone());
 
             // Same reason as `window_detach`: a group window is a window, and
             // Ctrl+Q or the zoom chords must work while it holds focus.
@@ -11253,6 +11345,15 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             windows_repaint::wire(app.handle());
 
+            // Focus of the main window, told to its page, on every platform (see
+            // `window_focus.rs`). Outside any cfg block on purpose.
+            {
+                use tauri::Manager;
+                if let Some(main) = app.get_window("main") {
+                    window_focus::wire(&main, "main".to_string());
+                }
+            }
+
             // The DWM backdrop behind the window. Unguarded because the entry
             // point is a no-op off Windows, which keeps this call site inside
             // what a Mac `cargo check` reads. It runs AFTER the decorations are
@@ -11519,6 +11620,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             perf_metrics,
+            window_focus::window_focus_state,
             set_traffic_lights,
             set_theme,
             notify,
@@ -11554,6 +11656,8 @@ pub fn run() {
             browser_reload,
             browser_set_user_agent,
             browser_toggle_devtools,
+            browser_devtools_open,
+            browser_try_suspend,
             browser_release_focus,
             browser_nav_entries,
             browser_go_to_index,
@@ -11652,7 +11756,61 @@ pub fn run() {
 /// dipende da quanto è occupata la macchina non è una guardia.
 #[cfg(all(test, target_os = "macos"))]
 mod perf_cpu_tests {
-    use super::{mach_ticks_to_ns, proc_cpu_ns, proc_cpu_percent};
+    use super::{collect_webview_usage, mach_ticks_to_ns, proc_cpu_ns, proc_cpu_percent, sample_cpu, webview_content_pid_map};
+
+    /// Serialises the tests that write `PERF_CPU_PREV`. `proc_cpu_percent` prunes
+    /// that map to the `live` set of its caller, so two of these tests running in
+    /// parallel erase each other's baselines and read `None` where a number is due.
+    static PERF_CPU_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A child that burns a core until the test ends, whatever way it ends.
+    struct BusyChild(std::process::Child);
+    impl Drop for BusyChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// The per-webview CPU is the SAME number the sample took for that pid.
+    ///
+    /// Red on the code before this change: `collect_webview_usage` read the
+    /// counter a second time right after `perf_metrics` had read it, so the row
+    /// described the ~100 us between two syscalls (0 or hundreds of percent),
+    /// never the 500 ms window the sample covers.
+    #[test]
+    fn webview_cpu_comes_from_the_sample() {
+        let _serial = PERF_CPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let child = BusyChild(
+            std::process::Command::new("sh")
+                .args(["-c", "while :; do :; done"])
+                .spawn()
+                .expect("spawn a busy child"),
+        );
+        let pid = child.0.id() as i32;
+        let label = "browserpane-cpu-sample-test".to_string();
+        webview_content_pid_map()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(label.clone(), pid);
+
+        let mut sys = sysinfo::System::new();
+        let _baseline = sample_cpu(&mut sys, &[pid]);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let sample = sample_cpu(&mut sys, &[pid]);
+        let live: std::collections::HashSet<i32> = [pid].into_iter().collect();
+        let rows = collect_webview_usage(&live, &sample.by_pid);
+        webview_content_pid_map()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&label);
+
+        let sampled = *sample.by_pid.get(&pid).expect("the second sample has a delta for the child");
+        let row = rows.iter().find(|r| r.label == label).expect("a row for the mapped webview");
+        assert_eq!(row.cpu_percent, Some(sampled), "the row must reuse the sample's one read");
+        assert!(sampled >= 20.0, "a busy loop over 500 ms reads {sampled}% of a core");
+        drop(child);
+    }
 
     /// `struct timeval`: secondi e microsecondi VERI, nessun tick di mezzo.
     #[repr(C)]
@@ -11726,6 +11884,7 @@ mod perf_cpu_tests {
     /// sullo stesso pid la prima asserzione diventerebbe fragile.
     #[test]
     fn senza_baseline_la_cpu_e_non_misurata_non_zero() {
+        let _serial = PERF_CPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let own = std::process::id() as i32;
         let live: std::collections::HashSet<i32> = [own].into_iter().collect();
 

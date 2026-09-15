@@ -68,6 +68,9 @@ import {
 } from '../lib/shell/browserPagePoll';
 import { pickNavError } from '../lib/shell/navErrorQueue';
 import { startVisibilityGatedPoll } from '../lib/shell/visibilityPoll';
+import { isTauriWindows } from '../lib/shell';
+import { createWantedEdge, panePollEnv } from '../lib/shell/windowFocus';
+import { useNativePanePause, type PauseState } from './useNativePanePause';
 import { NO_FAULT, recordPaneOk, recordPaneError, recreatePane, STRUCTURAL_COMMANDS, type FaultState } from '../lib/shell/browserPaneFault';
 import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
@@ -215,7 +218,11 @@ function resolveCornerRadius(viewId: string): number {
   return document.querySelector('.floating-splits') ? 10 : 0;
 }
 
-export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
+/**
+ * `hasFocus` is the focus of THIS pane on its surface (default: `isVisible`).
+ * It only matters once the pane is heavy: see `lib/shell/nativePaneLive`.
+ */
+export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void, hasFocus = isVisible): NativeBrowserHandle {
   const id = contextId;
   // The navigation error strip is written from inside socket and poll
   // callbacks that must not re-create on a language change, so the translator
@@ -419,6 +426,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const [frozenImage, setFrozenImage] = useState<string | null>(null);
   const frozenRef = useRef(false);
   const freezeSeqRef = useRef(0);
+  /** The heavy-pane pause (`useNativePanePause`), read by `freeze()`. */
+  const pauseStateRef = useRef<PauseState>('live');
   const thawTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
@@ -586,6 +595,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // every time a dropdown opened over a pane. So: decode the bitmap off-DOM
   // first, commit the still, wait two rAFs for the composite, THEN park.
   const freeze = useCallback(() => {
+    // A paused pane's view is hidden, and a hidden view snapshots blank. Its
+    // paused still is already what the overlay should draw over.
+    if (pauseStateRef.current === 'paused') return;
     if (!openedRef.current || frozenRef.current) return;
     frozenRef.current = true; // applyBounds is now a no-op — the poll can't fight us
     const seq = ++freezeSeqRef.current;
@@ -755,15 +767,43 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // socket effect below relies on to avoid re-subscribing.
   }, [id, paneInvoke]);
 
+  // ── Heavy pane: live only with the focus ─────────────────────────────────
+  const pause = useNativePanePause({
+    id, ready, isVisible, hasFocus, agentActive, url, loading, parked: !!parked,
+    pauseStateRef, openedRef, frozenRef, freezeSeqRef, frozenImage, setFrozenImage,
+    lastRealSizeRef, pendingRectRef, agentOpsInFlightRef, agentActiveRef,
+    paneInvoke, setNativeVisible, evaluateOcclusionRef,
+  });
+  // The view is shown while visible and not paused, or while an agent uses it.
+  const nativeWanted = (isVisible && pause.pauseState !== 'paused') || agentActive;
+  const nativeWantedRef = useRef(nativeWanted);
+  nativeWantedRef.current = nativeWanted;
+
   useEffect(() => {
     if (!ready) return;
-    void setNativeVisible(isVisible || agentActive || agentOpsInFlightRef.current > 0);
+    void setNativeVisible(nativeWanted || agentOpsInFlightRef.current > 0).then((changed) => {
+      // WebView2 can also suspend the page's timers once the view is hidden.
+      if (changed && isTauriWindows && pauseStateRef.current === 'paused') {
+        void tauriInvoke('browser_try_suspend', { id }).catch(() => {});
+      }
+    });
     // Una pane che TORNA visibile (cambio di scheda con una scorciatoia, un
     // pannello che si riapre) rientra in scena senza che nessun overlay si sia
     // mosso: stessa cecità dell'apertura, stesso rimedio — si guarda com'è il
     // mondo adesso invece di aspettare un cambiamento che non arriverà.
-    if (isVisible) evaluateOcclusionRef.current();
-  }, [ready, isVisible, agentActive, setNativeVisible]);
+    if (nativeWanted && isVisible) evaluateOcclusionRef.current();
+  }, [id, ready, isVisible, nativeWanted, setNativeVisible]);
+
+  // The reopening edges the pane polls catch up on (see `panePollEnv`).
+  const [liveEdge] = useState(() => createWantedEdge(true));
+  const [engagedEdge] = useState(() => createWantedEdge(true));
+  const syncEngaged = useCallback(() => {
+    engagedEdge.set(isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0);
+  }, [engagedEdge]);
+  useEffect(() => { liveEdge.set(pause.pauseState === 'live'); }, [liveEdge, pause.pauseState]);
+  useEffect(() => { syncEngaged(); }, [syncEngaged, isVisible, agentActive]);
+  const { resume: resumePause } = pause;
+  const resume = useCallback(() => { onFocusedRef.current?.(); resumePause(); }, [resumePause]);
 
   // Create the native webview once per contextId; close on unmount. (Electron
   // keeps the view durable across unmount; for Tier-1 we close — simpler, and a
@@ -828,9 +868,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         // La DECISIONE resta quella di prima (`isVisible || agentActive ||
         // agentOpsInFlight`): non si riaccendono le pane di sfondo, che è il
         // motivo per cui `browser_set_visible` esiste.
-        nativeVisibleRef.current = !(
-          isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0
-        );
+        nativeVisibleRef.current = !(nativeWantedRef.current || agentOpsInFlightRef.current > 0);
         setReady(true);
         // La barra mostra la URL VOLUTA anche quando la view è ferma su
         // about:blank perché la porta è spenta: è l'indirizzo di questa scheda,
@@ -1113,12 +1151,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         inFlight = false;
       }
     };
-    const stopPoll = startVisibilityGatedPoll({ intervalMs: 800, prime: true, tick: () => { void tick(); } });
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: 800, prime: true, tick: () => { void tick(); },
+      env: panePollEnv({ wanted: () => pauseStateRef.current === 'live', onWanted: liveEdge.onWanted }),
+    });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready, isVisible, maybeFireSelfFocus, reassertZoom]);
+  }, [id, ready, isVisible, maybeFireSelfFocus, reassertZoom, liveEdge]);
 
   // Background tab title/url/favicon. The fast poll above is gated on isVisible, so
   // a browser pane opened/navigated while it's NOT the foreground tab (agent-opened,
@@ -1159,7 +1200,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
     // `prime`: la prima risposta è quella che dà un'etichetta alla tab, quindi
     // non si aspetta il periodo (2,5s) per averla.
-    const stopPoll = startVisibilityGatedPoll({ intervalMs: 2500, prime: true, tick: () => { void tick(); } });
+    // A paused pane is `isVisible`, so it gets no eval from here either: an eval
+    // would wake the page, and on WebView2 may undo the suspend.
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: 2500, prime: true, tick: () => { void tick(); },
+      env: panePollEnv({ wanted: () => true, onWanted: () => () => {} }),
+    });
     return () => { stop = true; stopPoll(); };
   }, [id, ready, isVisible, reassertZoom]);
 
@@ -1232,12 +1278,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         })
         .catch(() => {});
     };
-    const stopPoll = startVisibilityGatedPoll({ intervalMs: 250, tick });
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: 250, tick,
+      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted }),
+    });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready]);
+  }, [id, ready, engagedEdge]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
   // scoped to this pane, same contract as the download queue). A pure mutex
@@ -1290,12 +1339,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         })
         .catch(() => {});
     };
-    const stopPoll = startVisibilityGatedPoll({ intervalMs: 1000, tick });
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: 1000, tick,
+      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted }),
+    });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready]);
+  }, [id, ready, engagedEdge]);
 
   // A page asked for a new tab (`window.open`, `target="_blank"`). The Rust side
   // no longer navigates this pane in place for it: that made the page the user
@@ -1320,12 +1372,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         })
         .catch(() => {});
     };
-    const stopPoll = startVisibilityGatedPoll({ intervalMs: 500, tick });
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: 500, tick,
+      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted }),
+    });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready]);
+  }, [id, ready, engagedEdge]);
 
   // #3 instant focus-on-click. The 800ms data poll above ALSO detects clicks
   // into the native pane (the pointerdown bump → activate the tab), but at up to
@@ -1381,9 +1436,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // 8.3 evals/s per visible pane is the price of instant tab activation while
     // you are looking at the app; while it is occluded it buys nothing, and the
     // bump counter is monotonic so the catch-up tick loses no click.
-    const stopPoll = startVisibilityGatedPoll({ intervalMs: 120, tick: () => { void tick(); } });
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: 120, tick: () => { void tick(); },
+      env: panePollEnv({ wanted: () => pauseStateRef.current === 'live', onWanted: liveEdge.onWanted }),
+    });
     return () => { stop = true; stopPoll(); };
-  }, [id, ready, isVisible, maybeFireSelfFocus]);
+  }, [id, ready, isVisible, maybeFireSelfFocus, liveEdge]);
 
   const toggleDevTools = useCallback(async () => {
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
@@ -1587,6 +1645,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // before a screenshot op reads it, which would otherwise come back blank.
       runOp: async (tool, args) => {
         agentOpsInFlightRef.current += 1;
+        syncEngaged();
         try {
           const woke = await setNativeVisible(true);
           if (woke) await new Promise((r) => setTimeout(r, 150));
@@ -1595,9 +1654,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           agentOpsInFlightRef.current -= 1;
           // Last op out re-hides, unless the pane became genuinely visible or
           // the agent formally attached in the meantime.
-          if (agentOpsInFlightRef.current === 0 && !isVisibleRef.current && !agentActiveRef.current) {
+          if (agentOpsInFlightRef.current === 0 && !nativeWantedRef.current) {
             void setNativeVisible(false);
           }
+          syncEngaged();
         }
       },
       onAgentActive: (active, action) => {
@@ -1612,7 +1672,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
     // setNativeVisible is useCallback([id]), so it never re-opens the socket on
     // its own — isVisible/agentActive are read through refs for that reason.
-  }, [id, setNativeVisible]);
+  }, [id, setNativeVisible, syncEngaged]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). The percentage is snapped to a fixed Chrome-style ladder
@@ -1857,6 +1917,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     agentActive,
     agentAction,
     takeControl,
+    heavy: pause.heavy,
+    paused: pause.pauseState === 'paused',
+    pausedImage: pause.pausedImage,
+    resume,
     ready,
     viewId,
     faviconUrl,
@@ -1904,7 +1968,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     freeze,
     thaw,
   }), [
-    url, title, loading, agentActive, agentAction, takeControl, ready, viewId, faviconUrl, frozenImage,
+    url, title, loading, agentActive, agentAction, takeControl, pause.heavy, pause.pauseState, pause.pausedImage, resume,
+    ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, paneContext, clearPaneContext, readSelection,

@@ -87,6 +87,9 @@ interface RemoteBrowserPanelProps {
    *  A native-pane click never reaches React, so without this the pane can't
    *  activate its own tab. The render site wires it to activate this pane. */
   onSelfFocus?: () => void;
+  /** Tauri only: this pane is the focused one of its surface. Defaults to
+   *  `isVisible`. A HEAVY native pane stays live only while it is true. */
+  hasFocus?: boolean;
   /** SHARE state + cycle (Tauri only). `shared` is the EFFECTIVE render (native
    *  when false, shared server session when true); `shareMode` is the user's
    *  choice ('auto' default — native solo, shared when another device views the
@@ -164,7 +167,7 @@ function isSeedableUrl(raw: string | undefined): raw is string {
   return true;
 }
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus, hasFocus }: RemoteBrowserPanelProps) {
   /**
    * TWO QUESTIONS, NOT ONE (NATIVEPARK-02).
    *
@@ -252,6 +255,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         onFocusPanel={onFocusPanel}
         topics={topics}
         onSelfFocus={onSelfFocus}
+        hasFocus={isVisible && (hasFocus ?? true)}
         shared={false}
         shareMode={mode}
         onToggleShare={onToggleShare}
@@ -326,11 +330,11 @@ function useBackToSpawner(
  * Every command is optional in the snapshot, so the sheet shows only what this
  * path actually wired and there are never dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, hasFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const tr = useT();
   const toast = useToast();
-  const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
-  const dl = useBrowserDownloads(contextId);
+  const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus, hasFocus ?? isVisible);
+  const dl = useBrowserDownloads(contextId, isVisible || browser.agentActive);
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
   // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
   // vecchia striscia non rispondeva.
@@ -447,6 +451,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     // overlay to remove, and the icon is the only cue it can carry.
     agentActive: browser.agentActive,
     agentAction: browser.agentAction,
+    heavy: browser.heavy ? { paused: !!browser.paused, cpu: browser.heavy.cpu } : undefined,
     history,
     consoleEntries: browser.consoleEntries,
     downloadsMenu: downloads,

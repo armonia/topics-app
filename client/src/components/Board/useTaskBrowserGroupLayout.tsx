@@ -250,9 +250,16 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   const onRenameBrowser = useCallback((paneId: string, name: string) => taskBrowserTabs.updateTab(taskId, paneIdToContextId(paneId), { title: name, titleSource: 'user' }), [taskId]);
   const availableTypesForGroup = useCallback(() => BROWSER_ONLY, []);
 
-  const renderPane = useCallback((pane: Pane, _isFocused: boolean, isVisible: boolean) => {
+  const renderPane = useCallback((pane: Pane, isFocused: boolean, isVisible: boolean) => {
     if (!isBrowserPane(pane.id)) return renderSurface(pane, isVisible);
     const ctx = paneIdToContextId(pane.id);
+    // A click inside a native page never reaches React: without this the group
+    // would never become the focused one, and a heavy page would pause under the
+    // hand that is using it.
+    const focusOwnGroup = () => {
+      const g = reconciled.groups.find((gr) => gr.paneIds.includes(pane.id));
+      if (g) taskBrowserLayout.focusGroup(taskId, g.id);
+    };
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <RemoteBrowserPanel
@@ -271,10 +278,12 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
           // the intended URL so a retry / server-up still loads it.
           onUrlChange={(u) => { if (u && u !== 'about:blank') taskBrowserTabs.updateTab(taskId, ctx, { url: u }); }}
           onTitleChange={(t) => { if (t) taskBrowserTabs.updateTab(taskId, ctx, { title: t, titleSource: 'auto' }); }}
+          hasFocus={isFocused && isVisible}
+          onSelfFocus={focusOwnGroup}
         />
       </div>
     );
-  }, [taskId, renderSurface, navigates]);
+  }, [taskId, renderSurface, navigates, reconciled.groups]);
 
   const addBrowserTab = useCallback(() => { taskBrowserTabs.addTab(taskId, '', ''); }, [taskId]);
   const reopenTab = useCallback((ctx: string) => taskBrowserTabs.unparkTab(taskId, ctx), [taskId]);
