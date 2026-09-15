@@ -797,6 +797,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // The reopening edges the pane polls catch up on (see `panePollEnv`).
   const [liveEdge] = useState(() => createWantedEdge(true));
   const [engagedEdge] = useState(() => createWantedEdge(true));
+  // An agent at the wheel: the native drains keep running in an unfocused window.
+  const agentEngaged = useCallback(() => agentActiveRef.current || agentOpsInFlightRef.current > 0, []);
   const syncEngaged = useCallback(() => {
     engagedEdge.set(isVisibleRef.current || agentActiveRef.current || agentOpsInFlightRef.current > 0);
   }, [engagedEdge]);
@@ -1280,13 +1282,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
     const stopPoll = startVisibilityGatedPoll({
       intervalMs: 250, tick,
-      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted }),
+      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted, engaged: agentEngaged }),
     });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready, engagedEdge]);
+  }, [id, ready, engagedEdge, agentEngaged]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
   // scoped to this pane, same contract as the download queue). A pure mutex
@@ -1341,13 +1343,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
     const stopPoll = startVisibilityGatedPoll({
       intervalMs: 1000, tick,
-      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted }),
+      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted, engaged: agentEngaged }),
     });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready, engagedEdge]);
+  }, [id, ready, engagedEdge, agentEngaged]);
 
   // A page asked for a new tab (`window.open`, `target="_blank"`). The Rust side
   // no longer navigates this pane in place for it: that made the page the user
@@ -1374,13 +1376,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
     const stopPoll = startVisibilityGatedPoll({
       intervalMs: 500, tick,
-      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted }),
+      env: panePollEnv({ wanted: engagedEdge.get, onWanted: engagedEdge.onWanted, engaged: agentEngaged }),
     });
     return () => {
       stop = true;
       stopPoll();
     };
-  }, [id, ready, engagedEdge]);
+  }, [id, ready, engagedEdge, agentEngaged]);
 
   // #3 instant focus-on-click. The 800ms data poll above ALSO detects clicks
   // into the native pane (the pointerdown bump → activate the tab), but at up to

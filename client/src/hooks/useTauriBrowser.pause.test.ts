@@ -23,7 +23,7 @@ import * as devTypes from '../components/Browser/browserDevTypes';
 import * as paneContextModel from '../components/Browser/paneContextModel';
 import * as browserNavUrl from '../lib/browserNavUrl';
 import type { NativeBrowserHandle } from '../components/Browser/browserDevTypes';
-import { noteWebviewSample } from '../lib/shell/heavyPanes';
+import { forgetPane, noteWebviewSample } from '../lib/shell/heavyPanes';
 import { noteWindowFocusEvent } from '../lib/shell/windowFocus';
 import { PAUSE_DWELL_MS } from '../lib/shell/nativePaneLive';
 
@@ -38,6 +38,9 @@ const CTX = 'ctx-heavy';
 const SLOT = { x: 40, y: 50, width: 640, height: 480 };
 const OVER_SLOT: OverlayRect = { left: 100, top: 100, right: 300, bottom: 200 };
 
+let inspectorOpen = false;
+let fullScreen = false;
+let pageState = '';
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
 let overlays: readonly OverlayRect[] = [];
 let occlusionListeners = new Set<(rects: OverlayRect[]) => void>();
@@ -67,7 +70,11 @@ beforeAll(() => {
     tauriInvoke: (cmd: string, args: Record<string, unknown> = {}) => {
       calls.push({ cmd, args });
       if (cmd === 'browser_screenshot') return Promise.resolve('iVBORw0KGgo=');
-      if (cmd === 'browser_devtools_open') return Promise.resolve(false);
+      if (cmd === 'browser_devtools_open') return Promise.resolve(inspectorOpen);
+      if (cmd === 'browser_eval_js') {
+        const js = String(args.js ?? '');
+        return Promise.resolve(js.includes('fullscreenElement') ? (fullScreen ? '1' : '') : pageState);
+      }
       if (cmd.startsWith('browser_take_') || cmd === 'browser_nav_entries') return Promise.resolve([]);
       return Promise.resolve('');
     },
@@ -107,6 +114,9 @@ class ScriptedSocket {
 
 beforeEach(() => {
   jest.useFakeTimers();
+  inspectorOpen = false;
+  fullScreen = false;
+  pageState = '';
   calls = [];
   overlays = [];
   occlusionListeners = new Set();
@@ -147,14 +157,14 @@ async function advance(ms: number): Promise<void> {
 const names = () => calls.map((c) => c.cmd);
 const visibility = () => calls.filter((c) => c.cmd === 'browser_set_visible').map((c) => c.args.visible);
 
-interface Bench { handle: () => NativeBrowserHandle; harness: Harness; props: { hasFocus: boolean } }
+interface Bench { handle: () => NativeBrowserHandle; harness: Harness; props: { hasFocus: boolean; isVisible: boolean } }
 
 /** Mount a pane on screen with the focus, and let the verdict call it heavy. */
 async function heavyPane(): Promise<Bench> {
-  const props = { hasFocus: true };
+  const props = { hasFocus: true, isVisible: true };
   const seen: NativeBrowserHandle[] = [];
   function Probe(): null {
-    seen.push(useTauriBrowser(CTX, 'https://example.com/', true, undefined, props.hasFocus));
+    seen.push(useTauriBrowser(CTX, 'https://example.com/', props.isVisible, undefined, props.hasFocus));
     return null;
   }
   const harness = mount(createElement(Probe));
@@ -298,5 +308,93 @@ describe('useTauriBrowser: a heavy pane pauses and resumes', () => {
     await settle();
     expect(visibility()[0]).toBe(true);
     again.unmount();
+  });
+
+  test('a paused pane sent behind another tab stays hidden when its verdict drops', async () => {
+    const bench = await heavyPane();
+    await paused(bench);
+    bench.props.isVisible = false;
+    bench.harness.rerender();
+    bench.handle().setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    await settle();
+    calls = [];
+    // A sibling mount of the same context unmounting drops the verdict.
+    forgetPane(CTX);
+    bench.harness.rerender();
+    await advance(10_000);
+    bench.harness.rerender();
+    expect(bench.handle().paused).toBe(false);
+    expect(visibility()).not.toContain(true);
+    bench.harness.unmount();
+  });
+
+  test('the same drop from a new path read by the background poll leaves it hidden too', async () => {
+    const bench = await heavyPane();
+    await paused(bench);
+    bench.props.isVisible = false;
+    bench.harness.rerender();
+    bench.handle().setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    await settle();
+    calls = [];
+    pageState = JSON.stringify({ u: 'https://example.com/login', t: 'Login', r: 'complete' });
+    await advance(2_600);
+    bench.harness.rerender();
+    expect(bench.handle().url).toBe('https://example.com/login');
+    noteWebviewSample([{ label: `browserpane-${CTX}`, pid: 4242, cpu_percent: 0 }], Date.now() + 120_000);
+    bench.harness.rerender();
+    await advance(10_000);
+    bench.harness.rerender();
+    expect(visibility()).not.toContain(true);
+    bench.harness.unmount();
+  });
+
+  test('an inspector open when the dwell ends only postpones the pause', async () => {
+    const bench = await heavyPane();
+    inspectorOpen = true;
+    bench.props.hasFocus = false;
+    bench.harness.rerender();
+    await advance(PAUSE_DWELL_MS);
+    await advance(400);
+    bench.harness.rerender();
+    expect(bench.handle().paused).toBe(false);
+    inspectorOpen = false;
+    await advance(PAUSE_DWELL_MS);
+    await advance(PAUSE_DWELL_MS);
+    bench.harness.rerender();
+    expect(bench.handle().paused).toBe(true);
+    bench.harness.unmount();
+  });
+
+  test('an element in full screen keeps the pane live, and the pause comes after it leaves', async () => {
+    const bench = await heavyPane();
+    fullScreen = true;
+    noteWindowFocusEvent(false);
+    bench.harness.rerender();
+    await advance(PAUSE_DWELL_MS * 3);
+    bench.harness.rerender();
+    expect(bench.handle().paused).toBe(false);
+    expect(names()).not.toContain('browser_screenshot');
+    fullScreen = false;
+    await advance(PAUSE_DWELL_MS);
+    await advance(PAUSE_DWELL_MS);
+    bench.harness.rerender();
+    expect(bench.handle().paused).toBe(true);
+    bench.harness.unmount();
+  });
+
+  test('an agent at the wheel keeps the native drains running in an unfocused window', async () => {
+    const bench = await heavyPane();
+    const socket = sockets[sockets.length - 1]!;
+    socket.emit('open');
+    socket.emit('message', JSON.stringify({ type: 'agent_active', active: true, action: 'Click' }));
+    bench.harness.rerender();
+    await settle();
+    noteWindowFocusEvent(false);
+    calls = [];
+    await advance(3_000);
+    expect(names()).toContain('browser_take_new_tabs');
+    expect(names()).toContain('browser_take_nav_state');
+    expect(names()).toContain('browser_take_nav_errors');
+    bench.harness.unmount();
   });
 });

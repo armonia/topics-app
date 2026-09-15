@@ -79,9 +79,9 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
 
-function mountDownloads(wanted: { value: boolean }) {
+function mountDownloads(wanted: { value: boolean }, agent = false) {
   return mount(createElement(function Probe(): null {
-    useBrowserDownloads('ctx-dl', wanted.value);
+    useBrowserDownloads('ctx-dl', wanted.value, agent);
     return null;
   }));
 }
@@ -131,6 +131,17 @@ describe('useBrowserDownloads: the drain follows the pane', () => {
     jest.advanceTimersByTime(5_000);
     await settle();
     expect(calls).toEqual([]);
+    noteWindowFocusEvent(true);
+    h.unmount();
+  });
+
+  test('an agent at the wheel keeps it running in an unfocused window', async () => {
+    const h = mountDownloads({ value: true }, true);
+    await settle();
+    noteWindowFocusEvent(false);
+    jest.advanceTimersByTime(3_000);
+    await settle();
+    expect(count('browser_take_download_events')).toBe(3);
     noteWindowFocusEvent(true);
     h.unmount();
   });

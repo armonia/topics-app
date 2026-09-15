@@ -334,7 +334,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const tr = useT();
   const toast = useToast();
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus, hasFocus ?? isVisible);
-  const dl = useBrowserDownloads(contextId, isVisible || browser.agentActive);
+  const dl = useBrowserDownloads(contextId, isVisible || browser.agentActive, browser.agentActive);
   // Le voci native portano un path su QUESTO computer: si aprono e si mostrano
   // nel Finder. `detail` è il path stesso — «dov'è finito» è la domanda che la
   // vecchia striscia non rispondeva.

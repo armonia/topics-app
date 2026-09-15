@@ -52,15 +52,16 @@ const EMPTY = (ctx: string): DownloadsState => ({ ctx, entries: [], started: 0 }
 /**
  * `wanted`: the pane is on screen or an agent uses it. The poll also runs while
  * a download is in flight, and stops with the document hidden or the window
- * unfocused. Nothing is lost while it sleeps: the shell queues the events (one
+ * unfocused, unless `agentEngaged` (an agent drives the pane) holds it open. Nothing is lost while it sleeps: the shell queues the events (one
  * global queue of 64, `DOWNLOAD_EVENTS` in lib.rs) and the next drain reads them.
  */
-export function useBrowserDownloads(contextId: string, wanted = true): BrowserDownloads {
+export function useBrowserDownloads(contextId: string, wanted = true, agentEngaged = false): BrowserDownloads {
   const [state, setState] = useState<DownloadsState>(() => EMPTY(contextId));
   /** «C'e' almeno un download in corso», letto dentro l'intervallo. Un ref e non
    *  una dipendenza: metterlo fra le dipendenze dell'effetto rifarebbe il timer
    *  a ogni download che parte o finisce. */
   const activeRef = useRef(false);
+  const agentRef = useRef(agentEngaged);
   const [edge] = useState(() => createWantedEdge(wanted));
 
   // Pane diversa = elenco diverso: senza questo, cambiando contextId le voci
@@ -111,7 +112,7 @@ export function useBrowserDownloads(contextId: string, wanted = true): BrowserDo
     };
     const stopPoll = startVisibilityGatedPoll({
       intervalMs: POLL_MS, tick,
-      env: panePollEnv({ wanted: () => edge.get() || activeRef.current, onWanted: edge.onWanted }),
+      env: panePollEnv({ wanted: () => edge.get() || activeRef.current, onWanted: edge.onWanted, engaged: () => agentRef.current }),
     });
     return () => { stop = true; stopPoll(); };
   }, [contextId, edge]);
@@ -138,6 +139,7 @@ export function useBrowserDownloads(contextId: string, wanted = true): BrowserDo
   // arrivarci un tick dopo non cambia niente.
   useEffect(() => { activeRef.current = active > 0; }, [active]);
   useEffect(() => { edge.set(wanted); }, [edge, wanted]);
+  useEffect(() => { agentRef.current = agentEngaged; }, [agentEngaged]);
 
   return {
     downloads: current.entries,

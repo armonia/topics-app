@@ -48,9 +48,18 @@ pub(crate) fn label_cpu(per_pid: &[Option<f32>]) -> Option<f32> {
     per_pid.iter().copied().try_fold(0.0f32, |acc, v| v.map(|x| acc + x))
 }
 
+/// Whether a foreground window of process `pid` belongs to the pane whose
+/// environment is `entry` (browser pid, every pid). WebView2 draws the DevTools
+/// of a pane in a top-level window of that pane's browser process, and wry 0.55
+/// answers `is_devtools_open` with a constant `false` there, so the foreground
+/// window is the only reading of "the inspector of this pane has the focus".
+pub(crate) fn pane_owns_pid(entry: Option<&(u32, Vec<u32>)>, pid: u32) -> bool {
+    pid != 0 && entry.is_some_and(|(_, pids)| pids.contains(&pid))
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
-    use super::{cpu_delta_percent, filetime_to_ns, label_cpu};
+    use super::{cpu_delta_percent, filetime_to_ns, label_cpu, pane_owns_pid};
     use std::collections::{HashMap, HashSet};
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
@@ -62,6 +71,7 @@ mod imp {
     use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
     use windows::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
     use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
     /// label -> (browser process id, every process id of its environment).
     type PidMap = HashMap<String, (u32, Vec<u32>)>;
@@ -171,6 +181,19 @@ mod imp {
         out
     }
 
+    /// The foreground window is one of pane `label`'s own processes: its DevTools
+    /// window, read after the Topics window lost the focus to it. The pids come
+    /// from the last `perf_metrics` sample, which a heavy verdict implies.
+    pub(crate) fn foreground_is_pane(label: &str) -> bool {
+        let hwnd = unsafe { GetForegroundWindow() };
+        if hwnd.0.is_null() {
+            return false;
+        }
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+        pane_pids().lock().map(|m| pane_owns_pid(m.get(label), pid)).unwrap_or(false)
+    }
+
     pub(crate) fn collect_webview_usage() -> Vec<crate::WebviewUsage> {
         const MB: f64 = 1_048_576.0;
         let map: PidMap = match pane_pids().lock() {
@@ -231,12 +254,22 @@ mod imp {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) use imp::{collect_webview_usage, refresh_webview_process_ids, try_suspend_blocking};
+pub(crate) use imp::{collect_webview_usage, foreground_is_pane, refresh_webview_process_ids, try_suspend_blocking};
 
 #[cfg(test)]
 mod tests {
-    use super::{cpu_delta_percent, filetime_to_ns, label_cpu};
+    use super::{cpu_delta_percent, filetime_to_ns, label_cpu, pane_owns_pid};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn the_inspector_of_a_pane_is_a_window_of_its_own_environment() {
+        let pane = (40u32, vec![40u32, 41, 42]);
+        assert!(pane_owns_pid(Some(&pane), 40));
+        assert!(pane_owns_pid(Some(&pane), 42));
+        assert!(!pane_owns_pid(Some(&pane), 7), "the Topics window or another app");
+        assert!(!pane_owns_pid(None, 40), "a pane never sampled has no processes to match");
+        assert!(!pane_owns_pid(Some(&(0, vec![0])), 0), "no foreground window reads pid 0");
+    }
 
     #[test]
     fn filetime_counts_hundreds_of_nanoseconds_across_both_halves() {

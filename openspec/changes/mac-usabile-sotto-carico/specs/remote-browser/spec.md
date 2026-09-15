@@ -49,8 +49,12 @@ o da una pane e da una finestra, non SHALL essere attribuito a nessuna.
 Risposta del proprietario (3), letta alla lettera il 15/09 17:20: il fuoco e' quello
 della pane. Una pane pesante SHALL restare viva solo se e' la pane a fuoco della sua
 superficie e la sua finestra non e' nota come senza fuoco; un'anteprima pesante di
-fianco alla chat in cui si scrive SHALL andare in pausa. Un agente che la guida,
-un'operazione in volo o l'inspector aperto la SHALL tenere viva. Il fuoco della
+fianco alla chat in cui si scrive SHALL andare in pausa, anche nella finestra browser
+del topic, il cui fuoco e' l'ultimo tocco (pointerdown o focus) dentro la finestra
+contro uno fuori. Un agente che la guida, un'operazione in volo, l'inspector aperto
+(su WebView2 letto dalla finestra in primo piano, che appartiene ai processi della
+pane) o un elemento a schermo intero la SHALL tenere viva; un'esenzione trovata a
+fine sosta SHALL riarmare la sosta, non annullarla. Il fuoco della
 finestra SHALL arrivare dal guscio con un evento `topics:window-focus` su tutte e tre
 le finestre (principale, pop-out, finestra gruppo); finche' nessuno risponde vale
 come a fuoco. Fra la perdita del fuoco e la pausa SHALL passare una sosta di 2 s, e un
@@ -59,6 +63,11 @@ ritorno dentro la sosta non SHALL costare niente.
 #### Scenario: l'agente al volante
 - **GIVEN** una pane pesante guidata da un agente, in una finestra senza fuoco
 - **THEN** la tab SHALL mostrare il glifo dell'agente e la pane non SHALL andare in pausa
+
+#### Scenario: una pane in pausa dietro un'altra tab
+- **GIVEN** una pane in pausa la cui tab non e' piu' quella attiva
+- **WHEN** il verdetto pesante cade
+- **THEN** la pane SHALL tornare viva senza che la vista nativa venga mostrata
 
 ### Requirement: BROWSER-HEAVY-04 - La pausa e' un fermo immagine chiaro, e il ritorno non ricarica
 
@@ -84,7 +93,9 @@ nascosta.
 I poll di una pane nativa SHALL fermarsi con il documento nascosto e con la finestra
 senza fuoco. I due eval (120 ms e 800 ms) SHALL fermarsi anche con la pane in pausa,
 e i drain nativi (stato, errori, nuove schede, download) SHALL girare solo con la
-pane a schermo, usata da un agente o, per i download, con un download in corso. Al
+pane a schermo, usata da un agente o, per i download, con un download in corso; con un
+agente ingaggiato i drain SHALL girare anche con la finestra senza fuoco, perche' un
+link aperto dall'agente in una nuova scheda non aspetti il ritorno della persona. Al
 riaprirsi di ogni cancello SHALL arrivare una lettura di recupero, e nessuna mentre
 un altro cancello e' ancora chiuso.
 

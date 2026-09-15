@@ -99,6 +99,10 @@ export function noteWindowFocusEvent(focused: boolean): void {
  * The poll environment of one native pane: the document is visible, the window
  * is not known to be unfocused, and the pane wants this poll right now.
  *
+ * `engaged`, when given, opens the window-focus gate on its own: a pane an agent
+ * is driving keeps its native drains in a window the person left, or a link the
+ * agent opens in a new tab waits in the shell queue until they come back.
+ *
  * `onVisible` fires on each reopening edge of any of the three gates; the poll
  * re-checks `isVisible` before its catch-up tick, so an edge that fires while
  * another gate is still closed does nothing.
@@ -106,13 +110,14 @@ export function noteWindowFocusEvent(focused: boolean): void {
 export function panePollEnv(opts: {
   wanted: () => boolean;
   onWanted: (fn: () => void) => () => void;
+  engaged?: () => boolean;
   focus?: Pick<WindowFocusStore, 'get' | 'subscribe'>;
   base?: PollEnv;
 }): PollEnv {
   const base = opts.base ?? DEFAULT_POLL_ENV;
   const focus = opts.focus ?? { get: windowFocused, subscribe: subscribeWindowFocus };
   return {
-    isVisible: () => base.isVisible() && focus.get() !== false && opts.wanted(),
+    isVisible: () => base.isVisible() && (focus.get() !== false || !!opts.engaged?.()) && opts.wanted(),
     onVisible(fn) {
       const offs = [
         base.onVisible(fn),

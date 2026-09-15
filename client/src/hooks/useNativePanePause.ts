@@ -38,6 +38,11 @@ const STILL_TIMEOUT_MS = 1_500;
 const subscribeFocusChange = (cb: () => void): (() => void) => subscribeWindowFocus(() => cb());
 const readPanePerf = (): Promise<readonly ShellWebviewRow[] | undefined> =>
   tauriInvoke<{ webviews?: ShellWebviewRow[] }>('perf_metrics').then((m) => m?.webviews);
+/** An element of the page in full screen. WebKit moves it into a window of its
+ *  own, which takes the key state from Topics: without this the video or canvas
+ *  on screen would go black at the end of the dwell. */
+const FULL_SCREEN_JS =
+  "(function(){try{return (document.fullscreenElement||document.webkitFullscreenElement)?'1':''}catch(e){return ''}})()";
 /** origin + pathname: the page a heavy verdict is about. */
 function urlKeyOf(u: string): string {
   try { const p = new URL(u); return p.origin + p.pathname; } catch { return u; }
@@ -153,23 +158,30 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
     setPauseState('paused');
   }, [setPauseState, setStill]);
 
-  // Arm the dwell from a live pane that should not be live.
+  // Arm the dwell from a live pane that should not be live. An exemption found
+  // when it ends bumps `rearm`, which arms the next dwell: none of the exemptions
+  // is render state, so nothing else would re-run this effect once it lapses.
+  const [rearm, setRearm] = useState(0);
   useEffect(() => {
     if (pauseState !== 'live' || !heavyNow || !d.ready || !d.isVisible || d.parked || live) return;
     let dropped = false;
     const timer = setTimeout(() => {
       const x = depsRef.current;
       if (dropped || liveRef.current) return;
-      if (x.agentActiveRef.current || x.agentOpsInFlightRef.current > 0) return;
-      void tauriInvoke<boolean>('browser_devtools_open', { id: x.id })
-        .catch(() => false)
-        .then((open) => {
-          if (dropped || open || liveRef.current) return;
-          void startPause();
-        });
+      const exempt = x.agentActiveRef.current || x.agentOpsInFlightRef.current > 0
+        ? Promise.resolve(true)
+        : Promise.all([
+          tauriInvoke<boolean>('browser_devtools_open', { id: x.id }).catch(() => false),
+          tauriInvoke<string>('browser_eval_js', { id: x.id, js: FULL_SCREEN_JS }).catch(() => ''),
+        ]).then(([open, fullScreen]) => open === true || fullScreen === '1');
+      void exempt.then((keep) => {
+        if (dropped || liveRef.current) return;
+        if (keep) setRearm((n) => n + 1);
+        else void startPause();
+      });
     }, PAUSE_DWELL_MS);
     return () => { dropped = true; clearTimeout(timer); };
-  }, [live, pauseState, heavyNow, d.ready, d.isVisible, d.parked, startPause]);
+  }, [live, pauseState, heavyNow, d.ready, d.isVisible, d.parked, startPause, rearm]);
 
   const resume = useCallback(() => {
     const x = depsRef.current;
@@ -195,7 +207,12 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
       });
     }
     setPauseState('live');
-    void x.setNativeVisible(true).then(() => x.evaluateOcclusionRef.current());
+    // Shown only when wanted: a pane paused and then sent behind another tab
+    // resumes hidden, and the owner's visibility effect shows it when its tab
+    // comes back. Showing it here left the page live with nobody to hide it.
+    if (x.isVisible || x.agentActiveRef.current || x.agentOpsInFlightRef.current > 0) {
+      void x.setNativeVisible(true).then(() => x.evaluateOcclusionRef.current());
+    }
   }, [setPauseState, setStill]);
 
   // Resume when the pane may be live again.
