@@ -311,10 +311,13 @@ describe('the brake by budget', () => {
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="cpu"');
     expect(words(html)).toContain('i nuovi aspettano');
 
+    // An old server sends the axis without its numbers: the axis is said, and
+    // nothing claims the memory is "full" (it held that night with 7 GB free).
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 9.6, running: 3,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5 } }));
     html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(words(html)).toContain('i nuovi aspettano: memoria piena');
+    expect(words(html)).toContain('i nuovi aspettano: memoria');
+    expect(words(html)).not.toContain('memoria piena');
 
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2,
       admission: { admit: true, blockedBy: null, firstAgentExempt: false, costCoreUnits: 0.5 } }));
@@ -328,6 +331,62 @@ describe('the brake by budget', () => {
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-admit="true"');
     expect(words(html)).toContain('il primo parte comunque');
+  });
+
+  test('the verdict names the axis WITH the numbers it compared', () => {
+    resources(0.6);
+    // The quota clause: one more agent does not fit in our share of the free.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 6.6, running: 3,
+      admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
+        costMemGB: 4, freeQuotaMemGB: 3.3, ourMemGB: 9, usableMemGB: 12.3, memClause: 'quota' } }));
+    let html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('i nuovi aspettano: memoria, servono 4.0 GB, liberi per Topics 3.3 GB');
+    // The footprint clause (two 11 GB shard runs): the next agent WOULD fit in
+    // the quota, so printing the quota would contradict itself.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 4, usableCoreUnits: 6.6, running: 16,
+      admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
+        costMemGB: 1.5, freeQuotaMemGB: 4.2, ourMemGB: 22, usableMemGB: 20.4, memClause: 'footprint' } }));
+    html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('i nuovi aspettano: memoria, Topics tiene 22.0 GB su un tetto di 20.4 GB');
+    expect(html).not.toContain('servono');
+    // The CPU: what one more agent costs.
+    adoptDispatchCapacity(machine({ usedCoreUnits: 3.4, usableCoreUnits: 3.8, running: 2,
+      admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5, usedCoreUnits: 3.4, usableCoreUnits: 3.8 } }));
+    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('i nuovi aspettano: CPU, un agent ne costa 0.5 core');
+  });
+
+  // THE NIGHT OF 14/09: 5.5 GB available under the native 6 GB floor, the only
+  // brake that held, while the panel said in green that an agent would start.
+  test('the floor holds: the panel says so with its numbers, in either brake', () => {
+    const floor = { admit: false, blockedBy: 'floor' as const, firstAgentExempt: false, costCoreUnits: 0,
+      reason: 'Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Con il runtime nativo i check ne chiedono ~1,5 GB.' };
+    resources(0.6);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6, running: 3, admission: floor }));
+    let html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="floor"');
+    expect(words(html)).toContain('i nuovi aspettano: memoria quasi finita, 5.5 GB disponibili, sotto il pavimento di 6 GB');
+    expect(words(html)).not.toContain('partirebbe');
+
+    // By count there is no budget verdict, but "3 di 4" must not stand alone.
+    adoptGlobalCap({ maxAgentsAuto: true, maxAgents: 5, maxAgentsMode: 'count' });
+    adoptDispatchCapacity(machine({ recommended: 4, running: 3, admission: floor }));
+    html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(words(html)).toContain('3 di 4');
+    expect(html).toContain('data-blocked-by="floor"');
+    expect(words(html)).toContain('sotto il pavimento di 6 GB');
+  });
+
+  test('the live number is the one the gate decided on, turns still warming up included', () => {
+    // The probe says 2.0; the gate counts the three turns it admitted a minute
+    // ago and holds at 6.5 of 6.6. One line, one count.
+    resources(0.6);
+    adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6, running: 5,
+      admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 1.5,
+        usedCoreUnits: 6.5, usableCoreUnits: 6.6, pendingAdmissions: 3 } }));
+    const html = renderToStaticMarkup(<GlobalCapControl />);
+    expect(words(html)).toContain('Topics usa 6.5 dei 6.6 core a disposizione (3 appena partiti)');
+    expect(words(html)).not.toContain('usa 2.0');
+    expect(html).toContain('data-testid="global-cap-budget-live" data-band="amber"');
   });
 
   test('no admission on the wire (an old server): no verdict is drawn, rather than a guessed one', () => {

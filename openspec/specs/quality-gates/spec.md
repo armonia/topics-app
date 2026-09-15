@@ -547,6 +547,13 @@ si isola — i racer che si contendono una risorsa del sistema con asserzioni di
 tempistica — SHALL girare in una coda seriale DOPO gli shard, senza contesa di
 CPU, e la lista di quei file SHALL corrispondere a file che esistono.
 
+L'output di ogni shard SHALL andare su un file, non su una pipe tenuta dal
+runner. Leggere la pipe per intero trattiene ogni blocco scritto finché lo
+shard non esce, e su bun 1.3.8 ogni blocco costa ~10 KB: il 15/09/2026 un
+runner a 797 MB (poi 3,7 GB) aveva un solo shard da 270 MB, e una sonda della
+stessa forma è passata da 200 MB a 9 MB con il file. Il file SHALL essere letto
+solo per uno shard rosso, l'unico che si ristampa.
+
 Uno shard rosso SHALL stampare il comando che lo riproduce con la stessa lista
 nello stesso ordine: il piano cambia a ogni corsa, e un rosso che dipende dal
 raggruppamento senza la sua lista non si ricostruisce più.

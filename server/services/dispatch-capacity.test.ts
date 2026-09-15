@@ -507,12 +507,13 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
   // The memory figures the panel can explain a memory hold with. Which axis
   // blocks travels as `admission`, from the dispatcher (task-dispatcher-pressure).
   test("the wire carries what one agent costs in memory and the share of the free it is compared with", () => {
-    const priceList = { coreUnits: () => [0.5], memGB: () => [2] };
+    // 5 GB, over the 4 GB floor a card is priced at when nothing is measured.
+    const priceList = { coreUnits: () => [0.5], memGB: () => [5] };
     const cap = computeDispatchCapacity(
       4, () => fleetReading({ coreUnits: 0.2, cores }), false, () => 0.3,
       { share: 0.8, frozen: 0 }, priceList,
     );
-    expect(cap.agentCostMemGB).toBe(2);
+    expect(cap.agentCostMemGB).toBe(5);
     // Rounded to one decimal like every other figure on the wire: 0.8 x 0.3.
     expect(cap.freeQuotaMemGB).toBe(0.2);
   });
@@ -603,7 +604,28 @@ describe("il pavimento della memoria segue il runtime", () => {
     // "2,3 MB" reads as "there is no room for nothing" - which is what sent the
     // 10/09 diagnosis after the wrong cause.
     expect(r).toContain("2,3 MB");
-    expect(r).toContain("1,5 GB");
+    expect(r).toContain("si prezza");
+  });
+
+  test("the native floor quotes the card price it is given, not the ~1,5 GB of 11/09", () => {
+    // The dispatcher prices a card from the check peaks of the last cards (4 GB
+    // with no history). A sentence still saying "~1,5 GB" sends whoever reads a
+    // stopped queue to a number the gate stopped using.
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, { cardGB: 5.2, startingCards: 0, holding: false });
+    expect(r).toContain("si prezza 5.2 GB");
+    expect(r).not.toContain("1,5 GB");
+  });
+
+  test("a reservation as large as the reading is never printed as a part of it", () => {
+    // Under the floor: "5.9 GB disponibili, di cui 8.0 tenuti" was the sentence.
+    const under = dispatchResourceBlock("/tmp", disco, ram(5.9), false, { cardGB: 4, startingCards: 2, holding: true });
+    expect(under).toContain("5.9 GB disponibili, sotto il pavimento di 6 GB, e tutti già tenuti per i 2 agenti che stanno partendo");
+    // Over the floor: "ma 8.0 sono tenuti ... e i -1.0 che restano".
+    const over = dispatchResourceBlock("/tmp", disco, ram(7), false, { cardGB: 4, startingCards: 2, holding: false });
+    expect(over).toContain("7.0 GB disponibili, tutti già tenuti per i 2 agenti che stanno partendo, che la lettura non vede ancora: non ne resta niente");
+    for (const r of [under, over]) expect(r).not.toMatch(/di cui|che restano/);
+    // A reservation smaller than the reading is still "of which".
+    expect(dispatchResourceBlock("/tmp", disco, ram(5), false, { cardGB: 2, startingCards: 1, holding: false })).toContain("5.0 GB disponibili, di cui 2.0 tenuti");
   });
 
   test("il disco viene prima della RAM, su entrambi i runtime", () => {

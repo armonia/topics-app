@@ -31,10 +31,10 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { effectiveDispatchCap } from "./dispatch-capacity";
-import { publishDispatchBlock } from "./dispatch-block-signal";
+import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
+import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
@@ -160,8 +160,12 @@ export interface DispatcherDeps {
    * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
    * mai: una guardia che non si sa misurare non deve poter fermare la board.
+   *
+   * `hold` is what the reading cannot see yet, as separate facts: the price of
+   * one card, the local turns admitted in the last warm-up window, and whether
+   * the floor is already holding (see `floorReason`).
    */
-  resourceBlock?: () => string | null;
+  resourceBlock?: (hold: MemoryFloorHold) => string | null;
   /**
    * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
    * core-units and gigabytes, what the others are taking, and the agents
@@ -182,9 +186,10 @@ export interface DispatcherDeps {
    * no history, and the estimate falls back to its floor, never to zero.
    */
   agentCostSamples?: () => number[];
-  /** The same price list in gigabytes: the peak each live session is holding.
-   *  The median of these prices the memory of one more agent, and an empty list
-   *  prices it at the measured floor (never at zero). */
+  /** The same price list in gigabytes: the peak footprint of each recent card's
+   *  pre-review checks, one number per card. The median of these prices the
+   *  memory of one more agent, and an empty list prices it at the floor (never
+   *  at zero). */
   agentMemSamples?: () => number[];
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
@@ -584,6 +589,12 @@ export interface TaskDispatcher {
   /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
   busyIds(): string[];
   /**
+   * The sessions those runs are bound to (setup slots, still without one, are
+   * left out). A card turn streams through /api/chat, so the restart gate
+   * needs these keys to tell a card's own stream from a person's chat.
+   */
+  busySessionKeys(): string[];
+  /**
    * A planned restart is on its way: from now until the process is replaced,
    * start NO new turn. Queue picks, slot wake-ups and resumes all park where
    * they are, bindings intact, and the boot reconcile of the next process
@@ -838,49 +849,7 @@ function boardLanguage(settings: { language?: string } | null | undefined): Outp
   return resolveOutputLanguage();
 }
 
-/** `1.4` as `1,4`: the sentence is Italian like the rest of this file's card
- *  lines, and a decimal point in an Italian sentence reads as a typo. */
-const itNumber = (n: number, digits = 1): string => n.toFixed(digits).replace(".", ",");
-const asPercent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
-
-/**
- * "OVER THE BUDGET", written on the card WITH the numbers that produced it: how
- * much of this computer Topics is taking, the budget it was given, and the
- * usable share when the rest of the machine has squeezed it. Without them the
- * line is "in coda" again, which is the sentence the chip already says and the
- * one that made a paused board look like a broken one.
- *
- * It says the wait ends by itself. That is the difference from the floor's line
- * (which does not promise it) and from the spend cap's (which says what to do
- * instead): three brakes, three sentences, and each one true about its own way
- * of ending.
- *
- * Exported for the test, which asserts on the numbers and not on the prose.
- */
-export function machineBudgetMessage(verdict: AdmissionVerdict, cores: number, share: number): string {
-  if (verdict.blockedBy === "memory") {
-    // The memory sentence says the two numbers the axis actually compared: what
-    // one more agent costs, and the share of the FREE memory it did not fit in.
-    // "Topics is at its memory ceiling" was true of a footprint nobody could
-    // see and said nothing about the machine being in swap.
-    const quota = verdict.freeQuotaMemGB;
-    const room = quota == null ? "" : ` (ne servono ${itNumber(verdict.costMemGB)} GB, liberi per Topics ${itNumber(quota)} GB)`;
-    return (
-      `Non c'è memoria per un altro agent: il ${asPercent(share)} di quella libera non basta${room}. ` +
-      `Non ne parte un altro finché non si libera: riparte da sé, niente è andato perso.`
-    );
-  }
-  // Said in the panel's words: the cores Topics holds against the cores at its
-  // disposal, which is the share of what the rest of the machine leaves free.
-  // When that is less than the slider promises, the line says why, or a number
-  // smaller than the setting reads as the setting not being honoured.
-  const squeezed = verdict.usableCoreUnits < verdict.budgetCoreUnits - 0.05 ? ", e il resto della macchina sta lavorando" : "";
-  return (
-    `Topics usa ${itNumber(verdict.usedCoreUnits)} dei ${itNumber(verdict.usableCoreUnits)} core a disposizione ` +
-    `(quota ${asPercent(share)} del libero${squeezed}); un agent nuovo ne costa ${itNumber(verdict.costCoreUnits)}. ` +
-    `Non ne parte un altro finché non scende: riparte da sé, niente è andato perso.`
-  );
-}
+import { machineBudgetMessage, memoryClause } from "./dispatch-budget-message";
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /**
@@ -1030,6 +999,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { return capMode(deps.svc.getGlobalCap()) === "resources"; } catch { return false; }
   }
   /**
+   * THE RAMP OF THE "BY RESOURCES" MODE, one clock for the whole dispatcher.
+   *
+   * It used to be a counter local to `tick(projectId)`, and three doors went
+   * around it: every board has its own tick (three boards with todos admitted
+   * three in one round), `reconcile` had no guard against itself (three
+   * overlapping passes claimed three), and `resume` was left out on purpose
+   * (a boot with sixteen cut turns started twelve at the same instant). The
+   * instant of the last start is what every door reads now, a dispatch and a
+   * resume alike (`ADMISSION_SPACING_MS`).
+   */
+  let lastAdmissionAt = Number.NEGATIVE_INFINITY;
+  function rampHeld(): boolean {
+    return Date.now() - lastAdmissionAt < ADMISSION_SPACING_MS;
+  }
+  /**
    * Il PAVIMENTO, letto ADESSO. Vive accanto al tetto e non dentro, perché sono
    * due risposte diverse: il tetto dice quanti se ne vogliono (e può dire
    * «quanti ne capitano»), questo dice quando la macchina non ne regge un altro
@@ -1038,9 +1022,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   /** L'ultimo motivo di blocco già annunciato, per non ripeterlo a ogni tick. */
   let lastAdmissionBlock: string | null = null;
+  /** What one more agent is priced at in memory: the same price list the budget reads. */
+  function agentMemPrice(): number {
+    return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
+  }
+  /** Launch instants of the LOCAL turns in flight: a run riding on a node holds
+   *  nothing on this machine, the same filter `busyCount` applies. */
+  function localLaunches(): number[] {
+    return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).map((slot) => slot.sessionAt);
+  }
+  /**
+   * THE FLOOR, read with what the reading cannot see yet, and without saying it
+   * (`admissionBlock` is the one that logs).
+   *
+   * Two terms, and the floor used to have neither. A bare `avail < 6` read by
+   * `vm_stat` at every tick and every queued resume flapped on the line: 30
+   * «coda ferma» and 30 «coda ripartita» in eleven minutes on 14/09/2026, each
+   * opening letting turns through. So:
+   *  - HYSTERESIS: once holding, it reopens only with room for one more agent
+   *    above the floor, not at the floor itself;
+   *  - RESERVATION: the local turns started inside the warm-up window count at
+   *    their price, because an agent's gates show up in the reading minutes
+   *    after the start. Without it four resumes passed the floor in eleven
+   *    seconds on four readings of the same 6.0 GB, and in count mode nothing
+   *    else in the dispatcher looks at free memory.
+   */
+  function floorReason(): string | null {
+    const startingCards = reservedCost(localLaunches(), { coreUnits: 0, memGB: 0 }, Date.now()).pending;
+    return deps.resourceBlock?.({ cardGB: agentMemPrice(), startingCards, holding: lastAdmissionBlock != null }) ?? null;
+  }
   function admissionBlock(): string | null {
     try {
-      const reason = deps.resourceBlock?.() ?? null;
+      const reason = floorReason();
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
       // del server» — solo che nel log non ci finiva niente: il messaggio
@@ -1058,7 +1071,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // i GB liberi, che cambiano a ogni lettura, quindi un confronto per
       // stringa non dedupica niente — provato sul server vero, tre righe
       // identiche nel senso e diverse nei decimali in trenta secondi.
-      const kind = reason ? reason.split(":")[0]! : null;
+      // The kind is the RESOURCE, the first word ("Disco", "Memoria"): one
+      // memory episode goes through three sentences (under the floor, reserved
+      // for the agents starting, climbing back towards the restart line), and
+      // keying on the whole prefix would log a new "coda ferma" at every swing
+      // between them, the flood the hysteresis exists to stop.
+      const kind = reason ? reason.split(/[\s:]/)[0]! : null;
       if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
       else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
       lastAdmissionBlock = kind;
@@ -1105,37 +1123,84 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * same reservation for the turns still warming up: the panel cannot say
    * "would start" on numbers the gate did not decide on.
    */
-  function budgetVerdict(gcap: GlobalDispatchCap): { verdict: AdmissionVerdict; sample: MachineBudgetSample; share: number } | null {
+  function budgetVerdict(gcap: GlobalDispatchCap): {
+    verdict: AdmissionVerdict;
+    sample: MachineBudgetSample;
+    share: number;
+    /** Our footprint and its ceiling, from the very sample the verdict read
+     *  (reservation included): the two numbers of the footprint clause. */
+    mem: { ourMemGB: number; usableMemGB: number };
+  } | null {
     const sample = deps.budgetSample?.() ?? null;
     if (!sample) return null;
     const share = budgetShare(gcap);
     const cost = {
       coreUnits: estimatedAgentCost((() => { try { return deps.agentCostSamples?.() ?? []; } catch { return []; } })()),
-      memGB: estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })()),
+      memGB: agentMemPrice(),
     };
-    // WHAT WE HAVE ALREADY PROMISED. The turns launched in the last ninety
-    // seconds are not in the probe yet (an agent reads its card before it
-    // launches a gate), so they are counted at their estimate: without this
+    // WHAT WE HAVE ALREADY PROMISED. An agent's cost lands minutes after its
+    // launch (it reads the card before it launches a gate), so the turns in
+    // flight are counted at their estimate: on the CPU for the warm-up window,
+    // on memory for their whole life (`reservedCost` says why). Without this
     // term every tick decides against the calm that the previous tick has
     // already spent, and the queue drains into swap. `sessionAt` is the
     // launch instant, so the ledger is the in-flight map itself.
     const now = Date.now();
-    const warming = [...inFlight.values()].map((slot) => slot.sessionAt);
-    const reserved = reservedCost(warming, cost, now);
-    const verdict = admissionVerdict(
-      { ...sample, reservedCoreUnits: reserved.coreUnits, reservedMemGB: reserved.memGB },
-      share,
-      cost,
-      budgetGate,
-    );
-    return { verdict, sample, share };
+    const reserved = reservedCost(localLaunches(), cost, now);
+    // The exemption is for a machine with none of OUR work on it, and a
+    // pre-review check run is our work: a queue behind an 11 GB shard run is not
+    // a queue that never starts (see `firstAgentExempt`).
+    const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+    const gated: MachineBudgetSample = {
+      ...sample,
+      running: sample.running + Math.max(0, checks),
+      reservedCoreUnits: reserved.coreUnits,
+      reservedMemGB: reserved.memGB,
+    };
+    const verdict = admissionVerdict(gated, share, cost, budgetGate);
+    // Read off the same function the verdict read, on the same sample: not a
+    // second copy of the arithmetic.
+    const mem = { ourMemGB: Math.max(0, sample.ourMemGB), usableMemGB: machineBudget(gated, share).usableMemGB };
+    return { verdict, sample, share, mem };
   }
+  /**
+   * THE PANEL'S VERDICT, IN THE TICK'S ORDER. The tick stops at a drain and at
+   * the floor before the budget is ever asked, so the preview does too: it used
+   * to run only the budget, and on the night the 6 GB floor was the one brake
+   * that fired the panel said in green "a new agent would start" while every
+   * card said "the machine has no room". The floor holds in count mode as well,
+   * so it is the one verdict a count-mode reading carries.
+   *
+   * `floorReason()` and not `admissionBlock()`: that one logs the episode and
+   * moves its dedup state, and a panel polling every 15 s must not.
+   */
   function admissionPreview(): DispatchAdmission | null {
     try {
+      const held = (blockedBy: "floor" | "drain", reason: string): DispatchAdmission =>
+        ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0, reason });
+      const drain = drainBlock();
+      if (drain) return held("drain", drain);
+      const floor = (() => { try { return floorReason(); } catch { return null; } })();
+      if (floor) return held("floor", floor);
       const gcap = deps.svc.getGlobalCap();
       if (capMode(gcap) !== "resources") return null;
-      const v = budgetVerdict(gcap)?.verdict;
-      return v ? { admit: v.admit, blockedBy: v.blockedBy, firstAgentExempt: v.firstAgentExempt, costCoreUnits: v.costCoreUnits } : null;
+      const computed = budgetVerdict(gcap);
+      if (!computed) return null;
+      const { verdict: v, mem } = computed;
+      return {
+        admit: v.admit,
+        blockedBy: v.blockedBy,
+        firstAgentExempt: v.firstAgentExempt,
+        costCoreUnits: v.costCoreUnits,
+        usedCoreUnits: v.usedCoreUnits,
+        usableCoreUnits: v.usableCoreUnits,
+        pendingAdmissions: v.pendingAdmissions,
+        costMemGB: v.costMemGB,
+        freeQuotaMemGB: v.freeQuotaMemGB,
+        ourMemGB: mem.ourMemGB,
+        usableMemGB: mem.usableMemGB,
+        memClause: memoryClause(v, mem),
+      };
     } catch { return null; }
   }
   function pressureBlock(): string | null {
@@ -1145,7 +1210,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (capMode(gcap) !== "resources") { lastPressureAxis = null; budgetGate = "admitting"; return null; }
       const computed = budgetVerdict(gcap);
       if (!computed) return null;
-      const { verdict, sample, share } = computed;
+      const { verdict, sample, share, mem } = computed;
       budgetGate = verdict.state;
       if (verdict.firstAgentExempt) {
         // Not a block, but not a free machine either: the log says why the
@@ -1156,7 +1221,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } else {
         firstAgentExemptNoted = false;
       }
-      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share);
+      const reason = verdict.admit ? null : machineBudgetMessage(verdict, sample.cores, share, mem);
       if (verdict.blockedBy && verdict.blockedBy !== lastPressureAxis && reason) log(`coda in attesa per budget: ${reason}`);
       else if (!verdict.blockedBy && lastPressureAxis) log("coda ripartita: l'uso di Topics è rientrato nel budget");
       lastPressureAxis = reason ? verdict.blockedBy : null;
@@ -1399,6 +1464,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * darlo, ed è la stessa fine che faceva prima.
    */
   function clearSlotWait(taskId: string, inherit: boolean): void {
+    setHeldResumeBlock(taskId, null);
     const wait = slotWaits.get(taskId);
     if (wait) {
       clearTimeout(wait.timer);
@@ -3617,6 +3683,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch { return text; }
   }
 
+  /**
+   * What holds a resume, in the order its door asks, and WHICH machine block it
+   * is. `kind` is null for a drain and for the holds that are this card's own (a
+   * provider hold, the per-card spend cap): the machine sentences on the card
+   * do not describe them.
+   */
+  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null } | null {
+    const own = taskPlanWait(t)?.reason ?? drainBlock();
+    if (own) return { reason: own, kind: null };
+    const floor = admissionBlock();
+    if (floor) return { reason: floor, kind: "resources" };
+    const day = spendBrake.dayBlock();
+    if (day) return { reason: daySpendSentence(day), kind: "spend" };
+    const card = spendBrake.taskBlock(t.agentCostCents);
+    if (card) return { reason: card, kind: null };
+    const pressure = pressureBlock();
+    return pressure ? { reason: pressure, kind: "pressure" } : null;
+  }
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -3666,18 +3751,33 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // resumed turn is a full agent turn on the same machine: letting it through
     // over the threshold would be the count-mode leak (resumes outside the
     // cap) reborn under another name.
-    const floorBlock = taskPlanWait(t)?.reason ?? drainBlock() ?? admissionBlock() ?? spendBrake.dayBlock() ?? spendBrake.taskBlock(t.agentCostCents) ?? pressureBlock();
+    // THE RAMP FIRST, in "by resources" mode: a resume is a start like a
+    // dispatch, and it waits for the same clock (`lastAdmissionAt`). Read before
+    // the probes, so sixteen queued resumes retrying every few seconds do not
+    // each spawn a `vm_stat` to learn that it is not their turn yet. No note in
+    // the thread: a wait of seconds is a chip, not an episode.
+    const rampWait = inResourcesMode() && rampHeld();
+    const hold = rampWait ? null : resumeHold(t);
+    const floorBlock = hold?.reason ?? null;
     // Le corse dei gate occupano slot come gli agenti: un resume che trovasse
     // un posto «libero» ignorando i gate lancerebbe un agente in piu' proprio
     // mentre la macchina e' gia' al limite per i check.
     const resumeGateRuns = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
-    if (floorBlock || inFlight.size + resumeGateRuns >= currentCap()) {
+    if (rampWait || floorBlock || inFlight.size + resumeGateRuns >= currentCap()) {
       // Il chip dice DOV'E': senza, la card resta `in_progress` con nessun turno
       // vivo — il tempo non scorre e sembra piantata, che è esattamente come si
       // vede dal di fuori una coda invisibile. `queued` è già lo stato «aspetta
       // il suo turno», lo stesso dei dispatch.
-      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED })); } catch { /* best-effort */ }
-      if (!waitingForSlot.has(taskId)) {
+      // The REASON rides on the row with the chip (as `markPlanWait` does): a
+      // resume held by the floor, a drain or the budget in the In-progress
+      // column otherwise showed a bare queued chip whose tooltip said "no reason recorded", while
+      // the reason sat in a service comment the card never shows.
+      // The hold's KIND rides beside it, written before the chip so the emitted
+      // card already reads it (`heldResumeBlock`): the card says the block that
+      // holds THIS resume, never the one the tick published last.
+      setHeldResumeBlock(taskId, hold?.kind ? { kind: hold.kind, reason: hold.reason } : null);
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
+      if (!rampWait && !waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
         try {
           deps.svc.addComment({
@@ -3726,6 +3826,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
     }
     const runId = beginRun(taskId, sessionKey);
+    lastAdmissionAt = Date.now();
     try {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
@@ -4139,23 +4240,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // carica → raccomandazione 1 → «sono solo» → fetta intera.
     const effectiveCap = currentCap();
     /**
-     * THE RAMP of the "by resources" mode: ONE new dispatch per tick.
+     * THE RAMP of the "by resources" mode: ONE start per spacing, whatever the
+     * door (`rampHeld`).
      *
-     * Not out of caution: out of how the measure works. `load1` is a one-minute
-     * average, so it describes the machine of a minute ago, and the pressure
-     * gate reads it once per round. With N cards ready on a quiet machine, N
-     * verdicts in the same round would all read the same quiet load, and N
-     * agents would start together with no count left to stop them. It happened
-     * for real with the cap at zero: fourteen cards in one tick. One per tick
-     * (every ten seconds) is a ramp of six a minute, which is what gives the
-     * average time to move between one admission and the next.
+     * Not out of caution: out of how the measure works. The probe describes the
+     * machine of a few seconds ago, and an agent's gates land minutes after its
+     * start. With N cards ready on a quiet machine, N verdicts in the same round
+     * would all read the same quiet reading, and N agents would start together
+     * with no count left to stop them. It happened for real with the cap at
+     * zero: fourteen cards in one tick. One every ten seconds is a ramp of six a
+     * minute, which gives the measure time to move between two admissions.
      *
-     * Only NEW dispatches count. A resume is a turn on an agent already
-     * measured in `running`, and it has its own door (`pressureBlock` in
-     * `resume`); it does not consume this round's admission.
+     * The clock is the dispatcher's, not this tick's: every board has its own
+     * tick, and a resume starts a turn as much as a dispatch does.
      */
-    const oneNewPerTick = inResourcesMode();
+    const rampActive = inResourcesMode();
     let startedThisTick = 0;
+    /** The floor re-read once this pass has started a card (see the claim). */
+    let midPassFloor: string | null = null;
+    let floorReadAfterStarts = 0;
 
     // Le corse dei check pre-review valgono slot: ogni barra in volo satura
     // core nella stessa macchina degli agenti. Si contano UNA volta per tick
@@ -4300,10 +4403,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         }
         continue;
       }
-      // The ramp (see `oneNewPerTick`): this round's admission is spent. The
-      // rest of the queue gets the `queued` chip, like a full cap would give
-      // it, and its turn comes at the next tick with a fresher load average.
-      if (oneNewPerTick && startedThisTick >= 1) {
+      // The ramp (see `rampActive`): the last start is too recent, here or on
+      // another board or from a resume. The rest of the queue gets the `queued`
+      // chip, like a full cap would give it, and its turn comes with a fresher
+      // reading.
+      if (rampActive && rampHeld()) {
         try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
         continue;
       }
@@ -4433,6 +4537,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // altrimenti lo rifiuterebbe in silenzio (`tasks.ts`, regola 2 del peso) e
       // lascerebbe la card ferma esattamente come prima, ma senza più nemmeno
       // una nota che lo spieghi.
+      //
+      // THE LAST LOOK BEFORE THE CLAIM, with nothing awaited between it and the
+      // claim. The ramp again, because the probe of the delivery commit above
+      // awaits and another board's tick can start a card in that gap. The floor
+      // again once this pass has started a card: it was read once at the top,
+      // and a count-mode tick claims every free slot against that one reading.
+      if (rampActive && rampHeld()) {
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        continue;
+      }
+      if (!midPassFloor && startedThisTick > floorReadAfterStarts) {
+        floorReadAfterStarts = startedThisTick;
+        midPassFloor = admissionBlock();
+      }
+      if (midPassFloor) {
+        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        continue;
+      }
       const forced = heavyCall.get(t.id) === "forced";
       const claimed = deps.svc.claim({
         taskId: t.id,
@@ -4480,6 +4602,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // A claim that went through IS a new dispatch, fan-out or single: the
       // ramp counts cards, because one card is one reading of the machine.
       startedThisTick++;
+      lastAdmissionAt = Date.now();
       // Worktree dispatch with a live external session: the agent's files are
       // isolated, but the BRANCH it will land on is contended. Say so in the
       // thread so the reviewer knows before approving a merge.
@@ -4743,7 +4866,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const recentlyEnded = new Map<string, number>();
   const RECONCILE_GRACE_MS = 60_000;
 
-  async function reconcile(opts?: { reason?: "boot" | "poll" }): Promise<void> {
+  /**
+   * ONE PASS AT A TIME. The poll fires every ten seconds without waiting for the
+   * previous pass, and a pass awaits the broker once per orphan: with the event
+   * loop stalled for 25 s at the boot of 14/09/2026 four passes ran together,
+   * each resumed the same cards, and the log printed 13, 15, 14 and 2
+   * «riprese» for 16 cut turns. A caller arriving mid-pass gets that pass.
+   */
+  let reconciling: Promise<void> | null = null;
+  function reconcile(opts?: { reason?: "boot" | "poll" }): Promise<void> {
+    if (reconciling) return reconciling;
+    reconciling = reconcilePass(opts).finally(() => { reconciling = null; });
+    return reconciling;
+  }
+
+  async function reconcilePass(opts?: { reason?: "boot" | "poll" }): Promise<void> {
     const reason = opts?.reason ?? "boot";
     // The notes below used to assume a restart: on the 10 s poll that is a
     // lie, and it was read as one (a restart that never happened).
@@ -4767,7 +4904,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // ripreso un riavvio bisognava interrogare il database. I contatori qui
     // sotto diventano UNA riga sola in fondo al passo, non una riga per card:
     // con 303 riprese il per-card e' un allagamento, non una misura.
-    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0, heldOff = 0;
+    let directIn = 0, daCapo = 0, inCoda = 0, nonRecuperabili = 0, fanOut = 0, heldOff = 0, parked = 0;
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
       if (reason !== "boot") {
@@ -4921,6 +5058,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             const sessionKey = "topic:" + topicId.slice(0, 8);
             try { live = await deps.hasLiveSession(sessionKey); } catch { live = false; }
           }
+          // The probe awaited: a human's comment or a retry timer may have
+          // resumed or parked this card in the meantime, and resuming it again
+          // would only count it twice.
+          if (inFlight.has(t.id) || slotWaits.has(t.id)) continue;
           if (live) {
             try {
               deps.svc.claimInterruption({
@@ -4942,9 +5083,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
-          daCapo++;
           // Sets inFlight synchronously → the 10s poll can never double-fire.
           void resume(t.id, "", { continuation: true });
+          // COUNTED BY WHAT HAPPENED, not by the call. `resume` is synchronous up
+          // to its start (`beginRun`) or its wait (`slotWaits`), so the two maps
+          // already say which one it was. Counting the call wrote «riprese» for
+          // cards the floor had parked, which read as a stampede that never
+          // happened.
+          if (inFlight.has(t.id)) daCapo++;
+          else if (slotWaits.has(t.id)) parked++;
           continue;
         }
       }
@@ -4977,9 +5124,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         inCoda++;
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
-    if (directIn + daCapo + inCoda + nonRecuperabili + fanOut + heldOff > 0) {
+    if (directIn + daCapo + parked + inCoda + nonRecuperabili + fanOut + heldOff > 0) {
       log(
-        `riavvio: ${directIn + daCapo} riprese (${directIn} in diretta, ${daCapo} da capo), ` +
+        `riavvio: ${directIn + daCapo} riprese (${directIn} in diretta, ${daCapo} da capo), ${parked} in attesa di un posto, ` +
         `${inCoda} rimesse in coda, ${heldOff} trattenute a dispatch spento, ${fanOut} fan-out chiusi, ${nonRecuperabili} non recuperabili`,
       );
     }
@@ -5137,7 +5284,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Un dispatcher spento non deve svegliarsi fra 5s per riprendere un task su
     // un DB che non è più il suo — ed è anche il modo in cui i test, che ne
     // creano uno per caso, non si passano le attese a vicenda.
-    for (const w of slotWaits.values()) clearTimeout(w.timer);
+    for (const [taskId, w] of slotWaits) { clearTimeout(w.timer); setHeldResumeBlock(taskId, null); }
     slotWaits.clear();
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
@@ -5200,6 +5347,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // holding a handle on. Hiding it there would make a drain believe the board
     // is idle while a poll is still mirroring a card.
     busyIds: () => [...inFlight.keys()],
+    busySessionKeys: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((key) => key !== ""),
     drain: (reason) => {
       if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
       draining = reason;

@@ -2276,6 +2276,21 @@ describe("task-dispatcher", () => {
     restarted.shutdown();
   });
 
+  it("busySessionKeys names the session a card turn streams on, so the restart gate does not count it as a chat", async () => {
+    // A card turn runs through /api/chat, so its session is also a stream key.
+    // Without these keys the door of a pending restart reopened for every card
+    // in flight (2026-09-14: 12 cards started behind a restart, then cut by it).
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.dispatcher.busySessionKeys()).toEqual([h.turns[0]!.sessionKey]);
+    h.dispatcher.shutdown();
+  });
+
   it("un resume che parte EREDITA il messaggio dell'attesa che spegne", async () => {
     // Il registro tiene una attesa sola per task, quindi un resume che trova il
     // posto libero spegne il timer di quella pendente. Il timer aveva in mano un
