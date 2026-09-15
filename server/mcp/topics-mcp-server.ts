@@ -28,7 +28,7 @@ import {
   READ_ONLY_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
-import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, TASK_STATUSES } from "../../shared/board";
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
@@ -424,7 +424,7 @@ const TOOLS = [
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
         content: { type: "string", description: "Markdown comment body — or, with `options`, the one-line question." },
-        options: { type: "array", items: { type: "string" }, description: "Answer choices for a human decision (renders quick-reply buttons on the board card). Omit for a plain comment." },
+        options: { type: "array", items: { type: "string" }, description: `Answer choices for a human decision (renders quick-reply buttons on the board card). Omit for a plain comment. ${RECOMMENDED_OPTION_RULE}` },
         media: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach (screenshots, artifacts you produced) — rendered inline on the board." },
         mentions: { type: "array", items: { type: "string" }, description: "Optional @-mentions." },
       },
@@ -507,7 +507,7 @@ const TOOLS = [
       properties: {
         task_id: { type: "string", description: "Task id from list_global_tasks." },
         content: { type: "string", description: "Concise progress note, handoff, or question." },
-        options: { type: "array", items: { type: "string" }, description: "Optional human quick-reply choices." },
+        options: { type: "array", items: { type: "string" }, description: `Optional human quick-reply choices. ${RECOMMENDED_OPTION_RULE}` },
       },
       required: ["task_id", "content"],
     },
