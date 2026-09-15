@@ -293,6 +293,19 @@ export const CODE_GATES_RULE = [
  * same number collide on all four files at land time. The number moves once
  * per release, at landing, by whoever lands.
  */
+/**
+ * How an agent offers a choice to the human on the board: its own pick first, marked.
+ *
+ * Measured on 2026-09-15 over 2,486 agent comments (45 days): 78 decisions went out
+ * as quick-reply buttons and only 13 of them said which option the agent would take.
+ * The human then decides blind, or opens the thread to reconstruct a view the agent
+ * already had. The in-chat panel solves this with `recommended: true` (a chip); board
+ * options are plain strings, so the mark lives in the label. The word follows the
+ * language the agent is writing in, which is why both spellings are named.
+ */
+export const RECOMMENDED_OPTION_RULE =
+  "WHEN YOU OFFER OPTIONS, YOUR PICK GOES FIRST AND SAYS SO. Put the option you would choose as the first element of `options` and end its label with \" (consigliata)\", or \" (recommended)\" when you are writing in English. In the same one-line question, add why in a few words. Only when you truly have no preference, say that instead and name what would settle it. A neutral list hands the human a decision you were in a position to make.";
+
 export const VERSION_BUMP_RULE =
   "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night. AND ON A CARD YOU DO NOT BUMP AT ALL: the number moves once per release, at landing, by whoever lands. Read on 2026-09-04: with fourteen cards in flight, the first one delivered carried its own bump, and every card bumping in parallel collides on all four files at land time.";
 

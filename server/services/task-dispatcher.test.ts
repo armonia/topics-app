@@ -2514,6 +2514,24 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain("lockfile");
   });
 
+  /**
+   * The kickoff tells the agent to put its own pick first and mark it. Only 13 of
+   * 78 board decisions carried one before this line existed (measured 2026-09-15).
+   * The words are written out here, not interpolated from the constant, so a rule
+   * that silently loses its point also fails this test.
+   */
+  it("kickoff asks for the recommended option first, marked in the label", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("first element of `options`");
+    expect(kickoff).toContain("(consigliata)");
+    expect(kickoff).toContain("(recommended)");
+  });
+
   it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
