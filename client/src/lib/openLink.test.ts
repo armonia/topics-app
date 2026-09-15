@@ -12,6 +12,7 @@ import {
   resetOpenLinkDedupeForTest,
   type OpenTabDetail,
 } from './openLink';
+import { registerTopicWindowDoor } from './topicWindowDoor';
 
 let opened: string[] = [];
 let claim = true;
@@ -48,6 +49,35 @@ test('a plain click asks for a tab inside Topics, not the system browser', () =>
   expect(seen.map((d) => d.url)).toEqual(['https://x.test/page']);
   expect(seen[0]!.topicId).toBe('t1');
   expect(opened).toEqual([]);
+});
+
+/**
+ * @covers TOPIC-BROWSER-04
+ * The chat of a topic wide enough for a window takes its own links, and the
+ * layout never hears about them: the event that would have tiled a pane is not
+ * dispatched at all.
+ */
+test('a link in a topic chat lands in that topic window instead of the layout', () => {
+  const taken: string[] = [];
+  const stop = registerTopicWindowDoor('t1', (s) => { taken.push(s.url); return true; });
+  try {
+    openLink('https://x.test/in-window', { topicId: 't1' });
+    expect(taken).toEqual(['https://x.test/in-window']);
+    expect(seen).toEqual([]);
+    expect(opened).toEqual([]);
+  } finally {
+    stop();
+  }
+});
+
+test('a link clicked inside a browser pane keeps going to that strip', () => {
+  const stop = registerTopicWindowDoor('t1', () => true);
+  try {
+    openLink('https://x.test/from-pane', { topicId: 't1', nearPaneId: 'browser:a' });
+    expect(seen.map((d) => d.nearPaneId)).toEqual(['browser:a']);
+  } finally {
+    stop();
+  }
 });
 
 test('every click gets its OWN browser context (a tab, never a hijack)', () => {
