@@ -3579,6 +3579,15 @@ tetto, quello che parte e ogni altra scrittura del chip lo tolgono. Non dice
 l'interruttore: `resume` rivaluta la sua attesa a ogni giro anche a dispatch
 spento, e riparte appena il blocco rientra.
 
+Quella scrittura SHALL avvenire solo quando l'attesa CAMBIA: un altro tipo di
+blocco o altre parole, a numeri esclusi. La stessa attesa con un'altra lettura
+SHALL rinfrescare riga e chip al massimo una volta ogni 60 secondi. Il 15/09 ogni
+ritentativo (ogni 5-6,75 s) riscriveva `dispatch_error` con i GB del momento
+(5,7, 5,9, 6,0), toccava `updated_at` e mandava `task:updated` a ogni client:
+sette card ferme facevano circa 70 frame al minuto, e ognuno rifaceva l'albero
+dell'app e il menu della barra. Saltata la scrittura resta intatto anche il tipo
+dell'attesa, perché la card lo crede solo finché combacia con la frase della riga.
+
 Il pavimento di memoria SHALL avere isteresi e prenotazione, in entrambe le
 modalità. Una volta fermo riparte solo con spazio per un agente in più sopra il
 pavimento (pavimento più il prezzo di una card), non alla soglia stessa: il 14/09
@@ -3729,6 +3738,12 @@ check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
 - **WHEN** si apre il pannello, in «a budget» o in «per numero»
 - **THEN** il verdetto è `floor` e dice la prima frase del pavimento, e l'anello della colonna è pieno con la parola «fermo: niente spazio»
 - **AND** il chip «Fermane N» non compare in «a budget»
+
+#### Scenario: un resume trattenuto non riscrive la card a ogni lettura
+- **GIVEN** sette card In corso trattenute dal pavimento, con una lettura di memoria diversa a ogni ritentativo
+- **WHEN** ritentano ogni 6 secondi per due minuti
+- **THEN** ogni card riceve al massimo due `task:updated` (l'attesa e il rinfresco dei numeri dopo un minuto) e resta `queued` con il motivo `resource_floor`
+- **AND** un cambio di tipo (pavimento, spesa delle 24 ore) o di parole («sotto il pavimento», «in risalita») arriva al ritentativo successivo
 
 #### Scenario: la misura non presa non blocca niente
 - **GIVEN** una macchina dove la sonda non risponde

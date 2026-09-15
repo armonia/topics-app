@@ -708,6 +708,23 @@ const HEAVY_HOLD_MAX_MS = 15 * 60_000;
 const RESUME_SLOT_RETRY_MS = 5_000;
 
 /**
+ * How often a held resume may rewrite the SAME hold just to refresh its numbers.
+ *
+ * Measured on 15/09/2026: every retry rewrote `dispatch_error` with the memory
+ * reading of that instant (5.7, 5.9, 6.0 GB), touched `updated_at` and sent
+ * `task:updated` to every client. Seven held cards made about 70 frames a
+ * minute, and each frame re-rendered the app tree and rebuilt the tray menu.
+ * A different hold is written at once; the same hold with other numbers waits
+ * this long, so the card is never stale for more than a minute.
+ */
+const HELD_RESUME_REFRESH_MS = 60_000;
+
+/** The hold's sentence with its figures blanked: "5.9 GB" and "6.0 GB" say the same thing. */
+function holdGist(reason: string | null | undefined): string | null {
+  return reason == null ? null : reason.replace(/\d+(?:[.,]\d+)*/g, "#");
+}
+
+/**
  * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
  *
  * Serve a far girare l'ordine dei board a ogni reconcile. Il tetto dei posti è
@@ -964,6 +981,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
   const waitingForSlot = new Set<string>();
+  /** When each held resume last wrote its chip (clock ms): see `HELD_RESUME_REFRESH_MS`. */
+  const heldWrittenAt = new Map<string, number>();
   /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
   let boardCursor = 0;
   let resumeStagger = 0;
@@ -1472,6 +1491,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds?.[0]);
     }
     waitingForSlot.delete(taskId);
+    heldWrittenAt.delete(taskId);
   }
 
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
@@ -3775,8 +3795,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // The hold's KIND rides beside it, written before the chip so the emitted
       // card already reads it (`heldResumeBlock`): the card says the block that
       // holds THIS resume, never the one the tick published last.
-      setHeldResumeBlock(taskId, hold?.kind ? { kind: hold.kind, reason: hold.reason } : null);
-      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
+      //
+      // ONLY WHEN THE HOLD CHANGED, or its numbers are a minute old. The row we
+      // compare against is the one this call just read (`t`), so a chip written
+      // by anyone else (a start, a park) is never mistaken for ours. No separate
+      // kind comparison: every kind composes its own sentence (floor, spend,
+      // pressure, drain, the cap alone writes none), so equal words mean equal
+      // kind, and a floor that swings from "under" to "climbing" is new words.
+      // When the write is skipped the kind entry is left alone too, because
+      // `heldResumeBlock` believes it only while it matches the sentence the row
+      // still carries; refreshing it alone would blank the card's reason.
+      const kind = hold?.kind ?? null;
+      const lastWrite = heldWrittenAt.get(taskId);
+      const sameHold = lastWrite != null
+        && clock() - lastWrite < HELD_RESUME_REFRESH_MS
+        && t.dispatchState === CHIP_QUEUED
+        && holdGist(t.dispatchError) === holdGist(floorBlock);
+      if (!sameHold) {
+        setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
+        try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
+        heldWrittenAt.set(taskId, clock());
+      }
       if (!rampWait && !waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
         try {
@@ -5289,6 +5328,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
     waitingForSlot.clear();
+    heldWrittenAt.clear();
     spendHeldNoted.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
