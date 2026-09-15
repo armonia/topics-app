@@ -191,7 +191,8 @@ test.describe("heavy native browser pane", () => {
       await fakeHeavyShell(page, ctx, PNG_1X1);
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
-      await page.locator(`[data-topic-id="${topic.id}"]`).first().click();
+      // A new topic opens as a pane tab, not always as a sidebar row: either one selects it.
+      await page.locator(`[data-pane-id="${topic.id}"], [data-topic-id="${topic.id}"]`).first().click();
       const win = page.locator('[data-testid="topic-browser-window"]:not([data-parked])');
       await expect(win).toBeVisible({ timeout: 15_000 });
       await expect.poll(async () => (await calls(page)).filter((c) => c === "browser_open").length, { timeout: 30_000 }).toBe(1);
