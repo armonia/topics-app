@@ -20,6 +20,8 @@ interface WorkerCall {
   timeoutEnv: string | null;
   slot: string | null;
   files: string[];
+  stdoutIsFile: boolean;
+  stderrIsFile: boolean;
 }
 
 function runFakeWorkers(options: { mode?: "serial-fails-once" | "parallel-fails"; ci?: string; timeout?: string; shards?: string } = {}) {
@@ -28,7 +30,7 @@ function runFakeWorkers(options: { mode?: "serial-fails-once" | "parallel-fails"
   // This executable never loads a test file. It records the complete command
   // the real runner sent it and returns a controlled process/JUnit verdict.
   writeFileSync(executable, `#!${process.execPath}
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, fstatSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 const args = process.argv.slice(2);
 const files = args.filter(arg => /\\.(test|spec)\\.[cm]?[jt]sx?$/.test(arg));
@@ -42,6 +44,7 @@ writeFileSync(join(dir, basename(xml) + ".json"), JSON.stringify({
   phase, attempt, ci: process.env.CI ?? null,
   timeout: args[args.indexOf("--timeout") + 1], timeoutEnv: process.env.TOPICS_TEST_TIMEOUT_MS ?? null,
   slot: process.env.TOPICS_GATE_HELD ?? null, files,
+  stdoutIsFile: fstatSync(1).isFile(), stderrIsFile: fstatSync(2).isFile(),
 }));
 const red = (process.env.TOPICS_SHARDS_CLI_MODE === "serial-fails-once" && phase === 2 && attempt === 1)
   || (process.env.TOPICS_SHARDS_CLI_MODE === "parallel-fails" && basename(xml) === "p1-shard-0.xml");
@@ -106,6 +109,21 @@ describe("unit shards CLI", () => {
       expect(call.timeout).toBe("17000");
       expect(call.timeoutEnv).toBe("17000");
       expect(call.slot).toBe("unit-shards-cli-fixture");
+    }
+  });
+
+  // The runner used to read each worker's stdout and stderr through a pipe it
+  // held until the worker exited, and on bun 1.3.8 that kept ~10 KB per write:
+  // 3.7 GB in a runner whose only worker was 600 MB (15/09/2026). A worker
+  // writing to a file costs the runner nothing, and a red one is still
+  // reprinted in full (the two failure tests above).
+  test("every worker writes its stdout and stderr to a file, never to a pipe the runner holds", () => {
+    const result = runFakeWorkers({ shards: "2" });
+    expect(result.code).toBe(0);
+    expect(result.calls.length).toBeGreaterThan(0);
+    for (const call of result.calls) {
+      expect(call.stdoutIsFile).toBe(true);
+      expect(call.stderrIsFile).toBe(true);
     }
   });
 

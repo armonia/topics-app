@@ -25,7 +25,7 @@ export type { GlobalDispatchCap } from '../../../shared/board';
 // gate does not use.
 export {
   capMode, livePressureBand,
-  budgetShare, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
+  budgetShare, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX, ADMIT_RESUME_FRACTION,
 } from '../../../shared/board';
 export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
@@ -36,7 +36,7 @@ export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../sh
 // they are matched, never drawn.
 export { normalizeActionLabel, LAND_ACTION_LABEL } from '../../../shared/board';
 export type {
-  TaskStatus, TaskComment, CardComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef,
+  TaskStatus, TaskComment, CardComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, DispatchAdmission, BlockerRef,
   LandingTicket,
   SubtaskWork, QueueReason, QueueTone,
 } from '../../../shared/board';

@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.2.323"
+version = "2.2.327"
 description = "Topics — low-footprint desktop shell (Tauri)"
 authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
@@ -113,6 +113,11 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gd
 # `java_script_core` ma non lo ri-esporta, quindi va dichiarato qui).
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+# GTK itself, for the z order of the pane inside its window: `webkit2gtk`
+# re-exports gio and glib but NOT gtk, and a WebKitWebView is stacked as a GTK
+# widget, not as a WebKit object. Same 0.18 the rest of the tree resolves, so no
+# second copy of gtk enters the build.
+gtk = "0.18"
 javascriptcore-rs = "=1.1.2"
 cairo-rs = { version = "0.18", features = ["png"] }
 glib = "0.18"

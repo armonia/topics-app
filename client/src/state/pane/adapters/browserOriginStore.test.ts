@@ -88,6 +88,26 @@ describe("recordBrowserOrigin / getBrowserOrigin", () => {
     expect(o?.title).toBe("One");
   });
 
+  test("the same origin reported again does not rewrite the map", () => {
+    const storage = (globalThis as unknown as { localStorage: MemoryStorage }).localStorage;
+    let writes = 0;
+    const setItem = storage.setItem.bind(storage);
+    storage.setItem = (k: string, v: string) => { writes++; setItem(k, v); };
+    recordBrowserOrigin("ctx1", "/tmp/proj", "https://one.com", "One");
+    // A live page reports its url on every tick: sixty ticks, zero rewrites.
+    for (let i = 0; i < 60; i++) {
+      recordBrowserOrigin("ctx1", "/tmp/proj", "https://one.com", "One");
+      recordBrowserOrigin("ctx1", "/tmp/proj", "https://one.com");
+    }
+    expect(writes).toBe(1);
+    // Any real change still lands: a new title, a new url, a new project.
+    recordBrowserOrigin("ctx1", "/tmp/proj", "https://one.com", "Uno");
+    recordBrowserOrigin("ctx1", "/tmp/proj", "https://two.com");
+    recordBrowserOrigin("ctx1", "/tmp/other", "https://two.com");
+    expect(writes).toBe(4);
+    expect(getBrowserOrigin("ctx1")).toMatchObject({ projectPath: "/tmp/other", url: "https://two.com", title: "Uno" });
+  });
+
   test("clearBrowserOrigin removes only the target contextId", () => {
     recordBrowserOrigin("ctx1", "/tmp/a", "https://a.com");
     recordBrowserOrigin("ctx2", "/tmp/b", "https://b.com");

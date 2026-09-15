@@ -2,17 +2,57 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.326 — 2026-09-15
+
+### Sotto il cofano
+- Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile
+- CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira
+
+## 2.2.325 — 2026-09-15
+
+### Sotto il cofano
+- Il riavvio non taglia piu' le card che il server sta proteggendo
+- Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola
+- Il pannello del carico dice quello che il cancello decide, con i suoi numeri
+- Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva
+- I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review
+- La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board
+- La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa
+- Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire
+- La change dice il vero sul raise: bracci cablati, misura ancora aperta
+- Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick
+- Misura il raise del browser su WebView2, non solo su WKWebView
+- Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto
+- I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro
+- La board di un progetto porta le 120 chiuse più recenti, come il feed
+
+## 2.2.324 — 2026-09-15
+
+### Sotto il cofano
+- Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza
+- I test del freno della flotta in un file loro: CI di main rossa su check:bloat
+- Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language
+
 ## 2.2.323 — 2026-09-14
 
 ### Sotto il cofano
 - Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
+- Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
+- Il marker degraded si ritira, e ora la barra se ne accorge
+- L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
+- Il wire porta l'asse che blocca: le fixture del client lo dichiarano
+- Il git del test dei checkpoint porta l'ambiente isolato del preload
+- Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine
 
 ## 2.2.322 — 2026-09-14
 
 ### Sotto il cofano
 - La quota è sul libero: chi non è nostro ha la precedenza
+- Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio
+- Il tetto sul libero non salta piu' a ogni respiro della macchina
 - Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
 - Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
+- Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente
 
 ## 2.2.321 — 2026-09-14
 
