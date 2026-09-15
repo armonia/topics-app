@@ -254,12 +254,28 @@ richiesta esplicita di guardare.
 - **Trascinamento dal vivo che non regge.** Chiuso in tornata 0 per prudenza: si
   trascina da fermo, col percorso già in uso. La scelta è dedotta dal pavimento
   IPC, non dimostrata dal video del criterio (§Trascinare).
-- **Ordine z fra due viste native.** Chiuso **solo su WKWebView**
+- **Ordine z fra due viste native.** Misurato **solo su WKWebView**
   (`tools/wkzprobe z`): è l'ordine di creazione, e `browser_raise` lo corregge.
-  Su WebView2 il meccanismo è lo stesso, letto nel sorgente di wry 0.55.1: ogni
+  Sugli altri due motori il braccio ora **c'è**, ma è cablaggio letto nel
+  sorgente, non un numero.
+  Su WebView2 il meccanismo è lo stesso di AppKit, letto in wry 0.55.1: ogni
   HWND figlio nasce con `SetWindowPos(HWND_TOP)` (`webview2/mod.rs:270`) e
-  `set_bounds` passa `SWP_NOZORDER` (`:1456`). Il buco quindi c'è, e
-  `browser_raise` lì oggi è un no-op che risponde Ok. Su WebKitGTK non è sondato
-  (`GtkFixed.put` accoda, `webkitgtk/mod.rs:620`). I due motori sono aperti, con
-  il loro task in tornata 2. Resta da non dimenticare di chiamare il comando
-  quando nasce una vista nuova mentre la finestra è aperta.
+  `set_bounds` passa `SWP_NOZORDER` (`:1456`). `browser_win::raise` rimette
+  quell'HWND in cima con lo stesso `SetWindowPos`, `HWND_TOP` più
+  `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`: è `windows_repaint::sink_to_bottom`
+  letto al contrario, sullo stesso handle.
+  Su WebKitGTK la vista è un figlio del `GtkFixed` e `put` accoda
+  (`webkitgtk/mod.rs:620`): `browser_linux::raise` chiama `GdkWindow::raise`
+  sulla finestra del widget, con la guardia `has_window`. Senza quella guardia
+  un widget senza finestra propria risponde col toplevel e si alzerebbe l'intera
+  applicazione invece della pane. **Scartato** togliere e rimettere la vista nel
+  `GtkFixed`: `remove` più `put` ricrea la `GdkWindow` del widget e riparte la
+  pagina, che è esattamente ciò che `page-survives-the-raise` vieta, e per di
+  più sposta il fuoco. L'innalzamento della sola `GdkWindow` non tocca né l'una
+  né l'altro.
+  Cosa resta aperto: nessuno dei due bracci è passato sotto una sonda. Finché
+  non lo è, la loro riga resta in `PINNED_GAPS`
+  (`tests/unit/browser-platform-parity.test.ts`) e il loro `ENGINES-GAP` in
+  `lib.rs`, perché i test di parità dimostrano la dichiarazione, non il
+  movimento. Resta anche da non dimenticare di chiamare il comando quando nasce
+  una vista nuova mentre la finestra è aperta.

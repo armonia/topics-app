@@ -63,23 +63,30 @@ video `.webm` degli spec, non resoconti.
       `page-survives-the-raise` tutti veri. Collegato in `TopicBrowserWindow`:
       un `browser_raise` sulla vista attiva a ogni cambio di rettangolo o di
       scheda, che e' anche il momento in cui puo' essere nata una vista dopo.
-- [ ] **`browser_raise` fuori da WKWebView.** Oggi su WebView2 e WebKitGTK
-      risponde Ok e non sposta niente, quindi la finestra resta coperta dalla
-      prima vista nativa nata dopo di lei. Su WebView2 il buco è letto nel
-      sorgente di wry 0.55.1 (HWND figlio nato con `HWND_TOP`, `set_bounds` con
-      `SWP_NOZORDER`), su WebKitGTK non è sondato (`GtkFixed.put` accoda).
-      WebView2: `SetWindowPos` sull'HWND contenitore
-      (`controller().ParentWindow()`) con `HWND_TOP` e
-      `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`, provato sul PC Windows con un
-      equivalente di `wkzprobe z` (stesse attese, compresa la pagina che
-      sopravvive e la tastiera che resta). WebKitGTK: sonda su Linux per capire
-      se togliere e rimettere la vista nel `GtkFixed` conserva pagina e fuoco.
-      Un motore che resta senza innalzamento va scritto qui come buco aperto,
-      con la sua conseguenza a schermo: limitare la finestra a macOS è una
-      scelta di scope che la change approvata non contiene, e passa da un sì.
-      A buco chiuso, togliere la sua riga da `PINNED_GAPS` in
-      `tests/unit/browser-platform-parity.test.ts` e il suo `ENGINES-GAP` in
-      `lib.rs`.
+- [ ] **`browser_raise` fuori da WKWebView: cablato, non misurato.** I due
+      bracci ci sono, il numero no.
+      WebView2 (`browser_win::raise`): `SetWindowPos` sull'HWND contenitore che
+      restituisce il controller, `HWND_TOP` più
+      `SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE`. È lo stesso handle di
+      `windows_repaint::sink_to_bottom`, mosso nel verso opposto.
+      WebKitGTK (`browser_linux::raise`): `GdkWindow::raise` sulla finestra del
+      widget, dietro la guardia `has_window`, perché un widget senza finestra
+      propria risponde col toplevel e alzerebbe l'intera applicazione.
+      Scartato il togli-e-rimetti nel `GtkFixed`: `remove` più `put` ricrea la
+      `GdkWindow` e riparte la pagina, cioè rompe `page-survives-the-raise`, e
+      sposta il fuoco. L'innalzamento della sola `GdkWindow` non tocca nessuno
+      dei due.
+      Quel che manca è la prova su macchina vera: i test di parità restano
+      17/17 anche rimettendo `let _ = wv;` al posto delle due chiamate, quindi
+      dimostrano la dichiarazione e non il movimento. Serve un equivalente di
+      `wkzprobe z` su WebView2 (stesse sei attese) e una sonda GTK, ciascuna
+      falsificata togliendo la sua chiamata: `raise-wins` deve diventare falso.
+      Fino ad allora la riga resta in `PINNED_GAPS`
+      (`tests/unit/browser-platform-parity.test.ts`) con il suo `ENGINES-GAP` in
+      `lib.rs`, e a buco chiuso si tolgono. Un motore che restasse senza
+      innalzamento va scritto qui come buco aperto con la sua conseguenza a
+      schermo: limitare la finestra a macOS è una scelta di scope che la change
+      approvata non contiene, e passa da un sì.
 - [x] `ChatPanel`: in stato espanso la chat cede lo spazio della finestra.
 - [x] Sotto 768 px la finestra non monta.
 - [x] E2E (`TOPIC-BROWSER-01`): larghezza della chat invariata da minimizzata,
