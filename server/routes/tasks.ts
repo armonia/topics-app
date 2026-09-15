@@ -1022,14 +1022,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * beside every `set` and removed beside every `delete`; the map stays the fast
    * path, the table is read once at boot.
    */
-  /**
-   * What the round in flight is measuring: the commit its checkout was on when
-   * it started, after the realign. Set by `runChecksGate` once it has a ref,
-   * dropped when a verdict is recorded - so "no entry" means "this delivery
-   * never got as far as realigning", and the restarted round must realign.
-   */
-  const roundCommit = new Map<string, string | null>();
-
   function rememberDelivery(taskId: string, pathname: string, body: Record<string, unknown>): void {
     pendingDeliveries.set(taskId, { pathname, body });
     savePendingDelivery(ctx.db, {
@@ -1058,6 +1050,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     roundCommit.delete(taskId);
     forgetPendingDelivery(ctx.db, taskId);
   }
+
+  /**
+   * What the round in flight is measuring: the commit its checkout was on when
+   * it started, AFTER the realign. Written by `runChecksGate` once it has a
+   * ref, dropped when a verdict is recorded - so "no entry" means "this
+   * delivery never got as far as realigning", and the round that restarts it
+   * has to realign.
+   */
+  const roundCommit = new Map<string, string | null>();
 
   /**
    * The deliveries a previous process was in the middle of, recognised by their
