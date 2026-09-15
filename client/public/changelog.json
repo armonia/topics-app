@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.326",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.325",
     "date": "2026-09-15",
     "sections": {
@@ -71,6 +92,11 @@
           "it": "I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "La board di un progetto porta le 120 chiuse più recenti, come il feed",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -116,6 +142,11 @@
         },
         {
           "it": "Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il marker degraded si ritira, e ora la barra se ne accorge",
           "en": "",
           "scope": null
         },

@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.326 — 2026-09-15
+
+### Sotto il cofano
+- Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile
+- CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira
+
 ## 2.2.325 — 2026-09-15
 
 ### Sotto il cofano
@@ -18,6 +24,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Misura il raise del browser su WebView2, non solo su WKWebView
 - Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto
 - I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro
+- La board di un progetto porta le 120 chiuse più recenti, come il feed
 
 ## 2.2.324 — 2026-09-15
 
@@ -31,6 +38,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
 - Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
+- Il marker degraded si ritira, e ora la barra se ne accorge
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
 - Il wire porta l'asse che blocca: le fixture del client lo dichiarano
 - Il git del test dei checkpoint porta l'ambiente isolato del preload
