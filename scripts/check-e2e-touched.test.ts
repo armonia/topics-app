@@ -11,7 +11,10 @@
  * one that had actually gone red.
  */
 import { describe, expect, test } from "bun:test";
-import { areaTokens, childEnv, nodeIsRecentEnough, ownBundleDir, parseNodeVersion, pickNodeBin, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { areaTokens, childEnv, nodeIsRecentEnough, ownBundleDir, parseNodeVersion, pickNodeBin, refusesToRunSpecs, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
 
 const spec = (file: string, text: string) => ({ file: `tests/e2e/${file}`, text });
 
@@ -122,5 +125,45 @@ describe("ownBundleDir", () => {
     const linked = `${main}/worktrees/sandy-anchor`;
     expect(ownBundleDir({}, linked, main, "/tmp")).toBe("/tmp/topics-e2e-touched/sandy-anchor");
     expect(ownBundleDir({ TOPICS_E2E_BUNDLE_DIR: "  " }, linked, main, "/tmp")).toBe("/tmp/topics-e2e-touched/sandy-anchor");
+  });
+});
+
+describe("the Mac only lists (15/09/2026: Chromium downloaded onto the owner's Mac)", () => {
+  test("refuses only on darwin, outside GitHub Actions, without --list", () => {
+    expect(refusesToRunSpecs({ platform: "darwin", githubActions: false, listOnly: false })).toBe(true);
+    expect(refusesToRunSpecs({ platform: "darwin", githubActions: false, listOnly: true })).toBe(false);
+    expect(refusesToRunSpecs({ platform: "darwin", githubActions: true, listOnly: false })).toBe(false);
+    expect(refusesToRunSpecs({ platform: "linux", githubActions: false, listOnly: false })).toBe(false);
+    expect(refusesToRunSpecs({ platform: "win32", githubActions: false, listOnly: false })).toBe(false);
+  });
+
+  test("the real script in a repo with no node_modules: --list prints, the run exits 97 on a Mac", () => {
+    // No node_modules in the temp repo: even with the guard gone no browser can start.
+    const dir = mkdtempSync(join(tmpdir(), "e2e-touched-guard-"));
+    const script = join(import.meta.dir, "check-e2e-touched.ts");
+    const env = { ...process.env, GITHUB_ACTIONS: "", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (...args: string[]) => {
+      const p = Bun.spawnSync(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      mkdirSync(join(dir, "tests/e2e"), { recursive: true });
+      writeFileSync(join(dir, "tests/e2e/a.spec.ts"), "// v1\n");
+      git("add", "-A");
+      git("commit", "-q", "-m", "base");
+      git("checkout", "-q", "-b", "card");
+      writeFileSync(join(dir, "tests/e2e/a.spec.ts"), "// v2\n");
+      git("commit", "-q", "-am", "change");
+      const run = (...args: string[]) => Bun.spawnSync([process.execPath, script, ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+      const listed = run("--list");
+      expect(listed.exitCode).toBe(0);
+      expect(listed.stdout.toString()).toContain("tests/e2e/a.spec.ts");
+      const ran = run();
+      if (process.platform === "darwin") expect(ran.exitCode).toBe(97);
+      else expect(ran.exitCode).not.toBe(97);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

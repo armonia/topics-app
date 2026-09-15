@@ -18,7 +18,8 @@
  *     a count-mode tick re-reads it after each start, and its sentence names a
  *     reservation only while an agent is starting, never as a part of a reading
  *     smaller than it, and "under the floor" only when the reading is.
- *  8. A tick parked on the delivery probe does not start a second card after
+ *  8. A card whose checks only wait on the pull request CI reserves no memory.
+ *  9. A tick parked on the delivery probe does not start a second card after
  *     another board's tick started one in the gap.
  * @covers KANBAN-75
  */
@@ -389,6 +390,40 @@ describe("the exemption and the floor", () => {
     const notes = (h.svc.get("drop-1")?.comments ?? []).map((c) => c.content);
     expect(notes.at(-1)).toBe(held);
     for (const said of [...notes, ...h.lines("coda ferma")]) expect(said).not.toContain("di cui");
+  });
+});
+
+describe("a card waiting on the pull request CI holds no memory here (KANBAN-84)", () => {
+  async function thirdCardStarts(offLane: boolean): Promise<{ started: number; reason: string }> {
+    const h = harness({
+      agentMemSamples: () => [4],
+      agentCostSamples: () => [0.1],
+      checksOffLane: () => offLane,
+    });
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.5 });
+    // running 2: with 0 the first-agent exemption would admit whatever the memory says.
+    h.machine.sample = () => ({ ...QUIET, availableMemGB: 14, running: 2 });
+    for (let i = 0; i < 3; i++) seedTodo(h.db, `ci-wait-${i}`);
+    const t0 = Date.now();
+    setSystemTime(new Date(t0));
+    await h.dispatcher.tick(PID);
+    await flush();
+    setSystemTime(new Date(t0 + 10_000));
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(2);
+    // Past the spacing and the warm-up: only the memory reservation is left.
+    setSystemTime(new Date(t0 + 60 * 60_000));
+    await h.dispatcher.tick(PID);
+    await flush();
+    return { started: h.startedAt.length, reason: currentDispatchBlock()?.reason ?? "" };
+  }
+
+  it("two in-flight cards off-lane reserve nothing, so the third starts; on-lane they hold it on memory", async () => {
+    expect((await thirdCardStarts(true)).started).toBe(3);
+    const held = await thirdCardStarts(false);
+    expect(held.started).toBe(2);
+    expect(held.reason).toContain("memoria");
   });
 });
 

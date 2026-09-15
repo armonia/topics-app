@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -69,7 +69,8 @@ import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../serv
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
-import { reviewChecksStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { reviewChecksStopping, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -419,6 +420,12 @@ export interface TasksRouterOpts {
    * not depend on how much memory the machine running them has left.
    */
   checksMemoryFloor?: MemoryFloor;
+  /**
+   * Reads the pull request CI e2e verdict for the delivered commit (KANBAN-84),
+   * called only after every local command is green and the lane is given back.
+   * Absent with a declared `github-ci:e2e` row = NOT MEASURED, never a pass.
+   */
+  ciE2eEvidence?: (input: { cwd: string; sha: string; taskId: string }) => Promise<CheckRun>;
 }
 
 /**
@@ -945,7 +952,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // default when every agent also ran the whole suite by itself; since the
   // envelope stopped that (2026-09-04) a run costs ~6-8 load for ~7 minutes,
   // and with six agents delivering in the same quarter hour a single lane
-  // meant 40+ minutes of queue for the last one - past the 50-minute cap of
+  // meant 40+ minutes of queue for the last one - past the 50-minute cap (now 100) of
   // `update_task`. Two lanes on twelve cores keep the load under ~20 and halve
   // the queue; smaller machines keep the one lane. `TOPICS_CHECKS_LANES`
   // overrides either way.
@@ -989,7 +996,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    *
    * The checks run in the registry and the status moves only when a leg comes
    * back with the verdict - and the leg is the MCP client polling every 25 s,
-   * for at most 50 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
+   * for at most 100 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
    * cards resumed together, delivered at once, and sat in the gate's slot
    * queue past that cap: `update_task` threw, each agent ended its turn saying
    * "consegnato", the checks finished green minutes later and NOBODY applied
@@ -1124,11 +1131,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
+    // The CI evidence row never reaches a shell: it is read after the local commands.
+    const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
+    const ciCheck = checks.find(isCiEvidenceCheck) ?? null;
 
     return checksGate.leg(taskId, {
       commit: ref.commit ?? null,
       legMs,
-      run: async () => {
+      run: async (lane) => {
         // 'running' subito e in broadcast: i comandi possono durare minuti e una
         // board ferma senza spiegazioni si legge come "si è impiantato".
         try {
@@ -1150,25 +1160,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
          *
          * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
          * continua: un progresso mancato non deve poter fermare una consegna. */
-        const runs = await runReviewChecks(checks, {
+        const runs = await runReviewChecks(localChecks, {
           cwd: ref.cwd,
           // So a run frozen for load can say so in THIS card's thread.
           taskId,
           // No new command starts under the memory floor (see `MemoryFloor`).
           memoryFloor: opts?.checksMemoryFloor,
-          onProgress: (_run, i, total) => {
+          onProgress: (_run, i) => {
             try {
               const t = svc.recordChecks({
                 taskId, state: "running", commit: ref.commit,
                 // I run PARZIALI viaggiano con lui: un comando gia' rosso si
                 // vede subito nel drawer, invece di aspettare la fine del giro.
                 runs: null,
-                progress: { done: i + 1, total },
+                progress: { done: i + 1, total: checks.length },
               });
               broadcastToAll({ type: "task:updated", projectId, task: t });
             } catch { /* una spia persa non ferma il gate */ }
           },
         });
+        if (ciCheck && runs.length === localChecks.length && runs.every((r) => r.ok)) {
+          // Waiting on GitHub holds no CPU: give the lane to the next card's run.
+          lane.release();
+          runs.push(ref.commit && opts?.ciE2eEvidence
+            ? await opts.ciE2eEvidence({ cwd: ref.cwd, sha: ref.commit, taskId })
+            : ciNotMeasured(ciCheck, ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit"));
+          throwIfStopping();
+        }
         const ok = runs.length === checks.length && runs.every((r) => r.ok);
         const comment = formatChecksComment(runs, { commit: ref.commit });
         const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });

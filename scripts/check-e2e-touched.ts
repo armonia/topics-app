@@ -50,8 +50,17 @@
  * the eleven e2e reds of 2026-09-06 would have been caught, one card at a time,
  * instead of all together in the nightly.
  *
+ * WHERE IT RUNS SINCE 15/09/2026
+ * Not in a board worktree any more. Run there as the sixth delivery check, it
+ * made agents download Chromium onto the owner's Mac, where no Chromium may
+ * live. The board now reads the pull request CI instead
+ * (server/services/ci-evidence.ts, KANBAN-84), and this script is what the
+ * `e2e (1)` job runs. On a Mac outside GitHub Actions only `--list` works:
+ * without it the script prints the selection and exits 97 before building or
+ * launching anything (`refusesToRunSpecs`). Linux, Windows and CI still run.
+ *
  * USAGE
- *   bun run check:e2e-touched            select and RUN (this is the gate)
+ *   bun run check:e2e-touched            select and RUN (CI, or a non-Mac machine)
  *   bun run check:e2e-touched --list     only print what it would run
  *   bun run check:e2e-touched --base=main   diff against another base
  */
@@ -76,6 +85,11 @@ const E2E_DIR = "tests/e2e";
 
 /** Files whose change says nothing about which surface moved. */
 const IGNORED = /^(docs|openspec|landing|desktop-tauri|performance|bench)\//;
+
+/** A Mac outside GitHub Actions only lists: running the specs needs a browser. */
+export function refusesToRunSpecs(o: { platform: string; githubActions: boolean; listOnly: boolean }): boolean {
+  return o.platform === "darwin" && !o.githubActions && !o.listOnly;
+}
 
 function sh(cmd: string[]): string {
   const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
@@ -378,6 +392,10 @@ function main(): number {
     );
   }
   if (listOnly) return 0;
+  if (refusesToRunSpecs({ platform: process.platform, githubActions: process.env.GITHUB_ACTIONS === "true", listOnly })) {
+    console.error("check:e2e-touched: specs run in the PR CI (e2e (1)), never on this Mac: use --list. NOT MEASURED.");
+    return NOT_MEASURED_EXIT;
+  }
 
   const env = childEnv(process.env);
   const nodeBin = pickNodeBin();

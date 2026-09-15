@@ -22,7 +22,7 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import type { ReviewCheck, CheckRun } from "../../shared/board";
+import { isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun } from "./budget-governor";
 import { memoryWaiter, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
@@ -463,7 +463,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
   const onAbort = () => { killTree(); };
   try {
     // At agent priority (nice 15, `utility` QoS on macOS): five tsc, an
-    // eslint, four unit shards and a Chromium per delivery must never outrank
+    // eslint and four unit shards per delivery must never outrank
     // the person using this machine. See server/lib/low-priority.ts.
     proc = Bun.spawn(lowPriorityArgv(["/bin/sh", "-lc", check.cmd]), {
       cwd: opts.cwd,
@@ -727,13 +727,16 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   // arrivato in fondo, un cancello che non parte non ha guardato niente. Mandare
   // «rilancia quando c'e' meno traffico» a chi ha un worktree senza dipendenze
   // sarebbe una caccia a un guasto che non esiste.
+  // The CI evidence row (KANBAN-84) never starts a process: its reason is in the tail.
+  const ci = isCiEvidenceCheck(failed);
   if (failed.notMeasured) {
     return [
-      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` non e' partito.`,
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` ${ci ? "non ha un esito della CI per questo commit" : "non e' partito"}.`,
       runs.map(line).join("\n"),
       `Comando: \`${failed.cmd}\``,
       failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
-      "Non e' un fallimento del codice: e' un cancello che non ha potuto guardare. " +
+      ci ? "Non e' un rosso del codice: il motivo e' qui sopra, e la card resta fuori dalla review finche' la CI non da' un esito."
+        : "Non e' un fallimento del codice: e' un cancello che non ha potuto guardare. " +
         "Quasi sempre e' un worktree senza le dipendenze del client (`cd client && bun install`).",
     ].join("\n\n");
   }
@@ -747,7 +750,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
     ].join("\n\n");
   }
-  const why = failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
+  const why = ci ? "e2e rossi sulla CI della PR" : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
   return [
     `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
@@ -768,10 +771,11 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   if (!failed) return `Checks pre-review verdi${where}.`;
   const position = runs.indexOf(failed) + 1;
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
-  if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} non è partito.`;
+  const ci = isCiEvidenceCheck(failed);
+  if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} ${ci ? "non ha un esito della CI per questo commit" : "non è partito"}.`;
   if (checksVerdict(runs) === "unknown") {
     return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
   }
-  const why = failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  const why = ci ? "e2e rossi sulla CI della PR" : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }

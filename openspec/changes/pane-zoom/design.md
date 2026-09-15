@@ -795,7 +795,7 @@ bun run check:sleeps                                                # zero waitF
 bun run check:ui-language && bun run check:comment-language && bun run check:emdash
 bun run check:deadcode
 bun run test:unit
-bun run check:e2e-touched                                           # l'E2E non e' fra i sei check della board: va lanciato prima di consegnare
+bun run check:e2e-touched --list                                    # l'E2E lo misura la CI della PR (github-ci:e2e), qui solo l'elenco
 bun run qa:gate                                                     # la barra intera in un comando
 ```
 

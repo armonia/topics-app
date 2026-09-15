@@ -108,7 +108,7 @@ describe("staleStreamVerdict", () => {
 
   /**
    * The delivery's own wait. `update_task(status='review')` keeps its tool call
-   * open while OUR pre-review checks grind in the worktree, by design up to 50
+   * open while OUR pre-review checks grind in the worktree, by design up to 100
    * minutes (`CHECKS_MAX_LEGS`), and under load the slot queue alone gets there.
    * On 2026-09-04 three deliveries were cut here at 31-32 minutes as "a promise
    * that never returns": the promise was ours. Same exemption the stall detector

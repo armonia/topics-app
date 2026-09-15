@@ -25,6 +25,7 @@ import { join } from "node:path";
 const REPO = join(import.meta.dir, "..", "..");
 const dispatcher = readFileSync(join(REPO, "server/services/task-dispatcher.ts"), "utf8");
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
+const board = readFileSync(join(REPO, "shared/board.ts"), "utf8");
 
 const REGOLE_CHE_PARLANO_ALL_AGENTE: Array<{ n: number; nel_doc: string; nell_envelope: RegExp }> = [
   { n: 1, nel_doc: "Consegna = lavoro COMMITTATO sul branch", nell_envelope: /status="review"/ },
@@ -49,5 +50,16 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     // qui sopra e nell'envelope, se al server si annota che non ci va.
     const numerate = [...doc.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numerate).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  test("both say the e2e of a delivery runs on the pull request CI, never here", () => {
+    expect(doc).toContain("`github-ci:e2e`");
+    expect(dispatcher).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
+  });
+
+  test("both say no agent runs e2e on this machine, whatever the board declares", () => {
+    expect(doc).toContain("E2E NEVER RUNS ON THIS MACHINE");
+    expect(board).toContain("E2E NEVER RUNS ON THIS MACHINE (decided 2026-09-15)");
+    expect(dispatcher).toContain("`- ${CODE_GATES_RULE}`");
   });
 });

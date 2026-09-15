@@ -55,16 +55,35 @@ alla consegna: con sei agent erano fino a tre suite in parallelo sui tre slot
 del gate, più le copie orfane lasciate da un turno tagliato — misurato load 115
 su 12 core alle 14:40 del 04/09. Il carico sono i cancelli, non gli agent.
 
-**Le e2e dei file toccati sono il sesto check (dal 06/09/2026).** Cinque cancelli
-su sei non contenevano nessun test end-to-end, e il land e' un merge locale che
-non passa dalla CI: la notte del 05/09 undici card sono arrivate verdi in review
-e la CI di main si e' svegliata con undici spec e2e rosse in piu' (sidebar,
-pannello git, drawer della board, permalink). `bun run check:e2e-touched`
-(`scripts/check-e2e-touched.ts`) sceglie le spec legate al DIFF del ramo (la spec
-stessa, chi importa il modulo, l'area, i testid) e ne fa girare al massimo otto;
-in un worktree costruisce da se' il bundle del client e prende la porta derivata
-dal path, quindi non tocca ne' `public/` ne' la 13334. Sta nella colonna
-`review_checks` del board come gli altri, dopo `test:unit`.
+**L'e2e di una consegna la misura la CI della PR, non questo Mac (dal 15/09/2026).**
+Perche' l'e2e sta nella consegna: cinque cancelli su sei non contenevano nessun
+test end-to-end, e la notte del 05/09 undici card sono arrivate verdi in review
+mentre la CI di main si svegliava con undici spec e2e rosse in piu'. Dal 06/09 il
+sesto check era `bun run check:e2e-touched` nel worktree dell'agente, cioe'
+Playwright con Chromium: la notte del 15/09 gli agenti hanno scaricato Chromium
+sul Mac per farlo girare, dove Chromium non deve esserci. Ora la riga della board
+e' `github-ci:e2e` (`E2E_CI_CHECK`, KANBAN-84) e non va a una shell: finiti verdi
+i comandi locali, il server (mai l'agente) spinge sul ramo il commit che ha
+misurato, apre o riusa una PR in bozza e legge i job `prepare-e2e` ed `e2e (1..4)`
+della run `pull_request` di QUEL commit (tier PR piu' le spec toccate nello shard
+1). Verde solo con tutti i job e2e verdi; rosso con un job `failure`, e il referto
+nomina il job e il comando `gh run view --job <id> --log-failed`; ogni altro esito
+(nessuna run, run annullata, `gh` non autenticato, conflitto con main, 60 minuti
+senza verdetto) e' NON MISURATO. L'attesa non tiene corsia ne' memoria. Il ramo
+diventa pubblico alla consegna, prima della review. `check:e2e-touched --list`
+resta il modo di vedere le spec toccate; sul Mac, senza `--list`, lo script esce
+97 senza lanciare niente.
+
+**E durante il turno l'agente non lancia e2e su questa macchina, qualunque sia la
+board (dal 15/09/2026, scelta «Solo in CI» di `mac-usabile-sotto-carico`).** La riga
+qui sopra sposta solo il check della consegna; il lavoro piu' pesante partiva prima.
+In 15 ore del 15/09 gli agenti avevano lanciato da se' 21 `check:e2e-touched`, 71
+`playwright test` e 27 build del client, 99 su 119 in background con `&`, fuori
+dalla portata del kill del turno, mentre il Mac arrivava a load 253. La regola sta in
+`CODE_GATES_RULE` («E2E NEVER RUNS ON THIS MACHINE»): niente `check:e2e-touched`
+(tranne `--list`), niente `playwright test`, niente build del client fatte per gli
+e2e, nessun browser installato o avviato; l'agente scrive o cambia la spec e la
+prova arriva dalla CI del ramo. `bun test <file>` mirato resta ammesso.
 
 **Il tetto vero e' il PIANO, non la CPU (dal 04/09/2026).** Otto agent nativi e
 le chat della persona stanno sulla stessa OAuth del piano Claude: alle 13:00Z
@@ -147,6 +166,11 @@ queste regole.
    task (`open_browser_pane`) è solo un EXTRA dal vivo (dev server, pagina) ed è
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
+
+   **Su questo Mac il video non si registra con Playwright** (dal 15/09/2026:
+   niente Chromium qui). `PREVIEW_RULE` manda a registrare la tab del task con
+   `screencapture -V <secondi> -R <x,y,w,h> <file>.mov`; la clip Playwright qui
+   sotto resta per il PC Windows e la CI.
 
    **Come nasce un video ≤20s, senza tagliarlo dopo.** `tests/e2e/helpers/clip.ts`:
    `clipDiConsegna` apre un contesto DEDICATO con `recordVideo` acceso sul solo

@@ -9,9 +9,20 @@ e2e, typecheck completo) girano in CI o sul PC, mai sul Mac mentre è in swap.
 - [ ] Test: 7 card trattenute per 2 minuti di retry producono al massimo 2 frame per card, e un cambio di tipo di blocco arriva subito
 
 ## Tornata 2: e2e degli agenti in CI
-- [ ] Envelope (`buildKickoff`, `CODE_GATES_RULE`) e `docs/board-protocol.md`: niente `check:e2e-touched`, `playwright test` o build del client per gli e2e sul Mac; l'agente scrive lo spec e la prova arriva dalla CI
-- [ ] Il check `e2e-touched` della board prende l'esito dalla CI del commit consegnato, mai verde senza una corsa verde di quella testa
-- [ ] Nessun Chromium scaricato o avviato sul Mac da questo percorso (`nochrome`)
+Disegno, file per file e test con i mutanti: `design.md` (sezione «Tornata 2»); delta in
+`specs/kanban` (KANBAN-15, KANBAN-84) e `specs/quality-gates` (GATE-11).
+- [x] Envelope (`buildKickoff`, `CODE_GATES_RULE`) e `docs/board-protocol.md`: niente `check:e2e-touched`, `playwright test` o build del client per gli e2e sul Mac; l'agente scrive lo spec e la prova arriva dalla CI
+  - [x] `CODE_GATES_RULE` «E2E NEVER RUNS ON THIS MACHINE», per ogni board, con `bun test <file>` mirato ammesso; il ramo video di `PREVIEW_RULE` non manda più a una clip Playwright
+  - [x] Con la riga dichiarata: `buildKickoff` e fan-out tolgono `github-ci:e2e` dai comandi e dicono la meccanica della CI; `board-protocol-parity` ancora le due regole
+- [x] Il check `e2e-touched` della board prende l'esito dalla CI del commit consegnato, mai verde senza una corsa verde di quella testa (codice)
+  - [x] 0.1 Credenziali dall'ambiente del server (PATH, HOME, SSH_AUTH_SOCK letti con `ps eww`): `git ls-remote`, `git push --dry-run --porcelain`, `gh auth status` escono 0 (15/09)
+  - [x] `ChecksLane.release()` e `isOffLane` (`checks-gate.ts`); `E2E_CI_CHECK`, `isCiEvidenceCheck` (`shared/board.ts`); `server/services/ci-evidence.ts`; `runChecksGate` divide comandi e riga CI; formatter; `checksOffLane` nell'ammissione; `CHECKS_MAX_LEGS = 240`; cablaggio in `server.ts`
+  - [x] Test 1-37 del design (`ci-evidence`, `checks-gate`, `tasks.checks-ci`, `review-checks`, `task-dispatcher-admission`, `task-dispatcher`, `board-protocol-parity`, `check-e2e-touched`)
+  - [ ] Rollout, SOLO dopo il merge: `PATCH /api/boards/topics-app-ar3jt5/settings` con `{ "name": "e2e-ci", "cmd": "github-ci:e2e" }` al posto di `e2e-touched` e `&& bun run check:security --only=secrets` in coda a `static-rails`
+  - [ ] La prima card consegnata dopo il PATCH: riga `e2e-ci` con PR e run in `checks_json`, bozza sul commit di `checks_commit`, nessun `playwright`/`chrome-headless-shell` fra i figli del server durante l'attesa
+  - [ ] Il flusso di land riusa la bozza (`gh pr ready` più `gh pr edit`); le due memorie del proprietario che dicono di lanciare `check:e2e-touched` a mano
+- [x] Nessun Chromium scaricato o avviato sul Mac da questo percorso (`nochrome`): lo script esce 97 su un Mac fuori da Actions prima di bundle e Playwright, l'envelope lo vieta, la riga della board non va a una shell
+  - [ ] Fuori da questa tornata e ancora su Chromium: lo screenshot dell'anteprima del server (`browser-service.ts`, tornata 5) e `bun run qa:gate` senza opzioni
 
 ## Tornata 3: segnale di memoria e freno sul lavoro in volo
 - [ ] Pavimento riaperto solo con la memoria sopra la riga (pavimento + prezzo) per una finestra di tempo; finestra piena anche al boot; prenotazione per la vita del turno

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { E2E_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
@@ -4042,11 +4042,11 @@ describe("l'envelope non parla italiano", () => {
    * descrizione in inglese perché sono DATI, e il dato lo scrive una persona
    * nella sua lingua: il cancello guarda le istruzioni, non il task.
    */
-  async function envelopeDiKickoff(fanOut?: number): Promise<{ h: ReturnType<typeof harness>; kickoff: string }> {
+  async function envelopeDiKickoff(fanOut?: number, extraChecks: { name: string; cmd: string }[] = []): Promise<{ h: ReturnType<typeof harness>; kickoff: string }> {
     const h = harness();
     h.svc.updateBoardSettings(PID, {
       autoDispatch: true,
-      reviewChecks: [{ name: "types", cmd: "bun run typecheck" }],
+      reviewChecks: [{ name: "types", cmd: "bun run typecheck" }, ...extraChecks],
       ...(fanOut ? { dispatchFanOut: fanOut } : {}),
     });
     if (fanOut) h.svc.setGlobalCap({ auto: false, max: 5 });
@@ -4074,6 +4074,42 @@ describe("l'envelope non parla italiano", () => {
   it("il kickoff di fan-out, che è un contratto diverso e quindi un testo diverso", async () => {
     const { h, kickoff } = await envelopeDiKickoff(2);
     expect(kickoff).toContain("ATTEMPT 1 of 2");
+    expect(italianRows(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("with the CI e2e row: listed among no commands, and the CI rule said once (KANBAN-84)", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(undefined, [E2E_CI_CHECK]);
+    const checksLine = kickoff.split("\n").find((r) => r.includes("PRE-REVIEW CHECKS")) ?? "";
+    expect(checksLine).toContain("`bun run typecheck`");
+    expect(checksLine).toContain("this declared gate");
+    expect(kickoff).not.toContain("github-ci:e2e");
+    expect(kickoff).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
+    expect(italianRows(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+    const plain = await envelopeDiKickoff();
+    expect(plain.kickoff).not.toContain("E2E RUNS ON GITHUB CI");
+    plain.h.dispatcher.shutdown();
+  });
+
+  it("without the CI row too, the kickoff forbids local e2e and keeps targeted bun test (15/09/2026)", async () => {
+    for (const fanOut of [undefined, 2]) {
+      const { h, kickoff } = await envelopeDiKickoff(fanOut);
+      const rule = kickoff.split("\n").find((r) => r.includes("E2E NEVER RUNS ON THIS MACHINE")) ?? "";
+      for (const word of ["check:e2e-touched", "--list", "playwright test", "client build", "install or launch a browser", "CI of your branch", "Targeted `bun test <file>` stays allowed"]) {
+        expect(rule).toContain(word);
+      }
+      expect(extractPreviewRule(kickoff) ?? kickoff).not.toContain("Playwright clip (`recordVideo");
+      h.dispatcher.shutdown();
+    }
+  });
+
+  it("the fan-out kickoff with the CI e2e row runs no github-ci:e2e and says never here", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(2, [E2E_CI_CHECK]);
+    expect(kickoff).toContain("ATTEMPT 1 of 2");
+    expect(kickoff).not.toContain("github-ci:e2e");
+    expect(kickoff).toContain("`bun run typecheck`: the server re-runs");
+    expect(kickoff).toContain("E2E runs on GitHub CI for the attempt that is chosen, never here");
     expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
   });

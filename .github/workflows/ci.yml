@@ -840,7 +840,8 @@ jobs:
         if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}
         run: |
           # Il checkout della PR e' superficiale: senza questo fetch il base non esiste
-          # come ref e la selezione non si potrebbe fare (uscita 2, "NOT MEASURED").
+          # come ref e la selezione non si potrebbe fare (uscita 2: il passo fallisce).
+          # The board's `github-ci:e2e` check reads the `e2e (N)` jobs of this run.
           git fetch --no-tags --depth=100 origin "${{ github.base_ref }}"
           bun run check:e2e-touched --base=FETCH_HEAD
         env:
