@@ -308,6 +308,32 @@ spostamento di layout al ricarico (vedi PERF-01).
 - **GIVEN** un valore uguale byte per byte a quello già memorizzato
 - **THEN** nessun `setItem` SHALL essere eseguito
 
+La finestra SHALL essere commisurata a quanto spesso il valore cambia davvero,
+non solo alla raffica. Le righe della board cambiano a ogni fotogramma di un
+agente (token, tempo, avanzamento dei check), quindi con agenti al lavoro ogni
+finestra da 2 s porta un cambiamento vero: misurato il 15/09/2026, con il
+giornale di WebKit a 3,2 GB e in crescita di 11 MB al minuto,
+`board-rows-cache:all` era riscritta 289 volte in 12 minuti, 363 KB ciascuna,
+il 95% dei byte. La copia delle righe di una board (globale E di progetto)
+SHALL quindi essere scritta al massimo una volta al minuto, con la PRIMA
+scrittura della sessione immediata, così che un ricarico subito dopo la prima
+lettura dipinga ancora dalla copia.
+
+Una mappa riscritta a ogni segnalazione di un valore UGUALE SHALL saltare la
+scrittura in partenza: la mappa delle origini dei browser di progetto
+(`topics-browser-origin-v1`) era riscritta una volta al secondo da due pane
+ferme sullo stesso indirizzo, 642 volte in 12 minuti.
+
+#### Scenario: una board con agenti al lavoro
+- **GIVEN** le righe della board che cambiano più volte al secondo
+- **THEN** la copia locale SHALL essere scritta subito la prima volta e poi al
+  massimo una volta al minuto, e SHALL comunque essere scaricata su `pagehide`
+  e a documento nascosto
+
+#### Scenario: un browser fermo sullo stesso indirizzo
+- **GIVEN** la stessa origine (progetto, indirizzo, titolo) segnalata di nuovo
+- **THEN** nessun `setItem` SHALL essere eseguito
+
 ### Requirement: FPS-01 — Il numero dei fotogrammi è VERO, e a riposo la sonda DORME
 
 Il frame rate riportato SHALL essere quello VERO, senza lo scarto di uno che nasce

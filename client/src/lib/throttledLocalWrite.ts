@@ -54,6 +54,13 @@ export interface ThrottledWriterOptions {
   key: string;
   /** How long a burst coalesces. Default 2000 ms. */
   debounceMs?: number;
+  /**
+   * The first write of this writer's life goes out at once, the window applies
+   * from the second one on. For a long window on a seed: the copy exists
+   * right after the first read (a reload a few seconds later still paints from
+   * it), and what the window saves is the stream of rewrites after that.
+   */
+  firstWriteImmediate?: boolean;
   /** Injectable for the tests. Defaults to `localStorage`. */
   storage?: WriterStorage;
   /** Injectable for the tests. Defaults to the global `setTimeout`. */
@@ -122,11 +129,17 @@ export function createThrottledLocalWriter(opts: ThrottledWriterOptions): Thrott
 
   let pending: WriterValue | null = null;
   let timer: unknown = null;
+  let immediateLeft = opts.firstWriteImmediate === true;
 
   const writer: ThrottledWriter = {
     write(value: WriterValue): void {
       if (!storage) return;
       pending = value;
+      if (immediateLeft) {
+        immediateLeft = false;
+        writer.flush();
+        return;
+      }
       if (timer !== null) return; // the burst rides the timer already armed
       timer = schedule(() => {
         timer = null;

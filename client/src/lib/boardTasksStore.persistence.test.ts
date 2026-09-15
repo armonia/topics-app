@@ -14,13 +14,14 @@ test('board cache folds distinct updates, flushes the last state on hide, and re
     let serializations = 0, saves = 0, failStorage = false, callbacks = 0;
     const data = new Map(), timers = new Map(), windowEvents = new Map(), documentEvents = new Map();
     let timerId = 0;
+    const delays = [];
     globalThis.localStorage = {
       getItem: (key) => data.get(key) ?? null,
       setItem: (key, value) => { if (failStorage) throw new Error('quota'); saves++; data.set(key, value); },
     };
     globalThis.window = { addEventListener: (name, handler) => windowEvents.set(name, handler) };
     globalThis.document = { visibilityState: 'visible', addEventListener: (name, handler) => documentEvents.set(name, handler) };
-    globalThis.setTimeout = (handler) => { timers.set(++timerId, handler); return timerId; };
+    globalThis.setTimeout = (handler, ms) => { delays.push(ms); timers.set(++timerId, handler); return timerId; };
     globalThis.clearTimeout = (id) => timers.delete(id);
     const { setBoardTasks, patchBoardTask, applyBoardTaskFrame, getBoardTasks, subscribeBoardTasks } = await import(${JSON.stringify(storePath)});
     const flushTimers = () => { const work = [...timers.values()]; timers.clear(); for (const run of work) run(); };
@@ -28,6 +29,7 @@ test('board cache folds distinct updates, flushes the last state on hide, and re
     JSON.stringify = (...args) => { serializations++; return stringify(...args); };
     const rows = Array.from({ length: 250 }, (_, i) => ({ id: 't' + i, projectId: 'p', text: 'task', status: 'todo', agentTokens: 0 }));
     setBoardTasks(rows);
+    const first = { saves, timers: timers.size };
     flushTimers();
     serializations = 0; saves = 0;
     subscribeBoardTasks(() => callbacks++);
@@ -56,12 +58,17 @@ test('board cache folds distinct updates, flushes the last state on hide, and re
     patchBoardTask('t0', { agentTokens: 24 });
     flushTimers();
     const recovered = { live: getBoardTasks()[0].agentTokens, saved: persisted()[0].agentTokens };
-    process.stdout.write(stringify({ noOp, beforeFlush, burst, pageExit, hidden, quota, recovered }));
+    process.stdout.write(stringify({ first, windowMs: Math.min(...delays), noOp, beforeFlush, burst, pageExit, hidden, quota, recovered }));
   `;
   const child = Bun.spawnSync([process.execPath, '-e', script], { stdout: 'pipe', stderr: 'pipe' });
   expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
   const result = JSON.parse(new TextDecoder().decode(child.stdout));
   console.info(JSON.stringify({ probe: 'board-cache-persistence', ...result }));
+  // The first read of the session is on disk at once (a reload right after
+  // still paints from it); every write after that waits a minute. At 2 s the
+  // board rewrote 363 KB every 2.5 s with agents at work (15/09/2026).
+  expect(result.first).toEqual({ saves: 1, timers: 0 });
+  expect(result.windowMs).toBeGreaterThanOrEqual(60_000);
   expect(result.noOp).toEqual({ serializations: 0, saves: 0, callbacks: 0 });
   expect(result.beforeFlush).toEqual({ serializations: 0, saves: 0, callbacks: 20, timers: 1, live: 20 });
   expect(result.burst).toEqual({ serializations: 1, saves: 1, callbacks: 20, saved: 20, cachedRows: 200 });
