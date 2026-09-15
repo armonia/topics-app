@@ -604,7 +604,16 @@ describe("il pavimento della memoria segue il runtime", () => {
     // "2,3 MB" reads as "there is no room for nothing" - which is what sent the
     // 10/09 diagnosis after the wrong cause.
     expect(r).toContain("2,3 MB");
-    expect(r).toContain("1,5 GB");
+    expect(r).toContain("si prezza");
+  });
+
+  test("the native floor quotes the card price it is given, not the ~1,5 GB of 11/09", () => {
+    // The dispatcher prices a card from the check peaks of the last cards (4 GB
+    // with no history). A sentence still saying "~1,5 GB" sends whoever reads a
+    // stopped queue to a number the gate stopped using.
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, { cardGB: 5.2, startingCards: 0, holding: false });
+    expect(r).toContain("si prezza 5.2 GB");
+    expect(r).not.toContain("1,5 GB");
   });
 
   test("il disco viene prima della RAM, su entrambi i runtime", () => {

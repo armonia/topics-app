@@ -33,7 +33,7 @@ import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { ADMISSION_SPACING_MS, CODE_GATES_RULE, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { effectiveDispatchCap } from "./dispatch-capacity";
+import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
 import { publishDispatchBlock } from "./dispatch-block-signal";
 import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
@@ -161,11 +161,11 @@ export interface DispatcherDeps {
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
    * mai: una guardia che non si sa misurare non deve poter fermare la board.
    *
-   * `reservedMemGB` is memory already spoken for, which the reading cannot see
-   * yet: the local turns admitted in the last warm-up window, plus one agent's
-   * price while the floor is holding (see `floorReason`).
+   * `hold` is what the reading cannot see yet, as separate facts: the price of
+   * one card, the local turns admitted in the last warm-up window, and whether
+   * the floor is already holding (see `floorReason`).
    */
-  resourceBlock?: (reservedMemGB?: number) => string | null;
+  resourceBlock?: (hold: MemoryFloorHold) => string | null;
   /**
    * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
    * core-units and gigabytes, what the others are taking, and the agents
@@ -1084,9 +1084,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *    else in the dispatcher looks at free memory.
    */
   function floorReason(): string | null {
-    const price = agentMemPrice();
-    const warming = reservedCost(localLaunches(), { coreUnits: 0, memGB: 0 }, Date.now()).pending;
-    return deps.resourceBlock?.(warming * price + (lastAdmissionBlock ? price : 0)) ?? null;
+    const startingCards = reservedCost(localLaunches(), { coreUnits: 0, memGB: 0 }, Date.now()).pending;
+    return deps.resourceBlock?.({ cardGB: agentMemPrice(), startingCards, holding: lastAdmissionBlock != null }) ?? null;
   }
   function admissionBlock(): string | null {
     try {
@@ -1108,7 +1107,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // i GB liberi, che cambiano a ogni lettura, quindi un confronto per
       // stringa non dedupica niente — provato sul server vero, tre righe
       // identiche nel senso e diverse nei decimali in trenta secondi.
-      const kind = reason ? reason.split(":")[0]! : null;
+      // The kind is the RESOURCE, the first word ("Disco", "Memoria"): one
+      // memory episode goes through three sentences (under the floor, reserved
+      // for the agents starting, climbing back towards the restart line), and
+      // keying on the whole prefix would log a new "coda ferma" at every swing
+      // between them, the flood the hysteresis exists to stop.
+      const kind = reason ? reason.split(/[\s:]/)[0]! : null;
       if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
       else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
       lastAdmissionBlock = kind;

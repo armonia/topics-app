@@ -15,7 +15,11 @@
  *     (and counted) a second time.
  *  6. The first-agent exemption does not apply while our checks are running.
  *  7. The memory floor holds until there is room for one more agent above it,
- *     and a count-mode tick re-reads it after each start.
+ *     a count-mode tick re-reads it after each start, and its sentence names a
+ *     reservation only while an agent is starting and "under the floor" only
+ *     when the reading is.
+ *  8. A tick parked on the delivery probe does not start a second card after
+ *     another board's tick started one in the gap.
  * @covers KANBAN-75
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
@@ -290,12 +294,27 @@ describe("the exemption and the floor", () => {
     expect(h.startedAt).toHaveLength(0);
 
     // Back over the floor by a hair: a bare threshold opened here, 30 times in
-    // eleven minutes. Holding, it needs the floor plus one agent's 4 GB.
+    // eleven minutes. Holding, it needs the floor plus one agent's 4 GB. And the
+    // sentence says THAT: nobody is starting, and 6.5 is not under the floor.
     avail = 6.5;
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.startedAt).toHaveLength(0);
-    expect(currentDispatchBlock()?.reason).toContain("tenuti per gli agenti che partono");
+    const climbing = currentDispatchBlock()?.reason ?? "";
+    expect(climbing).toContain("6.5 GB disponibili, sopra il pavimento di 6 GB");
+    expect(climbing).toContain("Riparto sopra 10.0 GB");
+    expect(climbing).not.toContain("sotto il pavimento");
+    expect(climbing).not.toContain("partendo");
+    // Under the floor again and back: three sentences, ONE memory episode, so
+    // the "queue stopped" log line is written once and not at every swing.
+    avail = 5.9;
+    await h.dispatcher.tick(PID);
+    await flush();
+    avail = 6.5;
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(0);
+    expect(h.lines("coda ferma")).toHaveLength(1);
 
     // 10.5 GB: room for one above the floor, so it opens. Each start reserves
     // its 4 GB for the warm-up window, and the re-read after the second start
@@ -304,5 +323,75 @@ describe("the exemption and the floor", () => {
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.startedAt).toHaveLength(2);
+  });
+
+  it("at 9 GB with nobody starting the floor says it waits for floor plus price, and names a reservation only while an agent is starting", async () => {
+    const avail = 9;
+    const h = harness({
+      agentMemSamples: () => [4.5],
+      resourceBlock: (hold) => dispatchResourceBlock("/tmp", () => 500, () => avail, false, hold),
+    });
+    h.svc.setGlobalCap({ auto: false, max: 4 });
+    for (let i = 0; i < 2; i++) seedTodo(h.db, `nine-${i}`);
+    const t0 = Date.now();
+    setSystemTime(new Date(t0));
+
+    // 9 GB is over the floor: one card starts. The re-read right after it holds
+    // for THAT agent, the only moment a reservation is true.
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+    const reservation = h.lines("coda ferma");
+    expect(reservation).toHaveLength(1);
+    expect(reservation[0]).toContain("9.0 GB disponibili, ma 4.5 sono tenuti per l'agente che sta partendo");
+    expect(reservation[0]).not.toContain("sotto il pavimento");
+
+    // Past the warm-up window nobody is starting any more, and 9 GB are still
+    // over the floor: what holds is the hysteresis, and the card reads that.
+    setSystemTime(new Date(t0 + 100_000));
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+    const held = currentDispatchBlock()?.reason ?? "";
+    expect(held).toContain("Memoria in risalita: 9.0 GB disponibili, sopra il pavimento di 6 GB");
+    expect(held).toContain("Riparto sopra 10.5 GB");
+    expect(held).toContain("si prezza 4.5 GB");
+    expect(held).not.toContain("sotto il pavimento");
+    expect(held).not.toContain("tenuti per");
+    expect(held).not.toContain("partendo");
+    const note = (h.svc.get("nine-1")?.comments ?? []).map((c) => c.content);
+    expect(note).toEqual([held]);
+  });
+});
+
+describe("the ramp across an awaited probe", () => {
+  it("two ticks on two boards, one held on the delivery probe: only ONE card starts", async () => {
+    let releaseProbe: ((landed: boolean | null) => void) | null = null;
+    const h = harness({
+      deliveryLanded: () => new Promise<boolean | null>((r) => { releaseProbe = r; }),
+    });
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    const BETA = "beta-def456";
+    h.svc.updateBoardSettings(BETA, { autoDispatch: true, dispatchUseWorktree: false });
+    seedTodo(h.db, "alpha-delivered");
+    h.db.run("UPDATE tasks SET delivery_commit = ? WHERE id = ?", ["abc1234def5678", "alpha-delivered"]);
+    seedTodo(h.db, "beta-plain", BETA);
+
+    // Board alpha passes the first ramp check and parks on the probe of its
+    // delivery commit; board beta's tick runs in that gap and starts its card.
+    const alpha = h.dispatcher.tick(PID);
+    for (let i = 0; i < 50 && !releaseProbe; i++) await flush(1);
+    expect(releaseProbe).not.toBeNull();
+    await h.dispatcher.tick(BETA);
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+
+    // The probe answers "not on main": alpha reaches its claim nine seconds
+    // too early, and the look right before the claim is what stops it.
+    releaseProbe!(false);
+    await alpha;
+    await flush();
+    expect(h.startedAt).toHaveLength(1);
+    expect(h.svc.get("alpha-delivered")?.task.status).toBe("todo");
   });
 });

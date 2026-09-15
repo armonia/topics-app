@@ -3499,8 +3499,17 @@ undici minuti, e ogni apertura lasciava passare turni. Alla lettura SHALL
 sottrarsi il prezzo dei turni partiti nella finestra di 90 secondi, e un giro per
 numero SHALL rileggerlo dopo ogni partenza: il tetto numerico prenderebbe tutti i
 posti liberi su una lettura sola, e in quella modalità nient'altro guarda la
-memoria libera. La riga del log del riavvio SHALL contare le riprese partite
-davvero e, a parte, quelle rimaste in attesa di un posto.
+memoria libera. La frase del pavimento, che va nel log e nel thread della card,
+SHALL tenere separati i due termini: la memoria tenuta per gli agenti che stanno
+partendo compare solo se ne sta partendo qualcuno, «sotto il pavimento» solo se
+la lettura stessa è sotto, e quando a trattenere è l'isteresi la frase dice che
+aspetta di tornare sopra il pavimento più il prezzo di una card («Riparto sopra N
+GB»). Il prezzo citato è quello che il cancello usa, non una misura vecchia. Una
+sola somma dei due termini scriveva «9 GB disponibili, di cui 4 tenuti per gli
+agenti che partono, sotto il pavimento di 6 GB» con nessun agente in partenza.
+Le tre frasi sono un solo episodio: «coda ferma» si scrive una volta. La riga del
+log del riavvio SHALL contare le riprese partite davvero e, a parte, quelle
+rimaste in attesa di un posto.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
@@ -3574,12 +3583,14 @@ check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
 - **GIVEN** tre board con card in Todo, oppure un riavvio con sei turni tagliati
 - **WHEN** il dispatcher fa il suo giro
 - **THEN** parte UNA card, le altre aspettano col chip `queued` e partono una per giro
+- **AND** un giro fermo sulla sonda del commit di consegna mentre un'altra board fa partire la sua non ne fa partire una seconda
 - **AND** la riga del log del riavvio dice «1 da capo» e «5 in attesa di un posto»
 
 #### Scenario: il pavimento non sfarfalla
 - **GIVEN** la coda ferma sotto il pavimento di 6 GB
 - **WHEN** la memoria disponibile risale a 6,5 GB
 - **THEN** non parte niente finché non c'è spazio per un agente in più sopra il pavimento
+- **AND** con 9 GB disponibili e nessun agente in partenza la card legge «sopra il pavimento» e «Riparto sopra» il pavimento più il prezzo di una card, senza memoria tenuta per agenti che non partono
 
 #### Scenario: quello che prendono gli altri stringe il budget
 - **GIVEN** un budget dell'80% su 12 core e altri processi che ne tengono 10

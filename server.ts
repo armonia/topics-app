@@ -1652,15 +1652,15 @@ const taskDispatcher = createTaskDispatcher({
   // Si rilegge a ogni tick invece di fissarlo al boot: chi cambia runtime in
   // Impostazioni si aspetta che valga da subito, e questa lettura costa una
   // riga di SQLite già in cache.
-  // `reservedMemGB` is the dispatcher's: the turns it has just admitted, and
-  // the price of one more while the floor is holding (its hysteresis).
-  resourceBlock: (reservedMemGB) =>
+  // `hold` is the dispatcher's: the price of one card, the turns it has just
+  // admitted, and whether the floor is already holding (its hysteresis).
+  resourceBlock: (hold) =>
     dispatchResourceBlock(
       ctx.worktreeManager.worktreesDir(),
       undefined,
       undefined,
       resolveAgentRuntime() === "cli",
-      reservedMemGB,
+      hold,
     ),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
