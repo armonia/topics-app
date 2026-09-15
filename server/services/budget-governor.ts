@@ -66,8 +66,9 @@ export function freezableRuns(): FreezableRun[] {
 }
 
 export interface GovernorDeps {
-  /** Core-units our own tree is burning now, and the budget it has. `null` =
-   *  not measured, and a governor that cannot measure freezes nothing. */
+  /** Core-units our own tree is burning now, and the budget it has
+   *  (`governorReading`: the CPU only, never memory). `null` = not measured,
+   *  and a governor that cannot measure freezes nothing. */
   read: () => { used: number; budget: number } | null;
   /** SIGSTOP / SIGCONT on a whole process tree. */
   signalTree: (pid: number, sig: "SIGSTOP" | "SIGCONT") => Promise<void>;

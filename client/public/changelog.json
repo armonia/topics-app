@@ -1,5 +1,133 @@
 [
   {
+    "version": "2.2.326",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.325",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il riavvio non taglia piu' le card che il server sta proteggendo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello del carico dice quello che il cancello decide, con i suoi numeri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La change dice il vero sul raise: bracci cablati, misura ancora aperta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misura il raise del browser su WebView2, non solo su WKWebView",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La board di un progetto porta le 120 chiuse più recenti, come il feed",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.324",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del freno della flotta in un file loro: CI di main rossa su check:bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.323",
     "date": "2026-09-14",
     "sections": {
@@ -9,6 +137,36 @@
       "internal": [
         {
           "it": "Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il marker degraded si ritira, e ora la barra se ne accorge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il wire porta l'asse che blocca: le fixture del client lo dichiarano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il git del test dei checkpoint porta l'ambiente isolato del preload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine",
           "en": "",
           "scope": null
         }
@@ -29,12 +187,27 @@
           "scope": null
         },
         {
+          "it": "Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto sul libero non salta piu' a ogni respiro della macchina",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Commenti della quota sul libero in inglese: il rail comment-language su main era rosso",
           "en": "",
           "scope": null
         },
         {
           "it": "Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente",
           "en": "",
           "scope": null
         }

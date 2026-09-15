@@ -49,12 +49,15 @@ test.describe.serial("Composer — memoria del modello sulle chat nuove", () => 
 
     const popover = page.getByTestId("provider-model-popover");
     await expect(popover).toBeVisible({ timeout: 5000 });
-    const runtime = popover.locator('button[data-provider]').first();
-    if (await runtime.count() > 0) await runtime.click();
+    // `claude-code` is the engine the isolated test server always has ready
+    // (scripts/start-test-server.sh); "the first button" is "Claude (API)",
+    // which is not, and left this test conditionally skipping instead of
+    // asserting (card ac9e80cc).
+    const runtime = popover.locator('button[data-provider="claude-code"]');
+    await expect(runtime).toBeVisible({ timeout: 5000 });
+    await runtime.click();
     const rows = popover.locator("button[data-model]:not([disabled])");
-    if (await rows.count() === 0) {
-      test.skip(true, "Nessun provider pronto con modelli in questo ambiente");
-    }
+    await expect(rows.first()).toBeVisible({ timeout: 5000 });
     // Una riga DIVERSA da quella gia' attiva, altrimenti «resta scelto» non
     // distingue la memoria dal default.
     const current = await picker.getAttribute("data-model");

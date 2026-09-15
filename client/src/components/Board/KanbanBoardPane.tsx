@@ -33,6 +33,7 @@ import {
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { loadAdvice } from './dispatchLoad';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
@@ -437,17 +438,16 @@ function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: {
  */
 function LoadAdviceChip() {
   const tr = useT();
-  const cap = useGlobalDispatchCap().capacity;
+  const store = useGlobalDispatchCap();
+  const cap = store.capacity;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  if (!cap) return null;
-  const over = (cap.running ?? 0) - cap.recommended;
-  if (over <= 0) return null; // niente da fermare → niente chip
-  // La CPU che la FLOTTA sta bruciando è il segnale onesto (dispatch-capacity.ts):
-  // il load average della macchina intera parla soprattutto delle app di chi sta
-  // al computer, e usarlo qui coloravamo di rosso un Mac che sta benissimo.
-  const beyondQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
-  const severe = beyondQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
+  // Nothing to stop, or the brake by resources, where the count does not apply:
+  // there the advice drew "stop 12" while the gate was admitting
+  // (`loadAdvice`, which also holds the severity rule).
+  const advice = loadAdvice(store);
+  if (!cap || !advice) return null;
+  const { over, severe } = advice;
   const cls = severe
     ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
     : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';

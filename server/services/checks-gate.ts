@@ -53,11 +53,32 @@ export type ChecksVerdict = { ok: boolean; comment: string };
  * ancora girando, `null` se la corsa e' morta senza produrre un verdetto (in
  * quel caso il gate non ha misurato niente e non deve scriverne uno).
  */
-export type ChecksLeg = ChecksVerdict | { pending: true } | null;
+export type ChecksLeg = ChecksVerdict | { pending: true } | ChecksInterrupted | null;
+
+/**
+ * A RUN CUT BY THE SERVER SHUTDOWN, which is neither a verdict nor "no checks".
+ *
+ * It used to come back as `null`, the same word as "this board declares no
+ * checks", and the delivery gate reads that as "go on": a reload with a leg in
+ * flight moved the card to review with `checksState: running` and nothing
+ * measured. An interrupted run is its own outcome: the delivery answers like a
+ * leg still in flight and the card does not move. Like `null` it is not
+ * retained: the next leg, after the restart, starts a fresh run.
+ */
+export type ChecksInterrupted = { interrupted: true };
+
+/** Thrown by the round when the server stops it (`stopReviewChecks`): the gate
+ *  turns it into `ChecksInterrupted` instead of the `null` of a run that blew up. */
+export class ChecksInterruptedError extends Error {
+  constructor() {
+    super("pre-review checks interrupted by the server shutdown: no verdict recorded");
+    this.name = "ChecksInterruptedError";
+  }
+}
 
 type Corsa = {
   commit: string | null;
-  promise: Promise<ChecksVerdict | null>;
+  promise: Promise<ChecksVerdict | ChecksInterrupted | null>;
   verdict: ChecksVerdict | null;
   endedAt: number | null;
 };
@@ -163,7 +184,7 @@ export function createChecksGate(opts: {
     // Il wrapper non rigetta MAI: una promise memorizzata che nessuno sta
     // aspettando (la gamba puo' essere gia' scaduta) e che rigetta diventa un
     // unhandled rejection, cioe' un processo che muore per un test rosso.
-    corsa.promise = new Promise<ChecksVerdict | null>((resolveCorsa) => {
+    corsa.promise = new Promise<ChecksVerdict | ChecksInterrupted | null>((resolveCorsa) => {
       const execute = () => {
         activeCount += 1;
         (async () => {
@@ -176,6 +197,11 @@ export function createChecksGate(opts: {
           } catch (err) {
             corsa.endedAt = now();
             corse.delete(key);
+            if (err instanceof ChecksInterruptedError) {
+              console.warn(`[checks-gate] run ${key} interrupted by the shutdown: no verdict`);
+              resolveCorsa({ interrupted: true });
+              return;
+            }
             console.error(`[checks-gate] corsa ${key} esplosa`, err);
             resolveCorsa(null);
           } finally {

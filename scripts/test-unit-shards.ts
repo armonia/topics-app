@@ -334,13 +334,27 @@ interface RunResult {
   failures: JunitFailure[];
 }
 
-/** Launches ONE `bun test` process on the given `files` and collects verdict + durations. */
+/**
+ * Launches ONE `bun test` process on the given `files` and collects verdict + durations.
+ *
+ * THE WORKER WRITES ITS OUTPUT TO A FILE, NOT TO A PIPE THIS PROCESS HOLDS.
+ * Reading a pipe whole with `new Response(pipe).text()` keeps every chunk the
+ * worker wrote until it exits, and on bun 1.3.8 each chunk costs ~10 KB of
+ * ArrayBuffer whatever its size: the cost follows the number of writes, not
+ * the bytes. Measured 15/09/2026 on the live board: a runner at 797 MB (then
+ * 3.7 GB) while its only worker was 270 MB, 728 MB of it in "JS VM Gigacage",
+ * all swapped, and 0.9 s of CPU. A probe of the same shape went from 200 MB
+ * with the pipe to 9 MB with a file. Green output was never read anyway: only
+ * a red shard is reprinted, so only a red shard's files are opened.
+ */
 async function runBunTest(
   files: string[],
   xmlPath: string,
   timeoutMs: string,
 ): Promise<RunResult> {
   const t0 = Date.now();
+  const outPath = xmlPath.replace(/\.xml$/, ".out");
+  const errPath = xmlPath.replace(/\.xml$/, ".err");
   const proc = Bun.spawn(
     ["bun", "test", "--timeout", String(timeoutMs), "--reporter=junit", `--reporter-outfile=${xmlPath}`, ...files],
     {
@@ -351,15 +365,17 @@ async function runBunTest(
         // preload sees the marker and does NOT queue for a second slot.
         [GATE_HELD_ENV]: process.env[GATE_HELD_ENV] ?? "test-unit-shards",
       },
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: Bun.file(outPath),
+      stderr: Bun.file(errPath),
     },
   );
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const code = await proc.exited;
+  const readIfRed = (path: string): string => {
+    if (code === 0) return "";
+    try { return readFileSync(path, "utf8"); } catch { return ""; }
+  };
+  const stdout = readIfRed(outPath);
+  const stderr = readIfRed(errPath);
   let measured: Record<string, number> = {};
   let failures: JunitFailure[] = [];
   try {

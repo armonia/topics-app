@@ -19,9 +19,42 @@
  * the flash it removes.
  */
 import type { BoardTask } from './board';
+import { createThrottledLocalWriter, type ThrottledWriter } from './throttledLocalWrite';
 
 const PREFIX = 'board-rows-cache:';
 const MAX_ROWS = 200;
+
+/**
+ * HOW OFTEN THE SEED MAY BE REWRITTEN: once a minute, after an immediate first
+ * write.
+ *
+ * The 2 s window of the shared writer was not enough for this key. The rows
+ * of a board change on every agent frame (tokens, time, checks progress), so
+ * with agents at work every window carried a real change: measured on
+ * 15/09/2026 in the desktop app's WebKit journal, `board-rows-cache:all` was
+ * rewritten 289 times in 12 minutes, 363 KB each, 95% of the bytes of a
+ * `localstorage.sqlite3-wal` that had reached 3.2 GB and grew by 11 MB a
+ * minute. The copy only paints the first frame of the next load, and the
+ * fetch overwrites it the moment it answers: a minute of lag costs nothing
+ * anyone sees, and pagehide / document-hidden still flush the last state.
+ */
+export const BOARD_ROWS_CACHE_WINDOW_MS = 60_000;
+
+/** One writer per query key, created on first use. */
+const writers = new Map<string, ThrottledWriter>();
+
+export function boardRowsCacheWriter(scope: string): ThrottledWriter {
+  let writer = writers.get(scope);
+  if (!writer) {
+    writer = createThrottledLocalWriter({
+      key: boardRowsCacheKey(scope),
+      debounceMs: BOARD_ROWS_CACHE_WINDOW_MS,
+      firstWriteImmediate: true,
+    });
+    writers.set(scope, writer);
+  }
+  return writer;
+}
 
 /** The identity of a query, so two boards never read each other's rows. */
 export function boardRowsCacheKey(scope: string): string {
@@ -47,11 +80,9 @@ export function readBoardRowsCache(scope: string): readonly BoardTask[] | null {
 }
 
 export function writeBoardRowsCache(scope: string, rows: readonly BoardTask[]): void {
-  try {
-    localStorage.setItem(boardRowsCacheKey(scope), serializeBoardRowsCache(rows));
-  } catch {
-    /* quota, private mode: the seed is an optimisation, never a requirement */
-  }
+  // Quota and private mode are swallowed by the writer: the seed is an
+  // optimisation, never a requirement.
+  boardRowsCacheWriter(scope).write(() => serializeBoardRowsCache(rows));
 }
 
 /** Shared by immediate project writes and the deferred global-feed writer. */

@@ -48,7 +48,7 @@ import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-s
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -82,10 +82,12 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
-import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, procFootprintKB } from "./server/lib/fleet-usage";
+import { availableMemGB, budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock } from "./server/services/dispatch-capacity";
+import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
+import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
+import { stopReviewChecks } from "./server/services/review-checks-brakes";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -224,7 +226,7 @@ import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
-import { budgetShare, capMode, machineBudget, TURN_ERROR_PREFIX } from "./shared/board";
+import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -242,26 +244,6 @@ let onTermSignal: (signal: string) => void = (signal) => {
 };
 process.on("SIGTERM", () => onTermSignal("SIGTERM"));
 process.on("SIGINT", () => onTermSignal("SIGINT"));
-
-// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
-if (!process.env.GATEWAY_TOKEN) {
-  try {
-    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
-    if (config?.gateway?.auth?.token) {
-      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
-      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-    }
-  } catch {}
-  if (!process.env.GATEWAY_TOKEN) {
-    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
-    // provider). A standalone download has no OpenClaw config,
-    // so a missing token must NOT be fatal: the app defaults to the Claude
-    // provider and runs fine without the gateway. This previously process.exit(1)'d,
-    // which crashed the bundled server before it could listen — the packaged app
-    // then hung forever on "Launching the local engine" on every clean machine.
-    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
-  }
-}
 
 // Solid singleton: a server booted from a DISPATCH WORKTREE (e.g. an agent that
 // ran `bun run server.ts` inside its isolation checkout under ~/.topics/worktrees)
@@ -287,6 +269,50 @@ if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
       `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT}, ` +
       `tunnel ${process.env.TOPICS_TUNNEL_PORT ? process.env.TOPICS_TUNNEL_PORT : "off"} (won't touch production)`,
     );
+  }
+}
+
+// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
+// Take the singleton lock HERE: before the database, the PTY and AI bridges,
+// the session reattach and the partial sweep. A losing boot must exit having
+// touched nothing. The lock used to sit just above Bun.serve, which made the
+// comment ("concurrent boots exit fast") false: a second `bun run server.ts`
+// in the same working directory opened data/topics.db, ran migrations and the
+// ui_state repairs, joined both bridges, reattached live sessions, parked the
+// idle ones and swept the partial rows, and only then found the lock and
+// exited. It happened on 2026-09-13 at 03:38 against the production home and
+// ended clean by luck, not by design. The only thing allowed above this line
+// is the worktree isolation, because it decides WHICH home the lock lives in.
+// The state file is still written after Bun.serve returns the actual port
+// (PORT=0 resolves the port only then).
+try {
+  acquireLock();
+} catch (err) {
+  if (err instanceof LiveLockError) {
+    console.error(`[Daemon] ${err.message}`);
+    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
+    process.exit(1);
+  }
+  throw err;
+}
+
+// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
+if (!process.env.GATEWAY_TOKEN) {
+  try {
+    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
+    if (config?.gateway?.auth?.token) {
+      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
+      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
+    }
+  } catch {}
+  if (!process.env.GATEWAY_TOKEN) {
+    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
+    // provider). A standalone download has no OpenClaw config,
+    // so a missing token must NOT be fatal: the app defaults to the Claude
+    // provider and runs fine without the gateway. This previously process.exit(1)'d,
+    // which crashed the bundled server before it could listen — the packaged app
+    // then hung forever on "Launching the local engine" on every clean machine.
+    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
   }
 }
 
@@ -1547,11 +1573,12 @@ const taskDispatcher = createTaskDispatcher({
   agentCostSamples: () => {
     try { return fleetSessionCoreUnits(); } catch { return []; }
   },
-  // The same price list in gigabytes. The memory axis of the gate compares ONE
-  // agent against the free memory, so it needs what an agent really holds on
-  // this machine, not a constant written once.
+  // The same price list in gigabytes, and it is priced per CARD: the peak of
+  // the process tree of each card's pre-review checks. The per-session
+  // footprint it used to read cannot see a native card, whose tools and checks
+  // are children of this server (server/lib/card-memory-peaks.ts).
   agentMemSamples: () => {
-    try { return fleetSessionMemGB(); } catch { return []; }
+    try { return recentCardMemPeaksGB(); } catch { return []; }
   },
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
@@ -1650,12 +1677,15 @@ const taskDispatcher = createTaskDispatcher({
   // Si rilegge a ogni tick invece di fissarlo al boot: chi cambia runtime in
   // Impostazioni si aspetta che valga da subito, e questa lettura costa una
   // riga di SQLite già in cache.
-  resourceBlock: () =>
+  // `hold` is the dispatcher's: the price of one card, the turns it has just
+  // admitted, and whether the floor is already holding (its hysteresis).
+  resourceBlock: (hold) =>
     dispatchResourceBlock(
       ctx.worktreeManager.worktreesDir(),
       undefined,
       undefined,
       resolveAgentRuntime() === "cli",
+      hold,
     ),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
@@ -2447,6 +2477,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     checksGateRunningCount = () => gate.runningCount();
     checksGateIsRunning = (taskId) => gate.isRunning(taskId);
   },
+  // No new pre-review command starts under the floor the admission uses
+  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, and the next bar would start).
+  checksMemoryFloor: { read: () => availableMemGB(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -2871,21 +2904,6 @@ const liveBrokerChatSessions = new Set<string>();
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
-
-// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
-// Acquire singleton lock + write state file BEFORE Bun.serve so
-// concurrent boots see the live lock and exit fast. The state file is
-// finalised after Bun.serve returns the actual port (in case PORT=0).
-try {
-  acquireLock();
-} catch (err) {
-  if (err instanceof LiveLockError) {
-    console.error(`[Daemon] ${err.message}`);
-    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
-    process.exit(1);
-  }
-  throw err;
-}
 
 // PORTING-PLAN.md Tier 1 — CORS for the Tauri desktop shell, which serves the UI
 // locally (tauri://localhost) and calls this server cross-origin for /api + /ws.
@@ -4821,7 +4839,8 @@ const budgetGovernor = createBudgetGovernor({
       if (!fleet) return null;
       const share = budgetShare(cap);
       const sample = budgetSample(fleet, availableMemGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
-      return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
+      // The CPU only: a freeze on memory has no way out (see `governorReading`).
+      return governorReading(sample, share);
     } catch { return null; }
   },
   signalTree: signalProcessTree,
@@ -5939,7 +5958,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // Every holder that is NOT a card: the streams of this process, the turns
     // the broker keeps, the chats parked on a question. `dispatchDoor` reads
     // this to decide whether refusing card turns buys the restart anything.
-    chats: streamKeys.length + brokerOpen.length + parked.length,
+    // A card turn streams through /api/chat too, so its own session is taken
+    // out here, or every card in flight would reopen the door by itself.
+    chats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: parked, cardSessionKeys: taskDispatcher.busySessionKeys() }),
     // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
     // che non e' quello che trattiene: quando a trattenere e' una card la frase
     // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il
@@ -6298,6 +6319,14 @@ async function gracefulShutdown(signal: string) {
   // continue: the one thing that could send it SIGCONT is the loop that is
   // about to stop. Thaw before anything else goes away.
   try { await budgetGovernor.thawAll(); } catch { /* best effort on the way out */ }
+  // Then the check trees go. `slot.ts` runs each command in a process group of
+  // its own, so without this a reload left every running check reparented to
+  // pid 1, finishing a verdict nobody would read while the new server started
+  // the same cards' checks beside it (15/09/2026: four unit trees at once).
+  // After the thaw, because a stopped process holds a SIGTERM until it is
+  // continued. The rounds throw instead of recording the killed run as a red,
+  // and a delivery waiting on one answers "still running" without moving.
+  try { await stopReviewChecks(); } catch { /* best effort on the way out */ }
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
   // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva
