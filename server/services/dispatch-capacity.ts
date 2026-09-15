@@ -443,7 +443,7 @@ export function availableMemGB(
 function readVmStatSync(): string | null {
   try {
     if (process.platform !== "darwin") return null;
-    return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+    return spawnSync(VM_STAT_BIN, { encoding: "utf8", timeout: 2000 }).stdout ?? null;
   } catch {
     return null;
   }
@@ -507,13 +507,26 @@ async function readCommand(argv: string[]): Promise<string | null> {
 }
 
 /**
+ * ABSOLUTE PATHS. The server runs under launchd with a PATH that has no
+ * `/usr/sbin`, where `sysctl` lives: spelled bare, the swap reading was null on
+ * every sample of the live server (15/09/2026, `swapUsedGB=?` in every
+ * `[memsig]` line with 14 GB of swap in use), so the swap verdict could never
+ * be sustained and the brake never fired. Same trap as `taskpolicy` on 06/09.
+ */
+export const VM_STAT_BIN = "/usr/bin/vm_stat";
+export const SYSCTL_BIN = "/usr/sbin/sysctl";
+
+/**
  * The probe of `mem-signal.ts`: `vm_stat` and `sysctl -n vm.swapusage` as async
  * spawns (a synchronous one blocks the loop for as long as a fork takes under
  * thrash), plus the 1-minute load. `null` off macOS or when `vm_stat` fails.
  */
-export async function probeVm(): Promise<Omit<MemSample, "at"> | null> {
-  if (process.platform !== "darwin") return null;
-  const [vm, swap] = await Promise.all([readCommand(["vm_stat"]), readCommand(["sysctl", "-n", "vm.swapusage"])]);
+export async function probeVm(
+  run: (argv: string[]) => Promise<string | null> = readCommand,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Omit<MemSample, "at"> | null> {
+  if (platform !== "darwin") return null;
+  const [vm, swap] = await Promise.all([run([VM_STAT_BIN]), run([SYSCTL_BIN, "-n", "vm.swapusage"])]);
   if (!vm) return null;
   const parsed = parseVmStat(vm);
   return {
