@@ -83,7 +83,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
-import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, procFootprintKB } from "./server/lib/fleet-usage";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
@@ -1546,6 +1546,12 @@ const taskDispatcher = createTaskDispatcher({
   // shards would otherwise price every future agent as if it were that one).
   agentCostSamples: () => {
     try { return fleetSessionCoreUnits(); } catch { return []; }
+  },
+  // The same price list in gigabytes. The memory axis of the gate compares ONE
+  // agent against the free memory, so it needs what an agent really holds on
+  // this machine, not a constant written once.
+  agentMemSamples: () => {
+    try { return fleetSessionMemGB(); } catch { return []; }
   },
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
