@@ -314,7 +314,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
       const t0 = clock.now();
       const sec = () => (clock.now() - t0) / 1000;
       const at: Record<string, number> = {};
-      const runFor = async (ms: number) => { const until = clock.now() + ms; while (clock.now() < until) await clock.sleep(0); };
+      const runFor = async (ms: number) => { const until = clock.now() + ms; while (clock.now() < until) await clock.sleep(); };
       void (async () => {
         for (const name of ["typecheck", "lint", "deadcode"]) {
           const exited = await first(name);
