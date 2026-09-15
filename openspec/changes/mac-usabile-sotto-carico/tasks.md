@@ -36,9 +36,15 @@ Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15
   - [x] Pavimento su una riga sola (pavimento, o pavimento + prezzo con lavoro nostro in volo); prenotazione per la vita del turno contata una volta (asse budget in «per risorse», pavimento in «per numero»); l'asse budget legge il minimo della finestra; frasi «Memoria» con la lettura più bassa dei 2 minuti
   - [x] Riga `[memsig]` ogni 60 s nel log del server (non decide niente)
   - [x] Test M1-M6, C1-C2, D1-D7 (`mem-signal`, `dispatch-capacity`, `task-dispatcher-admission`, `task-dispatcher-held-resume-quiet`), mutanti: minimo della finestra sostituito dall'ultima lettura (D1, D2, D4, D5, D7, M1 rossi), prenotazione contata su tutti e due gli assi (D4, D5 rossi), prezzo mai sulla riga (D4, D6 rossi)
-- [ ] Attesa dei check: rilascio con il prezzo del comando, uno per finestra, `e2e-touched` sotto slot
-- [ ] Con swap sostenuto Topics interrompe il giro di check più giovane (interrotto, riparte da solo), al massimo 1 ogni 2 min e 2 per giro
+- [x] Attesa dei check: uno per finestra, sul minimo dei 2 minuti, mai dentro lo swap sostenuto; `e2e-touched` sotto slot non serve codice (la board legge l'e2e dalla CI dal rollout della tornata 2)
+  - [x] `releaseDecision` senza prezzo per comando e senza `check-mem-prices.json`: tolto perché con la suite unit in CI nessun comando di consegna su topics-app supera 1 GB (tsc 460 MB, vite 316 MB, misurati nel disegno); fallire aperto dopo 30 minuti solo sulla memoria
+  - [x] Test W1, W3, W4, W5 e «il pavimento da solo» (`review-checks-brakes`), `tasks.checks-interrupted` aggiornato
+- [x] Con swap sostenuto Topics interrompe il giro di check più giovane (interrotto, riparte da solo), al massimo 1 ogni 2 min e 2 per giro
+  - [x] `createSwapBrake` (albero >= 1 GB, 1 ogni 120 s, 2 per `taskId@commit`), `ChecksInterruptedError("swap")` prima di registrare il comando, rotta che tiene e riemette la consegna senza riallineare, commento di servizio sulla card, righe `[checks-swap]`
+  - [x] Test S1-S5, G1, R1; mutanti uccisi: niente swap nell'attesa (W4), niente spaziatura (W3), vittima più vecchia (S1, S2), niente limite per consegna (S3), niente soglia di 1 GB (S1, S4), finestra sostituita dall'istante (W1, W5), interruzione mai lanciata (S5), motivo perso dal gate (G1), consegna non tenuta dalla rotta e riallineamento ripetuto (R1)
 - [ ] Barra di esito: stalli [LAG], swap-in/s e load prima e dopo, non il conteggio delle righe di log
+  - [ ] B3 si misura 72 ore dopo il land con lo script in sola lettura (scratchpad della sessione, non committato): O1 stalli [LAG]/giorno <= 0,5 x prima, O2 p95 swap-in/s e load1 non peggiori, O3 verdetti e turni/giorno >= 0,7 x prima, O4 swap sostenuto con albero >= 1 GB <= 190 s di fila
+  - [ ] Rollout, SOLO dopo il merge: nessun PATCH oltre a quello di `unit-ci` qui sopra; le soglie restano provvisorie finché B3 non le conferma
 
 ## Tornata 4: pannelli browser pesanti
 - [ ] Consumo misurato per pannello nativo

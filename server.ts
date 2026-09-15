@@ -82,13 +82,13 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
+import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { stopReviewChecks } from "./server/services/review-checks-brakes";
+import { createSwapBrake, stopReviewChecks } from "./server/services/review-checks-brakes";
 import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
@@ -2496,9 +2496,10 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
   ciEvidence: (input) => awaitCiEvidence(input),
-  // No new pre-review command starts under the floor the admission uses
-  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, and the next bar would start).
-  checksMemoryFloor: { read: () => availableMemGB(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
+  // No new pre-review command starts under the floor the admission uses, into
+  // sustained swap, or within 2 minutes of another delivery's release
+  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, four commands on one poll).
+  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -4872,11 +4873,21 @@ const budgetGovernor = createBudgetGovernor({
 setActiveBudgetGovernor(budgetGovernor);
 
 taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
+/** Under sustained swap the youngest heavy check round is interrupted, never red, and restarts by itself. */
+const swapBrake = createSwapBrake({
+  kill: killProcessTree,
+  note: (taskId, text) => {
+    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+    catch { /* a note that cannot be written must not stop the brake */ }
+  },
+  log: (line) => console.warn(line),
+});
 /** The `[memsig]` line goes out once a minute on the 10 s beat. */
 const MEMSIG_EVERY_MS = 60_000;
 let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
   void memSignal.sample().then(() => {
+    swapBrake.tick(memSignal.swap(), freezableRuns());
     const now = Date.now();
     if (now - memsigAt < MEMSIG_EVERY_MS) return;
     memsigAt = now;

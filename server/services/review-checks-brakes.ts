@@ -7,38 +7,53 @@
  * running tree when the server itself went away. Both are here, and
  * `runReviewChecks` (review-checks.ts) consults them around every command.
  */
-import { freezableRuns } from "./budget-governor";
+import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { ChecksInterruptedError } from "./checks-gate";
 import { killProcessTree } from "../lib/process-tree";
+import type { HeldMemory, SwapVerdict } from "./mem-signal";
 
 /**
- * NO NEW CHECK STARTS UNDER THE MEMORY FLOOR.
+ * NO NEW CHECK STARTS UNDER THE MEMORY FLOOR, INTO SUSTAINED SWAP, OR IN A HERD.
  *
  * Every brake in front of a check counted something other than free memory:
  * the lanes of the gate (2 on 12 cores), the slots and names of `slot.ts`, the
  * load of the unit runner. The admission cannot price it either: a card is
  * admitted while memory is free and delivers tens of minutes later, and its
- * `test:unit` tree (4-11 GB) is a child of the server, not of the session the
- * admission measured. Measured 15/09/2026: `availableMemGB` 5.9 with 9.9 GB of
- * swap, and nothing in the code could have held the next bar.
+ * check tree is a child of the server, not of the session the admission
+ * measured. Measured 15/09/2026: `availableMemGB` 5.9 with 9.9 GB of swap.
  *
- * So each declared command waits, before it is spawned, while the reading is
- * under the floor. The command's deadline is not running during the wait: it is
- * armed at spawn, exactly like the slot queue does not count against it.
+ * The first version of this waiter released on the first reading over the
+ * floor, and that morning typecheck, lint and deadcode were each released by
+ * one poll at 5.0-6.0 GB while four commands of different deliveries left on
+ * the same poll. So each declared command now waits, before it is spawned, for
+ * (`releaseDecision`):
+ *  - no sustained swap, with no fail-open: a round restarted after a swap
+ *    interruption must not start straight into the thrash that is under way;
+ *  - 120 s since a command of ANOTHER round was released, while it still runs:
+ *    one release per window across rounds;
+ *  - a full 2-minute window whose lowest reading is over the floor.
+ * The command's deadline is not running during the wait: it is armed at spawn.
  *
- * IT FAILS OPEN, like every other brake on a gate: the round waits at most
- * `maxWaitMs` IN TOTAL, then the remaining commands start whatever the memory
- * says. A reading that cannot be taken (`null`, a throw) never waits.
+ * There is no per-command price: with the unit suite read from the pull request
+ * CI (`github-ci:unit`) no delivery command on topics-app holds more than 1 GB
+ * (tsc 460 MB, a vite build 316 MB), so the floor alone is the line.
+ *
+ * IT FAILS OPEN on room only: after `maxWaitMs` of waiting IN TOTAL a round
+ * starts its commands whatever the window says, never while swap is sustained.
+ * Memory that cannot be measured (off macOS) never waits.
  */
 export interface MemoryFloor {
-  /** Free memory now, in GB; `null` = not measured. */
-  read: () => number | null;
+  held: () => HeldMemory;
+  swap: () => SwapVerdict;
   /** Under this, a new command waits. */
   floorGB: number;
-  /** Total wait of one round before running anyway. Default `MEMORY_WAIT_MAX_MS`. */
+  /** Total wait of one round before running anyway on room. Default `MEMORY_WAIT_MAX_MS`. */
   maxWaitMs?: number;
-  /** How often the memory is read again while waiting. */
+  /** How often the signal is read again while waiting. */
   pollMs?: number;
+  /** Test seams. */
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Thirty minutes, the same limit as a gate waiting for another run of itself
@@ -47,37 +62,98 @@ export interface MemoryFloor {
  *  (`pendingDeliveries`) once the client has given up. */
 const MEMORY_WAIT_MAX_MS = 30 * 60_000;
 const MEMORY_POLL_MS = 5_000;
+/** One release per window across rounds: the herd of 15/09 (four commands on one poll) cannot recur. */
+export const RELEASE_SPACING_MS = 120_000;
 
-/** One waiter per round: its budget of `maxWaitMs` is spent across the round. */
-export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSignal): (name: string) => Promise<void> {
-  if (!floor) return async () => {};
+export type WaitReason = "swap" | "measuring" | "room" | "spacing";
+
+type Release = { round: symbol; name: string; at: number; running: boolean };
+/** The last command released by any round: the spacing reads it. */
+let lastRelease: Release | null = null;
+
+export function releaseDecision(i: {
+  held: HeldMemory;
+  swap: SwapVerdict;
+  floorGB: number;
+  /** The last release, when it belongs to ANOTHER round. */
+  otherRoundRelease: { at: number; running: boolean } | null;
+  now: number;
+  spentMs: number;
+  maxWaitMs: number;
+}): { release: boolean; wait: WaitReason | null; anyway: boolean } {
+  if (!i.held.measurable) return { release: true, wait: null, anyway: false };
+  if (i.swap.sustained) return { release: false, wait: "swap", anyway: false };
+  if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) {
+    return { release: false, wait: "spacing", anyway: false };
+  }
+  const room: WaitReason | null = i.held.heldGB == null ? "measuring" : i.held.heldGB < i.floorGB ? "room" : null;
+  if (!room) return { release: true, wait: null, anyway: false };
+  if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
+  return { release: false, wait: room, anyway: false };
+}
+
+function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: SwapVerdict, floorGB: number, now: number): string {
+  const gb = (n: number | null) => (n == null ? "?" : n.toFixed(1));
+  switch (reason) {
+    case "swap":
+      return `[review-checks] "${name}" waits: the Mac is in sustained swap (swapins ${gb(swap.pagesReadBackPerS)}/s, memory debt +${gb(swap.debtGBPerMin)} GB/min)`;
+    case "spacing":
+      return `[review-checks] "${name}" waits: "${lastRelease?.name ?? "?"}" of another delivery started ${Math.round((now - (lastRelease?.at ?? now)) / 1000)} s ago, one release per 2 min`;
+    case "measuring":
+      return `[review-checks] "${name}" waits: free memory measured for ${Math.round(held.coveredMs / 1000)} s of the 120 s window`;
+    case "room":
+      return `[review-checks] "${name}" waits: lowest free memory of the last 2 min ${gb(held.heldGB)} GB, under the ${floorGB} GB floor`;
+  }
+}
+
+/**
+ * One waiter per round: its budget of `maxWaitMs` is spent across the round.
+ * The promise resolves with the callback to call when the released command
+ * exits, which ends its hold on the spacing.
+ */
+export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSignal): (name: string) => Promise<() => void> {
+  if (!floor) return async () => () => {};
   const maxWaitMs = floor.maxWaitMs ?? MEMORY_WAIT_MAX_MS;
   const pollMs = Math.max(1, floor.pollMs ?? MEMORY_POLL_MS);
+  const now = floor.now ?? Date.now;
+  const sleep = floor.sleep ?? ((ms: number) => Bun.sleep(ms));
+  const round = Symbol("round");
   let spentMs = 0;
-  /** The reading when it is under the floor, `null` otherwise. */
-  const tight = (): number | null => {
-    try {
-      const gb = floor.read();
-      return gb != null && Number.isFinite(gb) && gb < floor.floorGB ? gb : null;
-    } catch { return null; }
-  };
+  const read = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
+  const unmeasured: HeldMemory = { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 };
+  const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, coveredMs: 0 };
   return async (name) => {
-    if (spentMs >= maxWaitMs) return;
-    let gb = tight();
-    if (gb === null) return;
-    console.warn(`[review-checks] ${gb.toFixed(1)} GB of free memory, under the ${floor.floorGB} GB floor: "${name}" waits before starting`);
-    const from = Date.now();
-    while (gb !== null && !signal?.aborted && !stopping) {
-      const left = maxWaitMs - spentMs - (Date.now() - from);
-      if (left <= 0) break;
-      await Bun.sleep(Math.min(pollMs, left));
-      gb = tight();
-    }
-    spentMs += Date.now() - from;
-    if (gb !== null && !signal?.aborted && !stopping) {
-      console.warn(`[review-checks] memory still under the floor after ${Math.round(spentMs / 60_000)} min: "${name}" starts anyway`);
+    const from = now();
+    let said: WaitReason | null = null;
+    for (;;) {
+      const t = now();
+      const held = read(floor.held, unmeasured);
+      const swap = read(floor.swap, calm);
+      const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
+      const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, now: t, spentMs: spentMs + (t - from), maxWaitMs });
+      // A round being stopped starts nothing, so it holds no release either.
+      if (signal?.aborted || stopping) return () => {};
+      if (d.release) {
+        const waited = t - from;
+        spentMs += waited;
+        if (d.anyway) console.warn(`[review-checks] no room after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway, swap not sustained`);
+        else if (said) console.warn(`[review-checks] "${name}" starts after ${Math.round(waited / 1000)} s`);
+        const mine: Release = { round, name, at: t, running: true };
+        lastRelease = mine;
+        return () => { mine.running = false; };
+      }
+      if (d.wait !== said) {
+        said = d.wait;
+        console.warn(waitLine(name, d.wait!, held, swap, floor.floorGB, t));
+      }
+      await sleep(pollMs);
     }
   };
+}
+
+/** Test seam: the spacing is process-wide, a test file is not. */
+export function _resetReleaseSpacing(): void {
+  lastRelease = null;
 }
 
 /**
@@ -123,4 +199,139 @@ export async function stopReviewChecks(kill: (pid: number) => Promise<void> = ki
 /** Test seam: a stop is for the life of the process, a test file is not. */
 export function _resetReviewChecksStop(): void {
   stopping = false;
+}
+
+/**
+ * UNDER SUSTAINED SWAP TOPICS INTERRUPTS THE YOUNGEST HEAVY CHECK ROUND BY ITSELF.
+ *
+ * The owner's answer (15/09/2026): a round already running on a Mac in swap is
+ * interrupted by Topics, as interrupted and never red, and restarts by itself.
+ * Nothing else takes memory back from work in flight: the governor freezes for
+ * CPU only, and a SIGSTOP gives no memory back.
+ *
+ * On each 10 s beat, after the memory signal is sampled:
+ *  - not sustained: nothing (the end of an episode is logged once);
+ *  - less than 120 s since the last interruption: nothing, to see its effect
+ *    (5 s SIGKILL grace, a beat, and a 60 s swap window still holding the
+ *    samples from before the kill);
+ *  - candidates: registered runs of a card whose tree holds >= 1 GB, interrupted
+ *    fewer than 2 times on their delivery `taskId@commit`. Killing a tsc (460 MB),
+ *    a vite build (316 MB) or the static rails gives nothing back and costs a
+ *    round; a delivery interrupted twice runs to the end, or it could be killed
+ *    forever;
+ *  - victim: the youngest round, whose rerun wastes the least.
+ * The round throws `ChecksInterruptedError("swap")` before the killed command
+ * becomes a run, so no verdict and no card peak are recorded; the route re-issues
+ * the delivery, which waits in `memoryWaiter` until the swap is over.
+ */
+export const SWAP_INTERRUPT_SPACING_MS = 120_000;
+export const SWAP_INTERRUPTS_PER_DELIVERY = 2;
+export const SWAP_VICTIM_MIN_GB = 1;
+
+/** Interruptions per delivery `taskId@commit`, forgotten when a verdict is recorded. */
+const interruptionsByDelivery = new Map<string, number>();
+/** Cards whose running command was just killed by the brake: their round throws once. */
+const interruptedTasks = new Set<string>();
+
+const deliveryKey = (taskId: string, commit: string | null | undefined) => `${taskId}@${commit ?? ""}`;
+const treeGB = (run: FreezableRun) => ((run.treeKB ?? 0) * 1024) / 1e9;
+
+export function swapVictim(i: {
+  sustained: boolean;
+  runs: readonly FreezableRun[];
+  now: number;
+  lastInterruptAt: number;
+  interruptions: (delivery: string) => number;
+}): { victim: FreezableRun | null; skipped: "spacing" | "noHeavyRun" | "exhausted" | null } {
+  if (!i.sustained) return { victim: null, skipped: null };
+  if (i.now - i.lastInterruptAt < SWAP_INTERRUPT_SPACING_MS) return { victim: null, skipped: "spacing" };
+  const heavy = i.runs.filter((r) => r.taskId && treeGB(r) >= SWAP_VICTIM_MIN_GB);
+  if (heavy.length === 0) return { victim: null, skipped: "noHeavyRun" };
+  const open = heavy.filter((r) => i.interruptions(deliveryKey(r.taskId!, r.commit)) < SWAP_INTERRUPTS_PER_DELIVERY);
+  if (open.length === 0) return { victim: null, skipped: "exhausted" };
+  const victim = open.reduce((a, b) => ((b.roundStartedAt ?? b.startedAt) > (a.roundStartedAt ?? a.startedAt) ? b : a));
+  return { victim, skipped: null };
+}
+
+export function createSwapBrake(deps: {
+  kill: (pid: number) => Promise<void>;
+  note: (taskId: string, text: string) => void;
+  log: (line: string) => void;
+  now?: () => number;
+}): { tick(v: SwapVerdict, runs: readonly FreezableRun[]): void } {
+  const now = deps.now ?? Date.now;
+  let lastInterruptAt = Number.NEGATIVE_INFINITY;
+  let episodeSince: number | null = null;
+  let saidNothing = false;
+  let saidExhausted = false;
+  const gb = (n: number | null) => (n == null ? "?" : n.toFixed(1));
+  return {
+    tick(v, runs) {
+      const t = now();
+      if (!v.sustained) {
+        if (episodeSince != null) deps.log(`[checks-swap] swap no longer sustained after ${Math.round((t - episodeSince) / 1000)} s`);
+        episodeSince = null;
+        saidNothing = false;
+        saidExhausted = false;
+        return;
+      }
+      episodeSince ??= t;
+      const signs = `swapins ${gb(v.pagesReadBackPerS)}/s, memory debt +${gb(v.debtGBPerMin)} GB/min`;
+      const { victim, skipped } = swapVictim({
+        sustained: true, runs, now: t, lastInterruptAt,
+        interruptions: (key) => interruptionsByDelivery.get(key) ?? 0,
+      });
+      if (!victim) {
+        if (skipped === "noHeavyRun" && !saidNothing) {
+          saidNothing = true;
+          deps.log(`[checks-swap] swap sustained (${signs}) and no Topics check tree holds >= ${SWAP_VICTIM_MIN_GB} GB: nothing to interrupt`);
+        }
+        if (skipped === "exhausted" && !saidExhausted) {
+          saidExhausted = true;
+          for (const r of runs.filter((x) => x.taskId && treeGB(x) >= SWAP_VICTIM_MIN_GB)) {
+            deps.log(`[checks-swap] "${r.name}" of ${r.taskId!.slice(0, 8)} not interrupted: already interrupted ${SWAP_INTERRUPTS_PER_DELIVERY} times on this commit, it runs to the end`);
+          }
+        }
+        return;
+      }
+      const taskId = victim.taskId!;
+      const key = deliveryKey(taskId, victim.commit);
+      const n = (interruptionsByDelivery.get(key) ?? 0) + 1;
+      lastInterruptAt = t;
+      interruptionsByDelivery.set(key, n);
+      interruptedTasks.add(taskId);
+      void deps.kill(victim.pid).catch(() => { /* already gone */ });
+      const roundAge = Math.round((t - (victim.roundStartedAt ?? victim.startedAt)) / 1000);
+      deps.log(`[checks-swap] interrupted "${victim.name}" of ${taskId.slice(0, 8)} (round started ${roundAge} s ago, tree ${gb(treeGB(victim))} GB): ${signs}; interruption ${n} of ${SWAP_INTERRUPTS_PER_DELIVERY}`);
+      try {
+        deps.note(taskId,
+          `Check interrotti, non rossi: il Mac è in swap da un minuto (${gb(v.pagesReadBackPerS)} pagine/s rilette dal disco, debito di memoria +${gb(v.debtGBPerMin)} GB/min) e \`${victim.name}\` teneva ${gb(treeGB(victim))} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
+          "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap e c'è memoria per il primo comando da 2 minuti. " + // allow-italian: board notes are written in Italian like every other service comment
+          `Interruzione ${n} di ${SWAP_INTERRUPTS_PER_DELIVERY}: dopo la seconda il giro va fino in fondo comunque.`); // allow-italian: board notes are written in Italian like every other service comment
+      } catch { /* a note that cannot be written must not stop the brake */ }
+    },
+  };
+}
+
+/** Right after each command (and before the next one): a round whose tree the brake killed stops, once. */
+export function throwIfInterrupted(taskId: string | undefined): void {
+  if (taskId && interruptedTasks.delete(taskId)) throw new ChecksInterruptedError("swap");
+}
+
+/** The delivery on this commit was interrupted by the brake and has no verdict yet:
+ *  its restart is the same delivery, and does not realign on main again. */
+export function swapInterruptedDelivery(taskId: string, commit: string | null): boolean {
+  return (interruptionsByDelivery.get(deliveryKey(taskId, commit)) ?? 0) > 0;
+}
+
+/** A verdict was recorded for the card: its interruptions are over. */
+export function forgetDelivery(taskId: string): void {
+  interruptedTasks.delete(taskId);
+  for (const key of [...interruptionsByDelivery.keys()]) if (key.startsWith(`${taskId}@`)) interruptionsByDelivery.delete(key);
+}
+
+/** Test seam: the counts are process-wide, a test file is not. */
+export function _resetSwapBrake(): void {
+  interruptionsByDelivery.clear();
+  interruptedTasks.clear();
 }

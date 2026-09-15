@@ -68,8 +68,8 @@ import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOut
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
-import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
-import { reviewChecksStopping, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
+import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -1106,7 +1106,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // IS the verdict: not a single command runs, and the agent gets the file
     // list instead of a timeout.
     const before = await opts.taskCheckoutRef(taskId).catch(() => null);
-    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null);
+    // A round the swap brake interrupted restarts as the SAME delivery: realigned
+    // again, two `git merge main` in one worktree (a server re-issue and a client
+    // leg) race on index.lock and write a failed realign as a red.
+    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null)
+      || swapInterruptedDelivery(taskId, before?.commit ?? null);
     if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
         .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
@@ -1136,89 +1140,103 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);
 
+    const measure = async (lane: ChecksLane) => {
+      // 'running' subito e in broadcast: i comandi possono durare minuti e una
+      // board ferma senza spiegazioni si legge come "si è impiantato".
+      try {
+        const t = svc.recordChecks({
+          taskId, state: "running", commit: ref.commit, runs: null,
+          // Zero su N: la spia si accende gia' sapendo QUANTI comandi
+          // aspettano, cosi' la card dice «0/4» invece di «in corso».
+          progress: { done: 0, total: checks.length },
+        });
+        broadcastToAll({ type: "task:updated", projectId, task: t });
+      } catch { /* il gate vale anche senza la spia */ }
+
+      /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
+       *
+       * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
+       * i comandi giravano uno per uno e la card diceva «check in corso»
+       * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
+       * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
+       *
+       * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
+       * continua: un progresso mancato non deve poter fermare una consegna. */
+      const runs = await runReviewChecks(localChecks, {
+        cwd: ref.cwd,
+        // So a run frozen for load can say so in THIS card's thread.
+        taskId,
+        commit: ref.commit,
+        // No new command starts under the memory floor (see `MemoryFloor`).
+        memoryFloor: opts?.checksMemoryFloor,
+        onProgress: (_run, i) => {
+          try {
+            const t = svc.recordChecks({
+              taskId, state: "running", commit: ref.commit,
+              // I run PARZIALI viaggiano con lui: un comando gia' rosso si
+              // vede subito nel drawer, invece di aspettare la fine del giro.
+              runs: null,
+              progress: { done: i + 1, total: checks.length },
+            });
+            broadcastToAll({ type: "task:updated", projectId, task: t });
+          } catch { /* una spia persa non ferma il gate */ }
+        },
+      });
+      if (ciChecks.length && runs.length === localChecks.length && runs.every((r) => r.ok)) {
+        // Waiting on GitHub holds no CPU: give the lane to the next card's run.
+        lane.release();
+        // A reader that throws measured nothing: NOT MEASURED, like its own
+        // docstring promises. Left to the gate, the exception became the `null`
+        // of a run that blew up, which the delivery reads as "no gate at all",
+        // and the card entered review with no e2e verdict. Only a shutdown
+        // passes through, as the interrupted outcome it already has.
+        const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+        const ciRuns = ref.commit && opts?.ciEvidence
+          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
+            if (err instanceof ChecksInterruptedError) throw err;
+            return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
+          })
+          : unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit");
+        // One row per declared CI check, whatever the reader answered.
+        runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
+        throwIfStopping();
+      }
+      const ok = runs.length === checks.length && runs.every((r) => r.ok);
+      const comment = formatChecksComment(runs, { commit: ref.commit });
+      const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
+      try {
+        // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
+        // la parola del commento: uno SCADUTO non ha misurato niente, e
+        // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
+        // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
+        // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
+        // qualcuno non e' arrivato in fondo.
+        svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
+        forgetDelivery(taskId);
+        // Green is service bookkeeping; red is a visible outcome. The thread
+        // keeps only the compact verdict and first failure. Commands and logs
+        // remain in checks_json, rendered by the expandable ChecksSection.
+        svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
+        const t = svc.get(taskId, { projectId })?.task;
+        if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+      } catch { /* l'esito conta più della sua registrazione */ }
+      settleDelivery(taskId);
+      return { ok, comment };
+    };
+
     return checksGate.leg(taskId, {
       commit: ref.commit ?? null,
       legMs,
       run: async (lane) => {
-        // 'running' subito e in broadcast: i comandi possono durare minuti e una
-        // board ferma senza spiegazioni si legge come "si è impiantato".
         try {
-          const t = svc.recordChecks({
-            taskId, state: "running", commit: ref.commit, runs: null,
-            // Zero su N: la spia si accende gia' sapendo QUANTI comandi
-            // aspettano, cosi' la card dice «0/4» invece di «in corso».
-            progress: { done: 0, total: checks.length },
-          });
-          broadcastToAll({ type: "task:updated", projectId, task: t });
-        } catch { /* il gate vale anche senza la spia */ }
-
-        /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
-         *
-         * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
-         * i comandi giravano uno per uno e la card diceva «check in corso»
-         * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
-         * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
-         *
-         * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
-         * continua: un progresso mancato non deve poter fermare una consegna. */
-        const runs = await runReviewChecks(localChecks, {
-          cwd: ref.cwd,
-          // So a run frozen for load can say so in THIS card's thread.
-          taskId,
-          // No new command starts under the memory floor (see `MemoryFloor`).
-          memoryFloor: opts?.checksMemoryFloor,
-          onProgress: (_run, i) => {
-            try {
-              const t = svc.recordChecks({
-                taskId, state: "running", commit: ref.commit,
-                // I run PARZIALI viaggiano con lui: un comando gia' rosso si
-                // vede subito nel drawer, invece di aspettare la fine del giro.
-                runs: null,
-                progress: { done: i + 1, total: checks.length },
-              });
-              broadcastToAll({ type: "task:updated", projectId, task: t });
-            } catch { /* una spia persa non ferma il gate */ }
-          },
-        });
-        if (ciChecks.length && runs.length === localChecks.length && runs.every((r) => r.ok)) {
-          // Waiting on GitHub holds no CPU: give the lane to the next card's run.
-          lane.release();
-          // A reader that throws measured nothing: NOT MEASURED, like its own
-          // docstring promises. Left to the gate, the exception became the `null`
-          // of a run that blew up, which the delivery reads as "no gate at all",
-          // and the card entered review with no e2e verdict. Only a shutdown
-          // passes through, as the interrupted outcome it already has.
-          const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
-          const ciRuns = ref.commit && opts?.ciEvidence
-            ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
-              if (err instanceof ChecksInterruptedError) throw err;
-              return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
-            })
-            : unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit");
-          // One row per declared CI check, whatever the reader answered.
-          runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
-          throwIfStopping();
+          return await measure(lane);
+        } catch (err) {
+          // Interrupted for swap: no verdict, and nothing else would restart the
+          // round if no client leg comes back. The remembered PATCH is re-issued
+          // once the key is gone, and its first command waits for the swap to end.
+          if (err instanceof ChecksInterruptedError && err.reason === "swap") setTimeout(() => settleDelivery(taskId), 0);
+          throw err;
         }
-        const ok = runs.length === checks.length && runs.every((r) => r.ok);
-        const comment = formatChecksComment(runs, { commit: ref.commit });
-        const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
-        try {
-          // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
-          // la parola del commento: uno SCADUTO non ha misurato niente, e
-          // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
-          // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
-          // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
-          // qualcuno non e' arrivato in fondo.
-          svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
-          // Green is service bookkeeping; red is a visible outcome. The thread
-          // keeps only the compact verdict and first failure. Commands and logs
-          // remain in checks_json, rendered by the expandable ChecksSection.
-          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
-          const t = svc.get(taskId, { projectId })?.task;
-          if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-        } catch { /* l'esito conta più della sua registrazione */ }
-        settleDelivery(taskId);
-        return { ok, comment };
       },
     });
   }
@@ -2294,8 +2312,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // round measures the delivery. A 503 was thrown at the agent instead, which
     // cannot wait a minute and called again into the dead server.
     if (outcome && "interrupted" in outcome) {
-      pendingDeliveries.delete(taskId);
-      checksWaitSince.delete(taskId);
+      // The swap brake keeps the delivery: the server re-issues it when the round
+      // is gone. A shutdown forgets it, and the client's leg after the restart
+      // measures it again.
+      if (outcome.reason === "swap" && body && typeof body === "object") {
+        pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
+      } else {
+        pendingDeliveries.delete(taskId);
+        checksWaitSince.delete(taskId);
+      }
       return legInFlight(svc.get(taskId, { projectId })?.task);
     }
     if (outcome && "pending" in outcome) {

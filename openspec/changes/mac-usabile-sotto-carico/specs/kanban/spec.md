@@ -77,9 +77,41 @@ Un comando NUOVO NON SHALL partire con la memoria libera sotto il pavimento
 (`DISPATCH_MEM_FLOOR_NATIVE_GB`, 6 GB). Nessun freno davanti a un check leggeva
 la memoria, e l'ammissione non ne vede il costo: la card entra a memoria libera
 e consegna decine di minuti dopo un albero unit da 4-11 GB. Il comando SHALL
-aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. SHALL
-fallire aperto: un giro aspetta al massimo 30 minuti IN TOTALE, poi i comandi
-rimasti partono comunque; una lettura non disponibile non fa aspettare.
+aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. La
+memoria SHALL essere la lettura più bassa della finestra di 2 minuti di KANBAN-75,
+non l'istante: il 15/09/2026 typecheck, lint e deadcode sono partiti ciascuno alla
+prima lettura sopra 6 GB (5,0-6,0 prima), e quattro comandi di consegne diverse
+sono partiti sullo stesso giro. Il comando SHALL quindi aspettare anche:
+- lo swap sostenuto (KANBAN-75), SENZA fallire aperto finché dura: un giro ripartito
+  dopo un'interruzione non deve ripartire dentro lo swap che l'ha interrotto;
+- 120 secondi dalla partenza di un comando di un ALTRO giro ancora vivo: un rilascio
+  per finestra, fra i giri; il comando successivo dello stesso giro non aspetta il
+  suo predecessore, che è finito.
+Non c'è un prezzo per comando: con la suite unit letta dalla CI della PR
+(`github-ci:unit`, KANBAN-84) nessun comando di consegna di topics-app supera 1 GB
+(tsc 460 MB, build vite 316 MB, misurati il 15/09), e la riga è il pavimento. SHALL
+fallire aperto solo sulla memoria: un giro aspetta al massimo 30 minuti IN TOTALE,
+poi i comandi rimasti partono comunque, mai con lo swap sostenuto; una memoria che
+non si misura (fuori da macOS) non fa aspettare. Il rilascio dopo un'attesa SHALL
+comparire nel log con i secondi aspettati, e ogni cambio di motivo di attesa una volta.
+
+Con lo swap sostenuto (KANBAN-75) il server SHALL interrompere DA SOLO il giro di
+check più giovane fra quelli di una card il cui albero tiene almeno 1 GB, al massimo
+uno ogni 120 secondi e al massimo 2 volte per consegna (`taskId@commit`): dopo la
+seconda il giro va fino in fondo, e un commit nuovo è una consegna nuova. Risposta
+del proprietario (15/09/2026): lo fa Topics da solo, interrotto e mai rosso, e
+riparte da solo. Un albero sotto 1 GB (tsc, build vite, rail statici) NON SHALL
+essere interrotto: non restituisce niente e costa un giro. Il comando ucciso NON
+SHALL diventare un esito: il giro SHALL lanciare l'interruzione con motivo `swap`
+prima di registrarlo, nessun comando successivo SHALL partire, nessun verdetto,
+nessun picco di memoria della card. La consegna SHALL rispondere 202
+`review_checks_running`, SHALL restare ricordata dal server, e il server SHALL
+riemetterla da solo quando la corsa è finita, senza riallineare di nuovo il ramo
+(la ripartenza è la stessa consegna: due `git merge main` nello stesso worktree si
+contendono `index.lock`). La card SHALL ricevere un commento di servizio per ogni
+interruzione, con swap-in, debito di memoria, il comando e i GB del suo albero, e
+che è l'interruzione N di 2. Un verdetto registrato SHALL azzerare il conto delle
+interruzioni della card.
 
 Uno spegnimento del server SHALL portarsi via gli alberi dei check in corso, e
 NON SHALL scriverne un verdetto. `slot.ts` lancia il comando in un gruppo di
@@ -109,6 +141,29 @@ tutta l'uscita, spendendo una gamba a chiamata.
 - **GIVEN** memoria libera sotto il pavimento per 1,5 s e un tetto di 1 s
 - **THEN** il comando SHALL partire solo dopo, e finire verde e non scaduto
 - **AND** con la memoria sempre sotto, il giro SHALL aspettare il suo limite UNA volta e poi far partire tutti i comandi
+
+#### Scenario: una lettura sola non rilascia un comando
+- **GIVEN** due minuti a 5,2 GB e poi una lettura a 6,0
+- **THEN** il comando NON SHALL partire su quella lettura, e SHALL partire quando la finestra intera sta sopra il pavimento, con la riga di log del rilascio
+
+#### Scenario: un rilascio per finestra fra i giri
+- **GIVEN** due giri che aspettano con 11 GB nella finestra
+- **THEN** parte un comando solo, e l'altro parte quando il primo finisce o 120 s dopo il suo rilascio
+
+#### Scenario: lo swap sostenuto vince sul fallire aperto
+- **GIVEN** un limite di 5 minuti, 5 GB per tutto il tempo e lo swap sostenuto dal minuto 4 al minuto 9
+- **THEN** niente parte prima del minuto 9, e al minuto 9 il comando parte comunque con la riga «starts anyway»
+
+#### Scenario: il freno sotto swap interrompe il giro più giovane
+- **GIVEN** tre giri con alberi da 8 GB, 2 GB e 0,4 GB, partiti in quest'ordine, e lo swap sostenuto
+- **THEN** SHALL essere ucciso il giro da 2 GB, con il commento «Check interrotti, non rossi» e «Interruzione 1 di 2»
+- **AND** 60 s dopo non si uccide niente, 121 s dopo il giro da 8 GB
+- **AND** una consegna interrotta due volte va fino in fondo, e un commit nuovo conta di nuovo
+
+#### Scenario: il giro interrotto per swap riparte da solo e non è rosso
+- **GIVEN** una consegna con un check `sleep 120` in corso e il freno che ne uccide l'albero
+- **THEN** la gamba SHALL rispondere 202, nessun commento «ROSSI» o «Consegna fermata» SHALL comparire, e senza altre gambe del client il server SHALL rifare il giro e portare la card in review
+- **AND** il ramo SHALL essere riallineato una volta sola
 
 #### Scenario: lo spegnimento non inventa un rosso
 - **GIVEN** un check in corso e un secondo in attesa
@@ -283,8 +338,9 @@ vero: due corse congelate a 5,5 GB restavano congelate dopo 1080 letture, e
 dopo altre 1080 a 8,0 GB, sopra il pavimento a cui il dispatcher ammette. Due
 corse congelate tengono entrambe le corsie del cancello dei check, nessuna card
 viene più misurata e il freno non si apre mai, contro la regola che ogni freno
-fallisce aperto. La leva della memoria è l'attesa PRIMA che un check parta
-(KANBAN-15), che non ferma niente di già avviato e ha un limite. Un check
+fallisce aperto. Le leve della memoria sono l'attesa PRIMA che un check parta
+(KANBAN-15), che ha un limite, e sotto swap sostenuto l'interruzione del giro di
+check più giovane (KANBAN-15), che uccide invece di congelare. Un check
 congelato per la CPU SHALL scongelarsi quando la CPU scende, qualunque cosa
 dica la memoria.
 
@@ -371,6 +427,16 @@ Ogni 60 secondi, anche a board ferma, il server SHALL scrivere nel suo log una r
 di memoria al minuto, compressore, swap usato, carico, verdetto di swap, turni in
 volo, corse di check e l'albero di check più pesante (`?` dove manca il valore):
 non decide niente, è lo strumento con cui si misurano le soglie e l'esito.
+
+Lo swap SHALL dirsi SOSTENUTO solo quando, su 60 secondi di campioni, le pagine
+rilette dal disco sono almeno 10 al secondo E il debito di memoria (compressore più
+swap usato) cresce di almeno 0,5 GB al minuto. Le pagine rilette da sole non
+separano il recupero (65/s alle 11:23 del 15/09, debito in calo) dal thrash
+(12,8-33,6/s alle 14:06, debito +8,8/+14 GB al minuto); lo swap usato sta nella
+somma perché un compressore saturo sposta segmenti su disco. Il livello di
+pressione del kernel NON SHALL essere usato: è un rapporto del compressore, e i
+picchi del 10/09 e del 15/09 stavano al livello 1. Le soglie sono provvisorie, e
+l'esito si misura sulle righe `[memsig]` e `[LAG]` 72 ore dopo il land.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su

@@ -25,7 +25,7 @@ export type { ReviewCheck, CheckRun } from "../../shared/board";
 import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
-import { memoryWaiter, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
+import { memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
 import { slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
@@ -278,6 +278,8 @@ interface RunOpts {
   /** Wait for free memory before each declared command (see `MemoryFloor`).
    *  Absent = no wait: the tests stay independent of this machine's memory. */
   memoryFloor?: MemoryFloor;
+  /** The commit the round measures: the swap brake counts its interruptions per `taskId@commit`. */
+  commit?: string | null;
   /** The footprint of a command's whole process tree, in KB. Injected by the
    *  tests; the default is the kernel's (`treeFootprintKB`). */
   sampleTreeKB?: (pid: number) => Promise<number | null>;
@@ -298,6 +300,9 @@ interface RunOneOpts {
   signal?: AbortSignal;
   env?: Record<string, string>;
   taskId?: string;
+  /** When the round started and what it measures, for the swap brake's registry entry. */
+  roundStartedAt?: number;
+  commit?: string | null;
   sampleTreeKB?: (pid: number) => Promise<number | null>;
   treeSampleMs?: number;
   /** Called with every tree reading, so the round can keep its peak. */
@@ -409,16 +414,25 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   // other, so the highest reading of any of them is the card's peak.
   let peakKB = 0;
   const onTreeKB = (kb: number) => { if (kb > peakKB) peakKB = kb; };
+  const roundStartedAt = Date.now();
   for (const [i, check] of checks.entries()) {
-    await waitForMemory(check.name);
+    const released = await waitForMemory(check.name);
+    let run: CheckRun;
+    try {
+      throwIfStopping();
+      throwIfInterrupted(opts.taskId);
+      if (opts.signal?.aborted) break;
+      run = await exec(check, {
+        cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId,
+        roundStartedAt, commit: opts.commit,
+        sampleTreeKB: opts.sampleTreeKB, treeSampleMs: opts.treeSampleMs, onTreeKB,
+      });
+    } finally {
+      released();
+    }
+    // Killed by the shutdown or by the swap brake: what came back is not a measurement.
     throwIfStopping();
-    if (opts.signal?.aborted) break;
-    const run = await exec(check, {
-      cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId,
-      sampleTreeKB: opts.sampleTreeKB, treeSampleMs: opts.treeSampleMs, onTreeKB,
-    });
-    // Killed by the shutdown: what came back is not a measurement.
-    throwIfStopping();
+    throwIfInterrupted(opts.taskId);
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
@@ -533,6 +547,8 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
           name: check.name,
           taskId: opts.taskId,
           startedAt: started,
+          roundStartedAt: opts.roundStartedAt,
+          commit: opts.commit,
           onFreeze: () => { frozenAt = Date.now(); },
           onThaw: () => {
             if (!frozenAt) return;

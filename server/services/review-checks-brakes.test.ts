@@ -6,15 +6,33 @@
  *
  * @covers KANBAN-15
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { slackMs } from "../../tests/helpers/time-slack";
-import { freezableRuns } from "./budget-governor";
+import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { runReviewChecks } from "./review-checks";
 import { ChecksInterruptedError } from "./checks-gate";
-import { _resetReviewChecksStop, stopReviewChecks } from "./review-checks-brakes";
+import {
+  _resetReleaseSpacing,
+  _resetReviewChecksStop,
+  _resetSwapBrake,
+  createSwapBrake,
+  forgetDelivery,
+  memoryWaiter,
+  releaseDecision,
+  stopReviewChecks,
+  swapInterruptedDelivery,
+  type MemoryFloor,
+} from "./review-checks-brakes";
+import { heldMemory, type HeldMemory, type MemSample, type SwapVerdict } from "./mem-signal";
+import { _resetCardMemPeaks, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
+import { killProcessTree } from "../lib/process-tree";
+
+const CALM: SwapVerdict = { sustained: false, pagesReadBackPerS: 1, debtGBPerMin: 0, coveredMs: 60_000 };
+const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 };
+const fullWindow = (gb: number): HeldMemory => ({ measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 });
 
 /** Both sides of a timing case stretched by the same factor: the ratio is the claim. */
 const stretched = (ms: number): number => slackMs(ms);
@@ -87,7 +105,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     const runs = await runReviewChecks([{ name: "dopo la memoria", cmd: "true" }], {
       cwd,
       timeoutMs: stretched(1000),
-      memoryFloor: { read: () => (Date.now() < releaseAt ? 2 : 20), floorGB: 6, pollMs: 25 },
+      memoryFloor: { held: () => fullWindow(Date.now() < releaseAt ? 2 : 20), swap: () => CALM, floorGB: 6, pollMs: 25 },
     });
     expect(Date.now() - started).toBeGreaterThanOrEqual(stretched(1500));
     expect(runs[0].ok).toBe(true);
@@ -98,7 +116,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     const started = Date.now();
     const runs = await runReviewChecks(
       [{ name: "a", cmd: "true" }, { name: "b", cmd: "true" }, { name: "c", cmd: "true" }],
-      { cwd, memoryFloor: { read: () => 1, floorGB: 6, maxWaitMs: stretched(800), pollMs: 25 } },
+      { cwd, memoryFloor: { held: () => fullWindow(1), swap: () => CALM, floorGB: 6, maxWaitMs: stretched(800), pollMs: 25 } },
     );
     expect(runs.map((r) => r.ok)).toEqual([true, true, true]);
     // One limit for the round (0.8 s), not one per command (2.4 s). Both sides
@@ -153,8 +171,273 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     expect(stop).toBeGreaterThan(thaw);
     // The production server hands the real probe to the route, and the route
     // hands it to the round. The route tests pass none, so they never wait.
-    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*read:\s*\(\)\s*=>\s*availableMemGB\(\),\s*floorGB:\s*DISPATCH_MEM_FLOOR_NATIVE_GB\s*\}/);
+    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*DISPATCH_MEM_FLOOR_NATIVE_GB\s*\}/);
+    // The brake reads the verdict of the sample just taken on the same beat.
+    const beat = server.slice(server.indexOf("const dispatchTimer = setInterval("));
+    expect(beat.indexOf("memSignal.sample()")).toBeGreaterThan(-1);
+    expect(beat.indexOf("swapBrake.tick(memSignal.swap(), freezableRuns())")).toBeGreaterThan(beat.indexOf("memSignal.sample()"));
     const route = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
     expect(route).toContain("memoryFloor: opts?.checksMemoryFloor,");
   });
+});
+
+/** A fake clock whose sleepers wake only when the test steps it: several waiters share one time. */
+function steppedClock(start = 1_760_000_000_000) {
+  let t = start;
+  let sleepers: Array<() => void> = [];
+  const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  return {
+    now: () => t,
+    sleep: () => new Promise<void>((r) => { sleepers.push(r); }),
+    async step(ms: number) {
+      t += ms;
+      const due = sleepers;
+      sleepers = [];
+      for (const wake of due) wake();
+      await settle();
+    },
+    settle,
+  };
+}
+
+/** A window built from readings every 10 s, `reading(sec)` seconds after `start`. */
+function windowOver(clock: { now: () => number }, start: number, reading: (sec: number) => number): () => HeldMemory {
+  return () => {
+    const samples: MemSample[] = [];
+    for (let at = start; at <= clock.now(); at += 10_000) {
+      samples.push({ at, availGB: reading((at - start) / 1000), swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, load1: 1 });
+    }
+    return heldMemory(samples, clock.now(), true);
+  };
+}
+
+describe("the checks waiter: the window, the swap, one release per window", () => {
+  let warn: ReturnType<typeof spyOn>;
+  const lines = () => warn.mock.calls.map((c: unknown[]) => String(c[0]));
+  beforeAll(() => { warn = spyOn(console, "warn").mockImplementation(() => {}); });
+  afterEach(() => { _resetReleaseSpacing(); warn.mockClear(); });
+  afterAll(() => { warn.mockRestore(); });
+
+  /** Steps the clock by `pollMs` until `done()` or `maxMs`; returns the elapsed seconds. */
+  async function runUntil(clock: ReturnType<typeof steppedClock>, done: () => boolean, maxMs: number, pollMs = 5_000): Promise<number> {
+    const from = clock.now();
+    await clock.settle();
+    while (!done() && clock.now() - from < maxMs) await clock.step(pollMs);
+    return (clock.now() - from) / 1000;
+  }
+
+  test("room is the floor alone: 6.0 releases, 5.9 waits, an empty window waits, off macOS nothing waits", () => {
+    const base = { swap: CALM, floorGB: 6, otherRoundRelease: null, now: 0, spentMs: 0, maxWaitMs: 1_000 };
+    expect(releaseDecision({ ...base, held: fullWindow(6) }).release).toBe(true);
+    expect(releaseDecision({ ...base, held: fullWindow(5.9) }).wait).toBe("room");
+    expect(releaseDecision({ ...base, held: { measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 } }).wait).toBe("measuring");
+    expect(releaseDecision({ ...base, held: { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 }, swap: SUSTAINED }).release).toBe(true);
+  });
+
+  test("W1, the 15/09 deadcode: one reading at 6.0 after 5.2 does not release; 120 s of readings at 6.6 do, and the release is logged", async () => {
+    const clock = steppedClock();
+    const start = clock.now();
+    // 5.2 for two minutes, 6.0 at 130 s (now), then 6.6.
+    const held = windowOver(clock, start - 130_000, (sec) => (sec < 130 ? 5.2 : sec === 130 ? 6.0 : 6.6));
+    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    let released = false;
+    void wait("deadcode").then(() => { released = true; });
+    await clock.settle();
+    expect(released).toBe(false);
+    const waited = await runUntil(clock, () => released, 10 * 60_000);
+    expect(released).toBe(true);
+    // The 6.0 reading is now: the window holds no 5.2 any more 120 s from now.
+    expect(waited).toBeGreaterThanOrEqual(120);
+    expect(waited).toBeLessThanOrEqual(125);
+    expect(lines().some((l) => l.includes('"deadcode" waits: lowest free memory of the last 2 min 5.2 GB'))).toBe(true);
+    expect(lines().some((l) => l.includes('"deadcode" starts after'))).toBe(true);
+  });
+
+  test("W3: two rounds waiting on a roomy window release one command, and the other goes when it exits or 120 s later", async () => {
+    for (const exitsAfterSec of [30, 300]) {
+      _resetReleaseSpacing();
+      const clock = steppedClock();
+      const floor: MemoryFloor = { held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep };
+      const first = memoryWaiter(floor);
+      const second = memoryWaiter(floor);
+      const releasedAt: Record<string, number> = {};
+      const t0 = clock.now();
+      let exitFirst: () => void = () => {};
+      void first("test:unit").then((done) => { releasedAt.first = (clock.now() - t0) / 1000; exitFirst = done; });
+      await clock.settle();
+      void second("lint").then(() => { releasedAt.second = (clock.now() - t0) / 1000; });
+      await clock.settle();
+      expect(releasedAt.first).toBe(0);
+      expect(releasedAt.second).toBeUndefined();
+      await runUntil(clock, () => clock.now() - t0 >= exitsAfterSec * 1000, exitsAfterSec * 1000);
+      if (exitsAfterSec === 30) {
+        exitFirst();
+        await runUntil(clock, () => releasedAt.second !== undefined, 60_000);
+        expect(releasedAt.second).toBeLessThanOrEqual(35);
+      } else {
+        expect(releasedAt.second).toBeGreaterThanOrEqual(120);
+        expect(releasedAt.second).toBeLessThanOrEqual(125);
+      }
+      expect(lines().some((l) => l.includes('"lint" waits: "test:unit" of another delivery started'))).toBe(true);
+    }
+  });
+
+  test("a round's own next command is not spaced from its predecessor, which has exited", async () => {
+    const clock = steppedClock();
+    const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const t0 = clock.now();
+    (await wait("typecheck"))();
+    await wait("lint");
+    expect(clock.now()).toBe(t0);
+  });
+
+  test("W4: sustained swap beats the fail-open: nothing starts before the swap ends, then it starts anyway", async () => {
+    const clock = steppedClock();
+    const t0 = clock.now();
+    const swap = () => {
+      const min = (clock.now() - t0) / 60_000;
+      return min >= 4 && min < 9 ? SUSTAINED : CALM;
+    };
+    const wait = memoryWaiter({ held: () => fullWindow(5), swap, floorGB: 6, maxWaitMs: 5 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    let released = false;
+    void wait("test:unit").then(() => { released = true; });
+    const waited = await runUntil(clock, () => released, 20 * 60_000);
+    expect(waited).toBe(9 * 60);
+    expect(lines().some((l) => l.includes("waits: the Mac is in sustained swap (swapins 33.6/s, memory debt +8.8 GB/min)"))).toBe(true);
+    expect(lines().some((l) => l.includes('no room after 5 min: "test:unit" starts anyway, swap not sustained'))).toBe(true);
+  });
+
+  test("W5, restart after an interruption: the thrash readings keep the first command waiting 120 s after the last of them", async () => {
+    const clock = steppedClock();
+    const start = clock.now() - 120_000;
+    // Two minutes at 4.0 (the kill came at the end of them), then 14.0.
+    const held = windowOver(clock, start, (sec) => (sec < 120 ? 4.0 : 14.0));
+    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    let released = false;
+    void wait("test:unit").then(() => { released = true; });
+    const waited = await runUntil(clock, () => released, 10 * 60_000);
+    // The last 4.0 reading is 10 s before now; the first sample of a clean
+    // window is the 14.0 of now, so the release comes 120 s from now.
+    expect(waited).toBeGreaterThanOrEqual(120);
+    expect(waited).toBeLessThanOrEqual(125);
+  });
+});
+
+describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery, never red", () => {
+  afterEach(() => { _resetSwapBrake(); });
+  const GB = 1e9 / 1024;
+  const t0 = 1_760_000_000_000;
+  const runOf = (name: string, taskId: string, roundMin: number, gb: number, commit = "c1"): FreezableRun =>
+    ({ id: `${taskId}:${name}`, pid: 1000 + roundMin, name, taskId, startedAt: t0 + roundMin * 60_000, roundStartedAt: t0 + roundMin * 60_000, commit, treeKB: gb * GB });
+
+  function brakeAt() {
+    let t = t0 + 10 * 60_000;
+    const killed: number[] = [];
+    const notes: Array<[string, string]> = [];
+    const logs: string[] = [];
+    const brake = createSwapBrake({
+      kill: async (pid) => { killed.push(pid); },
+      note: (taskId, text) => notes.push([taskId, text]),
+      log: (l) => logs.push(l),
+      now: () => t,
+    });
+    return { brake, killed, notes, logs, advance: (sec: number) => { t += sec * 1000; } };
+  }
+
+  test("S1: under sustained swap the youngest round holding >= 1 GB is killed, with a card note and a log line", () => {
+    const b = brakeAt();
+    const a = runOf("test:unit", "aaaaaaaa-1", 0, 8);
+    const bb = runOf("test:unit", "bbbbbbbb-2", 3, 2);
+    const c = runOf("typecheck", "cccccccc-3", 5, 0.4);
+    b.brake.tick(SUSTAINED, [a, bb, c]);
+    expect(b.killed).toEqual([bb.pid]);
+    expect(b.notes).toHaveLength(1);
+    expect(b.notes[0]![0]).toBe("bbbbbbbb-2");
+    expect(b.notes[0]![1]).toContain("Check interrotti, non rossi");
+    expect(b.notes[0]![1]).toContain("Interruzione 1 di 2");
+    expect(b.logs.some((l) => l.startsWith('[checks-swap] interrupted "test:unit" of bbbbbbbb'))).toBe(true);
+    expect(swapInterruptedDelivery("bbbbbbbb-2", "c1")).toBe(true);
+  });
+
+  test("S2: spacing, nothing again for 120 s", () => {
+    const b = brakeAt();
+    const a = runOf("test:unit", "aaaaaaaa-1", 0, 8);
+    const bb = runOf("test:unit", "bbbbbbbb-2", 3, 2);
+    b.brake.tick(SUSTAINED, [a, bb]);
+    b.advance(60);
+    b.brake.tick(SUSTAINED, [a]);
+    expect(b.killed).toEqual([bb.pid]);
+    b.advance(61);
+    b.brake.tick(SUSTAINED, [a]);
+    expect(b.killed).toEqual([bb.pid, a.pid]);
+  });
+
+  test("S3: two per delivery, then it runs to the end; a new commit counts again, and a verdict forgets", () => {
+    const b = brakeAt();
+    const run = runOf("test:unit", "bbbbbbbb-2", 3, 4);
+    b.brake.tick(SUSTAINED, [run]);
+    b.advance(121);
+    b.brake.tick(SUSTAINED, [run]); // the restarted round, same commit
+    b.advance(121);
+    b.brake.tick(SUSTAINED, [run]);
+    b.advance(121);
+    b.brake.tick(SUSTAINED, [run]);
+    expect(b.killed).toHaveLength(2);
+    expect(b.logs.filter((l) => l.includes("it runs to the end"))).toHaveLength(1);
+    b.advance(121);
+    b.brake.tick(SUSTAINED, [runOf("test:unit", "bbbbbbbb-2", 20, 4, "c2")]);
+    expect(b.killed).toHaveLength(3);
+    forgetDelivery("bbbbbbbb-2");
+    expect(swapInterruptedDelivery("bbbbbbbb-2", "c2")).toBe(false);
+  });
+
+  test("S4: no run >= 1 GB kills nothing and says so once per episode; calm swap kills nothing and says nothing", () => {
+    const b = brakeAt();
+    const small = runOf("typecheck", "cccccccc-3", 5, 0.46);
+    b.brake.tick(CALM, [runOf("test:unit", "aaaaaaaa-1", 0, 8)]);
+    expect(b.killed).toHaveLength(0);
+    expect(b.logs).toHaveLength(0);
+    b.brake.tick(SUSTAINED, [small]);
+    b.advance(10);
+    b.brake.tick(SUSTAINED, [small]);
+    expect(b.killed).toHaveLength(0);
+    expect(b.logs.filter((l) => l.includes("nothing to interrupt"))).toHaveLength(1);
+    b.advance(10);
+    b.brake.tick(CALM, []);
+    expect(b.logs.at(-1)).toContain("swap no longer sustained after 20 s");
+  });
+
+  test("S5, end to end on a real process: the killed round rejects as interrupted for swap, the next command never starts, no peak is recorded", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "review-checks-swap-"));
+    const marker = join(cwd, "ran-after-swap-kill");
+    _resetCardMemPeaks();
+    try {
+      const round = runReviewChecks(
+        [{ name: "lungo", cmd: "sleep 120" }, { name: "dopo", cmd: `touch ${marker}` }],
+        { cwd, taskId: "swap-probe", commit: "c1", timeoutMs: 300_000, treeSampleMs: 50 },
+      );
+      const outcome = round.then(() => "resolved", (e: unknown) => e);
+      let run = freezableRuns().find((r) => r.taskId === "swap-probe");
+      for (let i = 0; !run && i < 200; i++) {
+        await Bun.sleep(25);
+        run = freezableRuns().find((r) => r.taskId === "swap-probe");
+      }
+      expect(run).toBeDefined();
+      expect(run!.commit).toBe("c1");
+      expect(typeof run!.roundStartedAt).toBe("number");
+      run!.treeKB = 8 * GB;
+      const logs: string[] = [];
+      createSwapBrake({ kill: (pid) => killProcessTree(pid), note: () => {}, log: (l) => logs.push(l) }).tick(SUSTAINED, [run!]);
+      const killedAt = Date.now();
+      const err = await outcome;
+      expect(err).toBeInstanceOf(ChecksInterruptedError);
+      expect((err as ChecksInterruptedError).reason).toBe("swap");
+      expect(Date.now() - killedAt).toBeLessThan(stretched(10_000));
+      expect(() => process.kill(run!.pid, 0)).toThrow();
+      expect(existsSync(marker)).toBe(false);
+      expect(recentCardMemPeaksGB()).toEqual([]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
