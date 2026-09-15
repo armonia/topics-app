@@ -303,7 +303,10 @@ describe("the cap by resources: over the budget nothing starts, under it it does
 
     // The floor lifts: count mode has nothing to say, the budget admits again,
     // and a poll does not announce the restart the tick has not seen yet.
+    // Lifted means memory came back: at 5.5 GB one more card priced at 4 GB
+    // would still not fit in 60% of the free, and the budget would say memory.
     floor.reason = null;
+    h.machine.pressure = { ...h.machine.pressure, availableMemGB: 12 };
     h.svc.setGlobalCap({ mode: "count" });
     expect(h.dispatcher.admissionPreview?.()).toBeNull();
     h.svc.setGlobalCap({ mode: "resources" });
@@ -333,15 +336,16 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     await flush();
     expect(h.topicsCreated).toHaveLength(1);
 
-    // One turn launched a moment ago, priced at 1 core-unit and 1.5 GB: the
-    // probe still says 1, the gate counts 2, and 1.5 GB of the 20 free are gone.
+    // One turn launched a moment ago, priced at 1 core-unit and at the 4 GB
+    // floor of a card's memory: the probe still says 1, the gate counts 2, and
+    // 4 GB of the 20 free are held for it, so 50% of 16 is left.
     expect(h.dispatcher.admissionPreview?.()).toMatchObject({
       admit: true,
       usedCoreUnits: 2,
       usableCoreUnits: 5.5,
       pendingAdmissions: 1,
-      costMemGB: 1.5,
-      freeQuotaMemGB: 9.25,
+      costMemGB: 4,
+      freeQuotaMemGB: 8,
       ourMemGB: 3,
       memClause: null,
     });
@@ -500,7 +504,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     const notes = h.notes("m2", "Non c'è memoria per un altro agent");
     expect(notes).toHaveLength(1);
     // The quota clause: the two numbers the axis compared.
-    expect(notes[0]!.content).toContain("ne servono 1,5 GB, liberi per Topics 0,4 GB");
+    expect(notes[0]!.content).toContain("ne servono 4,0 GB, liberi per Topics 0,4 GB");
     expect(h.dispatcher.admissionPreview?.()).toMatchObject({ blockedBy: "memory", memClause: "quota" });
   });
 
