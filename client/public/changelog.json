@@ -1,5 +1,38 @@
 [
   {
+    "version": "2.2.328",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-15 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.327",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La board di progetto ha il suo test sulla finestra, e i testi dicono della prima scrittura immediata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.326",
     "date": "2026-09-15",
     "sections": {
@@ -14,6 +47,11 @@
         },
         {
           "it": "CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giornale di localStorage smette di crescere di 11 MB al minuto",
           "en": "",
           "scope": null
         }

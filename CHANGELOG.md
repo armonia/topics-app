@@ -2,11 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.328 — 2026-09-15
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-15 [skip ci]
+
+## 2.2.327 — 2026-09-15
+
+### Sotto il cofano
+- La board di progetto ha il suo test sulla finestra, e i testi dicono della prima scrittura immediata
+
 ## 2.2.326 — 2026-09-15
 
 ### Sotto il cofano
 - Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile
 - CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira
+- Il giornale di localStorage smette di crescere di 11 MB al minuto
 
 ## 2.2.325 — 2026-09-15
 
