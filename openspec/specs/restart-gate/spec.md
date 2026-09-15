@@ -171,6 +171,14 @@ riavvio la porta SHALL essere chiusa e le fonti rilette una volta ancora, così
 nessuna card parte nel varco fra «niente trattiene» e lo spegnimento. Il
 dispatcher SHALL dire nel log quando la porta si riapre e perché.
 
+Lo stream di un turno di CARD non è una chat e NON SHALL contare fra chi tiene
+aperta la porta. Misura del 14/09/2026: un turno di card passa da `/api/chat` come una chat, quindi
+la sua sessione compare fra gli stream vivi. Contata come chat, ogni card in volo
+riapriva la porta da sola: «drain: 3 in volo» seguito subito da «drain tolto»,
+con i soli tre topic delle card in streaming, e altre card partite dietro un
+riavvio in attesa (4, 8, poi 15 turni a 208, 268 e 328 s) che quel riavvio ha
+poi tagliato.
+
 #### Scenario: trattiene una chat nativa
 - **GIVEN** un riavvio in attesa, nessuna card in volo, una chat del runtime nativo in streaming
 - **THEN** la porta SHALL essere aperta e le card in coda SHALL partire
@@ -178,3 +186,69 @@ dispatcher SHALL dire nel log quando la porta si riapre e perché.
 #### Scenario: la chat finisce, restano card
 - **GIVEN** la stessa attesa dopo la fine della chat, con due card in volo
 - **THEN** la porta SHALL richiudersi, e il riavvio SHALL seguire la fine di quelle due card
+
+#### Scenario: trattengono solo card, e ognuna sta streammando
+- **GIVEN** un riavvio in attesa, tre card in volo, e nel registro degli stream esattamente le sessioni di quelle tre card
+- **THEN** la porta SHALL restare chiusa: lo stream di un turno di card è la card stessa, non una chat
+- **AND** una chat di una persona accanto a quelle card, da qualunque fonte, SHALL riaprirla
+
+### Requirement: RGATE-05 — Lo script di produzione non taglia ciò che il server protegge
+
+Il rinvio del server vale solo se chi manda il SIGTERM lo legge. Lo script che
+chiede il riavvio (`scripts/server-watch.sh`) SHALL rispettare il battito di
+rinvio su OGNI strada per cui la sua richiesta ha ricevuto 202, qualunque sia il
+tentativo che l'ha ottenuto, anche in un sorvegliante appena ripartito. Il
+14/09/2026 il terzo ramo aspettava 1560 s fissi senza guardarlo, e ha tagliato
+dodici card mentre il server scriveva «RINVIATO da 1557s».
+
+Il battito SHALL restare valido per una finestra misurata sugli STALLI del
+server, non sulla sua cadenza: sotto swap il ciclo che lo scrive si è fermato
+fino a 87 s, e un battito invecchiato da uno stallo non SHALL essere letto come
+fine del rinvio. Un server morto lo scopre già il controllo sul processo.
+
+Un server che non risponde a `restart-when-idle` SHALL essere RICHIESTO di nuovo
+a intervalli, con un tempo di risposta adatto a un ciclo in stallo, per tutta la
+finestra che il server stesso si concederebbe (il suo tetto più il margine di
+spegnimento). Solo dopo quella finestra SHALL partire il SIGTERM, e il SIGKILL
+SHALL aspettare almeno cinque minuti che `gracefulShutdown` finisca. Il 14/09 un
+server fermo 87 s per swap ha preso il SIGTERM dopo circa 140 s di richieste da
+3-5 s, con tre card tagliate, e il SIGKILL 54 s dentro uno spegnimento che stava
+ancora girando.
+
+#### Scenario: il 202 arriva a un tentativo successivo e il server rinvia
+- **GIVEN** le prime richieste scadute, un 202 ottenuto più tardi, e un battito di rinvio invecchiato da uno stallo lungo
+- **THEN** oltre la finestra dello script il server NON SHALL ricevere nessun SIGTERM
+
+#### Scenario: un server lento che per molte richieste non risponde
+- **GIVEN** un server vivo che non risponde per più richieste di quante ne facesse la vecchia ultima spiaggia
+- **THEN** SHALL essere richiesto di nuovo, non tagliato
+- **AND** la richiesta che arriva SHALL portare all'attesa paziente
+
+#### Scenario: un server che non risponde mai
+- **GIVEN** un server vivo che non risponde per tutta la finestra
+- **THEN** SHALL ricevere un SIGTERM, e il SIGKILL solo dopo almeno cinque minuti
+
+### Requirement: RGATE-06 — Lo script chiede un riavvio solo per codice che il server non ha caricato
+
+Un riavvio chiesto per niente trattiene la board quanto uno vero. Lo script SHALL
+chiedere un riavvio solo quando esiste un sorgente del server NON più vecchio
+dell'istante in cui il processo corrente è nato (il pidfile, scritto subito dopo
+lo spawn): tutto ciò che è più vecchio il server l'ha caricato. Il 15/09/2026
+alle 01:51 un server nato otto secondi prima di scrivere il proprio stato ha
+ricevuto un riavvio per due merge più vecchi della sua nascita, e quel riavvio
+teneva le card che il boot aveva appena ripreso.
+
+I sorgenti del server SHALL comprendere, oltre a `server/` e `server.ts`, i file
+di `shared/` che il grafo dei moduli del server importa, e solo quelli: una
+correzione atterrata soltanto in `shared/machine-budget.ts` non arrivava al
+server, mentre un file di `shared/` che usa solo il client non SHALL chiedere
+riavvii che tagliano turni.
+
+#### Scenario: il server è nato dopo l'ultima modifica
+- **GIVEN** un contenuto cambiato, ma ogni sorgente più vecchio del pidfile del server vivo
+- **THEN** NON SHALL partire nessuna richiesta di riavvio
+- **AND** una modifica più nuova del pidfile SHALL invece chiederlo
+
+#### Scenario: una modifica in shared/
+- **GIVEN** un file di `shared/` che il server importa e uno che non importa
+- **THEN** cambiare il primo SHALL chiedere il riavvio, cambiare il secondo NON SHALL

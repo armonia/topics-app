@@ -73,7 +73,7 @@ async function stubIdentity(
   // stub is not a smaller stub, it is a different server: the followers page
   // reads the counters, and a person without them took the pane down to its
   // error screen while the test was blaming the deep link.
-  await page.route("**/api/people", (r) =>
+  await page.route(/\/api\/people(\?[^/]*)?$/, (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({
         people: rubrica.map((p) => ({

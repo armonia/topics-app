@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -68,7 +68,9 @@ import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOut
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
-import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
+import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
+import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -410,6 +412,21 @@ export interface TasksRouterOpts {
    * e senza accoppiamenti circolari.
    */
   onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
+  /**
+   * The memory a pre-review command waits for before it starts: a delivery's
+   * unit tree is 4-11 GB, and nothing else holds it back once the card was
+   * admitted. Passed by `server.ts` with the real probe. Absent = the checks
+   * never wait on memory, which is what the route tests need: their result must
+   * not depend on how much memory the machine running them has left.
+   */
+  checksMemoryFloor?: MemoryFloor;
+  /**
+   * Reads the pull request CI verdicts for the delivered commit (KANBAN-84): one
+   * row per declared `github-ci:*` check, from one push and one poll loop, called
+   * only after every local command is green and the lane is given back.
+   * Absent with a declared CI row = NOT MEASURED, never a pass.
+   */
+  ciEvidence?: (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun[]>;
 }
 
 /**
@@ -936,7 +953,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // default when every agent also ran the whole suite by itself; since the
   // envelope stopped that (2026-09-04) a run costs ~6-8 load for ~7 minutes,
   // and with six agents delivering in the same quarter hour a single lane
-  // meant 40+ minutes of queue for the last one - past the 50-minute cap of
+  // meant 40+ minutes of queue for the last one - past the 50-minute cap (now 100) of
   // `update_task`. Two lanes on twelve cores keep the load under ~20 and halve
   // the queue; smaller machines keep the one lane. `TOPICS_CHECKS_LANES`
   // overrides either way.
@@ -980,7 +997,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    *
    * The checks run in the registry and the status moves only when a leg comes
    * back with the verdict - and the leg is the MCP client polling every 25 s,
-   * for at most 50 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
+   * for at most 100 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
    * cards resumed together, delivered at once, and sat in the gate's slot
    * queue past that cap: `update_task` threw, each agent ended its turn saying
    * "consegnato", the checks finished green minutes later and NOBODY applied
@@ -1065,6 +1082,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     let checks: ReviewCheck[] = [];
     try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
     if (!checks.length) return null;
+    // A server on its way out starts no round: the realign below would run a
+    // merge in the worktree that the exit can cut in half, and the round would
+    // be interrupted before its first command anyway. The leg is HELD for its
+    // length, like a leg with a round in flight, so the socket close answers it
+    // and the client retries that silence within its grace. Answered at once,
+    // the client calls again in a tight loop for the whole exit (~3.5 s of
+    // provider grace), and every call spends one of its legs.
+    if (reviewChecksStopping()) {
+      await Bun.sleep(legMs);
+      return { interrupted: true };
+    }
     // THE CHECKS MEASURE THE TREE THAT LANDS. On 2026-09-04 three cards
     // (4c4ac437, 882f81b9, c8039b35) burnt a turn each on an "inherited" red:
     // a bloat baseline main had already moved while their branch sat on an
@@ -1078,7 +1106,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // IS the verdict: not a single command runs, and the agent gets the file
     // list instead of a timeout.
     const before = await opts.taskCheckoutRef(taskId).catch(() => null);
-    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null);
+    // A round the swap brake interrupted restarts as the SAME delivery: realigned
+    // again, two `git merge main` in one worktree (a server re-issue and a client
+    // leg) race on index.lock and write a failed realign as a red.
+    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null)
+      || swapInterruptedDelivery(taskId, before?.commit ?? null);
     if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
         .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
@@ -1104,69 +1136,107 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
+    // The CI evidence rows never reach a shell: they are read after the local commands.
+    const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
+    const ciChecks = checks.filter(isCiEvidenceCheck);
+
+    const measure = async (lane: ChecksLane) => {
+      // 'running' subito e in broadcast: i comandi possono durare minuti e una
+      // board ferma senza spiegazioni si legge come "si è impiantato".
+      try {
+        const t = svc.recordChecks({
+          taskId, state: "running", commit: ref.commit, runs: null,
+          // Zero su N: la spia si accende gia' sapendo QUANTI comandi
+          // aspettano, cosi' la card dice «0/4» invece di «in corso».
+          progress: { done: 0, total: checks.length },
+        });
+        broadcastToAll({ type: "task:updated", projectId, task: t });
+      } catch { /* il gate vale anche senza la spia */ }
+
+      /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
+       *
+       * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
+       * i comandi giravano uno per uno e la card diceva «check in corso»
+       * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
+       * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
+       *
+       * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
+       * continua: un progresso mancato non deve poter fermare una consegna. */
+      const runs = await runReviewChecks(localChecks, {
+        cwd: ref.cwd,
+        // So a run frozen for load can say so in THIS card's thread.
+        taskId,
+        commit: ref.commit,
+        // No new command starts under the memory floor (see `MemoryFloor`).
+        memoryFloor: opts?.checksMemoryFloor,
+        onProgress: (_run, i) => {
+          try {
+            const t = svc.recordChecks({
+              taskId, state: "running", commit: ref.commit,
+              // I run PARZIALI viaggiano con lui: un comando gia' rosso si
+              // vede subito nel drawer, invece di aspettare la fine del giro.
+              runs: null,
+              progress: { done: i + 1, total: checks.length },
+            });
+            broadcastToAll({ type: "task:updated", projectId, task: t });
+          } catch { /* una spia persa non ferma il gate */ }
+        },
+      });
+      if (ciChecks.length && runs.length === localChecks.length && runs.every((r) => r.ok)) {
+        // Waiting on GitHub holds no CPU: give the lane to the next card's run.
+        lane.release();
+        // A reader that throws measured nothing: NOT MEASURED, like its own
+        // docstring promises. Left to the gate, the exception became the `null`
+        // of a run that blew up, which the delivery reads as "no gate at all",
+        // and the card entered review with no e2e verdict. Only a shutdown
+        // passes through, as the interrupted outcome it already has.
+        const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+        const ciRuns = ref.commit && opts?.ciEvidence
+          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
+            if (err instanceof ChecksInterruptedError) throw err;
+            return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
+          })
+          : unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit");
+        // One row per declared CI check, whatever the reader answered.
+        runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
+        throwIfStopping();
+      }
+      const ok = runs.length === checks.length && runs.every((r) => r.ok);
+      const comment = formatChecksComment(runs, { commit: ref.commit });
+      const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
+      try {
+        // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
+        // la parola del commento: uno SCADUTO non ha misurato niente, e
+        // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
+        // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
+        // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
+        // qualcuno non e' arrivato in fondo.
+        svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
+        forgetDelivery(taskId);
+        // Green is service bookkeeping; red is a visible outcome. The thread
+        // keeps only the compact verdict and first failure. Commands and logs
+        // remain in checks_json, rendered by the expandable ChecksSection.
+        svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
+        const t = svc.get(taskId, { projectId })?.task;
+        if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+      } catch { /* l'esito conta più della sua registrazione */ }
+      settleDelivery(taskId);
+      return { ok, comment };
+    };
 
     return checksGate.leg(taskId, {
       commit: ref.commit ?? null,
       legMs,
-      run: async () => {
-        // 'running' subito e in broadcast: i comandi possono durare minuti e una
-        // board ferma senza spiegazioni si legge come "si è impiantato".
+      run: async (lane) => {
         try {
-          const t = svc.recordChecks({
-            taskId, state: "running", commit: ref.commit, runs: null,
-            // Zero su N: la spia si accende gia' sapendo QUANTI comandi
-            // aspettano, cosi' la card dice «0/4» invece di «in corso».
-            progress: { done: 0, total: checks.length },
-          });
-          broadcastToAll({ type: "task:updated", projectId, task: t });
-        } catch { /* il gate vale anche senza la spia */ }
-
-        /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
-         *
-         * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
-         * i comandi giravano uno per uno e la card diceva «check in corso»
-         * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
-         * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
-         *
-         * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
-         * continua: un progresso mancato non deve poter fermare una consegna. */
-        const runs = await runReviewChecks(checks, {
-          cwd: ref.cwd,
-          // So a run frozen for load can say so in THIS card's thread.
-          taskId,
-          onProgress: (_run, i, total) => {
-            try {
-              const t = svc.recordChecks({
-                taskId, state: "running", commit: ref.commit,
-                // I run PARZIALI viaggiano con lui: un comando gia' rosso si
-                // vede subito nel drawer, invece di aspettare la fine del giro.
-                runs: null,
-                progress: { done: i + 1, total },
-              });
-              broadcastToAll({ type: "task:updated", projectId, task: t });
-            } catch { /* una spia persa non ferma il gate */ }
-          },
-        });
-        const ok = runs.length === checks.length && runs.every((r) => r.ok);
-        const comment = formatChecksComment(runs, { commit: ref.commit });
-        const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
-        try {
-          // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
-          // la parola del commento: uno SCADUTO non ha misurato niente, e
-          // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
-          // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
-          // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
-          // qualcuno non e' arrivato in fondo.
-          svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
-          // Green is service bookkeeping; red is a visible outcome. The thread
-          // keeps only the compact verdict and first failure. Commands and logs
-          // remain in checks_json, rendered by the expandable ChecksSection.
-          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
-          const t = svc.get(taskId, { projectId })?.task;
-          if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-        } catch { /* l'esito conta più della sua registrazione */ }
-        settleDelivery(taskId);
-        return { ok, comment };
+          return await measure(lane);
+        } catch (err) {
+          // Interrupted for swap: no verdict, and nothing else would restart the
+          // round if no client leg comes back. The remembered PATCH is re-issued
+          // once the key is gone, and its first command waits for the swap to end.
+          if (err instanceof ChecksInterruptedError && err.reason === "swap") setTimeout(() => settleDelivery(taskId), 0);
+          throw err;
+        }
       },
     });
   }
@@ -2226,19 +2296,40 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // again": the task does not move until there is one, and the MCP client
     // (callUpdateTask) is the one that polls.
     const outcome = await runChecksGate(taskId, projectId, legMs).catch(() => null);
+    const legInFlight = (task: Task | undefined) => json({
+      pending: true,
+      code: "review_checks_running",
+      legMs,
+      status: task?.status ?? null,
+      checksState: task?.checksState ?? "running",
+    }, 202);
+    // THE SERVER STOPPED THE ROUND: nothing was measured, so this is neither a
+    // red nor "no checks". Read as `null` it let the PATCH go on and the card
+    // entered review with `checksState: running` on every watcher reload. The
+    // answer is the one of a leg still in flight, not an error: the only
+    // client (`callUpdateTask`) calls again, meets the closed socket and
+    // retries it within its transport grace, and after the restart a fresh
+    // round measures the delivery. A 503 was thrown at the agent instead, which
+    // cannot wait a minute and called again into the dead server.
+    if (outcome && "interrupted" in outcome) {
+      // The swap brake keeps the delivery: the server re-issues it when the round
+      // is gone. A shutdown forgets it, and the client's leg after the restart
+      // measures it again.
+      if (outcome.reason === "swap" && body && typeof body === "object") {
+        pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
+      } else {
+        pendingDeliveries.delete(taskId);
+        checksWaitSince.delete(taskId);
+      }
+      return legInFlight(svc.get(taskId, { projectId })?.task);
+    }
     if (outcome && "pending" in outcome) {
       // Remembered with the body as sent: the server re-issues THIS request
       // on the same path when the run ends, should the client stop polling.
       if (body && typeof body === "object") pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
       const task = svc.get(taskId, { projectId })?.task;
       tellChatAboutChecksWait(chat.sessionKey, chat.topicId, taskId, projectId, task);
-      return json({
-        pending: true,
-        code: "review_checks_running",
-        legMs,
-        status: task?.status ?? null,
-        checksState: task?.checksState ?? "running",
-      }, 202);
+      return legInFlight(task);
     }
     pendingDeliveries.delete(taskId);
     checksWaitSince.delete(taskId);

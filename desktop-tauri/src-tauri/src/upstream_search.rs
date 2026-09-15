@@ -353,6 +353,33 @@ mod tests {
         assert_ne!(decide_boot(facts), BootChoice::SpawnSidecar);
     }
 
+    /// THE BUDGET IS SPENT IN TIME, NOT IN ROUNDS, and this is the test that
+    /// notices if it goes back to counting them (board card c0faad1d). The pair
+    /// above proves the patience outlives the budget as two constants; nothing
+    /// proved it inside the loop, so `round_n >= if seen_before { 60 } else { 8 }`
+    /// with the budget ignored left all seven tests green.
+    ///
+    /// The shape is the measurement, scaled down: rounds several times shorter
+    /// than the window, and a production that takes its lock after eight of them.
+    /// Counting rounds gives up at 400ms and reports no daemon; spending 1.1s of
+    /// budget is still there at 550ms, when the lock appears.
+    #[test]
+    fn the_budget_is_a_length_of_time_and_not_a_number_of_rounds() {
+        let started = Instant::now();
+        let facts = rt().block_on(discover_upstream(
+            false,
+            TEST_WINDOW + TEST_ROUND * 4,
+            TEST_WINDOW,
+            |_, _| async { foreign() },
+            move || (None, started.elapsed() >= Duration::from_millis(550)),
+            || tokio::time::sleep(Duration::from_millis(50)),
+        ));
+        assert!(
+            facts.state_pid_alive,
+            "the search ended before the budget was spent: it is counting rounds again"
+        );
+    }
+
     /// A TOPICS ANSWER ENDS THE LOOP AT ONCE, on the address that answered. There
     /// is nothing left to wait for and nothing to decide.
     #[test]

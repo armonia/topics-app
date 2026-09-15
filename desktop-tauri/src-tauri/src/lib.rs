@@ -1698,7 +1698,13 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // (2026-08-28) — the whole of which the window spent showing a bare red dot.
     // Retracted below the moment an answer arrives, so a machine whose server is
     // simply slow never keeps the sentence.
-    if seen_before {
+    //
+    // AND ONLY WHERE THE MARKER IS THE REASON, which is the same condition the
+    // `WaitForKnownServer` branch applies at the end (board card c0faad1d). With a
+    // daemon pid alive on this machine the shell would wait for that server with or
+    // without the marker, so offering to delete it here for the ~42s of the search
+    // is offering a way out that leads back to the same wait.
+    if seen_before && !daemon_pid_is_alive() {
         set_degraded_marker(Some(marker.display().to_string()));
     }
     // SHAPE-AWARE discovery, not just "some server is here", and the rule that
@@ -1755,6 +1761,10 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             // recycled pid the button sends somebody to delete a file and land
             // right back on this same wait (reproduced 2026-09-14). Same for a
             // marker that is not there: the path was published regardless.
+            //
+            // This is a RETRACTION when the pid came alive during the search, and
+            // the client has to be able to hear it: it asks again for as long as it
+            // is disconnected instead of keeping the first yes (`bootDegraded.ts`).
             let marker_is_the_reason = seen_before && !facts.state_pid_alive;
             set_degraded_marker(
                 marker_is_the_reason.then(|| marker.display().to_string()),
@@ -5556,9 +5566,8 @@ fn browser_animate_bounds(
 /// token) notices nothing. Measured with AppKit on NSTextView and WKWebView
 /// (review of card e0821533); `wkzprobe z` checks it as
 /// `first-responder-survives-the-raise`.
-// ENGINES: wkwebview - AppKit is the only engine whose child stacking has been measured (tools/wkzprobe, card e0821533): subview order, raised in place with addSubview:positioned:above:.
-// ENGINES-GAP: webview2 - same hole as AppKit, read in the wry 0.55.1 source (every child HWND is born with SetWindowPos HWND_TOP, set_bounds passes SWP_NOZORDER): the command answers Ok and moves nothing until the WebView2 raise task of card e0821533 (tasks.md, Tornata 2) lands.
-// ENGINES-GAP: webkitgtk - not probed: wry puts every child with GtkFixed.put, which appends; the command answers Ok and moves nothing, and the same task of card e0821533 decides between a probed raise and an explicit open gap.
+// ENGINES: wkwebview, webview2 - both measured with tools/wkzprobe, one backend each, same six verdicts. AppKit (card e0821533): subview order, raised in place with addSubview:positioned:above:. Win32 (card 2e7e769c): z order of the WRY_WEBVIEW container HWNDs, raised in place with SetWindowPos HWND_TOP plus SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE, and falsified, since commenting out that one call flips raise-wins to false.
+// ENGINES-GAP: webkitgtk - the arm is wired (browser_linux::raise: GdkWindow::raise), but nothing has probed whether a WebKitWebView owns its GdkWindow, and without that the call is a no-op rather than a raise.
 #[tauri::command]
 fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
     no_abort("browser_raise", move || {
@@ -5581,8 +5590,10 @@ fn browser_raise(app: tauri::AppHandle, id: String) -> Result<(), String> {
             // removeFromSuperview first: it would take the keyboard away.
             let _: () = msg_send![parent, addSubview: view, positioned: 1isize, relativeTo: nil];
         });
-        #[cfg(not(target_os = "macos"))]
-        let _ = wv;
+        #[cfg(target_os = "windows")]
+        crate::browser_win::raise(&wv)?;
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        crate::browser_linux::raise(&wv)?;
         Ok(())
     })
 }

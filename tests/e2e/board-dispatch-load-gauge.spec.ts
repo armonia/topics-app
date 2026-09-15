@@ -26,6 +26,9 @@
  *    (it used to stay empty in that mode, which is a gauge saying nothing in
  *    the mode whose whole question is "how full is it"), and the popover says
  *    it in ONE line, agents and cores, plus the frozen check runs.
+ *  - GAUGE-07  memory holds the queue while the CPU is inside the budget: the
+ *    ring is full and the word says memory, and the popover prints the
+ *    gigabytes the gate compared and the verdict with its numbers.
  *
  * The cap is left in its default (by count, auto): the derivation line only
  * exists when the machine is what produced the limit, and auto is what the
@@ -289,6 +292,52 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     // the failure would land on THAT test instead of this one. Measured here:
     // GAUGE-05 went red once and green on the retry, because the retry resets
     // the server.
+    await page.keyboard.press("Escape");
+    await gear(page).click();
+    await page.getByTestId("global-cap-brake-count").click();
+    await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
+  });
+
+  test("GAUGE-07: la memoria trattiene la coda: l'anello e' pieno, la parola dice memoria, il popover i GB", async ({ page }) => {
+    // The night's shape: our CPU well inside the budget, memory holding the
+    // queue. The ring used to fill with the CPU (61%) and say "a budget".
+    await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          recommended: 4, cores: 12, totalMemGB: 34, availableMemGB: 7, load1: 6, running: 16,
+          oursCores: 3, budgetCores: 5.5,
+          budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 6.6,
+          usedCoreUnits: 4, usedMemGB: 22, otherCoreUnits: 1, frozen: 0,
+          agentCostMemGB: 1.5, freeQuotaMemGB: 4.2,
+          admission: {
+            admit: false, blockedBy: "memory", firstAgentExempt: false, costCoreUnits: 0.5,
+            usedCoreUnits: 4, usableCoreUnits: 6.6, pendingAdmissions: 0,
+            costMemGB: 1.5, freeQuotaMemGB: 4.2, ourMemGB: 22, usableMemGB: 20.4, memClause: "footprint",
+          },
+          reason: "12 core, base 4",
+        }),
+      }));
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    await page.getByTestId("global-cap-brake-resources").click();
+    await expect(page.getByTestId("global-cap-verdict")).toHaveText("i nuovi aspettano: memoria, Topics tiene 22.0 GB su un tetto di 20.4 GB");
+    await page.keyboard.press("Escape");
+
+    const g = gauge(page);
+    await expect(word(page)).toHaveText("aspetta: memoria");
+    await expect(g).toHaveAttribute("data-held", "memory");
+    await expect(g).toHaveAttribute("data-fill", "1.00");
+
+    await g.click();
+    const popover = page.getByTestId("dispatch-load-popover");
+    await expect(popover.getByTestId("dispatch-load-memory")).toHaveText("memoria: Topics tiene 22.0 GB, liberi per Topics 4.2 GB, un agent ne chiede 1.5");
+    await expect(popover.getByTestId("dispatch-load-verdict")).toHaveText("i nuovi aspettano: memoria, Topics tiene 22.0 GB su un tetto di 20.4 GB");
+    await page.screenshot({ path: join(SHOTS, "07-memoria.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
+
+    // Back to count, for the same reason as GAUGE-06.
     await page.keyboard.press("Escape");
     await gear(page).click();
     await page.getByTestId("global-cap-brake-count").click();

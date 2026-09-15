@@ -151,6 +151,23 @@ const TRACE_SCREENCAST = process.env.E2E_TRACE_SCREENCAST === "1";
 // una clip va davvero girata per un umano.
 const SLOWMO = process.env.E2E_SLOWMO === "1";
 
+// No e2e on a Mac outside GitHub Actions (change mac-usabile-sotto-carico,
+// decided 2026-09-15). Every project below launches Chromium, and no Chromium
+// may run on the owner's Mac: that day agents ran 71 raw `playwright test` in 15
+// hours, while the board re-read the e2e from the pull request CI anyway. The
+// written rule alone did not reach every route (a change's bar still said
+// `npx playwright test`, and `qa:gate` runs the shards), so the config refuses.
+// `--list` launches nothing and stays allowed: the shard planner and
+// `check:test-skips` use it. The flag is handed to any child Playwright loads
+// the config in, which does not see the parent's argv.
+if (process.argv.includes("--list")) process.env.TOPICS_E2E_LIST_ONLY = "1";
+if (process.platform === "darwin" && process.env.GITHUB_ACTIONS !== "true" && process.env.TOPICS_E2E_LIST_ONLY !== "1") {
+  throw new Error(
+    "E2E does not run on this Mac: no Chromium here. Commit the spec and read the e2e jobs of the pull request CI " +
+      "(the board does it for a delivery: github-ci:e2e), or run it on the Windows PC.",
+  );
+}
+
 export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   testDir: "./tests/e2e",

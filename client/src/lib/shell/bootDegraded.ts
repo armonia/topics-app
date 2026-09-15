@@ -55,44 +55,48 @@ export function parseBootDegraded(raw: unknown): BootDegraded | null {
 /**
  * Ask the shell whether this boot is the degraded one.
  *
- * ONLY A YES IS CACHED, and that asymmetry is the whole point. Measured on the
- * Windows machine on 2026-08-28, with a stopwatch on the shell's own stderr: the
- * window paints at about +5s, and the boot verdict lands at about +150s. The
- * probe loop is sixty rounds of two connections with a gap between them, which on
- * that machine is minutes rather than the "~42s" its own message claims. So a
- * question asked once, at mount, is asked roughly 145 seconds before the shell has
- * an answer — and caching that "no" meant the explanation could never appear for
- * the whole life of the app. The bar said `Offline` and nothing else, which is
- * exactly the state this was written to cure.
+ * NO ANSWER IS CACHED, and the yes least of all. Measured on the Windows machine
+ * on 2026-08-28, with a stopwatch on the shell's own stderr: the window paints at
+ * about +5s, and the boot verdict lands at about +150s. So a question asked once,
+ * at mount, is asked roughly 145 seconds before the shell has an answer, and
+ * caching that early "no" meant the explanation could never appear for the whole
+ * life of the app.
  *
- * A yes is terminal: the verdict is written once and never unset, so it is cached
- * and never asked again. A no may simply be early, so it is not cached and the
- * caller is free to ask again — which it should do only while disconnected, since
- * a connected app has nothing to explain.
+ * The yes was cached too, on the belief that the verdict was written once and
+ * never unset. It is not: the shell publishes the marker's path before the search
+ * and RETRACTS it on the branch where deleting the marker would change nothing (a
+ * live daemon pid, `lib.rs` `WaitForKnownServer`). A cached yes survived that
+ * retraction, so the bar kept offering "delete the marker" for the rest of the
+ * session and the button answered "not degraded" (board card c0faad1d). The only
+ * true answer is the last one the shell gave, so every call asks.
  *
- * Off Tauri the null IS cached: there is no shell to change its mind.
+ * Off Tauri the answer is null without asking anybody: a browser tab has no
+ * shell to have a verdict.
  */
-export function fetchBootDegraded(): Promise<BootDegraded | null> {
-  if (cached) return cached;
-  if (shellKind !== 'tauri') {
-    cached = Promise.resolve(null);
-    return cached;
-  }
-  const asked = tauriInvoke<unknown>('boot_degraded')
+export function fetchBootDegraded(askShell: () => Promise<unknown> = shellAnswer): Promise<BootDegraded | null> {
+  // Concurrent callers still share one round trip, and the sharing ends with the
+  // answer: the next question is a new question.
+  if (inFlight) return inFlight;
+  const asked = askShell()
     .then(parseBootDegraded)
     // An older shell has no such command. Silence is the right answer: the client
     // then behaves exactly as it did before this existed.
     .catch(() => null);
-  // Hold the in-flight promise so concurrent callers share one round trip, then
-  // keep it only if the answer was a yes.
-  cached = asked;
-  void asked.then((d) => {
-    if (!d && cached === asked) cached = null;
+  inFlight = asked;
+  void asked.then(() => {
+    if (inFlight === asked) inFlight = null;
   });
   return asked;
 }
 
-let cached: Promise<BootDegraded | null> | null = null;
+/** The transport, named so a test can hand in a shell that changes its mind
+ *  without replacing the module for the whole process. */
+function shellAnswer(): Promise<unknown> {
+  if (shellKind !== 'tauri') return Promise.resolve(null);
+  return tauriInvoke<unknown>('boot_degraded');
+}
+
+let inFlight: Promise<BootDegraded | null> | null = null;
 
 /**
  * Do the way out instead of describing it: the shell deletes the marker and
@@ -114,6 +118,38 @@ export async function clearBootDegraded(): Promise<string> {
     // An older shell has no such command; the printed path is still the way out.
     return 'unsupported';
   }
+}
+
+/**
+ * KEEP ASKING WHILE THERE IS NOTHING TO CONNECT TO, and report every answer,
+ * the null included.
+ *
+ * The bar used to stop at the first yes (`if (degraded || connected) return;`),
+ * which is the client half of the same bug as the cache above: the shell retracts
+ * its verdict when the marker is not what makes it wait, and nobody was listening
+ * any more. So the loop runs for as long as the app is disconnected and hands over
+ * whatever the shell says now, so the sentence and its button disappear the moment
+ * they stop being true.
+ *
+ * Returns the stopper, which is what a React effect has to give back.
+ */
+export function watchBootDegraded(
+  report: (d: BootDegraded | null) => void,
+  intervalMs = 5000,
+  ask: () => Promise<BootDegraded | null> = fetchBootDegraded,
+): () => void {
+  let alive = true;
+  const round = () => {
+    void ask().then((d) => {
+      if (alive) report(d);
+    });
+  };
+  round();
+  const timer = setInterval(round, intervalMs);
+  return () => {
+    alive = false;
+    clearInterval(timer);
+  };
 }
 
 /** What the offline surface has to print: the two sentences (as catalogue keys, so

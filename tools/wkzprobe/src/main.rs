@@ -1,8 +1,12 @@
-//! Two child WKWebViews in one window: who is on top, and can a live drag move
+//! Two child webviews in one window: who is on top, and can a live drag move
 //! one of them by IPC without falling behind the cursor?
 //!
 //!   wkzprobe z      - z order: creation order, set_bounds, raise, page state, keyboard
 //!   wkzprobe drag   - round trip of one set_bounds per animation frame
+//!
+//! Two backends behind one set of verdicts: WKWebView child views on macOS
+//! (`views_mac.rs`), WebView2 container HWNDs on Windows (`views_win.rs`). The
+//! arms themselves are platform-independent.
 //!
 //! The probe uses wry directly, so its numbers are the FLOOR of what the Tauri
 //! shell can do: a `#[tauri::command]` adds serde plus a hop through the event
@@ -15,13 +19,18 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use tao::event::{Event, StartCause};
-use tao::event_loop::{ControlFlow, EventLoop};
+use tao::event::Event;
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::WindowBuilder;
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebView, WebViewBuilder};
 
 #[cfg(target_os = "macos")]
+#[path = "views_mac.rs"]
+mod views;
+
+#[cfg(windows)]
+#[path = "views_win.rs"]
 mod views;
 
 const PANE: Rect = rect(80.0, 80.0, 420.0, 300.0);
@@ -82,14 +91,32 @@ function report() {
 requestAnimationFrame(frame);
 </script></body>"#;
 
+/// Wake the event loop every 400ms from a thread, instead of asking it to wake
+/// itself with `ControlFlow::WaitUntil`.
+///
+/// Not a taste: on Windows, under the scheduled task the probe has to run in to
+/// reach the console session, tao's loop dispatches the startup events and then
+/// never comes back, whatever `WaitUntil` or `Poll` it is left with. A user
+/// event posted from outside does wake it, and it costs macOS nothing.
+fn tick_every(proxy: tao::event_loop::EventLoopProxy<u32>, every: Duration) {
+    std::thread::spawn(move || {
+        for i in 0.. {
+            std::thread::sleep(every);
+            if proxy.send_event(i).is_err() {
+                return;
+            }
+        }
+    });
+}
+
 fn main() {
     let arm = std::env::args().nth(1).unwrap_or_else(|| "z".to_string());
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
-        println!("wkzprobe measures WKWebView child views: macOS only (arm={arm})");
+        println!("wkzprobe measures child webviews: macOS and Windows only (arm={arm})");
         std::process::exit(2);
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         std::thread::spawn(|| {
             std::thread::sleep(Duration::from_secs(40));
@@ -107,9 +134,10 @@ fn main() {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn run_z() {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<u32>::with_user_event().build();
+    tick_every(event_loop.create_proxy(), Duration::from_millis(400));
     let window = WindowBuilder::new()
         .with_title("wkzprobe z")
         .with_inner_size(LogicalSize::new(760.0, 520.0))
@@ -138,12 +166,8 @@ fn run_z() {
     let mut verdicts: Vec<String> = Vec::new();
 
     event_loop.run(move |event, _target, control| {
-        *control = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(400));
-        let tick = matches!(
-            event,
-            Event::NewEvents(StartCause::ResumeTimeReached { .. }) | Event::NewEvents(StartCause::Init)
-        );
-        if !tick {
+        *control = ControlFlow::Wait;
+        if !matches!(event, Event::UserEvent(_)) {
             return;
         }
         step += 1;
@@ -168,7 +192,7 @@ fn run_z() {
                 // for someone typing in the floating window when a new view is
                 // born and the shell raises the window back up.
                 let focused = views::focus_role(&window, "pane") && views::first_responder_is(&window, "pane");
-                println!("== 3. after raising the pane (addSubview:positioned:above, in place)");
+                println!("== 3. after raising the pane, the way the shell raises a pane");
                 println!("   pane was first responder before the raise: {focused}");
                 views::raise_role(&window, "pane");
                 views::report(&window, probe_point);
@@ -208,9 +232,9 @@ fn run_z() {
     });
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn run_drag() {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<u32>::with_user_event().build();
     let window = WindowBuilder::new()
         .with_title("wkzprobe drag")
         .with_inner_size(LogicalSize::new(900.0, 600.0))
@@ -265,7 +289,7 @@ fn run_drag() {
     });
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn child(
     window: &tao::window::Window,
     color: &str,
