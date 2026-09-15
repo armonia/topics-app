@@ -23,7 +23,7 @@
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
 import type { ReviewCheck, CheckRun } from "../../shared/board";
-import { parseSlotAcquired } from "../../shared/slot-acquired";
+import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun } from "./budget-governor";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
@@ -447,9 +447,12 @@ async function runOne(
     // each time (which would hand a hung command an extra cap per line).
     let clockFrom = Date.now();
     let capMs = opts.timeoutMs;
+    // Queued behind another run of the same gate (the waiting line): the
+    // deadline is not running, and it starts from the acquired line.
+    let queued = false;
     const armTimer = () => {
       if (timer) clearTimeout(timer);
-      if (timedOut) return;
+      if (timedOut || queued) return;
       const left = Math.max(0, clockFrom + capMs - Date.now());
       timer = setTimeout(() => { timedOut = true; killTree(); }, left);
     };
@@ -494,8 +497,12 @@ async function runOne(
         const q = parseSlotAcquired(err);
         if (q !== null) {
           queuedMs = q;
+          queued = false;
           clockFrom = Date.now();
           armTimer();
+        } else if (!queued && hasSlotWaiting(err)) {
+          queued = true;
+          if (timer) clearTimeout(timer);
         }
       }
       if (slowdown === null) {

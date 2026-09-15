@@ -40,6 +40,8 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   oursCores: 0,
   budgetShare: 0.8,
   budgetCoreUnits: 9.6,
+  agentCostMemGB: 1.5,
+  freeQuotaMemGB: 16,
   usableCoreUnits: 9.6,
   usedCoreUnits: 1,
   usedMemGB: 2,
