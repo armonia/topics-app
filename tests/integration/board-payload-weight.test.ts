@@ -324,4 +324,58 @@ describe("il tetto sui done di GET /api/all-boards/tasks", () => {
     const { tasks } = await feed(db);
     expect(tasks.length).toBeLessThan(allDone);
   });
+
+  /**
+   * THE BOARD OF ONE PROJECT, the same cap. It was the list left out: on
+   * 15/09 the topics-app board answered 891 closed cards and 2.0 MB in 286 ms,
+   * while the feed of every board answered 93 KB. The archive of that board
+   * stays uncapped, because it is where the old cards are read from.
+   */
+  async function projectBoard(db: Database, query = ""): Promise<WireTask[]> {
+    const url = new URL(`http://127.0.0.1:3333/api/boards/board-1/tasks${query}`);
+    const handler = createTasksRouter({
+      db,
+      json: (data: unknown, status = 200) =>
+        new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
+      readJSON: async () => null,
+      matchRoute: (pathname: string, pattern: string) => {
+        const want = pattern.split("/");
+        const got = pathname.split("/");
+        if (want.length !== got.length) return null;
+        const params: Record<string, string> = {};
+        for (let i = 0; i < want.length; i++) {
+          if (want[i]!.startsWith(":")) params[want[i]!.slice(1)] = decodeURIComponent(got[i]!);
+          else if (want[i] !== got[i]) return null;
+        }
+        return params;
+      },
+      broadcast: () => {},
+      broadcastToAll: () => {},
+      getTopicBySessionKey: () => null,
+      requestIdentity: () => null,
+    } as never);
+    const resp = await handler(new Request(url), url, url.pathname, "GET");
+    expect(resp?.status).toBe(200);
+    return (JSON.parse(await resp!.text()) as { tasks: WireTask[] }).tasks;
+  }
+
+  test("the live board of one project cuts the closed ones at 120 too, the most recent", async () => {
+    const db = freshDb();
+    seedManyDone(db);
+    const tasks = await projectBoard(db);
+    const done = tasks.filter((t) => t.status === "done");
+    expect(done.length).toBe(120);
+    expect(tasks.filter((t) => t.status !== "done").length).toBe(40);
+    const ids = new Set(done.map((t) => t.id));
+    expect(ids.has("done-399")).toBe(true);
+    expect(ids.has("done-279")).toBe(false);
+  });
+
+  test("the archive of that board is not capped", async () => {
+    const db = freshDb();
+    seedManyDone(db);
+    db.run("UPDATE tasks SET archived = 1 WHERE status = 'done'");
+    const tasks = await projectBoard(db, "?archived=1");
+    expect(tasks.filter((t) => t.status === "done").length).toBe(400);
+  });
 });

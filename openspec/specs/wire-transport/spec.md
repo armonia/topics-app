@@ -306,6 +306,19 @@ non un successo.
 - **GIVEN** lo stesso testo in due campi
 - **THEN** SHALL viaggiare una volta sola
 
+Una lista di card che cresce con il lavoro fatto SHALL avere un tetto sulle
+card CHIUSE: il feed di tutte le board E la board viva di un singolo progetto
+portano le 120 chiuse più recenti, e ogni card aperta. L'ARCHIVIO di una board
+NON ha tetto, perché è la porta da cui si leggono le card vecchie. Misurato il
+15/09/2026: la board di topics-app mandava 891 card chiuse, 2,0 MB in 286 ms,
+contro i 93 KB del feed di tutte le board.
+
+#### Scenario: la colonna delle chiuse di una board
+- **GIVEN** una board con 400 card chiuse e 40 aperte
+- **WHEN** la board viva di quel progetto viene letta
+- **THEN** SHALL portare le 120 chiuse più recenti e tutte le 40 aperte
+- **AND** l'archivio della stessa board SHALL portarle tutte
+
 Di una chiamata di strumento la storia SHALL portare SOLO ciò che la riga
 CHIUSA disegna: il percorso, la testa di un comando, il pattern, l'indirizzo,
 una riga di riassunto. Un campo di testo di `args` o di `detail` più lungo

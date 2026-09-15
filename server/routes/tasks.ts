@@ -86,7 +86,8 @@ import {
 } from "../services/global-orchestrator-session";
 
 /**
- * How many CLOSED cards the global feed carries.
+ * How many CLOSED cards the global feed, and the live board of one project,
+ * carry.
  *
  * `GET /api/all-boards/tasks` is re-read by every open window on every `task:*`
  * event and on every WS reconnect, and it only ever grew: 1.44 MB over 467 rows
@@ -3210,6 +3211,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // quello che ci era rimasto dentro non lo dispaccia nessuno e non lo
           // apre più nessuno. Tenerlo fuori dalla colonna non lo rimanda, lo
           // perde — è la metà opposta dello stesso difetto.
+          //
+          // The live board caps `done` like the global feed (DONE_FEED_LIMIT).
+          // It was the one list left without the cap: 891 closed cards and
+          // 2.0 MB for the topics-app board on 15/09, against 93 KB for the
+          // feed of every board. The archive is NOT capped: it is the place
+          // the old cards are read from.
           try {
             return json({
               tasks: svc.list({
@@ -3217,6 +3224,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 includeOrphanSubtasks: true,
                 labels: parseLabelsParam(params.get("labels")),
                 archived,
+                doneLimit: archived ? undefined : DONE_FEED_LIMIT,
               }),
             });
           }
