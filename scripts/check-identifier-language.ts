@@ -205,7 +205,7 @@ export const PROJECT_WORDS = new Set([
   "stderr", "stdout", "utils",
   // Two Unix tools, named as identifiers in server/lib/low-priority.ts
   // (`RENICE_BIN`, `TASKPOLICY_BIN`): the binaries this machine has, not words.
-  "renice", "taskpolicy",
+  "renice", "taskpolicy", "sysctl",
   // Same family (card 7f4d8f32): `pgrep` is the binary that lists a process
   // tree, and `qos` is the macOS scheduling class the shared Chromium is
   // toggled in and out of. Both name a thing the OS calls exactly that.
