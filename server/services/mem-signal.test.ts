@@ -1,0 +1,197 @@
+/**
+ * The memory signal reads a window, not an instant: the lowest reading of 2
+ * minutes for the floor, and swap-ins together with growing memory debt for
+ * sustained swap. Fixtures from the live probes of 15/09/2026 and 11/09/2026.
+ *
+ * @covers KANBAN-75
+ */
+import { describe, expect, test } from "bun:test";
+import {
+  createMemSignal,
+  formatMemorySignalLine,
+  heldMemory,
+  parseSwapUsedMB,
+  swapVerdict,
+  type MemSample,
+} from "./mem-signal";
+import { parseVmStat } from "./dispatch-capacity";
+
+const T0 = 1_760_000_000_000;
+const PAGE = 16_384;
+const s = (sec: number, over: Partial<MemSample> = {}): MemSample => ({
+  at: T0 + sec * 1000, availGB: 10, swapins: 0, compressorPages: 500_000, pageSize: PAGE, swapUsedMB: 10_000, load1: 5, ...over,
+});
+const at = (sec: number) => T0 + sec * 1000;
+/** Readings every `step` seconds from `from`, one value each. */
+const readings = (from: number, step: number, values: number[]): MemSample[] =>
+  values.map((gb, i) => s(from + i * step, { availGB: gb }));
+
+describe("heldMemory: the lowest reading of a full 2-minute window", () => {
+  test("M1: the 10:37 spike does not lift the window; 11 GB only after 120 s of readings at 11", () => {
+    const samples = [...readings(0, 10, Array(12).fill(5.8)), s(120, { availGB: 14.5 }), s(130, { availGB: 5.5 })];
+    const spike = heldMemory(samples, at(130), true);
+    expect(spike.latestGB).toBe(5.5);
+    expect(spike.heldGB!).toBeLessThanOrEqual(5.8);
+    const recovered = [...samples, ...readings(140, 10, Array(13).fill(11))];
+    expect(heldMemory(recovered, at(250), true).heldGB).toBe(5.5);
+    expect(heldMemory(recovered, at(260), true).heldGB).toBe(11);
+  });
+
+  test("M2: at boot an empty window holds nothing up and has no value until it is full", () => {
+    expect(heldMemory([], at(0), true)).toEqual({ measurable: true, latestGB: null, heldGB: null, coveredMs: 0 });
+    const samples = readings(0, 10, Array(13).fill(12));
+    expect(heldMemory(samples.slice(0, 12), at(110), true).heldGB).toBeNull();
+    expect(heldMemory(samples.slice(0, 12), at(110), true).coveredMs).toBe(110_000);
+    expect(heldMemory(samples, at(120), true).heldGB).toBe(12);
+  });
+
+  test("M3: a 45 s hole empties the window, a 25 s hole does not", () => {
+    const before = readings(0, 10, Array(10).fill(12));
+    const hole45 = [...before, ...readings(135, 10, Array(6).fill(12))];
+    expect(heldMemory(hole45, at(185), true).heldGB).toBeNull();
+    const hole25 = [...before, ...readings(115, 10, Array(8).fill(12))];
+    expect(heldMemory(hole25, at(185), true).heldGB).toBe(12);
+  });
+
+  test("M4: a newest reading 31 s old is no reading", () => {
+    const samples = readings(0, 10, Array(15).fill(12));
+    const stale = heldMemory(samples, at(140 + 31), true);
+    expect(stale.latestGB).toBeNull();
+    expect(stale.heldGB).toBeNull();
+  });
+
+  test("off macOS memory is not measurable and never has a value", () => {
+    expect(heldMemory(readings(0, 10, Array(15).fill(1)), at(140), false).measurable).toBe(false);
+  });
+});
+
+/** One sample every 5 s for `seconds`, each field advanced by `step(i)`. */
+function swapSeries(seconds: number, step: (i: number) => { swapins: number; compressorPages: number; swapUsedMB: number }, start = { swapins: 1_000_000, compressorPages: 700_000, swapUsedMB: 10_000 }): MemSample[] {
+  const out: MemSample[] = [];
+  let cur = { ...start };
+  for (let i = 0; i * 5 <= seconds; i++) {
+    if (i > 0) {
+      const d = step(i);
+      cur = { swapins: cur.swapins + d.swapins, compressorPages: cur.compressorPages + d.compressorPages, swapUsedMB: cur.swapUsedMB + d.swapUsedMB };
+    }
+    out.push(s(i * 5, { ...cur, availGB: 4 }));
+  }
+  return out;
+}
+const perMinGBToPages5s = (gbPerMin: number) => Math.round(((gbPerMin / 12) * 1e9) / PAGE);
+
+describe("swapVerdict: pages read back from disk while the memory debt still grows", () => {
+  test("M5a: 14:06, thrash (swapins +64/+168 per 5 s, compressor +43,850/+73,683 pages per 5 s, swap flat) is sustained", () => {
+    const v = swapVerdict(swapSeries(60, (i) => i % 2
+      ? { swapins: 64, compressorPages: 43_850, swapUsedMB: 0 }
+      : { swapins: 168, compressorPages: 73_683, swapUsedMB: 0 }), at(60));
+    expect(v.sustained).toBe(true);
+    expect(v.pagesReadBackPerS!).toBeGreaterThan(20);
+    expect(v.debtGBPerMin!).toBeGreaterThan(8.8);
+  });
+
+  test("M5b: 11:23, recovery (65 swapins/s, compressor 586,576 to 499,744, swap 10,788 to 10,692 MB in 110 s) is not", () => {
+    const steps = 22;
+    const v = swapVerdict(swapSeries(110, () => ({ swapins: 325, compressorPages: (499_744 - 586_576) / steps, swapUsedMB: (10_692 - 10_788) / steps }),
+      { swapins: 1_000_000, compressorPages: 586_576, swapUsedMB: 10_788 }), at(110));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(65, 0);
+    expect(v.debtGBPerMin!).toBeLessThan(0);
+    expect(v.sustained).toBe(false);
+  });
+
+  test("M5c: 14:50, calm with swap debt (swapins +12/+16 per 5 s, compressor and swap flat) is not", () => {
+    const v = swapVerdict(swapSeries(60, (i) => ({ swapins: i % 2 ? 12 : 16, compressorPages: 0, swapUsedMB: 0 }), { swapins: 1_000_000, compressorPages: 477_000, swapUsedMB: 10_030 }), at(60));
+    expect(v.sustained).toBe(false);
+  });
+
+  test("M5d: 11/09, a healthy board (4 swapins in 91 s) with a shard ramping the compressor +1.5 GB/min is not", () => {
+    const v = swapVerdict(swapSeries(90, (i) => ({ swapins: i % 4 === 0 ? 1 : 0, compressorPages: perMinGBToPages5s(1.5), swapUsedMB: 0 })), at(90));
+    expect(v.debtGBPerMin!).toBeGreaterThan(1);
+    expect(v.sustained).toBe(false);
+  });
+
+  test("M5e: a saturated compressor moving segments to swap (compressor -0.2 GB/min, swap +1.2 GB/min, 15 swapins/s) is sustained", () => {
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 75, compressorPages: -perMinGBToPages5s(0.2), swapUsedMB: 100 })), at(60));
+    expect(v.sustained).toBe(true);
+  });
+
+  test("M5f-h: 30 swapins/s with debt +0.3 GB/min, a counter going down, 50 s of coverage are not", () => {
+    expect(swapVerdict(swapSeries(60, () => ({ swapins: 150, compressorPages: perMinGBToPages5s(0.3), swapUsedMB: 0 })), at(60)).sustained).toBe(false);
+    const thrash = swapSeries(60, () => ({ swapins: 150, compressorPages: 60_000, swapUsedMB: 0 }));
+    thrash[thrash.length - 1] = { ...thrash[thrash.length - 1]!, swapins: 10 };
+    expect(swapVerdict(thrash, at(60)).sustained).toBe(false);
+    expect(swapVerdict(swapSeries(50, () => ({ swapins: 150, compressorPages: 60_000, swapUsedMB: 0 })), at(50)).sustained).toBe(false);
+  });
+});
+
+describe("createMemSignal", () => {
+  test("M6: a probe that hangs is not called again by the next beat", async () => {
+    let calls = 0;
+    let answer: (v: Omit<MemSample, "at"> | null) => void = () => {};
+    const signal = createMemSignal({ measurable: true, now: () => at(0), probe: () => { calls += 1; return new Promise((r) => { answer = r; }); } });
+    const first = signal.sample();
+    const second = signal.sample();
+    expect(calls).toBe(1);
+    answer({ availGB: 9, swapins: 1, compressorPages: 1, pageSize: PAGE, swapUsedMB: 1, load1: 1 });
+    await Promise.all([first, second]);
+    expect(signal.samples().length).toBe(1);
+    const third = signal.sample();
+    expect(calls).toBe(2);
+    answer(null);
+    await third;
+  });
+
+  test("a failed or throwing probe pushes nothing, and samples older than 180 s are dropped", async () => {
+    let t = at(0);
+    let mode: "ok" | "null" | "throw" = "ok";
+    const signal = createMemSignal({
+      measurable: true, now: () => t,
+      probe: async () => {
+        if (mode === "throw") throw new Error("fork failed");
+        return mode === "null" ? null : { availGB: 9, swapins: 1, compressorPages: 1, pageSize: PAGE, swapUsedMB: 1, load1: 1 };
+      },
+    });
+    await signal.sample();
+    mode = "null"; t += 10_000; await signal.sample();
+    mode = "throw"; t += 10_000; await signal.sample();
+    expect(signal.samples().length).toBe(1);
+    mode = "ok"; t = at(200); await signal.sample();
+    expect(signal.samples().map((x) => x.at)).toEqual([at(200)]);
+  });
+});
+
+describe("parsers and the [memsig] line", () => {
+  test("vm_stat swap-ins and compressor, sysctl swap used", () => {
+    const vm = parseVmStat([
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                 4109.",
+      "Pages speculative:                          7160.",
+      "Pages purgeable:                            9464.",
+      "File-backed pages:                        354240.",
+      "Pages occupied by compressor:             476226.",
+      "Swapins:                                 9123456.",
+      "Swapouts:                                9876543.",
+    ].join("\n"));
+    expect(vm.availGB!).toBeCloseTo(6.1, 1);
+    expect(vm.swapins).toBe(9_123_456);
+    expect(vm.compressorPages).toBe(476_226);
+    expect(parseSwapUsedMB("total = 11264.00M  used = 10030.25M  free = 1233.75M  (encrypted)")).toBeCloseTo(10_030.25, 2);
+    expect(parseSwapUsedMB("nothing")).toBeNull();
+  });
+
+  test("one line with every field, and ? where there is no value", () => {
+    const line = formatMemorySignalLine({
+      at: Date.UTC(2026, 8, 15, 14, 6, 10),
+      held: { measurable: true, latestGB: 4.4, heldGB: 3.9, coveredMs: 120_000 },
+      swap: { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 },
+      latest: s(0, { compressorPages: 826_687, swapUsedMB: 10_070, load1: 75.9 }),
+      inFlight: 2, checkRuns: 1, heaviestCheckGB: 8.2,
+    });
+    expect(line).toBe("2026-09-15T14:06:10.000Z [memsig] avail=4.4 held2m=3.9 cover=120s swapin/s=33.6 debt/min=+8.8 comprGB=13.5 swapUsedGB=10.1 load1=75.9 swap=sustained inFlight=2 checkRuns=1 heaviestCheckGB=8.2");
+    const empty = formatMemorySignalLine({
+      at: 0, held: { measurable: true, latestGB: null, heldGB: null, coveredMs: 0 },
+      swap: { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, coveredMs: 0 }, latest: null, inFlight: 0, checkRuns: 0, heaviestCheckGB: null,
+    });
+    expect(empty).toContain("avail=? held2m=? cover=0s swapin/s=? debt/min=? comprGB=? swapUsedGB=? load1=? swap=calm");
+  });
+});

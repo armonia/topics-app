@@ -10,13 +10,13 @@ una persona nelle impostazioni della board: nessun default SHALL essere dedotto
 dal progetto. SHALL girare nel worktree DELLA CONSEGNA, in sequenza e
 nell'ordine dichiarato, e SHALL fermarsi al primo rosso.
 
-Una riga dichiarata può essere un check di EVIDENZA invece di un comando: la riga
-`github-ci:e2e` (`E2E_CI_CHECK`). Quella riga NON SHALL essere passata a una
-shell, SHALL essere misurata DOPO tutti i comandi, qualunque sia la sua posizione
-nell'elenco, e solo se sono tutti verdi, secondo KANBAN-84. Il suo esito entra nel
-verdetto come quello di un comando: il suo «non misurato» è `unknown`, il suo
-rosso è `fail`, e un elenco di esiti che non la contiene è più corto dei comandi
-dichiarati.
+Una riga dichiarata può essere un check di EVIDENZA invece di un comando: le righe
+`github-ci:e2e` (`E2E_CI_CHECK`) e `github-ci:unit` (`UNIT_CI_CHECK`). Quelle righe
+NON SHALL essere passate a una shell, SHALL essere misurate DOPO tutti i comandi,
+qualunque sia la loro posizione nell'elenco, e solo se sono tutti verdi, secondo
+KANBAN-84. Il loro esito entra nel verdetto come quello di un comando: il «non
+misurato» è `unknown`, il rosso è `fail`, e un elenco di esiti che non ne contiene
+una è più corto dei comandi dichiarati.
 
 Quando al worktree mancano le dipendenze, il sistema SHALL installarle PRIMA dei
 comandi dichiarati. Senza, i cancelli morivano su un'uscita 127 indistinguibile
@@ -77,9 +77,43 @@ Un comando NUOVO NON SHALL partire con la memoria libera sotto il pavimento
 (`DISPATCH_MEM_FLOOR_NATIVE_GB`, 6 GB). Nessun freno davanti a un check leggeva
 la memoria, e l'ammissione non ne vede il costo: la card entra a memoria libera
 e consegna decine di minuti dopo un albero unit da 4-11 GB. Il comando SHALL
-aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. SHALL
-fallire aperto: un giro aspetta al massimo 30 minuti IN TOTALE, poi i comandi
-rimasti partono comunque; una lettura non disponibile non fa aspettare.
+aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. La
+memoria SHALL essere la lettura più bassa della finestra di 2 minuti di KANBAN-75,
+non l'istante: il 15/09/2026 typecheck, lint e deadcode sono partiti ciascuno alla
+prima lettura sopra 6 GB (5,0-6,0 prima), e quattro comandi di consegne diverse
+sono partiti sullo stesso giro. Il comando SHALL quindi aspettare anche:
+- lo swap sostenuto (KANBAN-75), SENZA fallire aperto finché dura: un giro ripartito
+  dopo un'interruzione non deve ripartire dentro lo swap che l'ha interrotto;
+- 120 secondi dalla partenza di un comando di un ALTRO giro ancora vivo: un rilascio
+  per finestra, fra i giri; il comando successivo dello stesso giro non aspetta il
+  suo predecessore, che è finito, ma cede il turno a un giro che aspettava già da
+  prima (altrimenti un giro di tre comandi si riprende il rilascio a ogni uscita e
+  l'altro aspetta tutta la sua fase locale).
+Non c'è un prezzo per comando: con la suite unit letta dalla CI della PR
+(`github-ci:unit`, KANBAN-84) nessun comando di consegna di topics-app supera 1 GB
+(tsc 460 MB, build vite 316 MB, misurati il 15/09), e la riga è il pavimento. SHALL
+fallire aperto solo sulla memoria: un giro aspetta al massimo 30 minuti IN TOTALE,
+poi i comandi rimasti partono comunque, mai con lo swap sostenuto; una memoria che
+non si misura (fuori da macOS) non fa aspettare. Il rilascio dopo un'attesa SHALL
+comparire nel log con i secondi aspettati, e ogni cambio di motivo di attesa una volta.
+
+Con lo swap sostenuto (KANBAN-75) il server SHALL interrompere DA SOLO il giro di
+check più giovane fra quelli di una card il cui albero tiene almeno 1 GB, al massimo
+uno ogni 120 secondi e al massimo 2 volte per consegna (`taskId@commit`): dopo la
+seconda il giro va fino in fondo, e un commit nuovo è una consegna nuova. Risposta
+del proprietario (15/09/2026): lo fa Topics da solo, interrotto e mai rosso, e
+riparte da solo. Un albero sotto 1 GB (tsc, build vite, rail statici) NON SHALL
+essere interrotto: non restituisce niente e costa un giro. Il comando ucciso NON
+SHALL diventare un esito: il giro SHALL lanciare l'interruzione con motivo `swap`
+prima di registrarlo, nessun comando successivo SHALL partire, nessun verdetto,
+nessun picco di memoria della card. La consegna SHALL rispondere 202
+`review_checks_running`, SHALL restare ricordata dal server, e il server SHALL
+riemetterla da solo quando la corsa è finita, senza riallineare di nuovo il ramo
+(la ripartenza è la stessa consegna: due `git merge main` nello stesso worktree si
+contendono `index.lock`). La card SHALL ricevere un commento di servizio per ogni
+interruzione, con swap-in, debito di memoria, il comando e i GB del suo albero, e
+che è l'interruzione N di 2. Un verdetto registrato SHALL azzerare il conto delle
+interruzioni della card.
 
 Uno spegnimento del server SHALL portarsi via gli alberi dei check in corso, e
 NON SHALL scriverne un verdetto. `slot.ts` lancia il comando in un gruppo di
@@ -109,6 +143,29 @@ tutta l'uscita, spendendo una gamba a chiamata.
 - **GIVEN** memoria libera sotto il pavimento per 1,5 s e un tetto di 1 s
 - **THEN** il comando SHALL partire solo dopo, e finire verde e non scaduto
 - **AND** con la memoria sempre sotto, il giro SHALL aspettare il suo limite UNA volta e poi far partire tutti i comandi
+
+#### Scenario: una lettura sola non rilascia un comando
+- **GIVEN** due minuti a 5,2 GB e poi una lettura a 6,0
+- **THEN** il comando NON SHALL partire su quella lettura, e SHALL partire quando la finestra intera sta sopra il pavimento, con la riga di log del rilascio
+
+#### Scenario: un rilascio per finestra fra i giri
+- **GIVEN** due giri che aspettano con 11 GB nella finestra
+- **THEN** parte un comando solo, e l'altro parte quando il primo finisce o 120 s dopo il suo rilascio, anche se il primo giro ha altri comandi dietro
+
+#### Scenario: lo swap sostenuto vince sul fallire aperto
+- **GIVEN** un limite di 5 minuti, 5 GB per tutto il tempo e lo swap sostenuto dal minuto 4 al minuto 9
+- **THEN** niente parte prima del minuto 9, e al minuto 9 il comando parte comunque con la riga «starts anyway»
+
+#### Scenario: il freno sotto swap interrompe il giro più giovane
+- **GIVEN** tre giri con alberi da 8 GB, 2 GB e 0,4 GB, partiti in quest'ordine, e lo swap sostenuto
+- **THEN** SHALL essere ucciso il giro da 2 GB, con il commento «Check interrotti, non rossi» e «Interruzione 1 di 2»
+- **AND** 60 s dopo non si uccide niente, 121 s dopo il giro da 8 GB
+- **AND** una consegna interrotta due volte va fino in fondo, e un commit nuovo conta di nuovo
+
+#### Scenario: il giro interrotto per swap riparte da solo e non è rosso
+- **GIVEN** una consegna con un check `sleep 120` in corso e il freno che ne uccide l'albero
+- **THEN** la gamba SHALL rispondere 202, nessun commento «ROSSI» o «Consegna fermata» SHALL comparire, e senza altre gambe del client il server SHALL rifare il giro e portare la card in review
+- **AND** il ramo SHALL essere riallineato una volta sola
 
 #### Scenario: lo spegnimento non inventa un rosso
 - **GIVEN** un check in corso e un secondo in attesa
@@ -199,6 +256,359 @@ errore.
   su una board che non ne dichiara
 
 
+### Requirement: KANBAN-75 — Il tetto sa contare gli agenti O dare a Topics una fetta del PC, e sono due domande diverse
+
+Il freno globale del dispatch SHALL avere DUE modalità, e la scelta fra le due
+SHALL essere esplicita e persistente per macchina (riga riservata
+`board_settings['*']`, la stessa del tetto di oggi).
+
+1. **Per numero** (`count`) — quella di sempre, e SHALL restare il DEFAULT:
+   quanti agenti insieme (`auto`, numero fisso, nessun tetto).
+2. **A budget** (`resources`) — UNA manopola: «Topics può usare il N% di ciò
+   che è libero» (default 60%). La percentuale SHALL valere su ENTRAMBI gli
+   assi: tetto di CPU = `N% × core` in core-unità, tetto di RAM = `N% × RAM`, e
+   dentro quel tetto la parte usabile è la quota del libero (sotto).
+   In questa modalità il tetto NUMERICO non si applica: è l'alternativa, non un
+   secondo freno sovrapposto.
+
+**COSA SI MISURA: il nostro albero, non il carico della macchina.** La misura
+SHALL essere l'uso dei processi di Topics — server, sidecar, ponte PTY, ogni
+agente e i suoi figli (tsc, eslint, bun test, vite, il Chromium degli e2e) —
+campionato per differenza di CPU, mai un load average. Il `load1` descrive
+soprattutto le app di chi sta al computer e non dice quanto stiamo prendendo noi.
+
+**IL BUDGET È UN TETTO, NON UN DIRITTO, E LA QUOTA È SUL LIBERO.** L'usabile
+SHALL essere `min(N% × core, N% × (core − CPU altrui))`, e per la memoria
+`min(N% × RAM, memoria nostra + N% × memoria libera)`: chi non è di Topics tiene
+sempre la sua fetta di ciò che avanza, quindi la parte che lasciamo cresce con
+quella che gli altri prendono (deciso il 14/09/2026). La CPU altrui entra
+smussata sulla mediana delle ultime letture, perché un picco di un secondo non
+chiuda la porta. Su una macchina ferma usabile e tetto coincidono; su una
+macchina occupata da altri la nostra fetta si stringe, e l'interfaccia SHALL
+dirlo invece di promettere un numero che nessuno può avere.
+
+**AMMISSIONE UNA ALLA VOLTA, CON ISTERESI.** Si ammette UN agente alla volta, e
+solo se `uso + costo stimato di un agente ≤ usabile`; il costo SHALL essere la
+MEDIANA degli ultimi misurati, mai una costante. «Una alla volta» SHALL valere
+per TUTTO il dispatcher e per ogni porta: fra due partenze passano almeno 9
+secondi (`ADMISSION_SPACING_MS`), che la partenza sia un dispatch nuovo, una
+ripresa (riavvio, rifiuto in review, risposta a una domanda) o venga da un'altra
+board. Un resume che trova la rampa chiusa aspetta nella coda delle attese di
+slot, col chip `queued` e senza nota nel thread. Il giro di `reconcile` SHALL
+essere uno solo alla volta: chi arriva a giro in corso riceve quel giro. Prima la
+rampa era un contatore del singolo `tick(progetto)`: tre board ammettevano tre
+card per giro, tre giri sovrapposti ne prendevano tre, e un riavvio con sedici
+turni tagliati ne faceva ripartire dodici nello stesso istante. Una volta trattenuta, la coda
+SHALL ripartire sotto l'80% del budget e non alla soglia stessa: fra un dispatch
+e la lettura che lo vede passano secondi, e senza quel salto la coda si svuota
+tutta contro una misura vecchia (misurato il 07/09/2026: otto card in un tick a
+load 12 su 12 core, e dieci minuti dopo load 155 con 13,4 GB di swap).
+
+**IL PREZZO DELLA MEMORIA È QUELLO DI UNA CARD, E SI TIENE PER TUTTO IL TURNO.**
+Il costo in memoria di un agente SHALL essere la mediana dei picchi delle ultime
+9 card, e il picco di una card è il footprint massimo dell'albero di processi dei
+suoi check pre-review in un giro, un numero per card. Non il footprint delle
+sessioni: col runtime nativo una card non ha un processo suo, e i suoi tool e i
+suoi check sono figli del server, quindi la mediana girava sui terminali della
+persona e restava sul pavimento mentre un `test:unit:shards` teneva 11 GB. Senza
+campioni (dopo ogni riavvio del server) una card vale 4 GB, con un tetto di 6.
+La prenotazione degli agenti ammessi SHALL durare 90 secondi sull'asse CPU e
+TUTTO il turno sull'asse memoria: i cancelli di un agente arrivano da due a sei
+minuti dopo la partenza (mediana 160 s, misurata il 14/09/2026), e una
+prenotazione che scade prima fa entrare la coda contro una lettura che sta per
+cambiare. Sul rigioco di quella notte (24 GB liberi, 20 card, quota 80%) erano
+20 partenze in 4 minuti; con prezzo e prenotazione sono al massimo 5 in 5 minuti.
+
+**IL CONTROLLO DINAMICO: si congela l'eccesso.** Rifiutare il prossimo agente non
+fa niente per una macchina che è già oltre. Quando l'uso supera il budget per DUE
+letture di fila SHALL essere congelato (SIGSTOP all'albero) UN solo bersaglio per
+lettura, dal meno costoso da perdere: i check runner, il più recente per primo.
+Si scongela (SIGCONT) in ordine inverso dopo due letture sotto il 70% del budget.
+NON SHALL essere congelato niente altro: server, sidecar, ponte PTY e i browser
+dell'utente restano vivi sempre. Un check congelato SHALL fermare anche il PROPRIO
+orologio, perché un'attesa nostra non è uno stallo, e SHALL essere detto nel
+thread della card («congelata per carico, riprende da sola»).
+
+**La lettura del controllo è SOLO la CPU, e la memoria NON SHALL congelare
+niente.** Il 15/09/2026 si è provato l'asse memoria (il peggiore fra la CPU sul
+budget e il pavimento sulla memoria libera), perché sotto thrash la CPU legge
+quasi zero, e un congelamento per memoria non ha via d'uscita: un SIGSTOP non
+restituisce la memoria che l'albero congelato tiene, quindi la lettura che l'ha
+congelato non rientra da sola, e il congelamento ferma anche la scadenza del
+check e il timer di `slot.ts` nello stesso albero. Misurato col governatore
+vero: due corse congelate a 5,5 GB restavano congelate dopo 1080 letture, e
+dopo altre 1080 a 8,0 GB, sopra il pavimento a cui il dispatcher ammette. Due
+corse congelate tengono entrambe le corsie del cancello dei check, nessuna card
+viene più misurata e il freno non si apre mai, contro la regola che ogni freno
+fallisce aperto. Le leve della memoria sono l'attesa PRIMA che un check parta
+(KANBAN-15), che ha un limite, e sotto swap sostenuto l'interruzione del giro di
+check più giovane (KANBAN-15), che uccide invece di congelare. Un check
+congelato per la CPU SHALL scongelarsi quando la CPU scende, qualunque cosa
+dica la memoria.
+
+Gli AGENTI non si congelano con un segnale, ed è una decisione: un CLI fermato a
+metà stream API può perdere la connessione, e la CPU non è lì — con otto agenti in
+volo gli agenti stessi valevano il 5,7% della macchina mentre i loro cancelli
+tenevano il resto. Quello che li trattiene è l'ammissione.
+
+**L'ECCEZIONE, e sta nel contratto.** A zero agenti vivi si ammette SEMPRE, per
+quanto carica sia la macchina, e il verdetto lo DICHIARA (`firstAgentExempt`).
+Senza, chi lavora sul proprio Mac tiene il budget superato da solo, la coda non
+parte mai, e il modo in cui lo si scopre è che qualcuno guarda dodici card ferme
+e conclude che il dispatcher è rotto. «Zero» SHALL contare anche le corse di
+check pre-review in volo: una coda ferma dietro uno shard da 11 GB non è una coda
+che non parte mai, parte quando lo shard finisce.
+
+**Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
+il pavimento) vale in ENTRAMBE le modalità e vince sul budget: un disco pieno non
+si riassorbe da solo, il carico sì. Per questo il motivo di coda del budget è un
+tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
+(`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
+una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
+non dire. Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
+è trattenuto da pavimento, spesa delle 24 ore o budget (chip `queued`): il motivo
+SHALL viaggiare anche sulla riga (`dispatch_error`), e un «in coda» senza perché
+su una card che non partirà è la stessa bugia in un'altra colonna. Quel motivo
+SHALL essere il blocco della SUA attesa, scritto da `resume` quando la trattiene e
+creduto solo finché la riga dice la stessa frase, MAI il blocco pubblicato dal
+tick: il tick gira solo sulle board con todo in coda ed esce prima di pubblicare a
+board in pausa, quindi svuotata la coda a mano o messa in pausa la board il
+blocco pubblicato resta un pavimento rientrato. Il resume trattenuto solo dal
+tetto, quello che parte e ogni altra scrittura del chip lo tolgono. Non dice
+l'interruttore: `resume` rivaluta la sua attesa a ogni giro anche a dispatch
+spento, e riparte appena il blocco rientra.
+
+Quella scrittura SHALL avvenire solo quando l'attesa CAMBIA: un altro tipo di
+blocco, oppure altre parole a numeri esclusi. Per il pavimento della macchina le
+parole non contano, conta la risorsa (Memoria, Disco): un episodio di memoria
+passa per tre frasi («sotto il pavimento», «tenuti per chi parte», «in
+risalita»), e con l'isteresi il compositore passa dall'una all'altra proprio a
+6,0 GB, dove oscillavano le letture del 15/09. La stessa attesa con un'altra
+lettura o un'altra di quelle frasi SHALL rinfrescare riga e chip al massimo una
+volta ogni 60 secondi. Il 15/09 ogni
+ritentativo (ogni 5-6,75 s) riscriveva `dispatch_error` con i GB del momento
+(5,7, 5,9, 6,0), toccava `updated_at` e mandava `task:updated` a ogni client:
+sette card ferme facevano circa 70 frame al minuto, e ognuno rifaceva l'albero
+dell'app e il menu della barra. Saltata la scrittura resta intatto anche il tipo
+dell'attesa, perché la card lo crede solo finché combacia con la frase della riga.
+
+Il pavimento di memoria SHALL leggere una FINESTRA, non un istante: la lettura
+più bassa degli ultimi 2 minuti (`server/services/mem-signal.ts`, un campione ogni
+10 s sul battito del dispatcher). Il 15/09/2026 si è riaperto tre volte su una
+lettura sola (14,5 GB con 12 GB di swap, poi 10,4 fra due 5,5) e si è richiuso
+entro 19-115 s. La finestra SHALL essere vuota al boot, e un buco di più di 30 s
+fra due campioni (il loop fermo, succede solo sotto thrash) SHALL svuotarla: a
+finestra non piena la coda aspetta, e la card dice da quanti secondi misura. Fuori
+da macOS la memoria non si misura e il pavimento di memoria non trattiene.
+
+La riga SHALL essere una sola nei due versi, e il tempo è l'isteresi: si ferma
+appena il minimo dei 2 minuti scende sotto la riga, riparte solo quando l'intera
+finestra resta sopra. La riga è il pavimento quando niente di nostro è sulla
+macchina, e il pavimento più il prezzo di una card quando c'è un turno locale in
+volo o una corsa di check: questa macchina legge 6,1-11,7 GB senza lavoro di
+Topics, e «pavimento più prezzo» (10-12 GB) terrebbe ferma per sempre una board
+vuota. La prenotazione per la VITA del turno SHALL contare una volta sola: in
+modalità «per risorse» la tiene l'asse del budget (che legge anch'esso il minimo
+della finestra, non l'istante), e il pavimento non aggiunge niente; in modalità
+«per numero» il pavimento è l'unico freno di memoria e aggiunge il prezzo di ogni
+turno locale in volo. Contata su tutti e due gli assi, un turno in volo portava la
+riga a 6 + 4 + 4 = 14 GB, sopra ogni lettura di questa macchina.
+
+La frase del pavimento, che va nel log e nel thread della card, SHALL cominciare
+con «Memoria», SHALL dire la lettura più bassa degli ultimi 2 minuti, «sotto il
+pavimento» solo quando quella lettura è sotto il pavimento, i GB che servono per
+una card in più quando è sopra il pavimento ma sotto la riga, la memoria tenuta
+per gli agenti al lavoro solo quando il pavimento la conta, e che riparte quando
+la memoria resta sopra la riga per 2 minuti di fila. Il prezzo citato è quello che
+il cancello usa. Le frasi sono un solo episodio: «coda ferma» si scrive una volta.
+La riga del log del riavvio SHALL contare le riprese partite davvero e, a parte,
+quelle rimaste in attesa di un posto.
+
+Ogni 60 secondi, anche a board ferma, il server SHALL scrivere nel suo log una riga
+`[memsig]` con lettura, minimo dei 2 minuti, copertura, swap-in al secondo, debito
+di memoria al minuto, compressore, swap usato, carico, verdetto di swap, turni in
+volo, corse di check e l'albero di check più pesante (`?` dove manca il valore):
+non decide niente, è lo strumento con cui si misurano le soglie e l'esito.
+
+Lo swap SHALL dirsi SOSTENUTO solo quando, su 60 secondi di campioni, le pagine
+rilette dal disco sono almeno 10 al secondo E il debito di memoria (compressore più
+swap usato) cresce di almeno 0,5 GB al minuto. Le pagine rilette da sole non
+separano il recupero (65/s alle 11:23 del 15/09, debito in calo) dal thrash
+(12,8-33,6/s alle 14:06, debito +8,8/+14 GB al minuto); lo swap usato sta nella
+somma perché un compressore saturo sposta segmenti su disco. Il livello di
+pressione del kernel NON SHALL essere usato: è un rapporto del compressore, e i
+picchi del 10/09 e del 15/09 stavano al livello 1. Le soglie sono provvisorie, e
+l'esito si misura sulle righe `[memsig]` e `[LAG]` 72 ore dopo il land.
+
+**UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
+(`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
+tutta la macchina, oltre al conteggio degli slot: tre worktree che consegnano
+insieme facevano partire tre `eslint` (1,3 GB in due, misurato), e serializzare
+due corse dello stesso cancello non costa lavoro in più.
+
+L'attesa per il PROPRIO nome SHALL essere più lunga di quella per uno slot
+(30 minuti, `TOPICS_GATE_NAME_MAX_WAIT_MS`: con i 10 dello slot resta sotto i 50 che `update_task` aspetta i check) e restare un limite: dieci minuti
+erano meno di una suite unit intera su una macchina carica, e il 14/09/2026 alle
+01:08 due `test:unit:shards` da 11 GB l'uno giravano insieme perché il secondo
+aveva finito la sua attesa ed era partito «accanto». Mentre un cancello aspetta
+se stesso il suo orologio NON SHALL correre: `slot.ts` stampa la riga di attesa
+e i check pre-review fermano la scadenza fino alla riga di slot acquisito.
+Il cancello per nome SHALL valere anche per i check della board, che girano con
+`CI=1`: il runner passa il numero di slot esplicito (KANBAN-15), e senza
+strozzatura `slot.ts` NON SHALL stampare la riga di slot acquisito, che su una
+card si leggeva come «0 s in coda» di un semaforo mai partito.
+
+**L'INTERFACCIA parla in core a disposizione, una volta sola.** Nelle
+impostazioni restano a vista: quanti agenti lavorano con l'anello accanto, la
+manopola «N% del libero», e UNA riga «Topics usa X dei Y core a disposizione»
+col verdetto. Il verdetto SHALL essere quello del cancello (`admission` sulla
+lettura della capacità: stesso campione, stesso costo misurato, stessa isteresi,
+e dice quale asse trattiene), mai ricalcolato nel client; senza `admission` non
+si disegna. Il verdetto SHALL seguire l'ordine del tick: un riavvio in arrivo e
+il PAVIMENTO (`dispatchResourceBlock`) vengono prima del budget, in ENTRAMBE le
+modalità, e in «per numero» sono gli unici verdetti che la lettura porta (la
+notte del 14/09/2026 il pavimento dei 6 GB era l'unico freno che teneva, e il
+pannello diceva in verde «un agent nuovo partirebbe»). Il verdetto SHALL nominare
+l'asse CON i due numeri che quell'asse ha confrontato: la CPU col costo di un
+agent (o, quando l'agent starebbe sotto il tetto, la linea sotto cui l'USO deve
+scendere perché riparta: l'80% dell'usabile meno il costo di un agent, perché il
+cancello confronta uso più costo con quell'80%), la
+memoria con «servono X GB, liberi per Topics Y GB» quando non ci sta nella quota
+del libero e con «Topics tiene X GB su un tetto di Y GB» quando è l'impronta a
+superare il tetto, il pavimento con la sua prima frase. Lo stesso vale per la
+riga scritta sulla card: le due clausole della memoria hanno due frasi, perché
+quella della quota stampata quando scatta l'impronta si contraddice da sola. I
+numeri della riga viva SHALL essere quelli del cancello (misura più i turni
+ammessi negli ultimi 90 secondi, detti come «N appena partiti»), non la sonda
+nuda. Spiegazione, tetto a macchina ferma, portata per macchina e check
+congelati stanno sotto «Come funziona», chiuso. L'anello della colonna si
+riempie con `uso / usabile`, e un usabile misurato a zero è pieno e oltre, non
+un tetto assente. Il popover dice la quota, agenti e core in una riga, la
+memoria che il cancello ha confrontato, i check congelati quando ce ne sono e la
+spesa. Il chip «Fermane N» risponde a una domanda sul NUMERO e in «per risorse»
+NON SHALL comparire. Il motivo scritto sulla card in coda usa le stesse parole.
+
+**Le impostazioni della board stanno in UN dropdown**, ancorato al ⚙ della
+toolbar e coerente con gli altri dropdown dell'app (stessa primitiva `Menu`:
+flip/clamp, Escape, esclusività fra popover). Resta valido KANBAN-12: una sola
+porta alle impostazioni, e nessuna riga sotto la toolbar.
+
+MISURA: `shared/machine-budget.test.ts` per il controllore puro (budget contro
+libero, ammissione uno per tick con isteresi, ordine di congelamento, due
+letture per decidere, e il rigioco delle otto card del 07/09);
+`server/services/budget-governor.test.ts` per il congelamento vero;
+`server/services/task-dispatcher-pressure.test.ts` per i due versi dentro il
+dispatcher; `server/services/task-dispatcher-admission.test.ts` per le porte
+(rigioco della notte del 14/09, rampa fra board e riprese, un giro di reconcile
+alla volta, esenzione con check in volo, finestra di memoria sul pavimento e sul
+budget); `server/services/mem-signal.test.ts` per la finestra e il verdetto di swap;
+`server/lib/card-memory-peaks.test.ts` per il prezzo per card dal picco dei
+check; `tests/unit/gate-slot-one-per-name.test.ts` per il cancello per nome;
+`bun run probe:budget` come banco sintetico su processi veri (bruciatore, `ps
+-o stat` che dice `T`); e2e sul dropdown e sull'anello.
+
+#### Scenario: sopra il budget il secondo agente aspetta
+- **GIVEN** la modalità «a budget» al 50% su 12 core (6 core-unità)
+- **AND** un agente già in volo mentre Topics tiene 5,8 core-unità
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** nessun dispatch nuovo parte
+- **AND** le card in coda portano il motivo `resource_pressure` con i core usati su quelli a disposizione, la quota e il costo di un agente, e il tono dice che riparte da sola
+
+#### Scenario: non si riparte dove ci si è fermati
+- **GIVEN** la coda trattenuta dal budget
+- **WHEN** l'uso scende sotto il budget ma resta sopra l'80% di esso
+- **THEN** non parte ancora niente: si riprende solo sotto la linea di rientro
+
+#### Scenario: a coda vuota il primo parte comunque
+- **GIVEN** la stessa macchina carica e ZERO agenti vivi
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** un agente parte, e il verdetto dichiara l'esenzione invece di sostenere che la macchina è libera
+- **AND** con una corsa di check pre-review in volo non parte, perché la macchina ha già lavoro nostro
+
+#### Scenario: la notte del 14/09 non riparte
+- **GIVEN** la modalità «a budget» all'80%, 24 GB liberi, 20 card in Todo e un giro ogni 10 secondi
+- **AND** agenti che per 160 s costano un decimo di core e poi 2 core e 2 GB
+- **THEN** nei primi 5 minuti partono al massimo 5 agenti
+
+#### Scenario: la rampa è del dispatcher, non della board
+- **GIVEN** tre board con card in Todo, oppure un riavvio con sei turni tagliati
+- **WHEN** il dispatcher fa il suo giro
+- **THEN** parte UNA card, le altre aspettano col chip `queued` e partono una per giro
+- **AND** un giro fermo sulla sonda del commit di consegna mentre un'altra board fa partire la sua non ne fa partire una seconda
+- **AND** la riga del log del riavvio dice «1 da capo» e «5 in attesa di un posto»
+
+#### Scenario: una lettura sola non riapre il pavimento
+- **GIVEN** la modalità «per risorse», tre card in coda e dieci minuti di letture a 5,8 GB
+- **WHEN** arriva una lettura a 14,5 GB e poi di nuovo 5,5 (oppure 5,5, 10,4, 5,5)
+- **THEN** non parte niente, e la card legge la lettura più bassa degli ultimi 2 minuti
+
+#### Scenario: al boot la finestra è vuota
+- **GIVEN** un server appena partito, tre card in coda e letture a 12 GB ogni 10 s
+- **THEN** non parte niente prima di 120 s, e la card dice da quanti secondi misura
+- **AND** la prima card parte appena la finestra è piena
+
+#### Scenario: un turno in volo non affama la coda
+- **GIVEN** la modalità «per risorse», un turno in volo da 10 minuti senza check e il prezzo di una card a 4 GB
+- **WHEN** la memoria scende a 5,5 GB e poi resta fra 10,2 e 11,7
+- **THEN** una card parte fra 120 e 130 s dopo l'ultima lettura a 5,5
+- **AND** con letture fra 9,5 e 11,7 non ne parte nessuna
+
+#### Scenario: un'apertura della finestra ammette al massimo quanto regge il budget
+- **GIVEN** la modalità «per risorse», nessun turno in volo, tre card e una finestra fra 10,4 e 11,7 dopo un morso
+- **THEN** partono esattamente due card, la terza la trattiene l'asse del budget, e nessun nuovo episodio di memoria si scrive dopo la prima
+
+#### Scenario: per numero il pavimento tiene il turno in volo
+- **GIVEN** la modalità «per numero», un turno locale in volo da 5 minuti e 11 GB per 130 s
+- **THEN** la seconda card aspetta, e la frase dice i 4,0 GB tenuti per l'agente al lavoro
+
+#### Scenario: l'asse del budget legge la finestra
+- **GIVEN** la modalità «per risorse», due turni in volo e letture che alternano 10,5 e 14 GB
+- **THEN** la terza card non parte in 5 minuti
+
+#### Scenario: quello che prendono gli altri stringe il budget
+- **GIVEN** un budget dell'80% su 12 core e altri processi che ne tengono 10
+- **THEN** l'usabile SHALL essere l'80% dei 2 core rimasti, 1,6 core-unità, non 9,6, e la riga sulla card SHALL dire perché
+
+#### Scenario: sopra il budget si congela un check, e riparte da solo
+- **GIVEN** due check runner vivi e l'uso sopra il budget per due letture
+- **THEN** UNO solo viene congelato, il più recente, e la sua card lo dice
+- **AND** quando l'uso torna sotto il 70% del budget per due letture il check viene scongelato, con l'orologio del suo timeout fermo per tutta la pausa
+
+#### Scenario: la memoria sotto il pavimento non congela niente
+- **GIVEN** la CPU a riposo (0,4 core-unità su ~3,5) e 2 GB di memoria libera, sotto il pavimento di 6 GB
+- **THEN** in 1080 letture NON SHALL essere congelato nessun check
+- **AND** due check congelati per la CPU SHALL scongelarsi appena la CPU scende, con la memoria ancora sotto il pavimento
+
+#### Scenario: il verdetto del pannello è quello del cancello
+- **GIVEN** la modalità «a budget», Topics a 3,4 core-unità su 3,8 a disposizione e un agente che ne costa 0,5
+- **WHEN** si apre il pannello
+- **THEN** la riga dice «i nuovi aspettano: CPU», perché è ciò che il cancello risponde (3,4 + 0,5 > 3,8), e non «partirebbe» come direbbe `uso < usabile`
+- **AND** con la memoria a trattenere dice «i nuovi aspettano: memoria» con i GB che servono e quelli liberi per Topics, oppure con quanti ne tiene Topics contro il suo tetto
+
+#### Scenario: il pavimento tiene la coda e il pannello lo dice
+- **GIVEN** 5,5 GB disponibili sotto il pavimento nativo di 6 GB, con la CPU dentro il budget
+- **WHEN** si apre il pannello, in «a budget» o in «per numero»
+- **THEN** il verdetto è `floor` e dice la prima frase del pavimento, e l'anello della colonna è pieno con la parola «fermo: niente spazio»
+- **AND** il chip «Fermane N» non compare in «a budget»
+
+#### Scenario: un resume trattenuto non riscrive la card a ogni lettura
+- **GIVEN** sette card In corso trattenute dal pavimento del runtime nativo, con letture di memoria che attraversano i 6,0 GB (5,7, 5,9, 6,0, 5,8, 6,1) e quindi frasi che passano da «sotto il pavimento» a «in risalita»
+- **WHEN** ritentano ogni 6 secondi per due minuti
+- **THEN** ogni card riceve al massimo due `task:updated` (l'attesa e il rinfresco dopo un minuto) e resta `queued` con il motivo `resource_floor`
+- **AND** un cambio di tipo (pavimento, spesa delle 24 ore) o di risorsa (Memoria, Disco) arriva al ritentativo successivo, mentre il passaggio fra le frasi dello stesso episodio di memoria arriva col rinfresco
+
+#### Scenario: la misura non presa non blocca niente
+- **GIVEN** una macchina dove la sonda non risponde
+- **THEN** il budget SHALL restare intero: «non lo so» non è «zero», e un governor che non misura non congela niente
+
+#### Scenario: «per numero» non cambia comportamento
+- **GIVEN** la modalità di default
+- **THEN** il tetto resta quello di prima e nessun budget entra nella decisione
+
+#### Scenario: una manopola fuori scala si stringe, non si rifiuta
+- **GIVEN** un valore scritto fuori dai limiti (10%-95%), o illeggibile
+- **THEN** vale il limite (o il default 60%), e la percentuale mostrata è quella applicata
+
 ## ADDED Requirements
 
 ### Requirement: KANBAN-84 - L'e2e di una consegna lo misura la CI della PR sul commit consegnato, mai un browser su questa macchina
@@ -209,6 +619,25 @@ Una board SHALL poter dichiarare fra i suoi check la riga `github-ci:e2e`
 dell'agente: quella notte gli agenti hanno scaricato `chromium-1217` nella cache di
 questo Mac per farlo girare, contro la regola della postazione. La stessa misura, e
 di più, gira già nella CI di ogni pull request.
+
+**La suite unit.** Una board SHALL poter dichiarare anche la riga `github-ci:unit`
+(`UNIT_CI_CHECK`, nome `unit-ci`) al posto di `test:unit`. Il 15/09/2026 una card
+dentro `test:unit:shards` teneva sul Mac un albero da 2,4 a 11 GB, e la stessa suite
+gira nel job `check` di ogni pull request. Il suo verdetto SHALL venire dalla stessa
+run che legge la riga e2e, e SOLO dalla conclusione del passo `Unit + integration
+tests` del job `check`: VERDE solo con quel passo `success` su quel commit; ROSSO con
+`failure`, e il referto SHALL portare il comando del log del job `check`; NON
+MISURATO con il passo saltato, annullato o assente, o con il job `check` finito prima
+del passo. Il passo SHALL essere letto appena è concluso, anche con il resto del job
+ancora in corso. Con entrambe le righe dichiarate la consegna SHALL fare UNA spinta,
+aprire o riusare UNA PR e usare UN solo giro di sondaggi per le due righe; ogni riga
+SHALL avere il suo esito, e una riga ancora in attesa alla scadenza SHALL essere «non
+misurato» senza toccare l'esito dell'altra. Il testo di un rosso SHALL dire che sono
+rossi i test unit della CI. L'envelope di kickoff di una board con la riga SHALL dire
+che la suite unit intera si legge dalla CI della PR, che su questa macchina non si
+lancia `test:unit` né `test:unit:shards`, e che `bun test <file>` mirato resta
+ammesso; con la sola riga unit la riga e2e dell'envelope SHALL restare quella di una
+board che non misura l'e2e.
 
 **Il commit.** La misura SHALL riguardare ESATTAMENTE il commit su cui la board ha
 misurato i comandi (quello dopo il riallineamento su main). Il server, e mai
@@ -316,6 +745,19 @@ anteprima.
 - **WHEN** la card consegna
 - **THEN** la card SHALL entrare in review con `checksState: pass`
 - **AND** il referto della riga SHALL portare il link della PR e della run
+
+#### Scenario: il passo unit verde sul commit consegnato
+- **GIVEN** una board con `true` e `github-ci:unit`, e il passo `Unit + integration tests` del job `check` concluso `success` nella run `pull_request` del commit
+- **THEN** la riga SHALL essere verde, anche con altri passi del job ancora in corso o rossi
+
+#### Scenario: il job check finisce prima del passo unit
+- **GIVEN** il job `check` concluso `failure` nella preparazione, con il passo unit `skipped` o assente
+- **THEN** la riga unit SHALL essere «non misurato», MAI verde
+
+#### Scenario: e2e e unit dalla stessa spinta
+- **GIVEN** una board con `github-ci:unit`, `true` e `github-ci:e2e`, il passo unit concluso al secondo sondaggio e i job e2e al quarto
+- **THEN** il commit SHALL essere spinto una volta, la PR aperta una volta, e le due righe SHALL arrivare nell'ordine dichiarato dopo i comandi locali
+- **AND** un lettore che risponde senza la riga unit SHALL dare `unknown`, mai `pass`
 
 #### Scenario: una run verde di un altro commit non vale
 - **GIVEN** una run verde il cui `head_sha` è un altro commit, oppure una run `push` verde dello stesso commit, e nessuna run `pull_request` del commit consegnato

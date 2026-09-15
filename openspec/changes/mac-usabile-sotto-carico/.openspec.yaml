@@ -1,4 +1,4 @@
 name: mac-usabile-sotto-carico
 status: approved
 approvato: 2026-09-15 14:40
-risposta: "1: Solo in CI (Recommended) · 2: dovrebbe farlo da solo.. · 3: se è consumo elevato magari lo segnaliamo e la attiviamo solo al focus non so e freeziamo con buona ui · 4: Card per WebKit (Recommended)"
+risposta: "1: Solo in CI (Recommended) · 2: dovrebbe farlo da solo.. · 3: se è consumo elevato magari lo segnaliamo e la attiviamo solo al focus non so e freeziamo con buona ui · 4: Card per WebKit (Recommended) · 15/09 17:20 test:unit alla consegna: Dalla CI della PR (Recommended) · focus dei pannelli pesanti: Del pannello stesso (Recommended)"

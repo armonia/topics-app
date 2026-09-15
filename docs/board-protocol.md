@@ -74,6 +74,21 @@ diventa pubblico alla consegna, prima della review. `check:e2e-touched --list`
 resta il modo di vedere le spec toccate; sul Mac, senza `--list`, lo script esce
 97 senza lanciare niente.
 
+**Anche la suite unit di una consegna la legge la CI della PR, se la board lo
+dichiara (dal 15/09/2026, risposta «test:unit alla consegna: dalla CI della PR»).**
+Una card dentro `test:unit:shards` teneva un albero da 2,4 a 11 GB sul Mac, e la
+stessa suite gira gia' nel job `check` di ogni pull request. La riga e'
+`github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`) e sostituisce `test:unit` fra
+i check della board. Il verdetto e' la conclusione del passo `Unit + integration
+tests` del job `check`, nella stessa run `pull_request` del commit consegnato che
+la riga e2e legge: verde solo con quel passo `success` su quello sha; rosso con
+`failure`, e il referto porta `gh run view --job <id> --log-failed`; passo saltato,
+annullato, assente, o job `check` finito prima del passo (preparazione rossa) e'
+NON MISURATO, mai verde. Con entrambe le righe dichiarate c'e' UNA spinta, UNA PR
+in bozza e UN giro di sondaggi. L'envelope lo dice con la riga
+«UNIT TESTS RUN ON GITHUB CI, NEVER HERE»: niente `test:unit` o
+`test:unit:shards` sul Mac, `bun test <file>` mirato resta ammesso.
+
 **E durante il turno l'agente non lancia e2e su questa macchina, qualunque sia la
 board (dal 15/09/2026, scelta «Solo in CI» di `mac-usabile-sotto-carico`).** La riga
 qui sopra sposta solo il check della consegna; il lavoro piu' pesante partiva prima.

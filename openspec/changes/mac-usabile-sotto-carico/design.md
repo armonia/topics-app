@@ -1,7 +1,8 @@
 # Design: mac-usabile-sotto-carico
 
-Per ora questo documento copre la **tornata 2** della change (scelta 1: «Solo in CI»).
-Le altre tornate aggiungeranno le loro sezioni qui, non una change nuova. Fino al
+Questo documento copre la **tornata 2** (scelta 1: «Solo in CI») e la **tornata 3**
+(scelta 2 e le risposte del 15/09 17:20). Le altre tornate aggiungeranno le loro sezioni
+qui, non una change nuova. Fino al
 15/09/2026 questo disegno stava in una change a sé, `board-e2e-on-pr-ci`, approvata
 con «Sì, sulla CI (Recommended)»: è confluita qui perché risponde alla stessa scelta.
 
@@ -112,11 +113,14 @@ bassa come i comandi (KANBAN-78).
 
 La spinta avviene SOLO dopo che tutti i comandi locali sono verdi. Il motivo non è il
 tempo (in parallelo si risparmierebbero ~10 minuti) ma la pubblicazione: il repo è
-pubblico, e `test:unit` contiene i due cancelli che decidono se un checkout si può
-pubblicare (`no-personal-data-tracked`, `no-home-paths-tracked`). Un commit che li
-viola non deve arrivare su GitHub. Al rollout si aggiunge anche
-`bun run check:security --only=secrets` in coda a `static-rails` (vedi Rollout),
-perché la protezione dei push di GitHub è spenta.
+pubblico, e due cancelli decidono se un checkout si può pubblicare
+(`no-personal-data-tracked`, `no-home-paths-tracked`). Un commit che li viola non deve
+arrivare su GitHub, e sul runner non misurano niente: la home si ricava dalla macchina
+(là è `runner`) e `.personal-terms` non è tracciato. Stavano dentro `test:unit`, che dalla
+tornata 3 si legge dalla CI (D15); quindi al rollout la coda di `static-rails` diventa
+`bun run check:security --only=data,home,secrets` (vedi Rollout): due `bun test` e la
+ricerca dei segreti, ~6 s, locali e prima della spinta. I segreti ci sono perché la
+protezione dei push di GitHub è spenta.
 
 Il check CI si misura sempre DOPO i comandi, qualunque sia la sua posizione
 nell'elenco dichiarato.
@@ -378,7 +382,7 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 2. Codice e test su un ramo, PR, CI verde, merge.
 3. Il watcher ricarica il server; le sessioni nuove prendono le 240 gambe.
 4. SOLO ADESSO: `PATCH /api/boards/topics-app-ar3jt5/settings` con `reviewChecks` =
-   le cinque righe attuali, con `&& bun run check:security --only=secrets` in coda a
+   le cinque righe attuali, con `&& bun run check:security --only=data,home,secrets` in coda a
    `static-rails`, e `{ "name": "e2e-ci", "cmd": "github-ci:e2e" }` al posto di
    `e2e-touched`. Al contrario, il runner vecchio passerebbe `github-ci:e2e` a `sh`:
    uscita 127, rosso su ogni consegna.
@@ -390,8 +394,9 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 ## Rischi
 
 - **Pubblico prima della review.** Vedi D12. La protezione dei push di GitHub è spenta;
-  prima della spinta girano `test:unit` (dati personali, percorsi di casa) e, dal
-  rollout, `check:security --only=secrets`.
+  prima della spinta gira, dal rollout, `check:security --only=data,home,secrets` in coda
+  a `static-rails` (dati personali, percorsi di casa, segreti): dopo la tornata 3
+  `test:unit` non gira più nel worktree, e l'hook pre-push cerca solo `.personal-terms`.
 - **Attesa.** Giro locale (media 10,6 min, max 29,2) più CI (14-42 min). Nel modo a conteggio
   del tetto la card in attesa tiene il suo posto (è `in_progress`): meno card in parallelo.
   Oltre le 240 gambe il turno si chiude e il dispatcher riprende l'agente consumando un
@@ -421,6 +426,99 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 - **Memorie del proprietario** che dicono di lanciare `check:e2e-touched` a mano
   (`feedback_push-su-main-solo-dopo-test-unit-shards.md`,
   `project_ci-rossa-una-settimana-e2e-touched-sesto-check.md`): da aggiornare dopo il land.
+
+## Tornata 3: segnale di memoria onesto e freno sul lavoro in volo
+
+Disegno rivisto il 15/09 dopo una critica avversaria (quattro bloccanti, tutti chiusi), poi
+ristretto dal lead dopo la risposta del proprietario delle 17:20 «test:unit alla consegna:
+dalla CI della PR». Qui le decisioni e i numeri su cui stanno; i test sono nei file.
+
+### Misure (15/09/2026)
+
+- Tre riaperture del pavimento su una lettura sola (10:37 14,5 GB con 12 GB di swap; 11:03
+  5,5 / 10,4 / 5,5), richiuse entro 19-115 s. Il picco delle 10:37 è durato al massimo ~124 s:
+  2 minuti è la finestra più corta che il log dimostra sufficiente.
+- Senza lavoro di Topics questo Mac legge 11,70 GB da riposato e 6,1 GB alle 14:50: ogni riga
+  «pavimento + X» con X > 5,7 GB è irraggiungibile anche a board vuota.
+- Il livello di pressione del kernel è un rapporto del compressore (entra a ~13,7 GB, esce
+  sotto ~10,9): i picchi del 15/09 e del 10/09 stavano al livello 1. Non si usa.
+- Forme dello swap: thrash 14:06 12,8-33,6 swap-in/s con debito +8,8/+14 GB/min, load 75,9,
+  stalli di 43 e 54 s; recupero 11:23 65/s con debito in calo; calma con debito 14:50 2,4-3,2/s
+  piatto; board sana 11/09 0,04/s.
+- Nessun comando di consegna di topics-app supera 1 GB una volta tolta la suite unit dal Mac:
+  tsc 460 MB, build vite 316 MB.
+
+### D15. La suite unit dalla CI della PR, con la stessa spinta dell'e2e
+
+Riga `github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`): verdetto = conclusione del passo
+`Unit + integration tests` del job `check` nella run `pull_request` del commit consegnato,
+letto appena il passo è concluso. `failure` = rosso con `gh run view --job <id> --log-failed`;
+passo saltato, annullato, assente o job finito prima = non misurato (97). `awaitCiEvidence`
+serve tutte le righe CI dichiarate con UNA spinta, UNA bozza e UN giro di sondaggi: ogni riga
+si chiude quando ha il suo esito, e alla scadenza le righe ancora aperte sono non misurate
+senza toccare le altre. Costo: un rosso unit arriva dopo la spinta, su un repo pubblico.
+I due cancelli di pubblicazione che stavano nella suite non vanno con lei: restano locali, in
+`static-rails` (D3).
+
+### D16. `mem-signal.ts`: una sonda con la storia
+
+Campione asincrono (`vm_stat`, `sysctl -n vm.swapusage`, carico) sul battito da 10 s, a volo
+singolo; una sonda fallita non spinge niente, un buco > 30 s svuota la finestra. Minimo dei
+2 minuti per il pavimento, l'asse del budget e l'attesa dei check. Swap sostenuto = su 60 s
+swap-in >= 10/s E debito (compressore + swap usato) >= +0,5 GB/min. Soglie PROVVISORIE:
+nessun cancello di calibrazione di 7 giorni prima del merge; la riga `[memsig]` (ogni 60 s)
+arriva con il resto e serve alla barra di esito.
+
+### D17. Il pavimento su una riga
+
+Riga = pavimento (6 GB nativo) senza lavoro nostro sulla macchina, pavimento + prezzo di una
+card con un turno locale o un giro di check in volo; il tempo è l'isteresi. La prenotazione per
+la vita del turno si conta una volta: l'asse del budget in «per risorse» (che legge il minimo
+della finestra), il pavimento in «per numero». Contata due volte un turno in volo portava la
+riga a 14 GB. Con P = 4: nessuno in volo 6 GB per 2 minuti, un turno 10 GB, due turni 13 GB
+(asse del budget).
+
+### D18. L'attesa dei check, semplificata
+
+`releaseDecision`, in ordine: memoria non misurabile → parte; swap sostenuto → aspetta, senza
+fallire aperto; un comando di un ALTRO giro rilasciato da meno di 120 s e ancora vivo → aspetta;
+finestra non piena o minimo sotto il pavimento → aspetta; altrimenti parte, e dopo i 30 minuti
+del giro fallisce aperto solo sulla memoria. **Il termine di prezzo per comando e il suo registro
+(`check-mem-prices.json`) sono tolti rispetto al disegno rivisto**: con la suite unit in CI nessun
+comando di consegna su topics-app supera 1 GB, e un registro per comandi da mezzo giga non
+cambierebbe nessuna decisione.
+
+### D19. Il freno sotto swap
+
+Sul battito, dopo il campione: con lo swap sostenuto si uccide (SIGTERM, SIGKILL dopo 5 s) il
+giro più giovane fra i run registrati di una card con albero >= 1 GB, al massimo uno ogni 120 s
+e 2 per consegna `taskId@commit`. Il giro lancia `ChecksInterruptedError("swap")` prima di
+registrare il comando ucciso: nessun verdetto, nessun picco. La rotta tiene la consegna, la
+riemette quando la corsa è finita e non riallinea di nuovo (`swapInterruptedDelivery`); un
+verdetto registrato azzera il conto. Commento di servizio sulla card, righe `[checks-swap]`
+nel log. Su topics-app, con la suite unit in CI, il freno non ha quasi vittime: resta per
+il gate `verify:all` di dancerooms e per le board future (risposta 2 del proprietario).
+
+### Barra
+
+- **B1, meccanismo** (CI della PR): `mem-signal`, `dispatch-capacity`,
+  `task-dispatcher-admission`, `task-dispatcher-held-resume-quiet`, `review-checks-brakes`,
+  `checks-gate`, `tasks.checks-interrupted`, `ci-evidence`, `tasks.checks-ci`, job `check` verde.
+- **B3, esito sul server vivo, 72 ore dopo il land** (script in sola lettura nello scratchpad,
+  non committato): giorni UTC interi con verdetti di consegna, 72 h prima contro 72 h dopo,
+  10 minuti attorno al land esclusi. O1 secondi di stallo [LAG] al giorno dopo <= 0,5 x prima;
+  O2 p95 di swap-in/s e di load1 dopo <= prima; O3 verdetti di consegna e turni partiti al giorno
+  dopo >= 0,7 x prima; O4 swap sostenuto con un albero >= 1 GB per al massimo 190 s di fila.
+
+### Rischi
+
+- Meno card insieme: la seconda card chiede 10 GB per 2 minuti (P = 4), una a una con P = 6.
+- Ogni reload del server (a ogni land di codice server) tiene ammissione e attesa per 120 s.
+- Nessun fallire aperto con lo swap sostenuto: uno swap non nostro che dura ore tiene ogni giro
+  per tutto quel tempo, e il log dice perché.
+- Il freno gira sul loop che si ferma: una decisione presa durante uno stallo aspetta il loop.
+- Soglie provvisorie: se B3 mostra falsi positivi o mancati, si spostano `PAGES_READ_BACK_PER_S`
+  e `DEBT_GB_PER_MIN` in `mem-signal.ts`.
 
 ## Dove cambiarla
 

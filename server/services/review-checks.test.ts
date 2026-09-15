@@ -727,6 +727,13 @@ describe("the CI e2e row speaks of the CI, not of a command", () => {
     expect(summary).not.toContain("non è partito");
   });
 
+  test("red unit row: the unit tests of the PR CI, not the e2e", () => {
+    const runs = [green, ciRow({ name: "unit-ci", cmd: "github-ci:unit", code: 1, tail: "unit tests red on the pull request CI: check" })];
+    expect(formatChecksComment(runs)).toContain("test unit rossi sulla CI della PR");
+    expect(formatChecksComment(runs)).not.toContain("e2e rossi");
+    expect(formatChecksThreadSummary(runs)).toContain("test unit rossi sulla CI della PR");
+  });
+
   test("red: the e2e of the PR CI, not an exit code", () => {
     const runs = [green, ciRow({ code: 1, tail: "e2e red on the pull request CI: e2e (2)" })];
     expect(formatChecksComment(runs)).toContain("e2e rossi sulla CI della PR");

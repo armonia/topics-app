@@ -1,5 +1,5 @@
 /**
- * The e2e evidence of a delivery, read from the pull request CI (KANBAN-84).
+ * The e2e and unit evidence of a delivery, read from the pull request CI (KANBAN-84).
  *
  * WHY IT EXISTS. Until 15/09/2026 the board's sixth check was
  * `bun run check:e2e-touched`, which runs Playwright with Chromium inside the
@@ -14,16 +14,21 @@
  *     lease on a remote head this branch's reflog already had;
  *  2. opens or reuses a draft pull request towards main;
  *  3. polls GitHub every minute for the latest `pull_request` run of ci.yml whose
- *     head is that commit, and reads only `prepare-e2e` and `e2e (N)`.
- * Green only when every e2e job concluded `success`; red on any `failure`;
- * anything else is NOT MEASURED (exit 97), never a pass.
+ *     head is that commit, and reads only `prepare-e2e` and `e2e (N)` for the
+ *     e2e row, and only the step "Unit + integration tests" of the `check` job
+ *     for the unit row.
+ * Green only when every e2e job (or that step) concluded `success`; red on a
+ * `failure`; anything else is NOT MEASURED (exit 97), never a pass.
+ *
+ * With both rows declared the delivery pushes once, opens one draft and runs one
+ * poll loop: both verdicts come from the same run of the same commit.
  *
  * Between two polls no child process is alive: each git/gh call is a short argv
  * spawn at agent priority with its own 60 s cap on its whole process group, and it
  * never throws.
  */
 import { spawn } from "node:child_process";
-import { E2E_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { reviewChecksStopping } from "./review-checks-brakes";
@@ -44,6 +49,9 @@ export const CI_BASE_BRANCH = "main";
 const NOT_MEASURED_CODE = 97;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
+/** The job and step of ci.yml whose conclusion is the unit verdict. */
+export const UNIT_JOB = "check";
+export const UNIT_STEP = "Unit + integration tests";
 
 export type GithubRun = {
   id: number;
@@ -56,15 +64,22 @@ export type GithubRun = {
   run_attempt?: number;
 };
 
+export type GithubStep = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+};
+
 export type GithubJob = {
   id: number;
   name: string;
   status: string;
   conclusion: string | null;
   html_url?: string;
+  steps?: GithubStep[];
 };
 
-export type E2eEvidence =
+export type CiEvidence =
   | { kind: "pending"; run: GithubRun | null }
   | { kind: "pass"; run: GithubRun; jobs: GithubJob[] }
   | { kind: "fail"; run: GithubRun; jobs: GithubJob[]; failed: GithubJob[] }
@@ -89,7 +104,7 @@ export function latestCiRun(sha: string, runs: GithubRun[]): GithubRun | null {
 }
 
 /** The e2e outcome of `sha`, given the runs listed for it and the jobs of its latest run. */
-export function readE2eEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[]): E2eEvidence {
+export function readE2eEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
   const run = latestCiRun(sha, runs);
   if (!run) return { kind: "pending", run: null };
   if (run.status === "completed" && run.conclusion === "cancelled") {
@@ -113,6 +128,46 @@ export function readE2eEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[
   return { kind: "notMeasured", run, reason: `e2e jobs without a verdict: ${odd.join(", ")}` };
 }
 
+/**
+ * The unit outcome of `sha`: the conclusion of the step "Unit + integration tests"
+ * of job `check` in its latest run. The step is read as soon as it completes, even
+ * while the rest of the job runs. A step skipped or cancelled, a job that ended
+ * before the step (its setup failed), or no such step is NOT MEASURED, never green.
+ */
+export function readUnitEvidence(sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
+  const run = latestCiRun(sha, runs);
+  if (!run) return { kind: "pending", run: null };
+  if (run.status === "completed" && run.conclusion === "cancelled") {
+    return { kind: "notMeasured", run, reason: "the latest CI run for this commit was cancelled or superseded" };
+  }
+  const job = jobs.find((j) => j.name === UNIT_JOB);
+  if (!job) {
+    return run.status === "completed"
+      ? { kind: "notMeasured", run, reason: `the CI run finished without the ${UNIT_JOB} job` }
+      : { kind: "pending", run };
+  }
+  const step = job.steps?.find((s) => s.name === UNIT_STEP);
+  if (step?.status === "completed") {
+    if (step.conclusion === "success") return { kind: "pass", run, jobs: [job] };
+    if (step.conclusion === "failure") return { kind: "fail", run, jobs: [job], failed: [job] };
+    return { kind: "notMeasured", run, reason: `the step "${UNIT_STEP}" concluded ${step.conclusion ?? "without a conclusion"}` };
+  }
+  if (job.status !== "completed") return { kind: "pending", run };
+  return {
+    kind: "notMeasured", run,
+    reason: step
+      ? `the ${UNIT_JOB} job concluded ${job.conclusion ?? "without a conclusion"} before the step "${UNIT_STEP}" finished`
+      : `the ${UNIT_JOB} job concluded ${job.conclusion ?? "without a conclusion"} without running the step "${UNIT_STEP}"`,
+  };
+}
+
+const isUnitRow = (check: ReviewCheck): boolean => check.cmd.trim() === UNIT_CI_CHECK.cmd;
+
+/** The outcome a declared CI row reads from the same run. */
+export function readCiEvidence(check: ReviewCheck, sha: string, runs: GithubRun[], jobs: GithubJob[]): CiEvidence {
+  return isUnitRow(check) ? readUnitEvidence(sha, runs, jobs) : readE2eEvidence(sha, runs, jobs);
+}
+
 type RunContext = { repo?: string; prUrl?: string };
 
 function contextLines(run: GithubRun | null, ctx: RunContext): string[] {
@@ -132,20 +187,24 @@ export function ciNotMeasured(check: ReviewCheck, reason: string, extra: RunCont
 }
 
 /** The CheckRun of a settled outcome (a pending one is not a row). */
-export function ciCheckRun(check: ReviewCheck, outcome: Exclude<E2eEvidence, { kind: "pending" }>, ms: number, ctx: RunContext = {}): CheckRun {
+export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { kind: "pending" }>, ms: number, ctx: RunContext = {}): CheckRun {
   if (outcome.kind === "notMeasured") return ciNotMeasured(check, outcome.reason, { ...ctx, ms, run: outcome.run });
-  const jobList = `jobs: ${outcome.jobs.map((j) => `${j.name} ${j.conclusion}`).join(", ")}`;
+  const unit = isUnitRow(check);
+  const label = unit ? "unit tests" : "e2e";
+  const jobList = unit
+    ? `step "${UNIT_STEP}" of job ${UNIT_JOB}: ${outcome.kind === "pass" ? "success" : "failure"}`
+    : `jobs: ${outcome.jobs.map((j) => `${j.name} ${j.conclusion}`).join(", ")}`;
   if (outcome.kind === "pass") {
     return {
       name: check.name, cmd: check.cmd, ok: true, code: 0, ms, timedOut: false,
-      tail: ["e2e green on the pull request CI", ...contextLines(outcome.run, ctx), jobList].join("\n"),
+      tail: [`${label} green on the pull request CI`, ...contextLines(outcome.run, ctx), jobList].join("\n"),
     };
   }
   const repoFlag = ctx.repo ? ` -R ${ctx.repo}` : "";
   return {
     name: check.name, cmd: check.cmd, ok: false, code: 1, ms, timedOut: false,
     tail: [
-      `e2e red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
+      `${label} red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
       ...contextLines(outcome.run, ctx),
       jobList,
       ...outcome.failed.map((j) => `log of ${j.name}: gh run view --job ${j.id} --log-failed${repoFlag}`),
@@ -302,7 +361,7 @@ export function githubPort(): GithubPort {
   };
 }
 
-export type AwaitE2eDeps = {
+export type AwaitCiDeps = {
   port?: GithubPort;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -314,14 +373,16 @@ export type AwaitE2eDeps = {
 };
 
 /**
- * Pushes the measured commit, opens or reuses the draft PR and waits for the e2e
- * verdict of that commit. Resolves with a CheckRun (pass, fail or NOT MEASURED);
- * rejects only with ChecksInterruptedError when the server stops the checks.
+ * Pushes the measured commit, opens or reuses the draft PR and waits for the
+ * verdict of every declared CI row on that commit: one push, one draft, one poll
+ * loop for all of them. Resolves with one CheckRun per row, in the order given
+ * (pass, fail or NOT MEASURED); rejects only with ChecksInterruptedError when the
+ * server stops the checks.
  */
-export async function awaitE2eEvidence(
-  input: { cwd: string; sha: string; taskId: string },
-  deps: AwaitE2eDeps = {},
-): Promise<CheckRun> {
+export async function awaitCiEvidence(
+  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[] },
+  deps: AwaitCiDeps = {},
+): Promise<CheckRun[]> {
   const port = deps.port ?? githubPort();
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? ((ms: number) => Bun.sleep(ms));
@@ -330,8 +391,7 @@ export async function awaitE2eEvidence(
   const deadlineMs = deps.deadlineMs ?? CI_E2E_DEADLINE_MS;
   const graceMs = deps.noRunGraceMs ?? CI_NO_RUN_GRACE_MS;
   const errorsMax = deps.apiErrorsMax ?? CI_API_ERRORS_MAX;
-  const check = E2E_CI_CHECK;
-  const { cwd, sha } = input;
+  const { cwd, sha, checks } = input;
   const startedAt = now();
   const elapsed = () => now() - startedAt;
   const halt = () => { if (stopping()) throw new ChecksInterruptedError(); };
@@ -343,17 +403,20 @@ export async function awaitE2eEvidence(
     }
     halt();
   };
-  const notMeasured = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}) =>
-    ciNotMeasured(check, reason, { ...ctx, ms: elapsed() });
+  const settled = new Map<ReviewCheck, CheckRun>();
+  const open = () => checks.filter((c) => !settled.has(c));
+  // Every row still open gets the same reason; the rows already settled keep theirs.
+  const notMeasured = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
+    checks.map((c) => settled.get(c) ?? ciNotMeasured(c, reason, { ...ctx, ms: elapsed() }));
 
   halt();
   const own = await port.ownCommits(cwd, sha, CI_BASE_BRANCH);
   if (!own.ok) return notMeasured(`cannot count the commits beyond ${CI_BASE_BRANCH}: ${own.error}`);
   if (own.value === 0) {
-    return {
+    return checks.map((check) => ({
       name: check.name, cmd: check.cmd, ok: true, code: 0, ms: elapsed(), timedOut: false,
       tail: `no commit of its own beyond ${CI_BASE_BRANCH}: nothing to push, no CI to read`,
-    };
+    }));
   }
   const branch = await port.branch(cwd);
   if (!branch.ok || !branch.value) return notMeasured(`the worktree is not on a branch${branch.ok ? "" : `: ${branch.error}`}`);
@@ -378,7 +441,7 @@ export async function awaitE2eEvidence(
   const pr = await port.draftPullRequest(cwd, repo.value, branch.value,
     `board: ${branch.value} (card ${input.taskId.slice(0, 8)})`,
     `Draft opened by the Topics board for commit ${sha.slice(0, 8)} of card ${input.taskId.slice(0, 8)}, ` +
-      "to run the e2e jobs of the pull request CI. Not a request to merge: a person marks it ready when the card lands.");
+      "to read the pull request CI (e2e jobs, unit tests). Not a request to merge: a person marks it ready when the card lands.");
   if (!pr.ok) return notMeasured(`cannot open or find the draft pull request: ${pr.error}`);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };
   const pushedAt = now();
@@ -390,13 +453,13 @@ export async function awaitE2eEvidence(
   for (;;) {
     halt();
     const runs = await port.runs(repo.value, sha);
-    let outcome: E2eEvidence | null = null;
+    let read: { runs: GithubRun[]; jobs: GithubJob[] } | null = null;
     if (runs.ok) {
       const run = latestCiRun(sha, runs.value);
       const jobs = run ? await port.jobs(repo.value, run.id) : { ok: true as const, value: [] };
       if (jobs.ok) {
         errors = 0;
-        outcome = readE2eEvidence(sha, runs.value, jobs.value);
+        read = { runs: runs.value, jobs: jobs.value };
       } else {
         errors += 1;
         lastError = jobs.error;
@@ -406,10 +469,20 @@ export async function awaitE2eEvidence(
       lastError = runs.error;
     }
     if (errors >= errorsMax) return notMeasured(`${errors} GitHub reads failed in a row: ${lastError}`, { ...ctx, run: lastRun });
-    if (outcome && outcome.kind !== "pending") return ciCheckRun(check, outcome, elapsed(), ctx);
-    if (outcome) lastRun = outcome.run;
+    let noRun = false;
+    if (read) {
+      for (const check of open()) {
+        const outcome = readCiEvidence(check, sha, read.runs, read.jobs);
+        if (outcome.kind !== "pending") settled.set(check, ciCheckRun(check, outcome, elapsed(), ctx));
+        else {
+          lastRun = outcome.run;
+          noRun ||= !outcome.run;
+        }
+      }
+      if (open().length === 0) return checks.map((c) => settled.get(c)!);
+    }
     const waited = now() - pushedAt;
-    if (outcome && !outcome.run && !conflictProbed && waited >= graceMs) {
+    if (noRun && !conflictProbed && waited >= graceMs) {
       conflictProbed = true;
       const state = await port.mergeState(repo.value, pr.value.number);
       if (state.ok && state.value === "CONFLICTING") {
@@ -417,7 +490,7 @@ export async function awaitE2eEvidence(
       }
     }
     if (waited >= deadlineMs) {
-      return notMeasured(`no e2e verdict ${Math.round(deadlineMs / 60_000)} minutes after the push`, { ...ctx, run: lastRun });
+      return notMeasured(`no CI verdict ${Math.round(deadlineMs / 60_000)} minutes after the push`, { ...ctx, run: lastRun });
     }
     await pause(pollMs);
   }

@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.331 — 2026-09-15
+
+### Sotto il cofano
+- Un check interrotto dal freno o dallo spegnimento muore con tutto il suo gruppo, anche il figlio forkato dopo la foto dei discendenti
+- Due giri in attesa dei check si alternano: un giro di tre comandi non si riprende piu' il rilascio a ogni uscita
+- Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto
+
 ## 2.2.330 — 2026-09-15
 
 ### Sotto il cofano
@@ -11,6 +18,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La card trattenuta riscritta da un altro torna in coda al retry dopo, e un test lo tiene
 - Una chiamata a git o gh si ferma davvero a 60 s, e Playwright sul Mac rifiuta prima di lanciare Chromium
 - Un push finito con un figlio ancora vivo non diventa un timeout, e il test che legge la config di Playwright passa sul Mac
+- La suite unit di una consegna si legge dalla CI della PR, con la stessa spinta e la stessa attesa dell'e2e
+- Il pavimento di memoria legge il minimo di 2 minuti invece di un istante, e la prenotazione di un turno si conta una volta sola
+- Sotto swap sostenuto Topics interrompe da solo il giro di check piu' giovane, mai rosso, e l'attesa dei check non rilascia piu' su una lettura sola ne' in branco
+- I test del freno sotto swap dichiarano il tipo delle righe di log lette dallo spy
 - Il cancello del bloat torna verde su main dopo le tre PR fuse insieme
 
 ## 2.2.329 — 2026-09-15
