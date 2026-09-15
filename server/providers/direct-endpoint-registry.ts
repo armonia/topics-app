@@ -8,7 +8,7 @@
  */
 import { listDirectEndpoints, readEndpointSecret } from "../services/direct-endpoint-store";
 import { isDirectProviderName, providerNameForEndpoint } from "../../shared/direct-endpoints";
-import type { DirectEndpointProviderConfig } from "./types";
+import type { DirectEndpointProviderConfig } from "./openai-compatible-config";
 
 interface RegistryPort {
   listProviders(): Array<{ name: string }>;

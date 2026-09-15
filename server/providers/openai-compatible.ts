@@ -18,11 +18,11 @@ import type {
   AIProvider,
   ChatMessage,
   CompletionResult,
-  DirectEndpointProviderConfig,
   ProviderCapability,
   ProviderDiagnostic,
   StreamHandler,
 } from "./types";
+import type { DirectEndpointProviderConfig } from "./openai-compatible-config";
 import { toOpenAIFunctions } from "../browser-tools-adapters";
 import {
   asRecord,

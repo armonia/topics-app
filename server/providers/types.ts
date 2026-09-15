@@ -6,7 +6,8 @@
  *   - ClaudeProvider:   uses Anthropic SDK directly (standalone mode)
  */
 
-import { providerNameForEndpoint, type DirectEndpointConfig } from "../../shared/direct-endpoints";
+import { providerNameForEndpoint } from "../../shared/direct-endpoints";
+import type { DirectEndpointProviderConfig } from "./openai-compatible-config";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { CompactionMarker } from "./claude/compaction";
 import type { TurnEndInfo } from "./stop-reason";
@@ -739,19 +740,6 @@ export interface OpenAIProviderConfig {
   apiKey: string;
   model?: string;             // defaults to "gpt-4o"
   maxTokens?: number;         // defaults to 8192
-}
-
-/**
- * An OpenAI-compatible endpoint somebody configured in Settings.
- *
- * Like ACP, and unlike every historical provider, `type` is NOT the name: N
- * endpoints share one type, and each registers as `direct-<id>`.
- */
-export interface DirectEndpointProviderConfig {
-  type: "openai-compatible";
-  endpoint: DirectEndpointConfig;
-  /** Bearer token, read from its private file by the caller that builds this. */
-  token?: string;
 }
 
 /**
