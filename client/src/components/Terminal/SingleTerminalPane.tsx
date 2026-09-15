@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
+import { TerminalInputQueue } from './inputQueue';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
@@ -250,6 +251,20 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     if (inputDroppedRef.current) setInputDropped(false);
   }, []);
 
+  // THE FIFTH SILENCE: the keys typed before the attach.
+  // After a reload the pane remounts, the bridge replays the scrollback and the
+  // cursor moves, so the terminal looks ready while the socket is still
+  // connecting (or retrying, at up to 3 s per attempt). Everything typed in
+  // that window used to be dropped without a trace. It is now held by
+  // `inputQueueRef` and released at `replay-end`; `attachedRef` is the bit that
+  // tells the two apart, and it is deliberately NOT "the socket is open" (the
+  // server accepts the upgrade for any id and refuses afterwards).
+  const attachedRef = useRef(false);
+  const [inputHeld, setInputHeld] = useState(false);
+  const inputHeldRef = useRef(false);
+  const heldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputQueueRef = useRef<TerminalInputQueue | null>(null);
+
   // Viewing a claude-code session = its "finished a turn" notification is seen,
   // so clear it. Depending on `finished` (not just isActive) is what makes this
   // false-positive-proof: if the session finishes *while you're already looking
@@ -484,10 +499,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           } else {
             await writeViaBrowser();
           }
-          const activeWs = termRef.current?.ws;
-          if (activeWs && activeWs.readyState === WebSocket.OPEN) {
-            activeWs.send('\x16');
-          }
+          // Same door as the keyboard: queued if the attach is not proven yet.
+          inputQueueRef.current?.send('\x16');
         } catch (err) {
           console.error('Image paste failed:', err);
         }
@@ -503,6 +516,50 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     setTimeout(doFit, 200);
     setTimeout(doFit, 500);
     setTimeout(() => { doFit(); term.focus(); }, 600);
+
+    // How long an unproven attach stays silent before the pane says so. Under
+    // it, a normal mount would flash a warning at every pane you open; over it,
+    // the reader is left guessing exactly when the cursor is lying to them.
+    const HELD_NOTICE_DELAY_MS = 700;
+
+    const inputQueue = new TerminalInputQueue({
+      socket: () => termRef.current?.ws,
+      attached: () => attachedRef.current,
+      onStateChange: (state) => {
+        if (state.discarded) {
+          // What was typed is gone: reuse the band that already says exactly
+          // that, and take the flag down so the next loss can raise it again.
+          inputQueue.acknowledgeDiscarded();
+          setInputDropped(true);
+        }
+        // Typing proves the reader is there: no need to wait out the grace.
+        if (state.pendingBytes > 0 && !inputHeldRef.current) {
+          inputHeldRef.current = true;
+          setInputHeld(true);
+        }
+      },
+    });
+    inputQueueRef.current = inputQueue;
+
+    const markDetached = () => {
+      attachedRef.current = false;
+      if (heldTimerRef.current) clearTimeout(heldTimerRef.current);
+      heldTimerRef.current = setTimeout(() => {
+        heldTimerRef.current = null;
+        if (attachedRef.current) return;
+        inputHeldRef.current = true;
+        setInputHeld(true);
+      }, HELD_NOTICE_DELAY_MS);
+    };
+
+    const markAttached = () => {
+      attachedRef.current = true;
+      if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
+      if (inputHeldRef.current) { inputHeldRef.current = false; setInputHeld(false); }
+      inputQueue.flush();
+    };
+
+    markDetached();
 
     let retryCount = 0;
     // Grace window for the boot/reconcile race: an attach can fire before the
@@ -580,6 +637,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // A close from here on is a drop, not a refusal, and the grace
               // starts over (see the note in `ws.onopen`).
               retryCount = 0;
+              // The attach is PROVEN: whatever was typed while it was not goes
+              // out now, in order, before the first byte the reader types next.
+              markAttached();
               // The attach's resize lives here, not in `ws.onopen`: this is the
               // only frame that proves the session is alive, so the POST cannot
               // land on a 404.
@@ -638,6 +698,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       };
 
       ws.onclose = (event) => {
+        markDetached();
         if (intentionalClose) return;
         if (event.code === 1000) {
           // Clean end — the PTY exited (`exit`, process finished). Not a
@@ -706,10 +767,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const initialWs = connectWs();
 
     term.onData((data) => {
-      const ws = termRef.current?.ws;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
-      }
+      inputQueue.send(data);
     });
 
     term.onResize(({ cols, rows }) => {
@@ -732,6 +790,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       intentionalClose = true;
       captureRef.current();
       clearTimeout(retryTimer);
+      // The pane is going away: held input goes with it, otherwise it would be
+      // delivered by whatever pane attaches to this session next.
+      inputQueue.clear();
+      inputQueueRef.current = null;
+      attachedRef.current = false;
+      if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
+      inputHeldRef.current = false;
       if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
       reconnectRef.current = null;
       detachTouchScroll();
@@ -969,9 +1034,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     }
   };
 
+  // The virtual keyboard goes through the same door as the physical one: a
+  // Ctrl+C tapped while the pane is reattaching used to vanish too.
   const sendToTerminal = (data: string) => {
-    const ws = termRef.current?.ws;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+    inputQueueRef.current?.send(data);
   };
 
   return (
@@ -1194,6 +1260,19 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             you want to read while the bridge is down), and it leaves on its own
             at the first byte the bridge delivers. No button: there is nothing
             to retry here, the reconnection is the server's own loop. */}
+        {/* NOT YET ATTACHED. The cursor moving during a replay says the
+            opposite, so the pane has to say it in words: what you type is held
+            and will be delivered, not echoed. It leaves on its own at
+            `replay-end`, and it never shows on a normal fast attach. */}
+        {inputHeld && !inputDropped && !stale && (
+          <div
+            data-testid="terminal-input-held"
+            className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-sky-600 text-white text-mini font-medium"
+          >
+            <Clock size={12} />
+            <span>{t('terminal.inputHeld')}</span>
+          </div>
+        )}
         {inputDropped && !stale && (
           <div
             data-testid="terminal-input-dropped"
