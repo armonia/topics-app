@@ -78,11 +78,18 @@ export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadRead
     if (!c || c.usedCoreUnits == null || !(c.cores > 0)) {
       return { ...base, limit: null, byResources: true, loading: !c };
     }
-    const ceiling = c.budgetCoreUnits > 0 ? c.budgetCoreUnits : 0;
-    const fill = ceiling > 0 ? Math.min(1, c.usedCoreUnits / ceiling) : 0;
-    const tone: LoadTone = ceiling > 0 && c.usedCoreUnits > ceiling
+    // Against the USABLE ceiling, the one the gate admits against: the share
+    // of what the rest of the machine leaves free. Filling against the whole
+    // budget drew a half-empty ring while the gate was already saying "wait".
+    // A measured ZERO is a real ceiling (the others hold the whole machine),
+    // not a missing one: falling back to the budget there drew an almost empty
+    // ring while the gate refused every card.
+    const ceiling = Math.max(0, c.usableCoreUnits);
+    const used = c.usedCoreUnits;
+    const fill = ceiling > 0 ? Math.min(1, used / ceiling) : used > 0 ? 1 : 0;
+    const tone: LoadTone = used > ceiling
       ? 'over'
-      : ceiling > 0 && c.usedCoreUnits >= ceiling ? 'full' : 'idle';
+      : ceiling > 0 && used >= ceiling ? 'full' : 'idle';
     return {
       ...base,
       limit: null,
