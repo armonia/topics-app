@@ -70,14 +70,23 @@ export type ChecksLeg = ChecksVerdict | { pending: true } | ChecksInterrupted | 
  * leg still in flight and the card does not move. Like `null` it is not
  * retained: the next leg, after the restart, starts a fresh run.
  */
-export type ChecksInterrupted = { interrupted: true };
+export type ChecksInterrupted = { interrupted: true; reason?: InterruptReason };
 
-/** Thrown by the round when the server stops it (`stopReviewChecks`): the gate
- *  turns it into `ChecksInterrupted` instead of the `null` of a run that blew up. */
+/** Why a round was cut: the server stopping, or the swap brake taking memory back
+ *  from the youngest round (`createSwapBrake`). Neither is a verdict. */
+export type InterruptReason = "shutdown" | "swap";
+
+/** Thrown by the round when the server stops it (`stopReviewChecks`) or the swap
+ *  brake kills its tree: the gate turns it into `ChecksInterrupted` instead of the
+ *  `null` of a run that blew up. */
 export class ChecksInterruptedError extends Error {
-  constructor() {
-    super("pre-review checks interrupted by the server shutdown: no verdict recorded");
+  readonly reason: InterruptReason;
+  constructor(reason: InterruptReason = "shutdown") {
+    super(reason === "swap"
+      ? "pre-review checks interrupted for sustained swap: no verdict recorded, the delivery restarts"
+      : "pre-review checks interrupted by the server shutdown: no verdict recorded");
     this.name = "ChecksInterruptedError";
+    this.reason = reason;
   }
 }
 
@@ -220,8 +229,10 @@ export function createChecksGate(opts: {
             corsa.endedAt = now();
             corse.delete(key);
             if (err instanceof ChecksInterruptedError) {
-              console.warn(`[checks-gate] run ${key} interrupted by the shutdown: no verdict`);
-              resolveCorsa({ interrupted: true });
+              console.warn(err.reason === "swap"
+                ? `[checks-gate] run ${key} interrupted for sustained swap: no verdict, the delivery restarts`
+                : `[checks-gate] run ${key} interrupted by the shutdown: no verdict`);
+              resolveCorsa({ interrupted: true, reason: err.reason });
               return;
             }
             console.error(`[checks-gate] corsa ${key} esplosa`, err);

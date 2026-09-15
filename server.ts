@@ -82,13 +82,14 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock } from "./server/services/dispatch-capacity";
+import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
+import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
-import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { stopReviewChecks } from "./server/services/review-checks-brakes";
-import { awaitE2eEvidence } from "./server/services/ci-evidence";
+import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
+import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
+import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -1475,6 +1476,14 @@ const nodeBranchPlanter = createNodeBranchPlanter({
   repoPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
 });
 
+/**
+ * THE MEMORY SIGNAL, one probe with a 2-minute history for every memory reader:
+ * the admission floor, the budget axis, the checks waiter and the swap brake
+ * (`server/services/mem-signal.ts`). Sampled at boot and on the dispatch beat.
+ */
+const memSignal = createMemSignal({ probe: probeVm, measurable: process.platform === "darwin" });
+void memSignal.sample();
+
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   uncommittedInWorktree: (taskId) =>
@@ -1560,9 +1569,12 @@ const taskDispatcher = createTaskDispatcher({
   // is passed anyway so the reading is the one the panel gets from the route.
   budgetSample: () => {
     try {
+      // The lowest reading of the window, not the instant: the budget axis
+      // reserves every local turn's price against it (`null` while measuring,
+      // and the floor holds meanwhile).
       return budgetSample(
         fleetLoadSync(),
-        availableMemGB(),
+        memSignal.held().heldGB,
         machineCores(),
         osTotalmem() / 1e9,
         turniInVolo(),
@@ -1681,13 +1693,13 @@ const taskDispatcher = createTaskDispatcher({
   // Si rilegge a ogni tick invece di fissarlo al boot: chi cambia runtime in
   // Impostazioni si aspetta che valga da subito, e questa lettura costa una
   // riga di SQLite già in cache.
-  // `hold` is the dispatcher's: the price of one card, the turns it has just
-  // admitted, and whether the floor is already holding (its hysteresis).
+  // `hold` is the dispatcher's: the price of one card, the memory kept for the
+  // turns in flight, and whether any of our work is on the machine.
   resourceBlock: (hold) =>
     dispatchResourceBlock(
       ctx.worktreeManager.worktreesDir(),
       undefined,
-      undefined,
+      () => memSignal.held(),
       resolveAgentRuntime() === "cli",
       hold,
     ),
@@ -2483,10 +2495,11 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     checksGateIsOffLane = (taskId) => gate.isOffLane(taskId);
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
-  ciE2eEvidence: (input) => awaitE2eEvidence(input),
-  // No new pre-review command starts under the floor the admission uses
-  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, and the next bar would start).
-  checksMemoryFloor: { read: () => availableMemGB(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
+  ciEvidence: (input) => awaitCiEvidence(input),
+  // No new pre-review command starts under the floor the admission uses, into
+  // sustained swap, or within 2 minutes of another delivery's release
+  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, four commands on one poll).
+  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -4845,7 +4858,7 @@ const budgetGovernor = createBudgetGovernor({
       const fleet = fleetLoadSync();
       if (!fleet) return null;
       const share = budgetShare(cap);
-      const sample = budgetSample(fleet, availableMemGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
+      const sample = budgetSample(fleet, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
       // The CPU only: a freeze on memory has no way out (see `governorReading`).
       return governorReading(sample, share);
     } catch { return null; }
@@ -4860,7 +4873,30 @@ const budgetGovernor = createBudgetGovernor({
 setActiveBudgetGovernor(budgetGovernor);
 
 taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
+/** Under sustained swap the youngest heavy check round is interrupted, never red, and restarts by itself. */
+const swapBrake = createSwapBrake({
+  kill: killCheckTree,
+  note: (taskId, text) => {
+    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+    catch { /* a note that cannot be written must not stop the brake */ }
+  },
+  log: (line) => console.warn(line),
+});
+/** The `[memsig]` line goes out once a minute on the 10 s beat. */
+const MEMSIG_EVERY_MS = 60_000;
+let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
+  void memSignal.sample().then(() => {
+    swapBrake.tick(memSignal.swap(), freezableRuns());
+    const now = Date.now();
+    if (now - memsigAt < MEMSIG_EVERY_MS) return;
+    memsigAt = now;
+    const samples = memSignal.samples();
+    console.log(formatMemorySignalLine({
+      at: now, held: memSignal.held(), swap: memSignal.swap(), latest: samples[samples.length - 1] ?? null,
+      inFlight: turniInVolo(), checkRuns: freezableRuns().length, heaviestCheckGB: liveCheckTreeGB(),
+    }));
+  }).catch((err) => console.error("[memsig] sample failed", err));
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
   // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the
   // race it closes — a staged fake agent recovered mid-gesture.

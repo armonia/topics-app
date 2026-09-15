@@ -18,9 +18,9 @@ import { freshDb, makeCtx, call } from "./tasks-test-support";
 import { ChecksInterruptedError, type ChecksGate } from "../services/checks-gate";
 import { ciNotMeasured } from "../services/ci-evidence";
 import { _resetReviewChecksStop } from "../services/review-checks-brakes";
-import { E2E_CI_CHECK, type CheckRun } from "../../shared/board";
+import { E2E_CI_CHECK, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 
-type CiReader = (input: { cwd: string; sha: string; taskId: string }) => Promise<CheckRun>;
+type CiReader = (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun | CheckRun[]>;
 
 const greenCi: CheckRun = { name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "e2e green" };
 const redCi: CheckRun = {
@@ -37,13 +37,20 @@ describe("a delivery on a board that declares the CI e2e row", () => {
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
   async function deliveryWith(commands: string[], ci: CiReader | null, head = { commit: "abc1234" }) {
-    const calls = { ci: 0 };
+    const calls = { ci: 0, checks: [] as string[][] };
     let gate: ChecksGate | null = null;
     const router = createTasksRouter(makeCtx(db, broadcasts), undefined, {
       taskCheckoutRef: async () => ({ cwd, commit: head.commit }),
       realignForChecks: async () => ({ ok: true, note: null }),
       onChecksGate: (g: ChecksGate) => { gate = g; },
-      ...(ci ? { ciE2eEvidence: async (input: Parameters<CiReader>[0]) => { calls.ci += 1; return ci(input); } } : {}),
+      ...(ci ? {
+        ciEvidence: async (input: Parameters<CiReader>[0]) => {
+          calls.ci += 1;
+          calls.checks.push(input.checks.map((c) => c.cmd));
+          const got = await ci(input);
+          return Array.isArray(got) ? got : [got];
+        },
+      } : {}),
     } as Parameters<typeof createTasksRouter>[2]);
     const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "consegna" }))!.json();
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
@@ -165,6 +172,39 @@ describe("a delivery on a board that declares the CI e2e row", () => {
     const task = await d.read();
     expect(task.status).toBe("review");
     expect(task.checksCommit).toBe("def5678");
+  }, 30_000);
+
+  test("with both CI rows the reader is asked once for both, and a green pair enters review", async () => {
+    const greenUnit: CheckRun = { name: UNIT_CI_CHECK.name, cmd: UNIT_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "unit tests green" };
+    const d = await deliveryWith([UNIT_CI_CHECK.cmd, "true", E2E_CI_CHECK.cmd], async () => [greenCi, greenUnit]);
+    const resp = (await d.deliver())!;
+    expect(resp.status).toBe(200);
+    expect(d.calls.ci).toBe(1);
+    expect(d.calls.checks).toEqual([[UNIT_CI_CHECK.cmd, E2E_CI_CHECK.cmd]]);
+    expect((d.runs() as CheckRun[]).map((r) => r.cmd)).toEqual(["true", UNIT_CI_CHECK.cmd, E2E_CI_CHECK.cmd]);
+    expect((await d.read()).status).toBe("review");
+  }, 30_000);
+
+  test("a red unit step from the CI is a fail that says unit, and a missing unit row is never a pass", async () => {
+    const redUnit: CheckRun = {
+      name: UNIT_CI_CHECK.name, cmd: UNIT_CI_CHECK.cmd, ok: false, code: 1, ms: 5, timedOut: false,
+      tail: "unit tests red on the pull request CI: check\nlog of check: gh run view --job 4242 --log-failed -R o/r",
+    };
+    const red = await deliveryWith(["true", UNIT_CI_CHECK.cmd], async () => redUnit);
+    const resp = (await red.deliver())!;
+    expect(resp.status).toBe(409);
+    const body = await resp.json();
+    expect(body.error).toContain("test unit rossi sulla CI della PR");
+    expect(body.error).toContain("--log-failed");
+    expect((await red.read()).checksState).toBe("fail");
+
+    db = freshDb();
+    const short = await deliveryWith(["true", E2E_CI_CHECK.cmd, UNIT_CI_CHECK.cmd], async () => [greenCi]);
+    const answer = (await short.deliver())!;
+    expect(answer.status).toBe(409);
+    const task = await short.read();
+    expect(task.checksState).toBe("unknown");
+    expect(task.status).toBe("in_progress");
   }, 30_000);
 
   test("a shutdown during the CI wait answers still running and records no verdict", async () => {

@@ -57,6 +57,12 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     expect(dispatcher).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
   });
 
+  test("both say the unit suite of a delivery is read from the pull request CI when the board declares it", () => {
+    expect(doc).toContain("`github-ci:unit`");
+    expect(doc).toContain("UNIT TESTS RUN ON GITHUB CI, NEVER HERE");
+    expect(dispatcher).toContain("UNIT TESTS RUN ON GITHUB CI, NEVER HERE");
+  });
+
   test("both say no agent runs e2e on this machine, whatever the board declares", () => {
     expect(doc).toContain("E2E NEVER RUNS ON THIS MACHINE");
     expect(board).toContain("E2E NEVER RUNS ON THIS MACHINE (decided 2026-09-15)");

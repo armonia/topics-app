@@ -30,6 +30,7 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
 import { dispatchResourceBlock } from "./dispatch-capacity";
+import type { HeldMemory } from "./mem-signal";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -88,6 +89,10 @@ afterEach(() => {
   for (const d of dispatchers.splice(0)) d.shutdown();
 });
 
+/** A full 2-minute window whose lowest reading is `gb`; `null` = not measurable. */
+const windowAt = (gb: number | null) => (): HeldMemory =>
+  gb == null ? { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 } : { measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 };
+
 function harness() {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
@@ -109,7 +114,10 @@ function harness() {
     graceMs: 0,
     retryBackoffMs: 0,
     log: () => {},
-    resourceBlock: (hold) => dispatchResourceBlock("/", () => floor.diskGB, () => floor.memGB, false, hold),
+    // A full window at the injected reading, with a turn of ours on the machine
+    // (the held cards' own), so the floor's line is floor + price and the
+    // readings swing between its two sentences.
+    resourceBlock: (hold) => dispatchResourceBlock("/", () => floor.diskGB, windowAt(floor.memGB), false, { ...hold, ourWorkRunning: true }),
   };
   const dispatcher = createTaskDispatcher(deps);
   dispatchers.push(dispatcher);
@@ -154,7 +162,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     // The swing is really there: the composer wrote both sentences on these readings.
     const sentences = new Set<string>();
     for (const gb of READINGS) {
-      sentences.add(dispatchResourceBlock("/", () => 100, () => gb, false, { cardGB: 4, startingCards: 0, holding: true })!.split(":")[0]!);
+      sentences.add(dispatchResourceBlock("/", () => 100, windowAt(gb), false, { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: true })!.split(":")[0]!);
     }
     expect([...sentences].sort()).toEqual(["Memoria in risalita", "Memoria quasi finita"]);
     for (const id of ids) {
@@ -183,7 +191,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
 
     await h.dispatcher.resume("switch", "continua");
     expect(h.framesOf("switch")).toBe(1);
-    expect(h.task("switch").dispatchError).toStartWith("Memoria quasi finita: 5.7 GB");
+    expect(h.task("switch").dispatchError).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 5.7 GB");
     h.floor.memGB = 5.9;
     await retry();
     expect(h.framesOf("switch")).toBe(1);
@@ -195,7 +203,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     // ...and the minute refresh brings the sentence of now.
     await retry(60_000);
     expect(h.framesOf("switch")).toBe(2);
-    expect(h.task("switch").dispatchError).toStartWith("Memoria in risalita: 6.4 GB");
+    expect(h.task("switch").dispatchError).toStartWith("Memoria in risalita: la lettura più bassa degli ultimi 2 minuti è 6.4 GB");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
 
     // Another resource inside the same kind: the disk fills, written at once.
@@ -221,7 +229,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     h.floor.memGB = 5.2;
     await retry();
     expect(h.framesOf("switch")).toBe(5);
-    expect(h.task("switch").dispatchError).toContain("5.2 GB disponibili");
+    expect(h.task("switch").dispatchError).toContain("ultimi 2 minuti è 5.2 GB");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 
@@ -241,7 +249,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     h.floor.memGB = 5.8;
     await h.dispatcher.resume("rewritten", "");
     expect(h.task("rewritten").dispatchState).toBe("queued");
-    expect(h.task("rewritten").dispatchError).toStartWith("Memoria quasi finita: 5.8 GB");
+    expect(h.task("rewritten").dispatchError).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 5.8 GB");
     expect(h.task("rewritten").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 });
