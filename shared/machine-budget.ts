@@ -23,17 +23,17 @@
  * every agent and every child of theirs: tsc, eslint, bun test, vite, the
  * Chromium of an e2e run).
  *
- * THE BUDGET IS A CEILING, NOT A RIGHT, AND LA QUOTA È SUL LIBERO. What is
+ * THE BUDGET IS A CEILING, NOT A RIGHT, AND IT IS A SHARE OF THE FREE. What is
  * usable right now is `share x what the others leave free`, never more than
  * `share x cores`. On an idle machine the two are the same number; on a machine
- * whose owner is compiling something else, ours shrinks — and it shrinks BY THE
+ * whose owner is compiling something else, ours shrinks, and it shrinks BY THE
  * SHARE, so the part we leave behind grows with the part they took.
  *
- * Deciso da Attilio il 14/09/2026: «la % di uso del PC deve essere uso del
- * libero, così i processi che non ha aperto Topics hanno la priorità». Prima la
- * regola era `min(share x cores, libero)`: al 80% su 12 core con 7,3 core presi
- * da altri, Topics poteva prendersi TUTTI i 4,7 core rimasti. Ora ne prende
- * 3,8 e ne lascia 0,9 a chi cresce. The opposite policy (take the budget
+ * Decided by Attilio on 14/09/2026: the percentage of the PC is a percentage of
+ * what is free, so processes Topics did not open come first. The rule before
+ * was `min(share x cores, free)`: at 80% on 12 cores with 7.3 taken by others,
+ * Topics could take ALL 4.7 cores left. Now it takes 3.8 and leaves 0.9 to
+ * whoever is growing. The opposite policy (take the budget
  * whatever else is running) is how a background fleet makes a laptop unusable
  * while staying inside its declared share.
  *
@@ -98,20 +98,42 @@ export interface MachineBudgetSample {
   availableMemGB: number | null;
   /** Agents already in flight. Zero is the case that keeps the door open. */
   running: number;
+  /**
+   * THE RESERVATION, and it is the term that stops the queue from draining.
+   *
+   * An agent costs nothing at the instant it is admitted: it spends its first
+   * minute reading the card, and the CPU and the gigabytes only show up when it
+   * launches its gates. The probe therefore reports a machine that is still
+   * quiet while the decision to fill it has already been taken, and the next
+   * tick admits again against that same stale calm. Sixteen agents in flight,
+   * swap at 11.7 GB of 13.3, load 145: that is the measured shape of it.
+   *
+   * So what has been admitted and is not yet visible in the measure is counted
+   * at its ESTIMATE, on both axes, until the warm-up window closes
+   * (`ADMISSION_WARM_UP_MS`). Absent or zero means "nothing pending", which is
+   * the normal state of an idle board.
+   */
+  reservedCoreUnits?: number;
+  reservedMemGB?: number;
 }
 
 /** The budget in the units of the two axes, plus what is usable of it now. */
 export interface MachineBudget {
   /** `share x cores`, the ceiling we set ourselves. */
   cpuCoreUnits: number;
-  /** `min(cpuCoreUnits, share x (cores - other))`: la quota del LIBERO, cioè il
-   *  tetto che la realtà concede adesso lasciando crescere chi non è nostro. */
+  /** `min(cpuCoreUnits, share x (cores - other))`: the share of the FREE, the
+   *  ceiling reality allows right now while leaving room to whoever is not ours. */
   usableCoreUnits: number;
   /** `share x totalMemGB`. */
   memGB: number;
-  /** `min(memGB, ourMemGB + share x availableMemGB)`: le pagine che teniamo già
-   *  più la nostra quota di quelle libere. */
+  /** `min(memGB, ourMemGB + share x availableMemGB)`: the pages we already hold
+   *  plus our share of the free ones. */
   usableMemGB: number;
+  /** `share x free`: the gigabytes one more agent may be priced against, or
+   *  `null` when memory is not measured. This is the one the admission reads:
+   *  `usableMemGB` is a ceiling on our footprint, and a footprint under a
+   *  ceiling says nothing about whether the NEXT agent has room. */
+  freeQuotaMemGB: number | null;
 }
 
 export function machineBudget(sample: MachineBudgetSample, share: number): MachineBudget {
@@ -121,26 +143,39 @@ export function machineBudget(sample: MachineBudgetSample, share: number): Machi
   // count (the sum of instantaneous percentages of a scheduler under pressure
   // does exceed it), so this floors at zero instead of going negative.
   //
-  // LA QUOTA È SUL LIBERO: `share x libero`, non `libero`. Chi non è nostro
-  // tiene sempre la sua fetta della parte che avanza, così un processo che
-  // cresce trova spazio senza dover aspettare che noi ci ritiriamo.
+  // A SHARE OF THE FREE: `share x free`, not `free`. Whoever is not ours always
+  // keeps a slice of what is left, so a growing process finds room without
+  // waiting for us to pull back.
   const freeOfOthers = sample.otherCoreUnits == null
     ? cores
     : Math.max(0, cores - Math.max(0, sample.otherCoreUnits));
   const memGB = Math.max(0.25, sample.totalMemGB * share);
   // Ours + our share of the free is what memory we could reach: the pages we
-  // already hold do not have to be found again, e della memoria libera
-  // prendiamo la stessa quota che prendiamo della CPU. Not measured (`null`)
+  // already hold do not have to be found again, and of the free memory we take
+  // the same share we take of the CPU. Not measured (`null`)
   // means the budget stands alone.
   const reachableMemGB = sample.availableMemGB == null
     ? memGB
-    : Math.max(0, sample.ourMemGB) + Math.max(0, sample.availableMemGB) * share;
+    : Math.max(0, sample.ourMemGB) + freeMemGB(sample) * share;
   return {
     cpuCoreUnits,
     usableCoreUnits: Math.min(cpuCoreUnits, freeOfOthers * share),
     memGB,
     usableMemGB: Math.min(memGB, reachableMemGB),
+    freeQuotaMemGB: sample.availableMemGB == null ? null : freeMemGB(sample) * share,
   };
+}
+
+/**
+ * The gigabytes really free RIGHT NOW, reservations already deducted.
+ *
+ * `availableMemGB` is what the kernel says; what has been admitted in the last
+ * seconds is memory already spoken for that nobody has taken yet, so it is not
+ * free even though the measure still counts it.
+ */
+function freeMemGB(sample: MachineBudgetSample): number {
+  const avail = Math.max(0, sample.availableMemGB ?? 0);
+  return Math.max(0, avail - Math.max(0, sample.reservedMemGB ?? 0));
 }
 
 /**
@@ -160,11 +195,77 @@ export const AGENT_COST_FLOOR_CORE_UNITS = 0.5;
 export const AGENT_COST_CEILING_CORE_UNITS = 4;
 
 export function estimatedAgentCost(recentCoreUnits: readonly number[]): number {
-  const clean = recentCoreUnits.filter((n) => Number.isFinite(n) && n >= 0).sort((a, b) => a - b);
-  if (!clean.length) return AGENT_COST_FLOOR_CORE_UNITS;
+  return clampedMedian(recentCoreUnits, AGENT_COST_FLOOR_CORE_UNITS, AGENT_COST_CEILING_CORE_UNITS);
+}
+
+/**
+ * THE SAME PRICE LIST, IN GIGABYTES, and this axis was the empty one.
+ *
+ * The floor is the measured peak of a card that runs its gates: a unit shard, a
+ * tsc and an eslint together ask around a gigabyte and a half, and that is the
+ * number the native-runtime floor elsewhere in this repo already uses
+ * (`GB_PER_AGENT_NATIVE`). Below it the admission would price an agent at the
+ * few megabytes the session itself holds, which is true of the session and
+ * false of the work: the session is not what fills the RAM.
+ *
+ * The ceiling stops one delivery that ran four shards at once from pricing
+ * every future agent out of the machine.
+ */
+export const AGENT_COST_FLOOR_MEM_GB = 1.5;
+export const AGENT_COST_CEILING_MEM_GB = 6;
+
+export function estimatedAgentMemCost(recentMemGB: readonly number[]): number {
+  return clampedMedian(recentMemGB, AGENT_COST_FLOOR_MEM_GB, AGENT_COST_CEILING_MEM_GB);
+}
+
+/** The median of what is usable in the history, held between floor and ceiling.
+ *  Median and not mean, for the reason written above `estimatedAgentCost`. */
+function clampedMedian(values: readonly number[], floor: number, ceiling: number): number {
+  const clean = values.filter((n) => Number.isFinite(n) && n >= 0).sort((a, b) => a - b);
+  if (!clean.length) return floor;
   const mid = Math.floor(clean.length / 2);
   const median = clean.length % 2 ? clean[mid]! : (clean[mid - 1]! + clean[mid]!) / 2;
-  return Math.max(AGENT_COST_FLOOR_CORE_UNITS, Math.min(AGENT_COST_CEILING_CORE_UNITS, median));
+  return Math.max(floor, Math.min(ceiling, median));
+}
+
+/** What one more agent is expected to take, on both axes. */
+export interface AgentCost {
+  coreUnits: number;
+  memGB: number;
+}
+
+/**
+ * HOW LONG AN ADMISSION STAYS A RESERVATION.
+ *
+ * Measured on this machine: between the spawn and the first `ps` sample that
+ * carries the agent's own gates there are one to two minutes (it reads the
+ * card, it plans, then it launches tsc and a shard). Ninety seconds is inside
+ * that band, deliberately on the short side: too long and a measured agent is
+ * counted twice, which only makes the gate stricter than it needs to be for a
+ * while; too short and the queue drains against a stale calm, which is the
+ * failure this exists for. Erring towards double counting is the direction that
+ * does not end in swap.
+ */
+export const ADMISSION_WARM_UP_MS = 90_000;
+
+/**
+ * What the agents admitted but not yet measured are holding, at the estimate.
+ *
+ * `admittedAt` is the epoch-ms list of the recent admissions; the caller drops
+ * an entry as soon as that agent has a sample of its own, and this drops
+ * whatever is older than the warm-up window even if nobody ever did.
+ */
+export function reservedCost(
+  admittedAt: readonly number[],
+  cost: AgentCost,
+  now: number,
+): { coreUnits: number; memGB: number; pending: number } {
+  const pending = admittedAt.filter((at) => Number.isFinite(at) && now - at < ADMISSION_WARM_UP_MS).length;
+  return {
+    pending,
+    coreUnits: pending * Math.max(0, cost.coreUnits),
+    memGB: pending * Math.max(0, cost.memGB),
+  };
 }
 
 /**
@@ -196,6 +297,14 @@ export interface AdmissionVerdict {
   usableCoreUnits: number;
   budgetCoreUnits: number;
   costCoreUnits: number;
+  /** What one more agent is priced at in memory, and the quota of the free it
+   *  is compared with (`null` when memory is not measured). */
+  costMemGB: number;
+  freeQuotaMemGB: number | null;
+  /** Admissions still counted at their estimate because no measure shows them
+   *  yet. Reported so the log can say "the queue is warming up", not "the Mac
+   *  is busy": two different sentences for two different waits. */
+  pendingAdmissions: number;
 }
 
 /**
@@ -215,18 +324,30 @@ export interface AdmissionVerdict {
 export function admissionVerdict(
   sample: MachineBudgetSample,
   share: number,
-  costCoreUnits: number,
+  agentCost: AgentCost,
   previous: BudgetGateState = "admitting",
 ): AdmissionVerdict {
   const budget = machineBudget(sample, share);
-  const used = Math.max(0, sample.ourCoreUnits);
-  const cost = Math.max(0, costCoreUnits);
+  // What we are taking is what is MEASURED plus what is already promised: an
+  // agent admitted thirty seconds ago is ours whether or not `ps` has noticed.
+  const reservedCpu = Math.max(0, sample.reservedCoreUnits ?? 0);
+  const used = Math.max(0, sample.ourCoreUnits) + reservedCpu;
+  const cost = Math.max(0, agentCost.coreUnits);
+  const costMemGB = Math.max(0, agentCost.memGB);
   // Holding does not end where it began: it ends lower (see ADMIT_RESUME_FRACTION).
   const ceiling = previous === "holding"
     ? budget.usableCoreUnits * ADMIT_RESUME_FRACTION
     : budget.usableCoreUnits;
   const overCpu = used + cost > ceiling;
-  const overMem = sample.availableMemGB != null && sample.ourMemGB > budget.usableMemGB;
+  // THE MEMORY AXIS, and this is the comparison that was missing. The old one
+  // asked whether our FOOTPRINT was over the whole-machine budget, which on a
+  // 34 GB Mac means 27.5 GB: true only long after the swap has started, so the
+  // axis never fired and the only brake left was the native 6 GB floor. The
+  // question that matters is whether ONE MORE agent fits in our share of what
+  // is actually free. The footprint ceiling stays as the second clause: it is
+  // the one that answers when memory is not measured at all.
+  const overMem = budget.freeQuotaMemGB != null
+    && (costMemGB > budget.freeQuotaMemGB || sample.ourMemGB > budget.usableMemGB);
   const blockedBy: "cpu" | "memory" | null = overCpu ? "cpu" : overMem ? "memory" : null;
   const firstAgentExempt = blockedBy != null && sample.running <= 0;
   return {
@@ -240,6 +361,9 @@ export function admissionVerdict(
     usableCoreUnits: budget.usableCoreUnits,
     budgetCoreUnits: budget.cpuCoreUnits,
     costCoreUnits: cost,
+    costMemGB,
+    freeQuotaMemGB: budget.freeQuotaMemGB,
+    pendingAdmissions: cost > 0 ? Math.round(reservedCpu / cost) : 0,
   };
 }
 
