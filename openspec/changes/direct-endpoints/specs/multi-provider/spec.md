@@ -32,3 +32,28 @@ The provider snapshot SHALL carry a per-model context window for configurable en
 - **WHEN** an endpoint reports a context window for its model
 - **THEN** the picker badge and the context budget use that window
 - **AND** a context-exceeded refusal is shown as a readable explanation.
+
+### Requirement: MP-DIRECT-04 — A configured endpoint is a chat connection, never a task runtime
+
+A configured endpoint SHALL be offered wherever a chat connection is chosen, and SHALL NOT be offered as a task runtime or as a task model, in keeping with MP-TASK-01. It reaches the endpoint in a single round trip, with no file or bash tool and no way to update a task, so a card handed to one could never be closed. A model of a configured endpoint SHALL stay out of the task pickers even when its name resembles a coding model.
+
+#### Scenario: The endpoint is selectable for a chat
+- **WHEN** an endpoint is configured and ready
+- **THEN** the chat provider picker offers it.
+
+#### Scenario: The same endpoint is absent from the task pickers
+- **WHEN** the task runtime and task model options are built from the same snapshot
+- **THEN** neither offers the endpoint nor any of its models
+- **AND** a provider that really can run tasks is still offered.
+
+### Requirement: MP-DIRECT-05 — A provider name that survives being parsed
+
+The provider name of a configured endpoint SHALL be derived from its identifier with a fixed prefix and SHALL NOT contain a colon, because a task model is stored as `provider:model` and a colon in the provider half would split at the wrong place. A declared context window SHALL be ignored when it is not a positive finite number, so a damaged configuration shows the known-model guess rather than nonsense.
+
+#### Scenario: The name carries no separator
+- **WHEN** a provider name is built for an endpoint
+- **THEN** it is recognisable as a configured endpoint and contains no colon.
+
+#### Scenario: A damaged declared window is not displayed
+- **WHEN** an endpoint declares a window that is zero, negative or not a number
+- **THEN** the window shown falls back to the static table instead of the declared value.
