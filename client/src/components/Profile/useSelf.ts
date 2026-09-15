@@ -33,8 +33,7 @@ export function useSelf(): SelfState {
 
   useEffect(() => {
     let canceled = false;
-    // Your own profile draws the stats from this list: the one caller that asks.
-    peopleApi.list({ stats: true }).then(
+    peopleApi.list().then(
       ({ people }) => { if (!canceled) { setDirectory(people); setReady(true); } },
       () => { if (!canceled) { setDirectory([]); setReady(true); } },
     );

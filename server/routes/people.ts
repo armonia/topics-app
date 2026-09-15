@@ -365,17 +365,22 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
 
     // GET /api/people: the address book.
     //
-    // THE STATS ONLY WHEN ASKED (`?stats=1`). Three client hooks poll this
-    // list every 60 s for a name, a face and `isMe`, and each call used to run
+    // `?stats=0` SKIPS THE STATS. Two client hooks poll this list every 60 s
+    // for a name, a face and `isMe`, and each call used to run
     // `statistichePersona` for every visible person: two all-time aggregates
     // over `messages` that read about 46 MB of pages. Measured on 15/09/2026
     // against the live server's [LAG] lines: 35% of all event-loop stall time
     // since 07/09 fell inside this route, up to 11 s per call under memory
-    // pressure (46 MB read -> 0.45-11 s; 0.3 MB read -> under 45 ms). The one
-    // screen that draws the numbers from the list, your own profile, asks for
-    // them; a single profile (`/api/people/:id`) still carries them always.
+    // pressure (46 MB read -> 0.45-11 s; 0.3 MB read -> under 45 ms).
+    //
+    // Opt-OUT and not opt-in, because of the deploy order: this file hot-reloads
+    // within seconds while the client runs its old bundle until a reload. An
+    // opt-in list would hand that old client `stats: null` on its own row, and
+    // the own profile would read "this person does not publish their stats",
+    // a false statement about privacy. An old client that does not send the
+    // flag keeps getting what it got before.
     if (method === "GET" && pathname === "/api/people") {
-      const withStats = new URL(req.url).searchParams.get("stats") === "1";
+      const withStats = new URL(req.url).searchParams.get("stats") !== "0";
       return json({ people: visibleCards([...reachable()], io, withStats) });
     }
 

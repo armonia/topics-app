@@ -143,19 +143,20 @@ chiamata in uscita.
 - **GIVEN** una richiesta dell'elenco persone
 - **THEN** SHALL essere fatte ZERO chiamate di rete
 
-L'elenco delle persone NON SHALL calcolare le statistiche se non gli vengono
-chieste esplicitamente: senza la richiesta `stats` SHALL essere `null` su ogni
-riga. Tre letture automatiche chiedono l'elenco ogni minuto per nome, faccia e
-«sono io», e le statistiche sono due aggregati su tutti i messaggi: misurato il
-15/09/2026, quella rotta conteneva il 35% del tempo in cui il loop del server è
-rimasto fermo dal 07/09, fino a 11 s a chiamata con la macchina sotto pressione
-di memoria. Lo schermo che disegna i numeri dall'elenco (il proprio profilo) le
-chiede; il profilo singolo le porta sempre, nei limiti degli interruttori.
+Una lettura dell'elenco che non disegna le statistiche SHALL poterle
+escludere (`stats=0`), e allora `stats` SHALL essere `null` su ogni riga senza
+che il server le calcoli. Le letture automatiche che chiedono l'elenco ogni
+minuto per nome, faccia e «sono io» SHALL escluderle: sono due aggregati su tutti
+i messaggi e, misurato il 15/09/2026, quella rotta conteneva il 35% del tempo in
+cui il loop del server è rimasto fermo dal 07/09, fino a 11 s a chiamata con la
+macchina sotto pressione di memoria. Senza il parametro l'elenco SHALL continuare
+a portarle, nei limiti degli interruttori: un client più vecchio del server non
+deve leggere «non pubblica le sue statistiche» sul proprio profilo.
 
 #### Scenario: la lettura automatica dell'elenco
-- **GIVEN** una richiesta dell'elenco persone senza chiedere le statistiche
+- **GIVEN** una richiesta dell'elenco persone con `stats=0`
 - **THEN** `stats` SHALL essere `null` su ogni riga e NESSUNA query SHALL toccare i messaggi
-- **AND** con la richiesta esplicita le statistiche SHALL tornare, rispettando l'interruttore di ciascuno
+- **AND** senza il parametro le statistiche SHALL tornare, rispettando l'interruttore di ciascuno
 
 ### Requirement: PROFILE-05 — Il biglietto da visita si regge da solo, e non disegna quello che non ha
 

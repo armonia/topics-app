@@ -13,8 +13,8 @@
  * `statistichePersona` for every visible person, two all-time aggregates over
  * `messages` that read about 46 MB of pages per call. Measured on 2026-09-15
  * with a per-process rusage sampler: 46 MB read -> 0.45-11 s, 0.3 MB -> under
- * 45 ms, and 35% of all stall time since 07/09 inside that route. The list no
- * longer computes them unless asked (`?stats=1`). What follows about the machine
+ * 45 ms, and 35% of all stall time since 07/09 inside that route. The polling
+ * hooks now ask the list with `?stats=0`. What follows about the machine
  * still holds for the rest: on the same day this process was 564 MB with 384 MB of it
  * compressed by the kernel, on a machine with 11.3 of 12 GB of swap in use, so
  * a route touched once a minute is cold and its first instruction pays a

@@ -252,7 +252,7 @@ describe("i profili degli amici", () => {
     turno(db, "mircea", 30, 4);
     turno(db, null, 999_999, 999_999); // senza autore: di nessuno
 
-    const r = await chiama(router(db, null, finto), "/api/people?stats=1");
+    const r = await chiama(router(db, null, finto), "/api/people");
     const { people } = (await r!.json()) as {
       people: Array<{ id: string; stats: { prompts: number; inputTokens: number; outputTokens: number; costCents: number } }>;
     };
@@ -445,12 +445,12 @@ describe("i follow e la privacy del profilo", () => {
     expect(suo.stats.prompts).toBe(1);
 
     const rubrica = await jsonOf<{ people: Array<{ id: string; stats: unknown }> }>(
-      await chiama(io(), "/api/people?stats=1"),
+      await chiama(io(), "/api/people"),
     );
     expect(rubrica.people.find((p) => p.id === "mircea")!.stats).toBeNull();
   });
 
-  test("the list polled every minute does not run the stats aggregates unless asked", async () => {
+  test("the list polled every minute (`?stats=0`) does not run the stats aggregates", async () => {
     turno(db, ioPersonId, 1000, 200);
     turno(db, "mircea", 30, 4);
     // Every query that reaches `messages` goes through this counter: the
@@ -463,14 +463,14 @@ describe("i follow e la privacy del profilo", () => {
     }) as typeof db.query;
 
     const polled = await jsonOf<{ people: Array<{ id: string; stats: unknown }> }>(
-      await chiama(router(db, null, finto), "/api/people"),
+      await chiama(router(db, null, finto), "/api/people?stats=0"),
     );
     expect(polled.people.length).toBeGreaterThan(1);
     for (const p of polled.people) expect(p.stats).toBeNull();
     expect(messagesReads).toBe(0);
 
     const asked = await jsonOf<{ people: Array<{ id: string; stats: { prompts: number } | null }> }>(
-      await chiama(router(db, null, finto), "/api/people?stats=1"),
+      await chiama(router(db, null, finto), "/api/people"),
     );
     expect(asked.people.find((p) => p.id === ioPersonId)!.stats!.prompts).toBe(1);
     expect(messagesReads).toBeGreaterThan(0);
