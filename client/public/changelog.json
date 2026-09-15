@@ -1,5 +1,51 @@
 [
   {
+    "version": "2.2.330",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Gli e2e degli agenti non girano piu' sul Mac: la consegna li legge dalla CI della PR",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento che oscilla a 6,0 GB non riscrive piu' la card a ogni passaggio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consegna non entra piu' in review su un verdetto e2e che non ha misurato quella testa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card trattenuta riscritta da un altro torna in coda al retry dopo, e un test lo tiene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chiamata a git o gh si ferma davvero a 60 s, e Playwright sul Mac rifiuta prima di lanciare Chromium",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un push finito con un figlio ancora vivo non diventa un timeout, e il test che legge la config di Playwright passa sul Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del bloat torna verde su main dopo le tre PR fuse insieme",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.329",
     "date": "2026-09-15",
     "sections": {
@@ -8,12 +54,27 @@
       "perf": [],
       "internal": [
         {
+          "it": "Take the wheel back on both shells, and stop trusting one testid",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti",
           "en": "",
           "scope": null
         },
         {
           "it": "Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Change mac-usabile-sotto-carico: le misure del 15/09 e le quattro scelte approvate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un resume trattenuto non riscrive piu' la card a ogni lettura di memoria",
           "en": "",
           "scope": null
         }
@@ -206,6 +267,11 @@
         },
         {
           "it": "Il marker degraded si ritira, e ora la barra se ne accorge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda",
           "en": "",
           "scope": null
         },

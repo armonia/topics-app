@@ -2,11 +2,25 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.330 — 2026-09-15
+
+### Sotto il cofano
+- Gli e2e degli agenti non girano piu' sul Mac: la consegna li legge dalla CI della PR
+- Il pavimento che oscilla a 6,0 GB non riscrive piu' la card a ogni passaggio
+- La consegna non entra piu' in review su un verdetto e2e che non ha misurato quella testa
+- La card trattenuta riscritta da un altro torna in coda al retry dopo, e un test lo tiene
+- Una chiamata a git o gh si ferma davvero a 60 s, e Playwright sul Mac rifiuta prima di lanciare Chromium
+- Un push finito con un figlio ancora vivo non diventa un timeout, e il test che legge la config di Playwright passa sul Mac
+- Il cancello del bloat torna verde su main dopo le tre PR fuse insieme
+
 ## 2.2.329 — 2026-09-15
 
 ### Sotto il cofano
+- Take the wheel back on both shells, and stop trusting one testid
 - La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti
 - Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0
+- Change mac-usabile-sotto-carico: le misure del 15/09 e le quattro scelte approvate
+- Un resume trattenuto non riscrive piu' la card a ogni lettura di memoria
 
 ## 2.2.328 — 2026-09-15
 
@@ -56,6 +70,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
 - Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
 - Il marker degraded si ritira, e ora la barra se ne accorge
+- L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
 - Il wire porta l'asse che blocca: le fixture del client lo dichiarano
 - Il git del test dei checkpoint porta l'ambiente isolato del preload
