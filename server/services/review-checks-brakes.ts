@@ -264,11 +264,18 @@ export function swapVictim(i: {
   sustained: boolean;
   runs: readonly FreezableRun[];
   now: number;
-  lastInterruptAt: number;
+  /**
+   * The last moment ANY swap lever acted, not just this one. The freezer
+   * (`services/swap-freeze.ts`) stops an agent's heaviest background command on
+   * the same 60 s window this brake reads: with a clock each, the second lever
+   * would act ten seconds after the first and then measure the first one's
+   * effect as its own.
+   */
+  lastActionAt: number;
   interruptions: (delivery: string) => number;
 }): { victim: FreezableRun | null; skipped: "spacing" | "noHeavyRun" | "exhausted" | null } {
   if (!i.sustained) return { victim: null, skipped: null };
-  if (i.now - i.lastInterruptAt < SWAP_INTERRUPT_SPACING_MS) return { victim: null, skipped: "spacing" };
+  if (i.now - i.lastActionAt < SWAP_INTERRUPT_SPACING_MS) return { victim: null, skipped: "spacing" };
   const heavy = i.runs.filter((r) => r.taskId && treeGB(r) >= SWAP_VICTIM_MIN_GB);
   if (heavy.length === 0) return { victim: null, skipped: "noHeavyRun" };
   const open = heavy.filter((r) => i.interruptions(deliveryKey(r.taskId!, r.commit)) < SWAP_INTERRUPTS_PER_DELIVERY);
@@ -277,12 +284,22 @@ export function swapVictim(i: {
   return { victim, skipped: null };
 }
 
+/**
+ * What the brake did on this beat, read by the swap freezer: it acts only when
+ * the brake found nothing to interrupt, so the lever that gives memory back is
+ * always tried first.
+ */
+export interface SwapBrakeOutcome {
+  interrupted: boolean;
+  skipped: "spacing" | "noHeavyRun" | "exhausted" | null;
+}
+
 export function createSwapBrake(deps: {
   kill: (pid: number) => Promise<void>;
   note: (taskId: string, text: string) => void;
   log: (line: string) => void;
   now?: () => number;
-}): { tick(v: SwapVerdict, runs: readonly FreezableRun[]): void } {
+}): { tick(v: SwapVerdict, runs: readonly FreezableRun[], lastForeignActionAt?: number): SwapBrakeOutcome } {
   const now = deps.now ?? Date.now;
   let lastInterruptAt = Number.NEGATIVE_INFINITY;
   let episodeSince: number | null = null;
@@ -290,19 +307,20 @@ export function createSwapBrake(deps: {
   let saidExhausted = false;
   const gb = (n: number | null) => (n == null ? "?" : n.toFixed(1));
   return {
-    tick(v, runs) {
+    tick(v, runs, lastForeignActionAt = Number.NEGATIVE_INFINITY) {
       const t = now();
       if (!v.sustained) {
         if (episodeSince != null) deps.log(`[checks-swap] swap no longer sustained after ${Math.round((t - episodeSince) / 1000)} s`);
         episodeSince = null;
         saidNothing = false;
         saidExhausted = false;
-        return;
+        return { interrupted: false, skipped: null };
       }
       episodeSince ??= t;
       const signs = `swapins ${gb(v.pagesReadBackPerS)}/s, memory debt +${gb(v.debtGBPerMin)} GB/min`;
       const { victim, skipped } = swapVictim({
-        sustained: true, runs, now: t, lastInterruptAt,
+        sustained: true, runs, now: t,
+        lastActionAt: Math.max(lastInterruptAt, lastForeignActionAt),
         interruptions: (key) => interruptionsByDelivery.get(key) ?? 0,
       });
       if (!victim) {
@@ -316,7 +334,7 @@ export function createSwapBrake(deps: {
             deps.log(`[checks-swap] "${r.name}" of ${r.taskId!.slice(0, 8)} not interrupted: already interrupted ${SWAP_INTERRUPTS_PER_DELIVERY} times on this commit, it runs to the end`);
           }
         }
-        return;
+        return { interrupted: false, skipped };
       }
       const taskId = victim.taskId!;
       const key = deliveryKey(taskId, victim.commit);
@@ -333,6 +351,7 @@ export function createSwapBrake(deps: {
           "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap e c'è memoria per il primo comando da 2 minuti. " + // allow-italian: board notes are written in Italian like every other service comment
           `Interruzione ${n} di ${SWAP_INTERRUPTS_PER_DELIVERY}: dopo la seconda il giro va fino in fondo comunque.`); // allow-italian: board notes are written in Italian like every other service comment
       } catch { /* a note that cannot be written must not stop the brake */ }
+      return { interrupted: true, skipped: null };
     },
   };
 }

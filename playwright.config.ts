@@ -503,7 +503,13 @@ export default defineConfig({
      */
     {
       name: "webkit",
-      testMatch: ["**/drag-preview.spec.ts"],
+      // `swap-freeze-ice.spec.ts` runs here too, and for the same reason as the
+      // drag preview: the frost is a canvas the app paints INSIDE a WKWebView on
+      // this Mac, and a texture that reads right on Chromium can rasterise
+      // differently on the engine the product actually ships in. It runs in the
+      // `chromium` project as well (it is not in its `testIgnore`): the point is
+      // the SAME measurement on the two engines.
+      testMatch: ["**/drag-preview.spec.ts", "**/swap-freeze-ice.spec.ts"],
       use: {
         browserName: "webkit",
         /* I permessi del `use` globale sono quelli della clipboard, e WebKit non

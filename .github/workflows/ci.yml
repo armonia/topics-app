@@ -852,6 +852,20 @@ jobs:
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
 
+      # LA PROVA DELLA BRINA, anche quando e' verde. Le asserzioni di
+      # `swap-freeze-ice.spec.ts` sono numeriche (alpha sotto il testo, disegni
+      # a riposo); come SIA fatta la brina lo dicono solo le immagini e la clip,
+      # e questa change si chiude con un «effetto di congelamento figo» da
+      # guardare. Tre giorni come il report: la quota artifact e' dell'org.
+      - name: Upload swap-freeze evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swap-ice-shard-${{ matrix.shard }}
+          path: test-results/swap-ice
+          if-no-files-found: ignore
+          retention-days: 3
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4

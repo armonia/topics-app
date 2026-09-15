@@ -46,6 +46,19 @@ Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15
   - [ ] B3 si misura 72 ore dopo il land con lo script in sola lettura (scratchpad della sessione, non committato): O1 stalli [LAG]/giorno <= 0,5 x prima, O2 p95 swap-in/s e load1 non peggiori, O3 verdetti e turni/giorno >= 0,7 x prima, O4 swap sostenuto con albero >= 1 GB <= 190 s di fila
   - [ ] Rollout, SOLO dopo il merge: nessun PATCH oltre a quello di `unit-ci` qui sopra; le soglie restano provvisorie finché B3 non le conferma
 
+## Tornata 3c: il comando più pesante di un agente sotto swap si congela, e la sessione si copre di brina
+Disegno: `design.md` (sezione «Tornata 3c»); delta in `specs/kanban` (KANBAN-75, KANBAN-85). Prerequisito: PR #69, landata.
+- [x] T0 in CI su macOS: forma XPC e peso di Playwright WebKit con WebGL, effetto di STOP/CONT (ramo usa e getta, run 35031447596)
+  - [x] Esiti nel disegno: attribuzione per dominio + percorso, 0,44 GB per UNA pagina (sotto il pavimento, e il pavimento non si muove), fermare il solo albero non basta, un `click({timeout})` in volo scade alla ripresa
+- [x] Bash in background dai `PreToolUse`, radici native registrate da `runCommand`, insieme di guardia, gruppi ammessi
+- [x] `swap-freeze.ts`: candidati, il più pesante, controllo delle connessioni, freno dei check prima, spaziatura condivisa, 2 per albero
+- [x] Registro `active` + `counts` scritto prima di ogni SIGSTOP; scongelamento: memoria, nessun effetto, 10 minuti, padrone sparito, spegnimento, boot
+- [x] Orologi: stall detector, StaleStream, timer del bash nativo, parcheggio PTY, Stop della sessione, `LiveToolLine`
+- [x] Frame `swap-freeze:state`, nota della card, storico notifiche, riga per l'agente nel suo canale
+- [x] Brina: texture procedurale con zone libere sul testo, card, riga, tab, anello e banner della pane, due temi, reduced-motion
+- [x] Test F1-F23 (unit e segnali veri, e2e in CI su chromium e webkit con screenshot e video)
+- [ ] Barra sul server vivo (§9 del disegno), 7 giorni dopo il land: E0 candidati sopra il pavimento, E1 swap-in/s prima/dopo, E2 stalli [LAG], E3 durate e ragioni, E4 quota di «no effect»
+
 ## Tornata 4: pannelli browser pesanti
 Disegno di tornata con la critica: delta in `specs/remote-browser` (BROWSER-HEAVY-01..05).
 - [x] Consumo misurato per pannello nativo

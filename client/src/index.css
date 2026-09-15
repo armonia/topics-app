@@ -1271,6 +1271,79 @@ html, body {
    lì: i `-400` di Tailwind nascono su fondo scuro e sul chrome chiaro scendono
    sotto 2:1. Qui servono in terzetti rgb, che una classe Tailwind non sa dare a
    una custom property dentro un keyframe. */
+/* IL GELO DI UNA SESSIONE CONGELATA (`components/Shared/SwapIce.tsx`).
+   Terzetti rgb come `--task-flash`, per la stessa ragione: la texture li legge
+   con `getComputedStyle` e li scrive in un `ImageData` con un'alpha per pixel,
+   e una classe Tailwind non sa dare un canale alpha variabile. Tre ruoli:
+   il cristallo dei dendriti, la velatura fra l'uno e l'altro, il bordo del
+   fronte (e la goccia che scende quando si scioglie). */
+:root {
+  --swap-ice-crystal: 110 150 192;
+  --swap-ice-wash: 186 214 240;
+  --swap-ice-edge: 96 150 205;
+}
+.dark {
+  --swap-ice-crystal: 226 240 255;
+  --swap-ice-wash: 140 180 225;
+  --swap-ice-edge: 170 210 245;
+}
+
+/* LA TELA STA SOTTO IL CONTENUTO, sempre. L'ospite diventa il contenitore
+   (`relative isolate`) e ogni suo figlio che non sia la brina sale di un piano:
+   la brina e' un fondale, non un velo sopra le parole. Nessun `role`, nessuna
+   classe di `OVERLAY_SELECTOR` (lib/shell/browserOcclusion.ts): un pannello
+   browser nativo sotto la card non deve essere occluso da una texture. */
+.swap-ice-host {
+  position: relative;
+  isolation: isolate;
+}
+.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints) {
+  position: relative;
+  z-index: 1;
+}
+.swap-ice {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.swap-ice-glints {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.swap-ice-glint {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: rgb(var(--swap-ice-crystal));
+  opacity: 0;
+  animation: swap-ice-glint 1.2s ease-in-out 2;
+}
+@keyframes swap-ice-glint {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.9; }
+}
+/* L'ANELLO DI UNA PANE CONGELATA: due pixel dentro il bordo, mai sopra il
+   contenuto e mai sopra il composer (che resta in flusso, vedi il banner). */
+.swap-ice-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px rgb(var(--swap-ice-edge) / 0.7);
+  z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Il segno resta, il movimento no: la brina compare gia' finita e il
+     luccichio non parte. Stessa regola del lampo delle card qui sotto. */
+  .swap-ice-glint { animation: none; opacity: 0; }
+}
+
 .task-flash-backlog { --task-flash: 100 116 139; }      /* slate-500 */
 .task-flash-todo { --task-flash: 71 85 105; }           /* slate-600 */
 .task-flash-in_progress { --task-flash: 2 132 199; }    /* sky-600 */
