@@ -276,7 +276,7 @@ export const DISPATCH_MEM_FLOOR_GB = 12;
  * Everything above measures the session OBJECT - 2,3 MB of messages inside a
  * server that is already running. True, and beside the point. What a card
  * actually costs is the CHECK RUN it launches: `test:unit:shards` forks four
- * shards, and `e2e-touched` starts a test server and browsers. Those are
+ * shards (the e2e ran here too until 15/09/2026; now it runs on the PR CI). Those are
  * processes, and they are exactly the thing the native floor decided not to
  * count.
  *
@@ -589,7 +589,7 @@ export function dispatchResourceBlock(
           : `Memoria in risalita: ${gb(mem)} GB disponibili${kept}, sopra il pavimento di ${floor} GB ma senza posto per un agente in più.`;
     const costo = agentsAreProcesses
       ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
-      : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check (shard unit, e2e) si prezza ${gb(cardGB)} GB`;
+      : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check (shard unit) si prezza ${gb(cardGB)} GB`;
     const tail = margin > 0
       ? `Riparto sopra ${gb(floor + margin)} GB${reserved > 0 ? " al netto degli agenti che partono" : ""}, il pavimento più il prezzo di una card: ripartire alla soglia stessa fa sfarfallare la coda. Niente è andato perso.`
       : "Riprendo appena si libera memoria: niente è andato perso.";

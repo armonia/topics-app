@@ -88,6 +88,7 @@ import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
 import { stopReviewChecks } from "./server/services/review-checks-brakes";
+import { awaitE2eEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -1414,6 +1415,8 @@ let sondaLavoroNonCommittato: ((taskId: string) => Promise<string[] | null>) | n
 let checksGateRunningCount: (() => number) | null = null;
 /** `checksGate.isRunning(taskId)`: running OR queued behind another card's run. */
 let checksGateIsRunning: ((taskId: string) => boolean) | null = null;
+/** `checksGate.isOffLane(taskId)`: the run only waits on the pull request CI (KANBAN-84). */
+let checksGateIsOffLane: ((taskId: string) => boolean) | null = null;
 /**
  * Is the task this session works on waiting on OUR pre-review checks? The
  * stall detector must not judge that silence: the agent asked for review, the
@@ -1585,6 +1588,7 @@ const taskDispatcher = createTaskDispatcher({
   // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
   // esiste: stesso pattern di `capturaConsegna`.
   checksRunning: () => checksGateRunningCount?.() ?? 0,
+  checksOffLane: (taskId) => checksGateIsOffLane?.(taskId) ?? false,
   // Don't drop an agent into a repo somebody is already working by hand.
   externalSessionsAt: (path) =>
     externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
@@ -2476,7 +2480,10 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   onChecksGate: (gate) => {
     checksGateRunningCount = () => gate.runningCount();
     checksGateIsRunning = (taskId) => gate.isRunning(taskId);
+    checksGateIsOffLane = (taskId) => gate.isOffLane(taskId);
   },
+  // The e2e row of a delivery is read from the pull request CI, never run here.
+  ciE2eEvidence: (input) => awaitE2eEvidence(input),
   // No new pre-review command starts under the floor the admission uses
   // (15/09/2026: 5.9 GB free and 9.9 GB of swap, and the next bar would start).
   checksMemoryFloor: { read: () => availableMemGB(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },

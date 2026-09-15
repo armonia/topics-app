@@ -223,7 +223,7 @@ export const PREVIEW_CARD_MAX_RATIO = 0.7;
 export const PREVIEW_RULE = [
   "REVIEW EVIDENCE = a DURABLE PREVIEW on the task — update_task(preview_image=<absolute path under ~/.topics/media/ or inside the task workspace; empty string = clear it>), which becomes the image on the board card and in the drawer. Three branches, and what picks one is the criterion, not habit:",
   `· SCREENSHOT .png — the delivery HAS a rendered surface that fits in one frame. Capture it at viewport ≤1440×900 and with height/width ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (the card crops the excess off the bottom instead of shrinking it). Never a full-page shot.`,
-  "· VIDEO .webm/.mp4 ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. A short Playwright clip (`recordVideo: { dir }` on the context) or, if the project has spec-flow, the scenario's .webm.",
+  "· VIDEO .webm/.mp4/.mov ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. On this machine no clip comes from a browser: none may be launched here, and a task tab (open_browser_pane) that no window shows runs in a headless one, so it is neither opened nor filmed to make a clip. A clip is `screencapture -V <seconds> -R <x,y,w,h> <file>.mov` of a surface ALREADY ON SCREEN, and for a browser pane only after `browser_focus_tab` brought it forward. Otherwise the proof of the behaviour is its e2e spec: name the spec in the delivery comment, and the preview is a SCREENSHOT of one state or a DIAGRAM of the flow.",
   "· DIAGRAM .svg — the delivery has NO rendered surface (a plan, an architecture, a protocol, a migration): you DRAW the structure — boxes, arrows, five words per node — you do not photograph the document.",
   "A TAB of the task (open_browser_pane) does NOT replace the preview: the live page dies with the server that serves it, the preview stays.",
   "The preview is an ATTACHMENT, not source. Never leave it in the repo root: an untracked file there BLOCKS the land (it would be swallowed by the realign merge, and the land refuses rather than swallow it — measured twice on 18/08), and a committed one is repo litter. Write it under ~/.topics/media/, or if it genuinely documents a decision worth keeping, under docs/archive/ — never the root.",
@@ -262,6 +262,7 @@ export const CODE_GATES_RULE = [
   "The fifth one is new and it surprises people: `check:emdash` rejects the long dash in ANY text in the repo, protocol strings and the comments you write in the code included. You do not replace it with a short dash: the sentence the dash was holding together was two sentences, and they split. If the character IS the data, the line ends with `// allow-emdash: <reason>`.",
   "THE REPO IS ENGLISH, and that includes the comments you write. `bun run check:comment-language` is a ratchet: it does not ask you to translate what is already there, it fails when a file gains a NEW Italian comment line. So write the comment in English the first time, because a comment written in Italian will not land. When the Italian IS the subject (a quoted message, a term of art, someone's exact words), the line ends with `allow-italian: <reason>`. This is about the CODE. What you write to the person on the board follows the language line above, which is a separate question.",
   "The third one is the one everybody forgets: for the dead-code gate, a file NOBODY IMPORTS is dead code. So a script you run by hand (a probe, a bench, a measurement) has to be DECLARED among the project entries in the same commit that adds it — with knip: the entry with the `!` suffix in `knip.jsonc` (like `scripts/disk-report.ts!`), and next to it the comment line that says how it is run.",
+  "E2E NEVER RUNS ON THIS MACHINE (decided 2026-09-15): do not run `bun run check:e2e-touched` (only `--list`, which launches nothing), `playwright test` in any form, or a client build meant for e2e, and never install or launch a browser, in the foreground or in the background. In 15 hours on 2026-09-15 agents ran 21 `check:e2e-touched`, 71 raw `playwright test` and 27 client builds by themselves, 99 of those 119 backgrounded with `&`, while the board re-ran the e2e at delivery anyway. Write or change the e2e spec under `tests/e2e/` and commit it; whether this board measures it when you deliver is said by the E2E line further down. Targeted `bun test <file>` stays allowed.",
 ].join("\n");
 
 // end-allow-emdash
@@ -1568,6 +1569,18 @@ export interface BlockerRef {
 export interface ReviewCheck {
   name: string;
   cmd: string;
+}
+
+/**
+ * The e2e evidence row (KANBAN-84): not a shell command. The delivery gate reads
+ * the e2e jobs of the pull request CI for the delivered commit instead of running
+ * Playwright here. Spelled as a command so the settings field, which rebuilds each
+ * row as `{ name: cmd, cmd }`, keeps it intact.
+ */
+export const E2E_CI_CHECK: ReviewCheck = { name: "e2e-ci", cmd: "github-ci:e2e" };
+
+export function isCiEvidenceCheck(check: { cmd: string }): boolean {
+  return check.cmd.trim() === E2E_CI_CHECK.cmd;
 }
 
 /** Esito di UN comando. `tail` è la coda dell'output combinato (stdout+stderr). */

@@ -709,3 +709,29 @@ describe("formatChecksWait: la riga che la chat mostra mentre i check girano", (
     expect(formatChecksWait({ done: 9, total: 5, names, elapsedMs: 0 })).toContain("5/5 (0s)");
   });
 });
+
+describe("the CI e2e row speaks of the CI, not of a command", () => {
+  const green: CheckRun = { name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 10, timedOut: false, tail: "" };
+  const ciRow = (over: Partial<CheckRun>): CheckRun => ({ name: "e2e-ci", cmd: "github-ci:e2e", ok: false, code: 97, ms: 10, timedOut: false, tail: "", ...over });
+
+  test("not measured: the reason from the tail, no install advice, no 'did not start'", () => {
+    const runs = [green, ciRow({ notMeasured: true, tail: "NOT MEASURED: the pull request conflicts with main" })];
+    const out = formatChecksComment(runs, { commit: "abcdef123" });
+    expect(out).toContain("NON MISURATI");
+    expect(out).toContain("non ha un esito della CI");
+    expect(out).toContain("conflicts with main");
+    expect(out).not.toContain("bun install");
+    expect(out).not.toContain("non e' partito");
+    const summary = formatChecksThreadSummary(runs);
+    expect(summary).toContain("non ha un esito della CI");
+    expect(summary).not.toContain("non è partito");
+  });
+
+  test("red: the e2e of the PR CI, not an exit code", () => {
+    const runs = [green, ciRow({ code: 1, tail: "e2e red on the pull request CI: e2e (2)" })];
+    expect(formatChecksComment(runs)).toContain("e2e rossi sulla CI della PR");
+    expect(formatChecksComment(runs)).not.toContain("exit 1");
+    expect(formatChecksThreadSummary(runs)).toContain("e2e rossi sulla CI della PR");
+  });
+});
+

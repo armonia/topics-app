@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
 import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
@@ -281,6 +281,9 @@ export interface DispatcherDeps {
    * il tetto. Assente = non si contano (comportamento storico, mai zero-denial).
    */
   checksRunning?: () => number;
+  /** The task's checks run gave its lane back and only waits on the pull request CI
+   *  (KANBAN-84): its turn holds no memory here, so admission does not reserve any. */
+  checksOffLane?: (taskId: string) => boolean;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -1062,7 +1065,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch instants of the LOCAL turns in flight: a run riding on a node holds
    *  nothing on this machine, the same filter `busyCount` applies. */
   function localLaunches(): number[] {
-    return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).map((slot) => slot.sessionAt);
+    const offLane = (taskId: string) => { try { return deps.checksOffLane?.(taskId) ?? false; } catch { return false; } };
+    return [...inFlight.entries()]
+      .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId))
+      .map(([, slot]) => slot.sessionAt);
   }
   /**
    * THE FLOOR, read with what the reading cannot see yet, and without saying it
@@ -2245,12 +2251,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return parts;
   }
 
+  // The e2e rule of a board that declares E2E_CI_CHECK (KANBAN-84).
+  const E2E_CI_KICKOFF_LINE =
+    "- E2E RUNS ON GITHUB CI, NEVER HERE: once the gates above are green the board (not you) pushes the commit it measured to your branch, " +
+    "opens or reuses a draft pull request and waits for the e2e jobs of that exact commit (15-45 min; `update_task` stays open, do not call it again). " +
+    "The repo is public: your commits become public at that moment. The proof of your e2e spec comes from the CI of your branch, which the board reads when you deliver. A red job comes back with its name and `gh run view --job <id> --log-failed`; " +
+    "no verdict for that commit (cancelled, superseded, timed out, GitHub unreachable) is NOT MEASURED: not your red, and the card still stays out of review.";
+
+  // The same question on a board WITHOUT that row: nobody pushes, nobody reads a
+  // CI, and the agent must not believe otherwise (the boards of other projects).
+  const E2E_NOT_MEASURED_KICKOFF_LINE =
+    "- E2E IS NOT MEASURED BY THIS BOARD: it declares no CI e2e check, so when you deliver nobody pushes your branch and no CI is read, and you do not push either. " +
+    "If you wrote or changed an e2e spec, say so in the delivery comment with its path: it is measured by the project CI once the branch is published, or on the Windows PC, not before.";
+
   function buildKickoff(task: Task): string {
     // I comandi che il server farà girare da solo alla consegna. Dirglielo PRIMA
     // costa tre righe e gli risparmia un giro completo: senza, scopre il gate solo
     // quando lo sbatte, e il rosso arriva a lavoro già "finito".
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
+    const ciE2e = checks.some(isCiEvidenceCheck);
+    checks = checks.filter((c) => !isCiEvidenceCheck(c));
     const parts = taskFramingBlock(task, `You are the exclusive owner of task \`${task.id}\` on this Kanban board.`);
     if (task.planFirst) {
       parts.push(
@@ -2345,6 +2366,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- PRE-REVIEW CHECKS: run the targeted tests for the code you changed. On delivery the board runs ${checks.length === 1 ? "this declared gate" : "these declared gates"} in your worktree — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. If one fails, review is refused and its output comes back to you.`,
             ]
           : []),
+        ciE2e ? E2E_CI_KICKOFF_LINE : E2E_NOT_MEASURED_KICKOFF_LINE,
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
         "- If you need a human decision to go on:",
         `  1. comment_task(task_id="${task.id}", content=<the question, on one line>, options=[<option 1>, <option 2>, ...])`,
@@ -2806,6 +2828,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function buildFanoutKickoff(task: Task, idx: number, total: number): string {
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
+    const ciE2e = checks.some(isCiEvidenceCheck);
+    checks = checks.filter((c) => !isCiEvidenceCheck(c));
     const parts = taskFramingBlock(
       task,
       `You are ATTEMPT ${idx} of ${total} on task \`${task.id}\`: ${total} agents are working it IN PARALLEL, each in its own worktree. ` +
@@ -2831,6 +2855,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- Before you finish, run ${checks.length === 1 ? "this command" : "these commands"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: the server re-runs them on the chosen attempt, and a red attempt starts at a disadvantage.`,
             ]
           : []),
+        ciE2e
+          ? "- E2E runs on GitHub CI for the attempt that is chosen, never here."
+          : "- E2E is not measured by this board, here or on any CI: if you wrote or changed an e2e spec, name it in your closing report.",
         "- Lean context: Grep to find, Read in slices (offset/limit) on files over ~400 lines. Long commands (build/test/install) in the background with run_script + read_process_output, never sitting blocked on the command.",
         "- Close the turn with 2-3 sentences: which route you chose, what you changed and where to look. It is the only thing the human reads of you in the comparison — write it well.",
         ...languageLine(langFor(task.projectId)),
