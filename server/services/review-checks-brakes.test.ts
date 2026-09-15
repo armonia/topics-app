@@ -213,7 +213,7 @@ function windowOver(clock: { now: () => number }, start: number, reading: (sec: 
 
 describe("the checks waiter: the window, the swap, one release per window", () => {
   let warn: ReturnType<typeof spyOn>;
-  const lines = () => warn.mock.calls.map((c: unknown[]) => String(c[0]));
+  const lines = (): string[] => warn.mock.calls.map((c: unknown[]) => String(c[0]));
   beforeAll(() => { warn = spyOn(console, "warn").mockImplementation(() => {}); });
   afterEach(() => { _resetReleaseSpacing(); warn.mockClear(); });
   afterAll(() => { warn.mockRestore(); });
