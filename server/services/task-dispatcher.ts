@@ -598,6 +598,15 @@ export interface TaskDispatcher {
    */
   busySessionKeys(): string[];
   /**
+   * The turns behind `busyCount()`, each with the session it streams on.
+   *
+   * The restart gate needs the PAIR: it asks the checks gate, by task id,
+   * whether that card's delivery is only waiting on our own checks, and then
+   * has to take that card's own stream out of the chat sources too (a card
+   * turn streams through /api/chat, so its session is also a stream key).
+   */
+  busyTurns(): Array<{ taskId: string; sessionKey: string }>;
+  /**
    * A planned restart is on its way: from now until the process is replaced,
    * start NO new turn. Queue picks, slot wake-ups and resumes all park where
    * they are, bindings intact, and the boot reconcile of the next process
@@ -5454,6 +5463,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // is idle while a poll is still mirroring a card.
     busyIds: () => [...inFlight.keys()],
     busySessionKeys: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((key) => key !== ""),
+    // The same filter as `busyCount`: a run riding on a node holds no turn on
+    // this machine, so it is not what a restart here waits for.
+    busyTurns: () => [...inFlight.entries()]
+      .filter(([, slot]) => !isNodeSessionKey(slot.sessionKey))
+      .map(([taskId, slot]) => ({ taskId, sessionKey: slot.sessionKey })),
     drain: (reason) => {
       if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
       draining = reason;

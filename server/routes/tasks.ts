@@ -70,6 +70,7 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, for
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -1012,6 +1013,40 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const pendingDeliveries = new Map<string, { pathname: string; body: Record<string, unknown> }>();
 
   /**
+   * AND IT OUTLIVES THE PROCESS, since 2026-09-16.
+   *
+   * The map above only ever had to survive a client giving up. Now it has to
+   * survive the server too: a delivery whose checks are only WAITING no longer
+   * holds a planned reload back (`cardTurnsHoldingReload` in lib/quiescence.ts),
+   * and cutting it is only free if it comes back by itself. The row is written
+   * beside every `set` and removed beside every `delete`; the map stays the fast
+   * path, the table is read once at boot.
+   */
+  function rememberDelivery(taskId: string, pathname: string, body: Record<string, unknown>): void {
+    pendingDeliveries.set(taskId, { pathname, body });
+    savePendingDelivery(ctx.db, {
+      taskId, pathname, body,
+      // What the round is measuring, as the round itself recorded it. It is
+      // what tells the restarted delivery "same delivery": without it the new
+      // round merges main into the worktree a second time.
+      commit: (() => { try { return svc.get(taskId)?.task.checksCommit ?? null; } catch { return null; } })(),
+    });
+  }
+
+  function forgetDeliveryMemo(taskId: string): void {
+    pendingDeliveries.delete(taskId);
+    forgetPendingDelivery(ctx.db, taskId);
+  }
+
+  /**
+   * The deliveries a previous process was in the middle of, recognised by their
+   * commit: the round they restart is the SAME delivery, so it does not realign
+   * on main again (`sameDelivery` in `runChecksGate`). An entry lives until a
+   * verdict is recorded for that card, exactly like the row.
+   */
+  const restoredDeliveries = new Map<string, string | null>();
+
+  /**
    * THE CHAT SEES THE WAIT TOO. The card shows «2/5» (`checksProgress`); the
    * agent's thread showed a mute `update_task` spinning for the whole bar, and
    * from there the topic looked stuck: on 05/09/2026 three card turns sat 20-60
@@ -1061,16 +1096,68 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (attempt < 20) settleDelivery(taskId, attempt + 1);
         return;
       }
+      // The map entry goes, the ROW stays: the re-issued PATCH writes it again
+      // if the round is still going, and removes it once there is a verdict. A
+      // process that dies in between finds the delivery again at its next boot.
       if (!pendingDeliveries.delete(taskId)) return;
-      const url = new URL(`http://localhost${pending.pathname}`);
-      const req = new Request(url, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...pending.body, legMs: 1_000 }),
-      });
-      tasksRouter(req, url, pending.pathname, "PATCH")
-        .then((resp) => console.log(`[Tasks] consegna di ${taskId.slice(0, 8)} completata dal server a client andato: HTTP ${resp?.status ?? "nessuna risposta"}`))
-        .catch((err) => console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: il PATCH riemesso dal server è fallito:`, err));
+      reissueDelivery(taskId, pending.pathname, pending.body, "client andato");
     }, attempt === 0 ? 0 : 250);
+  }
+
+  /** The remembered PATCH, sent back through the router's own front door. The
+   *  leg is short: nobody is waiting on this answer, the card and the thread are. */
+  function reissueDelivery(taskId: string, pathname: string, body: Record<string, unknown>, why: string): void {
+    const url = new URL(`http://localhost${pathname}`);
+    const req = new Request(url, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, legMs: 1_000 }),
+    });
+    tasksRouter(req, url, pathname, "PATCH")
+      .then((resp) => console.log(`[Tasks] consegna di ${taskId.slice(0, 8)} completata dal server (${why}): HTTP ${resp?.status ?? "nessuna risposta"}`))
+      .catch((err) => console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: il PATCH riemesso dal server è fallito:`, err));
+  }
+
+  /**
+   * THE DELIVERIES THE PREVIOUS PROCESS WAS STILL WAITING ON.
+   *
+   * A planned reload no longer waits for a delivery whose checks are only
+   * waiting (`cardTurnsHoldingReload`), and the swap brake already cut rounds
+   * without a verdict. Either way the round is gone and nothing else would
+   * bring the delivery back: the agent's turn died with the process, and its
+   * `update_task` with it. So the server re-issues each remembered PATCH, once,
+   * as the same delivery — the commit is carried into `restoredDeliveries`, so
+   * the round measures the tree it already realigned instead of merging main a
+   * second time.
+   *
+   * Cards that have moved on in the meantime (already in review, closed,
+   * deleted) are only forgotten: their verdict either landed or no longer
+   * matters.
+   */
+  function resumePendingDeliveries(): void {
+    let entries: PendingDelivery[] = [];
+    try { entries = loadPendingDeliveries(ctx.db); } catch { entries = []; }
+    for (const entry of entries) {
+      // `archived` is not a status here: an archived card is gone from `list`
+      // and `get` answers nothing for it, which the `!task` arm already covers.
+      let task: Task | undefined;
+      try { task = svc.get(entry.taskId)?.task; } catch { task = undefined; }
+      if (!task || task.status === "review" || task.status === "done") {
+        forgetPendingDelivery(ctx.db, entry.taskId);
+        continue;
+      }
+      restoredDeliveries.set(entry.taskId, entry.commit);
+      pendingDeliveries.set(entry.taskId, { pathname: entry.pathname, body: entry.body });
+      console.warn(
+        `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono sullo stesso commit ` +
+        `(${entry.commit?.slice(0, 7) ?? "commit ignoto"}), nessun riallineamento in più`,
+      );
+      // A tick, not a microtask: the router is still being built, and the
+      // re-issue goes back in through `tasksRouter`.
+      setTimeout(() => {
+        if (!pendingDeliveries.delete(entry.taskId)) return;
+        reissueDelivery(entry.taskId, entry.pathname, entry.body, "riavvio del server");
+      }, 0);
+    }
   }
 
   async function runChecksGate(
@@ -1109,8 +1196,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // A round the swap brake interrupted restarts as the SAME delivery: realigned
     // again, two `git merge main` in one worktree (a server re-issue and a client
     // leg) race on index.lock and write a failed realign as a red.
+    //
+    // So does a round the RESTART cut. The registry of the dead process is
+    // gone, so nothing in memory can say "same delivery": the row says it, by
+    // the commit the round was measuring. The worktree is still on the tree the
+    // first realign produced, and merging main into it again would write a
+    // second merge commit into a delivery nobody re-made.
+    const restoredCommit = restoredDeliveries.get(taskId);
     const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null)
-      || swapInterruptedDelivery(taskId, before?.commit ?? null);
+      || swapInterruptedDelivery(taskId, before?.commit ?? null)
+      || (restoredDeliveries.has(taskId) && restoredCommit === (before?.commit ?? null));
     if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
         .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
@@ -1213,6 +1308,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // qualcuno non e' arrivato in fondo.
         svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
         forgetDelivery(taskId);
+        // Measured: whatever brought this delivery back, it is no longer a
+        // delivery of a dead process, and its next leg is a NEW one.
+        restoredDeliveries.delete(taskId);
         // Green is service bookkeeping; red is a visible outcome. The thread
         // keeps only the compact verdict and first failure. Commands and logs
         // remain in checks_json, rendered by the expandable ChecksSection.
@@ -2312,26 +2410,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // round measures the delivery. A 503 was thrown at the agent instead, which
     // cannot wait a minute and called again into the dead server.
     if (outcome && "interrupted" in outcome) {
-      // The swap brake keeps the delivery: the server re-issues it when the round
-      // is gone. A shutdown forgets it, and the client's leg after the restart
-      // measures it again.
-      if (outcome.reason === "swap" && body && typeof body === "object") {
-        pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
-      } else {
-        pendingDeliveries.delete(taskId);
-        checksWaitSince.delete(taskId);
-      }
+      // NOTHING WAS MEASURED, AND THE DELIVERY IS NOT LOST EITHER. The swap
+      // brake's round restarts in THIS process (`settleDelivery`); the
+      // shutdown's restarts in the NEXT one, from the row
+      // (`resumePendingDeliveries`).
+      //
+      // A shutdown used to forget it here, and that was safe only while a card
+      // turn held every planned reload back: the agent's leg came back after
+      // the restart and asked again. Since 2026-09-16 a reload no longer waits
+      // for a delivery whose checks are only waiting, so the leg may never come
+      // back - the turn died with the process - and forgetting the delivery
+      // would leave the card `in_progress` with nobody left to ask.
+      if (body && typeof body === "object") rememberDelivery(taskId, pathname, body as Record<string, unknown>);
       return legInFlight(svc.get(taskId, { projectId })?.task);
     }
     if (outcome && "pending" in outcome) {
       // Remembered with the body as sent: the server re-issues THIS request
-      // on the same path when the run ends, should the client stop polling.
-      if (body && typeof body === "object") pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
+      // on the same path when the run ends, should the client stop polling -
+      // or should the process itself go away first.
+      if (body && typeof body === "object") rememberDelivery(taskId, pathname, body as Record<string, unknown>);
       const task = svc.get(taskId, { projectId })?.task;
       tellChatAboutChecksWait(chat.sessionKey, chat.topicId, taskId, projectId, task);
       return legInFlight(task);
     }
-    pendingDeliveries.delete(taskId);
+    forgetDeliveryMemo(taskId);
     checksWaitSince.delete(taskId);
     if (outcome && !outcome.ok) {
       return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
@@ -4528,5 +4630,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     return null;
   };
+  // HERE, and not a line earlier: the re-issue goes back in through
+  // `tasksRouter`, which only exists from the statement above. Same instant as
+  // `clearStaleChecksRuns` in spirit - this is the one moment when every
+  // in-flight round of this process is, by construction, of a DEAD process.
+  resumePendingDeliveries();
   return tasksRouter;
 }
