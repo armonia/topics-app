@@ -17,6 +17,8 @@
  *  2. A change of kind (floor, then the 24h spend, then the floor again) or of
  *     resource (memory, then disk) is written at the very next retry; the swing
  *     between the sentences of one memory episode waits for the minute refresh.
+ *  3. Quiet only while the row still says what we wrote: when another writer
+ *     rewrites the chip between two retries, the next retry puts the hold back.
  * @covers KANBAN-75
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
@@ -221,5 +223,25 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     expect(h.framesOf("switch")).toBe(5);
     expect(h.task("switch").dispatchError).toContain("5.2 GB disponibili");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  it("another writer rewrites the chip between two retries: the next retry puts the hold back", async () => {
+    const h = harness();
+    h.floor.memGB = 5.7;
+    heldCard(h.db, "rewritten");
+    const t0 = Date.now();
+    await h.dispatcher.resume("rewritten", "continua");
+    expect(h.task("rewritten").dispatchState).toBe("queued");
+    expect(h.framesOf("rewritten")).toBe(1);
+
+    // Same hold, same resource, well inside the minute: only the row tells the
+    // retry that its last write is gone.
+    h.svc.setDispatchState({ taskId: "rewritten", state: null });
+    setSystemTime(new Date(t0 + 6_000));
+    h.floor.memGB = 5.8;
+    await h.dispatcher.resume("rewritten", "");
+    expect(h.task("rewritten").dispatchState).toBe("queued");
+    expect(h.task("rewritten").dispatchError).toStartWith("Memoria quasi finita: 5.8 GB");
+    expect(h.task("rewritten").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 });
