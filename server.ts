@@ -48,7 +48,7 @@ import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-s
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -5939,7 +5939,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // Every holder that is NOT a card: the streams of this process, the turns
     // the broker keeps, the chats parked on a question. `dispatchDoor` reads
     // this to decide whether refusing card turns buys the restart anything.
-    chats: streamKeys.length + brokerOpen.length + parked.length,
+    // A card turn streams through /api/chat too, so its own session is taken
+    // out here, or every card in flight would reopen the door by itself.
+    chats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: parked, cardSessionKeys: taskDispatcher.busySessionKeys() }),
     // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
     // che non e' quello che trattiene: quando a trattenere e' una card la frase
     // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il

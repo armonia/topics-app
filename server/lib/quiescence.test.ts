@@ -9,7 +9,7 @@
  * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
 
 describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)", () => {
   test("a chat holds: open, whatever the cards - refusing card turns buys the restart nothing", () => {
@@ -20,6 +20,23 @@ describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)",
   test("only cards hold, or nothing: closed - that wait is bounded, the restart is minutes away", () => {
     expect(dispatchDoor({ cards: 2, chatsHolding: 0 })).toBe("closed");
     expect(dispatchDoor({ cards: 0, chatsHolding: 0 })).toBe("closed");
+  });
+
+  test("a card turn's own stream is not a chat: three cards streaming keep the door closed", () => {
+    // The live state of 2026-09-15 01:50: the three streaming sessions were the
+    // three working cards, no person anywhere, and the door read "open".
+    const cardSessionKeys = ["topic:9b97a46c", "topic:c37ff82f", "topic:c6a076d5"];
+    const chats = chatsHolding({ streamKeys: cardSessionKeys, brokerOpenKeys: [], parkedKeys: [], cardSessionKeys });
+    expect(chats).toBe(0);
+    expect(dispatchDoor({ cards: 4, chatsHolding: chats })).toBe("closed");
+  });
+
+  test("a person's chat beside the cards still opens the door, from every source", () => {
+    const cardSessionKeys = ["topic:card0001"];
+    expect(chatsHolding({ streamKeys: ["topic:card0001", "topic:human001"], brokerOpenKeys: [], parkedKeys: [], cardSessionKeys })).toBe(1);
+    // The broker list is a cache that can still name a card's session.
+    expect(chatsHolding({ streamKeys: [], brokerOpenKeys: ["topic:card0001", "topic:human002"], parkedKeys: [], cardSessionKeys })).toBe(1);
+    expect(chatsHolding({ streamKeys: [], brokerOpenKeys: [], parkedKeys: ["topic:human003"], cardSessionKeys })).toBe(1);
   });
 });
 
