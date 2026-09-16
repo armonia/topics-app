@@ -226,13 +226,7 @@ server applica l'ultimo. La regola nuova:
 | link cliccato in una chat di topic | split accanto alla chat (`LINK-TAB-02`) | scheda nella finestra della topic |
 | `open_browser_pane` dell'agente | pane globale accanto alla chat | scheda nella finestra della topic |
 | `/browser <url>` nel composer | pane | scheda nella finestra, espansa |
-| terminale, pane browser, task | invariato | invariato |
-| le stesse tre origini quando la chat sta in una finestra di progetto | pane nel layout del progetto | scheda nella finestra della topic |
-
-La cornice che ospita la chat non è una seconda regola: dentro una finestra di
-progetto valgono le stesse tre righe di sopra, ed è per questo che l'ultima
-cambia. Un link cliccato dentro una pane browser di quel progetto resta invece
-dov'è sempre stato: è la pane a decidere, non la chat che le sta accanto.
+| terminale, pane browser, finestra di progetto, task | invariato | invariato |
 
 Regola unica per le prime due righe: se la scheda con quel contesto è già una
 tab, naviga la tab; altrimenti entra nella finestra nello stato in cui la

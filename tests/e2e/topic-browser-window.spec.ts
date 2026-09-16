@@ -24,6 +24,12 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 
+/** The app's own per-device key for the cell layout
+ *  (`usePanelGridPersistence`). The default space still mirrors the unsuffixed
+ *  key, so a seed has to write BOTH or a stale layout survives. */
+const GRID_KEY = "topics-panel-grid-layout";
+const GRID_KEY_DEFAULT_SPACE = "topics-panel-grid-layout:space:default";
+
 /**
  * Seed a topic's browser window straight into its ui-state row.
  *
@@ -1441,6 +1447,92 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     }
   });
 
+  test("TOPIC-BROWSER-04f: la pane in una cella sua e' gia' quella pagina, e la finestra non ne fa una seconda", async ({ page, request }) => {
+    // THE VARIANT THAT ACTUALLY DISCRIMINATES THE GUARD. 04b also seeds
+    // `promoted: [topic.id]`, and with that `open` refuses the sheet on its own
+    // (`topicBrowserWindow.open` drops a promoted contextId): the guard could
+    // be deleted and the scenario stayed green. Here there is NO promotion, so
+    // the only thing keeping the sheet out of the window is the question "is
+    // that page already a pane?".
+    //
+    // And the pane sits in a CELL OF ITS OWN, which is the real layout: every
+    // pane the agent has opened so far lands there, because it is
+    // `requestBrowserSolo` that pushes it out of the chat's cell. Asked of the
+    // chat cell's list alone the answer was "no pane", the door took the
+    // opening, and the same page ended up in the pane AND in the window.
+    const topic = await createTopic(request, `E2E-TBW-AgentSolo-${Date.now()}`);
+    const browserPaneId = `browser:${topic.id}`;
+    const url = AGENT_URL("in-una-cella-sua");
+    try {
+      await resetPaneStore(request, [topic.id, browserPaneId]);
+      await seedWindow(request, topic.id, {
+        mode: "hidden",
+        minPos: null,
+        expandedWidth: null,
+        tabs: [],
+        activeContextId: null,
+        // Empty ON PURPOSE: it is the whole difference from 04b.
+        promoted: [],
+      });
+      // The pane in a cell of its own: the per-device layout is localStorage,
+      // and the default space keeps the unsuffixed key alive too.
+      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.evaluate(({ k1, k2, grid }) => {
+        localStorage.setItem(k1, JSON.stringify(grid));
+        localStorage.setItem(k2, JSON.stringify(grid));
+      }, {
+        k1: GRID_KEY,
+        k2: GRID_KEY_DEFAULT_SPACE,
+        grid: { gridRows: [], gridRowHeights: [], soloCells: [[browserPaneId]] },
+      });
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await selectTopic(page, topic.id);
+      await expect(page.locator('[data-testid="chat-panel"]').first()).toBeVisible({ timeout: 15000 });
+
+      // The precondition, read off the DOM and not off the seed: two cells,
+      // and the browser pane is the sole tenant of the second. Without this
+      // line the scenario could run on a pane that stayed a tab of the chat's
+      // cell, i.e. on exactly the case 04b already covers.
+      await expect
+        .poll(
+          () => page.$$eval("[data-split-leaf]", (els) =>
+            els.map((e) => e.getAttribute("data-split-leaf") ?? "").sort()),
+          { timeout: 15000 },
+        )
+        .toEqual(["solo:" + browserPaneId, "standalone"]);
+      const beforeCells = await cellRects(page);
+      expect(Object.keys(beforeCells).length).toBe(2);
+
+      const res = await request.post(
+        `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
+        // 45 s for THIS call: it spawns a real Chromium context, and the
+        // default action budget is shorter than that costs on a loaded runner.
+        { data: { url }, ignoreHTTPSErrors: true, timeout: 45_000 },
+      );
+      expect(res.ok()).toBeTruthy();
+
+      // No sheet: the page is already in the layout, and putting it in the
+      // window as well would be the same page twice.
+      await expect(page.locator('[data-testid="topic-browser-sheet"]')).toHaveCount(0);
+      await expect
+        .poll(async () => {
+          const r = await request.get(`${BASE}/api/ui-state/topic-browser:${topic.id}`, { ignoreHTTPSErrors: true });
+          const body = await r.json().catch(() => null);
+          return ((body?.value?.tabs ?? []) as unknown[]).length;
+        }, { timeout: 8000 })
+        .toBe(0);
+
+      // The pane that was already there holds the page: one of it, where it was.
+      await expect(page.locator(`[data-pane-id="${browserPaneId}"]`)).toHaveCount(1);
+      await expect(page.locator(`[data-browser-pane="${topic.id}"]`).first()).toBeVisible({ timeout: 15000 });
+      expect(await cellRects(page)).toEqual(beforeCells);
+    } finally {
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
   test("TOPIC-BROWSER-04e: l'evento non marcato su una pane che c'e' gia' la naviga e basta", async ({ page, request }) => {
     // The OTHER `isNewPane`, the one on the event path. Its sibling on the WS
     // path is guarded by 04b; this one had no scenario at all, so "always a new
@@ -1490,73 +1582,6 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
     } finally {
       await closeAllBrowserContexts(request).catch(() => {});
       await deleteTopic(request, topic.id).catch(() => {});
-    }
-  });
-
-  test("TOPIC-BROWSER-04d: dentro una finestra di progetto vale la stessa porta", async ({ page, request }, testInfo) => {
-    // The same 90 s its siblings ask for: this one seeds a project and its
-    // layout on top of the real browser context, so it is the slowest of the
-    // four and the one a loaded runner starves first.
-    testInfo.setTimeout(90_000);
-    // The rule is about the CHAT, not about the frame around it. A project
-    // window hosts the same conversation through a different component, and it
-    // had its own opening path: the agent's broadcast landed there as a browser
-    // pane of the project layout while the very same click on a LINK of that
-    // chat went into the topic's window. Two behaviours, and nothing anywhere
-    // said so.
-    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-04d-"));
-    const topic = await createTopic(request, `E2E-TBW-Project-${Date.now()}`, { projectPath });
-    const url = AGENT_URL("nel-progetto");
-    try {
-      await resetPaneStore(request, []);
-      await resetProjectPanes(request, projectPath);
-      await seedProjectPane(request, projectPath);
-      // The conversation alone in the project window, and no browser window yet.
-      await seedProjectLayout(request, projectPath, topic.id, null);
-      await goToApp(page);
-      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
-      await expect(chatTab).toBeVisible({ timeout: 20000 });
-      await chatTab.click();
-      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveCount(0);
-      const beforeCells = await cellRects(page);
-      expect(Object.keys(beforeCells).length).toBeGreaterThan(0);
-
-      const res = await request.post(
-        `${BASE}/api/topics/${encodeURIComponent(topic.id)}/browser/open-pane`,
-        // 45 s for THIS call: it spawns a real Chromium context, and the
-        // default action budget is shorter than that costs on a loaded runner.
-        // Measured: the request expired while the server was still opening it,
-        // with nothing wrong on either side.
-        { data: { url }, ignoreHTTPSErrors: true, timeout: 45_000 },
-      );
-      expect(res.ok()).toBeTruthy();
-
-      // The window, as anywhere else: minimised, with the sheet on that URL.
-      const windowEl = page.locator('[data-testid="topic-browser-window"]');
-      await expect(windowEl).toBeVisible({ timeout: 20000 });
-      await expect(windowEl).toHaveAttribute("data-mode", "min");
-      await expect(
-        page.locator(`[data-testid="topic-browser-tab"][data-context-id="${topic.id}"]`),
-      ).toHaveCount(1, { timeout: 15000 });
-
-      // And the project layout is exactly the one the user left: no browser
-      // pane of its own, the same cells at the same sizes.
-      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
-      expect(await cellRects(page)).toEqual(beforeCells);
-
-      // THE SECOND DOOR OF THE SAME WALL. The project window has its own
-      // handler for the typed command too, and a guard added to only one of
-      // the two ingresses is half a rule. `/browser` is an explicit request to
-      // look, so here as anywhere it opens the window EXPANDED - and still not
-      // a pane of the project.
-      await openAndNavigate(page, topic.id, AGENT_URL("comando-nel-progetto"), "slash-command");
-      await expect(windowEl).toHaveAttribute("data-mode", "exp", { timeout: 15000 });
-      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
-    } finally {
-      await resetProjectPanes(request, projectPath).catch(() => {});
-      await closeAllBrowserContexts(request).catch(() => {});
-      await deleteTopic(request, topic.id).catch(() => {});
-      removeTmpDir(projectPath);
     }
   });
 });

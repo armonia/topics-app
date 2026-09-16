@@ -110,17 +110,31 @@ function requestBrowserSolo(paneId: string): void {
 }
 
 /**
- * Is that page ALREADY a pane of this group?
+ * Is that page ALREADY a pane, ANYWHERE in the layout?
  *
  * The question the topic window's door cannot answer: a sheet promoted to a tab
  * lives in the layout, and putting it back in the window would be the same page
  * twice (the store refuses it, silently). So the layout is asked first, and a
  * pane that exists is simply navigated where it stands.
+ *
+ * ANYWHERE, and not "in this cell". `orderedIds` is the id list of the CELL that
+ * holds the chat (PanelGrid hands one `panelIds` per grid cell), and the pane
+ * this rule exists to protect is exactly the one `requestBrowserSolo` split OUT
+ * of that cell: every pane the agent has opened so far lives in a cell of its
+ * own, i.e. in nobody's `prev`. Asked of the cell alone the answer was "no
+ * pane", the door took the opening, and `open` added a sheet on a contextId the
+ * layout was already showing — the same page in the pane AND in the window. The
+ * pane store is the one view that spans the cells, which is the question the
+ * project window has always asked (`useProjectBrowserPanes`, `panesRef`).
  */
-function paneForContext(orderedIds: string[], contextId?: string): string | null {
+// Exported for the co-located bun:test unit (reads the module-level store).
+export function paneForContext(orderedIds: string[], contextId?: string): string | null {
   if (!contextId) return null;
   const id = createPaneId('browser', contextId);
-  return orderedIds.includes(id) ? id : null;
+  // `prev` first: it is this group's own optimistic list, which leads the store
+  // by the dispatch that persists a pane it has just created.
+  if (orderedIds.includes(id)) return id;
+  return usePaneStore.getState().panes[id] ? id : null;
 }
 
 /** Any browser pane already open at the app level (group:default), regardless of

@@ -36,7 +36,6 @@ import {
 } from '../../../state/pane/adapters';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
-import { openInTopicWindow } from '../../../lib/topicWindowDoor';
 import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarget';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
@@ -220,34 +219,9 @@ export function useProjectBrowserPanes({
       return !!t && t.projectPath === projectPath;
     };
 
-    // TOPIC-BROWSER-04 asks the same question here as in a standalone window:
-    // an opening nobody requested by hand does not get to move the layout. The
-    // project window is just another surface hosting that chat, so it uses the
-    // same door instead of a second rule of its own. A pane already on that
-    // context wins over the window (it is where the page already is), and with
-    // no chat mounted to host the sheet the door says no and the pane path
-    // below runs exactly as before.
-    const takenByTopicWindow = (
-      topicId: string | undefined,
-      contextId: string | undefined,
-      url: string,
-      sheet: { openedBy: 'agent' | 'user'; mode?: 'min' | 'exp' },
-    ): boolean => {
-      const ctx = contextId ?? topicId;
-      if (ctx && panesRef.current.some(p => p.id === createPaneId('browser', ctx))) return false;
-      return openInTopicWindow(topicId, {
-        contextId: ctx ?? '',
-        url: resolveBrowserNavigateUrl(url),
-        openedBy: sheet.openedBy,
-        mode: sheet.mode,
-      });
-    };
-
     const unsubWS = onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
       if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
-        // The agent's own opening: into the window as it stands, layout untouched.
-        if (takenByTopicWindow(m.topicId, m.contextId, m.url, { openedBy: 'agent' })) return;
         // Bind the pane to the server-resolved contextId (== topic.id) so the
         // native CDP target registers under the id the agent's browser_* tools
         // resolve to (no invisible Playwright phantom). Falls back to topicId
@@ -265,7 +239,7 @@ export function useProjectBrowserPanes({
     });
 
     const domHandler = (e: Event) => {
-      const detail = (e as CustomEvent<{ topicId?: string; url?: string; projectPath?: string; contextId?: string; source?: string }>).detail;
+      const detail = (e as CustomEvent<{ topicId?: string; url?: string; projectPath?: string; contextId?: string }>).detail;
       if (!detail?.url) return;
       // Belongs to this window if the event names THIS project path (the board's
       // "Apri nel workspace", which has no chat topic to key on) OR the topic is
@@ -274,15 +248,6 @@ export function useProjectBrowserPanes({
         (!!detail.projectPath && detail.projectPath === projectPath) ||
         topicBelongsToThisProject(detail.topicId);
       if (!belongs) return;
-      // Only the TYPED command is an explicit request to look, and only it opens
-      // the window, expanded. The same event name is also how the board's
-      // open-in-workspace action and the task drawer ask for a pane, and those
-      // keep the layout they always had: twin guard in usePaneOrdering.
-      if (detail.source === 'slash-command'
-        && takenByTopicWindow(detail.topicId, detail.contextId, detail.url, { openedBy: 'user', mode: 'exp' })) {
-        drainProjectBrowserNavigates(projectPath);
-        return;
-      }
       // chat-topic contextId === topicId (resolveContextIdForTopic); the board
       // passes an explicit contextId so the pane is steerable by the agent later.
       ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId, detail.contextId ?? detail.topicId);
