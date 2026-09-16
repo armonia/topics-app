@@ -28,6 +28,9 @@ import type { ZoomScope } from './zoomScope';
 import { paneZoomActions } from '../../state/paneZoom';
 import { useLongPress } from '../../hooks/useLongPress';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
+import { SwapIce } from '../Shared/SwapIce';
+import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
+import { pickSwapFreeze, useSwapFreezeViews } from '../../state/swapFreeze';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { SessionElapsed, ProjectElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -322,6 +325,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // inglese finalmente dice qualcosa.
   const tr = useT();
   const toast = useToast();
+  /** The sessions Topics is holding stopped: one list for the whole bar. */
+  const swapFreezes = useSwapFreezeViews();
   // Ridisegna quando arriva uno snapshot di consumo nuovo. Senza, il title
   // resterebbe fermo al valore del primo render e la fetch su hover non si
   // vedrebbe mai. `useSyncExternalStore` e non uno stato locale: lo snapshot
@@ -1161,6 +1166,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // two surfaces of its own now: the hover card just below, and the
         // dropdown the tab opens under itself.
         const label = etichettaTab(pane, pane.id);
+        // Is this tab's session frozen? A tab has no room for a sentence: it
+        // gets the snowflake and a thread of rime along its edge, and the card
+        // and the pane carry the rest.
+        const tabFreeze = pickSwapFreeze(swapFreezes, {
+          topicId: pane.topicId ?? null,
+          terminalId: pane.type === 'terminal' ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id)) : null,
+        });
         // THE HOVER CARD SAYS BOTH THINGS, ALWAYS, in the shape every browser
         // uses: the page name on the first line, the WHOLE address on the
         // second. That second line is what tells three tabs called
@@ -1390,6 +1402,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // che un `dragend` proprio non lo riceve mai.
             data-drop-active={showLeftIndicator ? 'before' : showRightIndicator ? 'after' : undefined}
           >
+            {/* The tab's frost: rime along the edges, under every other child. */}
+            <SwapIce freeze={tabFreeze} size="mini" />
             {/* No selection colour wash: the tab colour is an auto-assigned
                 topic default ("invented"), not a manifest-provided colour, so a
                 selected tab just uses the normal selected styling. When a real
@@ -1708,6 +1722,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
+            {/* FROZEN: the snowflake instead of the working glyph, because a
+                command Topics has stopped is not working. The words do not fit
+                on a tab: the tooltip carries them, and the card and the pane
+                carry them in full. */}
+            {tabFreeze && <SwapFreezeLabel freeze={tabFreeze} compact />}
             </div>
             {/* IL COMANDO, ULTIMO NEL DOM E FUORI DAL FLUSSO.
                 Anche una tab FISSATA si chiude. Il fissaggio non è un

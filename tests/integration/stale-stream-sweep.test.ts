@@ -62,6 +62,8 @@ function harness(opts?: {
   toolRunningForMs?: number;
   /** The board is running (or queuing) OUR pre-review checks for this turn's card. */
   waitingOnOurChecks?: boolean;
+  /** How long the swap freezer held one of this session's commands STOPped. */
+  frozenMs?: number;
 }): Harness {
   const clock = { t: Date.UTC(2026, 7, 15, 12, 0, 0) };
   const silent = opts?.silentMs ?? 7 * MIN;
@@ -115,6 +117,7 @@ function harness(opts?: {
     humanHoldAgeMs: () => opts?.humanHoldAgeMs ?? null,
     childAlive: () => opts?.alive ?? true,
     waitingOnOurChecks: () => opts?.waitingOnOurChecks ?? false,
+    frozenMsSince: () => opts?.frozenMs ?? 0,
     resyncStream: (sk) => resyncs.push(sk),
     cancelAsk: () => {},
     // La proroga vera: sposta l'orologio dello stream ad ADESSO. È esattamente
@@ -434,6 +437,28 @@ describe("the sweeper stops the provider's turn, not only the row", () => {
     expect(sweepStaleStreams(h.deps).get(SK)).toBe("extended");
     expect(h.providerAborts).toEqual([]);
     expect(h.warnings.some((w) => w.includes("waiting on OUR pre-review checks"))).toBe(true);
+  });
+
+  /**
+   * F16. The swap freezer can hold a native tool's process STOPped for up to ten
+   * minutes. That time is OURS: counting it against the tool's own clock turns a
+   * 25-minute build frozen for 10 into a 35-minute "promise that never returns",
+   * and the turn is cut for a wait Topics itself imposed.
+   *
+   * @covers KANBAN-85
+   */
+  test("the time we held a tool frozen comes off its clock: 35 minutes of which 10 frozen is not hung", () => {
+    const frozen = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 35 * MIN, frozenMs: 10 * MIN });
+    frozen.deps.rescued.add(SK);
+    expect(sweepStaleStreams(frozen.deps).get(SK)).toBe("extended");
+    expect(frozen.providerAborts).toEqual([]);
+
+    // Without the subtraction the same tool is hung, which is the red this
+    // closes: same silence, same tool, nothing frozen.
+    const unfrozen = harness({ alive: true, silentMs: 7 * MIN, toolRunning: true, toolRunningForMs: 35 * MIN });
+    unfrozen.deps.rescued.add(SK);
+    expect(sweepStaleStreams(unfrozen.deps).get(SK)).toBe("finalized");
+    expect(unfrozen.providerAborts).toEqual([SK]);
   });
 
   test("frozen (alive, nothing in flight, past the cap): the provider is aborted", () => {

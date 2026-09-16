@@ -27,6 +27,11 @@ Disegno, file per file e test con i mutanti: `design.md` (sezione «Tornata 2»)
 
 ## Tornata 3: segnale di memoria e freno sul lavoro in volo
 Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15, KANBAN-84).
+- [x] Il riavvio non aspetta piu' una consegna che sta solo ASPETTANDO i nostri check, e quella consegna torna da sola dopo il boot (delta in `specs/restart-gate`: RGATE-07, RGATE-08)
+  - [x] `cardTurnsHoldingReload` (`lib/quiescence.ts`) + `deliveryOnlyWaitsOnChecks` in `server.ts`: corsa viva nel cancello dei check e nessun comando nel registro del governatore = non trattiene, ne' come card ne' come stream della card; un comando IN CORSO trattiene come prima; commento su `dispatchTimeoutMin` corretto (declassato a sola segnalazione dal 2026-09-04)
+  - [x] `pending_deliveries` (migration `20260915230316`) + `services/pending-delivery-store.ts`: la consegna e il commit misurato sopravvivono al processo, il boot la riemette una volta sola e `sameDelivery` evita il secondo `git merge main`
+  - [x] Test con orologi iniettati: scenario del 15/09 (consegna nell'attesa di memoria, sette card in coda) → «procedi», comando in corso → «rinvia», sondaggio CI → «procedi» (`lib/quiescence.test.ts`); ripresa dopo il boot senza riga rossa e con un solo riallineamento (`routes/tasks.delivery-survives-reload.test.ts`). Mutanti uccisi: consegna dimenticata dallo spegnimento, riallineamento ripetuto, turno in attesa contato fra chi trattiene
+  - [x] La ripresa al boot riguarda SOLO una card ancora `in_progress` — una fermata a mano (backlog) o rimessa in coda dal reconcile (todo) viene solo dimenticata, senza lanciare la barra e senza scriverle addosso un `pass` — e il commit ricordato è quello del giro, non l'ultima misura della card, così una consegna tagliata prima del checkout riallinea al boot invece di ereditare un commit vecchio (RGATE-08). Mutanti uccisi: filtro review/done al posto di `in_progress`, stato riletto solo al caricamento e non alla riemissione, commit preso da `task.checksCommit`
 - [x] `test:unit` alla consegna letto dalla CI della PR (risposta del 15/09 17:20): riga `github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`), verdetto = passo `Unit + integration tests` del job `check` nella run `pull_request` del commit consegnato; una spinta, una PR in bozza e un giro di sondaggi per e2e e unit (`awaitCiEvidence`); passo saltato, annullato, assente o job finito prima = non misurato
   - [x] Envelope (`UNIT_CI_KICKOFF_LINE`, fan-out, `CODE_GATES_RULE`) e `docs/board-protocol.md`: la suite unit intera si legge dalla CI, `bun test <file>` mirato resta ammesso; `board-protocol-parity` ancora la regola
   - [x] Test con risposte finte di GitHub (`ci-evidence`, `tasks.checks-ci`, `review-checks`, `task-dispatcher`, `board-protocol-parity`)
@@ -46,10 +51,37 @@ Disegno: `design.md` (sezione «Tornata 3»); delta in `specs/kanban` (KANBAN-15
   - [ ] B3 si misura 72 ore dopo il land con lo script in sola lettura (scratchpad della sessione, non committato): O1 stalli [LAG]/giorno <= 0,5 x prima, O2 p95 swap-in/s e load1 non peggiori, O3 verdetti e turni/giorno >= 0,7 x prima, O4 swap sostenuto con albero >= 1 GB <= 190 s di fila
   - [ ] Rollout, SOLO dopo il merge: nessun PATCH oltre a quello di `unit-ci` qui sopra; le soglie restano provvisorie finché B3 non le conferma
 
+## Tornata 3c: il comando più pesante di un agente sotto swap si congela, e la sessione si copre di brina
+Disegno: `design.md` (sezione «Tornata 3c»); delta in `specs/kanban` (KANBAN-75, KANBAN-85). Prerequisito: PR #69, landata.
+- [x] T0 in CI su macOS: forma XPC e peso di Playwright WebKit con WebGL, effetto di STOP/CONT (ramo usa e getta, run 35031447596)
+  - [x] Esiti nel disegno: attribuzione per dominio + percorso, 0,44 GB per UNA pagina (sotto il pavimento, e il pavimento non si muove), fermare il solo albero non basta, un `click({timeout})` in volo scade alla ripresa
+- [x] Bash in background dai `PreToolUse`, radici native registrate da `runCommand`, insieme di guardia, gruppi ammessi
+- [x] `swap-freeze.ts`: candidati, il più pesante, controllo delle connessioni, freno dei check prima, spaziatura condivisa, 2 per albero
+- [x] Registro `active` + `counts` scritto prima di ogni SIGSTOP; scongelamento: memoria, nessun effetto, 10 minuti, padrone sparito, spegnimento, boot
+- [x] Orologi: stall detector, StaleStream, timer del bash nativo, parcheggio PTY, Stop della sessione, `LiveToolLine`
+- [x] Frame `swap-freeze:state`, nota della card, storico notifiche, riga per l'agente nel suo canale
+- [x] Brina: texture procedurale con zone libere sul testo, card, riga, tab, anello e banner della pane, due temi, reduced-motion
+- [x] Test F1-F23 (unit e segnali veri, e2e in CI su chromium e webkit con screenshot e video)
+- [x] Giro di correzioni dopo la verifica avversaria: `ps` muto distinto da `ps` che risponde vuoto (niente identita' = nessun SIGSTOP, registro tenuto al boot), comando in `eval '...'` confrontato dopo aver sciolto le virgolette e col match piu' lungo, post-controllo che legge anche i pid segnalati, ICE-02/04/05 misurati sullo strumento giusto
+- [x] Secondo giro di correzioni: primo piano come insieme per `tool_use_id` (nessun `PostToolUse` altrui lo cancella), record confrontato nell'alfabeto che `ps` stampa (`\012`, `\011`, `M-`), timeout dei quattro sondaggi come scadenza sulla risposta (il battito non si pianta, quindi il tetto dei 10 minuti resta raggiungibile), `lsof` muto trattato come «peer non misurati» e non come «nessun peer», delta di spec registrato
+- [ ] Barra sul server vivo (§9 del disegno), 7 giorni dopo il land: E0 candidati sopra il pavimento, E1 swap-in/s prima/dopo, E2 stalli [LAG], E3 durate e ragioni, E4 quota di «no effect»
+
 ## Tornata 4: pannelli browser pesanti
-- [ ] Consumo misurato per pannello nativo
-- [ ] Sopra soglia: segnale nella tab, vivo solo col fuoco, fermo immagine con UI chiara, ritorno senza ricaricare
-- [ ] Semantica di fuoco corretta su macOS, Windows e finestre staccate
+Disegno di tornata con la critica: delta in `specs/remote-browser` (BROWSER-HEAVY-01..05).
+- [x] Consumo misurato per pannello nativo
+  - [x] macOS: una lettura per pid per campione (`sample_cpu`, `collect_webview_usage` dal campione) e test Rust su un figlio occupato
+  - [x] Windows: processi dell'ambiente WebView2 per pane, `GetProcessTimes` con la stessa regola, `browser_try_suspend`; regole del delta testate sulle tre OS
+  - [x] Client: righe `webviews` da `usePerfMetrics` e lettore di ripiego per documento; attribuzione (pid condivisi, generazioni)
+- [x] Sopra soglia: segnale nella tab, vivo solo col fuoco, fermo immagine con UI chiara, ritorno senza ricaricare
+  - [x] Verdetto a tempo (`heavyPanes.ts`) e regola di vita (`nativePaneLive.ts`) con sosta di 2 s
+  - [x] Pausa e ritorno in `useNativePanePause`: fermo prima di nascondere, ritorno che adotta il fermo come freeze, freeze rifiutato a pane in pausa, fermo a 1x
+  - [x] Glifi `Gauge` / `CirclePause` dopo quelli di connessione, agente sempre primo; scheda in pausa con «Riprendi»; chiavi it/en
+  - [x] Poll: eval fermi in pausa, drain con la pane a schermo o usata, download con cancello e download in corso, tutti fermi a finestra senza fuoco
+  - [x] Test: banchi bun dell'hook (pausa, ritorno, overlay, freeze, op dell'agente, ricarica), download, moduli puri; spec e2e per la CI
+- [x] Semantica di fuoco corretta su macOS, Windows e finestre staccate
+  - [x] `window_focus.rs`: evento su principale, pop-out e finestra gruppo (tre chiamate contate da un test), `window_focus_state` (`isKeyWindow` / `GetForegroundWindow`)
+  - [x] `hasFocus` per sito di montaggio; `onSelfFocus` nuovo per il gruppo del task
+- [ ] Barra (P1..X del disegno), SOLO con un guscio rilasciato e la macchina calma: vedi rollout
 
 ## Tornata 5: browser remoto degli agenti su WebKit
 - [ ] Card separata sulla board

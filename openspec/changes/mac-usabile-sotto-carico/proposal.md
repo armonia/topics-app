@@ -8,7 +8,7 @@
 Il Mac resta inusabile con la board al lavoro: 4 scelte prima del codice.
 
 1. Gli e2e degli agenti girano solo in CI, come test:unit dal 04/09 (o: in locale ma dietro slot e memoria). **Risposta: solo in CI.**
-2. Un giro di check già partito con il Mac in swap lo interrompe Topics da solo, come interrotto e mai rosso (o: solo attesa del lavoro nuovo). **Risposta: «dovrebbe farlo da solo».**
+2. Un giro di check già partito con il Mac in swap lo interrompe Topics da solo, come interrotto e mai rosso (o: solo attesa del lavoro nuovo). **Risposta: «dovrebbe farlo da solo».** E il 15/09 alle 20:40, sui processi pesanti che gli agenti lanciano nelle topic: «freezza il piu pesante mostrando un effetto di congelamento figo sulla card realistico». Un comando in PRIMO PIANO di Claude Code non si congela (il suo CLI lo uccide su un orologio che durante il fermo continua a correre): si congela il più pesante in background.
 3. Un pannello browser che consuma molto si segnala, resta vivo solo col fuoco e si congela con una buona UI (o: sempre vivo). **Risposta: «se è consumo elevato magari lo segnaliamo e la attiviamo solo al focus e freeziamo con buona ui».**
 4. Il browser remoto degli agenti passa da Chromium a WebKit sul Mac, con una card (o: resta Chromium). **Risposta: card per WebKit.**
 
@@ -58,7 +58,12 @@ avversaria, script nello scratchpad della sessione):
    il prezzo di ciò che si libera; al boot la finestra non ammette finché non è
    piena. Con swap sostenuto Topics interrompe da solo il giro di check più
    giovane (interrotto, mai rosso, riparte da solo) con limiti che impediscono
-   di fermarlo per sempre.
+   di fermarlo per sempre. Sempre sotto swap sostenuto, il comando più pesante
+   che un agente ha lanciato in BACKGROUND (o che il runtime nativo sta
+   eseguendo per lui) viene congelato con un SIGSTOP finché non c'è memoria, al
+   massimo 10 minuti e al massimo due volte per albero, e la sessione si copre
+   di brina in modo che si veda dalla board. Mai il server, mai un CLI, mai un
+   comando in primo piano.
 4. **Pannelli browser pesanti.** Topics misura il consumo di ogni pannello
    nativo; un pannello sopra soglia si segnala, resta vivo solo col fuoco e si
    congela su un fermo immagine con una UI chiara, e torna vivo senza
@@ -70,5 +75,9 @@ avversaria, script nello scratchpad della sessione):
 - Le app fuori da Topics (Dia, l'app Claude, un `git gc` di un'altra sessione):
   nessuna modifica del server le toglie.
 - Riscrivere il dispatcher o il modello di prezzo delle card.
-- Un freno che congela gli agenti (SIGSTOP non restituisce memoria: provato e
-  ritirato, `shared/machine-budget.ts`).
+- Un freno che congela i CLI degli agenti o i loro comandi in PRIMO PIANO: un
+  CLI fermato a metà stream perde la connessione, e un comando in primo piano
+  scade sull'orologio del suo CLI mentre è fermo (SIGSTOP non restituisce
+  memoria e non ferma le scadenze altrui: provato e ritirato per la memoria,
+  `shared/machine-budget.ts`). Quello che si congela è un comando in background,
+  che nessun orologio sta guardando.

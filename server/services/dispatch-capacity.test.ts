@@ -6,7 +6,7 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */
@@ -718,5 +718,25 @@ describe("il tetto conosce il runtime: 3 GB per una CLI, 0,25 per una sessione n
     const native = computeDispatchCapacity(0, probe, false).recommended;
     const cli = computeDispatchCapacity(0, probe, true).recommended;
     expect(native).toBeGreaterThanOrEqual(cli);
+  });
+});
+
+describe("the memory probe under launchd", () => {
+  // launchd starts the server with a PATH that has no /usr/sbin: a bare
+  // `sysctl` made every swap reading null on the live server (15/09/2026), and
+  // with it the swap verdict and the brake.
+  test("every binary is spawned by absolute path, and the swap reading reaches the sample", async () => {
+    const spawned: string[][] = [];
+    const sample = await probeVm(async (argv) => {
+      spawned.push(argv);
+      if (argv[0]!.endsWith("vm_stat")) {
+        return "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 3550.\nPages speculative: 100.\nPages purgeable: 10.\nFile-backed pages: 200000.\nPages occupied by compressor: 656466.\nSwapins: 23380813.\n";
+      }
+      return "total = 15360.00M  used = 13993.56M  free = 1366.44M  (encrypted)";
+    }, "darwin");
+    for (const argv of spawned) expect(argv[0]!.startsWith("/")).toBe(true);
+    expect(spawned.map((a) => a[0])).toEqual(["/usr/bin/vm_stat", "/usr/sbin/sysctl"]);
+    expect(sample?.swapUsedMB).toBe(13993.56);
+    expect(sample?.swapins).toBe(23380813);
   });
 });
