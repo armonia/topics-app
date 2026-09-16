@@ -561,6 +561,25 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
     cancelAsk(sessionKey, "fine del test");
   });
 
+  test("la traccia di una scrittura che porta un messaggio dice A CHI e con che oggetto", async () => {
+    // "Scrittura Google eseguita: gmail users drafts create - riuscita" says
+    // that something happened and nothing about what left (OUTBOUND-05).
+    const raw = Buffer.from("To: cliente@e.test\r\nSubject: Preventivo 2026\r\n\r\nEccolo.", "utf8").toString("base64url");
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1264";
+    confirmWhenAsked(h, sessionKey);
+    const resp = (await h.call(googlePath(sessionKey), {
+      service: "gmail", resource: "users", subresource: "drafts", method: "create",
+      body: { userId: "me", message: { raw } }, legMs: 600,
+    }))!;
+    expect((await resp.json() as Record<string, unknown>).ok).toBe(true);
+    const line = h.comments.at(-1)?.content ?? "";
+    expect(line).toContain("cliente@e.test");
+    expect(line).toContain("Preventivo 2026");
+    // The trace still does not carry the body.
+    expect(line).not.toContain("Eccolo.");
+  });
+
   test("il rifiuto non si aggira con maiuscole, spazi o la forma corta", () => {
     for (const parts of [
       { service: "gmail", resource: "users", subresource: "messages", method: "send" },
