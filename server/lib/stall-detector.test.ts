@@ -36,7 +36,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a clean 'alive' verdict rearms the SAME watch, never calls onStuck", async () => {
     const t = fakeTimers();
     let stuck = 0;
-    let rearms: Array<"human" | "checks" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => false,
@@ -97,7 +97,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a human on screen rearms without ever asking the judge", async () => {
     const t = fakeTimers();
     let judged = 0;
-    let rearms: Array<"human" | "checks" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => true,
@@ -113,13 +113,45 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     expect(rearms).toEqual(["human"]);
   });
 
+  /**
+   * F15. The swap freezer can SIGSTOP a command this session launched: the
+   * transcript then goes quiet because Topics stopped the process the turn is
+   * waiting on. Judging that silence would recycle a healthy turn for a wait
+   * that is ours (memory note `our-own-wait-is-not-a-stall`).
+   *
+   * @covers KANBAN-85
+   */
+  test("a frozen command holds the watch: no judge, rearm says 'freeze'", async () => {
+    const t = fakeTimers();
+    let judged = 0;
+    let stuck = 0;
+    const rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
+    armStallDetector({
+      idleMs: 5_000,
+      isWaitingForHuman: () => false,
+      isWaitingForChecks: () => false,
+      isFrozen: () => true,
+      getTail: () => "assistant: running the battery",
+      judge: async () => { judged++; return "stuck"; },
+      onStuck: () => { stuck++; },
+      onRearm: (r) => rearms.push(r),
+      setTimer: t.setTimer, clearTimer: t.clearTimer, now: t.now,
+    });
+    t.silence(360_000);
+    t.fire();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(judged, "six minutes of silence, and nobody was asked").toBe(0);
+    expect(stuck).toBe(0);
+    expect(rearms).toEqual(["freeze"]);
+  });
+
   test("our own pre-review checks hold the watch: no judge, rearm says 'checks'", async () => {
     // 2026-09-04: a delivering agent waits on the checks gate for minutes, its
     // transcript is quiet, and the judge read that silence as "stuck".
     const t = fakeTimers();
     let judged = 0;
     let stuck = 0;
-    let rearms: Array<"human" | "checks" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
     let checksRunning = true;
     armStallDetector({
       idleMs: 5_000,

@@ -820,8 +820,8 @@ Due canali, e si usano ENTRAMBI: non si sostituiscono a vicenda.
   `GroupLayout.tsx` e `ProjectWindow.tsx`. Verdi all'11/09:
   `check:spec-coverage`, `check:untraced-tests`, `check:ui-language`,
   `cargo test --lib`, e il `bun test` dei sette file unitari della change.
-- [ ] 8.2 `bun run check:e2e-touched` prima di consegnare: l'E2E non e' fra i sei
-  check della board, e un land verde rompe la nightly.
+- [ ] 8.2 L'E2E lo misura la CI della PR sul commit consegnato (`github-ci:e2e`,
+  dal 15/09/2026); in locale solo `bun run check:e2e-touched --list`.
   **Stato: lanciato l'11/09, ROSSO, e per la ragione giusta.** Esce 1 sui tre
   casi noti (`:442`, `:476`, `:1084`), non per non essere stato eseguito: 55
   test, 52 passati. Il cancello riconosce 27 spec legate a 25 file toccati, molto

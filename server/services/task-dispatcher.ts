@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
 import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
@@ -161,9 +161,9 @@ export interface DispatcherDeps {
    * «nessun limite», questo no. Assente (test, host degradato) = non blocca
    * mai: una guardia che non si sa misurare non deve poter fermare la board.
    *
-   * `hold` is what the reading cannot see yet, as separate facts: the price of
-   * one card, the local turns admitted in the last warm-up window, and whether
-   * the floor is already holding (see `floorReason`).
+   * `hold` is what the reading cannot see, as separate facts: the price of one
+   * card, the memory kept for the local turns in flight, and whether any of our
+   * work is on the machine (see `floorReason`).
    */
   resourceBlock?: (hold: MemoryFloorHold) => string | null;
   /**
@@ -281,6 +281,9 @@ export interface DispatcherDeps {
    * il tetto. Assente = non si contano (comportamento storico, mai zero-denial).
    */
   checksRunning?: () => number;
+  /** The task's checks run gave its lane back and only waits on the pull request CI
+   *  (KANBAN-84): its turn holds no memory here, so admission does not reserve any. */
+  checksOffLane?: (taskId: string) => boolean;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -595,6 +598,15 @@ export interface TaskDispatcher {
    */
   busySessionKeys(): string[];
   /**
+   * The turns behind `busyCount()`, each with the session it streams on.
+   *
+   * The restart gate needs the PAIR: it asks the checks gate, by task id,
+   * whether that card's delivery is only waiting on our own checks, and then
+   * has to take that card's own stream out of the chat sources too (a card
+   * turn streams through /api/chat, so its session is also a stream key).
+   */
+  busyTurns(): Array<{ taskId: string; sessionKey: string }>;
+  /**
    * A planned restart is on its way: from now until the process is replaced,
    * start NO new turn. Queue picks, slot wake-ups and resumes all park where
    * they are, bindings intact, and the boot reconcile of the next process
@@ -706,6 +718,37 @@ const HEAVY_HOLD_MAX_MS = 15 * 60_000;
 
 /** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
 const RESUME_SLOT_RETRY_MS = 5_000;
+
+/**
+ * How often a held resume may rewrite the SAME hold just to refresh its numbers.
+ *
+ * Measured on 15/09/2026: every retry rewrote `dispatch_error` with the memory
+ * reading of that instant (5.7, 5.9, 6.0 GB), touched `updated_at` and sent
+ * `task:updated` to every client. Seven held cards made about 70 frames a
+ * minute, and each frame re-rendered the app tree and rebuilt the tray menu.
+ * A different hold is written at once; the same hold with other numbers waits
+ * this long, so the card is never stale for more than a minute.
+ */
+const HELD_RESUME_REFRESH_MS = 60_000;
+
+/**
+ * Which WAIT a held resume's sentence describes: two sentences with the same key
+ * are the same wait, and the second one is only a refresh.
+ *
+ * Figures never count: "5.9 GB" and "6.0 GB" say the same thing. And for the
+ * machine floor (`resources`) the words do not count either, only the RESOURCE,
+ * the first word ("Memoria", "Disco"), the same key `admissionBlock` logs by. One
+ * memory episode goes through three sentences (under the floor, reserved for
+ * the agents starting, climbing back towards the restart line), and with the
+ * hysteresis holding the composer turns "under" into "climbing" exactly at the
+ * floor: on the 15/09 readings (5.7, 5.9, 6.0, 5.8) a key on the words still
+ * rewrote the card about every other retry.
+ */
+function holdKey(kind: DispatchBlockKind | null, reason: string | null): string {
+  if (reason == null) return `${kind}:`;
+  if (kind === "resources") return `${kind}:${reason.split(/[\s:]/)[0]}`;
+  return `${kind}:${reason.replace(/\d+(?:[.,]\d+)*/g, "#")}`;
+}
 
 /**
  * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
@@ -964,6 +1007,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
   const waitingForSlot = new Set<string>();
+  /** What each held resume last wrote on its chip, and when (clock ms): see `HELD_RESUME_REFRESH_MS`. */
+  const heldWritten = new Map<string, { at: number; key: string; reason: string | null }>();
   /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
   let boardCursor = 0;
   let resumeStagger = 0;
@@ -1029,27 +1074,41 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch instants of the LOCAL turns in flight: a run riding on a node holds
    *  nothing on this machine, the same filter `busyCount` applies. */
   function localLaunches(): number[] {
-    return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).map((slot) => slot.sessionAt);
+    const offLane = (taskId: string) => { try { return deps.checksOffLane?.(taskId) ?? false; } catch { return false; } };
+    return [...inFlight.entries()]
+      .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId))
+      .map(([, slot]) => slot.sessionAt);
   }
   /**
-   * THE FLOOR, read with what the reading cannot see yet, and without saying it
+   * THE FLOOR, read with what the reading cannot see, and without saying it
    * (`admissionBlock` is the one that logs).
    *
-   * Two terms, and the floor used to have neither. A bare `avail < 6` read by
-   * `vm_stat` at every tick and every queued resume flapped on the line: 30
-   * «coda ferma» and 30 «coda ripartita» in eleven minutes on 14/09/2026, each
-   * opening letting turns through. So:
-   *  - HYSTERESIS: once holding, it reopens only with room for one more agent
-   *    above the floor, not at the floor itself;
-   *  - RESERVATION: the local turns started inside the warm-up window count at
-   *    their price, because an agent's gates show up in the reading minutes
-   *    after the start. Without it four resumes passed the floor in eleven
-   *    seconds on four readings of the same 6.0 GB, and in count mode nothing
-   *    else in the dispatcher looks at free memory.
+   * The reading is the lowest of a 2-minute window (`mem-signal.ts`), which is
+   * the hysteresis: a bare `avail < 6` flapped 30 times in eleven minutes on
+   * 14/09/2026, and a warm-up reservation plus a holding margin still reopened
+   * on single readings three times on 15/09.
+   *
+   * THE LIFE-OF-TURN RESERVATION IS CHARGED ONCE. An agent's first memory burst
+   * comes a median 160 s after its start, and a turn waiting on a human or on
+   * the checks waiter still owns what it will spend. In resources mode the
+   * budget axis already reserves the price of every local turn for its whole
+   * life (`reservedCost().memGB`), so the floor charges nothing more: charged
+   * on both axes, one turn in flight put the line at 6 + 4 + 4 = 14 GB, above
+   * anything this Mac reads. In count mode the floor is the only memory brake,
+   * so it charges N x price itself.
    */
   function floorReason(): string | null {
-    const startingCards = reservedCost(localLaunches(), { coreUnits: 0, memGB: 0 }, Date.now()).pending;
-    return deps.resourceBlock?.({ cardGB: agentMemPrice(), startingCards, holding: lastAdmissionBlock != null }) ?? null;
+    const price = agentMemPrice();
+    const launches = localLaunches();
+    const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
+    const resources = inResourcesMode();
+    const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
+    return deps.resourceBlock?.({
+      cardGB: price,
+      reservedGB: reserved,
+      reservedCards: resources ? 0 : launches.length,
+      ourWorkRunning: launches.length + Math.max(0, checks) > 0,
+    }) ?? null;
   }
   function admissionBlock(): string | null {
     try {
@@ -1472,6 +1531,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds?.[0]);
     }
     waitingForSlot.delete(taskId);
+    heldWritten.delete(taskId);
   }
 
   /** Claim the slot for a new run. Returns its id — the owner's proof. */
@@ -2211,12 +2271,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return parts;
   }
 
+  // The e2e rule of a board that declares E2E_CI_CHECK (KANBAN-84).
+  const E2E_CI_KICKOFF_LINE =
+    "- E2E RUNS ON GITHUB CI, NEVER HERE: once the gates above are green the board (not you) pushes the commit it measured to your branch, " +
+    "opens or reuses a draft pull request and waits for the e2e jobs of that exact commit (15-45 min; `update_task` stays open, do not call it again). " +
+    "The repo is public: your commits become public at that moment. The proof of your e2e spec comes from the CI of your branch, which the board reads when you deliver. A red job comes back with its name and `gh run view --job <id> --log-failed`; " +
+    "no verdict for that commit (cancelled, superseded, timed out, GitHub unreachable) is NOT MEASURED: not your red, and the card still stays out of review.";
+
+  // The unit rule of a board that declares UNIT_CI_CHECK: the full suite is read
+  // from the same pull request CI, and only targeted files run here.
+  const UNIT_CI_KICKOFF_LINE =
+    "- UNIT TESTS RUN ON GITHUB CI, NEVER HERE: the full unit suite of your delivery is read from the step `Unit + integration tests` of the `check` job, " +
+    "in the pull request CI run of the exact commit the board measured, after the same push and draft pull request (one push and one wait serve the e2e row too). " +
+    "Do not run `bun run test:unit` or `test:unit:shards` on this machine; targeted `bun test <file>` for the files you touched stays allowed and is how you check your change before delivering. " +
+    "A red step comes back with `gh run view --job <id> --log-failed`; a step skipped, cancelled or never reached is NOT MEASURED, never green.";
+
+  // The same question on a board WITHOUT that row: nobody pushes, nobody reads a
+  // CI, and the agent must not believe otherwise (the boards of other projects).
+  const E2E_NOT_MEASURED_KICKOFF_LINE =
+    "- E2E IS NOT MEASURED BY THIS BOARD: it declares no CI e2e check, so when you deliver nobody pushes your branch and no CI is read, and you do not push either. " +
+    "If you wrote or changed an e2e spec, say so in the delivery comment with its path: it is measured by the project CI once the branch is published, or on the Windows PC, not before.";
+
   function buildKickoff(task: Task): string {
     // I comandi che il server farà girare da solo alla consegna. Dirglielo PRIMA
     // costa tre righe e gli risparmia un giro completo: senza, scopre il gate solo
     // quando lo sbatte, e il rosso arriva a lavoro già "finito".
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
+    const ciE2e = checks.some((c) => c.cmd.trim() === E2E_CI_CHECK.cmd);
+    const ciUnit = checks.some((c) => c.cmd.trim() === UNIT_CI_CHECK.cmd);
+    checks = checks.filter((c) => !isCiEvidenceCheck(c));
     const parts = taskFramingBlock(task, `You are the exclusive owner of task \`${task.id}\` on this Kanban board.`);
     if (task.planFirst) {
       parts.push(
@@ -2311,6 +2395,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- PRE-REVIEW CHECKS: run the targeted tests for the code you changed. On delivery the board runs ${checks.length === 1 ? "this declared gate" : "these declared gates"} in your worktree — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. If one fails, review is refused and its output comes back to you.`,
             ]
           : []),
+        ciE2e ? E2E_CI_KICKOFF_LINE : E2E_NOT_MEASURED_KICKOFF_LINE,
+        ...(ciUnit ? [UNIT_CI_KICKOFF_LINE] : []),
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
         "- If you need a human decision to go on:",
         `  1. comment_task(task_id="${task.id}", content=<the question, on one line>, options=[<option 1>, <option 2>, ...])`,
@@ -2772,6 +2858,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function buildFanoutKickoff(task: Task, idx: number, total: number): string {
     let checks: { name: string; cmd: string }[] = [];
     try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
+    const ciE2e = checks.some((c) => c.cmd.trim() === E2E_CI_CHECK.cmd);
+    const ciUnit = checks.some((c) => c.cmd.trim() === UNIT_CI_CHECK.cmd);
+    checks = checks.filter((c) => !isCiEvidenceCheck(c));
     const parts = taskFramingBlock(
       task,
       `You are ATTEMPT ${idx} of ${total} on task \`${task.id}\`: ${total} agents are working it IN PARALLEL, each in its own worktree. ` +
@@ -2797,6 +2886,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               `- Before you finish, run ${checks.length === 1 ? "this command" : "these commands"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}: the server re-runs them on the chosen attempt, and a red attempt starts at a disadvantage.`,
             ]
           : []),
+        ciE2e
+          ? "- E2E runs on GitHub CI for the attempt that is chosen, never here."
+          : "- E2E is not measured by this board, here or on any CI: if you wrote or changed an e2e spec, name it in your closing report.",
+        ...(ciUnit ? ["- The full unit suite runs on GitHub CI for the attempt that is chosen, never here: run only targeted `bun test <file>`."] : []),
         "- Lean context: Grep to find, Read in slices (offset/limit) on files over ~400 lines. Long commands (build/test/install) in the background with run_script + read_process_output, never sitting blocked on the command.",
         "- Close the turn with 2-3 sentences: which route you chose, what you changed and where to look. It is the only thing the human reads of you in the comparison — write it well.",
         ...languageLine(langFor(task.projectId)),
@@ -3775,8 +3868,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // The hold's KIND rides beside it, written before the chip so the emitted
       // card already reads it (`heldResumeBlock`): the card says the block that
       // holds THIS resume, never the one the tick published last.
-      setHeldResumeBlock(taskId, hold?.kind ? { kind: hold.kind, reason: hold.reason } : null);
-      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
+      //
+      // ONLY WHEN THE WAIT CHANGED, or its numbers are a minute old. "Changed" is
+      // another kind, or for the same kind another `holdKey`: other words for
+      // spend, pressure and the drain, another resource for the floor, whose
+      // three sentences of one memory episode are one wait (see `holdKey`). The
+      // row must still carry the very sentence we wrote last, so a chip written
+      // by anyone else (a start, a park) is never mistaken for ours.
+      // When the write is skipped the kind entry is left alone too, because
+      // `heldResumeBlock` believes it only while it matches the sentence the row
+      // still carries; refreshing it alone would blank the card's reason.
+      const kind = hold?.kind ?? null;
+      const key = holdKey(kind, floorBlock);
+      const last = heldWritten.get(taskId);
+      const sameHold = last != null
+        && clock() - last.at < HELD_RESUME_REFRESH_MS
+        && t.dispatchState === CHIP_QUEUED
+        && (t.dispatchError ?? null) === last.reason
+        && last.key === key;
+      if (!sameHold) {
+        setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
+        try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
+        heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
+      }
       if (!rampWait && !waitingForSlot.has(taskId)) {
         waitingForSlot.add(taskId);
         try {
@@ -5289,6 +5403,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
     waitingForSlot.clear();
+    heldWritten.clear();
     spendHeldNoted.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
@@ -5348,6 +5463,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // is idle while a poll is still mirroring a card.
     busyIds: () => [...inFlight.keys()],
     busySessionKeys: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((key) => key !== ""),
+    // The same filter as `busyCount`: a run riding on a node holds no turn on
+    // this machine, so it is not what a restart here waits for.
+    busyTurns: () => [...inFlight.entries()]
+      .filter(([, slot]) => !isNodeSessionKey(slot.sessionKey))
+      .map(([taskId, slot]) => ({ taskId, sessionKey: slot.sessionKey })),
     drain: (reason) => {
       if (draining !== reason) log(`drain: nessun turno nuovo fino al riavvio (${reason}); ${inFlight.size} in volo`);
       draining = reason;

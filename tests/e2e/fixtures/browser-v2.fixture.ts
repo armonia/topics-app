@@ -472,9 +472,11 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
    *
    * Pair true -> false to close the cycle.
    */
-  broadcastAgentActive(active = true): void {
+  broadcastAgentActive(active = true, action?: string): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
-    this.wsRouteRef.send(JSON.stringify({ type: 'agent_active', active }));
+    // `action` is what the server sends alongside a true: the running
+    // commentary the tab puts in the glyph's title.
+    this.wsRouteRef.send(JSON.stringify({ type: 'agent_active', active, ...(action ? { action } : {}) }));
   }
 
   /**

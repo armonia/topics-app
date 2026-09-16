@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -68,8 +68,10 @@ import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOut
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
-import { clampLegMs, createChecksGate, type ChecksLeg } from "../services/checks-gate";
-import { reviewChecksStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
+import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
+import { forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
+import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -419,6 +421,13 @@ export interface TasksRouterOpts {
    * not depend on how much memory the machine running them has left.
    */
   checksMemoryFloor?: MemoryFloor;
+  /**
+   * Reads the pull request CI verdicts for the delivered commit (KANBAN-84): one
+   * row per declared `github-ci:*` check, from one push and one poll loop, called
+   * only after every local command is green and the lane is given back.
+   * Absent with a declared CI row = NOT MEASURED, never a pass.
+   */
+  ciEvidence?: (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun[]>;
 }
 
 /**
@@ -945,7 +954,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // default when every agent also ran the whole suite by itself; since the
   // envelope stopped that (2026-09-04) a run costs ~6-8 load for ~7 minutes,
   // and with six agents delivering in the same quarter hour a single lane
-  // meant 40+ minutes of queue for the last one - past the 50-minute cap of
+  // meant 40+ minutes of queue for the last one - past the 50-minute cap (now 100) of
   // `update_task`. Two lanes on twelve cores keep the load under ~20 and halve
   // the queue; smaller machines keep the one lane. `TOPICS_CHECKS_LANES`
   // overrides either way.
@@ -989,7 +998,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    *
    * The checks run in the registry and the status moves only when a leg comes
    * back with the verdict - and the leg is the MCP client polling every 25 s,
-   * for at most 50 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
+   * for at most 100 minutes (`CHECKS_MAX_LEGS`). On 2026-09-04 at 12:37 three
    * cards resumed together, delivered at once, and sat in the gate's slot
    * queue past that cap: `update_task` threw, each agent ended its turn saying
    * "consegnato", the checks finished green minutes later and NOBODY applied
@@ -1002,6 +1011,62 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * already wrote. The client's polling becomes a courtesy, not a condition.
    */
   const pendingDeliveries = new Map<string, { pathname: string; body: Record<string, unknown> }>();
+
+  /**
+   * AND IT OUTLIVES THE PROCESS, since 2026-09-16.
+   *
+   * The map above only ever had to survive a client giving up. Now it has to
+   * survive the server too: a delivery whose checks are only WAITING no longer
+   * holds a planned reload back (`cardTurnsHoldingReload` in lib/quiescence.ts),
+   * and cutting it is only free if it comes back by itself. The row is written
+   * beside every `set` and removed beside every `delete`; the map stays the fast
+   * path, the table is read once at boot.
+   */
+  function rememberDelivery(taskId: string, pathname: string, body: Record<string, unknown>): void {
+    pendingDeliveries.set(taskId, { pathname, body });
+    savePendingDelivery(ctx.db, {
+      taskId, pathname, body,
+      // THE COMMIT OF *THIS* ROUND, not of the last one measured.
+      //
+      // It used to be `svc.get(taskId).task.checksCommit`, which is whatever
+      // the previous round recorded, and a delivery that never started a round
+      // wrote it anyway: `runChecksGate` answers `interrupted` to a leg that
+      // arrives while the server is on its way out BEFORE it resolves a
+      // checkout, so the row got the old commit. If that stale commit happened
+      // to be the worktree HEAD (a redelivery with no new commit of its own),
+      // at boot `sameDelivery` read "same delivery" and skipped the realign
+      // entirely - the checks then measured a base main had moved away from,
+      // which is the 2026-09-04 regression the block at `runChecksGate`
+      // describes, while the log claimed "nessun riallineamento in più".
+      //
+      // `roundCommit` is written by the round itself, once its checkout is
+      // known, and only a round that got that far can claim "already realigned".
+      commit: roundCommit.get(taskId) ?? null,
+    });
+  }
+
+  function forgetDeliveryMemo(taskId: string): void {
+    pendingDeliveries.delete(taskId);
+    roundCommit.delete(taskId);
+    forgetPendingDelivery(ctx.db, taskId);
+  }
+
+  /**
+   * What the round in flight is measuring: the commit its checkout was on when
+   * it started, AFTER the realign. Written by `runChecksGate` once it has a
+   * ref, dropped when a verdict is recorded - so "no entry" means "this
+   * delivery never got as far as realigning", and the round that restarts it
+   * has to realign.
+   */
+  const roundCommit = new Map<string, string | null>();
+
+  /**
+   * The deliveries a previous process was in the middle of, recognised by their
+   * commit: the round they restart is the SAME delivery, so it does not realign
+   * on main again (`sameDelivery` in `runChecksGate`). An entry lives until a
+   * verdict is recorded for that card, exactly like the row.
+   */
+  const restoredDeliveries = new Map<string, string | null>();
 
   /**
    * THE CHAT SEES THE WAIT TOO. The card shows «2/5» (`checksProgress`); the
@@ -1053,16 +1118,103 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (attempt < 20) settleDelivery(taskId, attempt + 1);
         return;
       }
+      // The map entry goes, the ROW stays: the re-issued PATCH writes it again
+      // if the round is still going, and removes it once there is a verdict. A
+      // process that dies in between finds the delivery again at its next boot.
       if (!pendingDeliveries.delete(taskId)) return;
-      const url = new URL(`http://localhost${pending.pathname}`);
-      const req = new Request(url, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...pending.body, legMs: 1_000 }),
-      });
-      tasksRouter(req, url, pending.pathname, "PATCH")
-        .then((resp) => console.log(`[Tasks] consegna di ${taskId.slice(0, 8)} completata dal server a client andato: HTTP ${resp?.status ?? "nessuna risposta"}`))
-        .catch((err) => console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: il PATCH riemesso dal server è fallito:`, err));
+      reissueDelivery(taskId, pending.pathname, pending.body, "client andato");
     }, attempt === 0 ? 0 : 250);
+  }
+
+  /** The remembered PATCH, sent back through the router's own front door. The
+   *  leg is short: nobody is waiting on this answer, the card and the thread are. */
+  function reissueDelivery(taskId: string, pathname: string, body: Record<string, unknown>, why: string): void {
+    const url = new URL(`http://localhost${pathname}`);
+    const req = new Request(url, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, legMs: 1_000 }),
+    });
+    tasksRouter(req, url, pathname, "PATCH")
+      .then((resp) => console.log(`[Tasks] consegna di ${taskId.slice(0, 8)} completata dal server (${why}): HTTP ${resp?.status ?? "nessuna risposta"}`))
+      .catch((err) => console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: il PATCH riemesso dal server è fallito:`, err));
+  }
+
+  /**
+   * THE DELIVERIES THE PREVIOUS PROCESS WAS STILL WAITING ON.
+   *
+   * A planned reload no longer waits for a delivery whose checks are only
+   * waiting (`cardTurnsHoldingReload`), and the swap brake already cut rounds
+   * without a verdict. Either way the round is gone and nothing else would
+   * bring the delivery back: the agent's turn died with the process, and its
+   * `update_task` with it. So the server re-issues each remembered PATCH, once,
+   * as the same delivery — the commit is carried into `restoredDeliveries`, so
+   * the round measures the tree it already realigned instead of merging main a
+   * second time.
+   *
+   * ONLY FOR A CARD THAT IS STILL DELIVERING. The filter used to be "not in
+   * review, not done, not gone", which let through every card that had left
+   * `in_progress` by another door: the «Ferma» button parks it in `backlog`
+   * (`release({requeue:false})`), the dispatcher's boot reconcile requeues an
+   * orphan to `todo`. The re-issue then ran the WHOLE round for it — tsc,
+   * eslint, `bun test`, vite launched by nobody on the Mac that had just
+   * rebooted for lack of memory, which is the exact resource this change
+   * defends — wrote `checks_state = 'pass'` and a service comment on a parked
+   * card, and only the final transition was refused with a 409, suite already
+   * run. A green badge on a delivery that never happened.
+   */
+  function resumePendingDeliveries(): void {
+    let entries: PendingDelivery[] = [];
+    try { entries = loadPendingDeliveries(ctx.db); } catch { entries = []; }
+    for (const entry of entries) {
+      if (!stillDelivering(entry.taskId)) {
+        forgetPendingDelivery(ctx.db, entry.taskId);
+        // One line per row dropped, because "my card never resumed its checks"
+        // is a question somebody asks, and the rows in flight at a shutdown are
+        // a handful, not a stream.
+        console.warn(`[Tasks] consegna di ${entry.taskId.slice(0, 8)} dimenticata al boot: la card non è più in lavorazione, nessun check lanciato`);
+        continue;
+      }
+      restoredDeliveries.set(entry.taskId, entry.commit);
+      pendingDeliveries.set(entry.taskId, { pathname: entry.pathname, body: entry.body });
+      // A tick, not a microtask: the router is still being built, and the
+      // re-issue goes back in through `tasksRouter`.
+      setTimeout(() => {
+        // Asked again, at the moment of the action: this sweep runs while
+        // `createTasksRouter` is still being built (server.ts), and the
+        // dispatcher's boot reconcile — which requeues the orphans of the
+        // killed process — only runs its first pass later, asynchronously. A
+        // card requeued in between must not get a round either.
+        if (!stillDelivering(entry.taskId)) {
+          pendingDeliveries.delete(entry.taskId);
+          restoredDeliveries.delete(entry.taskId);
+          forgetPendingDelivery(ctx.db, entry.taskId);
+          console.warn(`[Tasks] consegna di ${entry.taskId.slice(0, 8)} dimenticata: la card non è più in lavorazione, nessun check lanciato`);
+          return;
+        }
+        if (!pendingDeliveries.delete(entry.taskId)) return;
+        // Said HERE and not in the sweep above: a line that announces a resume
+        // must only be printed by a resume that happens.
+        console.warn(
+          `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono ` +
+          (entry.commit
+            ? `sullo stesso commit (${entry.commit.slice(0, 7)}), nessun riallineamento in più`
+            : "con un riallineamento su main: il giro tagliato non era arrivato a farlo"),
+        );
+        reissueDelivery(entry.taskId, entry.pathname, entry.body, "riavvio del server");
+      }, 0);
+    }
+  }
+
+  /**
+   * Is this card still the one that delivered? `in_progress` is the only status
+   * a delivery can come back to: review and done are past it, backlog and todo
+   * are a card someone took back. `archived` is not a status here — an archived
+   * card answers nothing from `get`, which the missing-task arm covers.
+   */
+  function stillDelivering(taskId: string): boolean {
+    let task: Task | undefined;
+    try { task = svc.get(taskId)?.task; } catch { return false; }
+    return !!task && task.status === "in_progress";
   }
 
   async function runChecksGate(
@@ -1098,7 +1250,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // IS the verdict: not a single command runs, and the agent gets the file
     // list instead of a timeout.
     const before = await opts.taskCheckoutRef(taskId).catch(() => null);
-    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null);
+    // A round the swap brake interrupted restarts as the SAME delivery: realigned
+    // again, two `git merge main` in one worktree (a server re-issue and a client
+    // leg) race on index.lock and write a failed realign as a red.
+    //
+    // So does a round the RESTART cut. The registry of the dead process is
+    // gone, so nothing in memory can say "same delivery": the row says it, by
+    // the commit the round was measuring. The worktree is still on the tree the
+    // first realign produced, and merging main into it again would write a
+    // second merge commit into a delivery nobody re-made. A row whose commit is
+    // null says "this round never got as far as a checkout": it matches only a
+    // worktree whose own HEAD is unreadable, where a realign has nothing to
+    // merge into anyway - and `roundCommit` is what keeps that null honest.
+    const restoredCommit = restoredDeliveries.get(taskId);
+    const sameDelivery = checksGate.isRunning(taskId) || checksGate.verdictFor(taskId, before?.commit ?? null)
+      || swapInterruptedDelivery(taskId, before?.commit ?? null)
+      || (restoredDeliveries.has(taskId) && restoredCommit === (before?.commit ?? null));
     if (opts.realignForChecks && !sameDelivery) {
       const re = await opts.realignForChecks(taskId)
         .catch((err): RealignOutcome => ({ ok: false, reason: `riallineamento fallito: ${err instanceof Error ? err.message : String(err)}` })); // allow-italian: board notes are written in Italian like every other service comment
@@ -1124,71 +1291,114 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
     if (!ref) return null;
+    // Past the realign, on a known checkout: from here on THIS is the commit
+    // the delivery is measuring, and the one a restart has to carry over.
+    roundCommit.set(taskId, ref.commit ?? null);
+    // The CI evidence rows never reach a shell: they are read after the local commands.
+    const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
+    const ciChecks = checks.filter(isCiEvidenceCheck);
+
+    const measure = async (lane: ChecksLane) => {
+      // 'running' subito e in broadcast: i comandi possono durare minuti e una
+      // board ferma senza spiegazioni si legge come "si è impiantato".
+      try {
+        const t = svc.recordChecks({
+          taskId, state: "running", commit: ref.commit, runs: null,
+          // Zero su N: la spia si accende gia' sapendo QUANTI comandi
+          // aspettano, cosi' la card dice «0/4» invece di «in corso».
+          progress: { done: 0, total: checks.length },
+        });
+        broadcastToAll({ type: "task:updated", projectId, task: t });
+      } catch { /* il gate vale anche senza la spia */ }
+
+      /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
+       *
+       * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
+       * i comandi giravano uno per uno e la card diceva «check in corso»
+       * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
+       * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
+       *
+       * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
+       * continua: un progresso mancato non deve poter fermare una consegna. */
+      const runs = await runReviewChecks(localChecks, {
+        cwd: ref.cwd,
+        // So a run frozen for load can say so in THIS card's thread.
+        taskId,
+        commit: ref.commit,
+        // No new command starts under the memory floor (see `MemoryFloor`).
+        memoryFloor: opts?.checksMemoryFloor,
+        onProgress: (_run, i) => {
+          try {
+            const t = svc.recordChecks({
+              taskId, state: "running", commit: ref.commit,
+              // I run PARZIALI viaggiano con lui: un comando gia' rosso si
+              // vede subito nel drawer, invece di aspettare la fine del giro.
+              runs: null,
+              progress: { done: i + 1, total: checks.length },
+            });
+            broadcastToAll({ type: "task:updated", projectId, task: t });
+          } catch { /* una spia persa non ferma il gate */ }
+        },
+      });
+      if (ciChecks.length && runs.length === localChecks.length && runs.every((r) => r.ok)) {
+        // Waiting on GitHub holds no CPU: give the lane to the next card's run.
+        lane.release();
+        // A reader that throws measured nothing: NOT MEASURED, like its own
+        // docstring promises. Left to the gate, the exception became the `null`
+        // of a run that blew up, which the delivery reads as "no gate at all",
+        // and the card entered review with no e2e verdict. Only a shutdown
+        // passes through, as the interrupted outcome it already has.
+        const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+        const ciRuns = ref.commit && opts?.ciEvidence
+          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
+            if (err instanceof ChecksInterruptedError) throw err;
+            return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
+          })
+          : unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit");
+        // One row per declared CI check, whatever the reader answered.
+        runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
+        throwIfStopping();
+      }
+      const ok = runs.length === checks.length && runs.every((r) => r.ok);
+      const comment = formatChecksComment(runs, { commit: ref.commit });
+      const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
+      try {
+        // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
+        // la parola del commento: uno SCADUTO non ha misurato niente, e
+        // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
+        // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
+        // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
+        // qualcuno non e' arrivato in fondo.
+        svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
+        forgetDelivery(taskId);
+        // Measured: whatever brought this delivery back, it is no longer a
+        // delivery of a dead process, and its next leg is a NEW one.
+        restoredDeliveries.delete(taskId);
+        roundCommit.delete(taskId);
+        // Green is service bookkeeping; red is a visible outcome. The thread
+        // keeps only the compact verdict and first failure. Commands and logs
+        // remain in checks_json, rendered by the expandable ChecksSection.
+        svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
+        const t = svc.get(taskId, { projectId })?.task;
+        if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+      } catch { /* l'esito conta più della sua registrazione */ }
+      settleDelivery(taskId);
+      return { ok, comment };
+    };
 
     return checksGate.leg(taskId, {
       commit: ref.commit ?? null,
       legMs,
-      run: async () => {
-        // 'running' subito e in broadcast: i comandi possono durare minuti e una
-        // board ferma senza spiegazioni si legge come "si è impiantato".
+      run: async (lane) => {
         try {
-          const t = svc.recordChecks({
-            taskId, state: "running", commit: ref.commit, runs: null,
-            // Zero su N: la spia si accende gia' sapendo QUANTI comandi
-            // aspettano, cosi' la card dice «0/4» invece di «in corso».
-            progress: { done: 0, total: checks.length },
-          });
-          broadcastToAll({ type: "task:updated", projectId, task: t });
-        } catch { /* il gate vale anche senza la spia */ }
-
-        /* IL PROGRESSO SI RIPORTA A OGNI COMANDO FINITO.
-         *
-         * `onProgress` c'era gia' in `runReviewChecks` e non lo usava nessuno:
-         * i comandi giravano uno per uno e la card diceva «check in corso»
-         * dall'inizio alla fine. Segnalato: «vedo che c'e' qualcosa in corso,
-         * ma se c'e' qualcosa in corso dovrebbe esserci un progress».
-         *
-         * Best-effort come la spia qui sopra: se la scrittura fallisce il gate
-         * continua: un progresso mancato non deve poter fermare una consegna. */
-        const runs = await runReviewChecks(checks, {
-          cwd: ref.cwd,
-          // So a run frozen for load can say so in THIS card's thread.
-          taskId,
-          // No new command starts under the memory floor (see `MemoryFloor`).
-          memoryFloor: opts?.checksMemoryFloor,
-          onProgress: (_run, i, total) => {
-            try {
-              const t = svc.recordChecks({
-                taskId, state: "running", commit: ref.commit,
-                // I run PARZIALI viaggiano con lui: un comando gia' rosso si
-                // vede subito nel drawer, invece di aspettare la fine del giro.
-                runs: null,
-                progress: { done: i + 1, total },
-              });
-              broadcastToAll({ type: "task:updated", projectId, task: t });
-            } catch { /* una spia persa non ferma il gate */ }
-          },
-        });
-        const ok = runs.length === checks.length && runs.every((r) => r.ok);
-        const comment = formatChecksComment(runs, { commit: ref.commit });
-        const threadSummary = formatChecksThreadSummary(runs, { commit: ref.commit });
-        try {
-          // TRE ESITI, non due. `checksVerdict` e' lo stesso predicato che sceglie
-          // la parola del commento: uno SCADUTO non ha misurato niente, e
-          // marcarlo `fail` manda chi rivede a cercare un guasto che non c'e'.
-          // Misurate il 18/08 sul DB vivo: 6 card su 15 marcate rosse erano solo
-          // scadute. `checks` e' l'elenco DICHIARATO — se ne sono tornati meno,
-          // qualcuno non e' arrivato in fondo.
-          svc.recordChecks({ taskId, state: checksVerdict(runs, checks.length), commit: ref.commit, runs });
-          // Green is service bookkeeping; red is a visible outcome. The thread
-          // keeps only the compact verdict and first failure. Commands and logs
-          // remain in checks_json, rendered by the expandable ChecksSection.
-          svc.addComment({ taskId, author: "system", kind: ok ? "service" : "comment", content: threadSummary });
-          const t = svc.get(taskId, { projectId })?.task;
-          if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
-        } catch { /* l'esito conta più della sua registrazione */ }
-        settleDelivery(taskId);
-        return { ok, comment };
+          return await measure(lane);
+        } catch (err) {
+          // Interrupted for swap: no verdict, and nothing else would restart the
+          // round if no client leg comes back. The remembered PATCH is re-issued
+          // once the key is gone, and its first command waits for the swap to end.
+          if (err instanceof ChecksInterruptedError && err.reason === "swap") setTimeout(() => settleDelivery(taskId), 0);
+          throw err;
+        }
       },
     });
   }
@@ -2264,19 +2474,30 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // round measures the delivery. A 503 was thrown at the agent instead, which
     // cannot wait a minute and called again into the dead server.
     if (outcome && "interrupted" in outcome) {
-      pendingDeliveries.delete(taskId);
-      checksWaitSince.delete(taskId);
+      // NOTHING WAS MEASURED, AND THE DELIVERY IS NOT LOST EITHER. The swap
+      // brake's round restarts in THIS process (`settleDelivery`); the
+      // shutdown's restarts in the NEXT one, from the row
+      // (`resumePendingDeliveries`).
+      //
+      // A shutdown used to forget it here, and that was safe only while a card
+      // turn held every planned reload back: the agent's leg came back after
+      // the restart and asked again. Since 2026-09-16 a reload no longer waits
+      // for a delivery whose checks are only waiting, so the leg may never come
+      // back - the turn died with the process - and forgetting the delivery
+      // would leave the card `in_progress` with nobody left to ask.
+      if (body && typeof body === "object") rememberDelivery(taskId, pathname, body as Record<string, unknown>);
       return legInFlight(svc.get(taskId, { projectId })?.task);
     }
     if (outcome && "pending" in outcome) {
       // Remembered with the body as sent: the server re-issues THIS request
-      // on the same path when the run ends, should the client stop polling.
-      if (body && typeof body === "object") pendingDeliveries.set(taskId, { pathname, body: body as Record<string, unknown> });
+      // on the same path when the run ends, should the client stop polling -
+      // or should the process itself go away first.
+      if (body && typeof body === "object") rememberDelivery(taskId, pathname, body as Record<string, unknown>);
       const task = svc.get(taskId, { projectId })?.task;
       tellChatAboutChecksWait(chat.sessionKey, chat.topicId, taskId, projectId, task);
       return legInFlight(task);
     }
-    pendingDeliveries.delete(taskId);
+    forgetDeliveryMemo(taskId);
     checksWaitSince.delete(taskId);
     if (outcome && !outcome.ok) {
       return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
@@ -4473,5 +4694,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
 
     return null;
   };
+  // HERE, and not a line earlier: the re-issue goes back in through
+  // `tasksRouter`, which only exists from the statement above. Same instant as
+  // `clearStaleChecksRuns` in spirit - this is the one moment when every
+  // in-flight round of this process is, by construction, of a DEAD process.
+  resumePendingDeliveries();
   return tasksRouter;
 }
