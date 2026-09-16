@@ -54,9 +54,15 @@ export interface MailConfig {
 
 export interface GoogleConfig {
   cli: string;
-  /** Passed to the child as `TOPICS_GOOGLE_CONFIG_DIR`: where its tokens live. */
+  /** Where the CLI keeps this account's token store. */
   configDir: string;
-  /** Passed to the child as `TOPICS_GOOGLE_CLIENT_SECRET`: the installed-app client. */
+  /** PATH of the installed-app OAuth client JSON. Not a secret value: a file. */
+  clientSecretFile: string;
+}
+
+/** The two fields the CLI wants as environment values, read from that file. */
+export interface GoogleClient {
+  clientId: string;
   clientSecret: string;
 }
 
@@ -201,6 +207,56 @@ export function readGoogleConfig(env: EnvMap): GoogleConfig {
   return {
     cli: required(env, "TOPICS_GOOGLE_CLI"),
     configDir: required(env, "TOPICS_GOOGLE_CONFIG_DIR"),
-    clientSecret: required(env, "TOPICS_GOOGLE_CLIENT_SECRET"),
+    clientSecretFile: required(env, "TOPICS_GOOGLE_CLIENT_SECRET"),
   };
+}
+
+/**
+ * The OAuth client, read from the file the variable points at.
+ *
+ * MEASURED, not guessed (2026-09-16). The CLI has a variable that takes a FILE
+ * (`GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE`) and handing it this one is an
+ * immediate `error[auth]: Failed to parse authorized user credentials ...
+ * missing field client_id`: that variable wants an authorized-USER file, while
+ * this is an installed-app CLIENT. The two values inside it are what the CLI
+ * reads as `GOOGLE_WORKSPACE_CLI_CLIENT_ID` and `..._CLIENT_SECRET`, which is
+ * also what the mail wrapper on this machine exports by hand.
+ *
+ * The values are returned, never logged: the errors name the FILE and the
+ * missing FIELD, and nothing else.
+ */
+export function readGoogleClient(clientSecretFile: string, readFile: (path: string) => string): GoogleClient {
+  let raw: string;
+  try {
+    raw = readFile(clientSecretFile);
+  } catch {
+    throw new OutboundConfigError(
+      "TOPICS_GOOGLE_CLIENT_SECRET",
+      `TOPICS_GOOGLE_CLIENT_SECRET points at "${clientSecretFile}", which cannot be read (${ENV_FILE_HINT})`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new OutboundConfigError(
+      "TOPICS_GOOGLE_CLIENT_SECRET",
+      `TOPICS_GOOGLE_CLIENT_SECRET points at "${clientSecretFile}", which is not JSON`,
+    );
+  }
+  // `installed` is the shape a desktop OAuth client is downloaded in; `web` is
+  // the other one Google hands out, and reading it here costs one line and
+  // turns a confusing auth error into a working call.
+  const holder = (parsed as { installed?: unknown; web?: unknown })?.installed
+    ?? (parsed as { web?: unknown })?.web;
+  const client = holder as { client_id?: unknown; client_secret?: unknown } | undefined;
+  const clientId = typeof client?.client_id === "string" ? client.client_id : "";
+  const clientSecret = typeof client?.client_secret === "string" ? client.client_secret : "";
+  if (!clientId || !clientSecret) {
+    throw new OutboundConfigError(
+      "TOPICS_GOOGLE_CLIENT_SECRET",
+      `the OAuth client at "${clientSecretFile}" has no installed/web client_id and client_secret: it is not the file Google hands out for a desktop client`,
+    );
+  }
+  return { clientId, clientSecret };
 }

@@ -51,6 +51,8 @@ function installFakeCli(name: string): string {
       // Keychain lookup both CLIs do hangs without `USER` (measured), and a
       // hang is indistinguishable from a slow network from the outside.
       'printf "USER=%s\\0" "$USER" >> "$LOG"',
+      'printf "CLIENT_ID=%s\\0" "$GOOGLE_WORKSPACE_CLI_CLIENT_ID" >> "$LOG"',
+      'printf "CONFIG_DIR=%s\\0" "$GOOGLE_WORKSPACE_CLI_CONFIG_DIR" >> "$LOG"',
       'printf "HOME=%s\\0" "$HOME" >> "$LOG"',
       'echo "{\\"ok\\":true}"',
       "exit 0",
@@ -62,6 +64,11 @@ function installFakeCli(name: string): string {
 }
 installFakeCli("fake-mail");
 installFakeCli("fake-google");
+writeFileSync(
+  join(root, "client_secret.json"),
+  JSON.stringify({ installed: { client_id: "finto-client-id", client_secret: "finto-client-secret" } }),
+  "utf8",
+);
 
 const recorded = (): string[] => (existsSync(LOG) ? readFileSync(LOG, "utf8").split("\0").slice(0, -1) : []);
 
@@ -264,9 +271,12 @@ describe("POST /outbound/google", () => {
     expect(args[5]).toBe(JSON.stringify({ calendarId: "primary" }));
     // No confirmation for a read, and therefore no trace to leave.
     expect(h.comments).toHaveLength(0);
-    // And the child got the session identity it needs to open the Keychain.
+    // And the child got the session identity it needs to open the Keychain,
+    // plus the OAuth client read out of the file the variable points at.
     expect(args).toContain(`USER=${process.env.USER ?? ""}`);
     expect(args.some((a) => a.startsWith("HOME=/"))).toBe(true);
+    expect(args).toContain("CLIENT_ID=finto-client-id");
+    expect(args).toContain(`CONFIG_DIR=${join(root, "gws-config")}`);
   });
 
   test("una SCRITTURA aspetta la persona: `pending` e nessun processo", async () => {

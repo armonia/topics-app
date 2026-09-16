@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { isInsideDir } from "../lib/path-containment";
 import {
   OutboundConfigError,
   pickAccount,
+  readGoogleClient,
   readGoogleConfig,
   readMailConfig,
   type EnvMap,
@@ -403,8 +404,10 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         const requestBody = body?.body === undefined || body?.body === null ? null : JSON.stringify(body.body);
 
         let config;
+        let client;
         try {
           config = readGoogleConfig(env);
+          client = readGoogleClient(config.clientSecretFile, (path) => readFileSync(path, "utf8"));
         } catch (err) {
           if (err instanceof OutboundConfigError) {
             return json({ error: err.message, code: "outbound_not_configured", variable: err.variable }, 400);
@@ -459,9 +462,12 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           argv,
           env: childEnv({
             // The names the CLI itself reads. The Topics-side variables are the
-            // ones a person writes; this is where they are handed over.
+            // ones a person writes; this is where they are handed over. Not
+            // `..._CREDENTIALS_FILE`: that one wants an authorized-USER file and
+            // refuses an installed-app client (measured, see `readGoogleClient`).
             GOOGLE_WORKSPACE_CLI_CONFIG_DIR: config.configDir,
-            GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: config.clientSecret,
+            GOOGLE_WORKSPACE_CLI_CLIENT_ID: client.clientId,
+            GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: client.clientSecret,
           }),
           timeoutMs: cliTimeoutMs,
         });

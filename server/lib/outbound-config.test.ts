@@ -18,7 +18,7 @@
   * @covers OUTBOUND-01
  */
 import { describe, expect, test } from "bun:test";
-import { OutboundConfigError, pickAccount, readGoogleConfig, readMailConfig } from "./outbound-config";
+import { OutboundConfigError, pickAccount, readGoogleClient, readGoogleConfig, readMailConfig } from "./outbound-config";
 
 const EXCHANGE_ADDRESS = "ufficio@esempio.test";
 
@@ -127,5 +127,45 @@ describe("readGoogleConfig", () => {
     let caught: unknown;
     try { readGoogleConfig(env); } catch (err) { caught = err; }
     expect((caught as OutboundConfigError).variable).toBe("TOPICS_GOOGLE_CONFIG_DIR");
+  });
+});
+
+describe("readGoogleClient", () => {
+  const desktopClient = JSON.stringify({
+    installed: { client_id: "finto-client-id", client_secret: "finto-client-secret", redirect_uris: ["http://localhost"] },
+  });
+
+  test("legge i due campi dalla forma `installed` che Google consegna", () => {
+    const client = readGoogleClient("/tmp/client_secret.json", () => desktopClient);
+    expect(client).toEqual({ clientId: "finto-client-id", clientSecret: "finto-client-secret" });
+  });
+
+  test("anche la forma `web`, che e' l'altra che Google consegna", () => {
+    const client = readGoogleClient("/tmp/client_secret.json", () =>
+      JSON.stringify({ web: { client_id: "finto-web-id", client_secret: "finto-web-secret" } }));
+    expect(client.clientId).toBe("finto-web-id");
+  });
+
+  test("un file che non si legge nomina la variabile, non il contenuto", () => {
+    let caught: unknown;
+    try {
+      readGoogleClient("/tmp/manca.json", () => { throw new Error("ENOENT"); });
+    } catch (err) { caught = err; }
+    expect((caught as OutboundConfigError).variable).toBe("TOPICS_GOOGLE_CLIENT_SECRET");
+  });
+
+  test("un file dell'altra forma (credenziali di UTENTE) e' un errore che dice cosa manca", () => {
+    // It is the mistake that produced this function: the CLI variable that
+    // takes a file wants an authorized-user file, and handing it a desktop
+    // client fails at auth time with a message about `client_id`.
+    let caught: unknown;
+    try {
+      readGoogleClient("/tmp/user.json", () => JSON.stringify({ refresh_token: "finto", type: "authorized_user" }));
+    } catch (err) { caught = err; }
+    expect((caught as Error).message).toContain("desktop client");
+  });
+
+  test("un file che non e' JSON non esplode", () => {
+    expect(() => readGoogleClient("/tmp/rotto.json", () => "non json")).toThrow(/not JSON/);
   });
 });
