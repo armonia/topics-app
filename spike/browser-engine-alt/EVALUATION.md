@@ -1,5 +1,30 @@
 # Engine alternativi per la pane browser — misure, non claim
 
+> **CHIUSA il 2026-09-16. Non riaprire senza un fatto nuovo.**
+>
+> Il filone e' stato riaperto tre volte (19/08, 20/08, 13/09) e ogni volta e' finito
+> nello stesso posto, perche' la risposta non dipende dai gusti ma da tre misure:
+>
+> 1. **WebKit e' gia' il motore giusto**: 37-46 MB a sessione, 3x sotto il miglior
+>    Chromium headless, render perfetto, zero dipendenze nuove. Il target e' raggiunto
+>    oggi, sulla pane nativa.
+> 2. **Obscura non e' un browser da guardare**: `--help` dice *"A lightweight headless
+>    browser for web scraping and automation"*. Nessuna finestra, nessun input da
+>    tastiera (solo CDP), nessun ciclo di ridisegno. Dipinge bene (layout identico a
+>    Chrome al pixel) ma a CPU con `tiny_skia`: 20 fps di screencast contro 92, e la UI
+>    di Topics dentro costa 68% di CPU per 12 fps. Vale ~28 MB a sessione in meno **solo
+>    dove nessuno guarda**.
+> 3. **Il renderer dell'app non e' la leva**: Servo vale 15 MB su 316, il 5%, e a 1000
+>    sessioni scende allo 0,6% perche' il renderer e' l'unico pezzo che non scala.
+>
+> **La decisione operativa** e' il task `bf04951a` (*Migrazione browser remoto a
+> Playwright WebKit su Mac*): togliere il Chromium server-side, 219 MB a pane -> ~40 MB,
+> col motore gia' integrato. Obscura resta fuori dal prodotto.
+>
+> Cosa riaprirebbe la domanda, e nient'altro: Obscura che acquisisce finestra e
+> compositor GPU, oppure un numero di pane contemporanee cosi' alto da rendere i 28 MB
+> di differenza piu' importanti dei 12 fps (a 1000 pane sarebbero 66 GB contro 363).
+
 **Domanda:** esiste un motore più leggero di Chromium (tipo Obscura) che regga la pane
 browser di Topics senza perdere niente?
 
