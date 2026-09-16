@@ -196,7 +196,7 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     }
   }
 
-  const totals = new Map<string, MemoryFamily & { installed: boolean; bundle: boolean }>();
+  const totals = new Map<string, MemoryFamily & { installed: boolean; bundle: boolean; origin: string }>();
   for (const r of rows) {
     if (ours.has(r.pid)) continue;
     // An XPC service is counted under whoever ASKED for it - and only an XPC
@@ -206,7 +206,7 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     if (owner && ours.has(owner.pid)) continue;
     const from = (owner ?? r).command;
     const name = appFamilyName(from);
-    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, installed: false, bundle: false };
+    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, installed: false, bundle: false, origin: from };
     seen.gb += rowGB(r);
     seen.procs += 1;
     // INSTALLED, not merely bundled: the app the owner would quit lives under an
@@ -220,33 +220,69 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     // thing this rule exists to prevent. The user root takes exactly one segment
     // for the account name, so somebody's own `Projects/Applications/Foo.app` is
     // not mistaken for an installed app.
+    const fromBundle = /\/[^/]+\.app\//.test(from);
+    // The place we name is the family's BUNDLE when it has one: a family whose
+    // processes run both from `~/.local/bin` and from inside its own `.app` is
+    // recognised by the app it ships with, not by whichever row `ps` printed first.
+    if (fromBundle && !seen.bundle) seen.origin = from;
     seen.installed ||= /^\/(?:System\/)?Applications\//.test(from) || /^\/Users\/[^/]+\/Applications\//.test(from);
-    seen.bundle ||= /\/[^/]+\.app\//.test(from);
+    seen.bundle ||= fromBundle;
     totals.set(name, seen);
   }
   // TWO LINES THAT DIFFER ONLY BY CASE are two lines nobody can tell apart.
   // Measured 16/09: `Claude 7.0 GB` (the app) beside `claude 1.1 GB` (the CLI
-  // the app ships). The INSTALLED app keeps the bare name; the command says
-  // what it is, wherever it runs from.
-  // Among the families that share a word, ONE keeps it bare: the installed app
-  // first, then whatever at least runs from a bundle, then the plain binary.
-  // Without the ranking two families neither of which is installed (a `.app`
-  // somebody keeps in a project folder, and a binary of the same name) would
-  // both be qualified, and the sentence would be back to two lines that differ
-  // only by case.
+  // the app ships). One family keeps the bare word - the INSTALLED app first,
+  // then whatever at least runs from a bundle, then a plain binary - and every
+  // other one says WHERE it runs from. The place, not the word "command": with
+  // three families sharing a word (an installed `Slack.app`, `/opt/homebrew/bin/
+  // slack`, `~/.local/bin/SLACK`) one suffix for everybody would put two
+  // identical-sounding lines back in the sentence, and calling an installed app
+  // "the command" would be false.
   const rank = (f: { installed: boolean; bundle: boolean }): number => (f.installed ? 2 : f.bundle ? 1 : 0);
-  const best = new Map<string, number>();
+  /**
+   * WHERE it runs from, in ONE word a person recognises: `claude-code`,
+   * `homebrew`, `.local`. Arguments are cut first (a flag can carry slashes), an
+   * interpreter prefix is skipped (`node /path/to/thing`), a bundle is named by
+   * the folder that HOLDS it rather than by `Contents/MacOS`, and the segments
+   * that say nothing (bin, sbin, libexec, Contents, MacOS, Resources, a version
+   * number) are dropped. Two families can still land on the same word: then the
+   * folder above it joins in, which is where `Application Support/Claude` and
+   * `Application Support/Acme` part ways.
+   */
+  const GENERIC = new Set(["bin", ".bin", "sbin", "libexec", "Contents", "MacOS", "Resources", "Helpers", "Frameworks", "Versions", "A", "usr", "opt", "local", "Users", "Applications", "System", "Library"]);
+  const placeParts = (origin: string): string[] => {
+    const noArgs = origin.replace(/\s+-.*$/, "").trim();
+    const binary = noArgs.startsWith("/") ? noArgs : noArgs.split(/\s+/).find((w) => w.startsWith("/")) ?? noArgs;
+    const bundle = binary.match(/^(.*)\/[^/]+\.app\//);
+    const dirs = (bundle ? bundle[1]! : binary.slice(0, Math.max(0, binary.lastIndexOf("/")))).split("/").filter(Boolean);
+    const meaningful = dirs.filter((d) => !GENERIC.has(d) && !/^\d+(?:\.\d+)*$/.test(d));
+    return meaningful.length ? meaningful : dirs;
+  };
+  const placeOf = (origin: string, depth: number): string => {
+    const parts = placeParts(origin);
+    return parts.slice(-Math.max(1, depth)).join("/") || origin;
+  };
+  const groups = new Map<string, (MemoryFamily & { installed: boolean; bundle: boolean; origin: string })[]>();
   for (const f of totals.values()) {
     const key = f.name.toLowerCase();
-    best.set(key, Math.max(best.get(key) ?? -1, rank(f)));
+    groups.set(key, [...(groups.get(key) ?? []), f]);
   }
-  const bareTaken = new Set<string>();
-  for (const f of totals.values()) {
-    const key = f.name.toLowerCase();
-    const alone = [...totals.values()].filter((o) => o.name.toLowerCase() === key).length < 2;
-    if (alone) continue;
-    if (rank(f) === best.get(key) && !bareTaken.has(key)) { bareTaken.add(key); continue; }
-    f.name = `${f.name} (comando)`; // allow-italian: the owner reads this name inside an Italian sentence
+  for (const family of groups.values()) {
+    if (family.length < 2) continue;
+    const top = Math.max(...family.map(rank));
+    let bare = false;
+    const losers: typeof family = [];
+    for (const f of family) {
+      if (!bare && rank(f) === top) { bare = true; continue; }
+      losers.push(f);
+    }
+    for (let depth = 1; depth <= 4; depth++) {
+      const places = losers.map((f) => placeOf(f.origin, depth).toLowerCase());
+      if (new Set(places).size === places.length || depth === 4) {
+        losers.forEach((f, k) => { f.name = `${f.name} (in ${placeOf(f.origin, depth)}${places.filter((p) => p === places[k]).length > 1 ? `, ${f.procs} processi` : ""})`; }); // allow-italian: the owner reads this name inside an Italian sentence
+        break;
+      }
+    }
   }
   return [...totals.values()]
     .map(({ name, gb, procs }) => ({ name, gb, procs }))

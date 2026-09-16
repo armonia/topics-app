@@ -127,8 +127,8 @@ describe("memoryOwners: everything that is not Topics, heaviest first", () => {
     const all = owners({ floorGB: 0, top: 50 });
     // `claude` lowercase is the CLI the Claude APP ships inside its own bundle,
     // and it is neither the app nor ours: a separate family is the honest answer,
-    // and it says `(comando)` because the installed app already owns the word.
-    expect(all.map((f) => f.name)).toEqual(["Claude", "Dia", "Spotify", "claude (comando)", "WindowServer", "Wispr Flow", "next-server", "npm", "next"]);
+    // and it says WHERE it runs from, because the installed app owns the word.
+    expect(all.map((f) => f.name)).toEqual(["Claude", "Dia", "Spotify", "claude (in claude-code)", "WindowServer", "Wispr Flow", "next-server", "npm", "next"]);
     // Nobody quits an app to get 0.17 GB back on a machine whose floor is 6 GB.
     expect(owners().map((f) => f.name)).toEqual(["Claude", "Dia"]);
     expect(owners({ top: 3, floorGB: 0.1 }).map((f) => f.name)).toEqual(["Claude", "Dia", "Spotify"]);
@@ -246,8 +246,8 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
     // under Application Support, because the second is the one a rule written on
     // ".app" gets wrong.
     const named = hostOwners({ floorGB: 0.1, top: 3 });
-    expect(named.map((f) => f.name)).toEqual(["claude (comando)", "openclaw", "Claude"]);
-    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: claude (comando) 0.3 GB, openclaw 0.2 GB, Claude 0.1 GB.");
+    expect(named.map((f) => f.name)).toEqual(["claude (in claude-code)", "openclaw", "Claude"]);
+    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: claude (in claude-code) 0.3 GB, openclaw 0.2 GB, Claude 0.1 GB.");
     // A name with no twin is left alone.
     expect(hostOwners().map((f) => f.name)).toContain("astro");
   });
@@ -267,19 +267,27 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
   505     1 260000 /Users/zorahrel/Projects/Applications/Foo.app/Contents/MacOS/Foo
   508     1 170000 /Users/zorahrel/Library/Application Support/Acme/console.app/Contents/MacOS/console
   507     1 180000 /System/Applications/Utilities/Console.app/Contents/MacOS/Console
+  509     1 160000 /Applications/Slack.app/Contents/MacOS/Slack
+  510     1 150000 /opt/homebrew/bin/slack --serve
+  511     1 140000 /Users/zorahrel/.local/bin/SLACK
 `);
-    const names = memoryOwners({ rows, selfPid: 1, ourMarkers: [], floorGB: 0.1, top: 10, ownerOf: () => null }).map((f) => f.name);
+    const names = memoryOwners({ rows, selfPid: 1, ourMarkers: [], floorGB: 0.1, top: 20, ownerOf: () => null }).map((f) => f.name);
     expect(names).toContain("Terminal");
-    expect(names).toContain("terminal (comando)");
+    expect(names).toContain("terminal (in homebrew)");
     expect(names).toContain("UniversalKeychain");
-    expect(names).toContain("universalkeychain (comando)");
+    expect(names).toContain("universalkeychain (in homebrew)");
     // Neither of the last two is installed: the bundle keeps the word.
     expect(names).toContain("Foo");
-    expect(names).toContain("foo (comando)");
+    expect(names).toContain("foo (in homebrew)");
     // Two BUNDLES that collide: the installed one wins even nested two folders
     // deep, and the one a program keeps under Application Support is the command.
     expect(names).toContain("Console");
-    expect(names).toContain("console (comando)");
+    expect(names).toContain("console (in Acme)");
+    // THREE families on one word: one suffix for everybody would put two
+    // identical-sounding lines back in the sentence, so each says its own place.
+    expect(names).toContain("Slack");
+    expect(names).toContain("slack (in homebrew)");
+    expect(names).toContain("SLACK (in .local)");
     // And no two names in the sentence read the same out loud.
     const lower = names.map((n) => n.toLowerCase());
     expect(new Set(lower).size).toBe(lower.length);
