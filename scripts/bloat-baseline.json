@@ -96,8 +96,10 @@
     "`UNIT_CI_CHECK` and the gates rule that names the pull request CI.",
     "16/09, PR #59 (single door for topic links): topic-browser-window.spec.ts 1182 -> 1587 are the five",
     "TOPIC-BROWSER-04 scenarios (agent open, existing tab, the composer mark, the unmarked replay, and the",
-    "pane in a cell of its own) plus the grid seed they share; usePaneOrdering.ts 800 -> 809 is the door",
-    "asked on the two navigate paths and `paneForContext` widened from the chat's cell to the pane store."
+    "pane in a cell of its own) plus the grid seed they share; usePaneOrdering.ts is a NEW offender at 809",
+    "(it was 736 on main, +73: under the 800 threshold, so it was not in this baseline at all), and those 73",
+    "are the door asked on the two navigate paths plus `paneForContext` widened from the chat's cell to the",
+    "pane store."
   ],
   "updated": "2026-09-16",
   "tolerance_pct": 5,
