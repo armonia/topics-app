@@ -11,7 +11,7 @@ import { createMemoryOwnersReader, OWNERS_STALE_MS } from "./memory-owners-probe
 const TABLE = [
   " 2779     1 245728 /Applications/Dia.app/Contents/MacOS/Dia",
   " 3554  2779 876544 /Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/Browser Helper (Renderer).app/Contents/MacOS/Browser Helper (Renderer)",
-  " 5629   981 889968 /Users/zorahrel/.bun/bin/bun run /Users/zorahrel/Projects/topics-app/server.ts",
+  " 5629   981 889968 /Users/tester/.bun/bin/bun run /Users/tester/Projects/topics-app/server.ts",
 ].join("\n");
 
 const reader = (over: Partial<Parameters<typeof createMemoryOwnersReader>[0]> = {}) => {
@@ -20,7 +20,7 @@ const reader = (over: Partial<Parameters<typeof createMemoryOwnersReader>[0]> = 
   let answer: string | null = TABLE;
   const r = createMemoryOwnersReader({
     selfPid: 5629,
-    ourMarkers: () => ["/Users/zorahrel/Projects/topics-app"],
+    ourMarkers: () => ["/Users/tester/Projects/topics-app"],
     now: () => clock,
     ownerOf: () => null,
     // The FFI is not asked about pids that do not exist on the machine running
