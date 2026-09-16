@@ -2288,6 +2288,10 @@ describe("task-dispatcher", () => {
 
     expect(h.turns).toHaveLength(1);
     expect(h.dispatcher.busySessionKeys()).toEqual([h.turns[0]!.sessionKey]);
+    // The PAIR, for the gate that asks the checks registry by task id whether
+    // that card's delivery is only waiting, and then has to take the same
+    // card's stream out of the chat sources (RGATE-07).
+    expect(h.dispatcher.busyTurns()).toEqual([{ taskId: "t1", sessionKey: h.turns[0]!.sessionKey }]);
     h.dispatcher.shutdown();
   });
 
