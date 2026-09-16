@@ -42,7 +42,19 @@ function installFakeCli(name: string): string {
   const file = join(root, name);
   writeFileSync(
     file,
-    ["#!/bin/bash", `LOG="${LOG}"`, `printf "%s\\0" "${name}" >> "$LOG"`, 'for a in "$@"; do printf "%s\\0" "$a" >> "$LOG"; done', 'echo "{\\"ok\\":true}"', "exit 0"].join("\n"),
+    [
+      "#!/bin/bash",
+      `LOG="${LOG}"`,
+      `printf "%s\\0" "${name}" >> "$LOG"`,
+      'for a in "$@"; do printf "%s\\0" "$a" >> "$LOG"; done',
+      // The environment the child was handed, recorded like the arguments: the
+      // Keychain lookup both CLIs do hangs without `USER` (measured), and a
+      // hang is indistinguishable from a slow network from the outside.
+      'printf "USER=%s\\0" "$USER" >> "$LOG"',
+      'printf "HOME=%s\\0" "$HOME" >> "$LOG"',
+      'echo "{\\"ok\\":true}"',
+      "exit 0",
+    ].join("\n"),
     "utf8",
   );
   chmodSync(file, 0o755);
@@ -252,6 +264,9 @@ describe("POST /outbound/google", () => {
     expect(args[5]).toBe(JSON.stringify({ calendarId: "primary" }));
     // No confirmation for a read, and therefore no trace to leave.
     expect(h.comments).toHaveLength(0);
+    // And the child got the session identity it needs to open the Keychain.
+    expect(args).toContain(`USER=${process.env.USER ?? ""}`);
+    expect(args.some((a) => a.startsWith("HOME=/"))).toBe(true);
   });
 
   test("una SCRITTURA aspetta la persona: `pending` e nessun processo", async () => {

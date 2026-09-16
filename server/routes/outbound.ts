@@ -100,11 +100,21 @@ function shortSubject(subject: string): string {
  * The minimal environment a child gets. Not `process.env`: a CLI that reaches
  * the network has no business reading the server's tokens, and a short explicit
  * list is the only form of that promise anyone can check.
+ *
+ * `USER` IS IN THE LIST BECAUSE IT WAS MEASURED, not to be safe. Both CLIs read
+ * their credentials from the macOS Keychain, and with `env -i` plus PATH and
+ * HOME the lookup never returns: `gws drive files list` printed "Using keyring
+ * backend: keyring" and then hung past 25s, twice. With `USER` present the same
+ * call answered in a second (probed 2026-09-16 on this machine). A hang is the
+ * worst shape this could have taken: it looks like a slow network, it burns the
+ * whole CLI deadline, and it would have been discovered only in production.
+ * `TMPDIR` was probed separately and changes nothing, so it is not here.
  */
 function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   return {
     PATH: CLI_SEARCH_DIRS.join(":"),
     HOME: process.env.HOME ?? "",
+    USER: process.env.USER ?? "",
     ...extra,
   };
 }
