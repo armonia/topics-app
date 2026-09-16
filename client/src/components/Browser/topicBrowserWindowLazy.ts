@@ -218,7 +218,9 @@ export function useTopicBrowserPresence(topicId: string): TopicBrowserPresence {
  * that decide whether a window is possible at all - wide enough, and this pane
  * is the one that would draw it - are written once. An empty string is "no
  * door": a draft, a viewport under 768 px, or a chat pane with a `ChatPanel`
- * above it that already owns the window.
+ * above it that already owns the window. A chat PANE has one condition more
+ * and asks through `usePaneWindowDoor`, which is where that difference is
+ * written down.
  *
  * The body is async because the store is a lazy chunk, and the answer to the
  * caller is not: see `topicWindowDoor` for why that is sound.
