@@ -216,12 +216,20 @@ export async function confirmOutbound(
   const schema = schemaFor(request);
   // The card thread. Writes once per question: the registry inside
   // `routeAskToTaskThread` recognises the one it already posted.
+  //
+  // `shown` AND NOT "it returned a task". The two are not the same thing, and
+  // the difference is a send left hanging in silence: that function also
+  // returns the task when it decided NOT to write - and it was deciding that
+  // whenever the registry still held any entry for this session, including one
+  // left by a question of an interrupted turn. Reading the task as "the person
+  // was asked" meant the confirmation existed nowhere: the card showed the old
+  // question, the send polled for four hours, nobody could have answered it.
   let asked = false;
   try {
-    asked = !!routeAskToTaskThread(
+    asked = routeAskToTaskThread(
       { db: deps.db, comment: deps.comment, deliver: deps.deliver },
       { sessionKey: request.sessionKey, questions: [{ key, header: request.header, question, options: [CONFIRM_LABEL, REFUSE_LABEL] }] },
-    );
+    )?.shown === true;
   } catch {
     // The panel below is the other road; a thread that refuses a comment must
     // not be the reason nobody can answer.

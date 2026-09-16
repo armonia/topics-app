@@ -31,6 +31,8 @@ interface RoutedAsk {
   sessionKey: string;
   /** La chiave con cui il chiamante si aspetta la risposta (`answers[key]`). */
   questionKey: string;
+  /** The text already in the thread: two legs of one ask repeat it verbatim. */
+  text: string;
   /** Le etichette offerte, per riconoscere una risposta che è una scelta. */
   options: string[];
   /** Chi ha chiesto: il coordinatore stesso o una sua figlia. */
@@ -82,26 +84,66 @@ export function normalizeAsk(questions: readonly AskQuestion[]): {
   return { key, text, options };
 }
 
+/** Where the question went, and whether it is REALLY there. */
+export interface RoutedAskOutcome {
+  taskId: string;
+  projectId: string;
+  /**
+   * The question is in the thread: written just now, or written by an earlier
+   * leg of the same rendez-vous.
+   *
+   * IT EXISTS BECAUSE THE RETURN VALUE USED TO LIE. Callers read it as "the
+   * person was asked" - the outbound gate sets `asked = true` on it - while
+   * this function also returned the task when it wrote NOTHING, i.e. whenever
+   * the registry still held an entry for this session. One question left open
+   * by an interrupted turn therefore made every later confirmation mute: the
+   * POST answered `pending`, the card kept showing the old question, and the
+   * tool burnt its 600 legs on a confirmation nobody could see.
+   */
+  shown: boolean;
+}
+
 /**
  * La domanda esce nel thread del task, se questa sessione ne ha uno.
  *
  * Restituisce il task su cui è uscita, o `null` quando la sessione non
  * appartiene a nessun task: una chat dell'umano continua a fare quello che ha
  * sempre fatto, cioè mostrare il pannello nel suo tab e basta.
+ *
+ * A NEW QUESTION REPLACES THE ONE IT FINDS, which is not a new rule: it is the
+ * rendez-vous rule (`waitForAnswer` supersedes the waiter it finds) and the one
+ * written on `routed` above, applied here too. The alternative was refusing the
+ * send until somebody closes the old one, i.e. a person forced to clear by hand
+ * a question nobody can answer any more - the turn that opened it is over. The
+ * replaced one is closed with a line of its own, because a quick-reply block
+ * whose text changes under the reader without a word is worse than silence.
  */
 export function routeAskToTaskThread(
   deps: AskRoutingDeps,
   args: { sessionKey: string; questions: readonly AskQuestion[] },
-): { taskId: string; projectId: string } | null {
+): RoutedAskOutcome | null {
   const owner = boardTaskForSession(deps.db, args.sessionKey);
   if (!owner) return null;
+  const q = normalizeAsk(args.questions);
+  if (!q) return null;
+  const open = routed.get(owner.taskId);
   // Già instradata. Il rendez-vous è a gambe corte: la stessa domanda ripassa
   // di qui ogni pochi secondi finché nessuno risponde, e senza questa riga
   // scriverebbe una copia per gamba.
-  const open = routed.get(owner.taskId);
-  if (open && open.sessionKey === args.sessionKey) return { taskId: owner.taskId, projectId: owner.projectId };
-  const q = normalizeAsk(args.questions);
-  if (!q) return null;
+  // Same question means same key AND same text: two questions in a row under
+  // the default key would otherwise be one, and the second would never come out.
+  if (open && open.sessionKey === args.sessionKey && open.questionKey === q.key && open.text === q.text) {
+    return { taskId: owner.taskId, projectId: owner.projectId, shown: true };
+  }
+  if (open && open.sessionKey === args.sessionKey) {
+    deps.comment({
+      taskId: owner.taskId,
+      projectId: owner.projectId,
+      content: "La domanda qui sopra non aspetta più una risposta: la sostituisce quella qui sotto.",
+      options: [],
+      sessionKey: args.sessionKey,
+    });
+  }
   // Chi chiede va detto: «la sessione di lavoro chiede» e «il coordinatore
   // chiede» portano a due risposte diverse, e nel thread si vede solo il testo.
   const intro = owner.isChild ? "Una sessione di lavoro di questo task chiede:" : "Domanda a meta' turno:";
@@ -114,15 +156,16 @@ export function routeAskToTaskThread(
     // of the assistant row that asked.
     sessionKey: args.sessionKey,
   });
-  if (!ok) return null;
+  if (!ok) return { taskId: owner.taskId, projectId: owner.projectId, shown: false };
   routed.set(owner.taskId, {
     sessionKey: args.sessionKey,
     questionKey: q.key,
+    text: q.text,
     options: q.options,
     isChild: owner.isChild,
     askedAt: Date.now(),
   });
-  return { taskId: owner.taskId, projectId: owner.projectId };
+  return { taskId: owner.taskId, projectId: owner.projectId, shown: true };
 }
 
 /** C'è una domanda instradata aperta su questo task? */

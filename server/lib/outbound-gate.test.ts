@@ -20,7 +20,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { confirmOutbound, confirmKey, confirmQuestion, findWaitingToolRow, CONFIRM_LABEL, REFUSE_LABEL, type OutboundGateDeps } from "./outbound-gate";
 import { deliverAnswer, hasPendingAsk, cancelAsk } from "./ask-user-bridge";
-import { _resetRoutedAsks } from "../services/board-ask-routing";
+import { _resetRoutedAsks, routeAskToTaskThread } from "../services/board-ask-routing";
 
 afterEach(() => { _resetRoutedAsks(); });
 
@@ -121,6 +121,31 @@ describe("confirmOutbound", () => {
     expect(outcome.state === "refused" && outcome.reason).toContain("nobody could confirm");
     // And no wait is left hanging on the session.
     expect(hasPendingAsk(sessionKey)).toBe(false);
+  });
+
+  test("una domanda VECCHIA nel registro non rende muta la conferma", async () => {
+    // The shape the verifier reproduced: an `ask_user_question` whose turn was
+    // interrupted leaves its entry in the routing registry, and none of the
+    // three clears covers that case. `routeAskToTaskThread` then returned the
+    // task WITHOUT writing anything, the gate read that as "asked", and the
+    // send waited four hours for an answer to a question about fonts.
+    const { deps, comments } = makeDeps({ card: true });
+    const sessionKey = "topic:abcd1260";
+    routeAskToTaskThread(
+      { db: deps.db, comment: deps.comment, deliver: deps.deliver },
+      { sessionKey, questions: [{ key: "font", question: "Che font uso?", options: ["Inter", "Roboto"] }] },
+    );
+    expect(comments).toHaveLength(1);
+
+    const outcome = await confirmOutbound(deps, request(sessionKey, "deadbeef"));
+    expect(outcome.state).toBe("pending");
+    // The question about the SEND is the one on the card now.
+    expect(comments.at(-1)?.content).toContain("deadbeef");
+    expect(comments.at(-1)?.content).toContain("Invio una mail");
+    expect(comments.at(-1)?.options).toEqual([CONFIRM_LABEL, REFUSE_LABEL]);
+    // And the one it replaced was closed out loud, not swapped in silence.
+    expect(comments[1].content).toContain("non aspetta");
+    cancelAsk(sessionKey, "fine del test");
   });
 
   test("il si NON si eredita: il messaggio dopo chiede di nuovo, e la domanda riesce sul thread", async () => {
