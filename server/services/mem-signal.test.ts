@@ -115,6 +115,21 @@ describe("swapVerdict: pages read back from disk while the memory debt still gro
     expect(v.sustained).toBe(true);
   });
 
+  test("M5i: 16/09 14:41, both stores full (956 pages/s read back, debt +0.4 GB/min) is sustained", () => {
+    // Live line, board idle: swapUsedGB 15.5 of 16, comprGB 15.1, load1 92.7,
+    // and the old rule answered "calm" because the debt could not grow.
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 4_782, compressorPages: perMinGBToPages5s(0.4), swapUsedMB: 0 })), at(60));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(956, 0);
+    expect(v.debtGBPerMin!).toBeLessThan(0.5);
+    expect(v.sustained).toBe(true);
+  });
+
+  test("M5j: just under the second door (199 pages/s, debt flat) is not sustained", () => {
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 995, compressorPages: 0, swapUsedMB: 0 })), at(60));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(199, 0);
+    expect(v.sustained).toBe(false);
+  });
+
   test("M5f-h: 30 swapins/s with debt +0.3 GB/min, a counter going down, 50 s of coverage are not", () => {
     expect(swapVerdict(swapSeries(60, () => ({ swapins: 150, compressorPages: perMinGBToPages5s(0.3), swapUsedMB: 0 })), at(60)).sustained).toBe(false);
     const thrash = swapSeries(60, () => ({ swapins: 150, compressorPages: 60_000, swapUsedMB: 0 }));
