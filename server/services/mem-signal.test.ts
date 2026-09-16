@@ -124,6 +124,15 @@ describe("swapVerdict: pages read back from disk while the memory debt still gro
     expect(v.sustained).toBe(true);
   });
 
+  test("M5k: the fastest recovery in the log (718 pages/s, debt -0.4 GB/min) is not sustained", () => {
+    // 16/09 12:54:29 live: the rate alone would have braked a Mac emptying
+    // itself; four more recoveries in that log read 254 to 438 pages/s.
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 3_592, compressorPages: -perMinGBToPages5s(0.4), swapUsedMB: 0 })), at(60));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(718, 0);
+    expect(v.debtGBPerMin!).toBeLessThan(0);
+    expect(v.sustained).toBe(false);
+  });
+
   test("M5j: just under the second door (199 pages/s, debt flat) is not sustained", () => {
     const v = swapVerdict(swapSeries(60, () => ({ swapins: 995, compressorPages: 0, swapUsedMB: 0 })), at(60));
     expect(v.pagesReadBackPerS!).toBeCloseTo(199, 0);
