@@ -52,6 +52,7 @@ import { dispatchBrowserToolCall, providerRunsBrowserToolsItself, resolveContext
 import { decodeCol } from "../../shared/message-blob";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
+import { registerTurnBodyFlush } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 
@@ -1087,6 +1088,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             reattachSnapshot: () => reattachSnapshot,
           });
           const persistTurnBody = (withText: boolean, force = false) => turnBody.request(withText, blocksBytes, force);
+          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM. The outbound
+          // gate looks for the tool that is waiting in the last persisted row,
+          // and the throttle above can still owe that write for up to fifteen
+          // seconds: a confirmation would find no row and refuse a send nobody
+          // had a chance to see. Published here, taken down with the turn.
+          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush());
           // A turn already finalized has no write budget left to save: whatever
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
@@ -1307,6 +1314,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const clearAllTimers = () => {
             // The deferred block write goes too: every path here rewrites the row whole.
             turnBody.dispose();
+            releaseTurnBodyFlush();
             if (softTimer) { clearTimeout(softTimer); softTimer = null; }
             if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
@@ -2104,6 +2112,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // on 2026-09-07 (card 9ef72908) as a write landing on an already
             // closed database, in a test file that had ended.
             turnBody.dispose();
+            releaseTurnBodyFlush();
             // "Un turno che non ha prodotto niente non lascia niente": stop
             // premuto prima che il modello dicesse qualsiasi cosa. Il segnaposto
             // creato all'inizio dello stream restava in chat finalizzato vuoto —

@@ -15,6 +15,7 @@ import {
 } from "../lib/outbound-config";
 import { resolveCliPath, runCli, CLI_SEARCH_DIRS } from "../lib/outbound-cli";
 import { confirmOutbound, type ConfirmOutcome, type OutboundGateDeps } from "../lib/outbound-gate";
+import { flushTurnBody } from "../lib/turn-body-flush";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { boardTaskForSession } from "../services/agent-census";
 import { createTaskService } from "../services/tasks";
@@ -198,6 +199,13 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
     deliver: (sessionKey, answers) => deliverAnswer(sessionKey, answers),
     lastToolRow: (sessionKey) => {
       try {
+        // THE ROW IS WRITTEN LATE, so it is asked for first. `blocks` is the
+        // only column carrying tool calls on a modern row, and it goes through
+        // a throttle that can owe the write for up to fifteen seconds: a
+        // `send_mail` that is not the first tool of its turn was simply not
+        // there yet, and "not persisted yet" was being read as "nobody to ask".
+        // Same move `routes/chat.ts` already makes when a tool stops to ask.
+        flushTurnBody(sessionKey);
         const row = ctx.db
           .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
           .get(sessionKey) as { tool_calls?: unknown; blocks?: unknown } | undefined;
