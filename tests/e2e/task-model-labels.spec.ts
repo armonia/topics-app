@@ -8,7 +8,7 @@ import { mkdirSync } from 'node:fs';
 import type { ProvidersSnapshot } from '../../shared/types';
 import { projectIdForPath } from '../../shared/board';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTask, deleteTopic, resetPaneStore, seedProjectInnerPanes, seedProjectPane } from './helpers/api-fixtures';
+import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectInnerPanes, seedProjectPane } from './helpers/api-fixtures';
 import { canonicalTmpDir, removeTmpDir } from './helpers/file-project';
 
 hermetic(test);
@@ -89,6 +89,7 @@ for (const device of [
         await seedProjectInnerPanes(request, projectPath, [
           { id: 'kanban:leftover-from-a-previous-run', type: 'kanban', title: 'Board' },
         ]);
+        await resetProjectPanes(request, projectPath);
         await seedProjectPane(request, projectPath);
         await request.put('/api/ui-state/settings', { data: { language: device.locale } });
         await page.addInitScript((language) => localStorage.setItem('app-settings', JSON.stringify({ language })), device.locale);
