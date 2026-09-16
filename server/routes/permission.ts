@@ -45,7 +45,16 @@ import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest }
  * comunque montato da lì, alla stessa posizione che il blocco aveva nel
  * dispatch — l'ordine fra rotte è comportamento, non stile.
  */
-export function createPermissionRouter(ctx: AppContext): RouteHandler {
+export interface PermissionRouterOptions {
+  /**
+   * The board writer. Defaults to the real task service; injected by the test,
+   * which has no board to write on and everything to check about WHEN a
+   * question reaches the card thread and when it silently stops reaching it.
+   */
+  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => boolean;
+}
+
+export function createPermissionRouter(ctx: AppContext, options: PermissionRouterOptions = {}): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, saveSingleTopic, updateToolCallFields } = ctx;
 
   // The registry role remains recognizable even after a backing Topic has been
@@ -67,7 +76,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
   // la stessa vista.
   const askRouting = {
     db: ctx.db,
-    comment: (a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+    comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
       try {
         const svc = createTaskService(ctx.db);
         svc.addComment({
@@ -90,7 +99,7 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         // che una domanda che non esiste da nessuna parte.
         return false;
       }
-    },
+    }),
     deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
   };
 
@@ -154,6 +163,18 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         catch { /* il pannello nel tab resta comunque */ }
         try {
           const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
+          // THIS QUESTION IS OVER, and this is where the registry is cleared.
+          //
+          // The `routeAskToTaskThread` registry is keyed by TASK and does not
+          // look at the text: the entry exists only so the same comment is not
+          // rewritten on every leg. Leaving it behind after an answer that came
+          // from the tab PANEL means the NEXT question silently stops reaching
+          // the card - the board shows "waiting on you" and what it wants
+          // appears nowhere, which is the exact defect that module exists to
+          // close. The two existing clears do not cover this case: one is the
+          // TTL expiry (above), the other is an answer written IN the thread
+          // (`answerRoutedAsk`, which deletes its own entry).
+          clearRoutedAskForSession(sk);
           return json({ answers });
         } catch (err: any) {
           // A leg expiring is the NORMAL case — the human is still reading.
@@ -161,6 +182,8 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           if (err instanceof AskWaitError && err.code === "timeout") {
             return json({ pending: true });
           }
+          // Cancelled or superseded: the question is gone, so is the entry.
+          clearRoutedAskForSession(sk);
           // Uses `reason`, not `error`, so the bridge's httpJson passes it
           // through instead of auto-throwing on `error`.
           return json({ cancelled: true, reason: err?.message ?? String(err) });

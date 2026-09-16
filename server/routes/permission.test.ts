@@ -23,10 +23,12 @@ import { describe, test, expect } from "bun:test";
 import { createPermissionRouter } from "./permission";
 import { deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
 import { cancelPermission, hasPendingPermission, sessionHasPendingPermission } from "../lib/permission-bridge";
+import { _resetRoutedAsks } from "../services/board-ask-routing";
 
 type Row = { tool_calls?: string | null; blocks?: string | null } | undefined;
 
-function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string> } = {}) {
+function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string>; card?: { id: string; project_id: string; assigned_topic_id: string } } = {}) {
+  const threadComments: Array<{ taskId: string; content: string }> = [];
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
   const toolCallWrites: Array<{ sessionKey: string; toolCallId: string; fields: Record<string, unknown> }> = [];
   const rawGlobalSessions = new Set(options.rawGlobalSessions ?? []);
@@ -50,7 +52,10 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
 
   const ctx = {
     db: {
-      prepare: () => ({ get: () => row }),
+      // `boardTaskForSession` and the tool-row lookup share this one stub: a
+      // test that declares a card gets the card row, the others get the chat
+      // row they asked for.
+      prepare: () => ({ get: () => (options.card ?? row) }),
       // This deliberately models only the raw registry lookup. A coordinator
       // with corrupt provider/project fields is still a registry role and must
       // be rejected before any generic bridge side effect.
@@ -84,7 +89,7 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
     },
   } as any;
 
-  const router = createPermissionRouter(ctx);
+  const router = createPermissionRouter(ctx, options.card ? { comment: (a) => { threadComments.push({ taskId: a.taskId, content: a.content }); return true; } } : {});
   const call = (method: string, path: string, body?: unknown) => {
     const url = new URL(`http://topics.test${path}`);
     const req = new Request(url.toString(), {
@@ -94,7 +99,7 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
     });
     return router(req, url, url.pathname, method) as Promise<Response | null>;
   };
-  return { call, broadcasts, toolCallWrites, topicFor };
+  return { call, broadcasts, toolCallWrites, topicFor, threadComments };
 }
 
 const callRow = (id: string, extra: Record<string, unknown> = {}) =>
@@ -134,6 +139,46 @@ describe("POST /api/sessions/:sessionKey/ask-user", () => {
     const resp = (await inFlight)!;
     expect(await resp.json()).toEqual({ answers: { colore: "blu" } });
     expect(hasPendingAsk(sk)).toBe(false);
+  });
+});
+
+describe("la domanda che esce nel THREAD della card", () => {
+  const CARD = { id: "task-1", project_id: "project-1", assigned_topic_id: "topic-abcd1234" };
+
+  test("dopo una risposta arrivata dal PANNELLO, la domanda DOPO esce ancora sulla card", async () => {
+    // The `routeAskToTaskThread` registry is keyed by TASK and exists so the
+    // same comment is not rewritten on every leg. Nobody cleared it when the
+    // answer came from the tab: the two existing clears are the TTL expiry and
+    // an answer written in the thread. So the NEXT question found the entry
+    // still there and stopped reaching the card - "waiting on you" with no text
+    // of what it wants, which is the defect that module exists to close.
+    _resetRoutedAsks();
+    const h = makeHarness(undefined, { card: CARD });
+    const sk = "topic:abcd1234";
+    try {
+      const first = h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "k1", question: "Prima domanda?", options: ["Sì", "No"] }],
+        legMs: 5_000,
+      });
+      await Bun.sleep(20);
+      expect(h.threadComments).toHaveLength(1);
+      // The person answers from the tab PANEL, not from the thread.
+      expect(deliverAnswer(sk, { k1: "Sì" })).toBe(true);
+      expect(await (await first)!.json()).toEqual({ answers: { k1: "Sì" } });
+
+      const second = h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "k2", question: "Seconda domanda?", options: ["Sì", "No"] }],
+        legMs: 5_000,
+      });
+      await Bun.sleep(20);
+      expect(h.threadComments).toHaveLength(2);
+      expect(h.threadComments[1].content).toContain("Seconda domanda?");
+      deliverAnswer(sk, { k2: "No" });
+      await second;
+    } finally {
+      cancelAsk(sk);
+      _resetRoutedAsks();
+    }
   });
 });
 
