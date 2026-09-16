@@ -405,7 +405,7 @@ describe("POST /outbound/mail", () => {
     const attached = join(workspace, "preventivo.pdf");
     writeFileSync(attached, "preventivo vero", "utf8");
     const secretFile = join(root, "segreto-toctou.txt");
-    writeFileSync(secretFile, "TOKEN=super-segreto-42", "utf8");
+    writeFileSync(secretFile, "TOKEN=finto-super-segreto-42", "utf8");
     const h = makeHarness({ workspace });
     const sessionKey = "topic:abcd1260";
     confirmWhenAsked(h, sessionKey, () => {
@@ -541,6 +541,24 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
     // Negative proof: no process, and nobody was even asked.
     expect(recorded()).toEqual([]);
     expect(h.comments).toEqual([]);
+  });
+
+  test("un `raw` che non e' un messaggio non diventa una domanda vuota", async () => {
+    // A base64 decoder never refuses: without this, garbage in `raw` was shown
+    // as a message with no sender, no recipient and no subject, i.e. LESS than
+    // the JSON it replaced.
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1263";
+    const raw = Buffer.from("non e' un messaggio, e non ha intestazioni", "utf8").toString("base64");
+    const resp = (await h.call(googlePath(sessionKey), {
+      service: "gmail", resource: "users", subresource: "drafts", method: "create",
+      body: { userId: "me", raw }, legMs: 150,
+    }))!;
+    expect(await resp.json()).toEqual({ pending: true });
+    const question = h.comments[0]?.content ?? "";
+    expect(question).toContain("body: ");
+    expect(question).not.toContain("Da: (non indicato)");
+    cancelAsk(sessionKey, "fine del test");
   });
 
   test("il rifiuto non si aggira con maiuscole, spazi o la forma corta", () => {

@@ -119,6 +119,12 @@ export function decodeRawMail(body: unknown): DecodedMail | null {
     current = line.slice(0, colon).trim().toLowerCase();
     headers.set(current, line.slice(colon + 1).trim());
   }
+  // A base64 decoder never refuses: garbage comes back as mojibake, with no
+  // header in it. Calling that "a message" would replace the JSON the person
+  // could at least read with an empty From/To/Subject block - hiding the field
+  // instead of showing it. Without a single recognisable header this is not a
+  // message, and the caller falls back to printing the body as it is.
+  if (!headers.has("from") && !headers.has("to") && !headers.has("subject")) return null;
   return {
     from: headers.get("from") ?? "",
     to: headers.get("to") ?? "",
