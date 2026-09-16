@@ -8,7 +8,7 @@ import { mkdirSync } from 'node:fs';
 import type { ProvidersSnapshot } from '../../shared/types';
 import { projectIdForPath } from '../../shared/board';
 import { hermetic } from './fixtures/hermetic';
-import { createTopic, deleteTask, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from './helpers/api-fixtures';
+import { createTopic, deleteTask, deleteTopic, resetPaneStore, seedProjectInnerPanes, seedProjectPane } from './helpers/api-fixtures';
 import { canonicalTmpDir, removeTmpDir } from './helpers/file-project';
 
 hermetic(test);
@@ -45,19 +45,18 @@ async function openProjectBoard(page: Page) {
     if (!await row.isVisible()) await page.getByRole('button', { name: 'Toggle sidebar' }).click();
     await row.click();
   }
-  const board = projectWindow.getByTestId('kanban-board');
-  // Idempotent: the project layout can already carry a persisted kanban pane
-  // (projectLayoutSync hydrates server panes on load), in which case the
-  // singleton is not offered again in the add menu at all.
-  if (await board.isVisible().catch(() => false)) return;
   await expect(projectWindow).toBeVisible();
   const trigger = projectWindow.locator('[data-testid="pane-add-menu-trigger"]:visible').last();
   await trigger.scrollIntoViewIfNeeded();
   await trigger.click();
   const item = page.getByTestId('pane-add-menu-kanban');
+  // The entry is MISSING, not slow, when the project already holds a kanban
+  // pane: Board is a singleton and `availableTypesForGroup` drops the types
+  // already open in the group. Waiting longer here never produced it, which is
+  // why the caller clears the persisted layout instead.
   await item.waitFor({ state: 'visible', timeout: 5_000 });
   await item.click();
-  await expect(board).toBeVisible();
+  await expect(projectWindow.getByTestId('kanban-board')).toBeVisible();
 }
 
 for (const device of [
@@ -77,11 +76,19 @@ for (const device of [
       let longTaskId: string | undefined;
       try {
         await resetPaneStore(request, []);
-        // The project path is module-level and shared across the desktop and
-        // phone runs of this test: without this, the desktop run's kanban
-        // pane survives in `topics-project-panes-<hash>` and the phone run's
-        // add menu no longer offers Board (it is already an open singleton).
-        await resetProjectPanes(request, projectPath);
+        // `projectPath` is module-level, so the desktop run and the phone run
+        // share ONE project, and the desktop run leaves its Board tab behind in
+        // `topics-project-panes-<hash>` (projectLayoutSync persists the active
+        // tab and union-adds it back on the next hydrate). The phone run then
+        // opens a project window that already has a Board, and since Board is a
+        // singleton `availableTypesForGroup` stops offering it: the add menu is
+        // open and simply has no entry to click. The flake was only a race on
+        // WHETHER the desktop page flushed before it closed, so seed the same
+        // leftover here and make the state deterministic for both runs instead
+        // of waiting for the retry to hand us a clean project.
+        await seedProjectInnerPanes(request, projectPath, [
+          { id: 'kanban:leftover-from-a-previous-run', type: 'kanban', title: 'Board' },
+        ]);
         await seedProjectPane(request, projectPath);
         await request.put('/api/ui-state/settings', { data: { language: device.locale } });
         await page.addInitScript((language) => localStorage.setItem('app-settings', JSON.stringify({ language })), device.locale);
