@@ -243,6 +243,32 @@ export function useTopicWindowDoor(topicId: string): void {
   }, [topicId]);
 }
 
+/**
+ * THE DOOR OF A CHAT *PANE*, WHICH IS NOT THE DOOR OF A `ChatPanel`.
+ *
+ * A `ChatPane` is also the chat of a PROJECT WINDOW, and that window is a
+ * layout of its own: a link of that conversation splits a browser pane THERE,
+ * which is what `LINK-TAB-02` states in as many words ("project windows" keep
+ * the old rule) and what the change that moved the door out of
+ * `TopicBrowserWindow` never meant to touch. Registered from the chat with the
+ * same eagerness as a `ChatPanel`, the FIRST link of a topic hosted in a
+ * project opened a sheet of the topic's window instead, and the project layout
+ * never saw the event: `openLink` asks the registry BEFORE it dispatches.
+ *
+ * So a pane opens the door only onto a window that ALREADY EXISTS - the same
+ * condition that mounts it, which is the behaviour the project window had
+ * before. A `ChatPanel` is the other case: there the window IS where the first
+ * link goes, so its door is unconditional.
+ *
+ * A HOOK AND NOT AN INLINE `&&` on the call site: the difference between the
+ * two surfaces is a rule, it is tested as one (`paneWindowDoor.test.tsx`), and
+ * inline it was half of a revert away from being lost - which is exactly how it
+ * was lost.
+ */
+export function usePaneWindowDoor(topicId: string, presence: TopicBrowserPresence): void {
+  useTopicWindowDoor(hasTopicBrowserWindow(presence) ? topicId : '');
+}
+
 /** Bring a parked window back into the topic. The command lives in the
  *  topic header, which is eager, so it goes through the same bridge the
  *  presence hook uses: by the time the button is on screen the chunk is

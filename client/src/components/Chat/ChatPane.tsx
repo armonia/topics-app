@@ -3,7 +3,7 @@ import { useT } from '../../hooks/useT';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
-import { TopicBrowserWindow, useTopicBrowserPresence, useTopicWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, usePaneWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -352,7 +352,10 @@ function ChatPaneComponent({
   // Two copies of this rule is how one of them ends up wrong.
   const browserWindowTopicId = ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '';
   const browserWindow = useTopicBrowserPresence(browserWindowTopicId);
-  useTopicWindowDoor(browserWindowTopicId);
+  // The door, on the pane's own terms: a window that already exists. This pane
+  // is also the chat of a PROJECT window, whose layout is where a first link of
+  // that conversation belongs (`LINK-TAB-02`). See `usePaneWindowDoor`.
+  usePaneWindowDoor(browserWindowTopicId, browserWindow);
   const requestedBrowserInset = browserWindow.mode === 'exp'
     ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
     : 0;

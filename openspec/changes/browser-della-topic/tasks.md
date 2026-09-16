@@ -225,6 +225,11 @@ video `.webm` degli spec, non resoconti.
       casi da terminale e da pane browser restano com'erano.
 - [x] E2E (`TOPIC-BROWSER-04`): layout con le stesse pane e dimensioni dopo
       un'apertura dell'agente; tab esistente navigata senza finestra.
+- [x] La finestra di progetto resta com'era (`LINK-TAB-02`): una chat montata
+      come pane apre la porta solo su una finestra che c'e' gia', cosi' il primo
+      link di una topic ospitata li' dentro diventa una pane del layout del
+      progetto e non un foglio. `usePaneWindowDoor` + `paneWindowDoor.test.tsx`
+      e lo scenario `TOPIC-BROWSER-04d`.
 
 ## Tornata 6: un viewport, un arbitro
 - [ ] Server: `driverClientId` per contesto aggiornato dall'input; `resize`

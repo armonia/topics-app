@@ -1584,4 +1584,62 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
+
+  test("TOPIC-BROWSER-04d: dentro una finestra di progetto il primo link resta nel layout del progetto", async ({ page, request }, testInfo) => {
+    // The rule under test is the CLAUSE of LINK-TAB-02 that TOPIC-BROWSER-04
+    // does not take away: "project windows" keep the old destination.
+    testInfo.annotations.push({ type: "spec", description: "LINK-TAB-02" });
+    // THE SURFACE THAT HOSTS THE CHAT DECIDES WHERE ITS FIRST LINK GOES.
+    //
+    // `LINK-TAB-02` keeps the old rule for project windows, and a project
+    // window is a layout: the page belongs beside the chat, as a browser pane
+    // of that layout, exactly as it did before this change. The chat there is a
+    // `ChatPane`, and a `ChatPane` registers the door only for a window that
+    // ALREADY exists - otherwise `openLink` asks the registry, gets a yes, and
+    // returns BEFORE dispatching `browser:open-tab`, so the handler in
+    // `useProjectBrowserPanes` never hears about the click at all.
+    //
+    // The precondition that makes this measure anything: NO window for this
+    // topic. With one, the door is open by design and both outcomes look the
+    // same from here.
+    const projectPath = mkdtempSync(join(tmpdir(), "e2e-tbw-04d-"));
+    const topic = await createTopic(request, `E2E-TBW-ProjLink-${Date.now()}`, { projectPath });
+    const href = "https://example.com/dal-progetto";
+    try {
+      await resetPaneStore(request, []);
+      await resetProjectPanes(request, projectPath);
+      await seedProjectPane(request, projectPath);
+      // The conversation alone in the project window, one pane wide.
+      await seedProjectLayout(request, projectPath, topic.id, null);
+      await seedMessage(request, {
+        sessionKey: await sessionKeyOf(request, topic.id),
+        role: "assistant",
+        content: `Guarda [la pagina](${href}).`,
+      });
+
+      await goToApp(page);
+      const chatTab = page.locator(`[data-pane-id="chat:${topic.id}"]`).first();
+      await expect(chatTab).toBeVisible({ timeout: 20000 });
+      await chatTab.click();
+      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveCount(0);
+
+      const link = page.locator(`a[href="${href}"]`).first();
+      await expect(link).toBeVisible({ timeout: 15000 });
+      await link.click();
+
+      // THE DELIVERY: a browser pane in the project's own layout.
+      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(1, { timeout: 20000 });
+      // And nothing in a window of the topic. The sheet is the honest count
+      // here as in 04e - but this topic has no window seeded at all, so the
+      // window element itself must not have appeared either.
+      await expect(page.locator('[data-testid="topic-browser-sheet"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="topic-browser-window"]')).toHaveCount(0);
+    } finally {
+      await resetProjectPanes(request, projectPath).catch(() => {});
+      await closeAllBrowserContexts(request).catch(() => {});
+      await deleteTopic(request, topic.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
 });
