@@ -133,7 +133,7 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
   let spentMs = 0;
   const read = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
   const unmeasured: HeldMemory = { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 };
-  const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, coveredMs: 0 };
+  const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, swapPct: null, coveredMs: 0 };
   return async (name) => {
     const from = now();
     let said: WaitReason | null = null;

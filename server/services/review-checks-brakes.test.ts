@@ -30,8 +30,8 @@ import {
 import { heldMemory, type HeldMemory, type MemSample, type SwapVerdict } from "./mem-signal";
 import { _resetCardMemPeaks, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 
-const CALM: SwapVerdict = { sustained: false, pagesReadBackPerS: 1, debtGBPerMin: 0, coveredMs: 60_000 };
-const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 };
+const CALM: SwapVerdict = { sustained: false, pagesReadBackPerS: 1, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 };
+const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 };
 const fullWindow = (gb: number): HeldMemory => ({ measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 });
 
 /** Both sides of a timing case stretched by the same factor: the ratio is the claim. */
@@ -227,7 +227,7 @@ function windowOver(clock: { now: () => number }, start: number, reading: (sec: 
   return () => {
     const samples: MemSample[] = [];
     for (let at = start; at <= clock.now(); at += 10_000) {
-      samples.push({ at, availGB: reading((at - start) / 1000), swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, load1: 1 });
+      samples.push({ at, availGB: reading((at - start) / 1000), swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, swapTotalMB: 16_384, load1: 1 });
     }
     return heldMemory(samples, clock.now(), true);
   };

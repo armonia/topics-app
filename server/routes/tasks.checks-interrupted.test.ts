@@ -113,7 +113,7 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
     const d = await deliveryWith(`touch ${marker}`, {
       checksMemoryFloor: {
         held: () => ({ measurable: true, latestGB: 1, heldGB: 1, coveredMs: 120_000 }),
-        swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, coveredMs: 60_000 }),
+        swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 }),
         floorGB: 6, pollMs: 25,
       },
     });
@@ -138,7 +138,7 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
     await until(async () => existsSync(measured) && (await getDescendantPids(run.pid, { fresh: true })).size > 1, "the first run is sleeping");
     run.treeKB = 8e9 / 1024;
     createSwapBrake({ kill: killCheckTree, note: () => {}, log: () => {} })
-      .tick({ sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 }, freezableRuns());
+      .tick({ sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 }, freezableRuns());
 
     await expectLegInFlight((await leg)!);
     // No client leg comes back: the server re-issues the remembered delivery.

@@ -163,6 +163,7 @@ function world(i: {
         sustained: over.sustained ?? true,
         pagesReadBackPerS: over.pagesReadBackPerS ?? 33.6,
         debtGBPerMin: 8.8,
+        swapPct: null,
         coveredMs: 120_000,
       };
       const held: HeldMemory = { measurable: true, latestGB: 4, heldGB: over.heldGB ?? 4, coveredMs: 120_000 };

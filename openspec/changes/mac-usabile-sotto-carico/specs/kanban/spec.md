@@ -428,19 +428,87 @@ quelle rimaste in attesa di un posto.
 
 Ogni 60 secondi, anche a board ferma, il server SHALL scrivere nel suo log una riga
 `[memsig]` con lettura, minimo dei 2 minuti, copertura, swap-in al secondo, debito
-di memoria al minuto, compressore, swap usato, carico, verdetto di swap, turni in
-volo, corse di check e l'albero di check più pesante (`?` dove manca il valore):
-non decide niente, è lo strumento con cui si misurano le soglie e l'esito.
+di memoria al minuto, compressore, swap usato, QUOTA DEL FILE DI SWAP OCCUPATA
+(`swapPct`), carico, verdetto di swap, turni in volo, corse di check, l'albero di
+check più pesante e CHI TIENE LA MEMORIA fuori da Topics (`altri`, `-` quando non
+c'è niente da dire): non decide niente, è lo strumento con cui si misurano le
+soglie e l'esito. Un termine che entra nel verdetto e non compare nella riga non
+si può misurare, quindi non si può nemmeno tarare.
 
 Lo swap SHALL dirsi SOSTENUTO solo quando, su 60 secondi di campioni, le pagine
-rilette dal disco sono almeno 10 al secondo E il debito di memoria (compressore più
-swap usato) cresce di almeno 0,5 GB al minuto. Le pagine rilette da sole non
-separano il recupero (65/s alle 11:23 del 15/09, debito in calo) dal thrash
-(12,8-33,6/s alle 14:06, debito +8,8/+14 GB al minuto); lo swap usato sta nella
-somma perché un compressore saturo sposta segmenti su disco. Il livello di
-pressione del kernel NON SHALL essere usato: è un rapporto del compressore, e i
-picchi del 10/09 e del 15/09 stavano al livello 1. Le soglie sono provvisorie, e
-l'esito si misura sulle righe `[memsig]` e `[LAG]` 72 ore dopo il land.
+rilette dal disco sono almeno 10 al secondo E vale almeno una fra: il debito di
+memoria (compressore più swap usato) cresce di almeno 0,5 GB al minuto, OPPURE il
+file di swap è occupato per almeno il 90% del suo totale. Le pagine rilette da
+sole non separano il recupero (65/s alle 11:23 del 15/09, debito in calo) dal
+thrash (12,8-33,6/s alle 14:06, debito +8,8/+14 GB al minuto); lo swap usato sta
+nella somma perché un compressore saturo sposta segmenti su disco.
+
+**IL SOFFITTO È LA SECONDA PORTA, e senza di essa il thrash STABILE passa per
+calmo.** Il solo termine del debito chiede che il debito CRESCA, ma con lo swap
+pieno il debito non può più crescere: oscilla intorno a zero, e lo stato peggiore
+che la macchina raggiunge è proprio quello che la regola lascia passare. Misurato
+sul server vivo il 16/09/2026 fra le 11:50 e le 12:35, una riga `[memsig]` al
+minuto, file di swap 16384 MB per tutto il tempo:
+
+    swapin/s 170,1 debito +0,7 swap usato 14,8 (90,3%) -> sostenuto
+    swapin/s 167,7 debito -1,7 swap usato 15,2 (92,8%) -> CALMO
+    swapin/s  64,1 debito -1,2 swap usato 15,4 (94,0%) -> CALMO
+    swapin/s  36,3 debito -0,1 swap usato 15,3 (93,4%) -> CALMO
+    swapin/s  27,8 debito +0,1 swap usato 15,1 (92,2%) -> CALMO
+
+Undici righe di quei 40 minuti rileggevano almeno 10 pagine al secondo e solo DUE
+sono state giudicate sostenute: il freno dei check e il congelamento non potevano
+scattare proprio quando servivano. Il totale era già nella stessa lettura che il
+codice fa (`sysctl -n vm.swapusage` stampa `total` accanto a `used`) e veniva
+buttato.
+
+La quota SHALL essere 0,90 e non meno, perché in OR il primo termine, che è
+largo, regge da solo il peso della porta: le letture malate stanno fra il 90,3% e
+il 94,0% e questa macchina ne ha letta una al 96,5% con la coda ferma, mentre una
+macchina sana deve prima provare un minuto intero a 10 pagine/s (una board in
+salute ne legge 0,04-3; anche su questo Mac malato 49 righe su 60 restavano sotto
+10). I DUE TERMINI SI DANNO IL CAMBIO, ed è il motivo per cui nessuno dei due
+basta da solo: quando macOS ALLARGA il file di swap il totale sale, la quota
+scende sotto il soffitto e nello stesso momento `used` cresce, cioè parla il
+termine del debito; quando la crescita si ferma perché non c'è più niente da
+allargare, il debito si appiattisce e la quota è al soffitto. Swap disattivato
+(`total = 0`), riga illeggibile o primi campioni dopo un riavvio SHALL lasciare la
+quota a «non lo so», che non è zero e non è uno: il termine non vota e la regola
+torna a essere quella del debito. Usato e totale SHALL venire dalla STESSA
+lettura, perché una quota costruita su due letture si muove per un motivo che non
+è la macchina che si riempie.
+
+Il livello di pressione del kernel NON SHALL essere usato: è un rapporto del
+compressore, e i picchi del 10/09 e del 15/09 stavano al livello 1. Le soglie sono
+provvisorie, e l'esito si misura sulle righe `[memsig]` e `[LAG]` 72 ore dopo il
+land.
+
+**UNA CODA FERMA DEVE DIRE CHI TIENE LA MEMORIA.** Il server SHALL misurare, con
+UNA sola lettura di `/bin/ps` ogni 60 secondi sul battito che scrive già
+`[memsig]` e MAI una per card, la memoria residente sommata per FAMIGLIA di
+processi, ESCLUSI quelli di Topics, e SHALL mostrarne le prime tre: nella riga
+`[memsig]` sempre, e in coda alla frase del pavimento quando la coda è
+trattenuta per memoria. Il 16/09/2026 sette card sono rimaste ferme per ore con
+il chip «Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 4.1
+GB, sotto il pavimento di 6 GB» mentre a tenere la memoria erano l'app Claude
+(~8 GB su tre finestre), Dia (2,6 GB) e un `next-server` acceso da 14 ore (2,9
+GB): una coda ferma per ore senza una via d'uscita leggibile, e il proprietario
+che chiede due volte «attento al carico» senza poter agire.
+
+La voce SHALL portare il nome dell'APP e mai il nome crudo del processo: il
+bundle `.app` PIÙ ESTERNO, perché macOS annida gli helper di un'app Electron in
+un `.app` loro («Claude», non «Claude Helper (Renderer)», e non tre voci per una
+sola app). Un processo di Topics SHALL essere riconosciuto per sottoalbero del
+server, per percorso nostro (il checkout, le worktree degli agenti, il guscio) e
+per il pid RESPONSABILE di un servizio XPC: senza quest'ultimo i processi
+WebContent delle NOSTRE pane browser si leggono come una famiglia altrui, e la
+frase accuserebbe il proprietario di memoria che tiene Topics. Sotto 0,5 GB una
+famiglia NON SHALL essere nominata (nessuno chiude un'app per riavere 400 MB su
+una macchina il cui pavimento è 6 GB) e una lettura più vecchia di 3 minuti NON
+SHALL essere mostrata, perché nominerebbe un'app già chiusa. Le misure hanno UNA
+cifra decimale, la frase è una sola fabbrica per il log e per la card, e la chiave
+dell'attesa resta la prima parola («Memoria»): i nomi non SHALL far riscrivere il
+chip.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
