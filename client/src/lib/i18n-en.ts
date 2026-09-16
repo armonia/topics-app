@@ -1874,6 +1874,11 @@ const EN = {
   'terminal.err.renameFailed': 'Rename failed: the server refused.',
   'terminal.err.renameUnreachable': 'Rename failed: the server did not answer.',
   'terminal.inputDropped': 'The terminal is not connected: what you type is being lost.',
+  'terminal.inputLost.expired': 'What you typed while reattaching was too old to send.',
+  'terminal.inputLost.tooLong': 'What you typed while reattaching was too long to hold, so none of it was sent.',
+  'terminal.inputLost.disconnected': 'The connection dropped before what you typed could be sent.',
+  'terminal.inputLost.retype': 'Retype it.',
+  'terminal.inputHeld': 'Reattaching: what you type is held and sent when the session answers.',
   // ── The three words every surface used to rewrite on its own.
   'common.close': 'Close',
   'common.retry': 'Retry',
