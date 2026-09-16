@@ -61,11 +61,19 @@ test.describe("LINK-TAB-01 a chat link opens in a Topics tab", () => {
     await resetPaneStore(request, []);
   });
 
-  test("a plain click mounts a browser pane instead of leaving the app", async ({
+  /**
+   * LINK-TAB-02 / TOPIC-BROWSER-04: a chat link on a desktop viewport no longer
+   * tiles a cell. It lands in the topic's own browser window, which is the
+   * whole point: an opening the user did not ask the LAYOUT for does not get to
+   * rearrange it. What stays proven here is the original claim of this file -
+   * the link does NOT leave the app.
+   */
+  test("LINK-TAB-02: a plain click lands in the topic window, not in a new pane", async ({
     page,
     browserProcessPageV2,
     request,
-  }) => {
+  }, testInfo) => {
+    testInfo.annotations.push({ type: "spec", description: "LINK-TAB-02" });
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -90,9 +98,14 @@ test.describe("LINK-TAB-01 a chat link opens in a Topics tab", () => {
       await expect(link).toBeVisible({ timeout: 15000 });
       await link.click();
 
-      // The delivery: a browser pane in THIS window, and nothing handed to the
-      // system browser.
-      await expect(page.locator("[data-browser-pane]").first()).toBeVisible({ timeout: 15000 });
+      // The delivery: the topic's window, minimised, with the page as its
+      // active sheet - and NOT a pane tiled into the layout.
+      const windowEl = page.locator('[data-testid="topic-browser-window"]');
+      await expect(windowEl).toBeVisible({ timeout: 15000 });
+      await expect(windowEl).toHaveAttribute("data-mode", "min");
+      await expect(page.locator('[data-testid="topic-browser-sheet"]')).toHaveCount(1, { timeout: 15000 });
+      await expect(page.locator('[data-pane-id^="browser:"]')).toHaveCount(0);
+      // And nothing was handed to the system browser.
       expect(await externalOpens(page)).toEqual([]);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

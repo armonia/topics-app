@@ -15,7 +15,15 @@ const panes = [
   { id: 'browser:a', type: 'browser' },
 ];
 
-test('no browser anywhere: the focused group, split out beside the chat', () => {
+/**
+ * The split is for the origins this resolver still SEES. A link clicked in the
+ * chat of a topic no longer gets here at all on a desktop viewport: the topic
+ * window's door takes it before `openLink` dispatches (TOPIC-BROWSER-04), and
+ * an opening nobody asked for must not tile a cell. What reaches this branch is
+ * an origin the window does not own - a tool card, a board preview, a chat too
+ * narrow for a window - and for those the rule is the one it always was.
+ */
+test('no browser anywhere, and no window to take it: split out of the focused group', () => {
   const t = resolveOpenTabTarget({
     panes: panes.slice(0, 2),
     groups: [chatGroup],

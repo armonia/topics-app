@@ -20,6 +20,7 @@
  */
 import { useEffect, useState, type ComponentProps, type ComponentType } from 'react';
 import { lazyWarm, warm } from '../../lib/lazyWarm';
+import { registerTopicWindowDoor } from '../../lib/topicWindowDoor';
 // Type-only: erased from the output, so the body stays out of this chunk.
 import type { TopicBrowserWindow as Window } from './TopicBrowserWindow';
 import type { TopicBrowserMode } from '../../state/topicBrowserWindow';
@@ -208,6 +209,66 @@ export function useTopicBrowserPresence(topicId: string): TopicBrowserPresence {
     return () => { alive = false; stop(); };
   }, [topicId]);
   return topicId && entry.topicId === topicId ? entry.presence : ABSENT;
+}
+
+/**
+ * OPEN THE DOOR OF THIS TOPIC, for as long as its chat is on screen.
+ *
+ * Called with EXACTLY the expression the presence hook gets, so the two rules
+ * that decide whether a window is possible at all - wide enough, and this pane
+ * is the one that would draw it - are written once. An empty string is "no
+ * door": a draft, a viewport under 768 px, or a chat pane with a `ChatPanel`
+ * above it that already owns the window. A chat PANE has one condition more
+ * and asks through `usePaneWindowDoor`, which is where that difference is
+ * written down.
+ *
+ * The body is async because the store is a lazy chunk, and the answer to the
+ * caller is not: see `topicWindowDoor` for why that is sound.
+ */
+export function useTopicWindowDoor(topicId: string): void {
+  useEffect(() => {
+    if (!topicId) return;
+    return registerTopicWindowDoor(topicId, (sheet) => {
+      void store().then(async (s) => {
+        // The row has to be read before it is written: opening onto an
+        // un-hydrated window would publish an empty one over the sheets this
+        // device has not seen yet.
+        await s.ensureTopicWindowLoaded(topicId);
+        s.topicBrowserWindow.open(
+          topicId,
+          { contextId: sheet.contextId, url: sheet.url, openedBy: sheet.openedBy },
+          sheet.mode,
+        );
+      });
+      return true;
+    });
+  }, [topicId]);
+}
+
+/**
+ * THE DOOR OF A CHAT *PANE*, WHICH IS NOT THE DOOR OF A `ChatPanel`.
+ *
+ * A `ChatPane` is also the chat of a PROJECT WINDOW, and that window is a
+ * layout of its own: a link of that conversation splits a browser pane THERE,
+ * which is what `LINK-TAB-02` states in as many words ("project windows" keep
+ * the old rule) and what the change that moved the door out of
+ * `TopicBrowserWindow` never meant to touch. Registered from the chat with the
+ * same eagerness as a `ChatPanel`, the FIRST link of a topic hosted in a
+ * project opened a sheet of the topic's window instead, and the project layout
+ * never saw the event: `openLink` asks the registry BEFORE it dispatches.
+ *
+ * So a pane opens the door only onto a window that ALREADY EXISTS - the same
+ * condition that mounts it, which is the behaviour the project window had
+ * before. A `ChatPanel` is the other case: there the window IS where the first
+ * link goes, so its door is unconditional.
+ *
+ * A HOOK AND NOT AN INLINE `&&` on the call site: the difference between the
+ * two surfaces is a rule, it is tested as one (`paneWindowDoor.test.tsx`), and
+ * inline it was half of a revert away from being lost - which is exactly how it
+ * was lost.
+ */
+export function usePaneWindowDoor(topicId: string, presence: TopicBrowserPresence): void {
+  useTopicWindowDoor(hasTopicBrowserWindow(presence) ? topicId : '');
 }
 
 /** Bring a parked window back into the topic. The command lives in the
