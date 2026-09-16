@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.333",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa al boot riguarda solo una card ancora in lavorazione, e ricorda il commit del giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento di `roundCommit` sta sulla mappa, non davanti a `rememberDelivery`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.332",
     "date": "2026-09-15",
     "sections": {

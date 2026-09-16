@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.333 — 2026-09-16
+
+### Sotto il cofano
+- Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot
+- La ripresa al boot riguarda solo una card ancora in lavorazione, e ricorda il commit del giro
+- Il commento di `roundCommit` sta sulla mappa, non davanti a `rememberDelivery`
+- La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara
+
 ## 2.2.332 — 2026-09-15
 
 ### Sotto il cofano
