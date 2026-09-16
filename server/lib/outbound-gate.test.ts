@@ -148,6 +148,41 @@ describe("confirmOutbound", () => {
     cancelAsk(sessionKey, "fine del test");
   });
 
+  /**
+   * THE HOLD EXPIRES, AND THAT IS A RULE ABOUT A CLOCK.
+   *
+   * The promise is "the declared leg plus a margin, or an agent that dies
+   * between two legs would keep the surface forever", and until now the
+   * coverage faked the lapse with `_resetOutboundHolds()`: it proved the reset,
+   * not the clock. Measured: dropping the `expiresAt` comparison altogether left
+   * the suite green. Here the test owns the time, and the third request gets
+   * through only because time passed.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("il lucchetto SCADE: chi non torna piu' non tiene la superficie per sempre", async () => {
+    const { deps } = makeDeps({ card: false, row: runningRow("tool-88") });
+    let clock = 1_000_000;
+    deps.now = () => clock;
+    const sessionKey = "chat-session-3";
+
+    // The first request: its leg expires with the question on screen, and the
+    // hold stays its own.
+    expect((await confirmOutbound(deps, { ...request(sessionKey), legMs: 20 })).state).toBe("pending");
+
+    // It never comes back. While the lease runs, a request without its token is
+    // turned away.
+    clock += 20 + 29_000;
+    const tooEarly = await confirmOutbound(deps, { ...request(sessionKey), legMs: 20 });
+    expect(tooEarly.state).toBe("refused");
+    expect(tooEarly.state === "refused" && tooEarly.reason).toContain("already has a confirmation");
+
+    // Past the declared leg plus the grace, the surface is free again.
+    clock += 2_000;
+    expect((await confirmOutbound(deps, { ...request(sessionKey), legMs: 20 })).state).toBe("pending");
+    cancelAsk(sessionKey, "fine del test");
+  });
+
   test("il si NON si eredita: il messaggio dopo chiede di nuovo, e la domanda riesce sul thread", async () => {
     const { deps, comments } = makeDeps({ card: true });
     const sessionKey = "topic:abcd1238";

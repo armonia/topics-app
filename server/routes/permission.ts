@@ -2,6 +2,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
 import { createTaskService } from "../services/tasks";
 import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, clearRoutedAsksOfEndedSession, ENDED_LINE } from "../services/board-ask-routing";
+import { outboundHoldOfSession } from "../lib/outbound-gate";
 import {
   beginPermission,
   waitForDecision,
@@ -194,12 +195,29 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // gate, same registry). Only an id THIS ask wrote goes in it: an entry
         // the routing merely handed back belongs to whoever created it.
         let askId: string | undefined;
-        let heldByThisSession = false;
-        try {
-          const routed = routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] });
-          if (routed && routed.created === true && routed.askId) askId = routed.askId;
-          if (routed && routed.busy !== undefined && routed.busy.sessionKey === sk) heldByThisSession = true;
-        } catch { /* il pannello nel tab resta comunque */ }
+        // A CONFIRMATION OF THIS SESSION IS WAITING - AND THAT IS THE SAME FACT
+        // WITH OR WITHOUT A CARD.
+        //
+        // `routed.busy` can only report it when the session belongs to a task:
+        // a chat has no thread, `routeAskToTaskThread` returns null, and this
+        // leg went straight on to `waitForAnswer` and superseded the send.
+        // Measured with both real routes and no card: the generic question was
+        // delivered the yes the person gave on the SEND panel, and the send came
+        // back "superseded by a newer question". The gate's own lock is the fact
+        // being asked about, and for a session with no card its key is exactly
+        // `session:<k>` - so the answer comes from there, not from the card.
+        //
+        // Held means this leg touches NOTHING: no comment, no registry entry, no
+        // waiter. It spends its time and comes back, and the confirmation on
+        // screen is still the one the person is reading.
+        let heldByThisSession = outboundHoldOfSession(sk);
+        if (!heldByThisSession) {
+          try {
+            const routed = routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] });
+            if (routed && routed.created === true && routed.askId) askId = routed.askId;
+            if (routed && routed.busy !== undefined && routed.busy.sessionKey === sk) heldByThisSession = true;
+          } catch { /* il pannello nel tab resta comunque */ }
+        }
         if (heldByThisSession) {
           await new Promise((r) => setTimeout(r, legMs ?? ASK_LEG_MS));
           return json({ pending: true });

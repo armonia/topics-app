@@ -714,6 +714,60 @@ describe("POST /outbound/mail", () => {
     expect((await (await waiting)!.json() as Record<string, unknown>).sent).toBe(true);
   });
 
+  /**
+   * THE HOLD IS KEYED ON THE CARD, and two sessions of one task exist by
+   * construction: `agent-census.ts` maps the coordinator and its children onto
+   * the same task on purpose. Keying it on the SESSION was indistinguishable for
+   * the suite - mutant run, zero reds - because in the cases already covered the
+   * routing's own "busy" branch was enough to turn the second request away, and
+   * that branch reads the REGISTRY of open questions.
+   *
+   * This is the window where the two come apart, and it is the dangerous one:
+   * the person has already answered ON THE CARD, so the registry holds nothing,
+   * yet the first request is alive and its next leg is about to spend that yes.
+   * With the key on the session the sister writes a SECOND confirmation on the
+   * card while the first message is leaving: two blocks of buttons, and the card
+   * draws one.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("il lucchetto e' della CARD: la sessione sorella non apre una seconda conferma", async () => {
+    const h = makeHarness();
+    const coordinator = "topic:abcd1296";
+    const sister = "topic:abcd1297";
+    const payload = { to: "cliente@esempio.test", subject: "Preventivo", body: "in allegato", legMs: 120 };
+
+    const legOne = await (await h.call(mailPath(coordinator), payload))!.json() as Record<string, unknown>;
+    expect(legOne).toEqual({ pending: true, hold: expect.any(String) });
+    const block = h.comments.filter((c) => c.options.length > 0);
+    expect(block).toHaveLength(1);
+
+    // The person answers ON THE CARD: the registry empties and the yes waits for
+    // the next leg, which is when the message actually leaves.
+    const answered = answerRoutedAsk(
+      { db: null as never, comment: () => null, deliver: (key, answers) => deliverAnswer(key, answers) },
+      "task-1",
+      CONFIRM_LABEL,
+      { askId: block[0].id },
+    );
+    expect(answered.delivered).toBe(true);
+    expect(pendingRoutedAsk("task-1")).toBeNull();
+
+    // The sister asks to send ANOTHER message: the card is still busy with the
+    // request that is finishing.
+    const refusal = await (await h.call(mailPath(sister), { ...payload, to: "altro@esempio.test" }))!.json() as Record<string, unknown>;
+    expect(refusal.refused).toBe(true);
+    expect(String(refusal.reason)).toContain("already has a confirmation");
+    expect(h.comments.filter((c) => c.options.length > 0)).toHaveLength(1);
+
+    // And the yes pays for the message the person read, once.
+    const sent = await (await h.call(mailPath(coordinator), { ...payload, hold: legOne.hold }))!.json() as Record<string, unknown>;
+    expect(sent.sent).toBe(true);
+    expect(recorded()).toContain("cliente@esempio.test");
+    expect(recorded()).not.toContain("altro@esempio.test");
+    expect(recorded().filter((a) => a === "+send")).toHaveLength(1);
+  });
+
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {
     const h = makeHarness();
     const resp = (await h.call(mailPath("topic:abcd1241"), { ...message, subject: "  " }))!;

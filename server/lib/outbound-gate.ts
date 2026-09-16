@@ -184,6 +184,13 @@ export interface OutboundGateDeps {
   lastToolRow: (sessionKey: string) => ToolRowColumns | null;
   /** Puts the panel on screen: persist the schema and announce it. */
   paint: (args: { sessionKey: string; toolCallId: string; schema: UserInputSchema }) => void;
+  /**
+   * The clock the LEASE is measured on, injectable for one reason: the rule
+   * "a hold expires" is a rule about time, and a test that fakes the lapse by
+   * clearing the map proves the reset instead of the clock - measured, a gate
+   * with no expiry check at all passed the whole suite.
+   */
+  now?: () => number;
 }
 
 export interface ConfirmRequest {
@@ -272,6 +279,28 @@ export function _resetOutboundHolds(): void {
   holds.clear();
 }
 
+/**
+ * IS A SEND CONFIRMATION OF THIS SESSION WAITING RIGHT NOW?
+ *
+ * Asked by the generic `ask_user_question` leg (`routes/permission.ts`), which
+ * must not take the rendez-vous away from a confirmation of its own session:
+ * the rendez-vous is keyed by SESSION and `waitForAnswer` supersedes whatever
+ * it finds. The routing's `busy` answers the same question ONLY on a card;
+ * a chat session has no thread, so there the answer has to come from here -
+ * measured with both real routes, a chat `ask_user_question` still killed the
+ * confirmation under it and collected the yes the person gave to the send.
+ *
+ * Read by SESSION and not by hold key on purpose: the key is the surface that
+ * draws the question (the card, or the session), and what the ask leg needs to
+ * know is whose rendez-vous would be cut, which is the holder's session.
+ */
+export function outboundHoldOfSession(sessionKey: string, now = Date.now()): boolean {
+  for (const hold of holds.values()) {
+    if (hold.sessionKey === sessionKey && hold.expiresAt > now) return true;
+  }
+  return false;
+}
+
 /** The key the board channel answers under. Carries the digest on purpose. */
 export function confirmKey(digest: string): string {
   return `outbound:${digest}`;
@@ -322,11 +351,15 @@ export async function confirmOutbound(
   // it. The hold does not care what the payload says. A request that does not
   // get it is refused HERE, having touched nothing at all.
   const holdKey = holdKeyFor(deps, request.sessionKey);
-  const hold = acquireHold(holdKey, {
-    token: request.hold,
-    sessionKey: request.sessionKey,
-    leaseMs: request.legMs + HOLD_GRACE_MS,
-  });
+  const hold = acquireHold(
+    holdKey,
+    {
+      token: request.hold,
+      sessionKey: request.sessionKey,
+      leaseMs: request.legMs + HOLD_GRACE_MS,
+    },
+    deps.now?.() ?? Date.now(),
+  );
   if (!hold) return { state: "refused", reason: CARD_HELD_REASON };
 
   try {

@@ -173,12 +173,26 @@ si vedrebbe consegnare la riga di chi sta ancora aspettando.
 UNA `ask_user_question` GENERICA NON SHALL UCCIDERE LA CONFERMA SOTTO DI SÉ. Il
 rendez-vous è chiavato sulla SESSIONE e la seconda attesa sostituisce la prima,
 per progetto; ma il bridge MCP non aspetta i suoi handler, quindi una domanda
-generica e un invio della stessa sessione sono in volo insieme. Quando la card è
-occupata da una richiesta della STESSA sessione, la gamba della domanda generica
-SHALL spendere il suo tempo SENZA registrarsi sul rendez-vous e rispondere
-`pending`: aspetta il suo turno senza togliere niente a nessuno. Se chi occupa
-la card è un'altra sessione, il rendez-vous è un altro e non c'è niente da
-temere.
+generica e un invio della stessa sessione sono in volo insieme. Quando una
+conferma d'invio della STESSA sessione sta aspettando, la gamba della domanda
+generica SHALL spendere il suo tempo SENZA registrarsi sul rendez-vous e
+rispondere `pending`: aspetta il suo turno senza togliere niente a nessuno.
+
+Questa regola SHALL valere CON O SENZA CARD, ed è la stessa regola: fuori dalla
+board la corsa era intatta. Il fatto «una conferma di questa sessione aspetta»
+SHALL essere letto dal LUCCHETTO del cancello e NON dal registro delle domande
+instradate — quel registro è chiavato sul TASK e in una chat non esiste, quindi
+l'instradamento non risponde e la gamba si registrava lo stesso (riprodotto con
+le rotte vere e senza card: il sì che la persona dava sul pannello dell'INVIO
+veniva consegnato alla domanda generica, e l'invio tornava «superseded by a newer
+question»). Il lucchetto la chiave giusta ce l'ha già: per una sessione senza
+card è `session:<chiave>`.
+
+Se chi occupa la card è un'altra sessione, il rendez-vous è un altro e non c'è
+niente da temere: quella gamba SHALL registrarsi normalmente. Due sessioni dello
+stesso task esistono per costruzione, e trattarle come una sola significa una
+domanda che non raggiunge mai nessuno per tutto il tempo in cui l'altra tiene la
+card.
 
 I TASTI NON SHALL RESTARE SU UN BLOCCO MORTO. Quando la domanda di una richiesta
 finisce senza che qualcuno abbia risposto NEL THREAD — scaduta, annullata,
