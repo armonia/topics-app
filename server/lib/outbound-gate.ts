@@ -84,6 +84,34 @@ function callsFromColumn(raw: string | null | undefined): ShownCall[] {
 }
 
 /**
+ * THE SAME TOOL UNDER THREE NAMES, and all three are this one.
+ *
+ * The caller knows the tool as the MCP fleet writes it, `mcp__topics__x`. That
+ * is the name a CLI-driven agent records - and it is NOT the name the native
+ * runtime records. `providers/native/topics-tools.ts` maps `toolsForProfile`
+ * straight into the model's tool list, so there the tool is plain `x`, and the
+ * bare name is what lands in `blocks`. On this machine the native provider owns
+ * 702 of the 776 topics, i.e. the comparison that looked exact matched almost
+ * nothing: no row, no panel, and every send in a chat refused with "nobody
+ * could confirm".
+ *
+ * This is the SECOND time: `providers/ask-user-detector.ts:44-60` carries the
+ * same three-way match and the same story, observed on 2026-08-28 on a chat
+ * parked forever on a question with no control on screen.
+ *
+ * The third form is another mount point (`mcp__other__x`), which is the same
+ * job behind a different server. The separator is part of the comparison on
+ * purpose: a bare `endsWith("send_mail")` would also answer for somebody
+ * else's `my_send_mail`.
+ */
+function sameTool(name: unknown, toolName: string): boolean {
+  if (typeof name !== "string" || !name) return false;
+  if (name === toolName) return true;
+  const bare = toolName.includes("__") ? toolName.slice(toolName.lastIndexOf("__") + 2) : toolName;
+  return name === bare || name.endsWith(`__${bare}`);
+}
+
+/**
  * The row to paint the question on: the LAST call of `toolName` that is still
  * running. Last and not first, because the same tool can appear several times
  * in one turn and the one waiting is the most recent.
@@ -103,7 +131,7 @@ export function findWaitingToolRow(
   for (let i = calls.length - 1; i >= 0; i--) {
     const call = calls[i];
     if (typeof call.id !== "string" || !call.id) continue;
-    if (call.name !== toolName) continue;
+    if (!sameTool(call.name, toolName)) continue;
     const status = typeof call.status === "string" ? call.status : "";
     if (status === "waiting_for_input") return { toolCallId: call.id, alreadyWaiting: true };
     if (status === "running" || status === "pending" || status === "") {

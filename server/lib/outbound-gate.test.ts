@@ -172,6 +172,34 @@ describe("findWaitingToolRow", () => {
     expect(findWaitingToolRow(row, "mcp__topics__send_mail")).toBeNull();
   });
 
+  test("il NOME NUDO e' la stessa chiamata: il runtime nativo non mette prefissi", () => {
+    // `topicsToolSpecs` (providers/native/topics-tools.ts) maps `toolsForProfile`
+    // straight through, so the native runtime executes and PERSISTS `send_mail`
+    // with no fleet prefix - and the native provider is what 702 of the 776
+    // topics on this machine run. Matching only the prefixed form meant: no
+    // row found, `asked = false`, and every send in a chat refused with
+    // "nobody could confirm". Exactly the bug ask-user-detector.ts:44-60
+    // already wrote down for `ask_user_question` on 2026-08-28.
+    const bare = { tool_calls: JSON.stringify([{ id: "n", name: "send_mail", status: "running" }]), blocks: null };
+    expect(findWaitingToolRow(bare, "mcp__topics__send_mail")).toEqual({ toolCallId: "n", alreadyWaiting: false });
+    const blocks = {
+      tool_calls: "[]",
+      blocks: JSON.stringify([{ kind: "tool", toolCall: { id: "g", name: "google_call", status: "running" } }]),
+    };
+    expect(findWaitingToolRow(blocks, "mcp__topics__google_call")?.toolCallId).toBe("g");
+  });
+
+  test("un altro server MCP che espone lo stesso mestiere e' la stessa riga, un omonimo NO", () => {
+    // `mcp__other__send_mail` is the same tool behind another mount point, and
+    // it is what a fleet rename produces. `my_send_mail` is somebody else's
+    // tool that merely ends the same way: a suffix match with no separator
+    // would have swallowed it.
+    const mounted = { tool_calls: JSON.stringify([{ id: "m", name: "mcp__other__send_mail", status: "running" }]), blocks: null };
+    expect(findWaitingToolRow(mounted, "mcp__topics__send_mail")?.toolCallId).toBe("m");
+    const namesake = { tool_calls: JSON.stringify([{ id: "x", name: "my_send_mail", status: "running" }]), blocks: null };
+    expect(findWaitingToolRow(namesake, "mcp__topics__send_mail")).toBeNull();
+  });
+
   test("JSON illeggibile non esplode: nessuna riga", () => {
     expect(findWaitingToolRow({ tool_calls: "{non json", blocks: null }, "mcp__topics__send_mail")).toBeNull();
   });
