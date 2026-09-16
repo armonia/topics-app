@@ -22,17 +22,16 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import { isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
+import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
-import { registerFreezableRun } from "./budget-governor";
-import { memoryWaiter, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
+import { registerFreezableRun, type FreezableRun } from "./budget-governor";
+import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
 import { slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { killProcessTree } from "../lib/process-tree";
 import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
 
@@ -278,6 +277,8 @@ interface RunOpts {
   /** Wait for free memory before each declared command (see `MemoryFloor`).
    *  Absent = no wait: the tests stay independent of this machine's memory. */
   memoryFloor?: MemoryFloor;
+  /** The commit the round measures: the swap brake counts its interruptions per `taskId@commit`. */
+  commit?: string | null;
   /** The footprint of a command's whole process tree, in KB. Injected by the
    *  tests; the default is the kernel's (`treeFootprintKB`). */
   sampleTreeKB?: (pid: number) => Promise<number | null>;
@@ -298,6 +299,9 @@ interface RunOneOpts {
   signal?: AbortSignal;
   env?: Record<string, string>;
   taskId?: string;
+  /** When the round started and what it measures, for the swap brake's registry entry. */
+  roundStartedAt?: number;
+  commit?: string | null;
   sampleTreeKB?: (pid: number) => Promise<number | null>;
   treeSampleMs?: number;
   /** Called with every tree reading, so the round can keep its peak. */
@@ -409,16 +413,25 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   // other, so the highest reading of any of them is the card's peak.
   let peakKB = 0;
   const onTreeKB = (kb: number) => { if (kb > peakKB) peakKB = kb; };
+  const roundStartedAt = Date.now();
   for (const [i, check] of checks.entries()) {
-    await waitForMemory(check.name);
+    const released = await waitForMemory(check.name);
+    let run: CheckRun;
+    try {
+      throwIfStopping();
+      throwIfInterrupted(opts.taskId);
+      if (opts.signal?.aborted) break;
+      run = await exec(check, {
+        cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId,
+        roundStartedAt, commit: opts.commit,
+        sampleTreeKB: opts.sampleTreeKB, treeSampleMs: opts.treeSampleMs, onTreeKB,
+      });
+    } finally {
+      released();
+    }
+    // Killed by the shutdown or by the swap brake: what came back is not a measurement.
     throwIfStopping();
-    if (opts.signal?.aborted) break;
-    const run = await exec(check, {
-      cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId,
-      sampleTreeKB: opts.sampleTreeKB, treeSampleMs: opts.treeSampleMs, onTreeKB,
-    });
-    // Killed by the shutdown: what came back is not a measurement.
-    throwIfStopping();
+    throwIfInterrupted(opts.taskId);
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
@@ -458,7 +471,7 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
    */
   const killTree = () => {
     const pid = proc?.pid;
-    if (pid) void killProcessTree(pid).catch(() => { /* gia' morto */ });
+    if (pid) void killCheckTree(pid).catch(() => { /* gia' morto */ });
   };
   const onAbort = () => { killTree(); };
   try {
@@ -467,6 +480,9 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
     // the person using this machine. See server/lib/low-priority.ts.
     proc = Bun.spawn(lowPriorityArgv(["/bin/sh", "-lc", check.cmd]), {
       cwd: opts.cwd,
+      // Its own process group, so a kill reaches what the shell forks after
+      // the descendants snapshot (`killCheckTree`).
+      detached: true,
       stdout: "pipe",
       // stderr NELLO stesso flusso di stdout: il messaggio di un compilatore sta
       // di là, l'ordine fra i due conta, e due code separate lo perdono.
@@ -494,16 +510,6 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
         ...opts.env,
       },
     });
-    // The tree, not the shell: the memory is in the grandchildren (bun test,
-    // tsc). A reading that fails is skipped, never a reason to stop the gate.
-    const rootPid = proc.pid;
-    if (rootPid && opts.onTreeKB) {
-      const read = opts.sampleTreeKB ?? treeFootprintKB;
-      const report = opts.onTreeKB;
-      sampler = setInterval(() => {
-        void read(rootPid).then((kb) => { if (kb != null && kb > 0) report(kb); }).catch(() => {});
-      }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
-    }
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
     // moment the command really starts, and the cap is restarted from there:
@@ -536,13 +542,15 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
      * Same rule the board already applies to the slot queue, which is why
      * `clockFrom` exists here at all. */
     let frozenAt = 0;
-    releaseFreezable = proc.pid
-      ? registerFreezableRun({
+    const entry: FreezableRun | null = proc.pid
+      ? {
           id: `${opts.taskId ?? "check"}:${check.name}:${proc.pid}`,
           pid: proc.pid,
           name: check.name,
           taskId: opts.taskId,
           startedAt: started,
+          roundStartedAt: opts.roundStartedAt,
+          commit: opts.commit,
           onFreeze: () => { frozenAt = Date.now(); },
           onThaw: () => {
             if (!frozenAt) return;
@@ -550,8 +558,24 @@ async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
             frozenAt = 0;
             armTimer();
           },
-        })
-      : () => {};
+        }
+      : null;
+    releaseFreezable = entry ? registerFreezableRun(entry) : () => {};
+    // The tree, not the shell: the memory is in the grandchildren (bun test,
+    // tsc). A reading that fails is skipped, never a reason to stop the gate.
+    // The registry entry carries the latest reading too (`[memsig]`, the swap brake).
+    const rootPid = proc.pid;
+    if (rootPid && opts.onTreeKB) {
+      const read = opts.sampleTreeKB ?? treeFootprintKB;
+      const report = opts.onTreeKB;
+      sampler = setInterval(() => {
+        void read(rootPid).then((kb) => {
+          if (kb == null || kb <= 0) return;
+          if (entry) entry.treeKB = kb;
+          report(kb);
+        }).catch(() => {});
+      }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
+    }
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";
@@ -699,6 +723,11 @@ export function formatChecksWait(args: {
   return `${parts.join(" · ")}. ${footer}`;
 }
 
+/** What a red CI evidence row measured, in the words of the card. */
+function ciRedWhy(row: CheckRun): string {
+  return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);
@@ -750,7 +779,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
     ].join("\n\n");
   }
-  const why = ci ? "e2e rossi sulla CI della PR" : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
   return [
     `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
@@ -776,6 +805,6 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   if (checksVerdict(runs) === "unknown") {
     return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
   }
-  const why = ci ? "e2e rossi sulla CI della PR" : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }

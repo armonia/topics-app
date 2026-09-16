@@ -55,6 +55,7 @@ import type { Database } from "bun:sqlite";
 import { fleetLoadSync, fleetSessionCoreUnits, type FleetLoadReading } from "../lib/fleet-usage";
 import { recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
+import { MEM_WINDOW_MS, parseSwapUsedMB, type HeldMemory, type MemSample } from "./mem-signal";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
@@ -433,31 +434,109 @@ export const GB_PER_AGENT_NATIVE = 1.5;
  * il pavimento si limita a non mordere, che è il verso giusto in cui sbagliare.
  */
 export function availableMemGB(
-  run: () => string | null = () => {
-    try {
-      if (process.platform !== "darwin") return null;
-      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
-    } catch {
-      return null;
-    }
-  },
+  run: () => string | null = readVmStatSync,
 ): number | null {
   const out = run();
-  if (!out) return null;
-  const pageSize = Number(out.match(/page size of (\d+) bytes/)?.[1] ?? 0);
-  const pages = (nome: string): number =>
-    Number(out.match(new RegExp(`Pages ${nome}:\\s+(\\d+)`))?.[1] ?? NaN);
+  return out ? parseVmStat(out).availGB : null;
+}
+
+function readVmStatSync(): string | null {
+  try {
+    if (process.platform !== "darwin") return null;
+    return spawnSync(VM_STAT_BIN, { encoding: "utf8", timeout: 2000 }).stdout ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The fields of one `vm_stat` answer the memory readers use; `null` = the line is missing. */
+export interface VmStat {
+  /** The sum `availableMemGB` returns (see its comment), or `null` if any term is unreadable. */
+  availGB: number | null;
+  pageSize: number | null;
+  compressorPages: number | null;
+  /** Cumulative since boot. */
+  swapins: number | null;
+  swapouts: number | null;
+}
+
+/** One parse for every reader: the synchronous probes here and the sampler of `mem-signal.ts`. */
+export function parseVmStat(out: string): VmStat {
+  const num = (re: RegExp): number | null => {
+    const n = Number(out.match(re)?.[1] ?? NaN);
+    return Number.isFinite(n) ? n : null;
+  };
+  const pageSize = num(/page size of (\d+) bytes/) || null;
+  const pages = (name: string) => num(new RegExp(`Pages ${name}:\\s+(\\d+)`));
   const free = pages("free");
   const speculative = pages("speculative");
   const purgeable = pages("purgeable");
   // NOT `Pages ...`: the line is called "File-backed pages", with the words the
   // other way round. Read with the other pattern it yields NaN, hence `null`,
   // hence a gate that stops measuring without saying so.
-  const fileBacked = Number(out.match(/File-backed pages:\s+(\d+)/)?.[1] ?? NaN);
+  const fileBacked = num(/File-backed pages:\s+(\d+)/);
   // One of the four unreadable and the total would be a silent understatement,
   // i.e. a floor that bites when it must not: better "I do not know".
-  if (!pageSize || ![free, speculative, purgeable, fileBacked].every(Number.isFinite)) return null;
-  return ((free + speculative + purgeable + fileBacked) * pageSize) / 1e9;
+  const terms = [free, speculative, purgeable, fileBacked];
+  const availGB = pageSize && terms.every((t) => t != null)
+    ? ((terms as number[]).reduce((a, b) => a + b, 0) * pageSize) / 1e9
+    : null;
+  return {
+    availGB,
+    pageSize,
+    compressorPages: num(/Pages occupied by compressor:\s+(\d+)/),
+    swapins: num(/Swapins:\s+(\d+)/),
+    swapouts: num(/Swapouts:\s+(\d+)/),
+  };
+}
+
+/** Reads a command's stdout asynchronously, killed after 2 s: `null` on any failure. */
+async function readCommand(argv: string[]): Promise<string | null> {
+  try {
+    const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
+    const timer = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* gone */ } }, 2_000);
+    try {
+      const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      return code === 0 ? out : null;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ABSOLUTE PATHS. The server runs under launchd with a PATH that has no
+ * `/usr/sbin`, where `sysctl` lives: spelled bare, the swap reading was null on
+ * every sample of the live server (15/09/2026, `swapUsedGB=?` in every
+ * `[memsig]` line with 14 GB of swap in use), so the swap verdict could never
+ * be sustained and the brake never fired. Same trap as `taskpolicy` on 06/09.
+ */
+export const VM_STAT_BIN = "/usr/bin/vm_stat";
+export const SYSCTL_BIN = "/usr/sbin/sysctl";
+
+/**
+ * The probe of `mem-signal.ts`: `vm_stat` and `sysctl -n vm.swapusage` as async
+ * spawns (a synchronous one blocks the loop for as long as a fork takes under
+ * thrash), plus the 1-minute load. `null` off macOS or when `vm_stat` fails.
+ */
+export async function probeVm(
+  run: (argv: string[]) => Promise<string | null> = readCommand,
+  platform: NodeJS.Platform = process.platform,
+): Promise<Omit<MemSample, "at"> | null> {
+  if (platform !== "darwin") return null;
+  const [vm, swap] = await Promise.all([run([VM_STAT_BIN]), run([SYSCTL_BIN, "-n", "vm.swapusage"])]);
+  if (!vm) return null;
+  const parsed = parseVmStat(vm);
+  return {
+    availGB: parsed.availGB,
+    swapins: parsed.swapins,
+    compressorPages: parsed.compressorPages,
+    pageSize: parsed.pageSize,
+    swapUsedMB: swap ? parseSwapUsedMB(swap) : null,
+    load1: os.loadavg()[0] ?? 0,
+  };
 }
 
 /**
@@ -474,21 +553,12 @@ export function availableMemGB(
  * the measurement of the one night this machine locked up.
  */
 export function compressorGB(
-  run: () => string | null = () => {
-    try {
-      if (process.platform !== "darwin") return null;
-      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
-    } catch {
-      return null;
-    }
-  },
+  run: () => string | null = readVmStatSync,
 ): number | null {
   const out = run();
   if (!out) return null;
-  const pageSize = Number(out.match(/page size of (\d+) bytes/)?.[1] ?? 0);
-  const pagesInCompressor = Number(out.match(/Pages occupied by compressor:\s+(\d+)/)?.[1] ?? NaN);
-  if (!pageSize || !Number.isFinite(pagesInCompressor)) return null;
-  return (pagesInCompressor * pageSize) / 1e9;
+  const vm = parseVmStat(out);
+  return vm.pageSize && vm.compressorPages != null ? (vm.compressorPages * vm.pageSize) / 1e9 : null;
 }
 
 /**
@@ -502,19 +572,10 @@ export function compressorGB(
  * Reported and not gated, deliberately: see the note on the compressor below.
  */
 export function swapoutPages(
-  run: () => string | null = () => {
-    try {
-      if (process.platform !== "darwin") return null;
-      return spawnSync("vm_stat", { encoding: "utf8", timeout: 2000 }).stdout ?? null;
-    } catch {
-      return null;
-    }
-  },
+  run: () => string | null = readVmStatSync,
 ): number | null {
   const out = run();
-  if (!out) return null;
-  const n = Number(out.match(/Swapouts:\s+(\d+)/)?.[1] ?? NaN);
-  return Number.isFinite(n) ? n : null;
+  return out ? parseVmStat(out).swapouts : null;
 }
 
 /**
@@ -528,14 +589,23 @@ export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_ME
   return availableGB < floorGB;
 }
 
-/** What the reading cannot show yet, as separate facts so the sentence names each: one card's
- *  price (median of the recent check peaks), the local turns inside the warm-up window, and
- *  whether the floor already holds (then it reopens only with room for one more card above it). */
+/**
+ * What the dispatcher knows and the reading cannot say, as separate facts so the
+ * sentence names each: one card's price, the memory kept for the local turns in
+ * flight (only in count mode, see `floorReason`), and whether any of our work is
+ * on the machine. With none, the floor asks for itself alone: this Mac reads
+ * 6.1-11.7 GB with no Topics work at all, so "floor + price" (10-12 GB) would
+ * keep an idle board shut for good.
+ */
 export interface MemoryFloorHold {
   cardGB: number;
-  startingCards: number;
-  holding: boolean;
+  reservedGB: number;
+  reservedCards: number;
+  ourWorkRunning: boolean;
 }
+
+/** Memory that cannot be measured here (not macOS): it never blocks. */
+const MEMORY_NOT_MEASURABLE: HeldMemory = { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 };
 
 /**
  * Perché NON si può ammettere un altro agente adesso, o `null` se si può.
@@ -547,18 +617,25 @@ export interface MemoryFloorHold {
  * quando il carico cala) mentre la RAM finita degrada. Il primo che morde
  * scrive la frase: due frasi insieme su una card sono rumore, e la seconda si
  * legge appena la prima è rientrata.
+ *
+ * THE MEMORY FLOOR READS A WINDOW, NOT AN INSTANT (`mem-signal.ts`). On
+ * 15/09/2026 it reopened three times on one reading (14.5 GB with 12 GB of
+ * swap, then 10.4 between two 5.5) and held again within 19-115 s. Now it holds
+ * while the LOWEST reading of the last 2 minutes is under the line, and while
+ * the window is not full (at boot too). One line for both directions: time is
+ * the hysteresis.
  */
 export function dispatchResourceBlock(
   worktreesPath: string,
   /** Injectable probe: "disk almost full" is otherwise provable only by filling a real disk. */
   readFreeGB: (p: string) => number | null = freeDiskGB,
-  /** Same for memory: proving "RAM almost gone" for real would send the developer's Mac into swap. */
-  readAvailMemGB: () => number | null = availableMemGB,
+  /** The memory window: proving "RAM almost gone" for real would send the developer's Mac into swap. */
+  readMemory: () => HeldMemory = () => MEMORY_NOT_MEASURABLE,
   /** Are this machine's agents PROCESSES? It decides the floor (CLI or native); the caller knows it
    *  from `agent_runtime`, and this file measures the machine without setting policy. */
   agentsAreProcesses = true,
-  /** What the dispatcher knows and the reading cannot see yet (see `MemoryFloorHold`). */
-  hold: MemoryFloorHold = { cardGB: AGENT_COST_FLOOR_MEM_GB, startingCards: 0, holding: false },
+  /** What the dispatcher knows and the reading cannot see (see `MemoryFloorHold`). */
+  hold: MemoryFloorHold = { cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, ourWorkRunning: false },
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -566,74 +643,70 @@ export function dispatchResourceBlock(
       `Ogni agente apre una worktree (~0,9 GB), e un disco pieno fa fallire le scritture del DB. ` +
       `Riprendo appena si libera spazio: niente è andato perso.`;
   }
-  const mem = (() => { try { return readAvailMemGB(); } catch { return null; } })();
+  const mem = (() => { try { return readMemory(); } catch { return MEMORY_NOT_MEASURABLE; } })();
+  if (!mem.measurable) return null;
   const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
-  const cardGB = Math.max(0, hold.cardGB);
-  const starting = Math.max(0, hold.startingCards);
-  // Two facts, kept apart: summed, they read "4 GB kept for the starting agents" with nobody starting.
-  const reserved = starting * cardGB;
-  const margin = hold.holding ? cardGB : 0;
-  const net = mem == null ? Number.NaN : mem - reserved;
-  if (mem != null && memoryTooTight(net, floor + margin)) {
-    const gb = (n: number) => n.toFixed(1);
-    const who = starting === 1 ? "l'agente che sta partendo" : `i ${starting} agenti che stanno partendo`;
-    const kept = reserved > 0 ? `, di cui ${gb(reserved)} tenuti per ${who}` : "";
-    // A reservation as large as the reading (as printed) is all of it, not "of which"; "under" only when the reading is.
-    const promised = `tutti già tenuti per ${who}, che la lettura non vede ancora`;
-    const head = reserved > 0 && Number(gb(reserved)) >= Number(gb(mem))
-      ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ${mem < floor ? `sotto il pavimento di ${floor} GB, e ${promised}.` : `${promised}: non ne resta niente per il pavimento di ${floor} GB.`}`
-      : mem < floor
-        ? `Memoria quasi finita: ${gb(mem)} GB disponibili${kept}, sotto il pavimento di ${floor} GB.`
-        : net < floor
-          ? `Memoria quasi finita: ${gb(mem)} GB disponibili, ma ${gb(reserved)} sono tenuti per ${who}, che la lettura non vede ancora, e i ${gb(net)} che restano non coprono il pavimento di ${floor} GB.`
-          : `Memoria in risalita: ${gb(mem)} GB disponibili${kept}, sopra il pavimento di ${floor} GB ma senza posto per un agente in più.`;
-    const costo = agentsAreProcesses
-      ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
-      : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check (shard unit) si prezza ${gb(cardGB)} GB`;
-    const tail = margin > 0
-      ? `Riparto sopra ${gb(floor + margin)} GB${reserved > 0 ? " al netto degli agenti che partono" : ""}, il pavimento più il prezzo di una card: ripartire alla soglia stessa fa sfarfallare la coda. Niente è andato perso.`
-      : "Riprendo appena si libera memoria: niente è andato perso.";
-    return `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}`;
+  const gb = (n: number) => n.toFixed(1);
+  if (mem.heldGB == null) {
+    const seconds = Math.min(Math.round(MEM_WINDOW_MS / 1000), Math.max(0, Math.round(mem.coveredMs / 1000)));
+    return `Memoria: la sto misurando da ${seconds} s su ${Math.round(MEM_WINDOW_MS / 1000)}, e non parto su una lettura sola. Niente è andato perso.`;
   }
-  // THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back
-  // out is the honest move rather than the tidy one.
-  //
-  // It was added here with a ceiling of one third, calibrated on "26 GB of 32
-  // on 2026-09-10". That number came from `Pages stored in compressor`
-  // (1.712.833 pages), which is LOGICAL compressed pages; what `compressorGB`
-  // reads - correctly - is `Pages occupied by compressor`, the physical RAM,
-  // which that night was 610.054 pages, 10,0 GB, a share of 0,291. The ceiling
-  // was therefore set from a number this code never computes, and 0,291 is
-  // BELOW one third: the guard would not have fired on the night it was written
-  // for. The arithmetic settles which line is which - 1.712.833 pages is 28,1
-  // GB, and with 9,6 GB inactive and 0,08 free that is 37,7 GB on a 34,36 GB
-  // machine, which cannot be.
-  //
-  // AND 0,25 IS NOT A SAFER RETUNE - IT IS A GUARANTEED FALSE POSITIVE. With
-  // the queue running again the share was sampled against the number of agents,
-  // and it rises with them, linearly:
-  //
-  //     0 agents (idle) 0,165 · 1 agent 0,186 · 2 agents 0,200
-  //     slope ~0,018 per agent -> ~0,237 at four, ~0,255 at FIVE
-  //
-  // So a ceiling of 0,25 fires at about five agents on a healthy machine: zero
-  // swapouts, `availableMemGB` well over the floor, nothing wrong. It would
-  // stop the board in normal operation before ever approaching a crisis, which
-  // is the opposite of what it was for. (Measured 2026-09-11 across three
-  // series, 0/55 samples ever showed the only reading that would justify it:
-  // available memory above the floor AND the share over 0,25.)
-  //
-  // The claim that used to stand here - "that night the floor was ALREADY
-  // refusing, 9,69 GB against a floor of 12" - is false and is corrected at
-  // DISPATCH_MEM_FLOOR_NATIVE_GB: the floor in force on this machine is the
-  // native one, and against it the gate was wide open. So the compressor is not
-  // a second brake behind a working first one; the first one simply had the
-  // wrong price. That is fixed there, and it is the fix that was needed.
-  //
-  // The numbers travel in the capacity payload instead, where they can earn a
-  // threshold if an incident ever gives them one.
-  return null;
+  const cardGB = Math.max(0, hold.cardGB);
+  const reservedGB = Math.max(0, hold.reservedGB);
+  const line = hold.ourWorkRunning ? floor + cardGB + reservedGB : floor;
+  const low = mem.heldGB;
+  if (low >= line) return null;
+  const n = Math.max(0, hold.reservedCards);
+  const kept = reservedGB > 0
+    ? ` (il pavimento, il prezzo di una card e ${gb(reservedGB)} GB tenuti per ${n === 1 ? "l'agente al lavoro" : `i ${n} agenti al lavoro`})`
+    : "";
+  const head = low < floor
+    ? `Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è ${gb(low)} GB, sotto il pavimento di ${floor} GB.`
+    : `Memoria in risalita: la lettura più bassa degli ultimi 2 minuti è ${gb(low)} GB, sopra il pavimento di ${floor} GB ma sotto i ${gb(line)} GB che servono per una card in più${kept}.`;
+  const costo = agentsAreProcesses
+    ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
+    : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check si prezza ${gb(cardGB)} GB`;
+  const tail = `Parto quando la memoria resta sopra ${gb(line)} GB per 2 minuti di fila: una lettura sola sopra la riga non basta. Niente è andato perso.`;
+  return `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}`;
 }
+
+// THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back
+// out is the honest move rather than the tidy one.
+//
+// It was added here with a ceiling of one third, calibrated on "26 GB of 32
+// on 2026-09-10". That number came from `Pages stored in compressor`
+// (1.712.833 pages), which is LOGICAL compressed pages; what `compressorGB`
+// reads - correctly - is `Pages occupied by compressor`, the physical RAM,
+// which that night was 610.054 pages, 10,0 GB, a share of 0,291. The ceiling
+// was therefore set from a number this code never computes, and 0,291 is
+// BELOW one third: the guard would not have fired on the night it was written
+// for. The arithmetic settles which line is which - 1.712.833 pages is 28,1
+// GB, and with 9,6 GB inactive and 0,08 free that is 37,7 GB on a 34,36 GB
+// machine, which cannot be.
+//
+// AND 0,25 IS NOT A SAFER RETUNE - IT IS A GUARANTEED FALSE POSITIVE. With
+// the queue running again the share was sampled against the number of agents,
+// and it rises with them, linearly:
+//
+//     0 agents (idle) 0,165 · 1 agent 0,186 · 2 agents 0,200
+//     slope ~0,018 per agent -> ~0,237 at four, ~0,255 at FIVE
+//
+// So a ceiling of 0,25 fires at about five agents on a healthy machine: zero
+// swapouts, `availableMemGB` well over the floor, nothing wrong. It would
+// stop the board in normal operation before ever approaching a crisis, which
+// is the opposite of what it was for. (Measured 2026-09-11 across three
+// series, 0/55 samples ever showed the only reading that would justify it:
+// available memory above the floor AND the share over 0,25.)
+//
+// The claim that used to stand here - "that night the floor was ALREADY
+// refusing, 9,69 GB against a floor of 12" - is false and is corrected at
+// DISPATCH_MEM_FLOOR_NATIVE_GB: the floor in force on this machine is the
+// native one, and against it the gate was wide open. So the compressor is not
+// a second brake behind a working first one; the first one simply had the
+// wrong price. That is fixed there, and it is the fix that was needed.
+//
+// The numbers travel in the capacity payload instead, where they can earn a
+// threshold if an incident ever gives them one.
 
 /**
  * La parte STRUTTURALE della capacità: quanti agenti questa macchina regge in

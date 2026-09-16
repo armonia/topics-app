@@ -28,7 +28,8 @@
  * and the dots stay away until there is something behind them.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot } from 'lucide-react';
+import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause } from 'lucide-react';
+import { browserTabKind } from './browserTabKind';
 import { BrowserFavicon } from './BrowserFavicon';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
@@ -131,43 +132,10 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   const t = useT();
   if (!chrome) return null;
 
-  // ABSENT MEANS CONNECTED, not "unknown": the native and iframe panes have no
-  // streaming socket, and a pane with no socket cannot have lost one. Reading
-  // absence as a problem would have put a warning glyph on every native tab.
-  const connection = chrome.connection ?? 'connected';
-
-  // FOUR STATES, FOUR GLYPHS, and `fallback-http` keeps its own on purpose: it
-  // is not "connecting" (the page IS updating, over polling) and not "gone".
-  // Folding it into the spinner would have said "still trying" about a link
-  // that already settled, which is the one wrong thing you can say about a
-  // degraded connection.
-  // THE AGENT COMES FIRST, and it is the one kind that is not a property of
-  // the pane but a thing happening right now. Until 2026-09-14 it was said by
-  // covering the page with `bg-black/40 backdrop-blur` and a box in the middle:
-  // the single moment you most want to watch the page was the moment the page
-  // was taken away. The fact moved here; over the page only the transparent
-  // layer that swallows the clicks is left.
-  const kind =
-    chrome.agentActive ? 'agent'
-    : connection === 'disconnected' ? 'disconnected'
-    : connection === 'connecting' ? 'connecting'
-    : connection === 'fallback-http' ? 'degraded'
-    : chrome.engine === 'chromium' ? 'chromium'
-    // SHARED IS THE EFFECTIVE RENDER, and the pane publishes it as such: true
-    // only where the page actually lives on the server and another device can
-    // therefore be looking at it. An iframe pane draws the page with this
-    // device's own engine and publishes `shared: false`, so the icon stays off
-    // the default kind without this line having to guess.
-    //
-    // It was briefly gated on `shareMode` too, to keep the icon off panes where
-    // sharing is not a CHOICE. That reading silenced it on the entire web
-    // client, where `shareMode` is undefined (there is no native view to choose
-    // instead) and every streaming pane is genuinely the shared session: the
-    // one place the icon has something to say, it said nothing. The fact is
-    // worth an icon wherever it holds - "your phone can be watching this" does
-    // not stop being true because you could not have had it otherwise.
-    : chrome.shared ? 'shared'
-    : undefined;
+  // The order of the kinds, and why the agent comes first, is in `browserTabKind`.
+  // Until 2026-09-14 the agent was said by covering the page with a dark sheet:
+  // the moment you most want to watch the page was the moment it was taken away.
+  const kind = browserTabKind(chrome);
   if (!kind) return null;
 
   const Glyph =
@@ -175,6 +143,8 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : kind === 'disconnected' ? WifiOff
     : kind === 'connecting' ? Loader2
     : kind === 'degraded' ? WifiLow
+    : kind === 'heavy-paused' ? CirclePause
+    : kind === 'heavy' ? Gauge
     : kind === 'chromium' ? Puzzle
     : MonitorSmartphone;
 
@@ -189,6 +159,8 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : kind === 'disconnected' ? t('browser.tab.kind.disconnected')
     : kind === 'connecting' ? t('browser.tab.kind.connecting')
     : kind === 'degraded' ? t('browser.tab.kind.degraded')
+    : kind === 'heavy-paused' ? t('browser.tab.kind.heavyPaused')
+    : kind === 'heavy' ? t('browser.tab.kind.heavy', { cpu: String(Math.round(chrome.heavy?.cpu ?? 0)) })
     : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
     : t('browser.tab.kind.shared');
 
@@ -207,7 +179,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   const tone =
     kind === 'agent' ? 'text-primary'
     : kind === 'disconnected' ? DANGER_TEXT
-    : kind === 'connecting' || kind === 'degraded' ? WARNING_TEXT
+    : kind === 'connecting' || kind === 'degraded' || kind === 'heavy' ? WARNING_TEXT
     : 'text-app-text-faint';
 
   const glyph = (

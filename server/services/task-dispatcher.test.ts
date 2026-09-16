@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { E2E_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
@@ -2288,6 +2288,10 @@ describe("task-dispatcher", () => {
 
     expect(h.turns).toHaveLength(1);
     expect(h.dispatcher.busySessionKeys()).toEqual([h.turns[0]!.sessionKey]);
+    // The PAIR, for the gate that asks the checks registry by task id whether
+    // that card's delivery is only waiting, and then has to take the same
+    // card's stream out of the chat sources (RGATE-07).
+    expect(h.dispatcher.busyTurns()).toEqual([{ taskId: "t1", sessionKey: h.turns[0]!.sessionKey }]);
     h.dispatcher.shutdown();
   });
 
@@ -4151,6 +4155,31 @@ describe("l'envelope non parla italiano", () => {
     expect(kickoff).toContain("E2E runs on GitHub CI for the attempt that is chosen, never here");
     expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
+  });
+
+  it("with the CI unit row: the full suite is read from the PR CI, targeted bun test stays, and an e2e line is not invented", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(undefined, [UNIT_CI_CHECK]);
+    expect(kickoff).not.toContain("github-ci:unit");
+    const unit = kickoff.split("\n").find((r) => r.includes("UNIT TESTS RUN ON GITHUB CI, NEVER HERE")) ?? "";
+    for (const word of ["`Unit + integration tests`", "`check` job", "Do not run `bun run test:unit`", "targeted `bun test <file>`", "NOT MEASURED, never green"]) {
+      expect(unit).toContain(word);
+    }
+    // A unit row alone reads no e2e: the e2e line stays the one of a board without it.
+    expect(kickoff).not.toContain("E2E RUNS ON GITHUB CI");
+    expect(kickoff).toContain("E2E IS NOT MEASURED BY THIS BOARD");
+    expect(italianRows(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+    const both = await envelopeDiKickoff(undefined, [E2E_CI_CHECK, UNIT_CI_CHECK]);
+    expect(both.kickoff).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
+    expect(both.kickoff).toContain("UNIT TESTS RUN ON GITHUB CI, NEVER HERE");
+    both.h.dispatcher.shutdown();
+    const fan = await envelopeDiKickoff(2, [UNIT_CI_CHECK]);
+    expect(fan.kickoff).toContain("The full unit suite runs on GitHub CI for the attempt that is chosen, never here");
+    expect(fan.kickoff).not.toContain("github-ci:unit");
+    fan.h.dispatcher.shutdown();
+    const plain = await envelopeDiKickoff();
+    expect(plain.kickoff).not.toContain("UNIT TESTS RUN ON GITHUB CI");
+    plain.h.dispatcher.shutdown();
   });
 
   it("il resume: l'unico testo davanti a un agente che riparte", async () => {

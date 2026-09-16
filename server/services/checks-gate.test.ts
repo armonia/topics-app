@@ -12,7 +12,7 @@
  * @covers KANBAN-15
  */
 import { test, expect, describe } from "bun:test";
-import { CHECKS_LEG_MS, clampLegMs, CHECKS_LEG_MS_MAX, DEFAULT_MAX_CONCURRENT_CHECKS, createChecksGate } from "./checks-gate";
+import { CHECKS_LEG_MS, ChecksInterruptedError, clampLegMs, CHECKS_LEG_MS_MAX, DEFAULT_MAX_CONCURRENT_CHECKS, createChecksGate } from "./checks-gate";
 
 const differita = <T>(ms: number, value: T) => new Promise<T>((r) => setTimeout(() => r(value), ms));
 const verde = { ok: true, comment: "verdi" };
@@ -119,6 +119,24 @@ describe("createChecksGate", () => {
     expect(await gate.leg("t1", { commit: "aa", legMs: 1, run })).toEqual({ pending: true });
     await differita(60, null);
     expect(gate.isRunning("t1")).toBe(false);
+  });
+});
+
+describe("a run interrupted for sustained swap", () => {
+  test("G1: the leg reads interrupted for swap, nothing is retained, and the next leg starts a fresh run", async () => {
+    const gate = createChecksGate();
+    let rounds = 0;
+    const run = async () => {
+      rounds += 1;
+      if (rounds === 1) throw new ChecksInterruptedError("swap");
+      return verde;
+    };
+    expect(await gate.leg("t1", { commit: "aa", legMs: 500, run })).toEqual({ interrupted: true, reason: "swap" });
+    expect(gate.isRunning("t1")).toBe(false);
+    expect(gate.verdictFor("t1", "aa")).toBe(false);
+    expect(await gate.leg("t1", { commit: "aa", legMs: 500, run })).toEqual(verde);
+    expect(rounds).toBe(2);
+    expect(new ChecksInterruptedError().reason).toBe("shutdown");
   });
 });
 

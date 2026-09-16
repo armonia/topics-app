@@ -73,6 +73,8 @@ export interface BrowserChromeBridgeInput {
    *  its type icon; nothing is drawn over the page for it. */
   agentActive?: boolean;
   agentAction?: string | null;
+  /** The pane is heavy, and whether it is paused; see `BrowserPaneChrome`. */
+  heavy?: { paused: boolean; cpu: number };
   /** What the SHEET shows and the tab cannot: this pane's address list, the
    *  console rows behind the tally, the downloads with their actions. They
    *  travel through the registry for the same reason the tally does - the sheet
@@ -151,7 +153,7 @@ export function useBrowserChromeBridge(
     faviconUrl, loading, canGoBack, canGoForward, consoleSummary, downloads,
     zoom, deviceMode, shared, shareMode, connection, engine, engineExtensions,
     renderMode, history, consoleEntries, downloadsMenu, commands,
-    agentActive, agentAction,
+    agentActive, agentAction, heavy,
   } = input;
 
   /**
@@ -170,6 +172,15 @@ export function useBrowserChromeBridge(
    * navigates, `url` is real and wins.
    */
   const urlToShow = isRealUrl(url) ? url : (input.knownUrl ?? url);
+
+  // Rebuilt from its two primitives, so a new object from the panel on every
+  // render does not republish the chrome on every render.
+  const heavyPaused = heavy?.paused;
+  const heavyCpu = heavy?.cpu;
+  const heavyChrome = useMemo(
+    () => (heavyCpu === undefined ? undefined : { paused: !!heavyPaused, cpu: heavyCpu }),
+    [heavyPaused, heavyCpu],
+  );
 
   const chrome = useMemo(() => ({
     url: urlToShow,
@@ -190,6 +201,7 @@ export function useBrowserChromeBridge(
     renderMode,
     agentActive,
     agentAction: agentAction ?? undefined,
+    heavy: heavyChrome,
     history: history ?? EMPTY_HISTORY,
     consoleEntries,
     downloadsMenu,
@@ -207,7 +219,7 @@ export function useBrowserChromeBridge(
     urlToShow, faviconUrl, loading, canGoBack, canGoForward,
     consoleSummary?.errors, consoleSummary?.warnings, downloads, zoom, deviceMode, shared,
     shareMode, connection, engine, engineExtensions, renderMode,
-    agentActive, agentAction,
+    agentActive, agentAction, heavyChrome,
     history, consoleEntries, downloadsMenu, input.downloadsStarted,
     addressEditRequest, downloadsOpenRequest, commands, focusAddress, openDownloads,
   ]);

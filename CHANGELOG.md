@@ -2,6 +2,44 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.334 — 2026-09-16
+
+### Sotto il cofano
+- Un `ps` che non risponde non e' un `ps` che risponde vuoto
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-16 [skip ci]
+- Un comando in primo piano non si confonde con un altro, e un sondaggio muto non e' una misura
+- Il tipo di `stdout` vive nella funzione che lo apre: annotare lo spawn lo riallargava
+- `capturing` non e' una parola del dizionario del cancello: il nome dice la pipe
+
+## 2.2.333 — 2026-09-16
+
+### Sotto il cofano
+- Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot
+- Sotto swap sostenuto il comando piu' pesante che un agente ha lanciato in background si ferma, e la sessione si copre di brina
+- La ripresa al boot riguarda solo una card ancora in lavorazione, e ricorda il commit del giro
+- Il commento di `roundCommit` sta sulla mappa, non davanti a `rememberDelivery`
+- La brina non monta e smonta la sua tela: un canvas a 0x0 che dipinge solo quando serve
+- La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara
+- Il frame del congelamento entra nel registro WS, e i quattro contratti che descrivevano il server di ieri lo sanno
+- La spec della brina apre la board dal menu "+" e semina la chat del progetto, invece di aspettare tab che nessuno ha aperto
+
+## 2.2.332 — 2026-09-15
+
+### Sotto il cofano
+- Prova del rosso, secondo giro: la topic nuova si seleziona dalla sua tab, come in topic-browser-window.spec
+- Il freno sullo swap legge davvero lo swap: sysctl e lsof per percorso assoluto sotto launchd
+- La fotografia forense dopo un SIGKILL legge chi tiene la 3333: lsof per percorso assoluto anche nel wrapper
+- L'inspector di una pane su Windows e' aperto finche' la sua finestra DevTools esiste, e la finestra del topic torna a passare il fuoco alla pagina
+
+## 2.2.331 — 2026-09-15
+
+### Sotto il cofano
+- Un check interrotto dal freno o dallo spegnimento muore con tutto il suo gruppo, anche il figlio forkato dopo la foto dei discendenti
+- Due giri in attesa dei check si alternano: un giro di tre comandi non si riprende piu' il rilascio a ogni uscita
+- Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva
+- Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto
+- Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio
+
 ## 2.2.330 — 2026-09-15
 
 ### Sotto il cofano
@@ -11,7 +49,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La card trattenuta riscritta da un altro torna in coda al retry dopo, e un test lo tiene
 - Una chiamata a git o gh si ferma davvero a 60 s, e Playwright sul Mac rifiuta prima di lanciare Chromium
 - Un push finito con un figlio ancora vivo non diventa un timeout, e il test che legge la config di Playwright passa sul Mac
+- La suite unit di una consegna si legge dalla CI della PR, con la stessa spinta e la stessa attesa dell'e2e
+- Il pavimento di memoria legge il minimo di 2 minuti invece di un istante, e la prenotazione di un turno si conta una volta sola
+- Un pannello browser che consuma molto va in pausa senza il fuoco e torna vivo senza ricaricare
+- Il cancello del bloat torna verde su main: task-dispatcher.ts registrato a 5444
+- Sotto swap sostenuto Topics interrompe da solo il giro di check piu' giovane, mai rosso, e l'attesa dei check non rilascia piu' su una lettura sola ne' in branco
+- I test del guscio su macOS compilano con la firma nuova, e la guardia dell'occlusione legge l'effetto giusto
+- I test del freno sotto swap dichiarano il tipo delle righe di log lette dallo spy
+- La spec del pannello pesante apre il foglio della tab come fa la spec della tab: prima l'hover
 - Il cancello del bloat torna verde su main dopo le tre PR fuse insieme
+- Il pannello pesante apre il foglio dopo averlo chiuso, e la CPU di un processo Windows si confronta col suo stesso tempo di CPU
 
 ## 2.2.329 — 2026-09-15
 

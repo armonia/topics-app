@@ -40,6 +40,12 @@ export interface FreezableRun {
   /** The card this run belongs to, when there is one: the note goes there. */
   taskId?: string;
   startedAt: number;
+  /** When the round this command belongs to started: the swap brake interrupts the youngest round. */
+  roundStartedAt?: number;
+  /** The commit the round measures: a delivery is `taskId@commit`. */
+  commit?: string | null;
+  /** Latest footprint of the whole tree in KB, written by the runner's sampler. */
+  treeKB?: number;
   /** Called when the run is paused, so its own deadline can stop counting.
    *  A frozen gate that times out would be this module inventing a red. */
   onFreeze?: () => void;
@@ -63,6 +69,12 @@ export function _resetFreezableRuns(): void {
 
 export function freezableRuns(): FreezableRun[] {
   return [...runs.values()];
+}
+
+/** The heaviest check tree alive now, in GB (`[memsig]`); `null` when none has been sampled. */
+export function liveCheckTreeGB(): number | null {
+  const kb = Math.max(0, ...[...runs.values()].map((r) => r.treeKB ?? 0));
+  return kb > 0 ? (kb * 1024) / 1e9 : null;
 }
 
 export interface GovernorDeps {

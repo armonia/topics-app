@@ -14,10 +14,10 @@
  *  5. A card resumed by hand while the pass awaited the broker is not resumed
  *     (and counted) a second time.
  *  6. The first-agent exemption does not apply while our checks are running.
- *  7. The memory floor holds until there is room for one more agent above it,
- *     a count-mode tick re-reads it after each start, and its sentence names a
- *     reservation only while an agent is starting, never as a part of a reading
- *     smaller than it, and "under the floor" only when the reading is.
+ *  7. The memory floor reads the lowest reading of a 2-minute window (D1-D7):
+ *     single readings never reopen it, the window is empty at boot, a turn in
+ *     flight is charged once (the budget axis in resources mode, the floor in
+ *     count mode), and the budget axis reads the same window.
  *  8. A card whose checks only wait on the pull request CI reserves no memory.
  *  9. A tick parked on the delivery probe does not start a second card after
  *     another board's tick started one in the gap.
@@ -30,6 +30,7 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { dispatchResourceBlock } from "./dispatch-capacity";
+import { createMemSignal } from "./mem-signal";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
@@ -281,115 +282,133 @@ describe("the exemption and the floor", () => {
     expect(h.startedAt).toHaveLength(1);
   });
 
-  it("the 6 GB floor reopens only with room for one more agent above it, and a count-mode tick re-reads it after each start", async () => {
-    let avail = 5.9;
+});
+
+/**
+ * THE FLOOR READS THE LOWEST READING OF 2 MINUTES, and the life-of-turn
+ * reservation is charged once. The real floor composer fed by a real memory
+ * signal over a fake probe; the harness's budget sample reads the same window.
+ */
+describe("the memory window on the floor and on the budget axis", () => {
+  function windowHarness(mode: "resources" | "count", overrides: Partial<DispatcherDeps> = {}) {
+    let reading = 20;
+    const signal = createMemSignal({
+      measurable: true,
+      probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, load1: 1 }),
+    });
     const h = harness({
       agentMemSamples: () => [],
-      resourceBlock: (reserved) => dispatchResourceBlock("/tmp", () => 500, () => avail, false, reserved),
+      agentCostSamples: () => [0.1],
+      resourceBlock: (hold) => dispatchResourceBlock("/tmp", () => 500, () => signal.held(), false, hold),
+      ...overrides,
     });
-    h.svc.setGlobalCap({ auto: false, max: 4 });
-    for (let i = 0; i < 3; i++) seedTodo(h.db, `floor-${i}`);
+    if (mode === "resources") h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    else h.svc.setGlobalCap({ auto: false, max: 4 });
+    h.machine.sample = () => ({ ...QUIET, availableMemGB: signal.held().heldGB, running: h.startedAt.length });
+    const t0 = Date.now();
+    let t = t0;
+    /** One 10 s beat: the sampler, then the dispatcher's tick. `startedAtSec` of each start, relative to t0. */
+    const beat = async (gb: number) => {
+      setSystemTime(new Date(t));
+      reading = gb;
+      await signal.sample();
+      await h.dispatcher.tick(PID);
+      await flush();
+      t += 10_000;
+    };
+    const beats = async (values: number[]) => { for (const gb of values) await beat(gb); };
+    const sec = () => (t - t0) / 1000;
+    const startsSec = () => h.startedAt.map((ms) => (ms - t0) / 1000);
+    return { h, beat, beats, sec, startsSec };
+  }
+  const repeat = (gb: number, n: number) => Array<number>(n).fill(gb);
 
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(0);
-
-    // Back over the floor by a hair: a bare threshold opened here, 30 times in
-    // eleven minutes. Holding, it needs the floor plus one agent's 4 GB. And the
-    // sentence says THAT: nobody is starting, and 6.5 is not under the floor.
-    avail = 6.5;
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(0);
-    const climbing = currentDispatchBlock()?.reason ?? "";
-    expect(climbing).toContain("6.5 GB disponibili, sopra il pavimento di 6 GB");
-    expect(climbing).toContain("Riparto sopra 10.0 GB");
-    expect(climbing).not.toContain("sotto il pavimento");
-    expect(climbing).not.toContain("partendo");
-    // Under the floor again and back: three sentences, ONE memory episode, so
-    // the "queue stopped" log line is written once and not at every swing.
-    avail = 5.9;
-    await h.dispatcher.tick(PID);
-    await flush();
-    avail = 6.5;
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(0);
-    expect(h.lines("coda ferma")).toHaveLength(1);
-
-    // 10.5 GB: room for one above the floor, so it opens. Each start reserves
-    // its 4 GB for the warm-up window, and the re-read after the second start
-    // finds 10.5 - 8 = 2.5 GB: the third card waits for the next reading.
-    avail = 10.5;
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(2);
+  it("D1, the 10:37 replay: ten minutes at 5.8, one reading at 14.5, then 5.5 start nothing", async () => {
+    const w = windowHarness("resources");
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d1-${i}`);
+    await w.beats([...repeat(5.8, 60), 14.5, ...repeat(5.5, 18)]);
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
   });
 
-  it("at 9 GB with nobody starting the floor says it waits for floor plus price, and names a reservation only while an agent is starting", async () => {
-    const avail = 9;
-    const h = harness({
-      agentMemSamples: () => [4.5],
-      resourceBlock: (hold) => dispatchResourceBlock("/tmp", () => 500, () => avail, false, hold),
-    });
-    h.svc.setGlobalCap({ auto: false, max: 4 });
-    for (let i = 0; i < 2; i++) seedTodo(h.db, `nine-${i}`);
-    const t0 = Date.now();
-    setSystemTime(new Date(t0));
-
-    // 9 GB is over the floor: one card starts. The re-read right after it holds
-    // for THAT agent, the only moment a reservation is true.
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(1);
-    const reservation = h.lines("coda ferma");
-    expect(reservation).toHaveLength(1);
-    expect(reservation[0]).toContain("9.0 GB disponibili, ma 4.5 sono tenuti per l'agente che sta partendo");
-    expect(reservation[0]).not.toContain("sotto il pavimento");
-
-    // Past the warm-up window nobody is starting any more, and 9 GB are still
-    // over the floor: what holds is the hysteresis, and the card reads that.
-    setSystemTime(new Date(t0 + 100_000));
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(1);
-    const held = currentDispatchBlock()?.reason ?? "";
-    expect(held).toContain("Memoria in risalita: 9.0 GB disponibili, sopra il pavimento di 6 GB");
-    expect(held).toContain("Riparto sopra 10.5 GB");
-    expect(held).toContain("si prezza 4.5 GB");
-    expect(held).not.toContain("sotto il pavimento");
-    expect(held).not.toContain("tenuti per");
-    expect(held).not.toContain("partendo");
-    const note = (h.svc.get("nine-1")?.comments ?? []).map((c) => c.content);
-    expect(note).toEqual([held]);
+  it("D2, the 11:03 shape: 5.5, 10.4, 5.5 starts nothing", async () => {
+    const w = windowHarness("resources");
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d2-${i}`);
+    await w.beats([...repeat(5.5, 13), 10.4, ...repeat(5.5, 13)]);
+    expect(w.h.startedAt).toHaveLength(0);
   });
 
-  it("a reading that drops under the reservation of the starting agent is not «of which» that reservation", async () => {
-    let avail = 6.2;
-    const h = harness({
-      agentMemSamples: () => [],
-      resourceBlock: (hold) => dispatchResourceBlock("/tmp", () => 500, () => avail, false, hold),
-    });
-    h.svc.setGlobalCap({ auto: false, max: 4 });
-    for (let i = 0; i < 2; i++) seedTodo(h.db, `drop-${i}`);
-    const t0 = Date.now();
-    setSystemTime(new Date(t0));
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(1);
+  it("D3, boot: an empty window admits nothing for 120 s, then the first card starts", async () => {
+    const w = windowHarness("resources");
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d3-${i}`);
+    await w.beats(repeat(12, 12)); // 0 .. 110 s
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("la sto misurando da 110 s su 120");
+    await w.beats(repeat(12, 2)); // 120, 130 s
+    expect(w.h.startedAt.length).toBeGreaterThanOrEqual(1);
+    expect(Math.min(...w.startsSec())).toBeGreaterThanOrEqual(120);
+  });
 
-    // 30 s later, inside the warm-up window, the reading is 3.9 GB and the agent
-    // still holds its 4 GB: the card read "3.9 GB available, of which 4.0 kept".
-    avail = 3.9;
-    setSystemTime(new Date(t0 + 30_000));
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.startedAt).toHaveLength(1);
-    const held = currentDispatchBlock()?.reason ?? "";
-    expect(held).toContain("3.9 GB disponibili, sotto il pavimento di 6 GB, e tutti già tenuti per l'agente che sta partendo");
-    const notes = (h.svc.get("drop-1")?.comments ?? []).map((c) => c.content);
-    expect(notes.at(-1)).toBe(held);
-    for (const said of [...notes, ...h.lines("coda ferma")]) expect(said).not.toContain("di cui");
+  it("D4: a turn in flight does not starve the queue at 10 GB, and a window dipping to 9.5 holds it", async () => {
+    for (const [low, expected] of [[10.2, 1], [9.5, 0]] as const) {
+      const w = windowHarness("resources");
+      seedTodo(w.h.db, `d4-first-${low}`);
+      await w.beats(repeat(20, 14));
+      expect(w.h.startedAt).toHaveLength(1);
+      // Ten minutes of a turn waiting on a human: no check tree, the reading is back to normal.
+      await w.beats(repeat(20, 60));
+      for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d4-${low}-${i}`);
+      await w.beat(5.5);
+      const bite = w.sec() - 10;
+      const band = [low, 11.7, 10.8, 11.2];
+      await w.beats(Array.from({ length: 24 }, (_, i) => band[i % band.length]!));
+      const later = w.startsSec().slice(1);
+      expect(later).toHaveLength(expected);
+      if (expected) {
+        expect(later[0]!).toBeGreaterThanOrEqual(bite + 120);
+        expect(later[0]!).toBeLessThanOrEqual(bite + 130);
+      }
+    }
+  });
+
+  it("D5: one window opening is bounded: exactly two starts, the third held by the budget axis, and no second memory episode", async () => {
+    const w = windowHarness("resources");
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d5-${i}`);
+    await w.beats(repeat(5.5, 13)); // a full window at the bite, 0 .. 120 s
+    const bite = w.sec() - 10;
+    const band = [10.4, 11.7, 11.0];
+    await w.beats(Array.from({ length: 30 }, (_, i) => band[i % band.length]!));
+    const starts = w.startsSec();
+    expect(starts).toHaveLength(2);
+    expect(starts[0]!).toBeGreaterThanOrEqual(bite + 120);
+    expect(starts[1]! - starts[0]!).toBeLessThanOrEqual(10);
+    expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
+    const afterFirst = w.h.logLines.slice(w.h.logLines.findIndex((l) => l.includes("coda ripartita")) + 1);
+    expect(afterFirst.filter((l) => l.includes("coda ferma") && l.includes("Memoria"))).toHaveLength(0);
+  });
+
+  it("D6, count mode: the floor charges the turn in flight for its whole life", async () => {
+    const w = windowHarness("count");
+    seedTodo(w.h.db, "d6-first");
+    await w.beats(repeat(20, 13));
+    expect(w.h.startedAt).toHaveLength(1);
+    await w.beats(repeat(20, 30)); // five minutes: past any warm-up window
+    seedTodo(w.h.db, "d6-second");
+    await w.beats(repeat(11, 14));
+    expect(w.h.startedAt).toHaveLength(1);
+    const reason = currentDispatchBlock()?.reason ?? "";
+    expect(reason).toContain("4.0 GB tenuti per l'agente al lavoro");
+    expect(reason).toContain("sotto i 14.0 GB");
+  });
+
+  it("D7: the budget axis reads the window, so a reading of 14 between two of 10.5 does not start a third card", async () => {
+    const w = windowHarness("resources");
+    for (let i = 0; i < 2; i++) seedTodo(w.h.db, `d7-${i}`);
+    await w.beats(repeat(30, 15));
+    expect(w.h.startedAt).toHaveLength(2);
+    seedTodo(w.h.db, "d7-third");
+    await w.beats(Array.from({ length: 30 }, (_, i) => (i % 2 ? 14 : 10.5)));
+    expect(w.h.startedAt).toHaveLength(2);
   });
 });
 

@@ -1,7 +1,8 @@
 # Design: mac-usabile-sotto-carico
 
-Per ora questo documento copre la **tornata 2** della change (scelta 1: «Solo in CI»).
-Le altre tornate aggiungeranno le loro sezioni qui, non una change nuova. Fino al
+Questo documento copre la **tornata 2** (scelta 1: «Solo in CI») e la **tornata 3**
+(scelta 2 e le risposte del 15/09 17:20). Le altre tornate aggiungeranno le loro sezioni
+qui, non una change nuova. Fino al
 15/09/2026 questo disegno stava in una change a sé, `board-e2e-on-pr-ci`, approvata
 con «Sì, sulla CI (Recommended)»: è confluita qui perché risponde alla stessa scelta.
 
@@ -112,11 +113,14 @@ bassa come i comandi (KANBAN-78).
 
 La spinta avviene SOLO dopo che tutti i comandi locali sono verdi. Il motivo non è il
 tempo (in parallelo si risparmierebbero ~10 minuti) ma la pubblicazione: il repo è
-pubblico, e `test:unit` contiene i due cancelli che decidono se un checkout si può
-pubblicare (`no-personal-data-tracked`, `no-home-paths-tracked`). Un commit che li
-viola non deve arrivare su GitHub. Al rollout si aggiunge anche
-`bun run check:security --only=secrets` in coda a `static-rails` (vedi Rollout),
-perché la protezione dei push di GitHub è spenta.
+pubblico, e due cancelli decidono se un checkout si può pubblicare
+(`no-personal-data-tracked`, `no-home-paths-tracked`). Un commit che li viola non deve
+arrivare su GitHub, e sul runner non misurano niente: la home si ricava dalla macchina
+(là è `runner`) e `.personal-terms` non è tracciato. Stavano dentro `test:unit`, che dalla
+tornata 3 si legge dalla CI (D15); quindi al rollout la coda di `static-rails` diventa
+`bun run check:security --only=data,home,secrets` (vedi Rollout): due `bun test` e la
+ricerca dei segreti, ~6 s, locali e prima della spinta. I segreti ci sono perché la
+protezione dei push di GitHub è spenta.
 
 Il check CI si misura sempre DOPO i comandi, qualunque sia la sua posizione
 nell'elenco dichiarato.
@@ -378,7 +382,7 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 2. Codice e test su un ramo, PR, CI verde, merge.
 3. Il watcher ricarica il server; le sessioni nuove prendono le 240 gambe.
 4. SOLO ADESSO: `PATCH /api/boards/topics-app-ar3jt5/settings` con `reviewChecks` =
-   le cinque righe attuali, con `&& bun run check:security --only=secrets` in coda a
+   le cinque righe attuali, con `&& bun run check:security --only=data,home,secrets` in coda a
    `static-rails`, e `{ "name": "e2e-ci", "cmd": "github-ci:e2e" }` al posto di
    `e2e-touched`. Al contrario, il runner vecchio passerebbe `github-ci:e2e` a `sh`:
    uscita 127, rosso su ogni consegna.
@@ -390,8 +394,9 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
 ## Rischi
 
 - **Pubblico prima della review.** Vedi D12. La protezione dei push di GitHub è spenta;
-  prima della spinta girano `test:unit` (dati personali, percorsi di casa) e, dal
-  rollout, `check:security --only=secrets`.
+  prima della spinta gira, dal rollout, `check:security --only=data,home,secrets` in coda
+  a `static-rails` (dati personali, percorsi di casa, segreti): dopo la tornata 3
+  `test:unit` non gira più nel worktree, e l'hook pre-push cerca solo `.personal-terms`.
 - **Attesa.** Giro locale (media 10,6 min, max 29,2) più CI (14-42 min). Nel modo a conteggio
   del tetto la card in attesa tiene il suo posto (è `in_progress`): meno card in parallelo.
   Oltre le 240 gambe il turno si chiude e il dispatcher riprende l'agente consumando un
@@ -422,8 +427,184 @@ Finché KANBAN-84 non è in `openspec/specs/`, i file nuovi dichiarano `@covers 
   (`feedback_push-su-main-solo-dopo-test-unit-shards.md`,
   `project_ci-rossa-una-settimana-e2e-touched-sesto-check.md`): da aggiornare dopo il land.
 
+## Tornata 3: segnale di memoria onesto e freno sul lavoro in volo
+
+Disegno rivisto il 15/09 dopo una critica avversaria (quattro bloccanti, tutti chiusi), poi
+ristretto dal lead dopo la risposta del proprietario delle 17:20 «test:unit alla consegna:
+dalla CI della PR». Qui le decisioni e i numeri su cui stanno; i test sono nei file.
+
+### Misure (15/09/2026)
+
+- Tre riaperture del pavimento su una lettura sola (10:37 14,5 GB con 12 GB di swap; 11:03
+  5,5 / 10,4 / 5,5), richiuse entro 19-115 s. Il picco delle 10:37 è durato al massimo ~124 s:
+  2 minuti è la finestra più corta che il log dimostra sufficiente.
+- Senza lavoro di Topics questo Mac legge 11,70 GB da riposato e 6,1 GB alle 14:50: ogni riga
+  «pavimento + X» con X > 5,7 GB è irraggiungibile anche a board vuota.
+- Il livello di pressione del kernel è un rapporto del compressore (entra a ~13,7 GB, esce
+  sotto ~10,9): i picchi del 15/09 e del 10/09 stavano al livello 1. Non si usa.
+- Forme dello swap: thrash 14:06 12,8-33,6 swap-in/s con debito +8,8/+14 GB/min, load 75,9,
+  stalli di 43 e 54 s; recupero 11:23 65/s con debito in calo; calma con debito 14:50 2,4-3,2/s
+  piatto; board sana 11/09 0,04/s.
+- Nessun comando di consegna di topics-app supera 1 GB una volta tolta la suite unit dal Mac:
+  tsc 460 MB, build vite 316 MB.
+
+### D15. La suite unit dalla CI della PR, con la stessa spinta dell'e2e
+
+Riga `github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`): verdetto = conclusione del passo
+`Unit + integration tests` del job `check` nella run `pull_request` del commit consegnato,
+letto appena il passo è concluso. `failure` = rosso con `gh run view --job <id> --log-failed`;
+passo saltato, annullato, assente o job finito prima = non misurato (97). `awaitCiEvidence`
+serve tutte le righe CI dichiarate con UNA spinta, UNA bozza e UN giro di sondaggi: ogni riga
+si chiude quando ha il suo esito, e alla scadenza le righe ancora aperte sono non misurate
+senza toccare le altre. Costo: un rosso unit arriva dopo la spinta, su un repo pubblico.
+I due cancelli di pubblicazione che stavano nella suite non vanno con lei: restano locali, in
+`static-rails` (D3).
+
+### D16. `mem-signal.ts`: una sonda con la storia
+
+Campione asincrono (`vm_stat`, `sysctl -n vm.swapusage`, carico) sul battito da 10 s, a volo
+singolo; una sonda fallita non spinge niente, un buco > 30 s svuota la finestra. Minimo dei
+2 minuti per il pavimento, l'asse del budget e l'attesa dei check. Swap sostenuto = su 60 s
+swap-in >= 10/s E debito (compressore + swap usato) >= +0,5 GB/min. Soglie PROVVISORIE:
+nessun cancello di calibrazione di 7 giorni prima del merge; la riga `[memsig]` (ogni 60 s)
+arriva con il resto e serve alla barra di esito.
+
+### D17. Il pavimento su una riga
+
+Riga = pavimento (6 GB nativo) senza lavoro nostro sulla macchina, pavimento + prezzo di una
+card con un turno locale o un giro di check in volo; il tempo è l'isteresi. La prenotazione per
+la vita del turno si conta una volta: l'asse del budget in «per risorse» (che legge il minimo
+della finestra), il pavimento in «per numero». Contata due volte un turno in volo portava la
+riga a 14 GB. Con P = 4: nessuno in volo 6 GB per 2 minuti, un turno 10 GB, due turni 13 GB
+(asse del budget).
+
+### D18. L'attesa dei check, semplificata
+
+`releaseDecision`, in ordine: memoria non misurabile → parte; swap sostenuto → aspetta, senza
+fallire aperto; un comando di un ALTRO giro rilasciato da meno di 120 s e ancora vivo → aspetta;
+finestra non piena o minimo sotto il pavimento → aspetta; altrimenti parte, e dopo i 30 minuti
+del giro fallisce aperto solo sulla memoria. **Il termine di prezzo per comando e il suo registro
+(`check-mem-prices.json`) sono tolti rispetto al disegno rivisto**: con la suite unit in CI nessun
+comando di consegna su topics-app supera 1 GB, e un registro per comandi da mezzo giga non
+cambierebbe nessuna decisione.
+
+### D19. Il freno sotto swap
+
+Sul battito, dopo il campione: con lo swap sostenuto si uccide (SIGTERM, SIGKILL dopo 5 s) il
+giro più giovane fra i run registrati di una card con albero >= 1 GB, al massimo uno ogni 120 s
+e 2 per consegna `taskId@commit`. Il giro lancia `ChecksInterruptedError("swap")` prima di
+registrare il comando ucciso: nessun verdetto, nessun picco. La rotta tiene la consegna, la
+riemette quando la corsa è finita e non riallinea di nuovo (`swapInterruptedDelivery`); un
+verdetto registrato azzera il conto. Commento di servizio sulla card, righe `[checks-swap]`
+nel log. Su topics-app, con la suite unit in CI, il freno non ha quasi vittime: resta per
+il gate `verify:all` di dancerooms e per le board future (risposta 2 del proprietario).
+
+### Barra
+
+- **B1, meccanismo** (CI della PR): `mem-signal`, `dispatch-capacity`,
+  `task-dispatcher-admission`, `task-dispatcher-held-resume-quiet`, `review-checks-brakes`,
+  `checks-gate`, `tasks.checks-interrupted`, `ci-evidence`, `tasks.checks-ci`, job `check` verde.
+- **B3, esito sul server vivo, 72 ore dopo il land** (script in sola lettura nello scratchpad,
+  non committato): giorni UTC interi con verdetti di consegna, 72 h prima contro 72 h dopo,
+  10 minuti attorno al land esclusi. O1 secondi di stallo [LAG] al giorno dopo <= 0,5 x prima;
+  O2 p95 di swap-in/s e di load1 dopo <= prima; O3 verdetti di consegna e turni partiti al giorno
+  dopo >= 0,7 x prima; O4 swap sostenuto con un albero >= 1 GB per al massimo 190 s di fila.
+
+### Rischi
+
+- Meno card insieme: la seconda card chiede 10 GB per 2 minuti (P = 4), una a una con P = 6.
+- Ogni reload del server (a ogni land di codice server) tiene ammissione e attesa per 120 s.
+- Nessun fallire aperto con lo swap sostenuto: uno swap non nostro che dura ore tiene ogni giro
+  per tutto quel tempo, e il log dice perché.
+- Il freno gira sul loop che si ferma: una decisione presa durante uno stallo aspetta il loop.
+- Soglie provvisorie: se B3 mostra falsi positivi o mancati, si spostano `PAGES_READ_BACK_PER_S`
+  e `DEBT_GB_PER_MIN` in `mem-signal.ts`.
+
+## Tornata 3c: il comando più pesante di un agente sotto swap si congela, e la sessione si copre di brina
+
+Risposta del proprietario, 15/09/2026 20:40, alla domanda «con il Mac in swap sostenuto, cosa fa
+Topics con i processi pesanti che gli agenti lanciano nelle topic»: «freezza il piu pesante
+mostrando un effetto di congelamento figo sulla card realistico». Il 16/09 alle 00:30, sul comando
+in primo piano: «non ho capito, dovremmo gestirlo nella miglor maniera piu solida e pulita e user
+friendly» — scelta del lead: **un comando in primo piano non si congela mai, si congela il più
+pesante in background**.
+
+### D20. Chi è un candidato, e perché quasi nessuno lo è
+
+Misurato su questo Mac (`ps -axo pid,ppid,pgid,time,command`, 15-16/09):
+
+| forma | padre | gruppo del comando |
+|---|---|---|
+| tool `Bash` di Claude Code | il CLI | **il suo** (`Ss`, pgid == pid) |
+| MCP, LSP, `caffeinate` | il CLI | il gruppo del CLI (condiviso) |
+| tool `bash` del runtime nativo | il server | **quello del server** (981, con `start-prod.sh`) |
+
+Da qui le due regole che reggono tutto: il runtime nativo (702 topic su 1808 con `provider = 'topics'`,
+più 1003 sul default) NON può ricevere un segnale di gruppo, e un figlio del CLI che non è capogruppo
+è un MCP o un LSP e sta nell'insieme di guardia. Un `Bash` è candidato solo se il `PreToolUse` del
+CLI lo ha dichiarato `run_in_background` (`server/lib/background-bash-record.ts`); il primo piano
+non si congela perché il suo CLI lo uccide alla scadenza del tool su un orologio che continua a
+correre mentre il processo è fermo, e nessuna regola di scongelamento può restituirgli il tempo
+speso. Un payload assente vale come primo piano.
+
+### D21. Il più pesante, e quando smette di esserlo
+
+Footprint dell'albero più i servizi XPC attribuiti, pavimento 0,5 GB e almeno 0,1 core; a parità,
+più CPU. La calma da sola non scongela (la calma è ciò che il congelamento produce): si scongela per
+memoria tornata, per nessun effetto (120-180 s, pagine rilette >= 0,8 volte quelle di partenza), a
+10 minuti, col padrone sparito, allo spegnimento e al boot. Due congelamenti per albero, contati su
+disco perché il conteggio deve sopravvivere a un riavvio.
+
+### D22. Il registro, scritto prima del segnale
+
+`<stateDir>/swap-freeze.json`, due sezioni: `active` (chi è fermo adesso) e `counts` (quante volte,
+identità per identità). Nessun pid riceve SIGSTOP se non è già su disco: un SIGKILL fra la scrittura
+e il segnale lascia un pid registrato che sta solo correndo, e un SIGCONT a un processo che corre non
+fa danno; l'ordine inverso lascia un albero fermo che nessuno sa di dover continuare.
+
+### D23. Gli orologi che giudicano il silenzio
+
+Regola dalla scheda `our-own-wait-is-not-a-stall`: un'attesa nostra non è uno stallo. Rilevatore di
+stallo, spazzino degli stream (`toolRunningMs` meno il tempo congelato), timer del bash nativo,
+parcheggio della PTY, `LiveToolLine` della card, e lo stop di una sessione che scongela prima di
+uccidere.
+
+### D24. La brina
+
+Texture procedurale (`client/src/lib/swapIceTexture.ts`): fronte che nasce dagli angoli e cresce
+verso l'interno, dendriti con rami a 60 gradi, grana di brina, bordo frastagliato. Ferma quando si è
+posata (nessun rAF, nessun ridisegno: la brina compare proprio mentre la macchina è in thrash), nessun
+`backdrop-filter`, nessun filtro SVG, nessun WebGL. **Nessun cristallo sopra il testo**, e non è una
+preferenza: con i token veri, in tema scuro, un'alpha di 0,51 sotto `--text` dà 2,93:1 e l'alpha
+massima leggibile sotto `--text-muted` è 0,066, cioè invisibile. Quindi la texture resta forte e
+cresce ATTORNO alle caselle di testo, come la brina vera attorno a ciò che è caldo.
+
+### T0: cosa ha detto la sonda, prima del codice
+
+Ramo usa e getta `topics/t0-probe-congelamento`, job `workflow_dispatch` su `macos-latest`
+(run 35031447596, verde, artefatto letto il 16/09). Quattro risposte:
+
+1. **L'attribuzione funziona.** `launchctl print pid/<Playwright.app>` elenca WebContent, GPU e
+   Networking con i loro pid (ppid 1, fuori dall'albero), e il filtro sul percorso
+   (`~/Library/Caches/ms-playwright/webkit-<rev>/`) li tiene distinti da ogni servizio di sistema.
+2. **Il peso di UNA pagina WebGL sul runner: 0,057 GB di albero + 0,383 di XPC = 0,44 GB**, cioè
+   SOTTO il pavimento di 0,5 GB. Il pavimento quindi non è giustificato da questa misura e non è
+   stato spostato per farcela entrare: una pagina sola non si congela, e va bene così — congelarla
+   non libererebbe attività di pagine che valga il prezzo. La batteria del 15/09 (`prova-3d.ts` +
+   `batteria.ts`) guidava più pagine insieme. Quanto spesso un albero vero su questa macchina superi
+   il pavimento lo dice E0 della barra, in sola lettura sul log del server vivo.
+3. **Fermare il solo albero del comando non basta**: la pagina smetteva di produrre frame solo
+   perché il driver aveva smesso di guidarla. Fermando albero + XPC: tutti e 6 i pid in stato `T`,
+   tempo di CPU invariato da 1 s a 10 s, zero battiti; dopo SIGCONT i frame riprendono (1238 -> 1651).
+4. **Le operazioni con un timeout in volo scadono.** `page.waitForTimeout(3000)` è tornata ok dopo
+   10,4 s, ma un `click({ timeout: 5000 })` in volo è FALLITO con TimeoutError. Conseguenza presa sul
+   serio: l'agente deve essere avvisato (riga nell'uscita del tool nativo, riga nel file di output
+   della shell in background) e la card lo dice, perché un rosso dopo una ripresa è un effetto del
+   congelamento e non un difetto del codice.
+
 ## Dove cambiarla
 
 | # | Domanda | Consigliata | Alternativa | Dove cambiarla |
 |---|---|---|---|---|
 | 1 | Da dove viene l'evidenza e2e della consegna | job e2e della CI della PR sul commit consegnato | `check:e2e-touched` locale con Chromium | `KANBAN-84`, `KANBAN-15`, `GATE-11` |
+| 8 | Processi pesanti degli agenti sotto swap | congela il più pesante in background o nativo (>= 0,5 GB, 10 min, 2 per albero) | solo attesa del lavoro nuovo | `KANBAN-85`, `KANBAN-75` |

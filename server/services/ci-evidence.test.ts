@@ -8,16 +8,19 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { E2E_CI_CHECK } from "../../shared/board";
+import { E2E_CI_CHECK, UNIT_CI_CHECK } from "../../shared/board";
 import {
   CI_E2E_DEADLINE_MS,
-  awaitE2eEvidence,
+  awaitCiEvidence,
   ciCheckRun,
   githubPort,
   listField,
   readE2eEvidence,
+  readUnitEvidence,
+  UNIT_STEP,
   repoFromRemote,
   pushRejectedAsNonFastForward,
+  type AwaitCiDeps,
   type GithubJob,
   type GithubPort,
   type GithubRun,
@@ -104,6 +107,71 @@ describe("readE2eEvidence", () => {
   });
 });
 
+const step = (name: string, conclusion: string | null) => ({ name, status: conclusion ? "completed" : "in_progress", conclusion });
+const checkJob = (unit: string | null, over: Partial<GithubJob> = {}): GithubJob => ({
+  id: 4242, name: "check", status: "in_progress", conclusion: null,
+  steps: [step("Setup Bun", "success"), step("Typecheck (client + server ratchet + e2e)", "success"), step(UNIT_STEP, unit)],
+  ...over,
+});
+
+describe("readUnitEvidence", () => {
+  test("the unit step green on our commit is a pass, even while the rest of the check job runs", () => {
+    const out = readUnitEvidence(SHA, [run({ status: "in_progress", conclusion: null })], [checkJob("success"), ...green]);
+    expect(out.kind).toBe("pass");
+    if (out.kind !== "pass") return;
+    const row = ciCheckRun(UNIT_CI_CHECK, out, 1, { repo: "o/r", prUrl: "https://github.com/o/r/pull/5" });
+    expect(row.ok).toBe(true);
+    expect(row.tail).toContain("unit tests green on the pull request CI");
+    expect(row.tail).toContain("pull/5");
+  });
+
+  test("a green unit step of another commit, or of a push run, is pending", () => {
+    expect(readUnitEvidence(SHA, [run({ head_sha: "b".repeat(40) })], [checkJob("success")]).kind).toBe("pending");
+    expect(readUnitEvidence(SHA, [run({ event: "push" })], [checkJob("success")]).kind).toBe("pending");
+  });
+
+  test("the unit step red is a fail with the log command of the check job", () => {
+    const out = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [checkJob("failure", { status: "completed", conclusion: "failure" })]);
+    expect(out.kind).toBe("fail");
+    if (out.kind !== "fail") return;
+    const row = ciCheckRun(UNIT_CI_CHECK, out, 1, { repo: "o/r" });
+    expect(row.ok).toBe(false);
+    expect(row.code).toBe(1);
+    expect(row.tail).toContain("unit tests red on the pull request CI");
+    expect(row.tail).toContain("gh run view --job 4242 --log-failed -R o/r");
+  });
+
+  test("a red typecheck step with the unit step green is still a unit pass: the row reads only its step", () => {
+    const job = checkJob("success", { status: "completed", conclusion: "failure" });
+    job.steps![1] = step("Typecheck (client + server ratchet + e2e)", "failure");
+    expect(readUnitEvidence(SHA, [run({ conclusion: "failure" })], [job]).kind).toBe("pass");
+  });
+
+  test("a skipped or cancelled unit step is not measured, never green", () => {
+    for (const c of ["skipped", "cancelled"]) {
+      const out = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [checkJob(c, { status: "completed", conclusion: "failure" })]);
+      expect(out.kind).toBe("notMeasured");
+      if (out.kind === "notMeasured") expect(out.reason).toContain(c);
+    }
+  });
+
+  test("a check job that failed before the step is not measured and says so", () => {
+    const job: GithubJob = { id: 4242, name: "check", status: "completed", conclusion: "failure", steps: [step("Setup Bun", "failure")] };
+    const out = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [job]);
+    expect(out.kind).toBe("notMeasured");
+    if (out.kind === "notMeasured") expect(out.reason).toContain("without running the step");
+    const cut = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [checkJob(null, { status: "completed", conclusion: "cancelled" })]);
+    expect(cut.kind).toBe("notMeasured");
+  });
+
+  test("a step still running is pending; a finished run without the check job is not measured", () => {
+    expect(readUnitEvidence(SHA, [run({ status: "in_progress", conclusion: null })], [checkJob(null)]).kind).toBe("pending");
+    expect(readUnitEvidence(SHA, [run({ status: "in_progress", conclusion: null })], green).kind).toBe("pending");
+    expect(readUnitEvidence(SHA, [run()], green).kind).toBe("notMeasured");
+    expect(readUnitEvidence(SHA, [run({ id: 12, conclusion: "cancelled" }), run({ id: 11 })], [checkJob("success")]).kind).toBe("notMeasured");
+  });
+});
+
 type Calls = { push: Array<{ sha: string; branch: string; lease?: string }>; runs: number; pr: number; merge: number };
 
 function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Calls } {
@@ -134,6 +202,7 @@ function fakeClock() {
 }
 
 const input = { cwd: "/tmp/wt", sha: SHA, taskId: "12345678-card" };
+const e2eRow = async (i: typeof input, d: AwaitCiDeps) => (await awaitCiEvidence({ ...i, checks: [E2E_CI_CHECK] }, d))[0]!;
 
 describe("spawnCapped", () => {
   // `git push` runs its hook and ssh as children: a cap that killed git alone
@@ -166,10 +235,10 @@ describe("spawnCapped", () => {
   });
 });
 
-describe("awaitE2eEvidence", () => {
+describe("awaitCiEvidence with the e2e row", () => {
   test("a gh auth error on the pull request is NOT MEASURED at once, without polling", async () => {
     const { port, calls } = fakePort({ draftPullRequest: async () => ({ ok: false, error: "gh: not logged in" }) });
-    const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
     expect(row.code).toBe(97);
     expect(row.notMeasured).toBe(true);
     expect(row.tail).toContain("not logged in");
@@ -178,7 +247,7 @@ describe("awaitE2eEvidence", () => {
 
   test("a rejected push with a remote head outside the reflog never forces", async () => {
     const { port, calls } = fakePort({ push: async () => ({ ok: true, value: "non-fast-forward" }) });
-    const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
     expect(row.notMeasured).toBe(true);
     expect(calls.push.length).toBe(1);
     expect(calls.push[0]!.lease).toBeUndefined();
@@ -191,7 +260,7 @@ describe("awaitE2eEvidence", () => {
       push: async (_c, _s, _b, lease) => ({ ok: true, value: lease ? "pushed" : "non-fast-forward" }),
       inReflog: async (_c, _b, sha) => ({ ok: true, value: sha === remote }),
     });
-    const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
     expect(calls.push.map((p) => p.lease)).toEqual([undefined, remote]);
     expect(row.ok).toBe(true);
     expect(calls.runs).toBe(1);
@@ -204,7 +273,7 @@ describe("awaitE2eEvidence", () => {
       runs: async () => ({ ok: true, value: [run({ status: "in_progress", conclusion: null })] }),
       jobs: async () => ({ ok: true, value: [job("prepare-e2e", "success"), job("e2e (1)", null)] }),
     });
-    const row = await awaitE2eEvidence(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
     expect(row.ok).toBe(false);
     expect(row.notMeasured).toBe(true);
     expect(clock.now() - pushedAt).toBeGreaterThanOrEqual(CI_E2E_DEADLINE_MS);
@@ -219,7 +288,7 @@ describe("awaitE2eEvidence", () => {
       runs: async () => ({ ok: true, value: [] }),
       mergeState: async () => ({ ok: true, value: "CONFLICTING" }),
     });
-    const row = await awaitE2eEvidence(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
     expect(row.notMeasured).toBe(true);
     expect(row.tail).toContain("conflicts");
     expect(calls.merge).toBe(1);
@@ -229,10 +298,10 @@ describe("awaitE2eEvidence", () => {
   test("three failed reads then green is a pass; five in a row is NOT MEASURED", async () => {
     let n = 0;
     const flaky = fakePort({ runs: async () => (++n <= 3 ? { ok: false, error: "HTTP 502" } : { ok: true, value: [run()] }) });
-    const pass = await awaitE2eEvidence(input, { port: flaky.port, ...fakeClock(), stopping: () => false });
+    const pass = await e2eRow(input, { port: flaky.port, ...fakeClock(), stopping: () => false });
     expect(pass.ok).toBe(true);
     const down = fakePort({ runs: async () => ({ ok: false, error: "HTTP 502" }) });
-    const nm = await awaitE2eEvidence(input, { port: down.port, ...fakeClock(), stopping: () => false });
+    const nm = await e2eRow(input, { port: down.port, ...fakeClock(), stopping: () => false });
     expect(nm.notMeasured).toBe(true);
     expect(down.calls.runs).toBe(5);
   });
@@ -242,12 +311,12 @@ describe("awaitE2eEvidence", () => {
     let stop = false;
     const { port } = fakePort({ runs: async () => ({ ok: true, value: [] }) });
     const sleep = async (ms: number) => { clock.advance(ms); stop = true; };
-    await expect(awaitE2eEvidence(input, { port, now: clock.now, sleep, stopping: () => stop })).rejects.toBeInstanceOf(ChecksInterruptedError);
+    await expect(e2eRow(input, { port, now: clock.now, sleep, stopping: () => stop })).rejects.toBeInstanceOf(ChecksInterruptedError);
   });
 
   test("no commit beyond main is green with a note, and nothing is pushed or opened", async () => {
     const { port, calls } = fakePort({ ownCommits: async () => ({ ok: true, value: 0 }) });
-    const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
     expect(row.ok).toBe(true);
     expect(row.tail).toContain("no commit of its own");
     expect(calls.push.length).toBe(0);
@@ -256,10 +325,58 @@ describe("awaitE2eEvidence", () => {
 
   test("the push carries the measured commit, not HEAD", async () => {
     const { port, calls } = fakePort();
-    const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
     expect(row.ok).toBe(true);
     expect(calls.push).toEqual([{ sha: SHA, branch: "topics/card", lease: undefined }]);
     expect(row.tail).toContain("pull/5");
+  });
+});
+
+describe("awaitCiEvidence with the e2e and the unit rows", () => {
+  const both = { ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] };
+
+  test("one push, one draft and one poll loop give both verdicts, in the declared order", async () => {
+    let polls = 0;
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ status: "in_progress", conclusion: null })] }),
+      // The unit step finishes at the second poll, the e2e shards at the fourth.
+      jobs: async () => {
+        polls += 1;
+        const e2e = polls >= 4 ? green : green.map((j) => (j.name === "e2e (4)" ? job("e2e (4)", null) : j));
+        return { ok: true, value: [checkJob(polls >= 2 ? "success" : null), ...e2e] };
+      },
+    });
+    const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => [r.cmd, r.ok])).toEqual([[E2E_CI_CHECK.cmd, true], [UNIT_CI_CHECK.cmd, true]]);
+    expect(calls.push.length).toBe(1);
+    expect(calls.pr).toBe(1);
+    expect(calls.runs).toBe(4);
+    // The unit verdict was settled when its step finished, not when the e2e did.
+    expect(rows[1]!.ms).toBeLessThan(rows[0]!.ms);
+  });
+
+  test("a red unit step next to green e2e is a red unit row and a green e2e row", async () => {
+    const { port } = fakePort({ jobs: async () => ({ ok: true, value: [checkJob("failure", { status: "completed", conclusion: "failure" }), ...green] }) });
+    const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => r.ok)).toEqual([true, false]);
+    expect(rows[1]!.tail).toContain("--log-failed");
+  });
+
+  test("green e2e and a unit step that never finishes: the unit row is NOT MEASURED at the deadline, the e2e row stays green", async () => {
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ status: "in_progress", conclusion: null })] }),
+      jobs: async () => ({ ok: true, value: [checkJob(null), ...green] }),
+    });
+    const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
+    expect(rows[0]!.ok).toBe(true);
+    expect(rows[1]!.notMeasured).toBe(true);
+    expect(rows[1]!.tail).toContain("no CI verdict");
+  });
+
+  test("a failed push is NOT MEASURED for both rows", async () => {
+    const { port } = fakePort({ push: async () => ({ ok: false, error: "denied" }) });
+    const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => r.notMeasured)).toEqual([true, true]);
   });
 });
 
@@ -281,7 +398,7 @@ describe("GitHub answers without the expected list", () => {
       const got = await githubPort().runs("o/r", SHA);
       expect(got.ok).toBe(false);
       const { port } = fakePort({ runs: githubPort().runs });
-      const row = await awaitE2eEvidence(input, { port, ...fakeClock(), stopping: () => false });
+      const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
       expect(row.notMeasured).toBe(true);
       expect(row.tail).toContain("GitHub reads failed");
     } finally {
@@ -341,7 +458,7 @@ describe("the delivery push goes through the repo's push guard, from a worktree 
       const sha = git(wt, "rev-parse", "HEAD");
 
       const { port, calls } = fakePort({ push: githubPort().push });
-      const row = await awaitE2eEvidence({ cwd: wt, sha, taskId: "12345678-card" }, { port, ...fakeClock(), stopping: () => false });
+      const row = await e2eRow({ cwd: wt, sha, taskId: "12345678-card" }, { port, ...fakeClock(), stopping: () => false });
       expect(row.notMeasured).toBe(true);
       expect(row.tail).toContain("push failed");
       expect(calls.pr).toBe(0);
@@ -365,6 +482,13 @@ describe("contracts", () => {
     expect(e2e).toContain("E2E_TIER: pr");
     expect(e2e).toContain("if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}");
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
+  });
+
+  test("ci.yml still runs the unit suite in the step the unit row reads, inside the check job", () => {
+    const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
+    const check = ci.slice(ci.search(/^ {2}check:$/m), ci.search(/^ {2}prepare-e2e:$/m));
+    expect(ci.search(/^ {2}check:$/m)).toBeGreaterThan(0);
+    expect(check).toMatch(new RegExp(`- name: ${UNIT_STEP.replace(/[+]/g, "\\+")}\\n(?: .*\\n)*? +run: bun test:unit\\n`));
   });
 
   test("the client waits past the CI deadline plus the slowest local round, and below the CLI tool timeout", () => {

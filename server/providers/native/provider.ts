@@ -637,7 +637,11 @@ export class NativeProvider implements AIProvider {
           // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
           // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e
           // da lì quel controllo non si raggiunge. Vedi `ToolContext.signal`.
-          toolContext: { workspace: workspace ?? "", signal: abort.signal },
+          // `sessionKey` travels with the tool context so a command the native
+          // runtime spawns can be attributed to THIS session by the swap
+          // freezer: its child is a child of the server, and without an owner
+          // nothing tells it apart from Topics' own processes.
+          toolContext: { workspace: workspace ?? "", signal: abort.signal, sessionKey },
           topics: topics ?? undefined,
           // Il livello di autonomia si RILEGGE a ogni turno, non si memorizza
           // sulla sessione: chi lo cambia in chat si aspetta che valga dal

@@ -301,7 +301,7 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
   if [ "$code" -eq 137 ]; then
     echo "[$(date +%H:%M:%S)] server pid $SERVER_PID got SIGKILL (exit 137) after ${_lived}s — forensic snapshot:"
     ps -eo pid,ppid,etime,args 2>/dev/null | grep -Ei 'kill|kickstart|bootout' | grep -v grep | sed 's/^/    [ps] /' | head -20
-    lsof -nP -iTCP:3333 2>/dev/null | sed 's/^/    [3333] /' | head -12
+    /usr/sbin/lsof -nP -iTCP:3333 2>/dev/null | sed 's/^/    [3333] /' | head -12
   fi
 
   if [ "$_lived" -lt "$BOOT_THRESHOLD" ]; then
