@@ -279,7 +279,16 @@ queste regole.
      cui non passa dal canale dei permessi, che e' fatto apposta per poter
      smettere di chiedere.
    - **Le letture Google non chiedono niente**, le scritture si', e un metodo
-     che il server non sa classificare conta come scrittura.
+     che il server non sa classificare conta come scrittura. La posta pero' NON
+     passa da li': `gmail users messages send` e `gmail users drafts send` sono
+     rifiutati con un rimando a `send_mail`, perche' un atto ha una porta sola e
+     quella che sa mostrare il messaggio esiste gia'. Le altre scritture si
+     leggono in parole: un `raw` in base64 viene decodificato in mittente,
+     destinatario, oggetto e testo.
+   - **Gli allegati si congelano quando si chiede.** Il server ne legge i byte e
+     ne manda una copia sua: nella domanda ci sono nome, peso e impronta, e
+     sostituire il file mentre la persona legge non cambia cio' che parte - fa
+     solo ripartire la domanda.
    - **Ogni azione riuscita, rifiutata o fallita lascia una riga sulla card**:
      chi, cosa, a chi, esito. Mai il corpo del messaggio.
    - **La configurazione sta solo nell'ambiente** (`~/.topics-server-env`,
