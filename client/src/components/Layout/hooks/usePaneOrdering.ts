@@ -133,8 +133,7 @@ export function paneForContext(orderedIds: string[], contextId?: string): string
   const id = createPaneId('browser', contextId);
   // `prev` first: it is this group's own optimistic list, which leads the store
   // by the dispatch that persists a pane it has just created.
-  if (orderedIds.includes(id)) return id;
-  return usePaneStore.getState().panes[id] ? id : null;
+  return orderedIds.includes(id) ? id : null;
 }
 
 /** Any browser pane already open at the app level (group:default), regardless of
