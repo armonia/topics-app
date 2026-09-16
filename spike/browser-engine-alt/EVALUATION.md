@@ -841,3 +841,37 @@ hdiutil attach servo-aarch64-apple-darwin.dmg -nobrowse
 ```
 Senza `--enable-experimental-web-platform-features` il grid collassa. `-Z
 layout_grid_enabled` è elencato nell'help ma **il parser lo rifiuta**: usa il flag lungo.
+
+## Playwright WebKit contro Chromium headless — misurato il 2026-09-16
+
+**Questa misura ribalta la premessa del task `bf04951a`.** Riproduci con
+`node spike/browser-engine-alt/pw-webkit-vs-chromium.mjs` (attribuzione per **diff di
+pid**, non per nome del processo: sulla macchina girano Ora e Safari, che usano gli
+stessi binari WebKit di sistema, e un `grep` sul comando misura anche loro — era
+l'errore che nel primo giro produceva numeri negativi).
+
+Pagina locale, un context per pane, i flag veri del browser remoto
+(`server/browser-service.ts:718`):
+
+| | 1a pane | 6 pane | **marginale** | residuo dopo close |
+|---|---|---|---|---|
+| Playwright **WebKit** | 368 MB | 1068 MB | **140 MB/pane** | 35 MB |
+| Chromium **headless** | 277 MB | 687 MB | **82 MB/pane** | 26 MB |
+
+**Chromium headless vince, e non di poco: 82 MB contro 140 per pane.** Ripetuto su tre
+giri con carichi diversi (pagina locale, react.dev, pagine nello stesso context contro
+context separati): l'ordine non cambia mai.
+
+**Perché i 219 MB di agosto non contraddicono questo.** Quel numero era del **sidecar
+headful con le 42 estensioni caricate** (`server/browser-chromium-sidecar.ts`), non del
+browser remoto, che è `headless: true` da sempre. Confrontare i 219 MB del sidecar coi
+37-46 MB di `wkbench.swift` mette insieme due cose diverse: un Chromium headful con
+estensioni contro una `WKWebView` nuda dentro l'app. Il confronto onesto, a parità di
+scenario e di flag, è questa tabella.
+
+**Cosa resta vero di `wkbench.swift`:** i 37-46 MB della `WKWebView` **nativa**, dentro
+il processo dell'app, restano il numero più basso di tutti. Ma quella è la pane che
+l'umano guarda in locale, e lì WebKit è già il default. Non è il percorso remoto.
+
+**Conseguenza:** non c'è nessuna migrazione da fare sul browser remoto. La leva vera sul
+consumo è il sidecar headful, non il motore.
