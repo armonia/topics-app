@@ -85,8 +85,20 @@ risposta che non porta quella chiave NON SHALL valere come sì. Un sì dato una
 volta NON SHALL valere per il messaggio successivo, e NESSUNA regola permanente
 («consenti sempre») SHALL poter coprire un invio.
 
+La domanda SHALL contenere il MESSAGGIO che sta per partire: mittente,
+destinatario, oggetto e il corpo (tagliato a una lunghezza dichiarata, e il
+taglio SHALL essere annunciato). Una conferma che mostra solo il destinatario e
+un conteggio di caratteri è una firma su una busta chiusa, e la board dice già
+la stessa cosa altrove: se chiedi «confermi X?», chi risponde deve poter vedere
+X.
+
 Se la risposta non arriva, o non è quella di consenso, NON SHALL partire niente
 e lo strumento SHALL dirlo con la ragione.
+
+#### Scenario: la persona legge cosa firma
+- **GIVEN** una conferma di invio aperta
+- **THEN** la domanda SHALL contenere il corpo del messaggio
+- **AND** la traccia lasciata dopo NON SHALL contenerlo
 
 #### Scenario: la persona non risponde
 - **GIVEN** una conferma aperta e nessuna risposta
@@ -114,7 +126,9 @@ che esce dalla cartella SHALL essere rifiutato.
 
 Le chiamate Google che LEGGONO (`list`, `get`, e simili) NON SHALL chiedere
 conferma; quelle che SCRIVONO SHALL chiederla, e un metodo che non si sa
-classificare SHALL contare come scrittura.
+classificare SHALL contare come scrittura. `watch` SHALL contare come
+SCRITTURA: sembra un osservatore e non lo è, crea un'iscrizione push che
+sopravvive alla chiamata.
 
 Entrambi gli strumenti SHALL attendere la persona a GAMBE CORTE, come
 `ask_user_question`: una richiesta HTTP tenuta aperta a zero byte muore per

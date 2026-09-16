@@ -52,6 +52,18 @@ const DEFAULT_LEG_MS = 25_000;
 /** The subject line is quoted in the card trace; a book is not a subject. */
 const SUBJECT_TRACE_CHARS = 120;
 
+/**
+ * How much of the body the person reads BEFORE deciding.
+ *
+ * The board's own rule: "if you ask 'do you confirm X?' the human has to be
+ * able to see X". A confirmation that showed only the recipient and a character
+ * count would be a signature on a sealed envelope, which is not consent to
+ * anything. The cap exists so a long draft does not bury the two buttons under
+ * it; what is cut is announced, and the whole text is in the agent's own
+ * message anyway.
+ */
+const BODY_PREVIEW_CHARS = 1500;
+
 export interface OutboundRouterOptions {
   /** Injected so a test can point the CLIs at a fake executable. */
   env?: EnvMap;
@@ -72,7 +84,7 @@ export interface OutboundRouterOptions {
  * a write costs one click; a write misclassified as a read is a change on
  * somebody's calendar that nobody approved.
  */
-const READ_METHOD_PREFIXES = ["list", "get", "search", "export", "download", "read", "watch", "schema"];
+const READ_METHOD_PREFIXES = ["list", "get", "search", "export", "download", "read", "schema"];
 
 export function googleCallWrites(method: string): boolean {
   const verb = method.trim().toLowerCase();
@@ -317,12 +329,17 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
 
         const digest = payloadDigest([account.name, to, subject, text, cc ?? "", attachments.paths]);
         const quoted = shortSubject(subject);
+        const draft = text.trim();
+        const preview = draft.length > BODY_PREVIEW_CHARS
+          ? `${draft.slice(0, BODY_PREVIEW_CHARS)}\n[...] (${draft.length} caratteri in tutto)`
+          : draft;
         const summary = [
           `Invio una mail dall'account ${account.name}.`,
           `A: ${to}${cc ? ` (cc ${cc})` : ""}`,
           `Oggetto: ${quoted}`,
           attachments.paths.length ? `Allegati: ${attachments.paths.length}` : "Nessun allegato",
-          `Corpo: ${text.trim().length} caratteri`,
+          "",
+          preview,
         ].join("\n");
 
         let outcome: ConfirmOutcome;

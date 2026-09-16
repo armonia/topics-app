@@ -187,6 +187,18 @@ describe("POST /outbound/mail", () => {
     expect(line).not.toContain(message.body);
   });
 
+  test("chi conferma LEGGE il messaggio: il corpo sta nella domanda, non nella traccia", async () => {
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1247";
+    const digest = payloadDigest(["primo", message.to, message.subject, message.body, "", []]);
+    setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
+    await h.call(mailPath(sessionKey), { ...message, legMs: 400 });
+    // The question is the first comment, the trace is the last. A person who
+    // can only read "32 characters" is signing a sealed envelope.
+    expect(h.comments[0].content).toContain(message.body);
+    expect(h.comments.at(-1)?.content).not.toContain(message.body);
+  });
+
   test("un rifiuto non manda niente e lascia comunque la sua riga", async () => {
     const h = makeHarness();
     const sessionKey = "topic:abcd1237";
@@ -317,10 +329,12 @@ describe("POST /outbound/google", () => {
 
 describe("googleCallWrites", () => {
   test("i verbi che leggono non chiedono, tutto il resto si", () => {
-    for (const verb of ["list", "get", "search", "export", "download", "watch", "schema"]) {
+    for (const verb of ["list", "get", "search", "export", "download", "schema"]) {
       expect(googleCallWrites(verb)).toBe(false);
     }
-    for (const verb of ["insert", "create", "update", "patch", "delete", "send", "batchUpdate", "", "frobnicate"]) {
+    // `watch` is in the second list on purpose: it sounds like an observer and
+    // it is not one, it creates a push subscription that outlives the call.
+    for (const verb of ["insert", "create", "update", "patch", "delete", "send", "batchUpdate", "watch", "", "frobnicate"]) {
       expect(googleCallWrites(verb)).toBe(true);
     }
   });
