@@ -497,10 +497,18 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
 
   // Fresh/EMPTY pane → put the caret in the URL bar so the user can type
   // immediately (audit 2026-07-11: opening a browser tab focused NOTHING —
-  // activeElement stayed on the "+" trigger). Re-arms when the pane becomes
-  // visible again while still empty; a pane with a page loaded keeps focus
-  // wherever the user put it. The 50ms defer lets the tab's sheet mount its
-  // input after first paint.
+  // activeElement stayed on the "+" trigger). A pane with a page loaded keeps
+  // focus wherever the user put it. The 50ms defer lets the tab's sheet mount
+  // its input after first paint.
+  //
+  // BECOMING VISIBLE AGAIN IS NOT A GESTURE. Until card c4d48d3e this re-armed
+  // on every visibility change, and a change of LAYOUT is one: leaving a pane
+  // zoom hands the hidden panes their cells back, and ~50ms later an empty
+  // browser pane opened its own address sheet over whatever the user was
+  // doing next - eating the Esc meant for the zoom (the intermittent red of
+  // `pane-zoom.spec.ts`, "si esce allo stesso modo nei due ambiti"). Armed
+  // once per pane instead: hiding no longer re-arms, so the first time it
+  // becomes visible it still fires.
   //
   // AND "EMPTY" IS ABOUT THE PANE, NOT ABOUT THIS INSTANT. A RESTORED pane is
   // `about:blank` for a few instants, so the live url alone called it fresh and
@@ -524,12 +532,15 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const nativeReadyRef = useRef(browser.ready);
   useEffect(() => {
     const empty = !isRealUrl(browser.url) && !isRealUrl(knownPaneUrl);
-    if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
+    if (!empty) { urlBarAutoFocusedRef.current = false; return; }
     if (nativeReadyRef.current !== browser.ready) {
+      // Recorded even while hidden, but it only re-arms a pane you can see:
+      // otherwise a view that became ready behind a zoom would fire the moment
+      // the zoom closes, which is the layout side effect this guard removes.
       nativeReadyRef.current = browser.ready;
-      urlBarAutoFocusedRef.current = false;
+      if (isVisible) urlBarAutoFocusedRef.current = false;
     }
-    if (urlBarAutoFocusedRef.current) return;
+    if (!isVisible || urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
@@ -912,8 +923,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const urlBarAutoFocusedRef = useRef(false);
   useEffect(() => {
     const empty = !isRealUrl(browser.url) && !isRealUrl(knownPaneUrl);
-    if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
-    if (urlBarAutoFocusedRef.current) return;
+    if (!empty) { urlBarAutoFocusedRef.current = false; return; }
+    if (!isVisible || urlBarAutoFocusedRef.current) return;
     urlBarAutoFocusedRef.current = true;
     const t = setTimeout(() => focusUrlBar(), 50);
     return () => clearTimeout(t);
