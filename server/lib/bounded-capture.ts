@@ -30,14 +30,8 @@ export interface Capture {
   exitCode: number | null;
 }
 
-/**
- * `argv` run with an ABSOLUTE path, its stdout captured, and `null` when it did
- * not answer in time - a timeout, a signal, or a spawn that threw. `null` is
- * never "it answered nothing": that distinction is the whole reason the callers
- * can tell a machine with no matching process from a machine that is thrashing.
- */
 /** The spawn itself, kept apart so its piped-stdout type survives a failure to start. */
-function spawnCapturing(argv: string[]) {
+function spawnWithPipe(argv: string[]) {
   try {
     return Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
   } catch {
@@ -45,8 +39,14 @@ function spawnCapturing(argv: string[]) {
   }
 }
 
+/**
+ * `argv` run with an ABSOLUTE path, its stdout captured, and `null` when it did
+ * not answer in time - a timeout, a signal, or a spawn that threw. `null` is
+ * never "it answered nothing": that distinction is the whole reason the callers
+ * can tell a machine with no matching process from a machine that is thrashing.
+ */
 export async function captureWithDeadline(argv: string[], timeoutMs: number): Promise<Capture | null> {
-  const proc = spawnCapturing(argv);
+  const proc = spawnWithPipe(argv);
   if (proc === null) return null;
   let timedOut = false;
   let killer: ReturnType<typeof setTimeout> | undefined;
