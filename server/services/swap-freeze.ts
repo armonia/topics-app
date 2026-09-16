@@ -134,12 +134,18 @@ interface FrozenTree {
 
 export interface SwapFreezerDeps {
   now?: () => number;
-  /** One fresh `ps -axo pid=,ppid=,pgid=,time=,command= -ww`. */
-  processTable: () => Promise<PsRow[]>;
+  /** One fresh `ps -axo pid=,ppid=,pgid=,time=,command= -ww`; `null` if `ps` was mute. */
+  processTable: () => Promise<PsRow[] | null>;
   footprintKB: (pid: number) => number | null;
   residentKB: (pid: number) => number | null;
-  lstartOf: (pids: number[]) => Promise<Map<number, string>>;
-  statOf: (pids: number[]) => Promise<Map<number, string>>;
+  /**
+   * `pid -> lstart`, or `null` when `ps` did not answer at all. The difference
+   * decides whether a tree may be stopped: a pid MISSING from an answer is gone,
+   * a pid missing because there was no answer has an identity we simply cannot
+   * read, and an identity we cannot read is not one we can undo.
+   */
+  lstartOf: (pids: number[]) => Promise<Map<number, string> | null>;
+  statOf: (pids: number[]) => Promise<Map<number, string> | null>;
   signal: (pid: number, sig: "SIGSTOP" | "SIGCONT") => void;
   sessions: () => AgentSessionRef[];
   natives: () => NativeCommandRef[];
@@ -190,9 +196,10 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   const cpuBase = new Map<number, { at: number; seconds: number }>();
   let lastFreezeAt = Number.NEGATIVE_INFINITY;
   /**
-   * Roots thawed for `no effect` in the episode under way: the thrash was not
-   * theirs, and refreezing them 120 s later would spend the agent's time twice
-   * to learn the same thing. Forgotten when the swap calms down.
+   * Roots this episode has nothing more to ask of: thawed for `no effect` (the
+   * thrash was not theirs) or signalled without a single pid reading `T`.
+   * Trying either again 120 s later spends the one action of a beat to learn
+   * what is already known. Forgotten when the swap calms down.
    */
   const noEffectThisEpisode = new Set<number>();
   /** A beat that continued a tree does not also freeze one: one action per beat. */
@@ -239,18 +246,25 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       for (const p of batch.pids) recorded.set(p.pid, p.lstart);
       for (const g of batch.groups) recorded.set(g.pgid, g.leaderLstart);
     }
-    // A pid recycled while the tree was stopped belongs to somebody else now.
-    const live = await deps.lstartOf([...recorded.keys()]).catch(() => new Map<number, string>());
+    // A pid recycled while the tree was stopped belongs to somebody else now -
+    // but only an ANSWER from `ps` can say so. With no answer every recorded pid
+    // is continued: a SIGCONT to a running process does nothing, and the other
+    // way round leaves the tree stopped with nobody left to continue it.
+    const live = await deps.lstartOf([...recorded.keys()]).catch(() => null);
+    const matches = (pid: number, lstart: string): boolean => live === null || live.get(pid) === lstart;
+    let recycled = 0;
     for (const batch of [...tree.batches].reverse()) {
       for (const p of [...batch.pids].reverse()) {
-        if (live.size > 0 && live.get(p.pid) !== p.lstart) continue;
+        if (!matches(p.pid, p.lstart)) { recycled++; continue; }
         try { deps.signal(p.pid, "SIGCONT"); } catch { /* gone */ }
       }
       for (const g of batch.groups) {
-        if (live.size > 0 && live.get(g.pgid) !== g.leaderLstart) continue;
+        if (!matches(g.pgid, g.leaderLstart)) { recycled++; continue; }
         try { deps.signal(-g.pgid, "SIGCONT"); } catch { /* the group is gone */ }
       }
     }
+    if (recycled > 0) deps.log(`[freeze] thaw of "${tree.root.command}": ${recycled} recorded pid(s) now hold another process, not continued`);
+    if (live === null) deps.log(`[freeze] thaw of "${tree.root.command}": ps did not answer, every recorded pid continued unchecked`);
     frozen.delete(tree.treeId);
     deps.ledger.release(tree.treeId);
     const t = now();
@@ -303,7 +317,15 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     const { roots, foreground, unrecognised } = toolRoots({ rows: table, sessions: deps.sessions(), natives: deps.natives() });
     for (const u of unrecognised) deps.log(`[freeze] unrecognised child ${u.pid} of ${u.sessionKey}: "${u.command}", never signalled`);
     const frozenRoots = new Set([...frozen.values()].map((t) => t.root.pid));
-    const rootRefs = await deps.lstartOf(roots.map((r) => r.pid)).catch(() => new Map<number, string>());
+    const rootRefs = await deps.lstartOf(roots.map((r) => r.pid)).catch(() => null);
+    if (rootRefs === null) {
+      // No identity, no candidate. The freeze count is kept PER IDENTITY, so a
+      // root whose `lstart` we cannot read would be counted from zero on every
+      // beat and could be stopped without limit - and its ledger entry could not
+      // be matched back at thaw time either.
+      deps.log("[freeze] ps did not answer with the start times of the roots: nothing is a candidate on this beat");
+      return { candidates: [], foreground: foreground.map((f) => ({ pid: f.pid, command: f.command })) };
+    }
     const t = now();
     const candidates: FreezeCandidate[] = [];
     for (const root of roots) {
@@ -342,6 +364,8 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       // ten seconds later rather than on a rate nobody measured.
       const cpuCores = base && t > base.at ? Math.max(0, (cpuSeconds - base.seconds) / ((t - base.at) / 1000)) : 0;
       const rootLstart = rootRefs.get(root.pid);
+      // The root died between the table and the start times: nothing to freeze.
+      if (!rootLstart) continue;
       candidates.push({
         root,
         treePids: [...tree],
@@ -349,7 +373,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         footprintGB: (footprintKB * 1024) / 1e9,
         residentGB: (residentKB * 1024) / 1e9,
         cpuCores,
-        frozenCount: rootLstart ? deps.ledger.freezeCount({ pid: root.pid, lstart: rootLstart }) : 0,
+        frozenCount: deps.ledger.freezeCount({ pid: root.pid, lstart: rootLstart }),
       });
     }
     return { candidates, foreground: foreground.map((f) => ({ pid: f.pid, command: f.command })) };
@@ -360,6 +384,13 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     // the signal is exactly the child that keeps working while its parent is
     // stopped (the shape `killProcessTree` already pays a `ps` for).
     const table = await deps.processTable();
+    if (table === null) {
+      // Half a table is worse than none: the children forked since the walk
+      // would keep running while their parent is stopped, and the guard set is
+      // built from this very table.
+      deps.log(`[freeze] refused "${candidate.root.command}": ps did not answer with a process table`);
+      return false;
+    }
     const guard = guardSet(table, guardRolesFor(table));
     const tree = descendantPids(table, candidate.root.pid);
     const groups = allowedGroups(table, tree, guard);
@@ -371,8 +402,24 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       disabled = true;
       return false;
     }
-    const startTimes = await deps.lstartOf([...all]).catch(() => new Map<number, string>());
-    const ref = (pid: number): LedgerPidRef => ({ pid, lstart: startTimes.get(pid) ?? "" });
+    // NO IDENTITY, NO SIGSTOP. `ps` mute is not "these pids have no start time":
+    // recording an empty `lstart` would stop the tree and then fail to match it
+    // at thaw time, leaving it `T` forever, out of the ledger and out of the
+    // views - the one outcome the ledger exists to make impossible.
+    const startTimes = await deps.lstartOf([...all]).catch(() => null);
+    if (startTimes === null) {
+      deps.log(`[freeze] refused "${candidate.root.command}": ps did not answer with the start times of its ${all.size} pids; nothing signalled`);
+      return false;
+    }
+    const rootLstart = startTimes.get(candidate.root.pid);
+    if (!rootLstart) {
+      deps.log(`[freeze] refused "${candidate.root.command}": its root (pid ${candidate.root.pid}) is already gone`);
+      return false;
+    }
+    // A pid `ps` ANSWERED about and did not list has exited since the table was
+    // read: it needs no signal and has no identity to record.
+    const alive = (pid: number): boolean => startTimes.has(pid);
+    const ref = (pid: number): LedgerPidRef => ({ pid, lstart: startTimes.get(pid)! });
     const rootRef = ref(candidate.root.pid);
     const treeId = `${candidate.root.pid}-${candidate.root.sessionKey}-${now()}`;
     deps.ledger.begin({ treeId, sessionKey: candidate.root.sessionKey, frozenAt: now(), root: rootRef });
@@ -383,9 +430,12 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     const stoppedPids: number[] = [];
     const batches: LedgerBatch[] = [];
 
-    const sendBatch = (pids: number[], groupsOfBatch: { pgid: number; members: number[] }[]): void => {
+    const sendBatch = (allPids: number[], allGroups: { pgid: number; members: number[] }[]): void => {
+      const pids = allPids.filter(alive);
+      const groupsOfBatch = allGroups.filter((g) => alive(g.pgid));
+      if (pids.length === 0 && groupsOfBatch.length === 0) return;
       const batch: LedgerBatch = {
-        groups: groupsOfBatch.map((g) => ({ pgid: g.pgid, leaderLstart: startTimes.get(g.pgid) ?? "" })),
+        groups: groupsOfBatch.map((g) => ({ pgid: g.pgid, leaderLstart: startTimes.get(g.pgid)! })),
         pids: pids.map(ref),
       };
       // ON DISK FIRST: a SIGKILL between this line and the next leaves a
@@ -412,16 +462,39 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     // POST-CHECK: every signalled pid reads `T`, and no guarded pid does. The
     // server itself is protected by the refusal above, not here: a stopped
     // server cannot run a post-check.
-    const guardSample = [...guard].filter((p) => p !== guardRolesFor(table).serverPid).slice(0, 200);
-    const stats = await deps.statOf([...stoppedPids, ...guardSample]).catch(() => new Map<number, string>());
-    const guardStopped = guardSample.find((p) => stats.get(p)?.startsWith("T"));
-    if (guardStopped != null) {
-      deps.log(`[freeze] guard tripped: pid ${guardStopped} reads T after the freeze of "${candidate.root.command}"; continuing everything, freezer off`);
+    const undo = (): void => {
       for (const pid of [...stoppedPids].reverse()) { try { deps.signal(pid, "SIGCONT"); } catch { /* gone */ } }
       for (const g of groups) { try { deps.signal(-g.pgid, "SIGCONT"); } catch { /* gone */ } }
       deps.ledger.release(treeId);
-      disabled = true;
-      return false;
+    };
+    const guardSample = [...guard].filter((p) => p !== guardRolesFor(table).serverPid).slice(0, 200);
+    const stats = await deps.statOf([...stoppedPids, ...guardSample]).catch(() => null);
+    if (stats === null) {
+      // The invariant itself is held by the refusal above, on the same table:
+      // this reading only corroborates it. Undoing a freeze because `ps` went
+      // quiet would cost the lever the one beat it gets every 120 s and buy a
+      // certainty nobody can measure, so the freeze stands and says so.
+      deps.log(`[freeze] post-check of "${candidate.root.command}" skipped: ps did not answer; the guard was still checked before the first signal`);
+    } else {
+      const guardStopped = guardSample.find((p) => stats.get(p)?.startsWith("T"));
+      if (guardStopped != null) {
+        deps.log(`[freeze] guard tripped: pid ${guardStopped} reads T after the freeze of "${candidate.root.command}"; continuing everything, freezer off`);
+        undo();
+        disabled = true;
+        return false;
+      }
+      // The OTHER half, which was measured and then thrown away: a tree whose
+      // every SIGSTOP failed (a command that is not ours to signal) used to be
+      // announced as frozen, frost and all, while it went on touching pages.
+      const known = stoppedPids.filter((p) => stats.has(p));
+      if (known.length > 0 && !known.some((p) => stats.get(p)!.startsWith("T"))) {
+        deps.log(`[freeze] no effect: none of the ${known.length} signalled pid(s) of "${candidate.root.command}" reads T; nothing is frozen`);
+        undo();
+        // And it is not tried again in this episode: the next beat would spend
+        // its one action on the same non-freeze instead of the next heaviest.
+        noEffectThisEpisode.add(candidate.root.pid);
+        return false;
+      }
     }
 
     const at = now();
@@ -487,7 +560,15 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         if (brake.interrupted) return;
         if (brake.skipped !== "noHeavyRun" && brake.skipped !== "exhausted") return;
         const table = await deps.processTable();
+        if (table === null) {
+          deps.log("[freeze] ps did not answer with a process table on this beat: nothing measured, nothing signalled");
+          return;
+        }
         const guard = guardSet(table, guardRolesFor(table));
+        // A count outlives its thaw on purpose, but not the machine: without
+        // this the file grows for every tree ever frozen, with an fsync each.
+        const livePids = new Set(table.map((r) => r.pid));
+        deps.ledger.pruneCounts((c) => livePids.has(c.pid));
         const { candidates, foreground } = await measure(table, guard);
         for (const f of foreground) deps.log(`[freeze] skipped "${f.command}" (pid ${f.pid}): foreground Bash, never frozen`);
         let { victim, skipped } = pickVictim(candidates);

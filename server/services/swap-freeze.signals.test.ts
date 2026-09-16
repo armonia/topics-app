@@ -122,13 +122,15 @@ describe("F14: the tree really stops, its parent really does not, and a crash ca
     await freezer.tick({ swap: SUSTAINED, held: NO_ROOM, brake: BRAKE });
 
     expect(freezer.views(), logs.join("\n")).toHaveLength(1);
-    const treePids = [...(await readProcessTable())].filter((r) => r.pid === rootPid || r.ppid === rootPid).map((r) => r.pid);
+    const table = await readProcessTable();
+    expect(table, "ps answered with a process table").not.toBeNull();
+    const treePids = table!.filter((r) => r.pid === rootPid || r.ppid === rootPid).map((r) => r.pid);
     const states = await until(
       "every pid of the tree to read T",
       () => readProcessStates(treePids),
-      (map) => map.size === treePids.length && [...map.values()].every((s) => s.startsWith("T")),
+      (map) => map !== null && map.size === treePids.length && [...map.values()].every((s) => s.startsWith("T")),
     );
-    for (const [pid, stat] of states) expect(stat.startsWith("T"), `pid ${pid} reads ${stat}`).toBe(true);
+    for (const [pid, stat] of states!) expect(stat.startsWith("T"), `pid ${pid} reads ${stat}`).toBe(true);
 
     const rootBefore = ticks(join(h.dir, "root"));
     const leafBefore = ticks(join(h.dir, "leaf"));

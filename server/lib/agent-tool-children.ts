@@ -119,6 +119,22 @@ export function normalizeCommandLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * THE `eval '...'` THE CLI WRITES, PUT BACK INTO THE ALPHABET OF THE RECORD.
+ *
+ * A tool command reaches `ps` inside `eval '<cmd>'`, and a single quote inside
+ * `<cmd>` can only be escaped by leaving the quoting and coming back (`'\''` or
+ * `'"'"'`): POSIX offers nothing else. So a recorded command with a quote in it
+ * NEVER matches the raw `ps` text, and the failure is not symmetric - a shorter
+ * recorded command with no quotes still matches the same line. That is how a
+ * foreground `bun test --grep 'brina'` went unrecognised while a stale
+ * background record of `bun test` claimed its pid, and a foreground command is
+ * the one thing that must never be frozen.
+ */
+export function decodeShellQuoting(text: string): string {
+  return text.replace(/'\\''|'"'"'/g, "'");
+}
+
 function commandNameOf(command: string): string {
   const argv0 = normalizeCommandLine(command).split(" ")[0] ?? "";
   return argv0.slice(argv0.lastIndexOf("/") + 1);
@@ -229,9 +245,11 @@ export function allowedGroups(
 
 /**
  * The roots an agent's tools started, with the two shapes told apart by evidence
- * and never by guessing. A Claude Code child counts only when its `eval` text
- * contains a command the CLI announced as background; the same text matching the
- * foreground command in flight makes it `foreground` (named, never frozen).
+ * and never by guessing. A Claude Code child counts only when its `eval` text -
+ * put back into the alphabet of the record by `decodeShellQuoting` - contains a
+ * command the CLI announced as background; matching the foreground command in
+ * flight makes it `foreground` (named, never frozen), and when both match the
+ * longer of the two wins, because it is the one that explains more of the line.
  */
 export function toolRoots(i: {
   rows: readonly PsRow[];
@@ -247,12 +265,18 @@ export function toolRoots(i: {
       // An MCP server, an LSP, a `caffeinate`: the CLI's own group, not a
       // command of a tool call. They are in the guard set, never here.
       if (child.pgid !== child.pid) continue;
-      const text = normalizeCommandLine(child.command);
-      if (foreground && foreground.length >= 3 && text.includes(foreground)) {
+      const text = normalizeCommandLine(decodeShellQuoting(child.command));
+      // THE LONGEST MATCH WINS, and a tie goes to the foreground. "Foreground
+      // first, otherwise any substring" let a three-character background record
+      // outrank the command actually in flight; the longer match is the one that
+      // explains more of the line, and when both explain the same the safe
+      // reading is the one that is never signalled.
+      const fgHit = foreground && foreground.length >= 3 && text.includes(foreground) ? foreground : null;
+      const hit = background.filter((c) => text.includes(c)).reduce<string | null>((best, c) => (best && best.length >= c.length ? best : c), null);
+      if (fgHit && (!hit || fgHit.length >= hit.length)) {
         result.foreground.push({ pid: child.pid, sessionKey: s.sessionKey, command: s.foregroundBash! });
         continue;
       }
-      const hit = background.find((c) => text.includes(c));
       if (!hit) {
         result.unrecognised.push({ pid: child.pid, sessionKey: s.sessionKey, command: text.slice(0, 120) });
         continue;

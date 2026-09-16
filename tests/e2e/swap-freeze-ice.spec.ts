@@ -14,15 +14,19 @@
  *  ICE-01  the frost does not cover the words: the card's own text rectangles
  *          come from `Range.getClientRects`, and the canvas UNDER them is read
  *          with `getImageData` - max alpha 2/255, in both themes.
- *  ICE-02  at rest it costs nothing: a counter wraps `putImageData` and
- *          `requestAnimationFrame` BEFORE the page starts, and once the frost
- *          has settled, over a 3 s window, the paints are zero and the frames
- *          asked for are no more than the same page without frost.
+ *  ICE-02  at rest it costs nothing: a counter wraps `putImageData` BEFORE the
+ *          page starts, and once the frost has settled the paints over a 3 s
+ *          window are zero and no animation of the frost's own elements is still
+ *          running. Both readings are ATTRIBUTED to the frost; the page-wide rAF
+ *          counter is not, and comparing it against a baseline of the same page
+ *          at another moment measured the app's noise, not the frost.
  *  ICE-03  the frost is not an overlay: it must not match `OVERLAY_SELECTOR`
  *          (lib/shell/browserOcclusion.ts), or the native shell would freeze the
  *          browser panes under the card (memory note `native-webview-occlusion`).
  *  ICE-04  the other surfaces: the sidebar row, the tab and the chat pane, with
- *          the banner IN FLOW (it never covers the composer).
+ *          the banner IN FLOW (it never covers the composer) - both rectangles
+ *          read in one layout instant, after the centred composer dock has
+ *          stopped sliding, or the slide alone invents an overlap.
  *  ICE-05  under `prefers-reduced-motion` the frost is there already finished,
  *          and it goes at once when the tree thaws.
  *
@@ -232,9 +236,6 @@ test.describe("La brina di un comando congelato", () => {
         const card = page.locator(`[data-task-card="${taskIds[0]}"]`);
         await expect(card).toBeVisible({ timeout: 20_000 });
 
-        // The same page, without frost: the rAF baseline of a board at rest.
-        const before = await overAWindow(page, 3_000);
-
         await setFrozen(page, [freezeView()]);
         await expect(card).toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
         await expect(card.getByTestId("swap-freeze-label")).toContainText("bun batteria.ts");
@@ -279,10 +280,22 @@ test.describe("La brina di un comando congelato", () => {
 
         await card.screenshot({ path: join(SHOTS, `card-${theme}.png`) });
 
-        // ICE-02: settled, it costs nothing.
+        // ICE-02: settled, it costs nothing - measured on the frost itself.
+        //
+        // The rAF counter is the WHOLE PAGE's, so comparing it against a
+        // baseline taken while the board was still settling compared the app
+        // with itself at two different moments: webkit read 26 against 21, and
+        // on the retry 4 against a baseline of 0, which is noise in both
+        // directions. What is attributable is `putImageData` on `canvas.swap-ice`
+        // - every frame of the creep goes through it (`SwapIce.tsx`), so zero
+        // paints over three seconds IS "the loop is not running" - and the
+        // animations owned by the frost's own elements.
         const after = await overAWindow(page, 3_000);
         expect(after.paints, "a settled frost is a still bitmap").toBe(0);
-        expect(after.frames, `rAF: ${after.frames} against a baseline of ${before.frames}`).toBeLessThanOrEqual(before.frames + 1);
+        const running = await card.evaluate((el) => Array.from(el.querySelectorAll(".swap-ice, .swap-ice-glint"))
+          .flatMap((n) => n.getAnimations())
+          .filter((a) => a.playState === "running").length);
+        expect(running, "the glints run twice and stop; an endless one would spend the cycles the freeze just bought").toBe(0);
 
         // The thaw: the overlay goes, and the card is a card again.
         await setFrozen(page, []);
@@ -333,14 +346,38 @@ test.describe("La brina di un comando congelato", () => {
 
       const banner = pane.getByTestId("swap-freeze-label");
       await expect(banner).toBeVisible();
-      // IN FLOW: the banner pushes, it does not cover. The composer and the
-      // banner do not overlap by a single pixel.
-      const composer = pane.locator("textarea").first();
-      const [b, c] = [await banner.boundingBox(), await composer.boundingBox()];
-      expect(b && c).toBeTruthy();
-      const overlap = Math.max(0, Math.min(b!.y + b!.height, c!.y + c!.height) - Math.max(b!.y, c!.y))
-        * Math.max(0, Math.min(b!.x + b!.width, c!.x + c!.width) - Math.max(b!.x, c!.x));
+      // IN FLOW: the banner pushes, it does not cover.
+      //
+      // BOTH RECTANGLES COME FROM ONE LAYOUT INSTANT, and only once the dock has
+      // stopped moving. In an empty chat the whole bottom block is centred with
+      // `translateY` under a 420 ms transition (`.composer-dock-slide`), and the
+      // banner's arrival changes that offset: two `boundingBox()` round trips
+      // then land on two different frames of the same slide and report an
+      // overlap that no layout ever had - which is why the number came out
+      // different on every attempt (5508, 4853, 1034 px²) instead of being the
+      // fixed area a real overlap would give.
+      const dock = pane.getByTestId("chat-input-area");
+      await expect.poll(async () => dock.evaluate((el) => new Promise<boolean>((resolve) => {
+        const first = el.getBoundingClientRect().top;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          resolve(Math.abs(el.getBoundingClientRect().top - first) < 0.5);
+        }));
+      })), { timeout: 10_000, intervals: [200] }).toBe(true);
+      const boxes = await pane.evaluate((root) => {
+        const rect = (sel: string): { x: number; y: number; w: number; h: number } | null => {
+          const el = root.querySelector(sel);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { x: r.left, y: r.top, w: r.width, h: r.height };
+        };
+        return { b: rect('[data-testid="swap-freeze-label"]'), c: rect('[data-testid="chat-message-input"]') };
+      });
+      const { b, c } = boxes;
+      expect(b && c, "the banner and the composer are both in the pane").toBeTruthy();
+      const overlap = Math.max(0, Math.min(b!.y + b!.h, c!.y + c!.h) - Math.max(b!.y, c!.y))
+        * Math.max(0, Math.min(b!.x + b!.w, c!.x + c!.w) - Math.max(b!.x, c!.x));
       expect(overlap, "the one control still usable while a command is frozen").toBe(0);
+      expect(b!.y + b!.h, "and it sits ABOVE it, not below").toBeLessThanOrEqual(c!.y);
 
       await page.screenshot({ path: join(SHOTS, "pane-and-row.png") });
       await setFrozen(page, []);
@@ -362,10 +399,24 @@ test.describe("La brina di un comando congelato", () => {
       const before = await reads(page);
       await setFrozen(page, [freezeView()]);
       await expect(card).toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
-      // One paint, not a creep: the final frame is drawn once.
       await expect.poll(async () => (await reads(page)).paints - before.paints, { timeout: 5_000 }).toBeGreaterThan(0);
+      // WHAT IS BEING TOLD APART: a creep paints once per animation frame, so
+      // about 54 times over the 900 ms it lasts; a frost that is already
+      // finished repaints only when the host's own boxes move, through the
+      // 250 ms debounce of `recheck` (SwapIce.tsx). The ceiling is therefore how
+      // often that debounce can fire in the window, and nothing else.
+      //
+      // The old `<= 2` was a count copied off one run, and it was wrong on the
+      // mechanism: the arrival of the frozen label mutates the card and costs a
+      // legitimate second repaint, a third when the label and the glints land in
+      // two different debounce windows. Webkit paid 3 and the suite called it a
+      // creep.
+      const CREEP_MS = 900;
+      const DEBOUNCE_MS = 250;
+      const ceiling = Math.ceil(CREEP_MS / DEBOUNCE_MS) + 1;
+      await overAWindow(page, CREEP_MS);
       const paints = (await reads(page)).paints - before.paints;
-      expect(paints, "no creep under reduced motion").toBeLessThanOrEqual(2);
+      expect(paints, `no creep under reduced motion: ${paints} paints in ${CREEP_MS} ms, where a creep paints every frame`).toBeLessThanOrEqual(ceiling);
       await expect(card.locator(".swap-ice-glint")).toHaveCount(0);
       await setFrozen(page, []);
       await expect(card).not.toHaveAttribute("data-swap-ice", "frozen", { timeout: 5_000 });

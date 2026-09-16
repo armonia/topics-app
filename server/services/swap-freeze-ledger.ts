@@ -14,7 +14,8 @@
  * `counts` is "how many times has this tree been frozen", which has to survive
  * the thaw AND a reload - otherwise "at most two freezes per tree" resets every
  * time the server restarts, and a tree could be frozen forever in instalments.
- * A count is forgotten when its root identity is no longer alive.
+ * A count is forgotten when its root pid is no longer on the machine, which the
+ * freezer checks against the table of every beat (`pruneCounts`).
  *
  * IDENTITY, NOT NUMBERS. Every recorded pid carries its `lstart`: a pid can be
  * recycled while the server is away, and a SIGCONT by number alone would be sent
@@ -146,8 +147,8 @@ function readLedger(io: LedgerIo): LedgerFile {
 
 export interface BootThawDeps {
   ledger: SwapFreezeLedger;
-  /** `ps -o pid=,lstart=` for the recorded pids. */
-  lstartOf: (pids: number[]) => Promise<Map<number, string>>;
+  /** `ps -o pid=,lstart=` for the recorded pids; `null` when `ps` did not answer. */
+  lstartOf: (pids: number[]) => Promise<Map<number, string> | null>;
   signal: (pid: number, sig: "SIGCONT") => void;
   log: (line: string) => void;
 }
@@ -157,6 +158,13 @@ export interface BootThawDeps {
  * STARTS, and only where the identity still matches. Batches are undone in
  * reverse (leaves first, the root's group last), the same order an ordinary thaw
  * uses: two ways of undoing one list is how the two start disagreeing.
+ *
+ * A `ps` THAT SAYS NOTHING IS NOT A LIST OF RECYCLED PIDS. When `lstartOf`
+ * answers `null` the identities cannot be checked, so every recorded pid is
+ * continued anyway - a SIGCONT to a process that is merely running does nothing -
+ * and the ledger is KEPT: it is the last copy of those pids, and clearing it
+ * would leave a stopped tree with nobody who knows its numbers, which is the one
+ * outcome this file exists to prevent.
  */
 export async function thawLedgerAtBoot(deps: BootThawDeps): Promise<{ continued: number; skipped: number }> {
   const { active } = deps.ledger.snapshot();
@@ -168,23 +176,31 @@ export async function thawLedgerAtBoot(deps: BootThawDeps): Promise<{ continued:
       for (const g of batch.groups) recorded.set(g.pgid, g.leaderLstart);
     }
   }
-  const live = await deps.lstartOf([...recorded.keys()]).catch(() => new Map<number, string>());
+  const live = await deps.lstartOf([...recorded.keys()]).catch(() => null);
+  const matches = (pid: number, lstart: string): boolean => live === null || live.get(pid) === lstart;
   let continued = 0;
   let skipped = 0;
   for (const tree of active) {
     for (const batch of [...tree.batches].reverse()) {
-      for (const p of batch.pids) {
-        if (live.get(p.pid) !== p.lstart) { skipped++; continue; }
+      // Leaves first INSIDE the batch as well, which is what the ordinary thaw
+      // does (`swap-freeze.ts`): the claim above is only true if both walks are.
+      for (const p of [...batch.pids].reverse()) {
+        if (!matches(p.pid, p.lstart)) { skipped++; continue; }
         try { deps.signal(p.pid, "SIGCONT"); continued++; } catch { /* gone between the read and the signal */ }
       }
       for (const g of batch.groups) {
-        if (live.get(g.pgid) !== g.leaderLstart) { skipped++; continue; }
+        if (!matches(g.pgid, g.leaderLstart)) { skipped++; continue; }
         try { deps.signal(-g.pgid, "SIGCONT"); } catch { /* the group is gone */ }
       }
     }
   }
-  deps.ledger.clearActive();
-  deps.log(`[freeze] boot: continued ${continued} pids of ${active.length} tree(s) left by the previous server (${skipped} skipped: recycled)`);
+  if (live !== null) deps.ledger.clearActive();
+  deps.log(
+    `[freeze] boot: continued ${continued} pids of ${active.length} tree(s) left by the previous server` +
+    (live === null
+      ? "; ps did not answer, so nothing was checked and the ledger is kept for the next boot"
+      : ` (${skipped} skipped: recycled)`),
+  );
   return { continued, skipped };
 }
 

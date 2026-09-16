@@ -74,12 +74,21 @@ function world(i: {
   outsidePeers?: (pids: readonly number[]) => Promise<number[]>;
   xpc?: Record<number, number[]>;
   xpcFootprintGB?: number;
+  /** `ps` mute: not an empty answer, no answer at all (its own 4 s timeout). */
+  psMute?: { lstart?: boolean; table?: boolean; stat?: boolean };
+  /** Pids whose SIGSTOP silently does nothing: a command that is not ours to signal. */
+  deafPids?: number[];
+  /** In the table, but gone by the time `ps` answered with the start times. */
+  lstartMissing?: number[];
+  /** Called before each `lstartOf`, so a test can kill a pid BETWEEN two reads. */
+  onLstart?: (call: number, pids: readonly number[]) => void;
 }): World {
   let procs = [...i.procs];
   let clock = T0;
   const signals: { pid: number; sig: string }[] = [];
   const logs: string[] = [];
   const stopped = new Set<number>();
+  let lstartCalls = 0;
   let text = i.ledgerText ?? null;
   const io: LedgerIo = { read: () => text, write: (t) => { text = t; }, log: (l) => logs.push(l) };
   const ledger = createSwapFreezeLedger(io);
@@ -93,15 +102,21 @@ function world(i: {
 
   const freezer = createSwapFreezer({
     now: () => clock,
-    processTable: async () => table(),
+    processTable: async () => (i.psMute?.table ? null : table()),
     footprintKB: (pid) => {
       const own = spec(pid)?.footprintGB ?? 0;
       const asXpc = Object.values(i.xpc ?? {}).some((list) => list.includes(pid)) ? (i.xpcFootprintGB ?? 0) : 0;
       return ((own + asXpc) * 1e9) / 1024;
     },
     residentKB: (pid) => ((spec(pid)?.residentGB ?? 0) * 1e9) / 1024,
-    lstartOf: async (pids) => new Map(pids.filter((p) => spec(p) || (i.xpc && Object.values(i.xpc).flat().includes(p))).map((p) => [p, `start-${p}`])),
-    statOf: async (pids) => new Map(pids.map((p) => [p, stopped.has(p) || (i.fakeStopped ?? []).includes(p) ? "T" : "S"])),
+    lstartOf: async (pids) => {
+      i.onLstart?.(++lstartCalls, pids);
+      if (i.psMute?.lstart) return null;
+      return new Map(pids
+        .filter((p) => (spec(p) || (i.xpc && Object.values(i.xpc).flat().includes(p))) && !(i.lstartMissing ?? []).includes(p))
+        .map((p) => [p, `start-${p}`]));
+    },
+    statOf: async (pids) => (i.psMute?.stat ? null : new Map(pids.map((p) => [p, stopped.has(p) || (i.fakeStopped ?? []).includes(p) ? "T" : "S"]))),
     signal: (pid, sig) => {
       // The production invariant, asserted from the outside: a SIGSTOP to a pid
       // the ledger does not name yet is a defect, not a test failure to tune.
@@ -112,7 +127,10 @@ function world(i: {
       }
       signals.push({ pid, sig });
       const members = pid < 0 ? procs.filter((p) => (p.pgid ?? p.pid) === -pid).map((p) => p.pid) : [pid];
-      for (const m of members) { if (sig === "SIGSTOP") stopped.add(m); else stopped.delete(m); }
+      for (const m of members) {
+        if ((i.deafPids ?? []).includes(m)) continue;
+        if (sig === "SIGSTOP") stopped.add(m); else stopped.delete(m);
+      }
     },
     sessions: () => i.sessions ?? [],
     natives: () => i.natives ?? [],
@@ -389,6 +407,115 @@ describe("F10: two per tree, across a reload of the server", () => {
     await twoBeats(third);
     expect(third.freezer.views()).toHaveLength(0);
     expect(third.logs.join("\n")).toContain("it runs to the end");
+  });
+});
+
+/**
+ * A `ps` THAT DOES NOT ANSWER IS THE CONDITION THE FREEZER LIVES IN.
+ *
+ * Its own 4 s timeout fires precisely on a Mac in sustained swap, and until this
+ * round every reader turned that into an EMPTY answer: an identity of `""` was
+ * written into the ledger for every pid, the SIGSTOPs went out, and the thaw -
+ * comparing `""` against the live `lstart` - skipped every one of them. The tree
+ * stayed `T` forever, out of the ledger and out of `views()`, with nobody left
+ * who knew its numbers.
+ */
+describe("F13: no identity, no SIGSTOP", () => {
+  const procs = [...BASE, ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1, residentGB: 1.4 })];
+  const sessions = [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })];
+
+  test("a mute `ps` freezes nothing, writes nothing and says why", async () => {
+    const w = world({ procs, sessions, psMute: { lstart: true } });
+    await twoBeats(w);
+    expect(w.signals, "no pid may be stopped with an identity nobody can read").toEqual([]);
+    expect(w.freezer.views()).toHaveLength(0);
+    const ledger = JSON.parse(w.ledgerText() ?? '{"active":[],"counts":[]}') as { active: unknown[]; counts: unknown[] };
+    expect(ledger.active).toEqual([]);
+    // And the cap is untouched: a count kept per identity, bumped for an
+    // identity of `""`, is a cap that opens on the very beat it must hold.
+    expect(ledger.counts).toEqual([]);
+    expect(w.logs.join("\n")).toContain("ps did not answer");
+  });
+
+  test("a mute `ps` at the fresh table stops the beat before the guard set is built", async () => {
+    const w = world({ procs, sessions, psMute: { table: true } });
+    await twoBeats(w);
+    expect(w.signals).toEqual([]);
+    expect(w.logs.join("\n")).toContain("ps did not answer with a process table");
+  });
+
+  test("a pid `ps` answered about and did not list is gone: no signal, no ledger line", async () => {
+    // The leaf died between the walk and the start times. `ps` DID answer, so
+    // this is knowledge, not silence: the pid needs no signal and has no
+    // identity to record - and it must not stop the freeze of the rest.
+    const w = world({ procs, sessions, lstartMissing: [51004] });
+    await twoBeats(w);
+    const stopped = w.signals.filter((s) => s.sig === "SIGSTOP").map((s) => Math.abs(s.pid));
+    expect(stopped).toContain(51000);
+    expect(stopped).not.toContain(51004);
+    const recorded = (JSON.parse(w.ledgerText()!).active as { batches: { pids: { pid: number; lstart: string }[] }[] }[])
+      .flatMap((t) => t.batches.flatMap((b) => b.pids));
+    expect(recorded.map((p) => p.pid)).not.toContain(51004);
+    for (const p of recorded) expect(p.lstart, "no empty identity ever reaches the ledger").not.toBe("");
+  });
+
+  test("a root that dies BETWEEN the two reads is not frozen half-way", async () => {
+    // `measure` reads the start times of the roots, `freeze` reads them again
+    // for the whole set: the command can end in between, and stopping the rest
+    // of its tree then would leave orphans nobody continues.
+    const missing: number[] = [];
+    const w = world({
+      procs, sessions, lstartMissing: missing,
+      onLstart: (call) => { if (call === 3) missing.push(51000); },
+    });
+    await twoBeats(w);
+    expect(w.signals, "nothing is signalled once the root is gone").toEqual([]);
+    expect(w.logs.join("\n")).toContain("is already gone");
+  });
+
+  test("a freeze whose every SIGSTOP did nothing is not a freeze", async () => {
+    const w = world({ procs, sessions, deafPids: [51000, 51004] });
+    await twoBeats(w);
+    expect(w.logs.join("\n")).toContain("no effect: none of the");
+    expect(w.freezer.views(), "no frost over a command that is still running").toHaveLength(0);
+    const stops = w.signals.filter((s) => s.sig === "SIGSTOP").map((s) => Math.abs(s.pid));
+    const resumed = w.signals.filter((s) => s.sig === "SIGCONT").map((s) => Math.abs(s.pid));
+    for (const pid of stops) expect(resumed).toContain(pid);
+    expect(JSON.parse(w.ledgerText()!).active).toEqual([]);
+  });
+
+  test("a mute `ps` at the post-check leaves the freeze standing, and says it could not check", async () => {
+    const w = world({ procs, sessions, psMute: { stat: true } });
+    await twoBeats(w);
+    expect(w.freezer.views()).toHaveLength(1);
+    expect(w.logs.join("\n")).toContain("post-check of \"bun batteria.ts\" skipped");
+  });
+
+  test("a mute `ps` at thaw time continues every recorded pid instead of calling it recycled", async () => {
+    const mute: { lstart?: boolean } = {};
+    const w = world({ procs, sessions, psMute: mute });
+    await twoBeats(w);
+    const stops = w.signals.filter((s) => s.sig === "SIGSTOP").map((s) => Math.abs(s.pid));
+    expect(stops.length).toBeGreaterThan(0);
+    mute.lstart = true;
+    await w.freezer.thawAll("room");
+    const resumed = w.signals.filter((s) => s.sig === "SIGCONT").map((s) => Math.abs(s.pid));
+    for (const pid of stops) expect(resumed).toContain(pid);
+    expect(w.freezer.views()).toHaveLength(0);
+    expect(w.logs.join("\n")).toContain("every recorded pid continued unchecked");
+  });
+
+  test("a count whose root is no longer on the machine is forgotten", async () => {
+    const w = world({ procs, sessions });
+    await twoBeats(w);
+    w.advance(60_000);
+    await w.beat({ sustained: false, heldGB: 9 });
+    expect(JSON.parse(w.ledgerText()!).counts).toHaveLength(1);
+    // The command ended: its pid is not in the table any more.
+    w.setProcs(BASE);
+    w.advance(60_000);
+    await twoBeats(w);
+    expect(JSON.parse(w.ledgerText()!).counts, "counts grow for every tree ever frozen otherwise").toEqual([]);
   });
 });
 

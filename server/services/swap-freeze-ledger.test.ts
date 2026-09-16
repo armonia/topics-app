@@ -70,6 +70,31 @@ describe("F13: written before the signal, and only the same incarnation is conti
     expect(JSON.parse(io.text()!).active).toEqual([]);
   });
 
+  test("a boot where `ps` did not answer continues everything and KEEPS the file", async () => {
+    // The ledger is the last copy of those pids. Emptying it because `ps` was
+    // mute - the launchd PATH class of failure PR #69 already hit, and the 4 s
+    // timeout of a swapping Mac - abandons a stopped tree for good, and calls it
+    // "recycled" in the log while it is at it.
+    const io = memoryIo();
+    const ledger = createSwapFreezeLedger(io);
+    ledger.begin({ treeId: "t1", sessionKey: "topic:a", frozenAt: 1, root: ref(51000) });
+    ledger.addBatch("t1", { groups: [{ pgid: 51000, leaderLstart: "start-51000" }], pids: [ref(51000), ref(51004)] });
+
+    const sent: number[] = [];
+    const logs: string[] = [];
+    const out = await thawLedgerAtBoot({
+      ledger,
+      lstartOf: async () => null,
+      signal: (pid) => { sent.push(pid); },
+      log: (l) => logs.push(l),
+    });
+    expect(sent, "a SIGCONT to a running process is harmless; a tree left stopped is not").toEqual([51004, 51000, -51000]);
+    expect(out.skipped).toBe(0);
+    expect(JSON.parse(io.text()!).active, "the pids stay on disk for the next boot").toHaveLength(1);
+    expect(logs.join(" ")).toContain("ps did not answer");
+    expect(logs.join(" "), "nothing here was checked, so nothing here is recycled").not.toContain("recycled");
+  });
+
   test("the counts survive the thaw and a reload; `active` does not", () => {
     const io = memoryIo();
     const first = createSwapFreezeLedger(io);

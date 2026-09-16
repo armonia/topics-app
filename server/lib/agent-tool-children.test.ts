@@ -116,6 +116,57 @@ describe("F2: anything not accounted for is logged, never signalled", () => {
   });
 });
 
+/**
+ * A QUOTE IN THE COMMAND IS THE COMMON CASE, NOT A CORNER ONE.
+ *
+ * The CLI writes the tool command inside `eval '<cmd>'`, and a single quote in
+ * `<cmd>` can only survive by leaving the quoting and coming back: `'\''` or
+ * `'"'"'`. Matching the record against the RAW `ps` text therefore fails for
+ * every such command, and it fails asymmetrically - the foreground command with
+ * a `--grep 'x'` in it goes unrecognised while a three-word background record
+ * from an earlier turn still matches the same line and claims its pid. That pid
+ * is then a freeze candidate, and a foreground command is the one thing that
+ * must never be frozen: its CLI kills it on a clock that never stopped.
+ */
+describe("F1b: the `eval` quoting, on both sides of the comparison", () => {
+  const QUOTED = `
+38515 34260 48914  12:03.00 /Users/u/Library/App/claude-code/2.1.270/claude.app/Contents/MacOS/claude --resume=abc
+55000 38515 55000   0:20.00 /bin/zsh -c source /Users/u/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'bun test --grep '\\''brina'\\''' < /dev/null && pwd -P
+56000 38515 56000   0:20.00 /bin/zsh -c source /Users/u/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'bun test tests/e2e --grep '"'"'ghiaccio'"'"'' < /dev/null && pwd -P
+`;
+  const quotedRows = parseProcessTable(QUOTED);
+
+  test("the foreground command with a quote in it is recognised, and a shorter background record does not steal it", () => {
+    const s = session({
+      backgroundBash: [{ command: "bun test", startedAt: 1 }],
+      foregroundBash: "bun test --grep 'brina'",
+    });
+    const { roots, foreground } = toolRoots({ rows: quotedRows, sessions: [s], natives: [] });
+    expect(foreground.map((f) => f.pid)).toContain(55000);
+    expect(roots.map((r) => r.pid), "the command in flight is never a candidate").not.toContain(55000);
+  });
+
+  test("a background command with a quote in it is recognised instead of falling into `unrecognised`", () => {
+    const s = session({
+      backgroundBash: [{ command: "bun test tests/e2e --grep 'ghiaccio'", startedAt: 1 }],
+      foregroundBash: null,
+    });
+    const { roots, unrecognised } = toolRoots({ rows: quotedRows, sessions: [s], natives: [] });
+    expect(roots.map((r) => r.pid), "the lever was blind to exactly the heavy commands").toContain(56000);
+    expect(roots.find((r) => r.pid === 56000)!.command).toBe("bun test tests/e2e --grep 'ghiaccio'");
+    expect(unrecognised.map((u) => u.pid)).not.toContain(56000);
+  });
+
+  test("the longest match wins: a background record that explains more than the foreground one still takes the pid", () => {
+    const s = session({
+      backgroundBash: [{ command: "bun test tests/e2e --grep 'ghiaccio'", startedAt: 1 }],
+      foregroundBash: "bun",
+    });
+    const { roots } = toolRoots({ rows: quotedRows, sessions: [s], natives: [] });
+    expect(roots.map((r) => r.pid)).toContain(56000);
+  });
+});
+
 describe("F3: the guard set, and the groups a signal may reach", () => {
   const guard = guardSet(rows, { serverPid: 1733, sidecarPids: [2382], cliPids: [38515] });
 

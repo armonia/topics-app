@@ -12,30 +12,44 @@
  */
 import { parseProcessTable, type PsRow } from "./agent-tool-children";
 
-async function runPs(args: string[], timeoutMs = 4_000): Promise<string> {
+/**
+ * `null` MEANS `ps` DID NOT ANSWER, and it is never the same as an empty answer.
+ *
+ * `ps -p <dead pid>` legitimately prints nothing (exit 1, empty stderr), so the
+ * exit code cannot tell the two apart. What can is the only way this call fails
+ * in production: a spawn that throws, or the 4 s timeout firing - which is the
+ * Mac in sustained swap, the exact condition the freezer runs in. A caller that
+ * read `""` as "that pid is gone" would SIGSTOP a tree while recording an empty
+ * identity for it, and no thaw could ever match it again.
+ */
+async function runPs(args: string[], timeoutMs = 4_000): Promise<string | null> {
   try {
     const proc = Bun.spawn(["/bin/ps", ...args], { stdout: "pipe", stderr: "ignore" });
-    const killer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, timeoutMs);
+    let timedOut = false;
+    const killer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch { /* already gone */ } }, timeoutMs);
     killer.unref?.();
     const text = await new Response(proc.stdout).text();
     await proc.exited;
     clearTimeout(killer);
+    if (timedOut || proc.signalCode) return null;
     return text;
   } catch {
-    return "";
+    return null;
   }
 }
 
-/** Pid, parent, group, CPU time and argv of every process on the machine. */
-export async function readProcessTable(): Promise<PsRow[]> {
-  return parseProcessTable(await runPs(["-axo", "pid=,ppid=,pgid=,time=,command=", "-ww"]));
+/** Pid, parent, group, CPU time and argv of every process, or `null` if `ps` was mute. */
+export async function readProcessTable(): Promise<PsRow[] | null> {
+  const text = await runPs(["-axo", "pid=,ppid=,pgid=,time=,command=", "-ww"]);
+  return text === null ? null : parseProcessTable(text);
 }
 
 /** `pid -> lstart`: the identity that tells a recycled pid from the one we stopped. */
-export async function readStartTimes(pids: readonly number[]): Promise<Map<number, string>> {
+export async function readStartTimes(pids: readonly number[]): Promise<Map<number, string> | null> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   const text = await runPs(["-o", "pid=,lstart=", "-p", pids.join(",")]);
+  if (text === null) return null;
   for (const line of text.split("\n")) {
     const m = line.trim().match(/^(\d+)\s+(.+)$/);
     if (m) out.set(+m[1]!, m[2]!.trim());
@@ -44,10 +58,11 @@ export async function readStartTimes(pids: readonly number[]): Promise<Map<numbe
 }
 
 /** `pid -> stat`: `T` is a stopped process, which is what the post-check reads. */
-export async function readProcessStates(pids: readonly number[]): Promise<Map<number, string>> {
+export async function readProcessStates(pids: readonly number[]): Promise<Map<number, string> | null> {
   const out = new Map<number, string>();
   if (pids.length === 0) return out;
   const text = await runPs(["-o", "pid=,stat=", "-p", pids.join(",")]);
+  if (text === null) return null;
   for (const line of text.split("\n")) {
     const m = line.trim().match(/^(\d+)\s+(\S+)$/);
     if (m) out.set(+m[1]!, m[2]!);
