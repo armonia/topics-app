@@ -48,6 +48,28 @@ export function loopbackInit(): RequestInit {
 }
 
 /**
+ * THE SERVER ANSWERED, and the answer was a refusal.
+ *
+ * A caller that retries has exactly one question to ask about a failure: did
+ * the request ARRIVE? A dropped socket may be repeated, because nothing
+ * happened on the other side; a 400 or a 502 may not, because something did.
+ * Both left this module as a plain `Error`, so the one caller that retries
+ * (`pollOutbound`) could not tell them apart and re-POSTED a message the server
+ * had already processed - which, past the confirmation, is a second mail.
+ *
+ * The distinction is a CLASS and not a parsed message on purpose: "HTTP 400: "
+ * as a prefix to grep for is a contract nobody declared.
+ */
+export class HttpAnswerError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "HttpAnswerError";
+    this.status = status;
+  }
+}
+
+/**
  * A request that never came back, said as such. Bare, an aborted fetch reads
  * "The operation was aborted", which names the mechanism and hides both the
  * cause and the call - and it is the message the agent reads.
@@ -126,8 +148,10 @@ export async function httpJson<T>(
           .filter((s): s is string => !!s)
       : [];
     const twins = dupes.length ? `. Card già aperte: ${dupes.join("; ")}` : "";
-    throw new Error(`HTTP ${resp.status}: ${msg}${extra}${twins}`);
+    throw new HttpAnswerError(resp.status, `HTTP ${resp.status}: ${msg}${extra}${twins}`);
   }
-  if (parsed?.error) throw new Error(String(parsed.error));
+  // A 2xx whose body carries `error` is an answer too: the server read the
+  // request and said no in the body instead of in the status line.
+  if (parsed?.error) throw new HttpAnswerError(resp.status, String(parsed.error));
   return parsed;
 }

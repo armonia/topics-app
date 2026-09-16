@@ -12,7 +12,7 @@
  * server-side (`server/routes/outbound.ts`), because a rule enforced inside the
  * agent's own subprocess is a rule the agent enforces on itself.
  */
-import { httpJson, type ParsedArgs } from "./topics-http";
+import { httpJson, HttpAnswerError, type ParsedArgs } from "./topics-http";
 
 /**
  * The annotations, written out instead of imported from the dispatcher.
@@ -149,9 +149,18 @@ async function pollOutbound(
       transportFailures = 0;
       firstFailureAt = null;
     } catch (err) {
+      // AN ANSWER IS NEVER RE-SENT. The file said so and did the opposite: a
+      // status outside 2xx throws out of `httpJson` exactly like a lost socket,
+      // so every talking error (unknown account, missing variable, refused
+      // attachment) was counted as a transport failure and the same body was
+      // POSTed again.
+      // Past the confirmation that is worse than noise: the first leg already
+      // ran the CLI and consumed the yes, so the second POST opens a NEW
+      // question for the same message, and a person who confirms it sends the
+      // mail twice. The error the server wrote is the one the agent needs.
+      if (err instanceof HttpAnswerError) throw new Error(`${tool}: ${err.message}`);
       // A dropped socket is retried; a server that has been unreachable for the
-      // whole grace window is reported. Nothing is ever re-sent after an
-      // ANSWER: a second POST that the server did receive is a second message.
+      // whole grace window is reported.
       transportFailures++;
       if (firstFailureAt === null) firstFailureAt = now();
       const downMs = now() - firstFailureAt;

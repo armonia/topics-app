@@ -100,6 +100,57 @@ describe("callSendMail", () => {
     ).rejects.toThrow(/nothing was sent/);
   });
 
+  test("un 400 e' una RISPOSTA: una POST sola, e l'agente legge l'errore vero", async () => {
+    // `httpJson` throws on a lost socket AND on any status outside 2xx, and
+    // the catch of the poll loop could not tell them apart: it counted the
+    // answer as a transport failure, slept, and re-POSTED the same body. So
+    // every talking error OUTBOUND-01 promises (missing variable, undeclared
+    // account, refused attachment) reached the agent disguised as "I lost the
+    // server", after a minute and a half of bouncing.
+    let posts = 0;
+    const fetchImpl = stubFetch(async () => {
+      posts++;
+      return new Response(JSON.stringify({ error: 'unknown account "terzo" (available: primo, secondo)', code: "unknown_account" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    await expect(
+      callSendMail(args, { to: "a@esempio.test", subject: "x", body: "y", account: "terzo" }, fetchImpl, { backoffMs: [1] }),
+    ).rejects.toThrow(/unknown account "terzo"/);
+    expect(posts).toBe(1);
+  });
+
+  test("un 502 dopo la conferma NON si ri-manda: la seconda POST e' un secondo messaggio", async () => {
+    // The worst shape of the same bug. The first leg already ran the CLI and
+    // CONSUMED the confirmation; re-posting opens a NEW question for the same
+    // message, and a person who says yes to it sends the mail twice.
+    let posts = 0;
+    const fetchImpl = stubFetch(async () => {
+      posts++;
+      return new Response(JSON.stringify({ error: "the CLI exited 1: quota exceeded", code: "send_failed" }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    await expect(
+      callSendMail(args, { to: "a@esempio.test", subject: "x", body: "y" }, fetchImpl, { backoffMs: [1] }),
+    ).rejects.toThrow(/quota exceeded/);
+    expect(posts).toBe(1);
+  });
+
+  test("un socket caduto SI ritenta: e' l'unico caso che il giro esiste per coprire", async () => {
+    let posts = 0;
+    const fetchImpl = stubFetch(async () => {
+      posts++;
+      if (posts < 3) throw new TypeError("Unable to connect");
+      return jsonResponse({ sent: true, account: "primo", to: "a@esempio.test", subject: "x" });
+    });
+    const out = await callSendMail(args, { to: "a@esempio.test", subject: "x", body: "y" }, fetchImpl, { backoffMs: [1] });
+    expect(posts).toBe(3);
+    expect(out).toContain("sent from primo");
+  });
+
   test("il tetto anti-giro-a-vuoto resta un numero, non una vita", () => {
     expect(OUTBOUND_MAX_LEGS).toBeGreaterThan(100);
   });
