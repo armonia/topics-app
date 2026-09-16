@@ -139,7 +139,7 @@
     "tests/e2e/sidebar-pinned-tiles.spec.ts": 2737,
     "server/utils.ts": 2720,
     "server/routes/tasks.test.ts": 2697,
-    "server/routes/outbound.test.ts": 835,
+    "server/routes/outbound.test.ts": 972,
     "client/src/hooks/usePanelLifecycle.ts": 2691,
     "client/src/components/Layout/PaneTabBar.tsx": 2648,
     "client/src/App.tsx": 2639,

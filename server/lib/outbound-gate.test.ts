@@ -18,11 +18,11 @@
   * @covers OUTBOUND-03
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { confirmOutbound, confirmKey, confirmQuestion, findWaitingToolRow, CONFIRM_LABEL, REFUSE_LABEL, type OutboundGateDeps } from "./outbound-gate";
+import { confirmOutbound, confirmKey, confirmQuestion, findWaitingToolRow, CONFIRM_LABEL, REFUSE_LABEL, CONFIRM_ANSWERED_ELSEWHERE_LINE, _resetOutboundHolds, type OutboundGateDeps } from "./outbound-gate";
 import { deliverAnswer, hasPendingAsk, cancelAsk } from "./ask-user-bridge";
 import { _resetRoutedAsks, routeAskToTaskThread } from "../services/board-ask-routing";
 
-afterEach(() => { _resetRoutedAsks(); });
+afterEach(() => { _resetRoutedAsks(); _resetOutboundHolds(); });
 
 const CARD = { id: "task-1", project_id: "project-1", assigned_topic_id: "topic-abcd1234" };
 
@@ -159,9 +159,13 @@ describe("confirmOutbound", () => {
     // No answer this time: the earlier consent covers nothing.
     expect((await second).state).toBe("pending");
     // And the second question DID reach the thread: the registry was not left
-    // dirty by the first answer.
-    expect(comments).toHaveLength(2);
-    expect(comments[1].content).toContain("22222222");
+    // dirty by the first answer. In between, the first block was CLOSED: the
+    // yes arrived through the panel in the tab, so nothing in the thread said
+    // that question was over and its quick replies kept answering nobody.
+    expect(comments).toHaveLength(3);
+    expect(comments[1].content).toBe(CONFIRM_ANSWERED_ELSEWHERE_LINE);
+    expect(comments[1].options).toEqual([]);
+    expect(comments[2].content).toContain("22222222");
     cancelAsk(sessionKey, "fine del test");
   });
 });

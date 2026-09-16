@@ -2,7 +2,14 @@
 
 La barra: `bun test server/lib/outbound-*.test.ts server/routes/outbound.test.ts
 server/mcp/outbound-tools.test.ts` verde, i rail leggeri verdi, e la CI della PR
-verde. Ogni test deve essere ROSSO sul codice di prima: niente invii veri, mai,
+verde. I rail leggeri sono questi e solo questi, quelli che il job `check` della
+CI esegue: `comment-language`, `identifier-language`, `ui-language`, `emdash`,
+`typography`, `nul`, `any`, `test-skips`, `untraced-tests`, `spec-coverage`,
+`bloat`. **`check:test-globals` NON e' uno di loro**: lancia un `bun test` per
+OGNI file della suite (e' la suite unit intera, sei processi alla volta), non
+sta in `.github/workflows/ci.yml`, e contato fra i cancelli leggeri si e' preso
+18 minuti sul Mac di chi lavora prima di essere fermato a mano. E' triage, si
+chiama con i file sospetti, e il pesante lo prova la CI. Ogni test deve essere ROSSO sul codice di prima: niente invii veri, mai,
 nemmeno a se stessi — la CLI dei test è un finto eseguibile che registra `argv`
 e l'ambiente in un file temporaneo.
 

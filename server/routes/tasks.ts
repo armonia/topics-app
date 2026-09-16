@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, pressedADeadQuickReply, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -52,7 +52,7 @@ function globalCapFields(cap: GlobalDispatchCap): {
   return { maxAgentsAuto: cap.auto, maxAgents: cap.max, maxAgentsMode: capMode(cap), budgetShare: budgetShare(cap) };
 }
 import { deliverAnswer } from "../lib/ask-user-bridge";
-import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
+import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -4013,11 +4013,29 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // answers the open question, which is the only one there can be: a
           // second question on a card that already has a live one is refused
           // upstream.
+          //
+          // AND A CLICK ON A BLOCK THAT IS NO LONGER ANSWERABLE IS NOT SILENCE.
+          // When there is no open question at all, `answerTo` still names a
+          // quick-reply block the person could see and press: the rendez-vous
+          // behind it died (the send was refused and took its entry, the turn
+          // was interrupted) while the comment kept its buttons. Left to fall
+          // through, "Conferma" became an ordinary comment that re-kicked the
+          // agent, and the card said nothing - measured, the person had every
+          // reason to believe they had confirmed. Decided here, said after the
+          // board actions below, which are quick replies of their own.
+          let deadQuestionClick = false;
           {
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
             const target = root?.id ?? bComments.taskId;
             const answerTo = typeof body?.answerTo === "string" ? body.answerTo : undefined;
             const open = pendingRoutedAsk(target);
+            if (!open && answerTo) {
+              deadQuestionClick = pressedADeadQuickReply(
+                svc.get(bComments.taskId, { projectId: bComments.projectId })?.comments,
+                answerTo,
+                typeof body?.content === "string" ? body.content : "",
+              );
+            }
             if (open) {
               const outcome = answerRoutedAsk(askRouting, target, String(body?.content ?? ""), { askId: answerTo });
               if (outcome.delivered) return json({ ...comment, delivery: 'answered' });
@@ -4056,6 +4074,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               { force: body?.force },
             );
             if (intercepted) return intercepted;
+          }
+          if (deadQuestionClick) {
+            try {
+              svc.addComment({
+                taskId: bComments.taskId,
+                author: "agent",
+                content: DEAD_QUESTION_LINE,
+                projectId: bComments.projectId,
+                origin: actionOrigin,
+              });
+              const aggiornata = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
+              if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: aggiornata });
+            } catch { /* the line is an explanation: it never fails the saved comment */ }
+            return json({ ...comment, delivery: 'note' });
           }
           // Answering on a STEP is answering the agent: when the subtree's
           // dispatch root sits in review ("serve te"), a human comment anywhere

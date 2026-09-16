@@ -39,6 +39,8 @@ interface RoutedAsk {
    */
   askId: string;
   sessionKey: string;
+  /** The card the row lives on: `closeRoutedAsk` writes its line in there. */
+  projectId: string;
   /** La chiave con cui il chiamante si aspetta la risposta (`answers[key]`). */
   questionKey: string;
   /** The text already in the thread: two legs of one ask repeat it verbatim. */
@@ -197,6 +199,19 @@ export interface RoutedAskOutcome {
    */
   askId?: string;
   /**
+   * THIS CALL WROTE THE ROW, as opposed to finding it already there.
+   *
+   * It exists because `askId` alone cannot say whose question it is. The branch
+   * above hands the SAME id back to anyone repeating the same question - and
+   * two `send_mail` of one message are the same question by construction, same
+   * digest, same key, same text. A caller that read `askId` as "mine" therefore
+   * owned an id another request had written, and its own clean-up deleted that
+   * request's entry while it was still waiting (measured, 120 ms apart on one
+   * session). A caller that must own what it clears reads THIS, and remembers
+   * the id across its own legs itself.
+   */
+  created?: boolean;
+  /**
    * THE CARD IS ALREADY TAKEN by a question somebody is still polling for, and
    * this one did not come out. It says nothing about WHOSE: the holder can be
    * another session or another request of this same one, and the card draws one
@@ -250,7 +265,7 @@ export function routeAskToTaskThread(
   // waiting, and nothing else does.
   if (open && open.sessionKey === args.sessionKey && open.questionKey === q.key && open.text === q.text) {
     open.touchedAt = now;
-    return { taskId: owner.taskId, projectId: owner.projectId, shown: true, askId: open.askId };
+    return { taskId: owner.taskId, projectId: owner.projectId, shown: true, askId: open.askId, created: false };
   }
   if (open) {
     // THE ONE ON THE CARD STILL HAS AN OWNER: the card stays its. No write, no
@@ -302,6 +317,7 @@ export function routeAskToTaskThread(
   routed.set(owner.taskId, {
     askId: ok,
     sessionKey: args.sessionKey,
+    projectId: owner.projectId,
     questionKey: q.key,
     text: q.text,
     options: q.options,
@@ -309,7 +325,7 @@ export function routeAskToTaskThread(
     askedAt: now,
     touchedAt: now,
   });
-  return { taskId: owner.taskId, projectId: owner.projectId, shown: true, askId: ok };
+  return { taskId: owner.taskId, projectId: owner.projectId, shown: true, askId: ok, created: true };
 }
 
 /** C'è una domanda instradata aperta su questo task? */
@@ -376,21 +392,77 @@ export function answerRoutedAsk(
 /**
  * MY question is over (answered in the tab, cancelled, out of legs): drop it.
  *
- * KEYED ON THE QUESTION, not on the session that asked it, and that is the
- * whole point. This used to take a sessionKey and delete every entry of that
- * session, which is right only while a session can have one question in flight.
- * It cannot: two `send_mail` of one message run together, and the leg that LOST
- * the card - it was refused, it has nothing on the board - called this and
- * deleted the entry of the leg that WON. Measured: the confirmation stayed on
- * screen with its buttons, `pendingRoutedAsk` answered null, and the click on
- * it delivered nothing and said nothing. An id somebody else wrote is not an id
- * this can be called with: an entry under another askId is left alone.
+ * WHAT IT GUARANTEES, exactly: an entry stored under a DIFFERENT askId is left
+ * alone. That is all, and the rest used to be claimed here and was false. This
+ * took a sessionKey once and deleted every entry of that session, which is
+ * right only while a session can have one question in flight; it cannot, so the
+ * key moved onto the question. But naming the id does NOT by itself stop a
+ * request from clearing somebody else's question, because two requests can hold
+ * the same id: `routeAskToTaskThread` hands the open entry's id back to anyone
+ * repeating the same question, and two `send_mail` of one message repeat it by
+ * construction. Measured, 120 ms apart on one session: the losing leg cleared
+ * the id it had been handed and the winner's confirmation stayed on screen with
+ * its buttons, `pendingRoutedAsk` null, the click delivering nothing.
+ *
+ * WHAT STOPS THAT is the caller owning the id it passes - `created` on the
+ * outcome above, kept by the request across its own legs - and, one floor up,
+ * the send gate's per-card hold, which means two requests are not on the card at
+ * the same time in the first place. This function is the last step of that, not
+ * the guard.
+ *
+ * It does NOT write anything in the thread. A question dropped in silence leaves
+ * a quick-reply block nobody can answer: a caller whose question died without an
+ * answer wants `closeRoutedAsk`.
  */
 export function clearRoutedAsk(askId: string): void {
   if (!askId) return;
   for (const [taskId, r] of routed) {
     if (r.askId === askId) routed.delete(taskId);
   }
+}
+
+/**
+ * What the card says to somebody who pressed a block that was already over.
+ *
+ * Here and not next to `pressedADeadQuickReply` in `shared/board.ts`: that one
+ * is a rule about the shape of a thread and belongs on both sides of the wire,
+ * while this is a sentence the SERVER writes into a card, like the two below it.
+ */
+export const DEAD_QUESTION_LINE =
+  "Il blocco qui sopra non aspettava piu' una risposta: questo clic non e' stato consegnato a nessuno e non e' partito niente.";
+
+/** The line that ends a question whose owner is gone, where the person reads. */
+export const ENDED_LINE =
+  "La domanda qui sopra non aspetta piu' una risposta: chi l'aveva posta non c'e' piu'.";
+
+/**
+ * MY question is over and NOBODY ANSWERED IT IN THE THREAD: close it where the
+ * person is looking, then drop it.
+ *
+ * Clearing the registry is not enough, and that gap is a measured defect. The
+ * comment keeps its quick replies, `pendingQuestionComment` keeps returning it -
+ * the refusal trace next to it is `quiet` on purpose, so it does not take the
+ * buttons away - and the drawer keeps sending its `answerTo`. The click then
+ * reached a rendez-vous that no longer existed: nothing delivered, nothing said,
+ * and a person who had every reason to believe they had confirmed. A plain agent
+ * line under the question is what ENDS it for that reader (not quiet, not a
+ * delivery), so the buttons go with it.
+ *
+ * Writes only while the entry is still here: a question answered in the thread
+ * was already closed by the person's own comment, and a second line under it
+ * would be the card telling them their answer went nowhere.
+ */
+export function closeRoutedAsk(deps: AskRoutingDeps, askId: string | undefined, line: string): boolean {
+  if (!askId) return false;
+  for (const [taskId, r] of routed) {
+    if (r.askId !== askId) continue;
+    routed.delete(taskId);
+    try {
+      deps.comment({ taskId, projectId: r.projectId, content: line, options: [], sessionKey: r.sessionKey });
+    } catch { /* the line explains; the entry is gone either way */ }
+    return true;
+  }
+  return false;
 }
 
 /**

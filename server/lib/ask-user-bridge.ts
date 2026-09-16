@@ -56,6 +56,13 @@ export class AskWaitError extends Error {
 // timeout and cheap enough to repeat for an hour and a half.
 const DEFAULT_TIMEOUT_MS = 25 * 1000;
 
+/**
+ * The same leg, for a caller that has to spend one WITHOUT registering a waiter:
+ * the ask route, when the card is held by another request of this very session
+ * and registering here would supersede it.
+ */
+export const ASK_LEG_MS = DEFAULT_TIMEOUT_MS;
+
 // IL TEMPO NON È UN MOTIVO PER CHIUDERE UNA DOMANDA.
 //
 // Questo numero è stato 10 minuti (una domanda fatta alle 12:55 era morta

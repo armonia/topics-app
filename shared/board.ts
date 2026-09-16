@@ -2255,6 +2255,34 @@ export function pendingQuestionComment<T extends PendingQuestionComment>(
 }
 
 /**
+ * DID THIS COMMENT PRESS A QUICK REPLY OF A BLOCK THAT IS ALREADY OVER?
+ *
+ * The drawer sends `answerTo` on every reply typed under a question block, so
+ * `answerTo` alone cannot tell a press from a sentence somebody wrote: it is the
+ * CONTENT matching one of that block's own options that says the person clicked.
+ * The distinction is the whole point of the caller - a note under a dead block
+ * stays a note, a press gets told it reached nobody - and it is also what keeps
+ * this away from the board's own labels («Landa su main» and the parked
+ * answers), which are quick replies too and are intercepted before this is read.
+ *
+ * Pure and here rather than in the route because it is a rule about the shape of
+ * a thread, and the same shape the buttons are drawn from.
+ */
+export function pressedADeadQuickReply(
+  comments: readonly (PendingQuestionComment & { id?: string })[] | null | undefined,
+  answerTo: string,
+  content: string,
+): boolean {
+  const said = content.trim().toLowerCase();
+  if (!said || !answerTo) return false;
+  const row = comments?.find((c) => c?.id === answerTo);
+  if (!row) return false;
+  const parsed = parseQuestionBlock(row.content ?? '');
+  if (!parsed) return false;
+  return parsed.options.some((o) => o.trim().toLowerCase() === said);
+}
+
+/**
  * The pending question for review notifications, using the same original-row
  * resolver as the card and drawer. A delivery from that assistant message can
  * follow the question without answering it.

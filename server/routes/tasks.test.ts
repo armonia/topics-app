@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import { pendingQuestionComment } from "../../shared/board";
 import { createTasksRouter } from "./tasks";
-import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread } from "../services/board-ask-routing";
+import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread, DEAD_QUESTION_LINE } from "../services/board-ask-routing";
 import { cancelAsk } from "../lib/ask-user-bridge";
 import { topicSessionKey } from "../services/agent-census";
 import { imageShape } from "../services/image-shape";
@@ -678,6 +678,59 @@ describe("board router (human, project-scoped)", () => {
     expect(pendingRoutedAsk(root.id)).toBeNull();
     _resetRoutedAsks();
     cancelAsk(session, "end of test");
+  });
+
+  /**
+   * A CLICK ON A BLOCK THAT IS ALREADY OVER GETS AN ANSWER, not silence.
+   *
+   * The registry entry can be gone while the comment keeps its quick replies:
+   * the send that owned it was refused and took it with it, the turn under it
+   * was interrupted. `pendingQuestionComment` still hands that row to the
+   * drawer - the refusal trace beside it is `quiet` on purpose, so it takes no
+   * buttons away - so the person presses the confirm button on a rendez-vous
+   * that no longer exists. Measured: nothing delivered, nothing said, and the
+   * label went to the agent as an ordinary comment, which also re-kicked it.
+   * Now the card says so and the agent is left alone.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("a click on a question nobody is waiting on is told so, and wakes nobody", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-dead')");
+    const resumed: string[] = [];
+    const r = createTasksRouter(makeCtx(db, broadcasts), {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string) => { resumed.push(id); },
+    } as any);
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "con conferma morta", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-dead' WHERE id = ?").run(root.id);
+    _resetRoutedAsks();
+
+    // The block, with its buttons, and NO entry behind it.
+    db.prepare(
+      "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, 'agent:top-dead', ?, 'comment', ?)",
+    ).run("q-dead", root.id, "```question\nPreventivo -> cliente@esempio.test. Confermi? (abc123)\n- Conferma\n- Annulla\n```", "2026-09-16T00:00:00Z");
+    expect(pendingRoutedAsk(root.id)).toBeNull();
+
+    const ack = await (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "Conferma", answerTo: "q-dead",
+    }))!.json();
+    expect(ack.delivery).toBe("note");
+    const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(after.comments.at(-1).content).toBe(DEAD_QUESTION_LINE);
+    // The line is a plain agent word, so the buttons go with it.
+    type ThreadRow = { id: string; content: string; kind: string; author: string; quiet?: boolean | null };
+    expect(pendingQuestionComment(after.comments as ThreadRow[])).toBeNull();
+    // And nobody was put back to work over a yes that paid for nothing.
+    expect(resumed).toEqual([]);
+
+    // A SENTENCE under the same dead block is still just a comment: the drawer
+    // sends `answerTo` for those too, and telling somebody their note reached
+    // nobody would be a lie.
+    const note = await (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "ricontrollo il destinatario", answerTo: "q-dead",
+    }))!.json();
+    expect(note.delivery).not.toBe("note");
+    _resetRoutedAsks();
   });
 
   test("quiet comment with media stays quiet too (attachments do not wake the agent)", async () => {

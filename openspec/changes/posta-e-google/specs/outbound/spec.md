@@ -121,7 +121,11 @@ Quindi:
   la domanda — e non sulla sessione: chiavato sulla sessione, la gamba che
   perdeva cancellava la voce di quella che aveva vinto, e il clic sulla conferma
   ancora a schermo non partiva più (misurato: `pendingRoutedAsk` tornava null e
-  la card non diceva niente);
+  la card non diceva niente). Chiavare per id NON basta da solo, e la spec non
+  SHALL prometterlo: due richieste possono portare lo STESSO id, perché
+  l'instradamento restituisce la voce aperta a chiunque ripeta la stessa domanda
+  e due `send_mail` di un messaggio la ripetono per costruzione. Ciò che regge è
+  il punto qui sotto;
 - se la domanda che occupa la card non aspetta più nessuno, la nuova SHALL
   sostituirla, la sostituzione SHALL essere scritta nel thread ANCHE fra
   sessioni diverse, e il rendez-vous della sostituita SHALL essere annullato,
@@ -132,6 +136,63 @@ Quindi:
   tempo dichiarato — le gambe del poll sono il battito, e una sola delle due
   misure non basta, perché il rendez-vous è chiavato sulla sessione e non sa
   distinguere due richieste della stessa.
+
+UNA RICHIESTA ALLA VOLTA SULLA CARD, E IL CANCELLO SE LO IMPONE DA SÉ. Il
+cancello SHALL prendere un LUCCHETTO sulla superficie che disegna la domanda —
+la card quando la sessione ne ha una, la sessione stessa quando è una chat —
+PRIMA di qualunque scrittura e PRIMA di aprire qualunque rendez-vous, e SHALL
+rilasciarlo alla fine, anche sugli errori. Chi non lo prende SHALL essere
+rifiutato subito, con la sua ragione, senza aver toccato niente: né il
+rendez-vous della prima, né la sua voce nel registro, né una riga sopra la sua
+domanda. Ordinare le operazioni non basta e NON SHALL essere la difesa: due
+richieste con lo STESSO contenuto sono la stessa domanda per l'instradamento,
+quindi la seconda passava il ramo «occupato», entrava nel rendez-vous della
+prima e lo sostituiva (misurato a 120 ms: la prima tornava «superseded», si
+portava via la voce comune, e la conferma restava a schermo coi tasti che non
+raggiungevano nessuno). Il lucchetto non guarda il contenuto.
+
+IL LUCCHETTO ATTRAVERSA LE GAMBE, E LO FA CON UN GETTONE. La rotta SHALL
+restituire il gettone del lucchetto insieme a `pending`, e lo strumento SHALL
+riportarlo a ogni gamba successiva; una gamba che lo porta rinnova il lucchetto,
+una richiesta che non ce l'ha e trova la card occupata è rifiutata. Non c'è
+altro che possa distinguerli: con un payload identico la seconda gamba di una
+richiesta e una seconda richiesta hanno lo stesso digest, la stessa chiave e lo
+stesso testo. Il lucchetto SHALL avere una SCADENZA (la gamba dichiarata più un
+margine), perché una richiesta il cui processo muore fra due gambe terrebbe
+altrimenti la card per sempre.
+
+UNA RICHIESTA NON SHALL POSSEDERE UN ID CHE NON HA CREATO. Quando
+l'instradamento restituisce l'id di una riga che questa richiesta non ha
+scritto, la richiesta NON SHALL adottarlo: o ne crea uno suo, o viene rifiutata.
+L'id che una richiesta può chiudere è solo quello che ha creato lei, e la
+richiesta SHALL tenerne traccia esplicita attraverso le proprie gambe. La
+finestra dove serve è reale: il lucchetto scade prima della voce nel registro
+(che si tiene per due minuti di silenzio), e in quel buco una richiesta identica
+si vedrebbe consegnare la riga di chi sta ancora aspettando.
+
+UNA `ask_user_question` GENERICA NON SHALL UCCIDERE LA CONFERMA SOTTO DI SÉ. Il
+rendez-vous è chiavato sulla SESSIONE e la seconda attesa sostituisce la prima,
+per progetto; ma il bridge MCP non aspetta i suoi handler, quindi una domanda
+generica e un invio della stessa sessione sono in volo insieme. Quando la card è
+occupata da una richiesta della STESSA sessione, la gamba della domanda generica
+SHALL spendere il suo tempo SENZA registrarsi sul rendez-vous e rispondere
+`pending`: aspetta il suo turno senza togliere niente a nessuno. Se chi occupa
+la card è un'altra sessione, il rendez-vous è un altro e non c'è niente da
+temere.
+
+I TASTI NON SHALL RESTARE SU UN BLOCCO MORTO. Quando la domanda di una richiesta
+finisce senza che qualcuno abbia risposto NEL THREAD — scaduta, annullata,
+sostituita, oppure risposta dal pannello della chat — il blocco SHALL essere
+chiuso con una riga sua nel thread, cioè con una riga che il lettore che disegna
+i tasti conta come parola: svuotare il registro e basta lascia un blocco di
+risposte rapide che non risponde a nessuno, e la traccia del rifiuto accanto a
+lui è una NOTA apposta, quindi non glieli toglie. E un clic su un blocco che non
+aspetta più nessuno SHALL ricevere una risposta leggibile sulla card — non
+SHALL diventare un commento qualunque e NON SHALL rimettere al lavoro l'agente:
+misurato, la persona premeva «Conferma», non partiva niente, nessuno glielo
+diceva, e la parola arrivava all'agente come un commento. Una frase scritta sotto
+lo stesso blocco resta invece una nota: è il CONTENUTO che coincide con una delle
+opzioni di quel blocco a dire che qualcuno ha premuto.
 
 La domanda SHALL contenere il MESSAGGIO che sta per partire: mittente,
 destinatario, oggetto e il corpo (tagliato a una lunghezza dichiarata, e il
@@ -166,12 +227,15 @@ Il cancello SHALL considerare la domanda POSTA solo quando il commento è stato
 scritto davvero. Il registro delle domande instradate è per TASK e non guarda il
 testo: una voce lasciata da una domanda di un turno interrotto faceva uscire
 l'instradamento SENZA scrivere niente, e il valore di ritorno veniva letto come
-«chiesto». Una domanda nuova della STESSA sessione SHALL sostituire quella che
-trova — la CLI blocca il turno su una domanda sola, quindi la precedente è
-finita per costruzione — e la sostituita SHALL essere chiusa con una riga sua:
-un blocco di risposta rapida che cambia testo sotto gli occhi senza dirlo è
-peggio del silenzio. Per una sessione DIVERSA valgono le due regole di sopra
-(rifiuto se la vecchia è viva, sostituzione dichiarata se non lo è).
+«chiesto». Una domanda nuova SHALL sostituire quella che trova solo
+quando quella non aspetta più nessuno, e la sostituita SHALL essere chiusa con
+una riga sua: un blocco di risposta rapida che cambia testo sotto gli occhi
+senza dirlo è peggio del silenzio. «La stessa sessione sostituisce sempre» è
+CADUTO e NON SHALL tornare: valeva finché una sessione poteva avere una domanda
+sola in volo, e non può — due `send_mail` di un messaggio corrono insieme — e
+per quella strada la seconda conferma si prendeva la card della prima. Chi
+chiede non entra nella decisione: contano i due fatti di sopra (rendez-vous
+aperto, e qualcuno che ripassa).
 
 Se la risposta non arriva, o non è quella di consenso, NON SHALL partire niente
 e lo strumento SHALL dirlo con la ragione.
@@ -229,6 +293,44 @@ non è una difesa contro un processo che è già dentro il confine.
 - **AND** la card SHALL portare UNA sola conferma, quella del primo messaggio
 - **AND** il clic su quella conferma SHALL essere consegnato e far partire il
   primo messaggio, non il secondo
+
+#### Scenario: due invii IDENTICI della stessa sessione, in volo insieme
+- **GIVEN** un invio in attesa di conferma sulla card
+- **WHEN** la stessa sessione ne chiede un secondo con lo STESSO contenuto
+- **THEN** il secondo SHALL essere rifiutato con quella ragione
+- **AND** la card SHALL portare UNA sola conferma e il registro SHALL nominarla
+- **AND** il clic su di lei SHALL essere consegnato, e SHALL partire UN invio solo
+
+#### Scenario: la gamba successiva della stessa richiesta
+- **GIVEN** una gamba tornata `pending` col suo gettone
+- **WHEN** la richiesta torna portando quel gettone
+- **THEN** SHALL essere di nuovo `pending`, senza una seconda conferma sulla card
+- **AND** una richiesta identica SENZA quel gettone SHALL essere rifiutata
+
+#### Scenario: il lucchetto è scaduto ma la domanda è ancora sulla card
+- **GIVEN** una conferma sulla card la cui richiesta sta ancora aspettando, e il
+  lucchetto lasciato scadere
+- **WHEN** arriva una richiesta identica
+- **THEN** SHALL essere rifiutata invece di adottare quella riga
+- **AND** la domanda viva SHALL restare esigibile dal suo clic
+
+#### Scenario: una domanda generica mentre un invio aspetta
+- **GIVEN** una conferma di invio in attesa sulla card
+- **WHEN** la STESSA sessione apre una `ask_user_question` diversa
+- **THEN** la domanda generica SHALL rispondere `pending` senza scrivere niente
+- **AND** l'attesa dell'invio NON SHALL essere annullata, e il sì SHALL raggiungerla
+
+#### Scenario: la conferma è stata risposta dal pannello della chat
+- **GIVEN** una conferma uscita sulla card e risposta dal tab
+- **THEN** il blocco sulla card SHALL essere chiuso da una riga sua
+- **AND** il lettore che disegna i tasti NON SHALL trovare più una domanda
+
+#### Scenario: qualcuno preme un blocco che non aspetta più nessuno
+- **GIVEN** un blocco di risposte rapide senza più un rendez-vous dietro
+- **WHEN** la persona ne preme un'opzione
+- **THEN** la card SHALL scrivere che quel clic non è stato consegnato
+- **AND** l'agente NON SHALL essere rimesso al lavoro da quella parola
+- **AND** una frase scritta sotto lo stesso blocco SHALL restare un commento
 
 #### Scenario: la traccia di un invio rifiutato non spegne la domanda viva
 - **GIVEN** una conferma viva sulla card e un secondo invio rifiutato

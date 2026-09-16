@@ -17,11 +17,14 @@ import {
   _resetRoutedAsks,
   answerRoutedAsk,
   clearRoutedAsk,
+  closeRoutedAsk,
+  ENDED_LINE,
   normalizeAsk,
   pendingRoutedAsk,
   routeAskToTaskThread,
 } from "./board-ask-routing";
 import { createTaskService, type TaskService } from "./tasks";
+import { pendingQuestionComment } from "../../shared/board";
 import { topicSessionKey } from "./agent-census";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
@@ -342,5 +345,84 @@ describe("two questions on one card", () => {
     expect(pendingRoutedAsk(taskId)?.askId).toBe(first!.askId!);
     clearRoutedAsk(first!.askId!);
     expect(pendingRoutedAsk(taskId)).toBeNull();
+  });
+
+  /**
+   * AND THE SAME SESSION IS NOT THE UNIT, which is the half the test above
+   * cannot show: with one task in the registry, "delete the entry with this id"
+   * and "delete every entry of the session that id belongs to" are the same
+   * gesture, and a clear that had quietly gone back to the session would stay
+   * green. Two entries of ONE session is what tells them apart - the registry is
+   * keyed by TASK and nothing here stops a session from being the agent of a
+   * second card (a topic reassigned, a card picking up the same agent), so the
+   * shape is reachable and the contract is the one written on the function.
+   */
+  test("clearing by id leaves the SAME session's other question alone", () => {
+    beginAsk(KID);
+    const first = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    })!;
+    // The same agent, now on another card.
+    const other = svc.create({ projectId: "proj-a", text: "l'altra card" });
+    db.run("UPDATE tasks SET assigned_topic_id=NULL WHERE id=?", [taskId]);
+    db.run("UPDATE tasks SET status='in_progress', dispatch_state='working', assigned_topic_id=? WHERE id=?", [TOPIC, other.id]);
+    const second = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:bbb", question: "Fattura -> altro@esempio.test. Confermi?", options: ["Conferma"] }],
+    })!;
+    expect(second.askId).not.toBe(first.askId);
+
+    clearRoutedAsk(first.askId!);
+    expect(pendingRoutedAsk(taskId)).toBeNull();
+    // Keyed on the session, this one would be gone too - and it is the live
+    // question, the one somebody is looking at.
+    expect(pendingRoutedAsk(other.id)?.askId).toBe(second.askId);
+  });
+
+  /**
+   * `created` IS THE ONLY THING THAT SAYS WHOSE THE ROW IS. Two requests with
+   * the same payload are the same question here by construction, so `askId`
+   * comes back identical for both and a caller reading it as "mine" owns a row
+   * somebody else wrote.
+   */
+  test("the id comes back on a repeat, but `created` only on the write", () => {
+    beginAsk(KID);
+    const q = [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }];
+    const first = routeAskToTaskThread(h.deps, { sessionKey: KID, questions: q })!;
+    expect(first.created).toBe(true);
+    const again = routeAskToTaskThread(h.deps, { sessionKey: KID, questions: q })!;
+    expect(again.askId).toBe(first.askId!);
+    expect(again.created).toBe(false);
+  });
+
+  /**
+   * A CLEARED ENTRY IS NOT A CLOSED QUESTION. The comment keeps its quick
+   * replies, the reader that draws them keeps returning it (the refusal trace
+   * beside it is `quiet` on purpose, so it takes nothing away), and the click
+   * lands on a rendez-vous that is gone: nothing delivered, nothing said. The
+   * line is what ends it where the person is looking.
+   */
+  test("closing a question writes the line that takes its buttons away", () => {
+    beginAsk(KID);
+    const first = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    })!;
+    type ThreadRow = { id: string; content: string; kind: string; author: string; quiet?: boolean | null };
+    const thread = () => (svc.get(taskId, { projectId: "proj-a" })?.comments ?? []) as unknown as ThreadRow[];
+    expect(pendingQuestionComment(thread())?.id).toBe(first.askId!);
+
+    expect(closeRoutedAsk(h.deps, first.askId!, ENDED_LINE)).toBe(true);
+    expect(pendingRoutedAsk(taskId)).toBeNull();
+    expect(thread().at(-1)?.content).toBe(ENDED_LINE);
+    // The reader that draws the quick replies no longer finds a question.
+    expect(pendingQuestionComment(thread())).toBeNull();
+
+    // Nothing is written for a question that is already over: a second line
+    // under a person's own answer would tell them it went nowhere.
+    const before = thread().length;
+    expect(closeRoutedAsk(h.deps, first.askId!, ENDED_LINE)).toBe(false);
+    expect(thread()).toHaveLength(before);
   });
 });

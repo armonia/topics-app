@@ -98,6 +98,13 @@ export const OUTBOUND_MAX_LEGS = 600;
 
 interface OutboundLegResponse {
   pending?: boolean;
+  /**
+   * The card this request holds, handed back so the NEXT leg can prove it is
+   * the same request. Without it the server cannot tell this leg from a second
+   * `send_mail` carrying the identical payload - and it must, because the two
+   * get opposite answers.
+   */
+  hold?: string;
   refused?: boolean;
   reason?: string;
   sent?: boolean;
@@ -138,14 +145,22 @@ async function pollOutbound(
   const now = opts.now ?? Date.now;
   const maxLegs = opts.maxLegs ?? OUTBOUND_MAX_LEGS;
   const legMs = opts.legMs ?? LEG_MS;
-  const bodyWithLeg = { ...payload, legMs };
+  // Rebuilt every leg, because the hold token arrives with the first `pending`
+  // and every later leg has to carry it.
+  let hold: string | undefined;
 
   let transportFailures = 0;
   let firstFailureAt: number | null = null;
   for (let leg = 0; leg < maxLegs; leg++) {
     let body: OutboundLegResponse | null | undefined;
     try {
-      body = await httpJson<OutboundLegResponse>(args, "POST", path, bodyWithLeg, fetchImpl);
+      body = await httpJson<OutboundLegResponse>(
+        args,
+        "POST",
+        path,
+        hold ? { ...payload, legMs, hold } : { ...payload, legMs },
+        fetchImpl,
+      );
       transportFailures = 0;
       firstFailureAt = null;
     } catch (err) {
@@ -179,6 +194,7 @@ async function pollOutbound(
     if (body.pending) {
       // Nobody has answered yet. Saying so out loud is what stops the MCP
       // client from declaring a call hung under a person who is still reading.
+      if (body.hold) hold = body.hold;
       opts.onProgress?.(leg + 1);
       continue;
     }

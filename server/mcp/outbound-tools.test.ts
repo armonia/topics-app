@@ -86,6 +86,36 @@ describe("callSendMail", () => {
     expect(out).toContain("trace was left on the card");
   });
 
+  /**
+   * THE HOLD TOKEN GOES BACK, and the loop is the only half of that contract on
+   * this side. The server hands it out with `pending` and has no other way to
+   * tell this leg from a second `send_mail` carrying an identical payload: a
+   * body that forgets it turns every leg after the first into a stranger, and
+   * the confirmation the person is reading gets refused out from under them.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("il gettone del lucchetto torna indietro a ogni gamba", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    let call = 0;
+    const fetchImpl = stubFetch(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")));
+      call++;
+      if (call === 1) return jsonResponse({ pending: true, hold: "lucchetto-1" });
+      if (call === 2) return jsonResponse({ pending: true, hold: "lucchetto-1" });
+      return jsonResponse({ sent: true, account: "primo", to: "a@esempio.test", subject: "Preventivo" });
+    });
+    await callSendMail(args, { to: "a@esempio.test", subject: "Preventivo", body: "corpo" }, fetchImpl);
+    // The first leg cannot have one; every leg after it carries the one it was
+    // given.
+    expect(bodies[0].hold).toBeUndefined();
+    expect(bodies[1].hold).toBe("lucchetto-1");
+    expect(bodies[2].hold).toBe("lucchetto-1");
+    // And the payload itself is unchanged: same message, same digest.
+    expect(bodies[2].to).toBe("a@esempio.test");
+    expect(bodies[2].subject).toBe("Preventivo");
+  });
+
   test("un rifiuto e' un ERRORE dello strumento, con la ragione", async () => {
     const fetchImpl = stubFetch(async () => jsonResponse({ refused: true, reason: 'the person answered "Annulla"' }));
     await expect(

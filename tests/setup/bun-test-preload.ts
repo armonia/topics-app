@@ -361,7 +361,8 @@ function guardDomGlobals(): void {
       `[preload] ${DOM_LEAK_MARKER}: ${leaked.join(",")}\n` +
       "       A file in this run installed a fake DOM global and never removed it: the next file\n" +
       "       inherits it, and its `typeof window` guards fire on a partial object.\n" +
-      "       Who: `bun run check:test-globals` (every file on its own) or `bun test <suspect>`.\n" +
+      "       Who: `bun test <suspect>`; with no suspect, `bun run check:test-globals`, which\n" +
+      "       walks every file on its own and is the whole suite - triage by hand, not a gate.\n" +
       "       Fix: in `afterAll`/`afterEach` put back what the file found (`delete globalThis.window`).",
     );
   });

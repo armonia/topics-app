@@ -19,15 +19,23 @@
  *
  * WHEN TO USE IT. When the preload guard turned a shard or the whole suite red
  * ("leaked DOM globals"): the guard says THAT somebody leaked, not WHO; this
- * says who. With a suspect in hand, `bun test <file>` on its own is enough:
- * the same guard runs there.
+ * says who.
  *
- *   bun run check:test-globals              # the whole suite (~80s, 6 processes)
- *   bun run check:test-globals a.test.ts …  # only those files
+ *   bun run check:test-globals a.test.ts …  # the form to reach for: those files
+ *   bun run check:test-globals              # EVERY file of the suite, one by one
  *
- * It is NOT a gate: it is triage. It does not go through the semaphore
- * (`TOPICS_GATE_HELD` on the children) because its processes are short and the
- * scan is launched by hand.
+ * IT IS NOT A GATE AND IT IS NOT A LIGHT RAIL, and the bare form is not a
+ * check somebody runs "just to be sure". It spawns `bun test` on EVERY file of
+ * the suite - it is the unit suite, six processes at a time - so it is neither
+ * in `.github/workflows/ci.yml` nor in the pre-review list: it is triage, run by
+ * hand, after the preload guard has already gone red. Counting it among the
+ * cheap gates cost 18 minutes on an owner's Mac before it was killed by hand,
+ * with the machine unusable meanwhile, and the "~80 s" that used to be written
+ * here is what made it look free. With a suspect in hand `bun test <file>` is
+ * enough: the same guard runs there.
+ *
+ * It does not go through the semaphore (`TOPICS_GATE_HELD` on the children)
+ * because the scan is launched by hand.
  */
 import { enumerateTestFiles, SUITE_ROOTS } from "./test-unit-shards.ts";
 import { GATE_HELD_ENV } from "./gate-slot.ts";

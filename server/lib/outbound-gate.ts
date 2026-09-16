@@ -24,6 +24,20 @@
  * message must not cover the next one. This gate has no grants, no free mode
  * and no memory: every message opens its own question.
  *
+ * ONE REQUEST AT A TIME ON ONE CARD, AND THAT IS ENFORCED HERE, not inferred
+ * from how the routing treats two identical questions. A card draws a single
+ * quick-reply block and the rendez-vous is keyed by SESSION, so two requests
+ * that reach the question at the same time cancel each other: measured, two
+ * `send_mail` of one message 120 ms apart ended with one refused, the other
+ * waiting on an entry the refused one had deleted, and a confirmation on screen
+ * whose buttons reached nothing. The MCP bridge makes that the normal case - it
+ * handles every JSON-RPC line in a callback it does not await - so the gate
+ * takes a HOLD on the card before it writes anything or opens anything, and
+ * whoever does not get it is turned away having touched NOTHING. The hold spans
+ * the legs of one request: the route hands its token back with `pending` and the
+ * next leg carries it, which is what tells one request's second leg apart from a
+ * second request with a byte-identical payload. Nothing else can.
+ *
  * THE ANSWER IS BOUND TO THE MESSAGE. The question carries a DIGEST of the
  * payload, in its key and in its text, and only an answer that comes back under
  * one of those two identities counts. Without it, an answer buffered from an
@@ -31,8 +45,10 @@
  * consent to something the person never saw.
  */
 import type { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import { beginAsk, cancelAsk, waitForAnswer, AskWaitError } from "./ask-user-bridge";
-import { routeAskToTaskThread, clearRoutedAsk, type AskRoutingDeps } from "../services/board-ask-routing";
+import { routeAskToTaskThread, closeRoutedAsk, type AskRoutingDeps } from "../services/board-ask-routing";
+import { boardTaskForSession } from "../services/agent-census";
 import type { UserInputSchema } from "../types";
 
 /** The word that sends. Anything else, including silence, does not. */
@@ -42,9 +58,26 @@ export const REFUSE_LABEL = "Annulla";
 
 export type ConfirmOutcome =
   | { state: "granted" }
-  /** This leg expired with the question still on screen: come straight back. */
-  | { state: "pending" }
+  /**
+   * This leg expired with the question still on screen: come straight back,
+   * carrying `hold`. The token is the request's identity across legs and the
+   * only thing that keeps its own next leg from being turned away as a second
+   * request: with a byte-identical payload nothing else tells the two apart.
+   */
+  | { state: "pending"; hold: string }
   | { state: "refused"; reason: string };
+
+/** What the gate answers a request that arrives on a card somebody else holds. */
+export const CARD_HELD_REASON =
+  "this card already has a confirmation waiting for an answer: nothing is sent until that one is closed";
+
+/** Closes the confirmation block when the request died without an answer. */
+export const CONFIRM_ENDED_LINE =
+  "Questa conferma non aspetta piu' una risposta: non e' stata consegnata e non e' partito niente.";
+
+/** Closes it when the yes (or the no) arrived through the panel in the tab. */
+export const CONFIRM_ANSWERED_ELSEWHERE_LINE =
+  "A questa conferma e' stato risposto dal pannello della chat: il blocco qui sopra non aspetta piu' una risposta.";
 
 /** The last persisted row of a session, with the two columns that draw tools. */
 export interface ToolRowColumns {
@@ -164,6 +197,79 @@ export interface ConfirmRequest {
   /** Identity of THIS payload. An answer to another one does not count. */
   digest: string;
   legMs: number;
+  /**
+   * The token the previous leg of THIS request was given, absent on the first.
+   * A leg that carries it renews the hold; a leg that does not asks for a new
+   * one and is refused while somebody else has it.
+   */
+  hold?: string;
+}
+
+/**
+ * THE CARD, HELD BY ONE REQUEST AT A TIME.
+ *
+ * Keyed on the surface that draws the question, which is the card when the
+ * session belongs to one and the session itself otherwise - a chat has no
+ * thread, but it has the same single tool row and the same session-keyed
+ * rendez-vous, so two requests collide there in exactly the same way.
+ *
+ * WHY A LEASE AND NOT A PLAIN LOCK. Between two legs of one request the hold
+ * has to survive, and the request is a series of separate HTTP calls: an agent
+ * whose process dies mid-confirmation would otherwise keep the card forever, and
+ * every later send on it would be refused by a request nobody is running. The
+ * lease is the leg the caller declared plus a grace, so a request that is still
+ * polling renews it every leg by construction and one that has stopped lets it
+ * go.
+ */
+interface CardHold {
+  token: string;
+  sessionKey: string;
+  /** The thread row this request wrote, kept across its legs. Its id to clear. */
+  askId?: string;
+  expiresAt: number;
+}
+
+/** How long past its declared leg a hold survives a request that stops coming. */
+const HOLD_GRACE_MS = 30_000;
+
+const holds = new Map<string, CardHold>();
+
+/** The surface that draws one question: the card, or the chat session itself. */
+function holdKeyFor(deps: OutboundGateDeps, sessionKey: string): string {
+  try {
+    const card = boardTaskForSession(deps.db, sessionKey);
+    if (card) return `card:${card.taskId}`;
+  } catch {
+    // A db that cannot answer is not a reason to let two requests through: the
+    // session is a narrower surface than the card, never a wider one.
+  }
+  return `session:${sessionKey}`;
+}
+
+function acquireHold(
+  key: string,
+  args: { token?: string; sessionKey: string; leaseMs: number },
+  now = Date.now(),
+): CardHold | null {
+  const current = holds.get(key);
+  if (current && current.expiresAt > now) {
+    if (!args.token || args.token !== current.token) return null;
+    current.expiresAt = now + args.leaseMs;
+    return current;
+  }
+  const hold: CardHold = { token: randomUUID(), sessionKey: args.sessionKey, expiresAt: now + args.leaseMs };
+  holds.set(key, hold);
+  return hold;
+}
+
+/** Only the holder releases, so a refused request cannot free the winner. */
+function releaseHold(key: string, token: string): void {
+  if (holds.get(key)?.token === token) holds.delete(key);
+}
+
+/** Tests only: the holds are process memory, like the registry next door. */
+export function _resetOutboundHolds(): void {
+  holds.clear();
 }
 
 /** The key the board channel answers under. Carries the digest on purpose. */
@@ -198,27 +304,68 @@ function schemaFor(request: ConfirmRequest): UserInputSchema {
 
 /**
  * One LEG of the confirmation. Returns `pending` when nobody has answered yet,
- * exactly like the ask bridge: the caller comes straight back, and the question
- * stays on screen between legs.
+ * exactly like the ask bridge: the caller comes straight back with the `hold`
+ * token it was given, and the question stays on screen between legs.
  */
 export async function confirmOutbound(
   deps: OutboundGateDeps,
   request: ConfirmRequest,
 ): Promise<ConfirmOutcome> {
+  // THE HOLD IS TAKEN FIRST, BEFORE ANY WRITE AND BEFORE ANY RENDEZ-VOUS.
+  //
+  // Everything below - the comment in the thread, `beginAsk`, the panel, the
+  // wait - is a step that another request arriving at the same time can undo.
+  // Ordering them differently was the previous fix and it only closed the
+  // instance that went through the routing's `busy` branch: two requests with
+  // the SAME payload are the same question to that branch, so the second one
+  // walked straight past it, joined the first one's rendez-vous and superseded
+  // it. The hold does not care what the payload says. A request that does not
+  // get it is refused HERE, having touched nothing at all.
+  const holdKey = holdKeyFor(deps, request.sessionKey);
+  const hold = acquireHold(holdKey, {
+    token: request.hold,
+    sessionKey: request.sessionKey,
+    leaseMs: request.legMs + HOLD_GRACE_MS,
+  });
+  if (!hold) return { state: "refused", reason: CARD_HELD_REASON };
+
+  try {
+    const outcome = await confirmHeld(deps, request, hold);
+    if (outcome.state === "pending") return { state: "pending", hold: hold.token };
+    releaseHold(holdKey, hold.token);
+    return outcome;
+  } catch (err) {
+    releaseHold(holdKey, hold.token);
+    throw err;
+  }
+}
+
+/**
+ * The same three outcomes before the hold token is stamped on `pending`: the
+ * leg does not need to know its own token, and `confirmOutbound` is the only
+ * place that knows whether the card stays held.
+ */
+type HeldOutcome =
+  | { state: "granted" }
+  | { state: "pending" }
+  | { state: "refused"; reason: string };
+
+/** The leg itself, with the card already held by THIS request. */
+async function confirmHeld(
+  deps: OutboundGateDeps,
+  request: ConfirmRequest,
+  hold: CardHold,
+): Promise<HeldOutcome> {
   const key = confirmKey(request.digest);
   const question = confirmQuestion(request.summary, request.digest);
 
-  // THE CARD IS ASKED FIRST, BEFORE THIS REQUEST OPENS ANYTHING OF ITS OWN.
+  // THE CARD IS ASKED FIRST, BEFORE THIS REQUEST OPENS A RENDEZ-VOUS OF ITS OWN.
   //
-  // The order is the fix. The rendez-vous is keyed by SESSION, so `beginAsk`
-  // here joins whatever is already open on this session instead of starting
-  // something of ours, and every later "clean up after me" then lands on a
-  // question that belongs to the request that got here first. Reproduced, 120
-  // ms apart on one session: the second send cancelled the first one's ask and
-  // deleted its registry entry, so the confirmation stayed on screen with its
-  // buttons and the click on it reached nothing at all. Asking the card first
-  // means a second confirmation is turned away having touched NOTHING - no
-  // rendez-vous, no registry, no line in the thread.
+  // The hold above means no other send is in here at the same time, but a
+  // generic `ask_user_question` of this same session can still be holding the
+  // card - it takes no hold, it only needs the thread - and then this send must
+  // be turned away before `beginAsk`, because that rendez-vous is keyed by
+  // SESSION and waiting on it would cut the question already on screen.
   //
   // `shown` AND NOT "it returned a task". The two are not the same thing, and
   // the difference is a send left hanging in silence: that function also
@@ -227,28 +374,43 @@ export async function confirmOutbound(
   // another question, the send polled for four hours, nobody could have
   // answered it.
   let asked = false;
-  /** The thread row THIS request owns, and the only one it may ever clear. */
-  let mine: string | undefined;
+  /** The thread row THIS request wrote, on this leg or an earlier one. */
+  let mine: string | undefined = hold.askId;
   let busy: { sessionKey: string; askedAt: number } | undefined;
   try {
     const routed = routeAskToTaskThread(
       { db: deps.db, comment: deps.comment, deliver: deps.deliver },
       { sessionKey: request.sessionKey, questions: [{ key, header: request.header, question, options: [CONFIRM_LABEL, REFUSE_LABEL] }] },
     );
-    asked = routed?.shown === true;
-    mine = routed?.askId;
     busy = routed?.busy;
+    if (routed?.shown) {
+      if (routed.created && routed.askId) {
+        mine = routed.askId;
+        hold.askId = routed.askId;
+        asked = true;
+      } else if (routed.askId && routed.askId === mine) {
+        // My own earlier leg. Repeating the question is the heartbeat, not a
+        // new one, and the row it points at is still the one I wrote.
+        asked = true;
+      } else {
+        // AN ID THIS REQUEST DID NOT CREATE IS NOT THIS REQUEST'S TO OWN. The
+        // routing hands the open entry's id to anybody repeating the same
+        // question, and the previous shape adopted it - so two requests owned
+        // one entry and the first to finish deleted it under the other. The
+        // only safe answer is to treat the card as taken: nothing of that
+        // question is touched, and this send is refused with a reason it can
+        // report. Reachable when this request's hold lapsed while the row it
+        // had written outlived it.
+        busy = busy ?? { sessionKey: request.sessionKey, askedAt: Date.now() };
+      }
+    }
   } catch {
     // The panel below is the other road; a thread that refuses a comment must
     // not be the reason nobody can answer.
   }
 
-  // ANOTHER CONFIRMATION IS ALREADY OPEN ON THIS CARD, and this send does not
-  // queue behind it. Two questions on one task are the normal shape here, in
-  // both forms: two sessions (a coordinator and its children map to the SAME
-  // taskId on purpose) and two requests of one session (the MCP bridge does not
-  // await the handler of a JSON-RPC line, so two `send_mail` of one message run
-  // together).
+  // THE CARD IS TAKEN BY A QUESTION THAT IS NOT THIS REQUEST'S, and this send
+  // does not queue behind it.
   //
   // Refused rather than parked, and the reason is what a yes IS. A card draws
   // one quick-reply block: a second confirmation can only be shown by taking
@@ -266,16 +428,11 @@ export async function confirmOutbound(
   // killed the rendez-vous the FIRST send was waiting on. This request has not
   // opened one yet - that is what the order above buys - so there is nothing of
   // ours to close and nothing of anybody else's to touch.
-  if (busy && !asked) {
-    return {
-      state: "refused",
-      reason: "this card already has a confirmation waiting for an answer: nothing is sent until that one is closed",
-    };
-  }
+  if (busy && !asked) return { state: "refused", reason: CARD_HELD_REASON };
 
   if (!beginAsk(request.sessionKey)) {
     cancelAsk(request.sessionKey, "no answer: the confirmation expired");
-    if (mine) clearRoutedAsk(mine);
+    endMyQuestion(deps, hold, CONFIRM_ENDED_LINE);
     return { state: "refused", reason: "the confirmation expired with no answer" };
   }
 
@@ -303,16 +460,14 @@ export async function confirmOutbound(
 
   try {
     const answers = await waitForAnswer(request.sessionKey, { timeoutMs: request.legMs });
-    // THIS QUESTION IS OVER, whatever the answer says. Leaving the entry behind
-    // means the NEXT message's question is silently not posted to the card,
-    // because the registry still believes one is open. The two existing clears
-    // (expiry, and a human answering in the thread) do not cover an answer that
-    // arrived through the chat panel.
-    //
-    // OURS, BY ITS ID. Clearing "this session's" entries is what let the losing
-    // leg delete the winner's question: on one session the two are the same
-    // thing to a session-keyed clear, and they are not the same question.
-    if (mine) clearRoutedAsk(mine);
+    // THIS QUESTION IS OVER, whatever the answer says, and the card has to say
+    // so. Leaving the entry behind means the NEXT message's question is
+    // silently not posted, because the registry still believes one is open;
+    // leaving the COMMENT behind unmarked means its buttons stay on screen over
+    // a rendez-vous that is gone, and the click on them reaches nothing. An
+    // answer that came through the thread already closed its own block with the
+    // person's comment, and `endMyQuestion` writes nothing then.
+    endMyQuestion(deps, hold, CONFIRM_ANSWERED_ELSEWHERE_LINE);
     // Both identities of the same question: the board answers under the key,
     // the chat panel under the question text.
     const raw = answers[key] ?? answers[question];
@@ -326,7 +481,23 @@ export async function confirmOutbound(
     return { state: "granted" };
   } catch (err) {
     if (err instanceof AskWaitError && err.code === "timeout") return { state: "pending" };
-    if (mine) clearRoutedAsk(mine);
+    endMyQuestion(deps, hold, CONFIRM_ENDED_LINE);
     return { state: "refused", reason: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Close the question this request wrote, in the registry AND in the thread.
+ *
+ * The second half is the one that was missing. A cleared entry with the comment
+ * still carrying its quick replies is a block of buttons that answers nobody:
+ * the trace the route writes next to it is `quiet` on purpose, so it does not
+ * take them away, and `pendingQuestionComment` keeps handing that row to the
+ * drawer. Measured: the click delivered nothing, said nothing, and became an
+ * ordinary comment.
+ */
+function endMyQuestion(deps: OutboundGateDeps, hold: CardHold, line: string): void {
+  if (!hold.askId) return;
+  closeRoutedAsk({ db: deps.db, comment: deps.comment, deliver: deps.deliver }, hold.askId, line);
+  hold.askId = undefined;
 }

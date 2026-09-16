@@ -125,6 +125,20 @@ function clampLeg(value: unknown): number {
     : DEFAULT_LEG_MS;
 }
 
+/**
+ * The hold token the PREVIOUS leg of this request was given, echoed back.
+ *
+ * It is the only thing that tells one request's second leg apart from a second
+ * request carrying a byte-identical payload - same digest, same question, same
+ * everything - and those two must get opposite answers: the leg renews the card,
+ * the stranger is refused. Absent on the first leg, and absent from a caller
+ * that does not know about it, which is right: it then asks for a hold of its
+ * own and gets one only if the card is free.
+ */
+function holdToken(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 /** One attachment, named and contained. Its BYTES are frozen further down. */
 interface ResolvedAttachment {
   /** The REAL path, with every link already resolved: this is what gets read. */
@@ -461,6 +475,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
             summary,
             digest,
             legMs: clampLeg(body?.legMs),
+            hold: holdToken(body?.hold),
           });
         } catch (err) {
           discardStaging(frozen.dir);
@@ -470,7 +485,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // `pending` KEEPS the copies: the next leg re-reads the same bytes,
         // lands on the same staging directory and asks the same question. What
         // a server killed mid-confirmation leaves behind is swept by age.
-        if (outcome.state === "pending") return json({ pending: true });
+        if (outcome.state === "pending") return json({ pending: true, hold: outcome.hold });
         if (outcome.state === "refused") {
           discardStaging(frozen.dir);
           return refuse(
@@ -644,12 +659,13 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
               summary,
               digest,
               legMs: clampLeg(body?.legMs),
+              hold: holdToken(body?.hold),
             });
           } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
             return refuse(sessionKey, `Scrittura Google NON eseguita (${call}): ${reason}`, reason);
           }
-          if (outcome.state === "pending") return json({ pending: true });
+          if (outcome.state === "pending") return json({ pending: true, hold: outcome.hold });
           if (outcome.state === "refused") {
             return refuse(sessionKey, `Scrittura Google NON eseguita (${call}): ${outcome.reason}`, outcome.reason);
           }

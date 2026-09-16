@@ -27,7 +27,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOutboundRouter, googleCallWrites } from "./outbound";
-import { CONFIRM_LABEL, REFUSE_LABEL, confirmKey } from "../lib/outbound-gate";
+import { CONFIRM_LABEL, REFUSE_LABEL, confirmKey, _resetOutboundHolds } from "../lib/outbound-gate";
 import { gmailSendsMail } from "../lib/outbound-summary";
 import { deliverAnswer, cancelAsk } from "../lib/ask-user-bridge";
 import { _resetRoutedAsks, answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
@@ -42,7 +42,7 @@ const LOG = join(root, "calls.log");
 /** Where the frozen attachments go. Outside every workspace, as in production. */
 const STAGING = join(root, "staging");
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
-afterEach(() => { _resetRoutedAsks(); _resetTurnBodyFlushers(); if (existsSync(LOG)) unlinkSync(LOG); });
+afterEach(() => { _resetRoutedAsks(); _resetOutboundHolds(); _resetTurnBodyFlushers(); if (existsSync(LOG)) unlinkSync(LOG); });
 
 /** The stand-in for `gws-mail` and `gws`: it records argv and sends nothing. */
 function installFakeCli(name: string): string {
@@ -193,7 +193,7 @@ describe("POST /outbound/mail", () => {
   test("senza conferma NON parte niente: `pending` e nessun processo", async () => {
     const h = makeHarness();
     const resp = (await h.call(mailPath("topic:abcd1234"), message))!;
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     expect(recorded()).toEqual([]);
     cancelAsk("topic:abcd1234", "fine del test");
   });
@@ -230,9 +230,13 @@ describe("POST /outbound/mail", () => {
     setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
     const resp = (await h.call(mailPath(sessionKey), message))!;
     expect((await resp.json() as Record<string, unknown>).traced).toBe(true);
-    // Two comments: the question and then the trace. The trace is the last.
-    expect(h.comments).toHaveLength(2);
-    const line = h.comments[1].content;
+    // Three comments: the question, the line that CLOSES it (the yes came back
+    // through the panel in the tab, so nothing in the thread said that block was
+    // over and its buttons kept answering nobody), and then the trace.
+    expect(h.comments).toHaveLength(3);
+    expect(h.comments[1].content).toContain("non aspetta piu'");
+    expect(h.comments[1].options).toEqual([]);
+    const line = h.comments[2].content;
     expect(line).toContain("primo");
     expect(line).toContain(message.to);
     expect(line).toContain(message.subject);
@@ -373,7 +377,7 @@ describe("POST /outbound/mail", () => {
     const h = makeHarness({ workspace });
     const sessionKey = "topic:abcd1252";
     const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo-2026.pdf"], legMs: 150 }))!;
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     const question = h.comments[0]?.content ?? "";
     expect(question).toContain("preventivo-2026.pdf");
     expect(question).not.toContain("Allegati: 1");
@@ -492,7 +496,8 @@ describe("POST /outbound/mail", () => {
 
     // The first confirmation stays open: the leg expires, the question does not.
     const legOne = (await h.call(mailPath(firstSession), { ...message, legMs: 120 }))!;
-    expect(await legOne.json()).toEqual({ pending: true });
+    const legOneBody = await legOne.json() as Record<string, unknown>;
+    expect(legOneBody).toEqual({ pending: true, hold: expect.any(String) });
     const asked = h.comments.length;
 
     // The other session of the same task tries.
@@ -509,7 +514,10 @@ describe("POST /outbound/mail", () => {
 
     // And the yes read on the FIRST question sends the FIRST message.
     confirmWhenAsked(h, firstSession);
-    const legTwo = (await h.call(mailPath(firstSession), { ...message, legMs: 600 }))!;
+    // The next leg of the FIRST request carries the hold it was handed: that
+    // token is what says "same request", and without it this leg is a stranger
+    // arriving on a card somebody is holding - which is the point.
+    const legTwo = (await h.call(mailPath(firstSession), { ...message, legMs: 600, hold: legOneBody.hold }))!;
     expect((await legTwo.json() as Record<string, unknown>).sent).toBe(true);
     const args = recorded();
     expect(args).toContain(message.to);
@@ -577,6 +585,135 @@ describe("POST /outbound/mail", () => {
     expect(args).not.toContain("attaccante@esempio.test");
   });
 
+  /**
+   * THE SAME TWO SENDS, WITH THE SAME PAYLOAD - which is the case the previous
+   * fix did not close, and the one the bridge actually produces.
+   *
+   * The routing calls two requests carrying the same digest THE SAME QUESTION:
+   * same key, same text, so it hands the second one the first one's row id and
+   * reports it as already on screen. The `busy` branch never fires, the second
+   * walked past the gate into `beginAsk`/`waitForAnswer`, and the rendez-vous -
+   * keyed by SESSION - superseded the first. Measured 120 ms apart: the FIRST
+   * came back "superseded by a newer question", its clean-up deleted the entry
+   * both were now pointing at, `pendingRoutedAsk` answered null, and the click
+   * on the confirmation still on screen delivered nothing and said nothing.
+   *
+   * The hold does not read the payload, so an identical one changes nothing.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("due invii IDENTICI della stessa sessione: il secondo e' rifiutato e il si' resta esigibile", async () => {
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1291";
+    const identical = { to: "cliente@esempio.test", subject: "Preventivo", body: "in allegato", legMs: 600 };
+    const firstLeg = h.call(mailPath(sessionKey), identical);
+    await Bun.sleep(120);
+    const secondLeg = h.call(mailPath(sessionKey), { ...identical });
+
+    const refusal = await (await secondLeg)!.json() as Record<string, unknown>;
+    expect(refusal.refused).toBe(true);
+    expect(String(refusal.reason)).toContain("already has a confirmation");
+
+    // ONE block of buttons, and the registry still names it: both were null
+    // before, and that is what made the click reach nobody.
+    const confirmations = h.comments.filter((c) => c.options.length > 0);
+    expect(confirmations).toHaveLength(1);
+    expect(pendingRoutedAsk("task-1")?.askId).toBe(confirmations[0].id);
+
+    const answered = answerRoutedAsk(
+      { db: null as never, comment: () => null, deliver: (key, answers) => deliverAnswer(key, answers) },
+      "task-1",
+      CONFIRM_LABEL,
+      { askId: confirmations[0].id },
+    );
+    expect(answered.delivered).toBe(true);
+
+    const sent = await (await firstLeg)!.json() as Record<string, unknown>;
+    expect(sent.sent).toBe(true);
+    // One yes, ONE send: the refused request left nothing behind that a later
+    // leg could spend.
+    expect(recorded().filter((a) => a === "+send")).toHaveLength(1);
+  });
+
+  /**
+   * THE TOKEN IS WHAT TELLS A LEG FROM A STRANGER, and with an identical
+   * payload nothing else can: same digest, same question, same session. The
+   * route hands it back with every `pending` and the tool echoes it.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("la gamba che porta il suo lucchetto continua; quella che non ce l'ha e' un'estranea", async () => {
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1292";
+    const payload = { to: "cliente@esempio.test", subject: "Preventivo", body: "in allegato", legMs: 120 };
+
+    const legOne = await (await h.call(mailPath(sessionKey), payload))! .json() as Record<string, unknown>;
+    expect(legOne).toEqual({ pending: true, hold: expect.any(String) });
+
+    // The same request coming straight back: still pending, still ONE block on
+    // the card - the question is the same panel, not a new one.
+    const legTwo = await (await h.call(mailPath(sessionKey), { ...payload, hold: legOne.hold }))!.json() as Record<string, unknown>;
+    expect(legTwo).toEqual({ pending: true, hold: legOne.hold });
+    expect(h.comments.filter((c) => c.options.length > 0)).toHaveLength(1);
+
+    // A byte-identical request that never held this card: refused, and it did
+    // not touch the question that is on screen.
+    const stranger = await (await h.call(mailPath(sessionKey), { ...payload }))!.json() as Record<string, unknown>;
+    expect(stranger.refused).toBe(true);
+    // Neither does one waving a token that is not the one on the card.
+    const forged = await (await h.call(mailPath(sessionKey), { ...payload, hold: "non-il-mio" }))!.json() as Record<string, unknown>;
+    expect(forged.refused).toBe(true);
+    expect(h.comments.filter((c) => c.options.length > 0)).toHaveLength(1);
+    expect(pendingRoutedAsk("task-1")).not.toBeNull();
+    expect(recorded()).toEqual([]);
+    cancelAsk(sessionKey, "end of test");
+  });
+
+  /**
+   * AND THE HOLD CAN LAPSE WHILE THE ROW IT WROTE IS STILL ON THE CARD.
+   *
+   * The lease is the declared leg plus a grace, so it outlives a request that is
+   * still polling and lets go of one that stopped; the registry entry instead is
+   * held for two minutes of nobody coming back. Between those two clocks there
+   * is a window where the card is FREE and the question is still there - and in
+   * it, the routing hands a byte-identical request the id of a row it did not
+   * write. Adopting that id is the whole defect again from the other end: the
+   * new request joins the other one's rendez-vous, supersedes it, and its own
+   * clean-up closes the block the first one is still waiting on. Owning only
+   * what it created, it is refused instead, and nothing of the live question
+   * moves.
+   *
+   * `_resetOutboundHolds` is how the lapse is spelled here: it is what the lease
+   * expiring does, with no clock to wind forward.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("un lucchetto scaduto non regala la domanda di chi aspetta ancora", async () => {
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1293";
+    const payload = { to: "cliente@esempio.test", subject: "Preventivo", body: "in allegato", legMs: 600 };
+    const waiting = h.call(mailPath(sessionKey), payload);
+    await Bun.sleep(60);
+    const block = h.comments.filter((c) => c.options.length > 0);
+    expect(block).toHaveLength(1);
+
+    _resetOutboundHolds();
+    const identical = await (await h.call(mailPath(sessionKey), { ...payload, legMs: 120 }))!.json() as Record<string, unknown>;
+    expect(identical.refused).toBe(true);
+
+    // The question on the card is untouched, and it is still the first one's.
+    expect(h.comments.filter((c) => c.options.length > 0)).toHaveLength(1);
+    expect(pendingRoutedAsk("task-1")?.askId).toBe(block[0].id);
+    const answered = answerRoutedAsk(
+      { db: null as never, comment: () => null, deliver: (key, answers) => deliverAnswer(key, answers) },
+      "task-1",
+      CONFIRM_LABEL,
+      { askId: block[0].id },
+    );
+    expect(answered.delivered).toBe(true);
+    expect((await (await waiting)!.json() as Record<string, unknown>).sent).toBe(true);
+  });
+
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {
     const h = makeHarness();
     const resp = (await h.call(mailPath("topic:abcd1241"), { ...message, subject: "  " }))!;
@@ -612,7 +749,7 @@ describe("POST /outbound/google", () => {
     const resp = (await h.call(googlePath(sessionKey), {
       service: "calendar", resource: "events", method: "insert", body: { summary: "riunione" }, legMs: 150,
     }))!;
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     expect(recorded()).toEqual([]);
     cancelAsk(sessionKey, "fine del test");
   });
@@ -652,7 +789,7 @@ describe("POST /outbound/google", () => {
     const resp = (await h.call(googlePath(sessionKey), {
       service: "drive", resource: "files", method: "frobnicate", legMs: 150,
     }))!;
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     expect(recorded()).toEqual([]);
     cancelAsk(sessionKey, "fine del test");
   });
@@ -674,7 +811,7 @@ describe("la riga su cui si dipinge la domanda", () => {
     const h = makeHarness({ card: false, lastRow: () => row });
     const resp = (await h.call(mailPath(sessionKey), { ...message, legMs: 150 }))!;
     // Pending: the question is on the tool row and the person is reading it.
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     expect(recorded()).toEqual([]);
     cancelAsk(sessionKey, "fine del test");
     release();
@@ -744,7 +881,7 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
       service: "gmail", resource: "users", subresource: "drafts", method: "create",
       body: { userId: "me", raw }, legMs: 150,
     }))!;
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     const question = h.comments[0]?.content ?? "";
     expect(question).toContain("body: ");
     expect(question).not.toContain("Da: (non indicato)");
@@ -809,7 +946,7 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
       service: "gmail", resource: "users", subresource: "drafts", method: "create",
       body: { userId: "me", message: { raw } }, legMs: 150,
     }))!;
-    expect(await resp.json()).toEqual({ pending: true });
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     const question = h.comments[0]?.content ?? "";
     expect(question).toContain("vittima@e.test");
     expect(question).toContain("Bonifico");

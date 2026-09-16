@@ -1,7 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
-import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError } from "../lib/ask-user-bridge";
+import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
 import { createTaskService } from "../services/tasks";
-import { routeAskToTaskThread, clearRoutedAsk, clearRoutedAsksOfEndedSession } from "../services/board-ask-routing";
+import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, clearRoutedAsksOfEndedSession, ENDED_LINE } from "../services/board-ask-routing";
 import {
   beginPermission,
   waitForDecision,
@@ -168,20 +168,42 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         //
         // IF THE CARD IS TAKEN by a question somebody is still waiting on -
         // another session of this task, or another request of this one -
-        // `routeAskToTaskThread` returns `busy` and writes nothing: ignoring
-        // that here is right. This leg comes back in 25 seconds with the same
-        // question, so waiting is a QUEUE with a visible head - as soon as
-        // somebody answers the first one, the second comes out by itself. The
-        // turn was parked on a person either way, and the panel in the tab
-        // stays its other road.
+        // `routeAskToTaskThread` returns `busy` and writes nothing. This ask
+        // WAITS ITS TURN: the leg comes back in 25 seconds with the same
+        // question, so the queue has a visible head and as soon as somebody
+        // answers the first one the second comes out by itself. The turn was
+        // parked on a person either way, and the panel in the tab stays its
+        // other road.
+        //
+        // WAITING IS NOT `waitForAnswer` WHEN THE HOLDER IS THIS SAME SESSION,
+        // and that is the whole of the second half of this fix. The rendez-vous
+        // is keyed by SESSION and a second `waitForAnswer` on it SUPERSEDES the
+        // first: a send confirmation of this session, already on the card and
+        // polling, was killed by an unrelated `ask_user_question` opened from
+        // the same turn (measured with both real routes - the send came back
+        // "superseded by a newer question", took its own registry entry with it,
+        // and left the confirmation on screen with buttons that reached
+        // nothing). So the leg is spent WITHOUT registering a waiter and answers
+        // `pending`: nothing of the question on the card is touched. A holder on
+        // another session is a different rendez-vous and nothing to fear.
+        //
         // The id of the thread row this ask owns, kept so the clears below name
         // THIS question instead of "everything this session has open": two
         // requests of one session share the rendez-vous, and a clear by session
         // deletes the entry of the one still waiting (measured on the send
-        // gate, same registry).
+        // gate, same registry). Only an id THIS ask wrote goes in it: an entry
+        // the routing merely handed back belongs to whoever created it.
         let askId: string | undefined;
-        try { askId = routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] })?.askId; }
-        catch { /* il pannello nel tab resta comunque */ }
+        let heldByThisSession = false;
+        try {
+          const routed = routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] });
+          if (routed && routed.created === true && routed.askId) askId = routed.askId;
+          if (routed && routed.busy !== undefined && routed.busy.sessionKey === sk) heldByThisSession = true;
+        } catch { /* il pannello nel tab resta comunque */ }
+        if (heldByThisSession) {
+          await new Promise((r) => setTimeout(r, legMs ?? ASK_LEG_MS));
+          return json({ pending: true });
+        }
         try {
           const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
           // THIS QUESTION IS OVER, and this is where the registry is cleared.
@@ -205,8 +227,10 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           }
           // Cancelled or superseded: the question is gone, so is the entry. If
           // another question took the card meanwhile, this names ours and
-          // leaves that one alone.
-          if (askId) clearRoutedAsk(askId);
+          // leaves that one alone. The block in the thread is closed with a line
+          // of its own, because a quick-reply nobody can answer any more is a
+          // person clicking into silence.
+          if (askId) closeRoutedAsk(askRouting, askId, ENDED_LINE);
           // Uses `reason`, not `error`, so the bridge's httpJson passes it
           // through instead of auto-throwing on `error`.
           return json({ cancelled: true, reason: err?.message ?? String(err) });

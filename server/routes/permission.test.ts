@@ -21,9 +21,9 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createPermissionRouter } from "./permission";
-import { deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
+import { beginAsk, deliverAnswer, hasPendingAsk, cancelAsk, waitForAnswer } from "../lib/ask-user-bridge";
 import { cancelPermission, hasPendingPermission, sessionHasPendingPermission } from "../lib/permission-bridge";
-import { _resetRoutedAsks } from "../services/board-ask-routing";
+import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread } from "../services/board-ask-routing";
 
 type Row = { tool_calls?: string | null; blocks?: string | null } | undefined;
 
@@ -99,7 +99,7 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
     });
     return router(req, url, url.pathname, method) as Promise<Response | null>;
   };
-  return { call, broadcasts, toolCallWrites, topicFor, threadComments };
+  return { call, broadcasts, toolCallWrites, topicFor, threadComments, db: ctx.db as never };
 }
 
 const callRow = (id: string, extra: Record<string, unknown> = {}) =>
@@ -175,6 +175,68 @@ describe("la domanda che esce nel THREAD della card", () => {
       expect(h.threadComments[1].content).toContain("Seconda domanda?");
       deliverAnswer(sk, { k2: "No" });
       await second;
+    } finally {
+      cancelAsk(sk);
+      _resetRoutedAsks();
+    }
+  });
+
+  /**
+   * A GENERIC QUESTION DOES NOT KILL THE SEND CONFIRMATION UNDER IT.
+   *
+   * The rendez-vous is keyed by SESSION and `waitForAnswer` supersedes whatever
+   * waiter it finds there, on purpose - the CLI blocks its turn on one built-in
+   * ask. But the MCP bridge does not await its handlers, so an
+   * `ask_user_question` and a `send_mail` of the SAME turn are both in flight on
+   * one session, and this leg used to register anyway: measured with both real
+   * routes, the send came back "superseded by a newer question", took its own
+   * registry entry with it, and left its confirmation on the card with buttons
+   * that reached nobody. The card is taken and this ask waits its turn, which
+   * means spending the leg WITHOUT registering: nothing of the question on the
+   * card is touched.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("una domanda generica NON supera l'attesa di una conferma della stessa sessione", async () => {
+    _resetRoutedAsks();
+    const h = makeHarness(undefined, { card: CARD });
+    const sk = "topic:abcd1234";
+    const routing = {
+      // The same stub the route reads the card through: the registry has to
+      // land on the same task the leg below resolves to.
+      db: h.db,
+      comment: (a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+        h.threadComments.push({ taskId: a.taskId, content: a.content });
+        return `c-${h.threadComments.length}`;
+      },
+      deliver: () => true,
+    };
+    try {
+      // The send: its question is on the card and its leg is on the rendez-vous.
+      beginAsk(sk);
+      const confirmation = routeAskToTaskThread(routing, {
+        sessionKey: sk,
+        questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma", "Annulla"] }],
+      })!;
+      const sendLeg = waitForAnswer(sk, { timeoutMs: 3_000 });
+      let sendDied: string | null = null;
+      sendLeg.catch((err) => { sendDied = err instanceof Error ? err.message : String(err); });
+
+      const genericLeg = (await h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "piano", question: "Procedo col piano B?", options: ["Si", "No"] }],
+        legMs: 120,
+      }))!;
+      expect(await genericLeg.json()).toEqual({ pending: true });
+      // Nothing written: the card keeps ONE block to read...
+      expect(h.threadComments).toHaveLength(1);
+      // ...the registry still names the confirmation...
+      expect(pendingRoutedAsk(CARD.id)?.askId).toBe(confirmation.askId!);
+      // ...and the send is still waiting, which is the fact that was false.
+      expect(sendDied).toBeNull();
+
+      // And the yes reaches it.
+      expect(deliverAnswer(sk, { "outbound:aaa": "Conferma" })).toBe(true);
+      expect(await sendLeg).toEqual({ "outbound:aaa": "Conferma" });
     } finally {
       cancelAsk(sk);
       _resetRoutedAsks();
