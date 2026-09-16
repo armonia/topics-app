@@ -15,6 +15,7 @@ import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SwapFreezeLabel } from './SwapFreezeLabel';
 import { LiveToolLine } from '../Board/CardLive';
+import type { LiveTool } from '../Board/constants';
 import type { SwapFreezeView } from '../../state/swapFreeze';
 
 const freeze: SwapFreezeView = {
@@ -42,7 +43,9 @@ describe('the label says which command, how much, and why', () => {
 });
 
 describe('the live tool line stops with the command', () => {
-  const tool = { name: 'Bash', detail: 'bun batteria.ts', since: 1_760_000_000_000 } as Parameters<typeof LiveToolLine>[0]['tool'];
+  // The real `LiveTool`, not a cast: a fixture shaped by hand would keep
+  // passing after the field it feeds is renamed.
+  const tool: LiveTool = { name: 'Bash', input: 'bun batteria.ts', since: 1_760_000_000_000 };
 
   test('frozen: it says so instead of counting', () => {
     const html = renderToStaticMarkup(<LiveToolLine tool={tool} frozen />);
