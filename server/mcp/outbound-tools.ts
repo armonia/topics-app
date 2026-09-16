@@ -44,7 +44,7 @@ export const OUTBOUND_TOOLS = [
   {
     name: "send_mail",
     description:
-      "Send an email from one of the mailboxes this installation declares. THE PERSON CONFIRMS EVERY MESSAGE: the server opens a confirmation before anything is spawned (in the card thread when you are working a task, as a panel in the chat otherwise) and nothing leaves until it is answered, one answer per message. You do not ask separately and you cannot pre-approve: call the tool with the final text and wait. The account is chosen by NAME from the declared roster; an unknown name is refused rather than swapped for another mailbox. Attachments are paths inside this session's workspace. A successful send leaves a one-line trace on the card (who, to whom, subject, outcome) without the body.",
+      "Send an email from one of the mailboxes this installation declares. THE PERSON CONFIRMS EVERY MESSAGE: the server opens a confirmation before anything is spawned (in the card thread when you are working a task, as a panel in the chat otherwise) and nothing leaves until it is answered, one answer per message. You do not ask separately and you cannot pre-approve: call the tool with the final text and wait. The account is chosen by NAME from the declared roster; an unknown name is refused rather than swapped for another mailbox. Attachments are paths inside this session's workspace, and their BYTES are frozen when the question is asked: what leaves is what the person was shown the name, the size and the fingerprint of, whatever happens to the file afterwards. A successful send leaves a one-line trace on the card (who, to whom, subject, outcome) without the body.",
     inputSchema: {
       type: "object",
       properties: {
@@ -66,7 +66,7 @@ export const OUTBOUND_TOOLS = [
   {
     name: "google_call",
     description:
-      "One door onto Google Workspace through the `gws` CLI: drive, calendar, sheets, docs, tasks, people, gmail. Shape: service + resource (+ optional sub-resource) + method, with `params` (query) and `body` (request body) as JSON objects. Reads (list, get, search, ...) run straight away. WRITES ASK THE PERSON FIRST, the same one-per-action confirmation `send_mail` uses, and a method that cannot be classified counts as a write. A successful write leaves a trace on the card. Examples: service='calendar', resource='events', method='list', params={calendarId:'primary'}; service='drive', resource='files', method='list'.",
+      "One door onto Google Workspace through the `gws` CLI: drive, calendar, sheets, docs, tasks, people, gmail. Shape: service + resource (+ optional sub-resource) + method, with `params` (query) and `body` (request body) as JSON objects. Reads (list, get, search, ...) run straight away. WRITES ASK THE PERSON FIRST, the same one-per-action confirmation `send_mail` uses, and a method that cannot be classified counts as a write; the question shows the call in words, decoding a `raw` message instead of pasting base64 at it. SENDING MAIL IS NOT ON THIS DOOR: `gmail users messages send` and `gmail users drafts send` are refused here, use `send_mail`. A successful write leaves a trace on the card. Examples: service='calendar', resource='events', method='list', params={calendarId:'primary'}; service='drive', resource='files', method='list'.",
     inputSchema: {
       type: "object",
       properties: {

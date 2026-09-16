@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { isInsideDir } from "../lib/path-containment";
@@ -15,6 +15,8 @@ import {
 } from "../lib/outbound-config";
 import { resolveCliPath, runCli, CLI_SEARCH_DIRS } from "../lib/outbound-cli";
 import { confirmOutbound, type ConfirmOutcome, type OutboundGateDeps } from "../lib/outbound-gate";
+import { discardStaging, freezeAttachments, OutboundStagingError, type FrozenAttachments } from "../lib/outbound-staging";
+import { announcedCut, decodeRawMail, gmailSendsMail, googleWriteSummary } from "../lib/outbound-summary";
 import { flushTurnBody } from "../lib/turn-body-flush";
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { boardTaskForSession } from "../services/agent-census";
@@ -71,6 +73,12 @@ export interface OutboundRouterOptions {
   env?: EnvMap;
   /** Injected so a test can look for that fake executable in a temp dir. */
   searchDirs?: string[];
+  /**
+   * Where the frozen copies of the attachments are staged. Injected for the
+   * same reason as the two above: a test that used the default would write
+   * fixtures into the real `~/.topics` and have the sweeper loose in it.
+   */
+  stagingRoot?: string;
   cliTimeoutMs?: number;
   /**
    * The board writer. Defaults to the real task service; injected by the test,
@@ -105,12 +113,11 @@ function clampLeg(value: unknown): number {
     : DEFAULT_LEG_MS;
 }
 
-/** One attachment, as the person reading the confirmation sees it. */
+/** One attachment, named and contained. Its BYTES are frozen further down. */
 interface ResolvedAttachment {
-  /** The REAL path, with every link already resolved: this is what is spawned. */
+  /** The REAL path, with every link already resolved: this is what gets read. */
   path: string;
   name: string;
-  bytes: number;
 }
 
 /** A size a person reads at a glance. An attachment nobody weighed is a surprise. */
@@ -251,11 +258,11 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
    * through. Same rule, same reason, same shape as `browser-tool-dispatcher.ts`
    * in front of `checkUploadPath`: resolve first, decide after.
    *
-   * WHAT IS HANDED TO THE CLI IS THE REAL PATH, not the name that was asked
-   * for. Resolution happens BEFORE the person answers, and that answer takes
-   * minutes: a link still pointing at a file when the question is painted can
-   * point somewhere else when the child is spawned. A path with no links left
-   * in it has nothing to re-point.
+   * RESOLVING IS NOT FREEZING, and this function does only the first. The real
+   * path is what gets decided on, but the BYTES behind it are still the
+   * workspace's, and the workspace belongs to an agent that keeps its shell
+   * while the person reads. What leaves is the copy `freezeAttachments` takes
+   * at question time - see `lib/outbound-staging.ts` for the race that is.
    */
   const resolveAttachments = (
     sessionKey: string,
@@ -284,9 +291,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         return { error: `attachment "${candidate}" resolves outside this session workspace` };
       }
       if (!existsSync(real)) return { error: `attachment "${candidate}" does not exist in this session workspace` };
-      let bytes = 0;
-      try { bytes = statSync(real).size; } catch { bytes = 0; }
-      files.push({ path: real, name: basename(real), bytes });
+      files.push({ path: real, name: basename(real) });
     }
     return { files };
   };
@@ -379,20 +384,35 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           return json({ error: attachments.error, code: "attachment_refused" }, 400);
         }
 
-        const attachedPaths = attachments.files.map((f) => f.path);
-        const digest = payloadDigest([account.name, to, subject, text, cc ?? "", attachedPaths]);
+        // THE BYTES ARE FROZEN HERE, before anybody is asked. Everything below
+        // - the digest, the question, the argv - is about the copy.
+        let frozen: FrozenAttachments;
+        try {
+          frozen = freezeAttachments(sessionKey, attachments.files, { root: options.stagingRoot });
+        } catch (err) {
+          if (err instanceof OutboundStagingError) {
+            return json({ error: err.message, code: "attachment_refused" }, 400);
+          }
+          throw err;
+        }
+
+        const attachedPaths = frozen.files.map((f) => f.path);
+        // The identity of the message includes the FINGERPRINT of every
+        // attachment, not its path: swapped bytes are a different message, so
+        // they get a different question instead of riding the previous yes.
+        const digest = payloadDigest([
+          account.name, to, subject, text, cc ?? "",
+          frozen.files.map((f) => [f.name, f.bytes, f.sha256]),
+        ]);
         const quoted = shortSubject(subject);
-        const draft = text.trim();
-        const preview = draft.length > BODY_PREVIEW_CHARS
-          ? `${draft.slice(0, BODY_PREVIEW_CHARS)}\n[...] (${draft.length} caratteri in tutto)`
-          : draft;
+        const preview = announcedCut(text.trim(), BODY_PREVIEW_CHARS);
         // THE FILES ARE NAMED, not counted. "Allegati: 1" is the sealed
         // envelope this route refuses for the body two constants above: a
         // person who cannot see WHICH file leaves cannot stop the one that
         // should not, and the workspace of a card is the whole project
         // directory - `data/topics.db` is in there, and it counts as one.
-        const attachmentLine = attachments.files.length
-          ? `Allegati (${attachments.files.length}): ${attachments.files.map((f) => `${f.name} (${humanBytes(f.bytes)})`).join(", ")}`
+        const attachmentLine = frozen.files.length
+          ? `Allegati (${frozen.files.length}): ${frozen.files.map((f) => `${f.name} (${humanBytes(f.bytes)}, sha256 ${f.sha256})`).join(", ")}`
           : "Nessun allegato";
         const summary = [
           `Invio una mail dall'account ${account.name}.`,
@@ -414,11 +434,16 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
             legMs: clampLeg(body?.legMs),
           });
         } catch (err) {
+          discardStaging(frozen.dir);
           const reason = err instanceof Error ? err.message : String(err);
           return refuse(sessionKey, `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${reason}`, reason);
         }
+        // `pending` KEEPS the copies: the next leg re-reads the same bytes,
+        // lands on the same staging directory and asks the same question. What
+        // a server killed mid-confirmation leaves behind is swept by age.
         if (outcome.state === "pending") return json({ pending: true });
         if (outcome.state === "refused") {
+          discardStaging(frozen.dir);
           return refuse(
             sessionKey,
             `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${outcome.reason}`,
@@ -439,6 +464,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
             // same fact as a CLI exiting non-zero, and OUTBOUND-05 asks for the
             // same line. Without it a confirmed send that never happened exists
             // only in the agent's own message.
+            discardStaging(frozen.dir);
             trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${err.message}`);
             return json({ error: err.message, code: "outbound_not_configured", variable: err.variable }, 400);
           }
@@ -451,6 +477,9 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           env: childEnv(),
           timeoutMs: cliTimeoutMs,
         });
+        // The CLI has read them, whichever way it went: nothing is waiting for
+        // these bytes any more.
+        discardStaging(frozen.dir);
         const failure = run.timedOut
           ? `the CLI did not answer within ${Math.round(cliTimeoutMs / 1000)}s`
           : run.exitCode !== 0
@@ -460,7 +489,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${failure}`);
           return json({ error: failure, code: "send_failed" }, 502);
         }
-        const attachedNames = attachments.files.map((f) => f.name).join(", ");
+        const attachedNames = frozen.files.map((f) => f.name).join(", ");
         const traced = trace(sessionKey, `Mail inviata: da ${account.name} a ${to}, oggetto "${quoted}"${attachedNames ? `, allegati: ${attachedNames}` : ""} - riuscito`);
         return json({ sent: true, account: account.name, to, subject: quoted, traced });
       }
@@ -482,6 +511,16 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         if (!service || !resource || !apiMethod) {
           return json({ error: "service, resource and method are required", code: "invalid_call" }, 400);
         }
+        // THE OTHER MAIL DOOR IS CLOSED HERE. `gws gmail users messages send`
+        // sends a message without ever passing the gate `send_mail` stands in
+        // front of, and its own confirmation showed base64 cut in half. One act
+        // gets one door: the tool that can show the message to a person.
+        if (gmailSendsMail({ service, resource, subresource, method: apiMethod })) {
+          return json({
+            error: "this call sends mail: use send_mail, which shows the message to a person before anything leaves and traces it on the card",
+            code: "use_send_mail",
+          }, 400);
+        }
         // `params` and `body` travel as JSON TEXT, one argv element each. They
         // are re-serialised here rather than forwarded verbatim so a string
         // that is not JSON cannot become a flag.
@@ -501,13 +540,22 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         }
 
         const call = [service, resource, subresource, apiMethod].filter(Boolean).join(" ");
+        // A message can still ride a write that does not send (a draft): what it
+        // says is read out of it for the question and for the trace.
+        const carried = decodeRawMail(body?.body);
         if (googleCallWrites(apiMethod)) {
           const digest = payloadDigest([service, resource, subresource, apiMethod, params, requestBody]);
-          const summary = [
-            `Chiamata Google che SCRIVE: ${call}`,
-            params ? `params: ${params.slice(0, 300)}` : "params: nessuno",
-            requestBody ? `body: ${requestBody.slice(0, 300)}` : "body: nessuno",
-          ].join("\n");
+          // A SUMMARY SOMEBODY CAN READ. What stood here printed the body cut
+          // at 300 characters, which on a Gmail call is base64 stopped halfway:
+          // recipient, subject and text invisible, the signature on a sealed
+          // envelope OUTBOUND-03 forbids.
+          const summary = googleWriteSummary({
+            call,
+            params,
+            body: requestBody,
+            bodyValue: body?.body,
+            maxChars: BODY_PREVIEW_CHARS,
+          });
           let outcome: ConfirmOutcome;
           try {
             outcome = await confirmOutbound(gateDeps, {
@@ -570,8 +618,11 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           if (googleCallWrites(apiMethod)) trace(sessionKey, `Scrittura Google FALLITA (${call}): ${failure}`);
           return json({ error: failure, code: "google_call_failed" }, 502);
         }
+        // WHO AND WHAT, when the call carried a message: a trace that names only
+        // the method says a write happened and nothing about what left.
+        const addressed = carried ? ` (a ${carried.to || "?"}, oggetto "${shortSubject(carried.subject)}")` : "";
         const traced = googleCallWrites(apiMethod)
-          ? trace(sessionKey, `Scrittura Google eseguita: ${call} - riuscita`)
+          ? trace(sessionKey, `Scrittura Google eseguita: ${call}${addressed} - riuscita`)
           : false;
         return json({ ok: true, call, output: run.stdout, traced });
       }

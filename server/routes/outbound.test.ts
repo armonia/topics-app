@@ -28,8 +28,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOutboundRouter, googleCallWrites } from "./outbound";
 import { CONFIRM_LABEL, REFUSE_LABEL, confirmKey } from "../lib/outbound-gate";
+import { gmailSendsMail } from "../lib/outbound-summary";
 import { deliverAnswer, cancelAsk } from "../lib/ask-user-bridge";
 import { _resetRoutedAsks } from "../services/board-ask-routing";
+import { registerTurnBodyFlush, _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { payloadDigest } from "./outbound";
 
 // `realpathSync` on purpose: on macOS `tmpdir()` is itself a symlink
@@ -37,8 +39,10 @@ import { payloadDigest } from "./outbound";
 // fixture built on the link would be measuring the link, not the rule.
 const root = realpathSync(mkdtempSync(join(tmpdir(), "outbound-route-")));
 const LOG = join(root, "calls.log");
+/** Where the frozen attachments go. Outside every workspace, as in production. */
+const STAGING = join(root, "staging");
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
-afterEach(() => { _resetRoutedAsks(); if (existsSync(LOG)) unlinkSync(LOG); });
+afterEach(() => { _resetRoutedAsks(); _resetTurnBodyFlushers(); if (existsSync(LOG)) unlinkSync(LOG); });
 
 /** The stand-in for `gws-mail` and `gws`: it records argv and sends nothing. */
 function installFakeCli(name: string): string {
@@ -49,7 +53,10 @@ function installFakeCli(name: string): string {
       "#!/bin/bash",
       `LOG="${LOG}"`,
       `printf "%s\\0" "${name}" >> "$LOG"`,
-      'for a in "$@"; do printf "%s\\0" "$a" >> "$LOG"; done',
+      // The CONTENT of every argument that is a file, not just its path: what
+      // a confirmation binds is the BYTES, and a test that only reads argv
+      // cannot tell a frozen copy from a file swapped during the wait.
+      'for a in "$@"; do printf "%s\\0" "$a" >> "$LOG"; if [ -f "$a" ]; then printf "LETTO=%s\\0" "$(cat "$a")" >> "$LOG"; fi; done',
       // The environment the child was handed, recorded like the arguments: the
       // Keychain lookup both CLIs do hangs without `USER` (measured), and a
       // hang is indistinguishable from a slow network from the outside.
@@ -87,11 +94,21 @@ const ENV = {
 
 const CARD = { id: "task-1", project_id: "project-1", assigned_topic_id: "topic-abcd1234" };
 
-function makeHarness(options: { env?: Record<string, string>; card?: boolean; workspace?: string } = {}) {
-  const comments: Array<{ taskId: string; content: string }> = [];
+function makeHarness(options: {
+  env?: Record<string, string>;
+  card?: boolean;
+  workspace?: string;
+  /** The last persisted row of the session, read fresh: the gate forces a write before looking. */
+  lastRow?: () => { tool_calls?: unknown; blocks?: unknown } | undefined;
+} = {}) {
+  const comments: Array<{ taskId: string; content: string; options: string[] }> = [];
   const ctx = {
     db: {
-      prepare: () => ({ get: () => (options.card === false ? undefined : CARD) }),
+      prepare: (sql: string) => ({
+        get: () => (String(sql).includes("FROM messages")
+          ? options.lastRow?.()
+          : (options.card === false ? undefined : CARD)),
+      }),
       query: () => ({ get: () => null }),
     },
     json: (data: unknown, status = 200) =>
@@ -115,8 +132,10 @@ function makeHarness(options: { env?: Record<string, string>; card?: boolean; wo
   const router = createOutboundRouter(ctx, {
     env: options.env ?? ENV,
     searchDirs: [root],
+    // Never the real `~/.topics`: the frozen copies live here and are swept here.
+    stagingRoot: STAGING,
     cliTimeoutMs: 10_000,
-    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content }); return true; },
+    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content, options: args.options }); return true; },
   });
   const call = (path: string, body: unknown) => {
     const url = new URL(`http://topics.test${path}`);
@@ -128,6 +147,29 @@ function makeHarness(options: { env?: Record<string, string>; card?: boolean; wo
     return router(req, url, url.pathname, "POST") as Promise<Response | null>;
   };
   return { call, comments };
+}
+
+/**
+ * The digest of the question that was actually asked, read off the card.
+ *
+ * Recomputing it in the test would mirror the route's own identity rule - and
+ * then a test for "the bytes are part of the identity" would pass by
+ * construction, whatever the route does.
+ */
+const askedDigest = (comments: Array<{ content: string }>): string =>
+  /Confermi\? \(([0-9a-f]+)\)/.exec(comments[0]?.content ?? "")?.[1] ?? "";
+
+/** Say yes to whatever question is on the card, optionally messing with the
+ *  workspace first: that window is the one a person spends reading. */
+function confirmWhenAsked(
+  h: { comments: Array<{ content: string }> },
+  sessionKey: string,
+  meanwhile?: () => void,
+): void {
+  setTimeout(() => {
+    meanwhile?.();
+    deliverAnswer(sessionKey, { [confirmKey(askedDigest(h.comments))]: CONFIRM_LABEL });
+  }, 30);
 }
 
 const mailPath = (sessionKey: string) => `/api/sessions/${sessionKey}/outbound/mail`;
@@ -249,20 +291,23 @@ describe("POST /outbound/mail", () => {
     expect(recorded()).toEqual([]);
   });
 
-  test("an attachment INSIDE the workspace reaches the CLI as -a <absolute path>", async () => {
+  test("an attachment INSIDE the workspace reaches the CLI as a FROZEN copy, with its bytes", async () => {
     const workspace = join(root, "workspace");
     mkdirSync(workspace, { recursive: true });
     const attached = join(workspace, "preventivo.pdf");
     writeFileSync(attached, "%PDF-finto", "utf8");
     const h = makeHarness({ workspace });
     const sessionKey = "topic:abcd1246";
-    const digest = payloadDigest(["primo", message.to, message.subject, message.body, "", [attached]]);
-    setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
-    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo.pdf"], legMs: 400 }))!;
+    confirmWhenAsked(h, sessionKey);
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo.pdf"], legMs: 600 }))!;
     expect((await resp.json() as Record<string, unknown>).sent).toBe(true);
     const args = recorded();
     expect(args).toContain("--attach");
-    expect(args).toContain(attached);
+    // The bytes are the file's; the path is not. What the CLI opens lives in
+    // the server's staging directory, where the workspace cannot reach it.
+    expect(args).toContain("LETTO=%PDF-finto");
+    expect(args).not.toContain(attached);
+    expect(args.some((a) => a.startsWith(STAGING))).toBe(true);
   });
 
   test("un allegato che e' un LINK verso l'esterno e' rifiutato: `resolve()` non segue i symlink", async () => {
@@ -303,11 +348,11 @@ describe("POST /outbound/mail", () => {
     symlinkSync(realFile, link);
     const h = makeHarness({ workspace });
     const sessionKey = "topic:abcd1251";
-    const digest = payloadDigest(["primo", message.to, message.subject, message.body, "", [realFile]]);
-    setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
-    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["allegato.csv"], legMs: 400 }))!;
+    confirmWhenAsked(h, sessionKey);
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["allegato.csv"], legMs: 600 }))!;
     expect((await resp.json() as Record<string, unknown>).sent).toBe(true);
-    expect(recorded()).toContain(realFile);
+    // `$(cat)` eats the trailing newline: the two rows are the proof.
+    expect(recorded()).toContain("LETTO=a,b\n1,2");
   });
 
   test("la conferma NOMINA gli allegati: un numero non si puo' leggere", async () => {
@@ -325,6 +370,9 @@ describe("POST /outbound/mail", () => {
     const question = h.comments[0]?.content ?? "";
     expect(question).toContain("preventivo-2026.pdf");
     expect(question).not.toContain("Allegati: 1");
+    // And the FINGERPRINT of the bytes that were frozen: name and size are
+    // what an agent controls, the hash is what it cannot keep true after a swap.
+    expect(question).toMatch(/sha256 [0-9a-f]{8}/);
     cancelAsk(sessionKey, "fine del test");
   });
 
@@ -344,6 +392,33 @@ describe("POST /outbound/mail", () => {
     const line = h.comments.at(-1)?.content ?? "";
     expect(line).toContain("FALLITO");
     expect(line).toContain("TOPICS_MAIL_CLI");
+  });
+
+  test("i BYTE sono legati alla conferma: il file sostituito DURANTE l'attesa non parte", async () => {
+    // The verifier's reproduction, both halves of it in one case: the name the
+    // person read stays, the file behind it becomes a link to a secret. The
+    // resolution that used to happen before the question froze the STRING, and
+    // the string is exactly what the attacker leaves alone - argv said
+    // `--attach <ws>/preventivo.pdf` and the fake CLI read `TOKEN=...`.
+    const workspace = join(root, "ws-toctou");
+    mkdirSync(workspace, { recursive: true });
+    const attached = join(workspace, "preventivo.pdf");
+    writeFileSync(attached, "preventivo vero", "utf8");
+    const secretFile = join(root, "segreto-toctou.txt");
+    writeFileSync(secretFile, "TOKEN=super-segreto-42", "utf8");
+    const h = makeHarness({ workspace });
+    const sessionKey = "topic:abcd1260";
+    confirmWhenAsked(h, sessionKey, () => {
+      unlinkSync(attached);
+      symlinkSync(secretFile, attached);
+    });
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo.pdf"], legMs: 600 }))!;
+    expect((await resp.json() as Record<string, unknown>).sent).toBe(true);
+    const args = recorded();
+    expect(args).toContain("LETTO=preventivo vero");
+    expect(args.some((a) => a.startsWith("LETTO=TOKEN="))).toBe(false);
+    // Not even the path: the workspace name is not what was spawned.
+    expect(args).not.toContain(attached);
   });
 
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {
@@ -422,6 +497,91 @@ describe("POST /outbound/google", () => {
       service: "drive", resource: "files", method: "frobnicate", legMs: 150,
     }))!;
     expect(await resp.json()).toEqual({ pending: true });
+    expect(recorded()).toEqual([]);
+    cancelAsk(sessionKey, "fine del test");
+  });
+});
+
+describe("la riga su cui si dipinge la domanda", () => {
+  test("una scrittura in RITARDO non e' 'nessuno a cui chiedere'", async () => {
+    // The row is the one the throttle has written so far - the tool before
+    // this one - and the tool that is asking arrives with the deferred write,
+    // up to fifteen seconds later. Refusing on that row answered "nobody could
+    // confirm" to a person who was there, and the MCP tool raises on a refusal,
+    // so there was no second leg either.
+    const sessionKey = "chat:outbound-flush";
+    const running = (id: string, name: string) => ({ kind: "tool", toolCall: { id, name, args: {}, status: "running" } });
+    let row = { tool_calls: "[]", blocks: JSON.stringify([running("t1", "read_file")]) };
+    const release = registerTurnBodyFlush(sessionKey, () => {
+      row = { tool_calls: "[]", blocks: JSON.stringify([running("t1", "read_file"), running("t2", "send_mail")]) };
+    });
+    const h = makeHarness({ card: false, lastRow: () => row });
+    const resp = (await h.call(mailPath(sessionKey), { ...message, legMs: 150 }))!;
+    // Pending: the question is on the tool row and the person is reading it.
+    expect(await resp.json()).toEqual({ pending: true });
+    expect(recorded()).toEqual([]);
+    cancelAsk(sessionKey, "fine del test");
+    release();
+  });
+});
+
+describe("gmail e' la porta della posta, e ha una porta sola", () => {
+  test("un metodo che SPEDISCE e' rifiutato e rimanda a send_mail", async () => {
+    // `gws gmail users messages send` exists: without this, an agent sends a
+    // message without ever passing the gate that shows it to somebody.
+    const h = makeHarness();
+    const resp = (await h.call(googlePath("topic:abcd1261"), {
+      service: "gmail", resource: "users", subresource: "messages", method: "send",
+      body: { userId: "me", raw: "Rnjvbtogcg==" }, legMs: 150,
+    }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body.code).toBe("use_send_mail");
+    expect(String(body.error)).toContain("send_mail");
+    // Negative proof: no process, and nobody was even asked.
+    expect(recorded()).toEqual([]);
+    expect(h.comments).toEqual([]);
+  });
+
+  test("il rifiuto non si aggira con maiuscole, spazi o la forma corta", () => {
+    for (const parts of [
+      { service: "gmail", resource: "users", subresource: "messages", method: "send" },
+      { service: " Gmail ", resource: "Users", subresource: " MESSAGES", method: "Send " },
+      { service: "gmail", resource: "users", subresource: "drafts", method: "send" },
+      { service: "gmail", resource: "messages", method: "send" },
+    ]) {
+      expect(gmailSendsMail(parts)).toBe(true);
+    }
+    // And a write that does NOT send keeps its door: it asks, like every other.
+    for (const parts of [
+      { service: "gmail", resource: "users", subresource: "drafts", method: "create" },
+      { service: "gmail", resource: "users", subresource: "labels", method: "delete" },
+      { service: "calendar", resource: "events", method: "send" },
+    ]) {
+      expect(gmailSendsMail(parts)).toBe(false);
+    }
+  });
+
+  test("una scrittura che PORTA un messaggio si legge in chiaro nella domanda", async () => {
+    // A draft is a write that does not send, so it still goes through: what it
+    // may not do is show the person `raw: "Rnjvbtog..."` cut at 300 characters.
+    const raw = Buffer.from(
+      "From: primo@esempio.test\r\nTo: vittima@e.test\r\nSubject: Bonifico\r\n\r\nIBAN nuovo, mandate qui.",
+      "utf8",
+    ).toString("base64url");
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1262";
+    const resp = (await h.call(googlePath(sessionKey), {
+      service: "gmail", resource: "users", subresource: "drafts", method: "create",
+      body: { userId: "me", message: { raw } }, legMs: 150,
+    }))!;
+    expect(await resp.json()).toEqual({ pending: true });
+    const question = h.comments[0]?.content ?? "";
+    expect(question).toContain("vittima@e.test");
+    expect(question).toContain("Bonifico");
+    expect(question).toContain("IBAN nuovo, mandate qui.");
+    // And the base64 is not what the person is asked to read.
+    expect(question).not.toContain(raw);
     expect(recorded()).toEqual([]);
     cancelAsk(sessionKey, "fine del test");
   });
