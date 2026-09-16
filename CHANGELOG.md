@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.335 — 2026-09-16
+
+### Sotto il cofano
+- senza la pulizia del layout salvato il giro phone non trova la voce Board
+- La coda del terminale scade AL limite, e l'avviso dice quale delle tre perdite
+- Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu
+- Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce
+
 ## 2.2.334 — 2026-09-16
 
 ### Sotto il cofano
@@ -38,6 +46,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Due giri in attesa dei check si alternano: un giro di tre comandi non si riprende piu' il rilascio a ogni uscita
 - Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva
 - Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto
+- **e2e** · reset persisted project panes before task-model-labels runs
 - Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio
 
 ## 2.2.330 — 2026-09-15
@@ -63,6 +72,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.329 — 2026-09-15
 
 ### Sotto il cofano
+- Input queue: a partial loss is worse than none, so a loss takes the whole queue
 - Take the wheel back on both shells, and stop trusting one testid
 - La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti
 - Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0
@@ -118,6 +128,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
 - Il marker degraded si ritira, e ora la barra se ne accorge
 - L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda
+- Terminal input is queued until the reattach is proven
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
 - Il wire porta l'asse che blocca: le fixture del client lo dichiarano
 - Il git del test dei checkpoint porta l'ambiente isolato del preload
@@ -132,6 +143,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
 - Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
 - Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente
+- **e2e** · stabilize task-model-labels add-menu click under load
 
 ## 2.2.321 — 2026-09-14
 

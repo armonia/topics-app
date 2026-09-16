@@ -142,6 +142,23 @@ export const DEBT_GB_PER_MIN = 0.5;
  * pages/s at 65.8% of the file).
  */
 export const SWAP_CEILING_SHARE = 0.9;
+
+/**
+ * TWO DOORS, NOT ONE, because they see different minutes and the live log says
+ * so. The rate-only door below (200 pages/s with the debt not shrinking) lets in
+ * 16/09 14:41 - 956 pages/s, debt +0.4. The ceiling door takes 12:22:24 - 167.7
+ * pages/s, debt -1.7, file 92% full - which the rate door refuses twice over
+ * (under 200, and the debt negative). The ceiling door also asks for
+ * PERSISTENCE, the window before it at 10 pages/s or more, and that is what
+ * keeps out 12:54:29: an isolated 718.5 pages/s spike between two quiet minutes
+ * (6.6 and 21.2) while the machine was giving memory back, swap 16.7 -> 15.4 GB.
+ * A door that fires on one sample brakes a Mac that is emptying itself;
+ * "sustained" has to mean sustained.
+ */
+
+/** The rate that says thrash by itself, as long as the debt is not shrinking. */
+export const PAGES_READ_BACK_HARD_PER_S = 200;
+
 /** Samples older than this are dropped: the longest question asked is 120 s. */
 const KEEP_MS = 180_000;
 
@@ -195,8 +212,19 @@ export function swapVerdict(samples: readonly MemSample[], now: number): SwapVer
   const debtGB = ((last.compressorPages! - base.compressorPages!) * last.pageSize!) / 1e9 + (last.swapUsedMB! - base.swapUsedMB!) / 1000;
   const debtGBPerMin = (debtGB * 60) / seconds;
   const atCeiling = swapPct != null && swapPct >= SWAP_CEILING_SHARE;
+  // PERSISTENCE, for the ceiling door only: the rate of the window BEFORE this
+  // one. A single spike between two quiet minutes is a machine giving memory
+  // back, not a machine drowning - 16/09 12:54:29 read 718.5 pages/s between 6.6
+  // and 21.2 while swap went 16.7 -> 15.4 GB. `null` when there is not enough
+  // history yet, and then the ceiling door stays shut: at boot nothing is known.
+  const before = [...run].reverse().find((sm) => sm.at <= base.at - SWAP_WINDOW_MS);
+  const heldRatePerS = before != null && before.swapins != null && base.swapins != null && base.swapins >= before.swapins
+    ? (base.swapins - before.swapins) / Math.max(1, (base.at - before.at) / 1000)
+    : null;
   return {
-    sustained: pagesReadBackPerS >= PAGES_READ_BACK_PER_S && (debtGBPerMin >= DEBT_GB_PER_MIN || atCeiling),
+    sustained: (pagesReadBackPerS >= PAGES_READ_BACK_PER_S && debtGBPerMin >= DEBT_GB_PER_MIN)
+      || (pagesReadBackPerS >= PAGES_READ_BACK_HARD_PER_S && debtGBPerMin >= 0)
+      || (pagesReadBackPerS >= PAGES_READ_BACK_PER_S && atCeiling && heldRatePerS != null && heldRatePerS >= PAGES_READ_BACK_PER_S),
     pagesReadBackPerS, debtGBPerMin, swapPct, coveredMs: none.coveredMs,
   };
 }

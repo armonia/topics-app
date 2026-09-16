@@ -15,12 +15,13 @@ Chi lo riceve davvero, e quando:
   posto solo.
 
 **DUE LINGUE, e non e' una svista.** Dal 2026-08-15 l'ENVELOPE e' in inglese —
-`buildKickoff`, il kickoff di fan-out, il resume, il sollecito, e le tre costanti
-che ci finiscono dentro (`PREVIEW_RULE`, `CODE_GATES_RULE`, `VERSION_BUMP_RULE`
-in `shared/board.ts`). E' un contratto di RUNTIME letto da un modello, sta nel
-codice, e in questo repo il codice e' in inglese. QUESTA copia resta in italiano
-perche' il suo lettore e' una persona, e lo dice la prima riga. Cio' che deve
-restare allineato sono le REGOLE, non le parole: se cambi una regola in un posto,
+`buildKickoff`, il kickoff di fan-out, il resume, il sollecito, e le quattro
+costanti che ci finiscono dentro (`PREVIEW_RULE`, `CODE_GATES_RULE`,
+`VERSION_BUMP_RULE`, `RECOMMENDED_OPTION_RULE` in `shared/board.ts`). E' un
+contratto di RUNTIME letto da un modello, sta nel codice, e in questo repo il
+codice e' in inglese. QUESTA copia resta in italiano perche' il suo lettore e'
+una persona, e lo dice la prima riga. Cio' che deve restare allineato sono le
+REGOLE, non le parole: se cambi una regola in un posto,
 cambiala anche nell'altro.
 
 La lingua della RISPOSTA dell'agente non e' cambiata: `languageLine` mette sempre
@@ -231,6 +232,33 @@ queste regole.
    deploy in prod, uso di credenziali → prima si chiede. Le credenziali non si
    scrivono MAI in chiaro (thread, file, commit): se ne servono, ci si ferma e si
    chiede.
+
+5-bis. **Quando chiedi una decisione, la TUA scelta va per prima e lo dice.**
+   Il testo non sta scritto qui: e' la costante `RECOMMENDED_OPTION_RULE` in
+   `shared/board.ts`, la stessa stringa che leggono l'envelope di kickoff e le
+   descrizioni di `options` in `comment_task` e `comment_global_task`. L'opzione
+   che sceglieresti e' il primo elemento di `options` e la sua etichetta finisce
+   con « (consigliata)», o « (recommended)» se stai scrivendo in inglese; la
+   domanda su una riga dice in poche parole il perche'. Solo quando davvero non
+   hai una preferenza lo dichiari, e nomini cosa la scioglierebbe.
+   Misurato il 15/09/2026 su 2.486 commenti degli agenti in 45 giorni: 78
+   decisioni sono uscite come bottoni e solo 13 dicevano quale opzione avrebbe
+   preso l'agente. Un elenco neutro scarica sull'umano una decisione che chi
+   scriveva era nella posizione di prendere. Il pannello in chat ha il campo
+   `recommended` (un chip); le opzioni della board sono stringhe semplici, quindi
+   il segno vive nell'etichetta.
+   **E per questo il segno si ferma alle etichette riservate.** «Landa su main»,
+   «Landa e pubblica», «Approva il piano», «Da rivedere» e le quattro dei
+   sottotask parcheggiati sono un contratto che il server confronta PER VALORE
+   (`normalizeActionLabel`, §6 qui sotto): il suffisso e' fatto di lettere, quindi
+   sopravvive alla normalizzazione e cambia l'etichetta. Una «Landa su main
+   (consigliata)» smette di essere un'azione di board — il click risveglia
+   l'agente invece di fondere su main — e una «Approva il piano (consigliata)»
+   non arma piu' `tasks.plan_comment_id`. Su quelle si offre il testo esatto e la
+   propria scelta si dice con l'ORDINE, mettendola per prima. Misurato il
+   16/09/2026 sul DB vivo: 1.166 commenti su 1.451 con una fence `question`
+   portano «Landa su main», 34 «Approva il piano» — e' il ramo normale, non un
+   caso raro.
 
 6. **Approve = SOLO accettare il task** (review → done, sblocca i dipendenti). Non
    fa più merge/build/reap "da sotto": il landing è un passo ESPLICITO e separato

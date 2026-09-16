@@ -122,6 +122,30 @@ describe("swapVerdict: pages read back from disk while the memory debt still gro
     expect(v.sustained).toBe(true);
   });
 
+  test("M5i: 16/09 14:41, both stores full (956 pages/s read back, debt +0.4 GB/min) is sustained", () => {
+    // Live line, board idle: swapUsedGB 15.5 of 16, comprGB 15.1, load1 92.7,
+    // and the old rule answered "calm" because the debt could not grow.
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 4_782, compressorPages: perMinGBToPages5s(0.4), swapUsedMB: 0 })), at(60));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(956, 0);
+    expect(v.debtGBPerMin!).toBeLessThan(0.5);
+    expect(v.sustained).toBe(true);
+  });
+
+  test("M5k: the fastest recovery in the log (718 pages/s, debt -0.4 GB/min) is not sustained", () => {
+    // 16/09 12:54:29 live: the rate alone would have braked a Mac emptying
+    // itself; four more recoveries in that log read 254 to 438 pages/s.
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 3_592, compressorPages: -perMinGBToPages5s(0.4), swapUsedMB: 0 })), at(60));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(718, 0);
+    expect(v.debtGBPerMin!).toBeLessThan(0);
+    expect(v.sustained).toBe(false);
+  });
+
+  test("M5j: just under the second door (199 pages/s, debt flat) is not sustained", () => {
+    const v = swapVerdict(swapSeries(60, () => ({ swapins: 995, compressorPages: 0, swapUsedMB: 0 })), at(60));
+    expect(v.pagesReadBackPerS!).toBeCloseTo(199, 0);
+    expect(v.sustained).toBe(false);
+  });
+
   test("M5f-h: 30 swapins/s with debt +0.3 GB/min, a counter going down, 50 s of coverage are not", () => {
     expect(swapVerdict(swapSeries(60, () => ({ swapins: 150, compressorPages: perMinGBToPages5s(0.3), swapUsedMB: 0 })), at(60)).sustained).toBe(false);
     const thrash = swapSeries(60, () => ({ swapins: 150, compressorPages: 60_000, swapUsedMB: 0 }));
@@ -145,9 +169,15 @@ describe("swapVerdict: pages read back from disk while the memory debt still gro
  */
 describe("swapVerdict: a swap file at its ceiling is the second door", () => {
   /** A minute of samples at `pagesPerS` with the debt moving `debtGBPerMin`, swap pinned at `usedMB`. */
-  const atCeiling = (pagesPerS: number, debtGBPerMin: number, usedMB: number, totalMB: number | null = 16_384) =>
-    swapVerdict(swapSeries(60, () => ({ swapins: pagesPerS * 5, compressorPages: perMinGBToPages5s(debtGBPerMin), swapUsedMB: 0 }),
-      { swapins: 1_000_000, compressorPages: 700_000, swapUsedMB: usedMB }, totalMB), at(60));
+  /**
+   * TWO minutes, not one: the ceiling door asks for the window BEFORE it to be
+   * at 10 pages/s or more, so a case built on 60 s alone would never open it.
+   * `heldPagesPerS` is that earlier minute, high by default like the live
+   * episodes; the isolated-spike case passes a quiet one.
+   */
+  const atCeiling = (pagesPerS: number, debtGBPerMin: number, usedMB: number, totalMB: number | null = 16_384, heldPagesPerS = pagesPerS) =>
+    swapVerdict(swapSeries(120, (i) => ({ swapins: (i * 5 <= 60 ? heldPagesPerS : pagesPerS) * 5, compressorPages: perMinGBToPages5s(debtGBPerMin), swapUsedMB: 0 }),
+      { swapins: 1_000_000, compressorPages: 700_000, swapUsedMB: usedMB }, totalMB), at(120));
 
   test("S1: the worst minute of the 40 - 167.7 pages/s with the debt falling - is sustained, and used to read calm", () => {
     const v = atCeiling(167.7, -1.7, 15_200);
@@ -374,9 +404,10 @@ describe("the terms of the verdict must be readable after the fact", () => {
  * @covers KANBAN-75
  */
 describe("swapVerdict: at the ceiling a falling debt does not veto, below it nothing changes", () => {
-  const minute = (pagesPerS: number, debtGBPerMin: number, usedMB: number, totalMB: number | null = 16_384) =>
-    swapVerdict(swapSeries(60, () => ({ swapins: pagesPerS * 5, compressorPages: perMinGBToPages5s(debtGBPerMin), swapUsedMB: 0 }),
-      { swapins: 1_000_000, compressorPages: 700_000, swapUsedMB: usedMB }, totalMB), at(60));
+  /** Two minutes at the same rate: the ceiling door wants the window before it too. */
+  const minute = (pagesPerS: number, debtGBPerMin: number, usedMB: number, totalMB: number | null = 16_384, heldPagesPerS = pagesPerS) =>
+    swapVerdict(swapSeries(120, (i) => ({ swapins: (i * 5 <= 60 ? heldPagesPerS : pagesPerS) * 5, compressorPages: perMinGBToPages5s(debtGBPerMin), swapUsedMB: 0 }),
+      { swapins: 1_000_000, compressorPages: 700_000, swapUsedMB: usedMB }, totalMB), at(120));
 
   test("S8: 12:48, 134.6 pages/s with the debt at -4.1 and the file 92.8% full, between two sustained minutes", () => {
     const v = minute(134.6, -4.1, 15_200);
@@ -386,6 +417,18 @@ describe("swapVerdict: at the ceiling a falling debt does not veto, below it not
     // The minute before and the minute after, on the debt term alone.
     expect(minute(284, +1.7, 15_200).sustained).toBe(true);
     expect(minute(171.7, +0.8, 15_200).sustained).toBe(true);
+  });
+
+  test("S10: an isolated spike at the ceiling is NOT sustained - 12:54, 718 pages/s between two quiet minutes", () => {
+    // 16/09 12:54:29 read 718.5 pages/s with 6.6 before and 21.2 after, while the
+    // machine gave memory back (swap 16.7 -> 15.4 GB). Persistence is what tells
+    // it from 12:22, where the minute before read 170 pages/s.
+    const spike = minute(718.5, -0.4, 15_400, 16_384, 6.6);
+    expect(spike.pagesReadBackPerS!).toBeGreaterThan(200);
+    expect(spike.swapPct!).toBeGreaterThanOrEqual(SWAP_CEILING_SHARE);
+    expect(spike.sustained).toBe(false);
+    // Same rate, same file, but the minute before was already thrashing: sustained.
+    expect(minute(718.5, -0.4, 15_400, 16_384, 170).sustained).toBe(true);
   });
 
   test("S9: the same shape BELOW the ceiling is still calm - that is M5b, and it is what recovery looks like", () => {

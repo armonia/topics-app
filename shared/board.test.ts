@@ -6,15 +6,20 @@ import {
   ARCHIVE_PARKED_LABEL,
   LAND_ACTION_LABEL,
   PARKED_STOPPED,
+  PLAN_APPROVE_LABEL,
+  PLAN_REVISE_LABEL,
   PUBLISH_ACTION_LABEL,
   QUEUE_REASON_UNKNOWN,
   PROMOTE_PARKED_LABEL,
+  RECOMMENDED_OPTION_RULE,
   REQUEUE_PARKED_LABEL,
   STATUS_EVENT_REASON_MAX,
+  TAKE_OVER_PARKED_LABEL,
   deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
   isAncestorAtWork,
+  hasPlanApproveOption,
   isBoardActionLabel,
   isUnattributedSubtask,
   parseQuestionBlock,
@@ -1045,5 +1050,62 @@ describe("questionAsksHuman", () => {
     expect(isBoardActionLabel("Approva il piano")).toBe(false);
     expect(isBoardActionLabel("Aspetta, ho un dubbio")).toBe(false);
     expect(isBoardActionLabel(null)).toBe(false);
+  });
+});
+
+/**
+ * @covers KANBAN-59
+ *
+ * The reserved labels and the "(consigliata)" mark are two rules that MEET on the
+ * same argument — `comment_task(options=[...])` — and the meeting is where they
+ * break each other. `RECOMMENDED_OPTION_RULE` is interpolated verbatim into the
+ * kickoff envelope AND into the `options` description of `comment_task` /
+ * `comment_global_task`, where nothing narrows it to free-form questions, while the
+ * very same envelope prescribes `options=["Landa su main"]` at every delivery and
+ * `["Approva il piano", "Da rivedere"]` in plan-first.
+ *
+ * Measured on the live DB on 2026-09-16: 1,166 of the 1,451 comments with a
+ * ```question fence carry `Landa su main` (80%) and 34 carry `Approva il piano`.
+ * So this is the ordinary path, and the first two tests below are what happens to
+ * it if an agent applies the mark literally — they are the reason the third test
+ * demands the carve-out inside the constant.
+ */
+describe("the recommended mark stops at the labels the board executes", () => {
+  test("the suffix switches the board action off: a delivery reads as a question again", () => {
+    expect(isBoardActionLabel(`${LAND_ACTION_LABEL} (consigliata)`)).toBe(false);
+    expect(questionAsksHuman({ options: [LAND_ACTION_LABEL] })).toBe(false);
+    // Clicking this one wakes the agent up instead of merging onto main.
+    expect(questionAsksHuman({ options: [`${LAND_ACTION_LABEL} (consigliata)`] })).toBe(true);
+  });
+
+  test("the suffix stops arming tasks.plan_comment_id", () => {
+    expect(hasPlanApproveOption([PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL])).toBe(true);
+    expect(hasPlanApproveOption([`${PLAN_APPROVE_LABEL} (consigliata)`, PLAN_REVISE_LABEL])).toBe(false);
+  });
+
+  /**
+   * The gate against drift. The labels are written out by hand inside the
+   * constant (they are declared further down the module, so interpolating them
+   * would read them in their temporal dead zone), which means renaming one
+   * without touching the string would leave the agent marking the new label.
+   * This test is the link between the two.
+   */
+  test("the constant quotes every reserved label VERBATIM, and says what to do instead", () => {
+    for (const label of [
+      LAND_ACTION_LABEL,
+      PUBLISH_ACTION_LABEL,
+      PLAN_APPROVE_LABEL,
+      PLAN_REVISE_LABEL,
+      REQUEUE_PARKED_LABEL,
+      ARCHIVE_PARKED_LABEL,
+      PROMOTE_PARKED_LABEL,
+      TAKE_OVER_PARKED_LABEL,
+    ]) {
+      expect(RECOMMENDED_OPTION_RULE).toContain(label);
+    }
+    // And it says what to do INSTEAD of the suffix: otherwise the carve-out reads
+    // as "recommend nothing on those" and the rule dies exactly where it is needed.
+    expect(RECOMMENDED_OPTION_RULE).toMatch(/verbatim/i);
+    expect(RECOMMENDED_OPTION_RULE).toMatch(/by ORDER/);
   });
 });

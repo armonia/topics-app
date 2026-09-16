@@ -152,6 +152,12 @@ tutta l'uscita, spendendo una gamba a chiamata.
 - **GIVEN** due giri che aspettano con 11 GB nella finestra
 - **THEN** parte un comando solo, e l'altro parte quando il primo finisce o 120 s dopo il suo rilascio, anche se il primo giro ha altri comandi dietro
 
+#### Scenario: molte pagine rilette contano da sole, se il debito non cala
+- **GIVEN** 60 secondi di campioni con 956 pagine rilette al secondo e il debito a +0,4 GB al minuto
+- **THEN** il verdetto SHALL essere swap sostenuto
+- **AND** con 199 pagine al secondo e il debito fermo SHALL restare calmo
+- **AND** con 718 pagine al secondo e il debito a -0,4 GB al minuto, cioè un recupero, SHALL restare calmo
+
 #### Scenario: lo swap sostenuto vince sul fallire aperto
 - **GIVEN** un limite di 5 minuti, 5 GB per tutto il tempo e lo swap sostenuto dal minuto 4 al minuto 9
 - **THEN** niente parte prima del minuto 9, e al minuto 9 il comando parte comunque con la riga «starts anyway»
@@ -579,6 +585,16 @@ SHALL essere mostrata, perché nominerebbe un'app già chiusa. Le misure hanno U
 cifra decimale, la frase è una sola fabbrica per il log e per la card, e la chiave
 dell'attesa resta la prima parola («Memoria»): i nomi non SHALL far riscrivere il
 chip.
+
+Lo swap SHALL dirsi sostenuto ANCHE quando le pagine rilette dal disco sono
+almeno 200 al secondo e il debito NON sta calando. La prima regola si chiude
+proprio nel caso peggiore: il 16/09 alle 14:41, con la board ferma, il Mac
+rileggeva 956 pagine al secondo con carico 92,7, swap 15,5 GB su 16 e compressore
+a 15,1 GB, e il debito cresceva di 0,4 GB al minuto, un decimo sotto il cancello.
+Le pagine da sole NON SHALL bastare: sulle 953 righe `[memsig]` del 15-16/09 ci
+sono cinque recuperi sopra le 200 al secondo con il debito fermo o in calo, il
+più veloce 718,5/s a -0,4 GB al minuto, e frenare lì vorrebbe dire frenare una
+macchina che si sta svuotando.
 
 **UN CANCELLO PER NOME, non solo per numero.** Il semaforo dei check
 (`scripts/gate-slot.ts`) SHALL ammettere UNA sola corsa per NOME di check su
