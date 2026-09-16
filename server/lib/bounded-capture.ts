@@ -36,13 +36,18 @@ export interface Capture {
  * never "it answered nothing": that distinction is the whole reason the callers
  * can tell a machine with no matching process from a machine that is thrashing.
  */
-export async function captureWithDeadline(argv: string[], timeoutMs: number): Promise<Capture | null> {
-  let proc: ReturnType<typeof Bun.spawn>;
+/** The spawn itself, kept apart so its piped-stdout type survives a failure to start. */
+function spawnCapturing(argv: string[]) {
   try {
-    proc = Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
+    return Bun.spawn(argv, { stdout: "pipe", stderr: "ignore" });
   } catch {
     return null;
   }
+}
+
+export async function captureWithDeadline(argv: string[], timeoutMs: number): Promise<Capture | null> {
+  const proc = spawnCapturing(argv);
+  if (proc === null) return null;
   let timedOut = false;
   let killer: ReturnType<typeof setTimeout> | undefined;
   const answered = (async (): Promise<Capture> => {
