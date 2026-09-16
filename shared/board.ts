@@ -293,6 +293,9 @@ export const CODE_GATES_RULE = [
  * same number collide on all four files at land time. The number moves once
  * per release, at landing, by whoever lands.
  */
+export const VERSION_BUMP_RULE =
+  "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night. AND ON A CARD YOU DO NOT BUMP AT ALL: the number moves once per release, at landing, by whoever lands. Read on 2026-09-04: with fourteen cards in flight, the first one delivered carried its own bump, and every card bumping in parallel collides on all four files at land time.";
+
 /**
  * How an agent offers a choice to the human on the board: its own pick first, marked.
  *
@@ -305,9 +308,6 @@ export const CODE_GATES_RULE = [
  */
 export const RECOMMENDED_OPTION_RULE =
   "WHEN YOU OFFER OPTIONS, YOUR PICK GOES FIRST AND SAYS SO. Put the option you would choose as the first element of `options` and end its label with \" (consigliata)\", or \" (recommended)\" when you are writing in English. In the same one-line question, add why in a few words. Only when you truly have no preference, say that instead and name what would settle it. A neutral list hands the human a decision you were in a position to make.";
-
-export const VERSION_BUMP_RULE =
-  "A VERSION BUMP IS ONE COMMAND, never the files by hand. The name you read in `package.json` (here `bun run bump [patch|X.Y.Z]`, and `bun run bump sync` to realign a tree that already drifted). The number is written in SEVERAL places and one of them is a GENERATED file (a lockfile): it is the only one nobody ever opens by hand, so it is the only one a manual bump forgets. It has already happened twice in one night. AND ON A CARD YOU DO NOT BUMP AT ALL: the number moves once per release, at landing, by whoever lands. Read on 2026-09-04: with fourteen cards in flight, the first one delivered carried its own bump, and every card bumping in parallel collides on all four files at land time.";
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
