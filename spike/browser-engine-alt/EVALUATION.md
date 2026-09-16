@@ -845,33 +845,40 @@ layout_grid_enabled` è elencato nell'help ma **il parser lo rifiuta**: usa il f
 ## Playwright WebKit contro Chromium headless — misurato il 2026-09-16
 
 **Questa misura ribalta la premessa del task `bf04951a`.** Riproduci con
-`node spike/browser-engine-alt/pw-webkit-vs-chromium.mjs` (attribuzione per **diff di
-pid**, non per nome del processo: sulla macchina girano Ora e Safari, che usano gli
-stessi binari WebKit di sistema, e un `grep` sul comando misura anche loro — era
-l'errore che nel primo giro produceva numeri negativi).
+`node spike/browser-engine-alt/pw-webkit-vs-chromium.mjs`: **3 giri da 6 pane per motore,
+si tiene la mediana**, perche' una sola passata su una macchina viva non e' una misura.
+
+L'attribuzione ha **due** filtri e servono entrambi. Il pid dev'essere nuovo rispetto allo
+scatto iniziale (esclude Ora e Safari, che usano gli stessi binari WebKit di sistema ed
+erano gia' vivi) **e** il comando deve matchare il browser lanciato (esclude tutto cio' che
+nasce sulla macchina mentre il banco gira). Col solo diff di pid un giro dava 1212 MB alla
+prima pane e 1117 MB di "residuo": rumore puro. Col filtro doppio il residuo e' **0 MB** su
+entrambi i motori e i tre giri coincidono quasi alla cifra.
 
 Pagina locale, un context per pane, i flag veri del browser remoto
 (`server/browser-service.ts:718`):
 
 | | 1a pane | 6 pane | **marginale** | residuo dopo close |
 |---|---|---|---|---|
-| Playwright **WebKit** | 368 MB | 1068 MB | **140 MB/pane** | 35 MB |
-| Chromium **headless** | 277 MB | 687 MB | **82 MB/pane** | 26 MB |
+| Playwright **WebKit** | 315 MB | 823 MB | **102 MB/pane** | 0 MB |
+| Chromium **headless** | 258 MB | 669 MB | **83 MB/pane** | 0 MB |
 
-**Chromium headless vince, e non di poco: 82 MB contro 140 per pane.** Ripetuto su tre
-giri con carichi diversi (pagina locale, react.dev, pagine nello stesso context contro
-context separati): l'ordine non cambia mai.
+**Chromium headless vince: 83 MB contro 102 per pane, e parte 57 MB piu' in basso.** Il
+margine e' piu' stretto di quanto sembrasse al primo giro rumoroso (82 contro 140), ma il
+verso non cambia mai: su quattro sessioni di misura con carichi diversi (pagina locale,
+react.dev, pagine nello stesso context contro context separati) WebKit non e' mai stato
+davanti.
 
-**Perché i 219 MB di agosto non contraddicono questo.** Quel numero era del **sidecar
+**Perche' i 219 MB di agosto non contraddicono questo.** Quel numero era del **sidecar
 headful con le 42 estensioni caricate** (`server/browser-chromium-sidecar.ts`), non del
-browser remoto, che è `headless: true` da sempre. Confrontare i 219 MB del sidecar coi
+browser remoto, che e' `headless: true` da sempre. Confrontare i 219 MB del sidecar coi
 37-46 MB di `wkbench.swift` mette insieme due cose diverse: un Chromium headful con
-estensioni contro una `WKWebView` nuda dentro l'app. Il confronto onesto, a parità di
-scenario e di flag, è questa tabella.
+estensioni contro una `WKWebView` nuda dentro l'app. Il confronto onesto, a parita' di
+scenario e di flag, e' questa tabella.
 
 **Cosa resta vero di `wkbench.swift`:** i 37-46 MB della `WKWebView` **nativa**, dentro
-il processo dell'app, restano il numero più basso di tutti. Ma quella è la pane che
-l'umano guarda in locale, e lì WebKit è già il default. Non è il percorso remoto.
+il processo dell'app, restano il numero piu' basso di tutti. Ma quella e' la pane che
+l'umano guarda in locale, e li' WebKit e' gia' il default. Non e' il percorso remoto.
 
-**Conseguenza:** non c'è nessuna migrazione da fare sul browser remoto. La leva vera sul
-consumo è il sidecar headful, non il motore.
+**Conseguenza:** non c'e' nessuna migrazione da fare sul browser remoto. La leva vera sul
+consumo e' il sidecar headful, non il motore.
