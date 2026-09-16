@@ -25,32 +25,32 @@ import {
 
 const PS_REAL = `
   399     1 126320 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon
-  981   808    752 /bin/bash /Users/zorahrel/Projects/topics-app/scripts/start-prod.sh
- 2382     1  17120 node /Users/zorahrel/Projects/topics-app/server/pty-bridge.mjs --socket /tmp/topics-pty-bridge-9ec57b11.sock
+  981   808    752 /bin/bash /Users/tester/Projects/topics-app/scripts/start-prod.sh
+ 2382     1  17120 node /Users/tester/Projects/topics-app/server/pty-bridge.mjs --socket /tmp/topics-pty-bridge-9ec57b11.sock
  2779     1 245728 /Applications/Dia.app/Contents/MacOS/Dia
  3256  2779   4080 /Applications/Claude.app/Contents/Helpers/chrome-native-host chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/
  3554  2779 176544 /Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/Browser Helper (Renderer).app/Contents/MacOS/Browser Helper (Renderer) --type=renderer
- 5629   981 889968 /Users/zorahrel/.bun/bin/bun run /Users/zorahrel/Projects/topics-app/server.ts
+ 5629   981 889968 /Users/tester/.bun/bin/bun run /Users/tester/Projects/topics-app/server.ts
 10198     1 103648 /Applications/Spotify.app/Contents/MacOS/Spotify
 10279 10198  69984 /Applications/Spotify.app/Contents/Frameworks/Spotify Helper (Renderer).app/Contents/MacOS/Spotify Helper (Renderer) --type=renderer
-14838 14837 147488 /Users/zorahrel/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude --output-format stream-json
+14838 14837 147488 /Users/tester/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude --output-format stream-json
 23129  2779 870480 /Applications/Dia.app/Contents/Frameworks/ArcCore.framework/Helpers/Browser Helper (Renderer).app/Contents/MacOS/Browser Helper (Renderer) --type=renderer
 24160     1   8192 npm exec next dev -p 3177
-24226 24160   4576 node /Users/zorahrel/Projects/quadra/node_modules/.pnpm/next@15.5.23/node_modules/next/dist/bin/next dev
+24226 24160   4576 node /Users/tester/Projects/quadra/node_modules/.pnpm/next@15.5.23/node_modules/next/dist/bin/next dev
 24276 24226  35328 next-server (v15.5.23)
 26071 48914  49904 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer
 31539 48914 2148480 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer
-38515  2382 208000 /Users/zorahrel/.local/bin/claude --resume 3ddb9fb9 --dangerously-skip-permissions --append-system-prompt You are running inside Topics
-39135 38515   3360 /Users/zorahrel/.bun/bin/bun run /Users/zorahrel/Projects/topics-app/server/mcp/topics-mcp-server.ts --base-url=https://127.0.0.1:3333
+38515  2382 208000 /Users/tester/.local/bin/claude --resume 3ddb9fb9 --dangerously-skip-permissions --append-system-prompt You are running inside Topics
+39135 38515   3360 /Users/tester/.bun/bin/bun run /Users/tester/Projects/topics-app/server/mcp/topics-mcp-server.ts --base-url=https://127.0.0.1:3333
 39946     1 105664 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent
 41573     1 101520 /Applications/Wispr Flow.app/Contents/MacOS/Wispr Flow
 48486     1  24864 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent
 48914     1 130960 /Applications/Claude.app/Contents/MacOS/Claude
-91121     1  53712 /Users/zorahrel/Applications/Topics.app/Contents/MacOS/app
+91121     1  53712 /Users/tester/Applications/Topics.app/Contents/MacOS/app
 `;
 
 /** The three roots everything of ours grows from, as `server.ts` passes them. */
-const OURS = ["/Users/zorahrel/Projects/topics-app", "/Topics.app/", "/Users/zorahrel/.topics/worktrees"];
+const OURS = ["/Users/tester/Projects/topics-app", "/Topics.app/", "/Users/tester/.topics/worktrees"];
 const SERVER_PID = 5629;
 /** `responsibility_get_pid_responsible_for_pid`, as this Mac answered: both WebContent belong to our shell. */
 const RESPONSIBLE = new Map([[39946, 91121], [48486, 91121]]);
@@ -83,12 +83,12 @@ describe("appFamilyName: the app, never the raw process name", () => {
     expect(appFamilyName("next-server (v15.5.23)")).toBe("next-server");
     expect(appFamilyName("/System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer -daemon")).toBe("WindowServer");
     // `node` holds nothing: the script it runs is the thing a person would stop.
-    expect(appFamilyName("node /Users/zorahrel/Projects/quadra/node_modules/.pnpm/next@15.5.23/node_modules/next/dist/bin/next dev")).toBe("next");
-    expect(appFamilyName("node /Users/zorahrel/Projects/topics-app/server/pty-bridge.mjs --socket /tmp/x.sock")).toBe("pty-bridge");
+    expect(appFamilyName("node /Users/tester/Projects/quadra/node_modules/.pnpm/next@15.5.23/node_modules/next/dist/bin/next dev")).toBe("next");
+    expect(appFamilyName("node /Users/tester/Projects/topics-app/server/pty-bridge.mjs --socket /tmp/x.sock")).toBe("pty-bridge");
     expect(appFamilyName("node --max-old-space-size=8192")).toBe("node");
     // `index` is a file name, not a program: the package above it is the answer.
     expect(appFamilyName("/opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway --port 18789")).toBe("openclaw");
-    expect(appFamilyName("bun run /Users/zorahrel/Projects/topics-app/server/index.ts")).toBe("server");
+    expect(appFamilyName("bun run /Users/tester/Projects/topics-app/server/index.ts")).toBe("server");
   });
 });
 
@@ -173,19 +173,19 @@ describe("memoryOwners: everything that is not Topics, heaviest first", () => {
  * @covers KANBAN-75
  */
 const PS_HOST = `
-  808     1   5104 /Users/zorahrel/Applications/Topics Host.app/Contents/MacOS/topics-host
-  981   808    736 /bin/bash /Users/zorahrel/Projects/topics-app/scripts/start-prod.sh
- 5629   981 151584 /Users/zorahrel/.bun/bin/bun run /Users/zorahrel/Projects/topics-app/server.ts
+  808     1   5104 /Users/tester/Applications/Topics Host.app/Contents/MacOS/topics-host
+  981   808    736 /bin/bash /Users/tester/Projects/topics-app/scripts/start-prod.sh
+ 5629   981 151584 /Users/tester/.bun/bin/bun run /Users/tester/Projects/topics-app/server.ts
 19972     1 247360 /opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway --port 18789
-24226 24160   4576 node /Users/zorahrel/Projects/quadra/node_modules/next/dist/bin/next dev
+24226 24160   4576 node /Users/tester/Projects/quadra/node_modules/next/dist/bin/next dev
 24276 24226  37584 next-server (v15.5.23)
 41343     1   8096 npm exec astro dev --port 4444 --host 127.0.0.1 --force
-41387 41343  19376 node /Users/zorahrel/Projects/armonia-agency/armonia-site/.claude/worktrees/mano-armonia/node_modules/.bin/astro dev --port 4444 --host 127.0.0.1 --force
-45099 19972 189808 /Users/zorahrel/.local/bin/claude --disallowedTools ScheduleWakeup,CronCreate --strict-mcp-config
-45100 19972  61200 /Users/zorahrel/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude --output-format stream-json
+41387 41343  19376 node /Users/tester/Projects/armonia-agency/armonia-site/.claude/worktrees/mano-armonia/node_modules/.bin/astro dev --port 4444 --host 127.0.0.1 --force
+45099 19972 189808 /Users/tester/.local/bin/claude --disallowedTools ScheduleWakeup,CronCreate --strict-mcp-config
+45100 19972  61200 /Users/tester/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude --output-format stream-json
 48914     1 122624 /Applications/Claude.app/Contents/MacOS/Claude
 39946     1 105664 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent
-91121     1  53712 /Users/zorahrel/Applications/Topics.app/Contents/MacOS/app
+91121     1  53712 /Users/tester/Applications/Topics.app/Contents/MacOS/app
 `;
 
 describe("memoryOwners: the responsible pid names an XPC service and nothing else", () => {
@@ -195,7 +195,7 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
   const hostOwners = (over: Partial<Opts> = {}) => memoryOwners({
     rows: hostRows,
     selfPid: 5629,
-    ourMarkers: ["/Users/zorahrel/Projects/topics-app", ...OUR_APP_MARKERS],
+    ourMarkers: ["/Users/tester/Projects/topics-app", ...OUR_APP_MARKERS],
     ownerOf: (pid) => RESPONSIBLE_LIVE.get(pid) ?? null,
     floorGB: 0, top: 50, ...over,
   });
@@ -264,12 +264,12 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
   503     1 400000 /Applications/UniversalKeychain/UniversalKeychain.app/Contents/MacOS/UniversalKeychain
   504     1 300000 /opt/homebrew/bin/universalkeychain
   506     1 200000 /opt/homebrew/bin/foo --watch
-  505     1 260000 /Users/zorahrel/Projects/Applications/Foo.app/Contents/MacOS/Foo
-  508     1 170000 /Users/zorahrel/Library/Application Support/Acme/console.app/Contents/MacOS/console
+  505     1 260000 /Users/tester/Projects/Applications/Foo.app/Contents/MacOS/Foo
+  508     1 170000 /Users/tester/Library/Application Support/Acme/console.app/Contents/MacOS/console
   507     1 180000 /System/Applications/Utilities/Console.app/Contents/MacOS/Console
   509     1 160000 /Applications/Slack.app/Contents/MacOS/Slack
   510     1 150000 /opt/homebrew/bin/slack --serve
-  511     1 140000 /Users/zorahrel/.local/bin/SLACK
+  511     1 140000 /Users/tester/.local/bin/SLACK
 `);
     const names = memoryOwners({ rows, selfPid: 1, ourMarkers: [], floorGB: 0.1, top: 20, ownerOf: () => null }).map((f) => f.name);
     expect(names).toContain("Terminal");
