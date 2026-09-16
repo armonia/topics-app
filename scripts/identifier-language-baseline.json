@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-15",
+  "generated": "2026-09-16",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -3644,7 +3644,6 @@
       "anteprima",
       "buf",
       "dec",
-      "loopbackTlsInit",
       "satisfies"
     ],
     "server/media-error-page.ts": [

@@ -12,17 +12,17 @@
  * server-side (`server/routes/outbound.ts`), because a rule enforced inside the
  * agent's own subprocess is a rule the agent enforces on itself.
  */
-import { httpJson, type ParsedArgs } from "./topics-mcp-server";
+import { httpJson, type ParsedArgs } from "./topics-http";
 
 /**
  * The annotations, written out instead of imported from the dispatcher.
  *
- * Not duplication for its own sake: importing a VALUE that the module graph
- * needs while `topics-mcp-server` is still evaluating (it imports this file to
- * build its tool list) is how a cycle turns into an undefined at module scope.
- * The four booleans are the contract itself, and `readOnlyHint: false` is
- * spelled out because an absent annotation and a false one look the same to the
- * CLI and read differently to a person: one is a line nobody wrote.
+ * The dispatcher imports THIS file to build its tool list, so importing a value
+ * back from it would be the cycle `GATE-08` refuses (and the shared HTTP helper
+ * moved to `topics-http.ts` for the same reason). The four booleans are the
+ * contract itself anyway, and `readOnlyHint: false` is spelled out because an
+ * absent annotation and a false one look the same to the CLI and read
+ * differently to a person: one is a line nobody wrote.
  */
 const LEAVES_THE_MACHINE = {
   readOnlyHint: false,

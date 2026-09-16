@@ -131,12 +131,12 @@ describe("readGoogleConfig", () => {
 });
 
 describe("readGoogleClient", () => {
-  const desktopClient = JSON.stringify({
+  const installedClient = JSON.stringify({
     installed: { client_id: "finto-client-id", client_secret: "finto-client-secret", redirect_uris: ["http://localhost"] },
   });
 
   test("legge i due campi dalla forma `installed` che Google consegna", () => {
-    const client = readGoogleClient("/tmp/client_secret.json", () => desktopClient);
+    const client = readGoogleClient("/tmp/client_secret.json", () => installedClient);
     expect(client).toEqual({ clientId: "finto-client-id", clientSecret: "finto-client-secret" });
   });
 
