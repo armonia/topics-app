@@ -85,6 +85,38 @@ risposta che non porta quella chiave NON SHALL valere come sì. Un sì dato una
 volta NON SHALL valere per il messaggio successivo, e NESSUNA regola permanente
 («consenti sempre») SHALL poter coprire un invio.
 
+IL SÌ VALE PER UNA RICHIESTA, IDENTIFICATA DA UN ID SUO. Sulla strada della
+board la chiave non la porta chi risponde: la timbra il server leggendola dal
+registro delle domande aperte, che è chiavato sul TASK. Due sessioni dello
+stesso task esistono per costruzione — il coordinatore e le sue figlie ci
+stanno apposta — quindi «la domanda aperta su questo task» non basta a
+identificare un messaggio: riprodotto, la persona leggeva «Preventivo →
+cliente@esempio.test», rispondeva «Conferma», e partiva un altro messaggio verso
+un altro destinatario, mentre la prima domanda restava muta e inesigibile.
+Quindi:
+
+- ogni domanda instradata SHALL avere un ID, e quell'id SHALL essere quello
+  della riga del thread che la porta: è l'unica cosa che chi risponde può
+  NOMINARE, perché è la riga su cui clicca;
+- una risposta che nomina un id diverso da quello della domanda aperta NON SHALL
+  essere consegnata, NON SHALL far partire niente, e la card SHALL dirlo: il
+  commento è già salvato, e senza quella riga la persona crede di aver
+  confermato;
+- una risposta che non nomina nessun id SHALL valere per la domanda aperta, che
+  è l'unica che può esserci per la regola qui sotto;
+- una SECONDA conferma di invio su una card che ne ha già una VIVA di un'altra
+  sessione SHALL essere RIFIUTATA con quella ragione, e NON SHALL prendere il
+  posto della prima. La card disegna un blocco di risposta rapida solo: mostrare
+  la seconda significa togliere la prima, e un atto irreversibile non può
+  nemmeno restare in coda in silenzio per ore. Una `ask_user_question` generica
+  invece ASPETTA il suo turno, perché il suo bridge ripassa con la stessa
+  domanda ogni 25 secondi e non perde niente;
+- se la domanda che occupa la card non aspetta più nessuno (turno interrotto),
+  la nuova SHALL sostituirla, la sostituzione SHALL essere scritta nel thread
+  ANCHE fra sessioni diverse, e il rendez-vous della sostituita SHALL essere
+  annullato, così il suo invio fallisce con la sua traccia invece di raccogliere
+  un sì che non era suo.
+
 La domanda SHALL contenere il MESSAGGIO che sta per partire: mittente,
 destinatario, oggetto e il corpo (tagliato a una lunghezza dichiarata, e il
 taglio SHALL essere annunciato). Una conferma che mostra solo il destinatario e
@@ -118,10 +150,12 @@ Il cancello SHALL considerare la domanda POSTA solo quando il commento è stato
 scritto davvero. Il registro delle domande instradate è per TASK e non guarda il
 testo: una voce lasciata da una domanda di un turno interrotto faceva uscire
 l'instradamento SENZA scrivere niente, e il valore di ritorno veniva letto come
-«chiesto». Una domanda nuova SHALL sostituire quella che trova nel registro
-della stessa sessione, e la sostituita SHALL essere chiusa con una riga sua: un
-blocco di risposta rapida che cambia testo sotto gli occhi senza dirlo è peggio
-del silenzio.
+«chiesto». Una domanda nuova della STESSA sessione SHALL sostituire quella che
+trova — la CLI blocca il turno su una domanda sola, quindi la precedente è
+finita per costruzione — e la sostituita SHALL essere chiusa con una riga sua:
+un blocco di risposta rapida che cambia testo sotto gli occhi senza dirlo è
+peggio del silenzio. Per una sessione DIVERSA valgono le due regole di sopra
+(rifiuto se la vecchia è viva, sostituzione dichiarata se non lo è).
 
 Se la risposta non arriva, o non è quella di consenso, NON SHALL partire niente
 e lo strumento SHALL dirlo con la ragione.
@@ -164,6 +198,19 @@ non è una difesa contro un processo che è già dentro il confine.
 #### Scenario: una risposta che riguarda un'altra domanda
 - **GIVEN** una risposta la cui chiave non è quella di questo messaggio
 - **THEN** NON SHALL valere come consenso
+
+#### Scenario: due conferme sulla stessa card
+- **GIVEN** una conferma di invio già aperta e ancora in attesa di risposta
+- **WHEN** un'altra sessione dello stesso task ne chiede una seconda
+- **THEN** la seconda SHALL essere rifiutata con quella ragione
+- **AND** la domanda sulla card SHALL restare quella della prima
+- **AND** il sì SHALL far partire il PRIMO messaggio, non il secondo
+
+#### Scenario: la persona risponde a una domanda superata
+- **GIVEN** una domanda sostituita e una risposta che nomina la riga vecchia
+- **THEN** NON SHALL partire niente e la risposta SHALL restare una nota
+- **AND** la card SHALL avere la riga che lo dice
+- **AND** la domanda aperta SHALL restare aperta
 
 #### Scenario: la riga dello strumento non è ancora stata scritta
 - **GIVEN** un invio che non è il primo strumento del suo turno, con la
@@ -218,9 +265,31 @@ strade, e ognuna SHALL essere chiusa per quello che è:
   consegnava intatto;
 - dopo il sì e PRIMA dello spawn le copie SHALL essere rilette e ri-hashate, e
   un'impronta diversa SHALL fermare l'invio con la sua riga sulla card. La
-  finestra da chiudere è l'attesa della persona, che dura minuti; quella che
-  resta è fra questa rilettura e la `open` della CLI, su un percorso che nessuno
-  fuori dal processo conosce.
+  finestra da chiudere è l'attesa della persona, che dura minuti.
+
+LA FINESTRA CHE RESTA SI DICE COL SUO NUMERO, e questo delta NON SHALL chiamarla
+«microsecondi» né dire che il percorso è segreto. Fra quella rilettura e la
+`open` della CLI ci sono un `resolveCliPath`, un `Bun.spawn` e un avvio di
+processo intero: riprodotta 1 volta su 1 con i tempi veri e 3 su 4 senza nessun
+ritardo simulato, e il percorso non si indovina — si ELENCA, cosa che costa
+niente a chi gira come questo utente. La chiusura naturale (aprire la copia,
+scollegarla e passare al figlio `/dev/fd/N`) è stata MISURATA contro la CLI vera
+il 2026-09-16 (`gws gmail +send --dry-run`, nessun invio) e NON regge: `--attach
+/dev/fd/3` torna «resolves to '/dev/fd/preventivo.pdf' which is outside the
+current directory» (400, `validationError`), cioè la CLI canonicalizza il
+percorso e RIAPRE il file per nome, e da quel nome deriva anche l'intestazione
+MIME. Quindi la copia tiene un nome, e ciò che questo delta promette è solo ciò
+che il codice fa: la finestra passa dai minuti della lettura a un avvio di
+processo, e ciò che cambia IN quei minuti ferma l'invio. Il confine resta quello
+di OUTBOUND-03: un processo che gira come l'utente del server chiama la CLI da
+sé, e nessuna conferma dentro Topics glielo impedisce.
+
+IL FIGLIO SHALL GIRARE DOVE STANNO LE COPIE. La CLI di Google rifiuta un
+`--attach` che risolve FUORI dalla cartella corrente (misurato, stesso comando
+di sopra: 400 `validationError`), e le copie congelate stanno sotto `~/.topics`
+mentre il server gira dove l'ha avviato launchd: senza dichiarare la cartella di
+lavoro del processo figlio, nessun allegato confermato sarebbe mai partito
+davvero.
 
 IL TETTO SHALL ESSERE MISURATO PRIMA DI LEGGERE. Il totale degli allegati SHALL
 avere un limite dichiarato — oltre a quello che una casella accetta l'invio non
@@ -288,6 +357,11 @@ timeout di socket dal lato del client.
 #### Scenario: la copia e' gia' li' prima della chiamata
 - **GIVEN** un file piantato al percorso di appoggio che la sessione userebbe
 - **THEN** SHALL partire il contenuto letto dal workspace, non quello piantato
+
+#### Scenario: l'allegato arriva dentro la cartella di lavoro del figlio
+- **GIVEN** un invio confermato con un allegato
+- **THEN** il percorso passato alla CLI SHALL essere dentro la cartella di
+  lavoro del processo figlio
 
 #### Scenario: la copia viene riscritta durante l'attesa
 - **GIVEN** una copia congelata modificata dopo la domanda

@@ -33,16 +33,44 @@
  *     for the polling legs) and every file is created with `O_EXCL`: a file
  *     already sitting at that path is an attack, not a leg that came before.
  *   - REWRITING THE COPY WHILE THE PERSON READS. `ls -t` finds it, no
- *     computation needed. That window is minutes long, and it is closed by
- *     `verifyFrozen`, which the route calls right after the yes and right
- *     before the spawn: the copy is read again and refused if it is not the one
- *     that was confirmed. What is left is the microseconds between that read
- *     and the CLI's own open, on a path the attacker cannot predict.
+ *     computation needed. That window is minutes long, and `verifyFrozen` -
+ *     called right after the yes and right before the spawn - cuts it: the copy
+ *     is read again and refused if it is not the one that was confirmed.
  *
- * The honest sentence is: an agent that runs as the server's user is inside the
- * trust boundary, and no file mode moves it. What this module buys is that the
- * workspace file stops mattering once the question is asked, and that the only
- * remaining window is microseconds wide instead of minutes.
+ * WHAT IS STILL OPEN AFTER THAT, said with the measure instead of a word.
+ * Between `verifyFrozen` and the moment the CLI opens the file there is a
+ * `resolveCliPath`, a `Bun.spawn` and a whole process start. That is not
+ * "microseconds": the child of `gws` is a node script that authenticates
+ * against the keychain before it touches the attachment, and the verifier who
+ * reproduced it won 1 attempt out of 1 with the real timing and 3 out of 4 with
+ * NO simulated startup at all - a bare fork+exec of bash was enough. Nor is the
+ * path a secret: `mkdtemp` makes it unguessable, and the attacker does not
+ * guess, it LISTS (`find ~/.topics/outbound-attachments -name '*.pdf'`), which
+ * costs nothing to somebody running as this user.
+ *
+ * WHY IT IS NOT CLOSED FROM HERE, and what was tried. The fix that would close
+ * it is one open shared by the check and the use: open the copy, unlink it, and
+ * hand the child `/dev/fd/N`, so no name is left to substitute. Measured
+ * against the real CLI on 2026-09-16 (`gws gmail +send --dry-run`, nothing
+ * sent): `--attach /dev/fd/3` comes back
+ *
+ *     --attach '/dev/fd/3' resolves to '/dev/fd/preventivo.pdf'
+ *     which is outside the current directory        (400, validationError)
+ *
+ * i.e. `gws` canonicalises the path and RE-OPENS IT BY NAME - it never uses the
+ * descriptor, and the basename is also what the MIME header would carry. There
+ * is no stdin form of `--attach` either. So the descriptor trick cannot be
+ * honestly claimed here, and the copy keeps a name.
+ *
+ * The honest sentence is therefore: an agent that runs as the server's user is
+ * inside the trust boundary, and no file mode and no random name move it - that
+ * process can call `gws` by itself, and no confirmation inside Topics stops it.
+ * What this module buys is real but smaller than it sounds: the workspace file
+ * stops mattering once the question is asked, the window shrinks from the
+ * minutes a person spends reading to one process start, and anything that
+ * changes IN those minutes stops the send instead of leaving. The confirmation
+ * is worth having for two honest reasons - it prevents MISTAKES and it leaves a
+ * TRACE - and this comment must not promise a third.
  *
  * ONE DIRECTORY PER (SESSION, CONTENT). The bridge polls: the same send comes
  * back through this function every 25 seconds until somebody answers, and a
@@ -290,11 +318,12 @@ function frozenOf(dir: string, index: number, file: { name: string; bytes: numbe
  * before the spawn.
  *
  * The argument against this check used to be that it is "the same race one
- * round later". It is not the same race: the window it closes is the one the
- * person spends reading, which is minutes, and the one it leaves is between
- * this read and the CLI's open on a path nobody outside this process knows.
- * Minutes against microseconds is the whole difference, and it was the minutes
- * that were reproduced.
+ * round later". It is not the same race - the window it closes is the minutes a
+ * person spends reading, and those were the ones reproduced - but it is not a
+ * race this check WINS either. What it leaves is a whole process start on a
+ * path that can be listed, and that window has been reproduced too: see the
+ * header of this file for the measure and for why `/dev/fd/N` does not close it
+ * against the CLI we actually call.
  */
 export function verifyFrozen(frozen: FrozenAttachments): void {
   for (const file of frozen.files) {

@@ -111,7 +111,7 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     const painted: string[] = [];
     const deps: OutboundGateDeps = {
       db: { prepare: () => ({ get: () => undefined }) } as never,
-      comment: () => true,
+      comment: () => "c-1",
       deliver: () => true,
       lastToolRow: (key) => { flushTurnBody(key); return turn.row(); },
       paint: (args) => { painted.push(args.toolCallId); },

@@ -1046,9 +1046,14 @@ export const boardApi = {
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/restore`, { method: 'POST' }),
   /** `quiet` = ANNOTAZIONE, non consegna: il commento si salva e si vede, ma il
    *  server si ferma lì. Nessun reject, nessun resume, la card non si muove.
-   *  Senza, un commento su una card in review RIMANDA il task all'agent. */
-  comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[]; quiet?: boolean }) =>
-    req<import('../../../shared/task-comment-ack').TaskCommentAcknowledgement>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media, quiet: opts?.quiet }) }),
+   *  Senza, un commento su una card in review RIMANDA il task all'agent.
+   *
+   *  `answerTo` = the id of the question comment this is an answer to. The yes
+   *  belongs to THAT question: if another one is open on the server by now, the
+   *  answer is not delivered and stays a note, instead of counting as consent
+   *  for a message nobody read. */
+  comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[]; quiet?: boolean; answerTo?: string }) =>
+    req<import('../../../shared/task-comment-ack').TaskCommentAcknowledgement>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media, quiet: opts?.quiet, answerTo: opts?.answerTo }) }),
   /** `force` scavalca il gate sui checks rossi: è una scelta esplicita dell'umano,
    *  mai il default (il server risponde 409 `checks_failed` senza). */
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>

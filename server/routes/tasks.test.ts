@@ -11,6 +11,9 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import { pendingQuestionComment } from "../../shared/board";
 import { createTasksRouter } from "./tasks";
+import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread } from "../services/board-ask-routing";
+import { cancelAsk } from "../lib/ask-user-bridge";
+import { topicSessionKey } from "../services/agent-census";
 import { imageShape } from "../services/image-shape";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { ARCHIVE_PARKED_LABEL, createTaskService, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../services/tasks";
@@ -610,6 +613,71 @@ describe("board router (human, project-scoped)", () => {
     const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
     expect(after.comments.at(-1).quiet ?? null).toBeNull();
     expect(pendingQuestionComment(after.comments as ThreadRow[])).toBeNull();
+  });
+
+  /**
+   * THE YES BELONGS TO THE QUESTION THAT WAS READ, not to the one open now.
+   *
+   * The registry of routed questions is keyed by TASK, and two sessions of one
+   * task exist by construction (a coordinator and its children). While the
+   * answer named nothing, a confirm click on one question reached whichever had
+   * taken its place: a consent given for one message and spent on another.
+   * `answerTo` is the id of the row that was clicked.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("an answer naming a superseded question stays a note, and the card says so", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-ask')");
+    const r = createTasksRouter(makeCtx(db, broadcasts), { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any);
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "con conferma", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-ask' WHERE id = ?").run(root.id);
+
+    // The two questions, written by the real module on the task's real session.
+    const handed: Array<{ sessionKey: string; answers: Record<string, string> }> = [];
+    const deps = {
+      db,
+      comment: (a: { taskId: string; projectId: string; content: string; options: string[] }) => {
+        const id = `q-${a.content.slice(0, 6)}-${Math.random().toString(16).slice(2, 8)}`;
+        db.prepare(
+          "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, 'agent:top-ask', ?, 'comment', ?)",
+        ).run(id, a.taskId, a.content, new Date().toISOString());
+        return id;
+      },
+      // NOT the `deliver` the route uses (it has its own, on the real
+      // rendez-vous): this one only builds the two questions in the registry.
+      deliver: (sessionKey: string, answers: Record<string, string>) => { handed.push({ sessionKey, answers }); return true; },
+    };
+    _resetRoutedAsks();
+    const session = topicSessionKey("top-ask");
+    const superseded = routeAskToTaskThread(deps, {
+      sessionKey: session,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    })!;
+    const current = routeAskToTaskThread(deps, {
+      sessionKey: session,
+      questions: [{ key: "outbound:bbb", question: "Fattura -> altro@esempio.test. Confermi?", options: ["Conferma"] }],
+    })!;
+    expect(current.askId).not.toBe(superseded.askId);
+
+    // The person clicks the confirm button on the OLD row.
+    const ack = await (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "Conferma", answerTo: superseded.askId,
+    }))!.json();
+    expect(ack.delivery).toBe("note");
+    // The open question is still the current one: an answer that was not its
+    // own did not close it.
+    expect(pendingRoutedAsk(root.id)?.askId).toBe(current.askId);
+    const after = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(after.comments.at(-1).content).toContain("non e' piu' quella aperta");
+
+    // On the right row, instead, it is delivered.
+    const ok = await (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "Conferma", answerTo: current.askId,
+    }))!.json();
+    expect(ok.delivery).toBe("answered");
+    expect(pendingRoutedAsk(root.id)).toBeNull();
+    _resetRoutedAsks();
+    cancelAsk(session, "end of test");
   });
 
   test("quiet comment with media stays quiet too (attachments do not wake the agent)", async () => {

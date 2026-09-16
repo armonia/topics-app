@@ -24,10 +24,20 @@
 // prova senza alzare un server.
 
 import type { Database } from "bun:sqlite";
+import { cancelAsk, hasPendingAsk } from "../lib/ask-user-bridge";
 import { boardTaskForSession } from "./agent-census";
 
 /** Una domanda in attesa di risposta dal thread di un task. */
 interface RoutedAsk {
+  /**
+   * THE ID OF THIS QUESTION, and it is the thread row that carries it.
+   *
+   * Not a counter of our own: whoever answers CLICKS a comment, so the only id
+   * both sides can NAME is that comment's. The card sends it back (`answerTo`)
+   * and `answerRoutedAsk` compares the two: a yes read on a question that is no
+   * longer the open one does not count as a yes.
+   */
+  askId: string;
   sessionKey: string;
   /** La chiave con cui il chiamante si aspetta la risposta (`answers[key]`). */
   questionKey: string;
@@ -41,17 +51,55 @@ interface RoutedAsk {
 }
 
 /**
- * taskId → domanda aperta. UNA per task, e non è una semplificazione: la card
- * mostra un blocco di risposta rapida solo, quindi due domande insieme
- * sarebbero due tasti sovrapposti sulla stessa riga. La seconda SOSTITUISCE la
- * prima, che è la stessa regola del rendez-vous (`waitForAnswer` supersede).
+ * taskId -> the open question. ONE per task, and not as a simplification: the
+ * card draws a single quick-reply block, so two questions at once would be two
+ * rows of buttons piled on the same line.
+ *
+ * WHO REPLACES WHOM, and why it is no longer "always the second one". This
+ * registry is keyed by TASK, and two sessions of one task exist BY
+ * CONSTRUCTION: `boardTaskForSession` maps a coordinator and its children onto
+ * the same taskId on purpose. While a second question evicted the first without
+ * looking, two open send confirmations collapsed into ONE block of buttons and
+ * `answerRoutedAsk` delivered under the CURRENT key: the person read
+ * the first message on screen, answered with the confirm button, and a
+ * different message left for a different recipient. Reproduced.
+ *
+ * The rule now asks whether the old one is ALIVE, and that fact belongs to the
+ * rendez-vous (`hasPendingAsk`), not to this module:
+ *
+ *   - SAME SESSION -> always replaces. The CLI blocks a turn on one question at
+ *     a time, so a new question from the same session says by construction that
+ *     the previous one is over (an interrupted turn, for instance).
+ *   - ANOTHER SESSION, and somebody is still waiting on the old one -> the new
+ *     one does NOT come out and its caller gets `busy`. Two open questions on
+ *     one card are the defect, not the case to handle.
+ *   - ANOTHER SESSION, and nobody waits on the old one -> it is replaced, with
+ *     a line of its own in the thread and a `cancelAsk` on the session that
+ *     lost the card, so a straggler leg fails with its own reason instead of
+ *     collecting the yes given to another question.
  */
 const routed = new Map<string, RoutedAsk>();
 
+/** The line that closes a replaced question: the text changes, and says so. */
+const SUPERSEDED_LINE =
+  "La domanda qui sopra non aspetta più una risposta: la sostituisce quella qui sotto.";
+
+/** Why a session that lost the card must not collect a yes any more. */
+const SUPERSEDED_CANCEL =
+  "the question was replaced on the card: nobody was waiting on it any more";
+
 export interface AskRoutingDeps {
   db: Database;
-  /** Scrive il commento nel thread. Restituisce false se non ci è riuscito. */
-  comment: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => boolean;
+  /**
+   * Writes the comment in the thread and returns its ID; `null` when it could
+   * not.
+   *
+   * THE ID IS NOT A LUXURY: it is what the card sends back when a person clicks
+   * a quick reply, and it is the only way to know WHICH question they answered.
+   * While this returned a boolean, the registry only knew that ONE question was
+   * open, and the yes always went to the latest entry.
+   */
+  comment: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => string | null;
   /** Consegna la risposta al rendez-vous della sessione che aspetta. */
   deliver: (sessionKey: string, answers: Record<string, string>) => boolean;
 }
@@ -101,6 +149,26 @@ export interface RoutedAskOutcome {
    * tool burnt its 600 legs on a confirmation nobody could see.
    */
   shown: boolean;
+  /**
+   * The id an answer must carry to reach THIS question. Present when `shown`,
+   * absent when there is no open question to name.
+   */
+  askId?: string;
+  /**
+   * THE CARD IS ALREADY TAKEN by a live question of ANOTHER session, and this
+   * one did not come out. The caller decides what to do, and the two right
+   * answers differ:
+   *
+   *   - `ask_user_question` (routes/permission.ts) WAITS ITS TURN. The bridge
+   *     comes back through here every 25 seconds with the same question until
+   *     somebody answers the first one: the turn is already parked on a person,
+   *     so waiting loses nothing and costs no extra line in the thread.
+   *   - a send confirmation (lib/outbound-gate.ts) REFUSES. Something
+   *     irreversible must not sit queued in silence behind another question for
+   *     hours: the agent gets a refusal it can report, and the person keeps ONE
+   *     confirmation to read.
+   */
+  busy?: { sessionKey: string; askedAt: number };
 }
 
 /**
@@ -110,13 +178,13 @@ export interface RoutedAskOutcome {
  * appartiene a nessun task: una chat dell'umano continua a fare quello che ha
  * sempre fatto, cioè mostrare il pannello nel suo tab e basta.
  *
- * A NEW QUESTION REPLACES THE ONE IT FINDS, which is not a new rule: it is the
- * rendez-vous rule (`waitForAnswer` supersedes the waiter it finds) and the one
- * written on `routed` above, applied here too. The alternative was refusing the
- * send until somebody closes the old one, i.e. a person forced to clear by hand
- * a question nobody can answer any more - the turn that opened it is over. The
- * replaced one is closed with a line of its own, because a quick-reply block
- * whose text changes under the reader without a word is worse than silence.
+ * WHO REPLACES WHOM is written on `routed`, and in short: the same session
+ * always replaces (the CLI blocks on one question at a time), another session
+ * replaces only when nobody waits on the old one, and otherwise this returns
+ * `busy` without writing anything. The replaced question is closed with a line
+ * of its own - a quick-reply block whose text changes under the reader without
+ * a word is worse than silence - and with a `cancelAsk`, because its send must
+ * fail with its own trace instead of hanging.
  */
 export function routeAskToTaskThread(
   deps: AskRoutingDeps,
@@ -133,16 +201,37 @@ export function routeAskToTaskThread(
   // Same question means same key AND same text: two questions in a row under
   // the default key would otherwise be one, and the second would never come out.
   if (open && open.sessionKey === args.sessionKey && open.questionKey === q.key && open.text === q.text) {
-    return { taskId: owner.taskId, projectId: owner.projectId, shown: true };
+    return { taskId: owner.taskId, projectId: owner.projectId, shown: true, askId: open.askId };
   }
-  if (open && open.sessionKey === args.sessionKey) {
+  if (open) {
+    // THE OLD ONE IS ALIVE AND NOT OURS: the card stays hers. No write, no
+    // change to the registry - a `routed.set` here IS the defect, because the
+    // yes the person is about to give to the question on screen would be
+    // delivered to this one instead.
+    if (open.sessionKey !== args.sessionKey && hasPendingAsk(open.sessionKey)) {
+      return {
+        taskId: owner.taskId,
+        projectId: owner.projectId,
+        shown: false,
+        busy: { sessionKey: open.sessionKey, askedAt: open.askedAt },
+      };
+    }
     deps.comment({
       taskId: owner.taskId,
       projectId: owner.projectId,
-      content: "La domanda qui sopra non aspetta più una risposta: la sostituisce quella qui sotto.",
+      content: SUPERSEDED_LINE,
       options: [],
-      sessionKey: args.sessionKey,
+      // Anchored to WHO asked it, not to who replaces it: the line closes the
+      // old question, and under the new session it would sit in the wrong
+      // place. This branch used to exist for the same session only, so a
+      // replacement across sessions left no line at all.
+      sessionKey: open.sessionKey,
     });
+    routed.delete(owner.taskId);
+    // The other session's leftover must not collect a yes given to us: if it
+    // comes back, it fails with its own reason. Not on the same session - the
+    // rendez-vous about to open is its own.
+    if (open.sessionKey !== args.sessionKey) cancelAsk(open.sessionKey, SUPERSEDED_CANCEL);
   }
   // Chi chiede va detto: «la sessione di lavoro chiede» e «il coordinatore
   // chiede» portano a due risposte diverse, e nel thread si vede solo il testo.
@@ -158,6 +247,7 @@ export function routeAskToTaskThread(
   });
   if (!ok) return { taskId: owner.taskId, projectId: owner.projectId, shown: false };
   routed.set(owner.taskId, {
+    askId: ok,
     sessionKey: args.sessionKey,
     questionKey: q.key,
     text: q.text,
@@ -165,38 +255,67 @@ export function routeAskToTaskThread(
     isChild: owner.isChild,
     askedAt: Date.now(),
   });
-  return { taskId: owner.taskId, projectId: owner.projectId, shown: true };
+  return { taskId: owner.taskId, projectId: owner.projectId, shown: true, askId: ok };
 }
 
 /** C'è una domanda instradata aperta su questo task? */
-export function pendingRoutedAsk(taskId: string): { sessionKey: string; isChild: boolean } | null {
+export function pendingRoutedAsk(taskId: string): { sessionKey: string; isChild: boolean; askId: string } | null {
   const r = routed.get(taskId);
-  return r ? { sessionKey: r.sessionKey, isChild: r.isChild } : null;
+  return r ? { sessionKey: r.sessionKey, isChild: r.isChild, askId: r.askId } : null;
+}
+
+/** How an attempt to answer a routed question ended. */
+export interface RoutedAnswer {
+  /** The answer reached whoever was waiting. */
+  delivered: boolean;
+  /**
+   * The answer NAMED another question: it was not delivered and nothing left.
+   * The caller has to say so in the thread - the comment is already saved, and
+   * without that line the person believes they confirmed.
+   */
+  stale?: { askId: string; open: string };
 }
 
 /**
- * Una persona ha risposto nel thread: la risposta torna a chi aspettava.
+ * A person answered in the thread: the answer goes back to whoever waited.
  *
- * Restituisce `true` se c'era davvero qualcuno in attesa e la risposta è stata
- * consegnata. `false` significa «questo commento non è la risposta a niente», e
- * il chiamante deve trattarlo come un commento normale: non è un errore, è il
- * caso quasi sempre.
+ * `delivered` is true when somebody really was waiting and the answer reached
+ * them. False without `stale` means "this comment is the answer to nothing",
+ * and the caller must treat it as an ordinary comment: not an error, the case
+ * almost every time.
  *
- * IL REGISTRO SI SVUOTA A PRESCINDERE dall'esito della consegna. Un rendez-vous
- * scaduto mentre il commento viaggiava lascerebbe altrimenti una riga che
- * trasforma OGNI commento successivo in un tentativo di risposta a una domanda
- * che non c'è più.
+ * THE YES BELONGS TO THE QUESTION THE PERSON READ. `opts.askId` is the id of
+ * the thread row they clicked: if it is not the one open now, the answer is NOT
+ * delivered, because the question open now is a different one and handing it
+ * over under its key is a yes given for one message and spent on another -
+ * reproduced across two sessions of one task. With `askId` absent (a route that
+ * does not send it, a comment written by hand) it is delivered to the open
+ * question, which is the only one there can be: `routeAskToTaskThread` refuses
+ * to open a second one while the first is alive.
+ *
+ * THE REGISTRY IS EMPTIED WHATEVER the delivery does. A rendez-vous that
+ * expired while the comment travelled would otherwise leave an entry that turns
+ * EVERY later comment into an attempt to answer a question that is gone. A
+ * STALE answer empties nothing: the open question is not involved and stays
+ * open.
  */
-export function answerRoutedAsk(deps: AskRoutingDeps, taskId: string, text: string): boolean {
+export function answerRoutedAsk(
+  deps: AskRoutingDeps,
+  taskId: string,
+  text: string,
+  opts: { askId?: string } = {},
+): RoutedAnswer {
   const r = routed.get(taskId);
-  if (!r) return false;
+  if (!r) return { delivered: false };
+  const named = typeof opts.askId === "string" ? opts.askId.trim() : "";
+  if (named && named !== r.askId) return { delivered: false, stale: { askId: named, open: r.askId } };
   routed.delete(taskId);
   const body = String(text ?? "").trim();
-  if (!body) return false;
+  if (!body) return { delivered: false };
   try {
-    return deps.deliver(r.sessionKey, { [r.questionKey]: body });
+    return { delivered: deps.deliver(r.sessionKey, { [r.questionKey]: body }) };
   } catch {
-    return false;
+    return { delivered: false };
   }
 }
 

@@ -734,7 +734,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // sponda, la gamba dell'attesa in routes/permission.ts.
   const askRouting = {
     db,
-    comment: () => false,
+    comment: () => null,
     deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
   };
 
@@ -4003,11 +4003,41 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // su una sessione che sta già aspettando questa risposta sarebbe un
           // secondo canale che dice la stessa cosa in un altro modo, cioè la
           // risposta consegnata due volte.
+          //
+          // AND THE ANSWER NAMES THE QUESTION. `answerTo` is the id of the
+          // comment the person clicked: if that is no longer the open question,
+          // the yes is NOT delivered. Without this comparison a consent read on
+          // one message sent another - two sessions of one task open two
+          // confirmations, and the registry is keyed by TASK. A caller that
+          // sends no `answerTo` (an older route, a comment written by hand)
+          // answers the open question, which is the only one there can be: a
+          // second question on a card that already has a live one is refused
+          // upstream.
           {
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
             const target = root?.id ?? bComments.taskId;
-            if (pendingRoutedAsk(target) && answerRoutedAsk(askRouting, target, String(body?.content ?? ""))) {
-              return json({ ...comment, delivery: 'answered' });
+            const answerTo = typeof body?.answerTo === "string" ? body.answerTo : undefined;
+            const open = pendingRoutedAsk(target);
+            if (open) {
+              const outcome = answerRoutedAsk(askRouting, target, String(body?.content ?? ""), { askId: answerTo });
+              if (outcome.delivered) return json({ ...comment, delivery: 'answered' });
+              if (outcome.stale) {
+                // THE CARD SAYS SO. The comment is already saved, so without
+                // this line the person clicked "Conferma" and nothing visible
+                // happened: they would believe they had confirmed.
+                try {
+                  svc.addComment({
+                    taskId: bComments.taskId,
+                    author: "agent",
+                    content: "Questa risposta era per una domanda che non e' piu' quella aperta su questa card: non e' stata consegnata e non e' partito niente. La domanda aperta adesso e' un'altra.",
+                    projectId: bComments.projectId,
+                    origin: actionOrigin,
+                  });
+                  const aggiornata = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
+                  if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: aggiornata });
+                } catch { /* the line is an explanation: it never fails the saved comment */ }
+                return json({ ...comment, delivery: 'note' });
+              }
             }
           }
           // A SYSTEM LABEL CLICKED FROM THE DRAWER IS AN UPDATE, NEVER A TURN.

@@ -33,7 +33,7 @@ function makeDeps(options: { card?: boolean; row?: { tool_calls?: string | null;
     db: {
       prepare: () => ({ get: () => (options.card ? CARD : undefined) }),
     } as never,
-    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content, options: args.options }); return true; },
+    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content, options: args.options }); return `c-${comments.length}`; },
     deliver: (sessionKey, answers) => deliverAnswer(sessionKey, answers),
     lastToolRow: () => options.row ?? null,
     paint: (args) => { paints.push({ toolCallId: args.toolCallId, schema: args.schema }); },

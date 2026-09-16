@@ -51,7 +51,7 @@ export interface PermissionRouterOptions {
    * which has no board to write on and everything to check about WHEN a
    * question reaches the card thread and when it silently stops reaching it.
    */
-  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => boolean;
+  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => string | null;
 }
 
 export function createPermissionRouter(ctx: AppContext, options: PermissionRouterOptions = {}): RouteHandler {
@@ -79,7 +79,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
     comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
       try {
         const svc = createTaskService(ctx.db);
-        svc.addComment({
+        const written = svc.addComment({
           taskId: a.taskId,
           author: "agent",
           content: a.content,
@@ -92,12 +92,15 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         });
         const task = svc.get(a.taskId, { projectId: a.projectId })?.task;
         if (task) broadcastToAll({ type: "task:updated", projectId: a.projectId, task });
-        return true;
+        // THE ROW ID, not a boolean: it is what the card sends back when
+        // somebody clicks the quick reply, and it is how the registry knows
+        // which question that yes belonged to.
+        return written?.id ?? null;
       } catch {
         // Il thread non ha accolto la domanda: il pannello nel tab resta, ed è
         // il ripiego giusto. Meglio una domanda raggiungibile in un posto solo
         // che una domanda che non esiste da nessuna parte.
-        return false;
+        return null;
       }
     }),
     deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
@@ -159,6 +162,14 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // vede la domanda dove già risponde ai commenti, chi ha il tab aperto
         // continua a rispondere da lì, e la prima risposta che arriva chiude il
         // rendez-vous per entrambe le strade.
+        //
+        // IF THE CARD IS TAKEN by a live question of another session,
+        // `routeAskToTaskThread` returns `busy` and writes nothing: ignoring
+        // that here is right. This leg comes back in 25 seconds with the same
+        // question, so waiting is a QUEUE with a visible head - as soon as
+        // somebody answers the first one, the second comes out by itself. The
+        // turn was parked on a person either way, and the panel in the tab
+        // stays its other road.
         try { routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] }); }
         catch { /* il pannello nel tab resta comunque */ }
         try {

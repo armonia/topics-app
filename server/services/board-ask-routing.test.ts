@@ -11,6 +11,7 @@
 // risposta tornasse al coordinatore invece che alla figlia, il thread sarebbe
 // giusto e la sessione resterebbe ferma per sempre.
 import { test, expect, describe, beforeEach } from "bun:test";
+import { AskWaitError, beginAsk, cancelAsk, endAsk, waitForAnswer } from "../lib/ask-user-bridge";
 import { Database } from "bun:sqlite";
 import {
   _resetRoutedAsks,
@@ -50,11 +51,11 @@ function harness(db: Database, svc: TaskService) {
     deps: {
       db,
       comment: (a: { taskId: string; projectId: string; content: string; options: string[] }) => {
-        svc.addComment({
+        const written = svc.addComment({
           taskId: a.taskId, author: "agent", content: a.content,
           projectId: a.projectId, questionOptions: a.options,
         });
-        return true;
+        return written?.id ?? null;
       },
       deliver: (sessionKey: string, answers: Record<string, string>) => {
         delivered.push({ sessionKey, answers });
@@ -118,13 +119,13 @@ describe("la domanda di una figlia esce nel thread del task", () => {
       sessionKey: KID,
       questions: [{ key: "rotta", question: "Rifare o rattoppare?", options: ["Rifare", "Rattoppare"] }],
     });
-    expect(pendingRoutedAsk(taskId)).toEqual({ sessionKey: KID, isChild: true });
+    expect(pendingRoutedAsk(taskId)).toMatchObject({ sessionKey: KID, isChild: true });
 
-    expect(answerRoutedAsk(h.deps, taskId, "Rifare")).toBe(true);
+    expect(answerRoutedAsk(h.deps, taskId, "Rifare").delivered).toBe(true);
     expect(h.delivered).toEqual([{ sessionKey: KID, answers: { rotta: "Rifare" } }]);
     // La domanda e' chiusa: il commento successivo e' un commento normale.
     expect(pendingRoutedAsk(taskId)).toBeNull();
-    expect(answerRoutedAsk(h.deps, taskId, "e un'altra cosa")).toBe(false);
+    expect(answerRoutedAsk(h.deps, taskId, "e un'altra cosa").delivered).toBe(false);
     expect(h.delivered).toHaveLength(1);
   });
 
@@ -137,7 +138,7 @@ describe("la domanda di una figlia esce nel thread del task", () => {
 
   test("anche il coordinatore puo' chiedere, e si vede che e' lui", () => {
     routeAskToTaskThread(h.deps, { sessionKey: COORD, questions: [{ question: "Procedo?", options: ["Si"] }] });
-    expect(pendingRoutedAsk(taskId)).toEqual({ sessionKey: COORD, isChild: false });
+    expect(pendingRoutedAsk(taskId)).toMatchObject({ sessionKey: COORD, isChild: false });
     const comments = svc.get(taskId)?.comments ?? [];
     expect(comments[comments.length - 1].content).toContain("Domanda a meta' turno");
   });
@@ -151,7 +152,141 @@ describe("la domanda di una figlia esce nel thread del task", () => {
 
   test("una risposta vuota non sblocca niente, e non lascia la domanda appesa", () => {
     routeAskToTaskThread(h.deps, { sessionKey: KID, questions: [{ question: "Rifare o rattoppare?" }] });
-    expect(answerRoutedAsk(h.deps, taskId, "   ")).toBe(false);
+    expect(answerRoutedAsk(h.deps, taskId, "   ").delivered).toBe(false);
     expect(h.delivered).toHaveLength(0);
+  });
+});
+
+/**
+ * TWO SESSIONS OF ONE TASK, which is the normal shape and not a corner: a
+ * coordinator and its children sit on the same taskId by construction
+ * (`boardTaskForSession`), and the registry of open questions is keyed there.
+ *
+ * THE DEFECT REPRODUCED. The second question evicted the first without writing
+ * anything, and `answerRoutedAsk` delivered under the CURRENT key: the person
+ * read the FIRST session's confirmation, clicked confirm, and the yes
+ * reached the second one - a consent given for one message and spent on
+ * another, to a different recipient. The rendez-vous here is the REAL one
+ * (`beginAsk`/`waitForAnswer`, in-memory), because "the old one is alive" is
+ * exactly the fact that decides who keeps the card.
+ *
+ * @covers OUTBOUND-03
+ * @covers ASK-03
+ */
+describe("two questions on one card", () => {
+  let db: Database; let svc: TaskService; let taskId: string;
+  let h: ReturnType<typeof harness>;
+
+  beforeEach(() => {
+    _resetRoutedAsks();
+    cancelAsk(KID, "test cleanup");
+    cancelAsk(COORD, "test cleanup");
+    db = freshDb();
+    svc = createTaskService(db);
+    const t = svc.create({ projectId: "proj-a", text: "coordina" });
+    taskId = t.id;
+    db.run("UPDATE tasks SET status='in_progress', dispatch_state='working', assigned_topic_id=? WHERE id=?", [TOPIC, taskId]);
+    db.run(
+      "INSERT INTO terminal_sessions (id, name, cwd, type, created_at, status, parent_session_key) VALUES (?, ?, '/w', 'claude-code', '2026-08-12', 'active', ?)",
+      [KID, KID, COORD],
+    );
+    h = harness(db, svc);
+  });
+
+  const lineAt = (n: number) => (svc.get(taskId)?.comments ?? []).map((c) => c.content)[n];
+  const lines = () => (svc.get(taskId)?.comments ?? []).length;
+
+  test("the second one stays out while the first waits, and the yes stays the first's", () => {
+    beginAsk(KID);
+    const first = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    expect(first?.shown).toBe(true);
+    const afterFirst = lines();
+
+    // The OTHER session of the same task asks for its own confirmation.
+    beginAsk(COORD);
+    const second = routeAskToTaskThread(h.deps, {
+      sessionKey: COORD,
+      questions: [{ key: "outbound:bbb", question: "Credenziali -> attaccante@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    // It did not come out: no extra row in the thread, and its caller knows.
+    expect(second?.shown).toBe(false);
+    expect(second?.busy?.sessionKey).toBe(KID);
+    expect(lines()).toBe(afterFirst);
+    // The registry is still the first one's: that is the question on screen.
+    expect(pendingRoutedAsk(taskId)?.sessionKey).toBe(KID);
+
+    // The yes read on the first question goes to the first session, its key.
+    expect(answerRoutedAsk(h.deps, taskId, "Conferma").delivered).toBe(true);
+    expect(h.delivered).toEqual([{ sessionKey: KID, answers: { "outbound:aaa": "Conferma" } }]);
+  });
+
+  test("when nobody waits on the first, the second takes over, says so, and the old leg fails", async () => {
+    beginAsk(KID);
+    routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    // KID's turn died under the panel: no active ask, but a leg still in flight
+    // that would come back to collect an answer.
+    const legInFlight = waitForAnswer(KID, { timeoutMs: 5_000 });
+    const ending = legInFlight.then(() => "delivered").catch((e) => (e instanceof AskWaitError ? e.code : "other"));
+    endAsk(KID);
+
+    const second = routeAskToTaskThread(h.deps, {
+      sessionKey: COORD,
+      questions: [{ key: "outbound:bbb", question: "Fattura -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    expect(second?.shown).toBe(true);
+    // THE LINE IS THERE across sessions too: it used to be written only for the
+    // same session.
+    expect(lineAt(lines() - 2)).toContain("non aspetta pi\u00f9 una risposta");
+    // And the old leg fails with its own reason instead of collecting a yes
+    // that was given to another question.
+    expect(await ending).toBe("cancelled");
+    expect(pendingRoutedAsk(taskId)?.sessionKey).toBe(COORD);
+  });
+
+  test("an answer that names a superseded question is not delivered", () => {
+    beginAsk(KID);
+    const first = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    const oldId = first?.askId ?? "";
+    expect(oldId).toBeTruthy();
+    endAsk(KID);
+    const second = routeAskToTaskThread(h.deps, {
+      sessionKey: COORD,
+      questions: [{ key: "outbound:bbb", question: "Fattura -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    expect(second?.askId).not.toBe(oldId);
+
+    // The person clicks the confirm button on the OLD row - the card they had
+    // in front of them. That is not a yes for the question open now.
+    const outcome = answerRoutedAsk(h.deps, taskId, "Conferma", { askId: oldId });
+    expect(outcome.delivered).toBe(false);
+    expect(outcome.stale).toEqual({ askId: oldId, open: second!.askId! });
+    expect(h.delivered).toHaveLength(0);
+    // And the open question stays open: an answer that was not its own did not
+    // close it.
+    expect(pendingRoutedAsk(taskId)?.askId).toBe(second!.askId!);
+
+    // Answering THAT one, instead, is delivered.
+    expect(answerRoutedAsk(h.deps, taskId, "Conferma", { askId: second!.askId! }).delivered).toBe(true);
+    expect(h.delivered).toEqual([{ sessionKey: COORD, answers: { "outbound:bbb": "Conferma" } }]);
+  });
+
+  test("the same session always replaces: the CLI blocks on one question", () => {
+    beginAsk(KID);
+    routeAskToTaskThread(h.deps, { sessionKey: KID, questions: [{ key: "leftover", question: "Left by an interrupted turn?" }] });
+    const now = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    expect(now?.shown).toBe(true);
+    expect(pendingRoutedAsk(taskId)?.sessionKey).toBe(KID);
   });
 });

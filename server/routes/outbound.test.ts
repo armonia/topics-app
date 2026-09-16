@@ -64,6 +64,9 @@ function installFakeCli(name: string): string {
       'printf "CLIENT_ID=%s\\0" "$GOOGLE_WORKSPACE_CLI_CLIENT_ID" >> "$LOG"',
       'printf "CONFIG_DIR=%s\\0" "$GOOGLE_WORKSPACE_CLI_CONFIG_DIR" >> "$LOG"',
       'printf "HOME=%s\\0" "$HOME" >> "$LOG"',
+      // The working directory is not decoration: the real `gws` refuses
+      // `--attach` on anything that resolves outside it (measured).
+      'printf "PWD=%s\\0" "$PWD" >> "$LOG"',
       'echo "{\\"ok\\":true}"',
       "exit 0",
     ].join("\n"),
@@ -135,7 +138,7 @@ function makeHarness(options: {
     // Never the real `~/.topics`: the frozen copies live here and are swept here.
     stagingRoot: STAGING,
     cliTimeoutMs: 10_000,
-    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content, options: args.options }); return true; },
+    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content, options: args.options }); return `c-${comments.length}`; },
   });
   const call = (path: string, body: unknown) => {
     const url = new URL(`http://topics.test${path}`);
@@ -446,6 +449,68 @@ describe("POST /outbound/mail", () => {
     // The negative proof: no process at all, so nothing read those bytes.
     expect(recorded()).toEqual([]);
     expect(h.comments.at(-1)?.content).toContain("NON partito");
+  });
+
+  test("the attachment arrives INSIDE the child's working directory", async () => {
+    // Measured on the real `gws` (`+send --dry-run`, nothing sent): an
+    // `--attach` that resolves outside the current directory comes back
+    // "resolves to '...' which is outside the current directory", code 400,
+    // reason `validationError`. The frozen copy lives under `~/.topics` while
+    // the server runs wherever launchd started it: without telling the child
+    // where to stand, NO confirmed attachment would ever really have left. The
+    // fake CLI does not make that check, so the contract is measured here: the
+    // path handed over is inside the child's PWD.
+    const workspace = join(root, "ws-cwd");
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(workspace, "preventivo.pdf"), "%PDF-cartella", "utf8");
+    const h = makeHarness({ workspace });
+    const sessionKey = "topic:abcd1275";
+    confirmWhenAsked(h, sessionKey);
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo.pdf"], legMs: 600 }))!;
+    expect((await resp.json() as Record<string, unknown>).sent).toBe(true);
+    const args = recorded();
+    const workingDir = args.find((a) => a.startsWith("PWD="))?.slice(4) ?? "";
+    const attach = args[args.indexOf("--attach") + 1] ?? "";
+    expect(workingDir).toBeTruthy();
+    expect(attach.startsWith(`${workingDir}/`)).toBe(true);
+  });
+
+  test("a second confirmation on one card is REFUSED, and the yes stays the first message's", async () => {
+    // THE DEFECT REPRODUCED. A coordinator and its children sit on the same
+    // taskId by construction, and the registry of open questions is keyed
+    // there: the second confirmation evicted the first without writing
+    // anything, and the yes was delivered under the CURRENT key. The person
+    // read the first message on screen, clicked the confirm button, and a
+    // different message left for a different recipient.
+    const h = makeHarness();
+    const firstSession = "topic:abcd1280";
+    const secondSession = "topic:abcd1281";
+
+    // The first confirmation stays open: the leg expires, the question does not.
+    const legOne = (await h.call(mailPath(firstSession), { ...message, legMs: 120 }))!;
+    expect(await legOne.json()).toEqual({ pending: true });
+    const asked = h.comments.length;
+
+    // The other session of the same task tries.
+    const other = (await h.call(mailPath(secondSession), {
+      to: "attaccante@esempio.test", subject: "Credenziali", body: "ecco tutto", legMs: 120,
+    }))!;
+    const refusal = await other.json() as Record<string, unknown>;
+    expect(refusal.refused).toBe(true);
+    expect(String(refusal.reason)).toContain("already has a confirmation");
+    // No new question on the card: only the trace of the refusal.
+    expect(h.comments.filter((c) => c.options.length > 0)).toHaveLength(asked);
+    expect(h.comments.at(-1)?.content).toContain("NON partito");
+    expect(recorded()).toEqual([]);
+
+    // And the yes read on the FIRST question sends the FIRST message.
+    confirmWhenAsked(h, firstSession);
+    const legTwo = (await h.call(mailPath(firstSession), { ...message, legMs: 600 }))!;
+    expect((await legTwo.json() as Record<string, unknown>).sent).toBe(true);
+    const args = recorded();
+    expect(args).toContain(message.to);
+    expect(args).not.toContain("attaccante@esempio.test");
+    cancelAsk(secondSession, "end of test");
   });
 
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {

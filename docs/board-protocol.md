@@ -288,7 +288,20 @@ queste regole.
    - **Gli allegati si congelano quando si chiede.** Il server ne legge i byte e
      ne manda una copia sua: nella domanda ci sono nome, peso e impronta, e
      sostituire il file mentre la persona legge non cambia cio' che parte - fa
-     solo ripartire la domanda.
+     solo ripartire la domanda. Il ricontrollo gira subito prima dello spawn e
+     NON rende l'invio a prova di manomissione: chi gira come l'utente di questa
+     macchina e' gia' dentro il confine e puo' chiamare la CLI della posta senza
+     passare da Topics. La conferma vale per due cose oneste - impedire gli
+     errori e lasciare una traccia - e il testo dell'envelope non promette di
+     piu'. La misura della finestra che resta sta in `server/lib/outbound-staging.ts`.
+   - **Una conferma per card alla volta.** Il registro delle domande instradate
+     e' chiavato sul TASK, e il coordinatore e le sue figlie stanno sullo stesso
+     task: se una sessione ha gia' una conferma aperta, la seconda viene
+     RIFIUTATA con quella ragione invece di prenderle il posto. La card disegna
+     un blocco di risposta rapida solo, e un si' letto su un messaggio non deve
+     poterne far partire un altro. Una `ask_user_question` generica invece
+     aspetta il suo turno: il bridge ripassa ogni 25 secondi e la sua domanda
+     esce appena la prima e' chiusa.
    - **Ogni azione riuscita, rifiutata o fallita lascia una riga sulla card**:
      chi, cosa, a chi, esito. Mai il corpo del messaggio.
    - **La configurazione sta solo nell'ambiente** (`~/.topics-server-env`,

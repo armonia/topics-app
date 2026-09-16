@@ -89,7 +89,7 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
     },
   } as any;
 
-  const router = createPermissionRouter(ctx, options.card ? { comment: (a) => { threadComments.push({ taskId: a.taskId, content: a.content }); return true; } } : {});
+  const router = createPermissionRouter(ctx, options.card ? { comment: (a) => { threadComments.push({ taskId: a.taskId, content: a.content }); return `c-${threadComments.length}`; } } : {});
   const call = (method: string, path: string, body?: unknown) => {
     const url = new URL(`http://topics.test${path}`);
     const req = new Request(url.toString(), {

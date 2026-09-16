@@ -85,7 +85,7 @@ export interface OutboundRouterOptions {
    * which has no board to write on and everything to check about WHAT would be
    * written.
    */
-  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => boolean;
+  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => string | null;
 }
 
 /**
@@ -185,7 +185,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
   const addComment = options.comment ?? ((args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
     try {
       const service = createTaskService(ctx.db);
-      service.addComment({
+      const written = service.addComment({
         taskId: args.taskId,
         author: "agent",
         content: args.content,
@@ -195,9 +195,11 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
       });
       const task = service.get(args.taskId, { projectId: args.projectId })?.task;
       if (task) broadcastToAll({ type: "task:updated", projectId: args.projectId, task });
-      return true;
+      // The id of the row, not a yes/no: a confirmation is answered by clicking
+      // THAT comment, and the registry compares the two.
+      return written?.id ?? null;
     } catch {
-      return false;
+      return null;
     }
   });
 
@@ -209,7 +211,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
   const trace = (sessionKey: string, line: string): boolean => {
     const card = cardOf(sessionKey);
     if (!card) return false;
-    return addComment({ taskId: card.taskId, projectId: card.projectId, content: line, options: [], sessionKey });
+    return !!addComment({ taskId: card.taskId, projectId: card.projectId, content: line, options: [], sessionKey });
   };
 
   const gateDeps: OutboundGateDeps = {
@@ -467,8 +469,11 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // spawned. The staging directory belongs to the user the server runs
         // as, which is the user the agents run as too: what keeps the bytes
         // honest is not the mode of that directory but this check, which turns
-        // the window from "the minutes a person spends reading" into "the
-        // microseconds between this read and the CLI's open".
+        // the window from "the minutes a person spends reading" into "one
+        // process start". IT DOES NOT CLOSE IT: that remainder was reproduced,
+        // and `/dev/fd/N` cannot close it against a CLI that re-opens the
+        // attachment by name. The measure and the refusal text are in the
+        // header of `outbound-staging.ts`.
         try {
           verifyFrozen(frozen);
         } catch (err) {
@@ -501,6 +506,19 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           file,
           argv: mailArgv(account, { to, subject, body: text, cc, attachments: attachedPaths }),
           env: childEnv(),
+          // THE CHILD RUNS WHERE THE COPIES ARE, and this is not tidiness.
+          // Measured on the real `gws` (`+send --dry-run`, nothing sent): an
+          // `--attach` whose path resolves OUTSIDE the current directory comes
+          // back "resolves to '...' which is outside the current directory",
+          // code 400, reason `validationError`. The frozen copies live under
+          // `~/.topics` while the server's own cwd is wherever launchd started
+          // it, so without this line no confirmed attachment could ever have
+          // left - the person said yes and the CLI refused the file.
+          //
+          // The paths stay ABSOLUTE: `gws` canonicalises them anyway, and a
+          // relative name would be one more thing that means something
+          // different depending on where the process stands.
+          ...(frozen.dir ? { cwd: frozen.dir } : {}),
           timeoutMs: cliTimeoutMs,
         });
         // The CLI has read them, whichever way it went: nothing is waiting for
@@ -515,8 +533,14 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${failure}`);
           return json({ error: failure, code: "send_failed" }, 502);
         }
-        const attachedNames = frozen.files.map((f) => f.name).join(", ");
-        const traced = trace(sessionKey, `Mail inviata: da ${account.name} a ${to}, oggetto "${quoted}"${attachedNames ? `, allegati: ${attachedNames}` : ""} - riuscito`);
+        // THE TRACE SAYS WHAT WAS CONFIRMED, and names it by its fingerprint.
+        // It is not a proof of the bytes the CLI read - between the last
+        // re-read and the CLI's own `open` there is a whole process start, and
+        // an attacker inside this uid can win it (see `outbound-staging.ts`).
+        // Writing the short sha is what makes the line CHECKABLE later instead
+        // of a claim: the same eight characters the person read in the question.
+        const attachedNames = frozen.files.map((f) => `${f.name} (sha256 ${f.shortSha})`).join(", ");
+        const traced = trace(sessionKey, `Mail inviata: da ${account.name} a ${to}, oggetto "${quoted}"${attachedNames ? `, allegati confermati: ${attachedNames}` : ""} - riuscito`);
         return json({ sent: true, account: account.name, to, subject: quoted, traced });
       }
     }

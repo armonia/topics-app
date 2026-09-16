@@ -225,14 +225,40 @@ export async function confirmOutbound(
   // was asked" meant the confirmation existed nowhere: the card showed the old
   // question, the send polled for four hours, nobody could have answered it.
   let asked = false;
+  let busy: { sessionKey: string; askedAt: number } | undefined;
   try {
-    asked = routeAskToTaskThread(
+    const routed = routeAskToTaskThread(
       { db: deps.db, comment: deps.comment, deliver: deps.deliver },
       { sessionKey: request.sessionKey, questions: [{ key, header: request.header, question, options: [CONFIRM_LABEL, REFUSE_LABEL] }] },
-    )?.shown === true;
+    );
+    asked = routed?.shown === true;
+    busy = routed?.busy;
   } catch {
     // The panel below is the other road; a thread that refuses a comment must
     // not be the reason nobody can answer.
+  }
+
+  // ANOTHER LIVE QUESTION HOLDS THE CARD, and this send does not queue behind
+  // it. Two sessions of one task are the normal shape here - the coordinator
+  // and its children map to the SAME taskId on purpose - so "the card already
+  // has a confirmation open" is a state that happens, not a corner.
+  //
+  // Refused rather than parked, and the reason is what a yes IS. A card draws
+  // one quick-reply block: a second confirmation can only be shown by taking
+  // the first one's place, and then the person reads one message and the yes
+  // pays for another (reproduced: the quote a person read on screen confirmed,
+  // and a mail to a different recipient sent). Waiting in silence is no
+  // better for something irreversible - the agent would poll for four hours
+  // with nothing on screen, and the human would never learn a send was queued.
+  // A refusal with its own line is the only answer that is true when it is
+  // given: the person keeps ONE confirmation to read, and the agent is told
+  // why, so it can come back after the first one is closed.
+  if (busy && !asked) {
+    cancelAsk(request.sessionKey, "another confirmation is already open on this card");
+    return {
+      state: "refused",
+      reason: "this card already has a confirmation waiting for an answer: nothing is sent until that one is closed",
+    };
   }
 
   // The chat panel, on the row of the tool that is waiting.
