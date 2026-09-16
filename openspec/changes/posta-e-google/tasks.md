@@ -47,8 +47,9 @@ e l'ambiente in un file temporaneo.
   (sconosciuto = scrittura).
 - [x] 4.2 Allegati risolti dentro il workspace della sessione sul percorso
   REALE (`realPathForNewEntry` + `isInsideDir`, come
-  `browser-tool-dispatcher.ts`): un link che esce e' rifiutato, e alla CLI va
-  il percorso reale. Nomi e peso degli allegati NELLA domanda di conferma.
+  `browser-tool-dispatcher.ts`): un link che esce e' rifiutato. Nomi, peso e
+  impronta degli allegati NELLA domanda di conferma; alla CLI va la COPIA
+  congelata (8.1).
 - [x] 4.3 Commento di servizio sulla card: chi, cosa, a chi, esito — mai il
   corpo. Anche per il rifiuto e per il fallimento.
 - [x] 4.4 Montaggio in `server/routes/topics.ts` accanto al router del canale
@@ -91,3 +92,24 @@ e l'ambiente in un file temporaneo.
 - [x] 7.6 `permission.ts` svuota il registro di `routeAskToTaskThread` anche
   dopo una risposta arrivata dal pannello: era il difetto ereditato che il
   cancello aggirava per sé e lasciava intatto per `ask_user_question`.
+
+## 8. Secondo giro di correzioni (verifica avversaria)
+
+- [x] 8.1 La conferma vincola i BYTE, non il nome: `lib/outbound-staging.ts`
+  legge e copia gli allegati in una cartella privata del server (0700, fuori da
+  ogni workspace) al momento della domanda, e alla CLI va quella copia. Nome,
+  peso e sha256 breve nella domanda, l'impronta dentro il digest. Test: il file
+  sostituito da un link DURANTE l'attesa.
+- [x] 8.2 `google_call` non è più la seconda porta della posta: i metodi di
+  Gmail che spediscono sono rifiutati con un rimando a `send_mail` (elenco
+  esplicito, confronto insensibile a maiuscole e spazi), e ogni scrittura viene
+  riassunta in chiaro — `raw` in base64 decodificato in mittente, destinatario,
+  oggetto e testo, tagli sempre annunciati.
+- [x] 8.3 `asked` dice la verità: `routeAskToTaskThread` restituisce `shown`, e
+  una domanda nuova SOSTITUISCE quella che trova nel registro della stessa
+  sessione (la vecchia viene chiusa con una riga sua). Una voce lasciata da un
+  turno interrotto rendeva muta ogni conferma successiva.
+- [x] 8.4 La riga su cui si dipinge non dipende più da una scrittura differita:
+  `lib/turn-body-flush.ts` pubblica il flush del turno vivo e il cancello lo
+  forza prima di leggere. Prima, un invio che non fosse il primo strumento del
+  turno veniva rifiutato secco.
