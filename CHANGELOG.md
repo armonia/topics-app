@@ -2,13 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.334 — 2026-09-16
+
+### Sotto il cofano
+- Un `ps` che non risponde non e' un `ps` che risponde vuoto
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-16 [skip ci]
+- Un comando in primo piano non si confonde con un altro, e un sondaggio muto non e' una misura
+- Il tipo di `stdout` vive nella funzione che lo apre: annotare lo spawn lo riallargava
+- `capturing` non e' una parola del dizionario del cancello: il nome dice la pipe
+
 ## 2.2.333 — 2026-09-16
 
 ### Sotto il cofano
 - Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot
+- Sotto swap sostenuto il comando piu' pesante che un agente ha lanciato in background si ferma, e la sessione si copre di brina
 - La ripresa al boot riguarda solo una card ancora in lavorazione, e ricorda il commit del giro
 - Il commento di `roundCommit` sta sulla mappa, non davanti a `rememberDelivery`
+- La brina non monta e smonta la sua tela: un canvas a 0x0 che dipinge solo quando serve
 - La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara
+- Il frame del congelamento entra nel registro WS, e i quattro contratti che descrivevano il server di ieri lo sanno
+- La spec della brina apre la board dal menu "+" e semina la chat del progetto, invece di aspettare tab che nessuno ha aperto
 
 ## 2.2.332 — 2026-09-15
 

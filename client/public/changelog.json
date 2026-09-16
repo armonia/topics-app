@@ -1,5 +1,42 @@
 [
   {
+    "version": "2.2.334",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un `ps` che non risponde non e' un `ps` che risponde vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-16 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Un comando in primo piano non si confonde con un altro, e un sondaggio muto non e' una misura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tipo di `stdout` vive nella funzione che lo apre: annotare lo spawn lo riallargava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`capturing` non e' una parola del dizionario del cancello: il nome dice la pipe",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.333",
     "date": "2026-09-16",
     "sections": {
@@ -9,6 +46,11 @@
       "internal": [
         {
           "it": "Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto swap sostenuto il comando piu' pesante che un agente ha lanciato in background si ferma, e la sessione si copre di brina",
           "en": "",
           "scope": null
         },
@@ -23,7 +65,22 @@
           "scope": null
         },
         {
+          "it": "La brina non monta e smonta la sua tela: un canvas a 0x0 che dipinge solo quando serve",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il frame del congelamento entra nel registro WS, e i quattro contratti che descrivevano il server di ieri lo sanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec della brina apre la board dal menu \"+\" e semina la chat del progetto, invece di aspettare tab che nessuno ha aperto",
           "en": "",
           "scope": null
         }
