@@ -3740,15 +3740,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // messaggio davanti all'agente che riprende, e la versione «corta» che
       // stava qui aveva già perso per strada il ramo del diagramma.
       PREVIEW_RULE,
-      // `RECOMMENDED_OPTION_RULE` is deliberately NOT repeated here, and this is
-      // the reason, so nobody adds it "for symmetry" with the line above.
-      // `PREVIEW_RULE` has no other carrier: nothing in the MCP schema says what
-      // durable evidence is, so if the resume drops it the agent is left without
-      // it. The recommended-option rule does have one, and a closer one — it is
-      // the description of the `options` argument of `comment_task` /
-      // `comment_global_task` (gated in `board-protocol-parity.test.ts`), which
-      // the model cannot call without having that schema in context. It is in
-      // front of it at the instant it writes the options, not turns earlier.
+      // Same reason as the line above, and the same precedent: the resume is the
+      // ONLY message in front of an agent that comes back, and a rule that lives
+      // only in a tool schema is read when the tool is called, not while the
+      // agent decides WHETHER the answer needs options at all. `PREVIEW_RULE`
+      // has an MCP carrier too (the `preview_image` description of
+      // `update_task`) and is repeated here anyway, with a gate that demands it
+      // (`tests/unit/preview-rule-in-envelope.test.ts`). Rule 5-bis of
+      // `docs/board-protocol.md` names the envelopes and the two `options`
+      // descriptions as carriers of one string: the resume is an envelope.
+      RECOMMENDED_OPTION_RULE,
       `If you committed landable code, offer ONLY options=["${LAND_ACTION_LABEL}"] → the system does the LOCAL merge onto main (no push). You never do a git merge/push. Publishing online is separate, the human does it from the board's "Pubblica" control: do NOT propose it. No option at all if there is no committed code.`,
     ].join("\n");
   }
