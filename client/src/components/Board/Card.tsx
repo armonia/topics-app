@@ -44,6 +44,9 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { fmtMs, fmtTok, fmtModel, fmtUpdatedAt, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
 import { LiveEffortChip, LiveToolLine, RETRY_NOW_MESSAGE, RetryWaitChip } from './CardLive';
+import { SwapIce } from '../Shared/SwapIce';
+import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
+import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
@@ -395,6 +398,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
   // Entrambi i rami stanno in `showsCardThread`, che è anche il predicato con
   // cui il server decide a quali schede attaccare i commenti.
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
+  /**
+   * Topics is holding this card's heaviest background command STOPped because
+   * the Mac is in sustained swap. The card frosts over, says which command and
+   * how much it was holding, and its live tool line stops ticking.
+   */
+  const swapFreeze = useSwapFreeze({ topicId: task.assignedTopicId, taskId: task.id });
   const showsQuestion = showsCardThread(task);
   const need = cardDetailNeed(task);
   useEffect(() => {
@@ -849,6 +858,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
       // dei due, e una card che nasce non ha attraversato nessun confine.
       className={`group cursor-grab rounded-md border border-app-border bg-surface p-2.5 text-body-lg leading-5 text-app-text shadow-sm hover:border-app-border-light ${isDragging ? 'opacity-40' : ''} ${justMovedTo ? `task-flash task-flash-${justMovedTo}` : justCreated ? 'task-flash task-flash-created' : ''}`}
     >
+      {/* THE FROST, first child and under everything else: `.swap-ice-host`
+          lifts every other child one layer, so the text stays above it and
+          readable (and the texture grows no crystals over its boxes: SwapIce). */}
+      <SwapIce freeze={swapFreeze} size="card" />
+
       {/* Eyebrow: WHICH project this card belongs to, and the door to its
           session. Nothing else.
 
@@ -1655,8 +1669,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
           in the chat, which is what the board was meant to spare. One line,
           under the measures, muted: a fact about the minute, not the card. */}
       {live?.lastTool && !live.retry && task.dispatchState === 'working' && (
-        <LiveToolLine tool={live.lastTool} />
+        <LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />
       )}
+      {/* WHAT THE FROST MEANS, in words: which command, how much it held, and
+          that it comes back by itself. A texture alone would only say that
+          something is wrong with this card. */}
+      {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mt-1" />}
       {/* SET ASIDE, AND WHY. A parked card (failed, blocked, stopped, waited
           out) kept its reason in the chip's tooltip, invisible on touch, and
           offered no gesture: the way back was guessing that a drag to Todo

@@ -174,6 +174,9 @@ export function formatMemorySignalLine(i: {
   inFlight: number;
   checkRuns: number;
   heaviestCheckGB: number | null;
+  /** Agent trees the swap freezer is holding stopped right now, and their footprint. */
+  frozenTrees?: number;
+  frozenGB?: number | null;
 }): string {
   const f = (n: number | null | undefined, digits = 1) => (n == null || !Number.isFinite(n) ? "?" : n.toFixed(digits));
   const signed = (n: number | null) => (n == null || !Number.isFinite(n) ? "?" : `${n >= 0 ? "+" : ""}${n.toFixed(1)}`);
@@ -193,5 +196,7 @@ export function formatMemorySignalLine(i: {
     `inFlight=${i.inFlight}`,
     `checkRuns=${i.checkRuns}`,
     `heaviestCheckGB=${f(i.heaviestCheckGB)}`,
+    `frozen=${i.frozenTrees ?? 0}`,
+    `frozenGB=${f(i.frozenGB ?? 0)}`,
   ].join(" ");
 }

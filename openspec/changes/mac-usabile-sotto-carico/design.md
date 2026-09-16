@@ -520,8 +520,91 @@ il gate `verify:all` di dancerooms e per le board future (risposta 2 del proprie
 - Soglie provvisorie: se B3 mostra falsi positivi o mancati, si spostano `PAGES_READ_BACK_PER_S`
   e `DEBT_GB_PER_MIN` in `mem-signal.ts`.
 
+## Tornata 3c: il comando più pesante di un agente sotto swap si congela, e la sessione si copre di brina
+
+Risposta del proprietario, 15/09/2026 20:40, alla domanda «con il Mac in swap sostenuto, cosa fa
+Topics con i processi pesanti che gli agenti lanciano nelle topic»: «freezza il piu pesante
+mostrando un effetto di congelamento figo sulla card realistico». Il 16/09 alle 00:30, sul comando
+in primo piano: «non ho capito, dovremmo gestirlo nella miglor maniera piu solida e pulita e user
+friendly» — scelta del lead: **un comando in primo piano non si congela mai, si congela il più
+pesante in background**.
+
+### D20. Chi è un candidato, e perché quasi nessuno lo è
+
+Misurato su questo Mac (`ps -axo pid,ppid,pgid,time,command`, 15-16/09):
+
+| forma | padre | gruppo del comando |
+|---|---|---|
+| tool `Bash` di Claude Code | il CLI | **il suo** (`Ss`, pgid == pid) |
+| MCP, LSP, `caffeinate` | il CLI | il gruppo del CLI (condiviso) |
+| tool `bash` del runtime nativo | il server | **quello del server** (981, con `start-prod.sh`) |
+
+Da qui le due regole che reggono tutto: il runtime nativo (702 topic su 1808 con `provider = 'topics'`,
+più 1003 sul default) NON può ricevere un segnale di gruppo, e un figlio del CLI che non è capogruppo
+è un MCP o un LSP e sta nell'insieme di guardia. Un `Bash` è candidato solo se il `PreToolUse` del
+CLI lo ha dichiarato `run_in_background` (`server/lib/background-bash-record.ts`); il primo piano
+non si congela perché il suo CLI lo uccide alla scadenza del tool su un orologio che continua a
+correre mentre il processo è fermo, e nessuna regola di scongelamento può restituirgli il tempo
+speso. Un payload assente vale come primo piano.
+
+### D21. Il più pesante, e quando smette di esserlo
+
+Footprint dell'albero più i servizi XPC attribuiti, pavimento 0,5 GB e almeno 0,1 core; a parità,
+più CPU. La calma da sola non scongela (la calma è ciò che il congelamento produce): si scongela per
+memoria tornata, per nessun effetto (120-180 s, pagine rilette >= 0,8 volte quelle di partenza), a
+10 minuti, col padrone sparito, allo spegnimento e al boot. Due congelamenti per albero, contati su
+disco perché il conteggio deve sopravvivere a un riavvio.
+
+### D22. Il registro, scritto prima del segnale
+
+`<stateDir>/swap-freeze.json`, due sezioni: `active` (chi è fermo adesso) e `counts` (quante volte,
+identità per identità). Nessun pid riceve SIGSTOP se non è già su disco: un SIGKILL fra la scrittura
+e il segnale lascia un pid registrato che sta solo correndo, e un SIGCONT a un processo che corre non
+fa danno; l'ordine inverso lascia un albero fermo che nessuno sa di dover continuare.
+
+### D23. Gli orologi che giudicano il silenzio
+
+Regola dalla scheda `our-own-wait-is-not-a-stall`: un'attesa nostra non è uno stallo. Rilevatore di
+stallo, spazzino degli stream (`toolRunningMs` meno il tempo congelato), timer del bash nativo,
+parcheggio della PTY, `LiveToolLine` della card, e lo stop di una sessione che scongela prima di
+uccidere.
+
+### D24. La brina
+
+Texture procedurale (`client/src/lib/swapIceTexture.ts`): fronte che nasce dagli angoli e cresce
+verso l'interno, dendriti con rami a 60 gradi, grana di brina, bordo frastagliato. Ferma quando si è
+posata (nessun rAF, nessun ridisegno: la brina compare proprio mentre la macchina è in thrash), nessun
+`backdrop-filter`, nessun filtro SVG, nessun WebGL. **Nessun cristallo sopra il testo**, e non è una
+preferenza: con i token veri, in tema scuro, un'alpha di 0,51 sotto `--text` dà 2,93:1 e l'alpha
+massima leggibile sotto `--text-muted` è 0,066, cioè invisibile. Quindi la texture resta forte e
+cresce ATTORNO alle caselle di testo, come la brina vera attorno a ciò che è caldo.
+
+### T0: cosa ha detto la sonda, prima del codice
+
+Ramo usa e getta `topics/t0-probe-congelamento`, job `workflow_dispatch` su `macos-latest`
+(run 35031447596, verde, artefatto letto il 16/09). Quattro risposte:
+
+1. **L'attribuzione funziona.** `launchctl print pid/<Playwright.app>` elenca WebContent, GPU e
+   Networking con i loro pid (ppid 1, fuori dall'albero), e il filtro sul percorso
+   (`~/Library/Caches/ms-playwright/webkit-<rev>/`) li tiene distinti da ogni servizio di sistema.
+2. **Il peso di UNA pagina WebGL sul runner: 0,057 GB di albero + 0,383 di XPC = 0,44 GB**, cioè
+   SOTTO il pavimento di 0,5 GB. Il pavimento quindi non è giustificato da questa misura e non è
+   stato spostato per farcela entrare: una pagina sola non si congela, e va bene così — congelarla
+   non libererebbe attività di pagine che valga il prezzo. La batteria del 15/09 (`prova-3d.ts` +
+   `batteria.ts`) guidava più pagine insieme. Quanto spesso un albero vero su questa macchina superi
+   il pavimento lo dice E0 della barra, in sola lettura sul log del server vivo.
+3. **Fermare il solo albero del comando non basta**: la pagina smetteva di produrre frame solo
+   perché il driver aveva smesso di guidarla. Fermando albero + XPC: tutti e 6 i pid in stato `T`,
+   tempo di CPU invariato da 1 s a 10 s, zero battiti; dopo SIGCONT i frame riprendono (1238 -> 1651).
+4. **Le operazioni con un timeout in volo scadono.** `page.waitForTimeout(3000)` è tornata ok dopo
+   10,4 s, ma un `click({ timeout: 5000 })` in volo è FALLITO con TimeoutError. Conseguenza presa sul
+   serio: l'agente deve essere avvisato (riga nell'uscita del tool nativo, riga nel file di output
+   della shell in background) e la card lo dice, perché un rosso dopo una ripresa è un effetto del
+   congelamento e non un difetto del codice.
+
 ## Dove cambiarla
 
 | # | Domanda | Consigliata | Alternativa | Dove cambiarla |
 |---|---|---|---|---|
 | 1 | Da dove viene l'evidenza e2e della consegna | job e2e della CI della PR sul commit consegnato | `check:e2e-touched` locale con Chromium | `KANBAN-84`, `KANBAN-15`, `GATE-11` |
+| 8 | Processi pesanti degli agenti sotto swap | congela il più pesante in background o nativo (>= 0,5 GB, 10 min, 2 per albero) | solo attesa del lavoro nuovo | `KANBAN-85`, `KANBAN-75` |

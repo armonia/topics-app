@@ -330,7 +330,9 @@ orologio, perché un'attesa nostra non è uno stallo, e SHALL essere detto nel
 thread della card («congelata per carico, riprende da sola»).
 
 **La lettura del controllo è SOLO la CPU, e la memoria NON SHALL congelare
-niente.** Il 15/09/2026 si è provato l'asse memoria (il peggiore fra la CPU sul
+niente** — con l'unica eccezione di KANBAN-85, che sotto swap sostenuto congela
+un COMANDO di un agente (mai una corsa di check, mai un CLI) con regole sue di
+scongelamento, di durata e di registro. Il 15/09/2026 si è provato l'asse memoria (il peggiore fra la CPU sul
 budget e il pavimento sulla memoria libera), perché sotto thrash la CPU legge
 quasi zero, e un congelamento per memoria non ha via d'uscita: un SIGSTOP non
 restituisce la memoria che l'albero congelato tiene, quindi la lettura che l'ha
@@ -346,8 +348,8 @@ check più giovane (KANBAN-15), che uccide invece di congelare. Un check
 congelato per la CPU SHALL scongelarsi quando la CPU scende, qualunque cosa
 dica la memoria.
 
-Gli AGENTI non si congelano con un segnale, ed è una decisione: un CLI fermato a
-metà stream API può perdere la connessione, e la CPU non è lì — con otto agenti in
+I CLI DEGLI AGENTI non si congelano con un segnale, ed è una decisione: un CLI
+fermato a metà stream API può perdere la connessione, e la CPU non è lì — con otto agenti in
 volo gli agenti stessi valevano il 5,7% della macchina mentre i loro cancelli
 tenevano il resto. Quello che li trattiene è l'ammissione.
 
@@ -833,3 +835,123 @@ anteprima.
 - **THEN** il kickoff SHALL dire di non lanciare `check:e2e-touched`, `playwright test` e le build del client per gli e2e su questa macchina, e che `bun test <file>` resta ammesso
 - **AND** il kickoff SHALL dire che questa board non misura l'e2e e di nominare la spec nel commento di consegna, e NON SHALL dire che la board legge la CI
 - **AND** il ramo video della regola dell'anteprima NON SHALL contenere `playwright`, `recordVideo` o `chromium` in nessuna forma, e SHALL legare `screencapture` a una superficie già a schermo e a `browser_focus_tab`
+
+### Requirement: KANBAN-85 — Con lo swap sostenuto Topics congela il comando più pesante lanciato da un agente in background, mai il CLI né il server, e la sessione si copre di brina
+
+Con lo swap sostenuto (KANBAN-75) e DOPO il freno dei check (KANBAN-15), il
+server SHALL congelare (SIGSTOP) l'albero di processi del comando più pesante che
+un agente ha lanciato in BACKGROUND o che il runtime nativo sta eseguendo per lui,
+finché non c'è memoria. Un SIGSTOP non restituisce memoria: quello che compra è
+che l'albero fermo non tocca più pagine, e quell'effetto SHALL essere misurato per
+ogni congelamento (sotto).
+
+**CHI PUÒ ESSERE CONGELATO, per prova e mai per forma.** Un `Bash` di Claude Code
+SHALL essere candidato solo se il payload `PreToolUse` del suo CLI lo ha
+dichiarato `run_in_background`; un comando del runtime nativo solo se
+`runCommand` lo ha registrato con la sessione che lo possiede. Un comando in
+PRIMO PIANO NON SHALL mai essere congelato — il suo CLI lo uccide alla scadenza
+del tool su un orologio che durante il fermo continua a correre, quindi
+congelarlo è ucciderlo con passi in più — e un payload assente o non riconosciuto
+SHALL valere come primo piano. Un figlio che nessun record spiega SHALL essere
+registrato nel log e mai segnalato.
+
+**CHI NON SHALL MAI RICEVERE UN SEGNALE:** il server e ogni membro del suo gruppo
+di processi (il comando nativo è un figlio del server e ne condivide il gruppo:
+un segnale al gruppo fermerebbe Topics, e un server fermo è l'unico che potrebbe
+scongelare); i sidecar e il ponte PTY; ogni CLI di agente e i suoi MCP, LSP e
+aiutanti; un albero che contiene un altro CLI; un albero con un peer di rete
+ESTABLISHED fuori da sé; le pane shell di una persona. Un gruppo SHALL essere
+segnalato SOLO se nessuno dei suoi membri è nell'insieme di guardia; se un pid da
+segnalare finisce nell'insieme di guardia, NESSUN segnale SHALL partire e il
+congelatore SHALL spegnersi per la vita del processo.
+
+**IL PIÙ PESANTE** SHALL essere misurato sul footprint dell'albero più i servizi
+XPC attribuiti (una pagina WebKit non vive nell'albero: su un runner macOS,
+16/09/2026, un albero da 0,057 GB ne aveva 0,383 di WebContent, GPU e Networking),
+con un pavimento di 0,5 GB e almeno 0,1 core nell'ultimo intervallo. Un servizio
+XPC SHALL essere attribuito solo se il suo eseguibile sta sotto la radice di
+installazione dell'app che possiede il dominio launchd.
+
+**SCONGELAMENTO.** La CALMA DA SOLA NON SHALL scongelare (la calma è ciò che il
+congelamento produce). SHALL scongelare: la memoria tornata (minimo dei 2 minuti
+sopra il pavimento più il residente dell'albero), il NESSUN EFFETTO (fra 120 e
+180 s, letture di pagine rilette >= 0,8 volte quelle del congelamento: il thrash
+non era suo, e non SHALL essere ricongelato nello stesso episodio), i 10 MINUTI,
+il padrone sparito, lo spegnimento e il registro al boot. Dopo DUE congelamenti
+lo stesso albero va fino in fondo, e il conteggio SHALL sopravvivere a un riavvio
+del server.
+
+**IL REGISTRO.** Ogni pid SHALL essere scritto su disco (tmp, fsync, rename) PRIMA
+del suo SIGSTOP, con l'identità (`lstart`) che distingue un pid riciclato. Al boot
+ogni albero ancora in registro SHALL essere continuato prima che il segnale di
+memoria riparta, saltando le identità che non corrispondono; allo spegnimento
+SHALL essere scongelato prima che i check vengano uccisi, perché un processo fermo
+tiene il suo SIGTERM finché non è continuato.
+
+**GLI OROLOGI DEL SILENZIO.** Il tempo di congelamento è un'attesa NOSTRA: il
+rilevatore di stallo SHALL rientrare, lo spazzino degli stream SHALL scalarlo
+dall'età del tool, il timer del bash nativo SHALL fermarsi e ripartire con il
+tempo che restava, il parcheggio della PTY SHALL rifiutare, e lo stop di una
+sessione SHALL scongelare prima di uccidere.
+
+**COSA VEDONO AGENTE E PERSONA.** All'agente SHALL essere detto che il comando è
+stato congelato e per quanto, nel suo stesso canale (la riga del tool nativo, il
+file di output della shell in background), perché un timeout scaduto durante il
+fermo è un effetto del congelamento e non un difetto del codice. Alla persona:
+brina sulla card, sulla riga della sidebar e sulla tab, anello e riga in flusso
+sulla pane, con il comando, i GB e la ragione; una voce nella cronologia delle
+notifiche per il congelamento e per la ripresa; una nota di servizio nel thread
+della card. La brina NON SHALL formare cristalli sopra il testo, SHALL essere
+ferma (nessun ridisegno) quando si è posata, SHALL rispettare
+`prefers-reduced-motion`, SHALL esistere nei due temi e NON SHALL incrociare i
+selettori di occlusione del guscio nativo.
+
+#### Scenario: si congela il più pesante in background, non l'inerte e non il primo piano
+- **GIVEN** swap sostenuto, il freno dei check senza niente da interrompere, e quattro comandi: A in background 2,1 GB e 0,5 core, B in background 3,0 GB e 0 core, C in background 0,4 GB, D in primo piano 2,6 GB
+- **THEN** SHALL essere congelato A, e B, C e D NON SHALL ricevere nessun segnale
+- **AND** il log SHALL dire che D è in primo piano e non si congela
+
+#### Scenario: un albero nativo non riceve mai un segnale di gruppo
+- **GIVEN** un comando del runtime nativo, figlio del server e nel gruppo del server
+- **THEN** i segnali SHALL andare pid per pid, e nessun pid del server SHALL essere fra loro
+
+#### Scenario: un CLI dentro l'albero annulla il congelamento
+- **GIVEN** un albero candidato che contiene un processo `claude`
+- **THEN** l'albero NON SHALL essere congelato
+
+#### Scenario: il freno dei check agisce per primo e le due leve si danno 120 s
+- **GIVEN** swap sostenuto e un giro di check pesante da interrompere
+- **THEN** SHALL essere interrotto il giro e NESSUN albero SHALL essere congelato in quel battito
+- **AND** dopo un congelamento il freno dei check SHALL aspettare 120 s prima di interrompere
+
+#### Scenario: la calma da sola non scongela
+- **GIVEN** un albero congelato e lo swap non più sostenuto, con il minimo dei 2 minuti sotto il pavimento
+- **THEN** l'albero SHALL restare fermo
+
+#### Scenario: si scongela per memoria, per nessun effetto, a 10 minuti, col padrone sparito
+- **GIVEN** un albero congelato
+- **THEN** SHALL essere continuato quando il minimo dei 2 minuti supera il pavimento più il suo residente, oppure fra 120 e 180 s se le pagine rilette non sono scese, oppure a 10 minuti, oppure quando la sua sessione non c'è più
+
+#### Scenario: due per albero, anche attraverso un riavvio
+- **GIVEN** un albero già congelato due volte, con un riavvio del server fra i due
+- **THEN** il terzo episodio NON SHALL congelarlo, e il log SHALL dirlo
+
+#### Scenario: nessun albero resta fermo dopo un crash del server
+- **GIVEN** un albero congelato e il server ucciso con SIGKILL
+- **THEN** al boot ogni pid ancora vivo con la stessa identità SHALL ricevere SIGCONT, e il registro SHALL restare vuoto
+
+#### Scenario: il timer del bash nativo si ferma col congelamento
+- **GIVEN** un comando nativo con timeout 120 s, congelato al secondo 60 per 200 s
+- **THEN** NON SHALL essere ucciso durante il fermo, SHALL essere ucciso dopo i 60 s che gli restavano, e la sua uscita SHALL contenere la riga del fermo
+
+#### Scenario: gli orologi del silenzio scontano il congelamento
+- **GIVEN** un tool in corso da 35 minuti di cui 10 congelati
+- **THEN** lo spazzino NON SHALL dichiararlo `hung`
+- **AND** una sessione con un albero congelato NON SHALL essere giudicata in stallo né parcheggiata
+
+#### Scenario: la brina si vede e non copre le parole
+- **GIVEN** un albero congelato della sessione di una card
+- **THEN** la card, la riga della sidebar e la tab SHALL mostrare la brina e il comando, la pane SHALL mostrare anello e riga in flusso sopra il composer
+- **AND** nessun pixel del canvas sotto una casella di testo SHALL avere alpha oltre 2/255, nei due temi e nei due motori
+- **AND** a brina posata i disegni sul canvas SHALL essere zero su una finestra di 3 s
+- **AND** con `prefers-reduced-motion` la brina SHALL comparire già finita e sparire senza scioglimento

@@ -23,6 +23,7 @@ import { copyText } from '../../lib/clipboard';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
 import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../shared/terminal-messages';
+import { useSwapFreeze } from '../../state/swapFreeze';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -119,6 +120,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
   const [stale, setStale] = useState(false);
+  /** Topics is holding a command of this session stopped: the pane gets the ring. */
+  const swapFreeze = useSwapFreeze({ terminalId: sessionId });
 
   // THE LAST SCREEN, drawn before xterm exists.
   //
@@ -975,7 +978,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   };
 
   return (
-    <div data-testid="single-terminal-pane" className="flex-1 min-h-0 flex flex-col">
+    <div
+      data-testid="single-terminal-pane"
+      // The ring alone, no banner: a line in flow here resizes the xterm grid
+      // and makes the TUI redraw. The tab carries the label instead.
+      className={`relative flex-1 min-h-0 flex flex-col${swapFreeze ? ' swap-ice-ring' : ''}`}
+      data-swap-frozen={swapFreeze ? 'true' : undefined}
+    >
       {/* Virtual key toolbar — touch devices only.
           Fondo bg-[#111] scuro in ENTRAMBI i temi, quindi i `bg-white/N` qui sotto
           sono il rialzo corretto (bianco su nero) — è l'eccezione alla regola in
