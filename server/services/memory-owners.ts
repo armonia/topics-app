@@ -196,7 +196,7 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     }
   }
 
-  const totals = new Map<string, MemoryFamily & { installed: boolean }>();
+  const totals = new Map<string, MemoryFamily & { installed: boolean; bundle: boolean }>();
   for (const r of rows) {
     if (ours.has(r.pid)) continue;
     // An XPC service is counted under whoever ASKED for it - and only an XPC
@@ -206,27 +206,47 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     if (owner && ours.has(owner.pid)) continue;
     const from = (owner ?? r).command;
     const name = appFamilyName(from);
-    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, installed: false };
+    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, installed: false, bundle: false };
     seen.gb += rowGB(r);
     seen.procs += 1;
-    // INSTALLED, not merely bundled: the app the owner would quit lives in an
-    // Applications folder (/Applications or ~/Applications), while a command a
-    // program ships runs from inside its own `.app` under Application Support.
-    // Measured 16/09: the CLI at `…/Application Support/Claude/claude-code/
+    // INSTALLED, not merely bundled: the app the owner would quit lives under an
+    // Applications root (/Applications, /System/Applications, ~/Applications) at
+    // ANY depth below it - /System/Applications/Utilities/Terminal.app and
+    // /Applications/UniversalKeychain/UniversalKeychain.app are both installed.
+    // A command a program ships runs from inside its own `.app` elsewhere:
+    // measured 16/09, the CLI at `…/Application Support/Claude/claude-code/
     // 2.1.270/claude.app/Contents/MacOS/claude` is in a bundle too, so a test on
-    // "is it in a .app" left `Claude` and `claude` side by side, which is the
-    // one thing this rule exists to prevent.
-    seen.installed ||= /\/Applications\/[^/]+\.app\//.test(from);
+    // "is it in a .app" left `Claude` and `claude` side by side, which is the one
+    // thing this rule exists to prevent. The user root takes exactly one segment
+    // for the account name, so somebody's own `Projects/Applications/Foo.app` is
+    // not mistaken for an installed app.
+    seen.installed ||= /^\/(?:System\/)?Applications\//.test(from) || /^\/Users\/[^/]+\/Applications\//.test(from);
+    seen.bundle ||= /\/[^/]+\.app\//.test(from);
     totals.set(name, seen);
   }
   // TWO LINES THAT DIFFER ONLY BY CASE are two lines nobody can tell apart.
   // Measured 16/09: `Claude 7.0 GB` (the app) beside `claude 1.1 GB` (the CLI
   // the app ships). The INSTALLED app keeps the bare name; the command says
   // what it is, wherever it runs from.
-  const byLower = new Map<string, number>();
-  for (const f of totals.values()) byLower.set(f.name.toLowerCase(), (byLower.get(f.name.toLowerCase()) ?? 0) + 1);
+  // Among the families that share a word, ONE keeps it bare: the installed app
+  // first, then whatever at least runs from a bundle, then the plain binary.
+  // Without the ranking two families neither of which is installed (a `.app`
+  // somebody keeps in a project folder, and a binary of the same name) would
+  // both be qualified, and the sentence would be back to two lines that differ
+  // only by case.
+  const rank = (f: { installed: boolean; bundle: boolean }): number => (f.installed ? 2 : f.bundle ? 1 : 0);
+  const best = new Map<string, number>();
   for (const f of totals.values()) {
-    if (!f.installed && (byLower.get(f.name.toLowerCase()) ?? 0) > 1) f.name = `${f.name} (comando)`; // allow-italian: the owner reads this name inside an Italian sentence
+    const key = f.name.toLowerCase();
+    best.set(key, Math.max(best.get(key) ?? -1, rank(f)));
+  }
+  const bareTaken = new Set<string>();
+  for (const f of totals.values()) {
+    const key = f.name.toLowerCase();
+    const alone = [...totals.values()].filter((o) => o.name.toLowerCase() === key).length < 2;
+    if (alone) continue;
+    if (rank(f) === best.get(key) && !bareTaken.has(key)) { bareTaken.add(key); continue; }
+    f.name = `${f.name} (comando)`; // allow-italian: the owner reads this name inside an Italian sentence
   }
   return [...totals.values()]
     .map(({ name, gb, procs }) => ({ name, gb, procs }))

@@ -134,9 +134,13 @@ describe("swapVerdict: pages read back from disk while the memory debt still gro
 /**
  * THE SECOND DOOR, on the 16/09/2026 lines of the live server (`[memsig]`, one a
  * minute, 11:50-12:35). The total is NOT a constant: macOS adds swap files while
- * it runs, and that day the live rows read up to 17.2 GB used, so a share
- * computed against a fixed 16384 MB would be a number nobody measured. These
- * cases therefore state the total they assume, row by row.
+ * it runs, and later that day the live rows read 17.2 GB used. The old lines
+ * never carried the total, so the 16384 MB these cases use (the `atCeiling`
+ * default, and the size `sysctl` reported while they were logged) is an
+ * ASSUMPTION, not a measurement: with a larger file those same rows would sit
+ * below the share. That is exactly why the total is now printed on every
+ * `[memsig]` line and why the share is declared provisional until some days of
+ * logs carry it.
  */
 describe("swapVerdict: a swap file at its ceiling is the second door", () => {
   /** A minute of samples at `pagesPerS` with the debt moving `debtGBPerMin`, swap pinned at `usedMB`. */

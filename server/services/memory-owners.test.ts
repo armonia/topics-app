@@ -182,6 +182,7 @@ const PS_HOST = `
 41343     1   8096 npm exec astro dev --port 4444 --host 127.0.0.1 --force
 41387 41343  19376 node /Users/zorahrel/Projects/armonia-agency/armonia-site/.claude/worktrees/mano-armonia/node_modules/.bin/astro dev --port 4444 --host 127.0.0.1 --force
 45099 19972 189808 /Users/zorahrel/.local/bin/claude --disallowedTools ScheduleWakeup,CronCreate --strict-mcp-config
+45100 19972  61200 /Users/zorahrel/Library/Application Support/Claude/claude-code/2.1.270/claude.app/Contents/MacOS/claude --output-format stream-json
 48914     1 122624 /Applications/Claude.app/Contents/MacOS/Claude
 39946     1 105664 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent
 91121     1  53712 /Users/zorahrel/Applications/Topics.app/Contents/MacOS/app
@@ -240,11 +241,47 @@ describe("memoryOwners: the responsible pid names an XPC service and nothing els
 
   test("O12: two names that differ only by case are told apart in the sentence the owner reads", () => {
     // Live on 16/09: `Claude 6.8 GB` (the app) beside `claude 1.1 GB` (the CLI
-    // the app ships, running outside it) - two entries, one readable word.
+    // the app ships) - two entries, one readable word. The fixture carries BOTH
+    // shapes of the command, the bare binary and the one inside its own bundle
+    // under Application Support, because the second is the one a rule written on
+    // ".app" gets wrong.
     const named = hostOwners({ floorGB: 0.1, top: 3 });
-    expect(named.map((f) => f.name)).toEqual(["openclaw", "claude (comando)", "Claude"]);
-    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: openclaw 0.2 GB, claude (comando) 0.2 GB, Claude 0.1 GB.");
+    expect(named.map((f) => f.name)).toEqual(["claude (comando)", "openclaw", "Claude"]);
+    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: claude (comando) 0.3 GB, openclaw 0.2 GB, Claude 0.1 GB.");
     // A name with no twin is left alone.
     expect(hostOwners().map((f) => f.name)).toContain("astro");
+  });
+
+  test("O13: an app installed under a subfolder keeps the bare word, and nobody wins it by accident", () => {
+    // Live shapes that a rule on "the .app is a direct child of Applications"
+    // gets wrong: macOS keeps Terminal under /System/Applications/Utilities, and
+    // an installer may nest its bundle under a vendor folder. A `.app` somebody
+    // keeps inside a project is NOT an installed app, and when no family is
+    // installed the bundle still beats a bare binary, so one word stays bare.
+    const rows = parsePsMemRows(`
+  501     1 900000 /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal
+  502     1 500000 /opt/homebrew/bin/terminal --serve
+  503     1 400000 /Applications/UniversalKeychain/UniversalKeychain.app/Contents/MacOS/UniversalKeychain
+  504     1 300000 /opt/homebrew/bin/universalkeychain
+  506     1 200000 /opt/homebrew/bin/foo --watch
+  505     1 260000 /Users/zorahrel/Projects/Applications/Foo.app/Contents/MacOS/Foo
+  508     1 170000 /Users/zorahrel/Library/Application Support/Acme/console.app/Contents/MacOS/console
+  507     1 180000 /System/Applications/Utilities/Console.app/Contents/MacOS/Console
+`);
+    const names = memoryOwners({ rows, selfPid: 1, ourMarkers: [], floorGB: 0.1, top: 10, ownerOf: () => null }).map((f) => f.name);
+    expect(names).toContain("Terminal");
+    expect(names).toContain("terminal (comando)");
+    expect(names).toContain("UniversalKeychain");
+    expect(names).toContain("universalkeychain (comando)");
+    // Neither of the last two is installed: the bundle keeps the word.
+    expect(names).toContain("Foo");
+    expect(names).toContain("foo (comando)");
+    // Two BUNDLES that collide: the installed one wins even nested two folders
+    // deep, and the one a program keeps under Application Support is the command.
+    expect(names).toContain("Console");
+    expect(names).toContain("console (comando)");
+    // And no two names in the sentence read the same out loud.
+    const lower = names.map((n) => n.toLowerCase());
+    expect(new Set(lower).size).toBe(lower.length);
   });
 });
