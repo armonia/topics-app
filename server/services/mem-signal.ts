@@ -62,6 +62,21 @@ export const SWAP_WINDOW_MS = 60_000;
  */
 export const PAGES_READ_BACK_PER_S = 10;
 export const DEBT_GB_PER_MIN = 0.5;
+/**
+ * The second door, for the case the first one cannot see: pages read back this
+ * fast while the debt is merely NOT SHRINKING. Measured live on 16/09 at 14:41
+ * with the board idle and nothing of ours running: 956 pages a second, load
+ * 92.7, swap 15.5 GB of 16, compressor 15.1 GB, debt +0.4 GB/min, and the
+ * verdict said "calm" because it wanted +0.5.
+ *
+ * The rate alone is NOT enough, and the same log says why: over 953 [memsig]
+ * lines there are five recoveries above 200 pages/s with the debt flat or
+ * shrinking, the fastest 718.5/s at -0.4 GB/min (16/09 12:54). A rate gate
+ * alone would have braked a Mac that was emptying itself. A debt that is not
+ * shrinking is what tells the two apart: it holds every one of those five out
+ * and lets 14:41 in.
+ */
+export const PAGES_READ_BACK_HARD_PER_S = 200;
 /** Samples older than this are dropped: the longest question asked is 120 s. */
 const KEEP_MS = 180_000;
 
@@ -109,7 +124,8 @@ export function swapVerdict(samples: readonly MemSample[], now: number): SwapVer
   const debtGB = ((last.compressorPages! - base.compressorPages!) * last.pageSize!) / 1e9 + (last.swapUsedMB! - base.swapUsedMB!) / 1000;
   const debtGBPerMin = (debtGB * 60) / seconds;
   return {
-    sustained: pagesReadBackPerS >= PAGES_READ_BACK_PER_S && debtGBPerMin >= DEBT_GB_PER_MIN,
+    sustained: (pagesReadBackPerS >= PAGES_READ_BACK_PER_S && debtGBPerMin >= DEBT_GB_PER_MIN)
+      || (pagesReadBackPerS >= PAGES_READ_BACK_HARD_PER_S && debtGBPerMin >= 0),
     pagesReadBackPerS, debtGBPerMin, coveredMs: none.coveredMs,
   };
 }
