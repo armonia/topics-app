@@ -104,6 +104,22 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
       retry: { at: 2, attempt: 1, cap: 3, free: true, reason: "Errore del provider", detail: null },
     },
   },
+  {
+    where: "server.ts — setSwapFreezeBroadcast: l'albero fermo, lista intera",
+    payload: {
+      type: "swap-freeze:state",
+      views: [{
+        id: "51000-1758045600000", sessionKey: "topic:3ddb9fb9", topicId: "3ddb9fb9",
+        terminalId: "term-1", taskId: null, command: "bun batteria.ts",
+        footprintGB: 2.4, pagesReadBackPerS: 1800, debtGBPerMin: 0.9,
+        frozenAt: 1_758_045_600_000, thawBy: 1_758_046_200_000, n: 1,
+      }],
+    },
+  },
+  {
+    where: "server.ts — lo sgelo: la lista vuota e' un messaggio, non un'assenza",
+    payload: { type: "swap-freeze:state", views: [] },
+  },
 ];
 
 describe("i payload reali passano il loro schema", () => {

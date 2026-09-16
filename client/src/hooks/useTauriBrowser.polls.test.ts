@@ -22,7 +22,7 @@
  * eseguibile non può fare: che i poll di questo hook siano cablati là dentro e
  * che nessuno ne apra uno a mano di fianco.
  *
- * @covers LEAK-01
+ * @covers LEAK-01, BROWSER-HEAVY-05
  */
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -36,6 +36,19 @@ describe('useTauriBrowser: i poll periodici', () => {
     // Se ne nasce un settimo questo numero lo fa notare — ed è l'unico posto in
     // cui aggiungerlo costa una riga di test invece di una regressione muta.
     expect(armed.length).toBe(6);
+  });
+
+  test('each of the six polls passes a pane environment (document, window focus, pane)', () => {
+    // Visibility of the DOCUMENT alone kept every pane of an unfocused Topics
+    // window polling at ~8.4 calls/s hidden and ~17.6/s visible (15/09), and a
+    // paused heavy pane would be woken by its own eval. The rule that closes
+    // both lives in `panePollEnv` (executed in `lib/shell/windowFocus.test.ts`);
+    // what only this file can say is that every poll is wired to it.
+    const polls = SOURCE.split('startVisibilityGatedPoll({').slice(1);
+    expect(polls).toHaveLength(6);
+    for (const body of polls) {
+      expect(body.slice(0, body.indexOf('});'))).toContain('env: panePollEnv(');
+    }
   });
 
   test('nessun intervallo aperto a mano di fianco al cancello', () => {

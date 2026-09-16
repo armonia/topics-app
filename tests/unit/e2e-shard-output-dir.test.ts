@@ -26,7 +26,9 @@ const REPO_ROOT = resolve(import.meta.dir, "../..");
 function outputDirWith(env: Record<string, string>): string {
   const r = Bun.spawnSync(
     ["bun", "-e", "console.log((await import('./playwright.config.ts')).default.outputDir)"],
-    { cwd: REPO_ROOT, env: { ...process.env, E2E_PORT: "", ...env }, stdout: "pipe", stderr: "pipe" },
+    // Reading the config launches nothing: the Mac guard (no e2e outside GitHub
+    // Actions) lets a reader through the same way it lets `--list` through.
+    { cwd: REPO_ROOT, env: { ...process.env, E2E_PORT: "", TOPICS_E2E_LIST_ONLY: "1", ...env }, stdout: "pipe", stderr: "pipe" },
   );
   const out = r.stdout.toString().trim().split("\n").pop() ?? "";
   if (r.exitCode !== 0 || !out) {

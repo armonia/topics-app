@@ -98,6 +98,8 @@ export interface HookPayload {
   // PreToolUse / PostToolUse:
   tool_name?: string;
   tool_input?: unknown;
+  /** The id of the tool call, when the CLI sends one: it pairs a Post with its Pre. */
+  tool_use_id?: string;
   // Notification:
   title?: string;
   message?: string;

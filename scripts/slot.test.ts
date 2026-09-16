@@ -62,6 +62,15 @@ describe("the command always runs", () => {
     expect(r.out).toContain("senza-freno");
   });
 
+  test("with the throttle off it does not claim a slot it never took", async () => {
+    // 15/09/2026: board checks under `CI` ran with the semaphore off, and the
+    // card still read "0 s in the queue" from this line, as if it had worked.
+    const off = await slot("true", { slots: 0 });
+    expect(off.err).not.toContain("[slot] acquired");
+    const on = await slot("true", { slots: 1 });
+    expect(on.err).toContain("[slot] acquired");
+  });
+
   test("a slot held by a DEAD process is not a slot: it gets reaped", async () => {
     // Without this, one killed run parks a slot until reboot and the gate that
     // needed it waits ten minutes for nothing.

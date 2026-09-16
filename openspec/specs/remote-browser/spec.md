@@ -331,9 +331,10 @@ fails, and SHALL let a session that owns no pane list and drive another topic's 
 ### Requirement: BROWSER-CHAT-04 — Opening, driving and closing a browser pane from a topic
 
 The system SHALL mount a remote browser pane inside a topic from the chat surface, SHALL
-show the agent-controlling overlay while an agent holds the lock, SHALL let the user take
-control back, SHALL offer a select-element mode that feeds the chat, and SHALL close the
-pane in live clients on a remote close.
+say in the tab's own icon that an agent holds the lock and what it is doing, SHALL draw
+NOTHING over the page while it holds it, SHALL let the user take control back with a
+single gesture on the page or on that icon, SHALL offer a select-element mode that feeds
+the chat, and SHALL close the pane in live clients on a remote close.
 
 #### Scenario: A browser pane can be opened in a topic
 - **GIVEN** a topic is open
@@ -363,17 +364,31 @@ pane in live clients on a remote close.
 - **AND** the four calls are still shown in the transcript, since only the second execution is removed
 - **AND** on a passthrough provider (`claude`, `openai`), whose tool surface the route itself registered, all four are dispatched
 
-#### Scenario: The agent-controlling overlay follows the agent_active broadcast
+#### Scenario: An agent at the wheel is said by the tab, not by a veil over the page
 - **GIVEN** a mounted browser pane connected to its socket
-- **THEN** the agent-controlling overlay is hidden
-- **WHEN** `agent_active: true` is broadcast, the overlay becomes visible
-- **WHEN** `agent_active: false` is broadcast, the overlay hides again
+- **WHEN** `agent_active: true` is broadcast with an action
+- **THEN** the pane's tab shows its type icon with `data-kind="agent"`, whose title names the action in progress
+- **AND** nothing is layered over the page area: the page stays readable, the only thing over it being a layer that paints no ink and exists to swallow clicks
+- **WHEN** `agent_active: false` is broadcast, both the agent icon and that layer go
 
-#### Scenario: Take control sends take_control and releases the overlay
-- **GIVEN** the agent-controlling overlay is showing
-- **WHEN** the user clicks the Take control button
+#### Scenario: A click on the page takes the wheel back
+- **GIVEN** an agent is driving the pane
+- **WHEN** the user clicks anywhere on the page
 - **THEN** a `take_control` message is sent on the browser socket
-- **AND** the overlay hides once the server re-broadcasts `agent_active: false` — the client does not clear it optimistically
+- **AND** a short, non-blocking notice says the control is theirs again
+- **AND** the agent state clears under the gesture, without waiting for the server's `agent_active: false`, which follows and is idempotent
+- **AND** no Take control button exists anywhere: the gesture is the click
+
+#### Scenario: The tab's agent icon is the other handle, and the only one on the native shell
+- **GIVEN** an agent is driving the pane
+- **WHEN** the user clicks the tab's `data-kind="agent"` icon
+- **THEN** the same `take_control` message is sent, with the same notice
+- **AND** on the desktop shell, whose page is a native child view that composites above the DOM and can carry no layer, this is the handle: the native pane publishes the same command and sends the same frame on its executor socket
+
+#### Scenario: A socket that died is not reporting an agent any more
+- **GIVEN** an agent is driving the pane
+- **WHEN** the socket closes without an `agent_active: false` (a server restart mid-turn)
+- **THEN** the agent state clears, so the tab reports the broken link instead of the agent and no invisible layer keeps swallowing clicks
 
 #### Scenario: Cmd+Shift+E selects an element and feeds it to the chat
 - **GIVEN** a mounted browser pane showing the WebRTC `<video>` surface

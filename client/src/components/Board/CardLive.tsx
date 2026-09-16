@@ -55,23 +55,33 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
   );
 }
 
-/** "Bash · bun run test:unit · 3m": the running tool and for how long, ticking. */
-export function LiveToolLine({ tool }: { tool: LiveTool }) {
+/**
+ * "Bash · bun run test:unit · 3m": the running tool and for how long, ticking.
+ *
+ * WHILE THE COMMAND IS FROZEN THE CLOCK STOPS, and so does the interval. A
+ * stopwatch running over a process Topics has SIGSTOPped tells the person the
+ * command is making progress, which is the opposite of what happened; and a
+ * one-second repaint under a canvas that just painted itself is the kind of
+ * cost the freeze exists to avoid. The line says `congelato` instead.
+ */
+export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?: boolean }) {
   const tr = useT();
   const [, force] = useState(0);
   useEffect(() => {
+    if (frozen) return;
     const t = setInterval(() => force((n) => n + 1), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [frozen]);
   // eslint-disable-next-line react-hooks/purity -- live tool line: re-renders every 1s (interval above) and reads the clock each render on purpose
   const since = fmtLive(Math.max(0, Date.now() - tool.since));
   const label = liveToolLabel(tool);
+  const text = frozen ? `${label} · ${tr('swapFreeze.frozenShort')}` : `${label} · ${since}`;
   return (
     <p
       data-testid="card-live-tool"
       className="mt-1 truncate text-compact leading-4 md:text-mini tabular-nums text-app-text-muted"
-      title={tr('board.card.liveToolTitle', { tool: label, since })}
-    >{label} · {since}</p>
+      title={frozen ? tr('swapFreeze.frozenShort') : tr('board.card.liveToolTitle', { tool: label, since })}
+    >{text}</p>
   );
 }
 

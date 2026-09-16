@@ -40,6 +40,11 @@
  * contarle nel freno del dispatch: ogni barra viva vale uno slot perche' satura
  * la stessa CPU che l'agente userebbe.
  *
+ * A RUN WAITING ON THE NETWORK GIVES ITS LANE BACK (15/09/2026). Once its local
+ * commands are done, a run that only waits for the pull request CI calls
+ * `lane.release()`: the first queued run starts, `runningCount()` stops counting
+ * it, and the run stays live (`isRunning`, legs answer pending) until its verdict.
+ *
  * Quello che il registro NON fa e' sopravvivere a un riavvio del processo: le
  * corse in volo muoiono col server, ed e' per questo che al boot la spia
  * «running» va spenta a mano (vedi `clearStaleChecksRuns` in services/tasks.ts).
@@ -53,11 +58,46 @@ export type ChecksVerdict = { ok: boolean; comment: string };
  * ancora girando, `null` se la corsa e' morta senza produrre un verdetto (in
  * quel caso il gate non ha misurato niente e non deve scriverne uno).
  */
-export type ChecksLeg = ChecksVerdict | { pending: true } | null;
+export type ChecksLeg = ChecksVerdict | { pending: true } | ChecksInterrupted | null;
+
+/**
+ * A RUN CUT BY THE SERVER SHUTDOWN, which is neither a verdict nor "no checks".
+ *
+ * It used to come back as `null`, the same word as "this board declares no
+ * checks", and the delivery gate reads that as "go on": a reload with a leg in
+ * flight moved the card to review with `checksState: running` and nothing
+ * measured. An interrupted run is its own outcome: the delivery answers like a
+ * leg still in flight and the card does not move. Like `null` it is not
+ * retained: the next leg, after the restart, starts a fresh run.
+ */
+export type ChecksInterrupted = { interrupted: true; reason?: InterruptReason };
+
+/** Why a round was cut: the server stopping, or the swap brake taking memory back
+ *  from the youngest round (`createSwapBrake`). Neither is a verdict. */
+export type InterruptReason = "shutdown" | "swap";
+
+/** Thrown by the round when the server stops it (`stopReviewChecks`) or the swap
+ *  brake kills its tree: the gate turns it into `ChecksInterrupted` instead of the
+ *  `null` of a run that blew up. */
+export class ChecksInterruptedError extends Error {
+  readonly reason: InterruptReason;
+  constructor(reason: InterruptReason = "shutdown") {
+    super(reason === "swap"
+      ? "pre-review checks interrupted for sustained swap: no verdict recorded, the delivery restarts"
+      : "pre-review checks interrupted by the server shutdown: no verdict recorded");
+    this.name = "ChecksInterruptedError";
+    this.reason = reason;
+  }
+}
+
+/** Handed to a run: `release()` gives its lane back while the run stays live.
+ *  Idempotent; the gate releases it anyway when the run ends. */
+export type ChecksLane = { release(): void };
 
 type Corsa = {
   commit: string | null;
-  promise: Promise<ChecksVerdict | null>;
+  offLane: boolean;
+  promise: Promise<ChecksVerdict | ChecksInterrupted | null>;
   verdict: ChecksVerdict | null;
   endedAt: number | null;
 };
@@ -73,7 +113,7 @@ export type ChecksGate = {
   leg(key: string, opts: {
     commit: string | null;
     legMs: number;
-    run: () => Promise<ChecksVerdict | null>;
+    run: (lane: ChecksLane) => Promise<ChecksVerdict | null>;
   }): Promise<ChecksLeg>;
   /** C'e' una corsa viva (girando o accodata) su questa chiave? (sonde e test) */
   isRunning(key: string): boolean;
@@ -81,6 +121,8 @@ export type ChecksGate = {
    *  `false` = the next leg opens a NEW delivery, which is when the branch is
    *  realigned on main before anything is measured (see `runChecksGate`). */
   known(key: string): boolean;
+  /** A live run that gave its lane back: it waits on the network, not on a CPU. */
+  isOffLane(key: string): boolean;
   /** A finished run for THIS commit is retained: the same delivery, asked again. */
   verdictFor(key: string, commit: string | null): boolean;
   /**
@@ -158,17 +200,27 @@ export function createChecksGate(opts: {
     }
   }
 
-  function start(key: string, commit: string | null, run: () => Promise<ChecksVerdict | null>): Corsa {
-    const corsa: Corsa = { commit, promise: Promise.resolve(null), verdict: null, endedAt: null };
+  function start(key: string, commit: string | null, run: (lane: ChecksLane) => Promise<ChecksVerdict | null>): Corsa {
+    const corsa: Corsa = { commit, offLane: false, promise: Promise.resolve(null), verdict: null, endedAt: null };
     // Il wrapper non rigetta MAI: una promise memorizzata che nessuno sta
     // aspettando (la gamba puo' essere gia' scaduta) e che rigetta diventa un
     // unhandled rejection, cioe' un processo che muore per un test rosso.
-    corsa.promise = new Promise<ChecksVerdict | null>((resolveCorsa) => {
+    corsa.promise = new Promise<ChecksVerdict | ChecksInterrupted | null>((resolveCorsa) => {
       const execute = () => {
         activeCount += 1;
+        let holding = true;
+        const lane: ChecksLane = {
+          release() {
+            if (!holding) return;
+            holding = false;
+            corsa.offLane = true;
+            activeCount -= 1;
+            drain();
+          },
+        };
         (async () => {
           try {
-            const verdict = await run();
+            const verdict = await run(lane);
             corsa.verdict = verdict;
             corsa.endedAt = now();
             if (!verdict) corse.delete(key); // niente verdetto = niente da ricordare
@@ -176,11 +228,17 @@ export function createChecksGate(opts: {
           } catch (err) {
             corsa.endedAt = now();
             corse.delete(key);
+            if (err instanceof ChecksInterruptedError) {
+              console.warn(err.reason === "swap"
+                ? `[checks-gate] run ${key} interrupted for sustained swap: no verdict, the delivery restarts`
+                : `[checks-gate] run ${key} interrupted by the shutdown: no verdict`);
+              resolveCorsa({ interrupted: true, reason: err.reason });
+              return;
+            }
             console.error(`[checks-gate] corsa ${key} esplosa`, err);
             resolveCorsa(null);
           } finally {
-            activeCount -= 1;
-            drain();
+            lane.release();
           }
         })();
       };
@@ -210,6 +268,10 @@ export function createChecksGate(opts: {
     known(key) {
       return corse.has(key);
     },
+    isOffLane(key) {
+      const corsa = corse.get(key);
+      return !!corsa && corsa.endedAt === null && corsa.offLane;
+    },
     verdictFor(key, commit) {
       const corsa = corse.get(key);
       return !!corsa && corsa.endedAt !== null && corsa.commit === commit;
@@ -234,11 +296,21 @@ export function createChecksGate(opts: {
       const gamba = new Promise<ChecksLeg>((resolve) => {
         timer = setTimeout(() => resolve({ pending: true }), legMs);
       });
+      let got: ChecksLeg;
       try {
-        return await Promise.race([corsa.promise, gamba]);
+        got = await Promise.race([corsa.promise, gamba]);
       } finally {
         if (timer) clearTimeout(timer);
       }
+      // A VERDICT BELONGS TO THE COMMIT IT MEASURED. A leg that joined a live
+      // run of an older head must not carry that run's verdict (nor its `null`)
+      // out as its own: the card would enter review, and land, on a commit that
+      // no check has seen. Since 15/09/2026 a run can stay live for an hour
+      // waiting on the pull request CI, so the head moving under it is no longer
+      // rare. The leg answers pending; the next one finds the old run ended on
+      // another commit, drops it and starts a run on the current head.
+      if (corsa.commit !== commit && (got === null || "ok" in got)) return { pending: true };
+      return got;
     },
   };
 }

@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
+import { startVisibilityGatedPoll } from '../lib/shell/visibilityPoll';
+import { createWantedEdge, panePollEnv } from '../lib/shell/windowFocus';
 import {
   applyDownloadEvent,
   applyDownloadProgress,
@@ -47,12 +49,20 @@ interface DownloadsState {
 
 const EMPTY = (ctx: string): DownloadsState => ({ ctx, entries: [], started: 0 });
 
-export function useBrowserDownloads(contextId: string): BrowserDownloads {
+/**
+ * `wanted`: the pane is on screen or an agent uses it. The poll also runs while
+ * a download is in flight, and stops with the document hidden or the window
+ * unfocused, unless `agentEngaged` (an agent drives the pane) holds it open. Nothing is lost while it sleeps: the shell queues the events (one
+ * global queue of 64, `DOWNLOAD_EVENTS` in lib.rs) and the next drain reads them.
+ */
+export function useBrowserDownloads(contextId: string, wanted = true, agentEngaged = false): BrowserDownloads {
   const [state, setState] = useState<DownloadsState>(() => EMPTY(contextId));
   /** «C'e' almeno un download in corso», letto dentro l'intervallo. Un ref e non
    *  una dipendenza: metterlo fra le dipendenze dell'effetto rifarebbe il timer
    *  a ogni download che parte o finisce. */
   const activeRef = useRef(false);
+  const agentRef = useRef(agentEngaged);
+  const [edge] = useState(() => createWantedEdge(wanted));
 
   // Pane diversa = elenco diverso: senza questo, cambiando contextId le voci
   // della pane precedente restavano appese a quella nuova. L'azzeramento avviene
@@ -67,7 +77,7 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
   useEffect(() => {
     if (!isTauri) return;
     let stop = false;
-    const iv = window.setInterval(() => {
+    const tick = () => {
       void tauriInvoke<DownloadEventIn[]>('browser_take_download_events', { id: contextId })
         .then((events) => {
           if (stop || !events || !events.length) return;
@@ -99,9 +109,13 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
           });
         })
         .catch(() => {});
-    }, POLL_MS);
-    return () => { stop = true; window.clearInterval(iv); };
-  }, [contextId]);
+    };
+    const stopPoll = startVisibilityGatedPoll({
+      intervalMs: POLL_MS, tick,
+      env: panePollEnv({ wanted: () => edge.get() || activeRef.current, onWanted: edge.onWanted, engaged: () => agentRef.current }),
+    });
+    return () => { stop = true; stopPoll(); };
+  }, [contextId, edge]);
 
   const dismiss = useCallback((id: string) => {
     setState((prev) => ({ ...prev, entries: prev.entries.filter((d) => d.id !== id) }));
@@ -124,6 +138,8 @@ export function useBrowserDownloads(contextId: string): BrowserDownloads {
   // tentativo che verra' buttato via. Qui l'unico lettore e' un timer, quindi
   // arrivarci un tick dopo non cambia niente.
   useEffect(() => { activeRef.current = active > 0; }, [active]);
+  useEffect(() => { edge.set(wanted); }, [edge, wanted]);
+  useEffect(() => { agentRef.current = agentEngaged; }, [agentEngaged]);
 
   return {
     downloads: current.entries,

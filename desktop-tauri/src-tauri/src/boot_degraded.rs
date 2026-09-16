@@ -39,9 +39,12 @@ pub(crate) fn degraded_payload(marker: Option<&str>) -> serde_json::Value {
     })
 }
 
-/// Read the boot verdict: `{ degraded, markerPath, port }`. Cheap and constant for
-/// the life of the process (the verdict is written once at boot), so the client asks
-/// it once.
+/// Read the boot verdict: `{ degraded, markerPath, port }`. Cheap, but NOT constant:
+/// the shell publishes it at the start of the upstream search (only when no daemon
+/// pid is alive) and retracts it when a server answers, when the daemon pid turns
+/// out alive by the end of the search, or when it spawns its own sidecar. So the client
+/// keeps asking while it is disconnected and believes the latest answer, `null`
+/// included; caching the first "yes" is what left a dead notice on screen.
 #[tauri::command]
 pub(crate) fn boot_degraded() -> serde_json::Value {
     degraded_payload(degraded_marker().as_deref())
@@ -68,8 +71,9 @@ pub(crate) enum ClearVerdict {
 /// the second.
 ///
 /// It is gated on the VERDICT, not on an argument the caller picks: `marker` is
-/// `Some` only when this boot already concluded degraded, which happens once, in
-/// `decide_upstream_and_spawn`. On a healthy boot the answer is `NotDegraded` and
+/// `Some` only while the shell holds a published verdict (set when the search
+/// starts with no live daemon pid, decided again by each outcome of
+/// `decide_upstream_and_spawn`). On a healthy boot the answer is `NotDegraded` and
 /// nothing is touched, so no webview can delete a marker that is doing its job.
 ///
 /// Reversible by construction: the shell writes the marker again the moment it

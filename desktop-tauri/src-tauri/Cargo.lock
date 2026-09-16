@@ -77,12 +77,13 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "2.2.323"
+version = "2.2.334"
 dependencies = [
  "block2",
  "cairo-rs",
  "gio",
  "glib",
+ "gtk",
  "javascriptcore-rs",
  "log",
  "native-tls",

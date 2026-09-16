@@ -315,10 +315,12 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(live).toHaveAttribute("data-band", "red");
     await expect(live).toHaveText("Topics usa 7.4 dei 6.0 core a disposizione");
 
-    // The verdict, on the same line: at the ceiling with an agent running, a new one waits.
+    // The verdict, on the same line: at the ceiling with an agent running, a new
+    // one waits, and the line names the axis with what one more agent costs.
     const verdict = page.getByTestId("global-cap-verdict");
     await expect(verdict).toHaveAttribute("data-admit", "false");
-    await expect(verdict).toHaveText("i nuovi aspettano");
+    await expect(verdict).toHaveAttribute("data-blocked-by", "cpu");
+    await expect(verdict).toHaveText("i nuovi aspettano: CPU, un agent ne costa 1.0 core");
 
     // What the share buys on both axes is folded away, and opens on request.
     const units = page.getByTestId("global-cap-budget-units");

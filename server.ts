@@ -7,6 +7,16 @@ import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
+import { createSwapFreezer } from "./server/services/swap-freeze";
+import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
+import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
+import { readProcessStates, readProcessTable, readStartTimes } from "./server/lib/process-snapshot";
+import { createXpcAttribution, printPidDomain } from "./server/lib/xpc-attribution";
+import { establishedPeers, outsidePeersOf } from "./server/lib/tree-network-peers";
+import { appendFrozenNote, stdoutFileOf } from "./server/lib/background-shell-output";
+import { backgroundBashFor, foregroundBashFor } from "./server/lib/background-bash-record";
+import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-command-registry";
+import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
@@ -48,7 +58,7 @@ import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-s
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -66,7 +76,7 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
@@ -82,10 +92,14 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceBlock } from "./server/services/dispatch-capacity";
-import { fleetLoadSync, fleetSessionCoreUnits, fleetSessionMemGB, procFootprintKB } from "./server/lib/fleet-usage";
+import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
+import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
+import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
+import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
-import { createBudgetGovernor, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
+import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
+import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
+import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
@@ -224,7 +238,7 @@ import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
-import { budgetShare, capMode, machineBudget, TURN_ERROR_PREFIX } from "./shared/board";
+import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -242,26 +256,6 @@ let onTermSignal: (signal: string) => void = (signal) => {
 };
 process.on("SIGTERM", () => onTermSignal("SIGTERM"));
 process.on("SIGINT", () => onTermSignal("SIGINT"));
-
-// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
-if (!process.env.GATEWAY_TOKEN) {
-  try {
-    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
-    if (config?.gateway?.auth?.token) {
-      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
-      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
-    }
-  } catch {}
-  if (!process.env.GATEWAY_TOKEN) {
-    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
-    // provider). A standalone download has no OpenClaw config,
-    // so a missing token must NOT be fatal: the app defaults to the Claude
-    // provider and runs fine without the gateway. This previously process.exit(1)'d,
-    // which crashed the bundled server before it could listen — the packaged app
-    // then hung forever on "Launching the local engine" on every clean machine.
-    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
-  }
-}
 
 // Solid singleton: a server booted from a DISPATCH WORKTREE (e.g. an agent that
 // ran `bun run server.ts` inside its isolation checkout under ~/.topics/worktrees)
@@ -287,6 +281,50 @@ if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
       `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT}, ` +
       `tunnel ${process.env.TOPICS_TUNNEL_PORT ? process.env.TOPICS_TUNNEL_PORT : "off"} (won't touch production)`,
     );
+  }
+}
+
+// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
+// Take the singleton lock HERE: before the database, the PTY and AI bridges,
+// the session reattach and the partial sweep. A losing boot must exit having
+// touched nothing. The lock used to sit just above Bun.serve, which made the
+// comment ("concurrent boots exit fast") false: a second `bun run server.ts`
+// in the same working directory opened data/topics.db, ran migrations and the
+// ui_state repairs, joined both bridges, reattached live sessions, parked the
+// idle ones and swept the partial rows, and only then found the lock and
+// exited. It happened on 2026-09-13 at 03:38 against the production home and
+// ended clean by luck, not by design. The only thing allowed above this line
+// is the worktree isolation, because it decides WHICH home the lock lives in.
+// The state file is still written after Bun.serve returns the actual port
+// (PORT=0 resolves the port only then).
+try {
+  acquireLock();
+} catch (err) {
+  if (err instanceof LiveLockError) {
+    console.error(`[Daemon] ${err.message}`);
+    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
+    process.exit(1);
+  }
+  throw err;
+}
+
+// Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
+if (!process.env.GATEWAY_TOKEN) {
+  try {
+    const config = JSON.parse(readFileSync(join(process.env.HOME || "", ".openclaw", "openclaw.json"), "utf-8"));
+    if (config?.gateway?.auth?.token) {
+      process.env.GATEWAY_TOKEN = config.gateway.auth.token;
+      console.log("[Startup] GATEWAY_TOKEN loaded from ~/.openclaw/openclaw.json");
+    }
+  } catch {}
+  if (!process.env.GATEWAY_TOKEN) {
+    // The OpenClaw gateway is an OPTIONAL integration (the "openclaw" relay
+    // provider). A standalone download has no OpenClaw config,
+    // so a missing token must NOT be fatal: the app defaults to the Claude
+    // provider and runs fine without the gateway. This previously process.exit(1)'d,
+    // which crashed the bundled server before it could listen — the packaged app
+    // then hung forever on "Launching the local engine" on every clean machine.
+    console.warn("[Startup] GATEWAY_TOKEN not set — the OpenClaw gateway relay is disabled; continuing without it.");
   }
 }
 
@@ -1026,11 +1064,15 @@ async function watchHeadlessBody(
     idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
     isWaitingForHuman: () => isHumanHold(sessionKey),
     isWaitingForChecks: () => isChecksHold(sessionKey),
+    // A command of this session is STOPped by us: that silence is ours.
+    isFrozen: () => isSwapFreezeHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(
       reason === "human"
         ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+        : reason === "freeze"
+          ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
         : reason === "checks"
           ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
           : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -1388,6 +1430,8 @@ let sondaLavoroNonCommittato: ((taskId: string) => Promise<string[] | null>) | n
 let checksGateRunningCount: (() => number) | null = null;
 /** `checksGate.isRunning(taskId)`: running OR queued behind another card's run. */
 let checksGateIsRunning: ((taskId: string) => boolean) | null = null;
+/** `checksGate.isOffLane(taskId)`: the run only waits on the pull request CI (KANBAN-84). */
+let checksGateIsOffLane: ((taskId: string) => boolean) | null = null;
 /**
  * Is the task this session works on waiting on OUR pre-review checks? The
  * stall detector must not judge that silence: the agent asked for review, the
@@ -1395,6 +1439,26 @@ let checksGateIsRunning: ((taskId: string) => boolean) | null = null;
  * waiting on us. `checks_state='running'` covers the run; the gate covers the
  * queue behind another card (one run at a time, minutes each).
  */
+/**
+ * Is this card's delivery parked on our pre-review checks with NOTHING of ours
+ * running for it?
+ *
+ * Two registries answer it, and neither is the card's own row: the checks gate
+ * knows a run is live (running, queued behind another card's lane, or off-lane
+ * on the pull request CI), and the governor's registry knows whether a command
+ * of that run has actually been spawned. Live run + no spawned command = the
+ * round is WAITING - memory floor, release spacing, sustained swap, the gate's
+ * queue, the CI poll - and the restart gate may cut it (`cardTurnsHoldingReload`).
+ *
+ * `checks_state` is deliberately NOT read here, unlike `isChecksHold`: the row
+ * says "running" for the whole round, command included, and a stale row after a
+ * crash would tell the gate to cut a card that is grinding a test suite.
+ */
+function deliveryOnlyWaitsOnChecks(taskId: string): boolean {
+  if (!checksGateIsRunning?.(taskId)) return false;
+  return !freezableRuns().some((run) => run.taskId === taskId);
+}
+
 function isChecksHold(sessionKey: string): boolean {
   const topicPrefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
   if (!topicPrefix) return false;
@@ -1445,6 +1509,33 @@ const nodeClient = createNodeClient({
 const nodeBranchPlanter = createNodeBranchPlanter({
   repoPathOf: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
 });
+
+/**
+ * THE MEMORY SIGNAL, one probe with a 2-minute history for every memory reader:
+ * the admission floor, the budget axis, the checks waiter and the swap brake
+ * (`server/services/mem-signal.ts`). Sampled at boot and on the dispatch beat.
+ */
+/**
+ * THE LEDGER OF THE SWAP FREEZER, and the first thing it does: continue every
+ * tree the previous server left STOPped.
+ *
+ * A SIGKILL (a `kickstart -k`, a crash, the machine giving up on us) takes away
+ * the only process that could send SIGCONT. The pids are on disk because they
+ * were written there BEFORE their SIGSTOP, so this runs before the memory signal
+ * starts and before anything can freeze again.
+ */
+const swapFreezeLedger = createSwapFreezeLedger(
+  fileLedgerIo(join(resolveStateDir(process.cwd()), "swap-freeze.json"), (line) => console.warn(line)),
+);
+void thawLedgerAtBoot({
+  ledger: swapFreezeLedger,
+  lstartOf: readStartTimes,
+  signal: (pid, sig) => { process.kill(pid, sig); },
+  log: (line) => console.warn(line),
+}).catch((err) => console.warn("[freeze] boot thaw failed:", err));
+
+const memSignal = createMemSignal({ probe: probeVm, measurable: process.platform === "darwin" });
+void memSignal.sample();
 
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
@@ -1531,9 +1622,12 @@ const taskDispatcher = createTaskDispatcher({
   // is passed anyway so the reading is the one the panel gets from the route.
   budgetSample: () => {
     try {
+      // The lowest reading of the window, not the instant: the budget axis
+      // reserves every local turn's price against it (`null` while measuring,
+      // and the floor holds meanwhile).
       return budgetSample(
         fleetLoadSync(),
-        availableMemGB(),
+        memSignal.held().heldGB,
         machineCores(),
         osTotalmem() / 1e9,
         turniInVolo(),
@@ -1547,17 +1641,19 @@ const taskDispatcher = createTaskDispatcher({
   agentCostSamples: () => {
     try { return fleetSessionCoreUnits(); } catch { return []; }
   },
-  // The same price list in gigabytes. The memory axis of the gate compares ONE
-  // agent against the free memory, so it needs what an agent really holds on
-  // this machine, not a constant written once.
+  // The same price list in gigabytes, and it is priced per CARD: the peak of
+  // the process tree of each card's pre-review checks. The per-session
+  // footprint it used to read cannot see a native card, whose tools and checks
+  // are children of this server (server/lib/card-memory-peaks.ts).
   agentMemSamples: () => {
-    try { return fleetSessionMemGB(); } catch { return []; }
+    try { return recentCardMemPeaksGB(); } catch { return []; }
   },
   // Corse di check pre-review in volo: ogni barra vale uno slot nel freno.
   // Letto dalla closure: il checksGate nasce dentro `createTasksRouter`, che e'
   // dopo questa chiamata, ma prima del primo tick o resume. Zero finche' non
   // esiste: stesso pattern di `capturaConsegna`.
   checksRunning: () => checksGateRunningCount?.() ?? 0,
+  checksOffLane: (taskId) => checksGateIsOffLane?.(taskId) ?? false,
   // Don't drop an agent into a repo somebody is already working by hand.
   externalSessionsAt: (path) =>
     externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
@@ -1650,12 +1746,15 @@ const taskDispatcher = createTaskDispatcher({
   // Si rilegge a ogni tick invece di fissarlo al boot: chi cambia runtime in
   // Impostazioni si aspetta che valga da subito, e questa lettura costa una
   // riga di SQLite già in cache.
-  resourceBlock: () =>
+  // `hold` is the dispatcher's: the price of one card, the memory kept for the
+  // turns in flight, and whether any of our work is on the machine.
+  resourceBlock: (hold) =>
     dispatchResourceBlock(
       ctx.worktreeManager.worktreesDir(),
       undefined,
-      undefined,
+      () => memSignal.held(),
       resolveAgentRuntime() === "cli",
+      hold,
     ),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
@@ -2446,7 +2545,14 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   onChecksGate: (gate) => {
     checksGateRunningCount = () => gate.runningCount();
     checksGateIsRunning = (taskId) => gate.isRunning(taskId);
+    checksGateIsOffLane = (taskId) => gate.isOffLane(taskId);
   },
+  // The e2e row of a delivery is read from the pull request CI, never run here.
+  ciEvidence: (input) => awaitCiEvidence(input),
+  // No new pre-review command starts under the floor the admission uses, into
+  // sustained swap, or within 2 minutes of another delivery's release
+  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, four commands on one poll).
+  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -2871,21 +2977,6 @@ const liveBrokerChatSessions = new Set<string>();
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
-
-// ─── Phase B · Daemon lifecycle (DAEMON-01) ────────────────────────────────
-// Acquire singleton lock + write state file BEFORE Bun.serve so
-// concurrent boots see the live lock and exit fast. The state file is
-// finalised after Bun.serve returns the actual port (in case PORT=0).
-try {
-  acquireLock();
-} catch (err) {
-  if (err instanceof LiveLockError) {
-    console.error(`[Daemon] ${err.message}`);
-    console.error(`[Daemon] If the other process is dead, delete ~/.topics/daemon-process.lock manually.`);
-    process.exit(1);
-  }
-  throw err;
-}
 
 // PORTING-PLAN.md Tier 1 — CORS for the Tauri desktop shell, which serves the UI
 // locally (tauri://localhost) and calls this server cross-origin for /api + /ws.
@@ -3819,6 +3910,11 @@ const opzioniServer = {
       if (holdInForce) {
         inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
       }
+      // The frozen trees, for the same reason: the frost has to be on the card
+      // the moment a reloaded client paints it, and the next change may be ten
+      // minutes away.
+      const frozenNow = swapFreezeViews();
+      if (frozenNow.length > 0) inviaIniziale({ type: "swap-freeze:state", views: frozenNow });
       // Same for the reading behind it: a reload must land on the same row,
       // and the next event may be minutes away.
       const usageNow = planUsage();
@@ -4736,6 +4832,9 @@ const staleStreamTimer = setInterval(() => {
     // The delivery's own wait: the same predicate the stall detector reads, so
     // `update_task(status='review')` queued behind the checks is never "hung".
     waitingOnOurChecks: (sk) => isChecksHold(sk),
+    // And the time we held one of its commands STOPped comes off the tool's own
+    // clock, so a freeze can never turn a live tool into a "hung" one.
+    frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
       // mute no-op, a recovery attempt that attempted nothing.
@@ -4820,8 +4919,9 @@ const budgetGovernor = createBudgetGovernor({
       const fleet = fleetLoadSync();
       if (!fleet) return null;
       const share = budgetShare(cap);
-      const sample = budgetSample(fleet, availableMemGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
-      return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
+      const sample = budgetSample(fleet, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
+      // The CPU only: a freeze on memory has no way out (see `governorReading`).
+      return governorReading(sample, share);
     } catch { return null; }
   },
   signalTree: signalProcessTree,
@@ -4834,7 +4934,171 @@ const budgetGovernor = createBudgetGovernor({
 setActiveBudgetGovernor(budgetGovernor);
 
 taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
+/** Under sustained swap the youngest heavy check round is interrupted, never red, and restarts by itself. */
+const swapBrake = createSwapBrake({
+  kill: killCheckTree,
+  note: (taskId, text) => {
+    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+    catch { /* a note that cannot be written must not stop the brake */ }
+  },
+  log: (line) => console.warn(line),
+});
+
+/**
+ * AND UNDER THE SAME SWAP, THE HEAVIEST COMMAND AN AGENT LAUNCHED IN THE
+ * BACKGROUND IS FROZEN (`server/services/swap-freeze.ts`).
+ *
+ * Order on the beat: the brake first (it kills a check round, which gives memory
+ * back and restarts by itself), the freezer only when the brake found nothing.
+ * The two share one 120 s window, so neither measures the other's effect.
+ */
+const swapFreezeXpc = createXpcAttribution({ print: printPidDomain });
+/** The card a session works on, the same reading `isChecksHold` makes. */
+function taskIdForSessionKey(sessionKey: string): string | null {
+  const prefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
+  if (!prefix) return null;
+  try {
+    const row = db.prepare(
+      `SELECT id FROM tasks WHERE assigned_topic_id LIKE ? AND status IN ('in_progress','review') LIMIT 1`,
+    ).get(prefix + "%") as { id: string } | null;
+    return row?.id ?? null;
+  } catch { return null; }
+}
+/** Every agent with a CLI alive: panes first, then the chats. */
+function agentSessionRefs() {
+  const refs: Array<{
+    sessionKey: string; cliPid: number; topicId: string | null; terminalId: string | null;
+    taskId: string | null; backgroundBash: { command: string; startedAt: number }[]; foregroundBash: string[];
+  }> = [];
+  const seen = new Set<string>();
+  for (const pty of getAgentPtyCliPids()) {
+    seen.add(pty.sessionId);
+    refs.push({
+      sessionKey: pty.sessionId, cliPid: pty.pid, topicId: pty.topicId, terminalId: pty.sessionId,
+      taskId: taskIdForSessionKey(pty.sessionId),
+      backgroundBash: pty.claudeSessionId ? backgroundBashFor(pty.claudeSessionId) : [],
+      foregroundBash: pty.claudeSessionId ? foregroundBashFor(pty.claudeSessionId) : [],
+    });
+  }
+  for (const { sessionKey, pid } of listSessionCliPids()) {
+    if (!sessionKey || pid <= 0 || seen.has(sessionKey)) continue;
+    const claudeSessionId = (() => {
+      try { return claudeSessionTracker.getSessionByKey(sessionKey)?.claudeSessionId ?? null; } catch { return null; }
+    })();
+    refs.push({
+      sessionKey, cliPid: pid,
+      topicId: (() => { try { return ctx.getTopicBySessionKey(sessionKey)?.id ?? null; } catch { return null; } })(),
+      terminalId: null,
+      taskId: taskIdForSessionKey(sessionKey),
+      backgroundBash: claudeSessionId ? backgroundBashFor(claudeSessionId) : [],
+      foregroundBash: claudeSessionId ? foregroundBashFor(claudeSessionId) : [],
+    });
+  }
+  return refs;
+}
+/** Where a frozen background shell writes, captured while it is still readable. */
+const frozenShellOutputs = new Map<number, string>();
+const swapFreezer = createSwapFreezer({
+  processTable: readProcessTable,
+  footprintKB: procFootprintKB,
+  residentKB: procResidentKB,
+  lstartOf: readStartTimes,
+  statOf: readProcessStates,
+  signal: (pid, sig) => { process.kill(pid, sig); },
+  sessions: agentSessionRefs,
+  natives: () => listNativeCommands().map((n) => ({
+    sessionKey: n.sessionKey,
+    pid: n.pid,
+    command: n.command,
+    topicId: (() => { try { return ctx.getTopicBySessionKey(n.sessionKey)?.id ?? null; } catch { return null; } })(),
+    terminalId: null,
+    taskId: taskIdForSessionKey(n.sessionKey),
+  })),
+  guardRoles: (rows) => {
+    const cliPids = [
+      ...getAgentPtyCliPids().map((p) => p.pid),
+      ...listSessionCliPids().map((p) => p.pid),
+    ];
+    return { serverPid: process.pid, sidecarPids: sidecarPidsNow(rows), cliPids };
+  },
+  xpcServicePids: (appPid, appCommand, commandOf) => swapFreezeXpc.servicePidsOf(appPid, appCommand, commandOf),
+  // `null` travels: an `lsof` that did not answer is not a tree with no clients.
+  outsidePeers: async (pids) => {
+    const rows = await establishedPeers();
+    return rows === null ? null : outsidePeersOf(rows, new Set(pids));
+  },
+  ledger: swapFreezeLedger,
+  log: (line) => console.warn(line),
+  note: (taskId, text) => {
+    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+    catch { /* a note that cannot be written must not stop the freeze */ }
+  },
+  onFreezeTree: (root) => {
+    if (root.kind === "native") { try { nativeCommandByPid(root.pid)?.onFreeze(); } catch { /* the freeze holds anyway */ } return; }
+    // The agent is told through the file its own `BashOutput` reads, and the
+    // path has to be resolved while the shell is still there to be asked.
+    void stdoutFileOf(root.pid).then((path) => { if (path) frozenShellOutputs.set(root.pid, path); }).catch(() => {});
+  },
+  onThawTree: (root, frozenMs) => {
+    if (root.kind === "native") { try { nativeCommandByPid(root.pid)?.onThaw(frozenMs); } catch { /* it resumes anyway */ } return; }
+    const path = frozenShellOutputs.get(root.pid);
+    frozenShellOutputs.delete(root.pid);
+    if (path) appendFrozenNote(path, frozenMs);
+  },
+  announce: (event) => {
+    announceSwapFreeze();
+    try {
+      const it = event.view;
+      recordAndAnnounce({
+        kind: "session",
+        title: event.kind === "frozen"
+          ? `Congelato: ${it.command}` // allow-italian: notification history is written in Italian like every other row
+          : `Scongelato: ${it.command}`, // allow-italian: same row
+        body: event.kind === "frozen"
+          ? `Il Mac e' in swap: il comando tiene ${it.footprintGB.toFixed(1)} GB e riprende entro 10 minuti.` // allow-italian: same row
+          : `Ripreso dopo ${Math.round(event.frozenMs / 1000)} s (${event.reason}).`, // allow-italian: same row
+        targetKind: it.topicId ? "topic" : null,
+        targetId: it.topicId,
+        dedupeKey: `swap-freeze:${it.id}:${event.kind}`,
+        source: "push",
+      });
+    } catch { /* a notification that cannot be written must not stop the freeze */ }
+  },
+});
+setActiveSwapFreezer(swapFreezer);
+setSwapFreezeBroadcast((views) => broadcastToAll({ type: "swap-freeze:state", views }));
+/** The sidecars (pty bridge, ai-bridge, webrtc), found on the freezer's own table
+ *  by the socket paths they registered themselves with `registerFleetSocket`. */
+function sidecarPidsNow(rows: readonly { pid: number; command: string }[]): number[] {
+  const paths = registeredFleetSocketPaths();
+  if (paths.length === 0) return [];
+  return rows
+    .filter((row) => row.pid !== process.pid && paths.some((sock) => row.command.includes(sock)))
+    .map((row) => row.pid);
+}
+
+/** The `[memsig]` line goes out once a minute on the 10 s beat. */
+const MEMSIG_EVERY_MS = 60_000;
+let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
+  void memSignal.sample().then(() => {
+    // THE BRAKE FIRST, THE FREEZER AFTER, ON ONE WINDOW. The brake kills a check
+    // round (memory back, no verdict lost); the freezer only stops an agent's
+    // heaviest background command, which gives nothing back. Whichever acts,
+    // the other waits 120 s: `lastActionAt` is the shared clock.
+    const brake = swapBrake.tick(memSignal.swap(), freezableRuns(), swapFreezer.lastActionAt());
+    void swapFreezer.tick({ swap: memSignal.swap(), held: memSignal.held(), brake })
+      .catch((err) => console.error("[freeze] tick failed", err));
+    const now = Date.now();
+    if (now - memsigAt < MEMSIG_EVERY_MS) return;
+    memsigAt = now;
+    const samples = memSignal.samples();
+    console.log(formatMemorySignalLine({
+      at: now, held: memSignal.held(), swap: memSignal.swap(), latest: samples[samples.length - 1] ?? null,
+      inFlight: turniInVolo(), checkRuns: freezableRuns().length, heaviestCheckGB: liveCheckTreeGB(),
+      frozenTrees: swapFreezer.frozenCount(), frozenGB: swapFreezer.frozenGB(),
+    }));
+  }).catch((err) => console.error("[memsig] sample failed", err));
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
   // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the
   // race it closes — a staged fake agent recovered mid-gesture.
@@ -5770,10 +6034,12 @@ setTimeout(() => {
 //
 // IL TETTO STA SOPRA LA DURATA DI UN TURNO, NON SOTTO.
 //
-// Un turno d'agente ha gia' un limite suo — `dispatchTimeoutMin`, 20 minuti di
-// default (`tasks.ts`) — oltre il quale e' il dispatcher a chiuderlo. Questo cap
-// serve SOLO contro un turno che ha sfondato anche quello, quindi deve stargli
-// sopra. A cinque minuti stava sotto, e il cancello scritto per non tagliare i
+// Un turno d'agente aveva un limite suo — `dispatchTimeoutMin`, 20 minuti di
+// default (`tasks.ts`) — e questo cap serviva a stargli SOPRA. Quel tetto oggi
+// non taglia piu' niente (server.ts:1094, «reporting only, no cut»), quindi il
+// numero qui sotto non e' piu' «sopra il limite del turno»: e' solo la soglia
+// oltre cui un'attesa smette di essere muta.
+// A cinque minuti stava sotto, e il cancello scritto per non tagliare i
 // turni li tagliava quasi sempre: misurato il 19/08, salvato un file di
 // `server/` con quattro agenti `working`, cinque minuti dopo tutti e quattro
 // «Il server e' ripartito mentre l'agent lavorava: task rimesso in coda».
@@ -5883,11 +6149,24 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
 async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
-  const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
+  //
+  // A card turn PARKED ON OUR OWN CHECKS, with no command of ours running, is
+  // not in this count: see `cardTurnsHoldingReload` for the 2026-09-15 wait it
+  // closes. Its delivery is remembered and re-issued after the boot, so cutting
+  // it loses nothing — while deferring for it froze the whole board.
+  const { holding: cardTurns, waiting: cardsWaitingOnChecks } =
+    cardTurnsHoldingReload(taskDispatcher.busyTurns(), deliveryOnlyWaitsOnChecks);
+  const cards = cardTurns.length + landingQueue.inFlight();
+  // Those cards' own streams go with them. A card turn streams through
+  // /api/chat, so its session is a stream key too, and left in it would hold
+  // the restart a second time - as a chat on the native runtime, which is
+  // unadoptable, which defers from the first loop.
+  const waitingKeys = new Set(cardsWaitingOnChecks.map((t) => t.sessionKey).filter((k) => k !== ""));
   // NON LE CHIAVI DEL REGISTRO: quelle il cui TURNO e' ancora aperto. Una voce
   // rimasta dietro a un turno gia' finalizzato trattiene un riavvio per
   // nessuno, e nessuno puo' nemmeno sbloccarlo (vedi `turnAlreadyFinished`).
-  const liveStreams = unfinishedStreams(activeStreams.values(), turnAlreadyFinished);
+  const liveStreams = unfinishedStreams(activeStreams.values(), turnAlreadyFinished)
+    .filter((s) => !waitingKeys.has(s.sessionKey));
   const streamKeys = liveStreams.map((s) => s.sessionKey);
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
   // economica ha già detto «occupato», la risposta non cambia.
@@ -5899,6 +6178,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     }
     brokerOpen = brokerProbeCache.open;
   }
+  // Same reason as the streams above: a card whose turn lives in a broker child
+  // must not come back as a chat once its delivery has stopped holding.
+  brokerOpen = brokerOpen.filter((key) => !waitingKeys.has(key));
   // QUALI DI QUESTE CHAT NON TORNANO PIÙ, se le tagliamo adesso.
   //
   // L'attesa corta riservata alle chat vale una promessa: «la reload-resilience
@@ -5939,7 +6221,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     // Every holder that is NOT a card: the streams of this process, the turns
     // the broker keeps, the chats parked on a question. `dispatchDoor` reads
     // this to decide whether refusing card turns buys the restart anything.
-    chats: streamKeys.length + brokerOpen.length + parked.length,
+    // A card turn streams through /api/chat too, so its own session is taken
+    // out here, or every card in flight would reopen the door by itself.
+    chats: chatsHolding({ streamKeys, brokerOpenKeys: brokerOpen, parkedKeys: parked, cardSessionKeys: taskDispatcher.busySessionKeys() }),
     // STESSA PRIORITA' di `describeInFlight`, o la notifica nomina un soggetto
     // che non e' quello che trattiene: quando a trattenere e' una card la frase
     // parla di card, e qui non c'e' un topic da nominare — meglio `null` e il
@@ -6129,9 +6413,20 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
       // in cinque secondi appena l'ha saputo. Best-effort: un registro che non
       // scrive non deve fermare l'attesa.
       // QUANDO AVVISARE DIPENDE DA CHI TRATTIENE, e sono due attese diverse.
-      // Un turno di CARD ha gia' un limite suo (`dispatchTimeoutMin`, venti
-      // minuti) oltre il quale e' il dispatcher a chiuderlo: quell'attesa
-      // finisce da sola, e svegliare qualcuno al primo minuto sarebbe rumore.
+      // Un turno di CARD finisce da solo e svegliare qualcuno al primo minuto
+      // sarebbe rumore, quindi la sua soglia resta il tetto lungo.
+      //
+      // QUI C'ERA SCRITTO CHE A CHIUDERLO ERA `dispatchTimeoutMin`, VENTI
+      // MINUTI. Non e' piu' vero da quando quel tetto e' stato declassato a
+      // sola segnalazione (server.ts:1094: «reporting only, no cut»), e non lo
+      // era comunque per il caso che ha prodotto l'attesa del 15/09: un turno
+      // fermo su `update_task` con i check nostri in coda non ha nessun
+      // orologio addosso — `isChecksHold` spegne anche il giudice di stallo.
+      // Il limite vero e' ora dall'altra parte: un turno di card che trattiene
+      // e' un turno con un COMANDO nostro in corso (gli altri non trattengono
+      // piu', vedi `cardTurnsHoldingReload`), e quel comando ha il tetto di
+      // `runReviewChecks`. Oltre il tetto lungo si chiama comunque una persona,
+      // perche' un'attesa senza fine puo' essere accettabile ma MUTA no.
       // Una CHAT no: il turno nativo non ha nessun limite superiore, e a
       // finirlo puo' essere solo una persona - che al minuto sessanta e' gia'
       // l'unica cosa che puo' succedere, perche' e' li' che il cancello ha
@@ -6298,6 +6593,18 @@ async function gracefulShutdown(signal: string) {
   // continue: the one thing that could send it SIGCONT is the loop that is
   // about to stop. Thaw before anything else goes away.
   try { await budgetGovernor.thawAll(); } catch { /* best effort on the way out */ }
+  // The swap freezer's trees go the same way, and BEFORE the checks are killed:
+  // a stopped process holds a SIGTERM until it is continued, so a tree left
+  // frozen here would take its signal only at the next boot's ledger thaw.
+  try { await swapFreezer.thawAll("shutdown"); } catch { /* best effort on the way out */ }
+  // Then the check trees go. `slot.ts` runs each command in a process group of
+  // its own, so without this a reload left every running check reparented to
+  // pid 1, finishing a verdict nobody would read while the new server started
+  // the same cards' checks beside it (15/09/2026: four unit trees at once).
+  // After the thaw, because a stopped process holds a SIGTERM until it is
+  // continued. The rounds throw instead of recording the killed run as a red,
+  // and a delivery waiting on one answers "still running" without moving.
+  try { await stopReviewChecks(); } catch { /* best effort on the way out */ }
   // Prima di spegnere il dispatcher, non dopo: `shutdown()` svuota `inFlight`,
   // e quella mappa e' l'unica fotografia di chi stava lavorando in questo
   // istante. Senza questa riga lo stato «interrotto» non veniva deciso, veniva

@@ -84,7 +84,8 @@ export function useIdentityPresence(enabled = true, intervalMs = INTERVAL_MS): P
     // independent, and in series the friends row would wait on the org row for
     // no reason at all.
     const [rubricaRes, orgsRes] = await Promise.allSettled([
-      peopleApi.list(),
+      // A face and a name, every minute: not the all-time stats behind them.
+      peopleApi.list({ stats: false }),
       // The sharing store asks the same list at boot: one GET between the two.
       coalescedFetch('/api/auth/orgs', { credentials: 'same-origin' }, { ttlMs: BOOT_READ_TTL_MS })
         .then((r) => (r.ok ? r.json() : null)),

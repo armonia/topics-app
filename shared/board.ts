@@ -223,7 +223,7 @@ export const PREVIEW_CARD_MAX_RATIO = 0.7;
 export const PREVIEW_RULE = [
   "REVIEW EVIDENCE = a DURABLE PREVIEW on the task — update_task(preview_image=<absolute path under ~/.topics/media/ or inside the task workspace; empty string = clear it>), which becomes the image on the board card and in the drawer. Three branches, and what picks one is the criterion, not habit:",
   `· SCREENSHOT .png — the delivery HAS a rendered surface that fits in one frame. Capture it at viewport ≤1440×900 and with height/width ≤ ${PREVIEW_CARD_MAX_RATIO.toFixed(2)} (the card crops the excess off the bottom instead of shrinking it). Never a full-page shot.`,
-  "· VIDEO .webm/.mp4 ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. A short Playwright clip (`recordVideo: { dir }` on the context) or, if the project has spec-flow, the scenario's .webm.",
+  "· VIDEO .webm/.mp4/.mov ≤20s — proving the delivery takes TWO OR MORE STATES (appears, stays, disappears; scroll, open/close, streaming, a multi-step flow): a still screenshot cannot prove a behaviour. On this machine no clip comes from a browser: none may be launched here, and a task tab (open_browser_pane) that no window shows runs in a headless one, so it is neither opened nor filmed to make a clip. A clip is `screencapture -V <seconds> -R <x,y,w,h> <file>.mov` of a surface ALREADY ON SCREEN, and for a browser pane only after `browser_focus_tab` brought it forward. Otherwise the proof of the behaviour is its e2e spec: name the spec in the delivery comment, and the preview is a SCREENSHOT of one state or a DIAGRAM of the flow.",
   "· DIAGRAM .svg — the delivery has NO rendered surface (a plan, an architecture, a protocol, a migration): you DRAW the structure — boxes, arrows, five words per node — you do not photograph the document.",
   "A TAB of the task (open_browser_pane) does NOT replace the preview: the live page dies with the server that serves it, the preview stays.",
   "The preview is an ATTACHMENT, not source. Never leave it in the repo root: an untracked file there BLOCKS the land (it would be swallowed by the realign merge, and the land refuses rather than swallow it — measured twice on 18/08), and a committed one is repo litter. Write it under ~/.topics/media/, or if it genuinely documents a decision worth keeping, under docs/archive/ — never the root.",
@@ -258,10 +258,11 @@ export const PREVIEW_RULE = [
  * per board (`reviewChecks`) — questa stringa non li sostituisce, li precede.
  */
 export const CODE_GATES_RULE = [
-  "THE SEVEN CODE GATES, and ALL of them hold before you deliver — the script names you read in `package.json`, the gates you do not: types (`bun run typecheck`), lint (`bun run lint`), dead code (`bun run check:deadcode`), unit tests (`bun test <the files you touched and the tests that import them>`; the FULL `bun run test:unit` is what the board runs when you deliver, inside your worktree, and its verdict comes back in the `update_task` result: do not run the whole suite yourself, and never in the background with nohup, because under a fleet it is the single heaviest thing on this machine and on 2026-09-04 two orphaned copies of it, left by a cut turn, drove the load to 115 on 12 cores), prose (`bun run check:emdash`), comment language (`bun run check:comment-language`), identifier language (`bun run check:identifier-language`: every NEW name you declare, constants and test fixtures included, must be an English word or go into PROJECT_WORDS with a reason; on 2026-09-04 thirty-five Italian test names landed green through the other six and turned main red).",
+  "THE SEVEN CODE GATES, and ALL of them hold before you deliver — the script names you read in `package.json`, the gates you do not: types (`bun run typecheck`), lint (`bun run lint`), dead code (`bun run check:deadcode`), unit tests (`bun test <the files you touched and the tests that import them>`; the FULL `bun run test:unit` is what the board measures when you deliver, in your worktree or on the pull request CI as the UNIT line further down says, and its verdict comes back in the `update_task` result: do not run the whole suite yourself, and never in the background with nohup, because under a fleet it is the single heaviest thing on this machine and on 2026-09-04 two orphaned copies of it, left by a cut turn, drove the load to 115 on 12 cores), prose (`bun run check:emdash`), comment language (`bun run check:comment-language`), identifier language (`bun run check:identifier-language`: every NEW name you declare, constants and test fixtures included, must be an English word or go into PROJECT_WORDS with a reason; on 2026-09-04 thirty-five Italian test names landed green through the other six and turned main red).",
   "The fifth one is new and it surprises people: `check:emdash` rejects the long dash in ANY text in the repo, protocol strings and the comments you write in the code included. You do not replace it with a short dash: the sentence the dash was holding together was two sentences, and they split. If the character IS the data, the line ends with `// allow-emdash: <reason>`.",
   "THE REPO IS ENGLISH, and that includes the comments you write. `bun run check:comment-language` is a ratchet: it does not ask you to translate what is already there, it fails when a file gains a NEW Italian comment line. So write the comment in English the first time, because a comment written in Italian will not land. When the Italian IS the subject (a quoted message, a term of art, someone's exact words), the line ends with `allow-italian: <reason>`. This is about the CODE. What you write to the person on the board follows the language line above, which is a separate question.",
   "The third one is the one everybody forgets: for the dead-code gate, a file NOBODY IMPORTS is dead code. So a script you run by hand (a probe, a bench, a measurement) has to be DECLARED among the project entries in the same commit that adds it — with knip: the entry with the `!` suffix in `knip.jsonc` (like `scripts/disk-report.ts!`), and next to it the comment line that says how it is run.",
+  "E2E NEVER RUNS ON THIS MACHINE (decided 2026-09-15): do not run `bun run check:e2e-touched` (only `--list`, which launches nothing), `playwright test` in any form, or a client build meant for e2e, and never install or launch a browser, in the foreground or in the background. In 15 hours on 2026-09-15 agents ran 21 `check:e2e-touched`, 71 raw `playwright test` and 27 client builds by themselves, 99 of those 119 backgrounded with `&`, while the board re-ran the e2e at delivery anyway. Write or change the e2e spec under `tests/e2e/` and commit it; whether this board measures it when you deliver is said by the E2E line further down. Targeted `bun test <file>` stays allowed.",
 ].join("\n");
 
 // end-allow-emdash
@@ -1006,6 +1007,9 @@ export interface QueueContext {
    * travels because those numbers are the answer ("2.1 GB free against a floor
    * of 3"), and recomputing them on the client would mean measuring another
    * machine.
+   *
+   * For a resume held in the In-progress column it is the block of THAT hold,
+   * not the published one (`heldResumeBlock` in `dispatch-block-signal.ts`).
    */
   dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend' | 'plan'; reason: string } | null;
   /** Lo stato del padre, per uno step. `null` = non è uno step, o padre sparito. */
@@ -1244,6 +1248,19 @@ export function deriveQueueReason(
   // sua frase — «quando quello chiude questa torna in coda da sé» — sarebbe
   // proprio la promessa che qui non vale. Meglio il chip che c'è già.
   if (task.status === 'backlog' || task.status === 'in_progress') {
+    // A RESUME HELD BY THE MACHINE is not an agent about to be born. `resume`
+    // puts the same `queued` chip on an In-progress card when the floor or the
+    // budget holds it, and after a forced restart that is every cut turn at
+    // once: twelve queued chips with no reason while nothing starts.
+    // The block here is the one that holds THIS resume (the mapper passes the
+    // hold's own, never the tick's), and it is said with the words the todo
+    // branch uses. Not the switch first: `resume` re-evaluates its hold on its
+    // own timer whatever the switch says, so with dispatch off this card still
+    // starts the moment the floor clears, and "nothing starts until you turn
+    // dispatch back on" would be the false sentence.
+    if (task.status === 'in_progress' && task.dispatchState === 'queued' && !task.parentTaskId && ctx.dispatchBlock) {
+      return machineBlockReason(ctx.dispatchBlock);
+    }
     // `queued` compreso: fuori da `todo` quel chip non è la parola vaga che
     // questa funzione sostituisce, è un agente che sta per nascere.
     if (isAgentWorking(task.dispatchState)) return null;
@@ -1380,38 +1397,42 @@ export function deriveQueueReason(
   // by a person. The spend one is second because the tick reads it second
   // (`admissionBlock() ?? dayBlock()`), and a machine out of RAM does not start
   // anything even with the ledger at zero.
-  if (ctx.dispatchBlock) {
-    // THE THIRD KIND is the one that does come back on its own, and that is why
-    // it is not folded into the floor: «per risorse» holds the queue while the
-    // machine is over the chosen threshold, and load drops by itself the moment
-    // whatever is busy stops. Tone `waiting`, not `stalled`: nobody has to do
-    // anything, unlike a full disk or a spend cap a person has to raise.
-    const kind: QueueReasonKind =
-      ctx.dispatchBlock.kind === 'spend' ? 'spend_cap'
-        : ctx.dispatchBlock.kind === 'pressure' ? 'resource_pressure'
-          : ctx.dispatchBlock.kind === 'plan' ? 'plan_window'
-            : 'resource_floor';
-    const key =
-      kind === 'spend_cap' ? 'board.queue.spendCap'
-        : kind === 'resource_pressure' ? 'board.queue.resourcePressure'
-          : kind === 'plan_window' ? 'board.queue.planWindow'
-            : 'board.queue.resourceFloor';
-    return {
-      kind,
-      // THE FOURTH KIND waits like the third and for the same reason: the
-      // plan's window refills at a published hour, so nobody has to do
-      // anything. It is not folded into the spend cap even though both are a
-      // budget, because a cap is raised by a person and a window is not.
-      tone: kind === 'resource_pressure' || kind === 'plan_window' ? 'waiting' : 'stalled',
-      key,
-      params: { reason: ctx.dispatchBlock.reason },
-    };
-  }
+  if (ctx.dispatchBlock) return machineBlockReason(ctx.dispatchBlock);
 
   return {
     kind: 'slot', tone: 'queued',
     key: ctx.ahead === 0 ? 'board.queue.slot.first' : 'board.queue.slot.ahead',
     params: { ahead: ctx.ahead },
+  };
+}
+
+/** The reason of a block that holds the whole machine, one mapping for every
+ *  column that can be held by it (a Todo card, and a held resume in progress). */
+function machineBlockReason(block: NonNullable<QueueContext['dispatchBlock']>): QueueReason {
+  // THE THIRD KIND is the one that does come back on its own, and that is why
+  // it is not folded into the floor: «per risorse» holds the queue while the
+  // machine is over the chosen threshold, and load drops by itself the moment
+  // whatever is busy stops. Tone `waiting`, not `stalled`: nobody has to do
+  // anything, unlike a full disk or a spend cap a person has to raise.
+  const kind: QueueReasonKind =
+    block.kind === 'spend' ? 'spend_cap'
+      : block.kind === 'pressure' ? 'resource_pressure'
+        : block.kind === 'plan' ? 'plan_window'
+          : 'resource_floor';
+  const key =
+    kind === 'spend_cap' ? 'board.queue.spendCap'
+      : kind === 'resource_pressure' ? 'board.queue.resourcePressure'
+        : kind === 'plan_window' ? 'board.queue.planWindow'
+          : 'board.queue.resourceFloor';
+  return {
+    kind,
+    // THE FOURTH KIND waits like the third and for the same reason: the
+    // plan's window refills at a published hour, so nobody has to do
+    // anything. It is not folded into the spend cap even though both are a
+    // budget, because a cap is raised by a person and a window is not.
+    tone: kind === 'resource_pressure' || kind === 'plan_window' ? 'waiting' : 'stalled',
+    key,
+    params: { reason: block.reason },
   };
 }
 
@@ -1548,6 +1569,27 @@ export interface BlockerRef {
 export interface ReviewCheck {
   name: string;
   cmd: string;
+}
+
+/**
+ * The e2e evidence row (KANBAN-84): not a shell command. The delivery gate reads
+ * the e2e jobs of the pull request CI for the delivered commit instead of running
+ * Playwright here. Spelled as a command so the settings field, which rebuilds each
+ * row as `{ name: cmd, cmd }`, keeps it intact.
+ */
+export const E2E_CI_CHECK: ReviewCheck = { name: "e2e-ci", cmd: "github-ci:e2e" };
+
+/**
+ * The unit evidence row: the step "Unit + integration tests" of the `check` job
+ * in the same pull request CI run the e2e row reads. On 15/09/2026 one card
+ * inside `test:unit:shards` held a 2.4-11 GB tree on the owner's Mac; the same
+ * suite already runs on every pull request.
+ */
+export const UNIT_CI_CHECK: ReviewCheck = { name: "unit-ci", cmd: "github-ci:unit" };
+
+export function isCiEvidenceCheck(check: { cmd: string }): boolean {
+  const cmd = check.cmd.trim();
+  return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd;
 }
 
 /** Esito di UN comando. `tail` è la coda dell'output combinato (stdout+stderr). */
@@ -1807,20 +1849,60 @@ export interface DispatchCapacity {
    * it admits with. The panel draws its verdict from this and from nothing
    * else: a client-side `used >= usable` ignored the cost of the agent to admit,
    * the 80% resume line and the memory axis, and said "would start" while the
-   * gate was holding. `null` or absent = not in the budget mode, or no reading
-   * (an old server): no verdict is drawn then.
+   * gate was holding. In count mode it is present only while the floor or a
+   * drain holds the queue. `null` or absent = nothing to say (count mode with
+   * the door open), or no reading (an old server): no verdict is drawn then.
    */
   admission?: DispatchAdmission | null;
 }
 
-/** The dispatcher's admission verdict as it travels on the wire. */
+/**
+ * The dispatcher's admission verdict as it travels on the wire, WITH THE
+ * NUMBERS IT DECIDED ON.
+ *
+ * The numbers are the gate's own, not a second reading: `usedCoreUnits`
+ * includes the reservation for the turns admitted in the last ninety seconds,
+ * and `freeQuotaMemGB` has it deducted. Without them the panel printed the bare
+ * probe ("2.0 of 6.6") next to a verdict taken on "6.5 of 6.6", and no surface
+ * could say a single gigabyte while memory was the axis holding the queue.
+ * Every number is optional: an older server sends only the verdict, and then
+ * the surfaces fall back to the capacity reading and say no number at all.
+ */
 export interface DispatchAdmission {
   admit: boolean;
-  blockedBy: "cpu" | "memory" | null;
+  /**
+   * Which brake said no. `floor` is the hard RAM/disk floor
+   * (`dispatchResourceBlock`) and `drain` a planned restart: both hold the
+   * queue in EITHER brake mode, before the budget is even asked, so they are
+   * the only verdicts a count-mode reading carries.
+   */
+  blockedBy: "cpu" | "memory" | "floor" | "drain" | null;
   /** The pass is owed only to nothing running yet. */
   firstAgentExempt: boolean;
   /** What one more agent is priced at, in core-units (median of measured ones). */
   costCoreUnits: number;
+  /** Core-units Topics holds as the gate counts them: measured plus reserved. */
+  usedCoreUnits?: number;
+  /** The share of the free cores the gate admits against. */
+  usableCoreUnits?: number;
+  /** Admissions still counted at their estimate (launched under 90 s ago). */
+  pendingAdmissions?: number;
+  /** What one more agent is priced at in memory, in GB. */
+  costMemGB?: number;
+  /** Our share of the free memory, reservation deducted; `null` = not measured. */
+  freeQuotaMemGB?: number | null;
+  /** Gigabytes our tree holds, and the ceiling the footprint is compared with. */
+  ourMemGB?: number;
+  usableMemGB?: number;
+  /**
+   * Which memory clause fired when `blockedBy` is `memory`: the next agent does
+   * not fit in the free quota (`quota`), or our footprint is already over its
+   * ceiling (`footprint`). The two need two sentences: printing the quota when
+   * the footprint fired reads "needs 1.5 GB, 4.2 GB free" and contradicts itself.
+   */
+  memClause?: "quota" | "footprint" | null;
+  /** The sentence the floor or the drain composed, numbers included. */
+  reason?: string | null;
 }
 
 /** Il tetto globale come sta scritto: `auto` (dimensionato dalla macchina) o il

@@ -125,6 +125,24 @@ export interface NativeBrowserHandle {
    *  example.com", …). Last value seen on agent_active=true; persists through the
    *  brief idle linger so a burst of tool calls shows steady text. */
   agentAction: string | null;
+  /**
+   * End the agent's turn on this pane and take the wheel back. Same wire as the
+   * streaming pane (a `take_control` frame on the context socket), because the
+   * card asks for the native shell to behave identically: there the page is a
+   * native child view with nothing clickable over it, so the tab's agent glyph
+   * is the only handle and it must pull something.
+   */
+  takeControl: () => void;
+  /** Optional - Tauri only. The page keeps burning CPU (`lib/shell/heavyPanes`):
+   *  `cpu` is % of one core. A heavy pane is live only while it has the focus. */
+  heavy?: { cpu: number } | null;
+  /** Optional - Tauri only. The heavy pane is paused: its view is hidden behind
+   *  `pausedImage` (a 1x still of the page, or null when none could be taken). */
+  paused?: boolean;
+  pausedImage?: string | null;
+  /** Optional - Tauri only. Focus this pane and bring the paused page back live,
+   *  the same document, without a reload. */
+  resume?: () => void;
   ready: boolean;             // native webview opened (browser_open resolved)
   viewId: string | null;
   /** Optional — Tauri only. A base64 PNG data-URL still of the page, shown in the
