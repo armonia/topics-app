@@ -166,7 +166,8 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // continua a rispondere da lì, e la prima risposta che arriva chiude il
         // rendez-vous per entrambe le strade.
         //
-        // IF THE CARD IS TAKEN by a live question of another session,
+        // IF THE CARD IS TAKEN by a question somebody is still waiting on -
+        // another session of this task, or another request of this one -
         // `routeAskToTaskThread` returns `busy` and writes nothing: ignoring
         // that here is right. This leg comes back in 25 seconds with the same
         // question, so waiting is a QUEUE with a visible head - as soon as
