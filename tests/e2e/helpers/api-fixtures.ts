@@ -867,6 +867,33 @@ export async function waitForProjectPaneType(
 }
 
 /**
+ * Seed the project's INNER layout with `panes`, i.e. write `nonChatPanes`
+ * under `topics-project-panes-<hash>` as a PREVIOUS page would have left it.
+ *
+ * Why a test would want to DIRTY that key on purpose: the layout survives the
+ * page that wrote it (the e2e DB lives in DATA_DIR across runs, and the
+ * hydrate is union-additive), so "a project window that comes up with a tab
+ * already in it" is a state real runs produce and then hide behind a retry.
+ * A spec that must be immune to it can reproduce it here in one line instead
+ * of waiting for the flake: the pane it seeds is the pane the next page
+ * hydrates.
+ *
+ * `preview` is deliberately absent from the caller's shape: the client only
+ * persists a preview pane while it heads its group, and a seed is asserting
+ * "this tab is open", not how it got there.
+ */
+export async function seedProjectInnerPanes(
+  request: APIRequestContext,
+  projectPath: string,
+  panes: Array<{ id: string; type: string; title: string }>,
+): Promise<void> {
+  await request.put(`${BASE}/api/ui-state/${projectPanesKey(appProjectPath(projectPath))}`, {
+    data: { nonChatPanes: [...panes], openChatTopicIds: [] },
+    ignoreHTTPSErrors: true,
+  });
+}
+
+/**
  * Seed a project's INNER layout so `topicIds` render as OPEN chat tabs inside the
  * project window. buildSidebarItems only lists a project's child chat when it has
  * an open inner tab (or a notification/pin), and that inner layout is persisted

@@ -25,6 +25,7 @@ import { describe, expect, it } from 'bun:test';
 import IT from './i18n-it';
 import EN from './i18n-en';
 import { PERMISSION_HINT_KEY, PERMISSION_LABEL_KEY } from '../../../shared/permission-decision';
+import { INPUT_LOSS_MESSAGE_KEY } from '../components/Terminal/inputQueue';
 import { QUEUE_REASON_KINDS, queueReasonKeys } from '../../../shared/board';
 import { DISPATCH_CHIP } from '../components/Board/constants';
 import { readFileSync } from 'node:fs';
@@ -54,6 +55,35 @@ describe('permission panel: every decision has both languages', () => {
     expect(both(key).it).toContain('autonomia'); // allow-italian: the Italian copy IS what is asserted
     expect(both(key).en).toContain('without asking');
     expect(both(key).en).toContain('autonomy');
+  });
+});
+
+describe('terminal input loss: one sentence per cause, in both languages', () => {
+  it('every reason has its own phrase, in Italian and in English', () => {
+    // The three causes shared ONE string, which said "too old to send" for a
+    // paste refused on the spot and for a socket that was simply gone. A
+    // reason added here without its two entries prints the key, or the other
+    // language, on the band that explains a loss.
+    const seen = new Set<string>();
+    for (const key of Object.values(INPUT_LOSS_MESSAGE_KEY)) {
+      const found = both(key);
+      expect(found.it, `${key} missing from the Italian catalogue`).toBeTruthy();
+      expect(found.en, `${key} missing from the English catalogue`).toBeTruthy();
+      expect(seen.has(found.it!), `${key} reuses another cause's Italian sentence`).toBe(false);
+      seen.add(found.it!);
+    }
+  });
+
+  it('the invitation to retype is a separate string, so it can be withheld', () => {
+    // It lives apart from the three causes because it is shown only once the
+    // attach is back: baked into the sentence, it asked the reader to type
+    // exactly what the poisoned queue was still throwing away.
+    expect(both('terminal.inputLost.retype').it).toBeTruthy();
+    expect(both('terminal.inputLost.retype').en).toBeTruthy();
+    for (const key of Object.values(INPUT_LOSS_MESSAGE_KEY)) {
+      expect(both(key).it).not.toContain('iscrivilo'); // allow-italian: the Italian copy IS what is asserted
+      expect(both(key).en).not.toContain('etype');
+    }
   });
 });
 
