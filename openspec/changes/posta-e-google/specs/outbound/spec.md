@@ -92,6 +92,18 @@ un conteggio di caratteri è una firma su una busta chiusa, e la board dice già
 la stessa cosa altrove: se chiedi «confermi X?», chi risponde deve poter vedere
 X.
 
+Gli ALLEGATI SHALL essere NOMINATI nella domanda, con nome e peso: un conteggio
+(«Allegati: 1») non si può leggere, e il workspace di una card è l'intera
+cartella del progetto, dove sta anche il database. Un file che nessuno ha visto
+nominare è un file che nessuno poteva fermare.
+
+La riga dello strumento su cui la domanda viene dipinta SHALL essere trovata
+anche quando il tool è registrato col NOME NUDO: il runtime nativo pubblica gli
+strumenti di Topics senza il prefisso della flotta, e su questa macchina è il
+runtime della grande maggioranza dei topic. Un confronto esatto sul solo nome
+prefissato significa nessuna riga, nessun pannello, e ogni invio in chat
+rifiutato con «nessuno poteva confermare».
+
 Se la risposta non arriva, o non è quella di consenso, NON SHALL partire niente
 e lo strumento SHALL dirlo con la ragione.
 
@@ -99,6 +111,14 @@ e lo strumento SHALL dirlo con la ragione.
 - **GIVEN** una conferma di invio aperta
 - **THEN** la domanda SHALL contenere il corpo del messaggio
 - **AND** la traccia lasciata dopo NON SHALL contenerlo
+
+#### Scenario: la persona legge cosa allega
+- **GIVEN** una conferma di invio con un allegato
+- **THEN** la domanda SHALL contenere il NOME del file, non solo quanti sono
+
+#### Scenario: il tool è registrato col nome nudo
+- **GIVEN** una riga che porta `send_mail` senza prefisso di flotta
+- **THEN** la conferma SHALL essere dipinta su quella riga
 
 #### Scenario: la persona non risponde
 - **GIVEN** una conferma aperta e nessuna risposta
@@ -122,7 +142,12 @@ corpo, account fra quelli dichiarati, allegati presi dal workspace della card) e
 JSON).
 
 Gli allegati SHALL essere risolti DENTRO il workspace della sessione: un percorso
-che esce dalla cartella SHALL essere rifiutato.
+che esce dalla cartella SHALL essere rifiutato. Il contenimento SHALL essere
+deciso sul percorso REALE, con i link simbolici gia' risolti (sia del candidato
+sia del workspace): `resolve()` normalizza `../` e NON segue un link, e un
+agente che ha una shell nella propria worktree scrive `ln -s <segreto> allegato`
+in un comando. Il percorso passato alla CLI SHALL essere quello reale, cosi' che
+un link ripuntato mentre la persona legge la domanda non cambi cio' che parte.
 
 Le chiamate Google che LEGGONO (`list`, `get`, e simili) NON SHALL chiedere
 conferma; quelle che SCRIVONO SHALL chiederla, e un metodo che non si sa
@@ -142,6 +167,17 @@ timeout di socket dal lato del client.
 - **GIVEN** un allegato che risolve fuori dalla cartella della sessione
 - **THEN** SHALL essere rifiutato e NON SHALL partire nessun invio
 
+#### Scenario: un allegato che e' un LINK verso l'esterno
+- **GIVEN** dentro il workspace un link simbolico a un file fuori dal workspace
+- **THEN** SHALL essere rifiutato e NON SHALL aprire nessuna conferma
+
+#### Scenario: una risposta del server non si ri-manda
+- **GIVEN** una gamba a cui il server risponde con un errore (400, 502)
+- **THEN** lo strumento SHALL riportare QUELL'errore all'agente
+- **AND** NON SHALL ripetere la richiesta: solo una richiesta che non e' mai
+  arrivata SHALL essere ritentata, perche' una seconda POST che il server
+  riceve, dopo la conferma, e' un secondo messaggio
+
 ### Requirement: OUTBOUND-05 — Ciò che esce dalla macchina lascia una traccia sulla card
 
 Ogni invio riuscito e ogni scrittura Google riuscita SHALL lasciare un commento
@@ -150,10 +186,17 @@ strumento e l'oggetto o la chiamata), a chi (il destinatario o la risorsa) e
 l'esito. Il commento NON SHALL contenere il corpo intero del messaggio.
 
 Anche un tentativo RIFIUTATO dalla persona o FALLITO SHALL lasciare la sua riga:
-una decisione che ferma un invio è un fatto della card quanto l'invio.
+una decisione che ferma un invio è un fatto della card quanto l'invio. Vale
+anche per un fallimento DOPO il sì che non sia la CLI (un eseguibile che la
+variabile non trova più): la persona ha confermato e niente è partito, e senza
+quella riga l'unica memoria di un invio rotto è il messaggio dell'agente.
 
 Una sessione che non appartiene a nessuna card NON SHALL fallire per questo: la
 traccia è il risultato dello strumento nella chat.
+
+#### Scenario: confermato e non partito
+- **GIVEN** un invio confermato e un eseguibile che non si trova
+- **THEN** SHALL comparire un commento che dice FALLITO e nomina la variabile
 
 #### Scenario: invio riuscito da una card
 - **GIVEN** una sessione che appartiene a un task

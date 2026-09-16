@@ -45,8 +45,10 @@ e l'ambiente in un file temporaneo.
   `POST /api/sessions/:key/outbound/google`, a gambe corte (`pending`), con la
   conferma PRIMA dello spawn e la classificazione lettura/scrittura per Google
   (sconosciuto = scrittura).
-- [x] 4.2 Allegati risolti dentro il workspace della sessione
-  (`isInsideDir`), rifiuto esplicito fuori.
+- [x] 4.2 Allegati risolti dentro il workspace della sessione sul percorso
+  REALE (`realPathForNewEntry` + `isInsideDir`, come
+  `browser-tool-dispatcher.ts`): un link che esce e' rifiutato, e alla CLI va
+  il percorso reale. Nomi e peso degli allegati NELLA domanda di conferma.
 - [x] 4.3 Commento di servizio sulla card: chi, cosa, a chi, esito — mai il
   corpo. Anche per il rifiuto e per il fallimento.
 - [x] 4.4 Montaggio in `server/routes/topics.ts` accanto al router del canale
@@ -68,3 +70,24 @@ e l'ambiente in un file temporaneo.
 - [x] 6.1 `shared/board.ts`: una riga nell'envelope, perché un agente
   dispatchato legge SOLO quello.
 - [x] 6.2 `docs/board-protocol.md`: la copia per gli umani, allineata.
+
+## 7. Giro di correzioni (review della PR)
+
+- [x] 7.1 Contenimento degli allegati sul percorso REALE: `resolve()` non segue
+  i link, `path-containment.ts` lo dichiara, e un agente con una shell scrive
+  `ln -s <segreto> allegato.pdf` in un comando. Test con un link vero, in
+  entrambe le direzioni (fuori = rifiutato, dentro = passa col file reale).
+- [x] 7.2 La conferma NOMINA gli allegati (nome + peso): «Allegati: 1» è la
+  busta chiusa che OUTBOUND-03 vieta due paragrafi sopra.
+- [x] 7.3 Traccia sulla card anche quando un invio CONFERMATO non parte perché
+  l'eseguibile non si trova (OUTBOUND-05), su posta e su Google.
+- [x] 7.4 `findWaitingToolRow` riconosce il NOME NUDO e un altro punto di
+  montaggio: il runtime nativo pubblica i tool senza prefisso, e senza questo
+  ogni invio in chat veniva rifiutato con «nessuno poteva confermare». Stessa
+  regola già scritta in `providers/ask-user-detector.ts`.
+- [x] 7.5 `HttpAnswerError` in `topics-http.ts`: una RISPOSTA del server non si
+  ritenta. Prima ogni non-2xx passava per socket caduto, quindi lo stesso corpo
+  veniva ri-POSTato — e dopo la conferma la seconda POST è un secondo messaggio.
+- [x] 7.6 `permission.ts` svuota il registro di `routeAskToTaskThread` anche
+  dopo una risposta arrivata dal pannello: era il difetto ereditato che il
+  cancello aggirava per sé e lasciava intatto per `ask_user_question`.
