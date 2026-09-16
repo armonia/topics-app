@@ -13,9 +13,13 @@ import {
   DEBT_GB_PER_MIN,
   parseSwapTotalMB,
   parseSwapUsedMB,
+  signed,
   SWAP_CEILING_SHARE,
+  swapReasonIt,
+  swapSigns,
   swapVerdict,
   type MemSample,
+  type SwapVerdict,
 } from "./mem-signal";
 import { parseVmStat } from "./dispatch-capacity";
 
@@ -288,14 +292,99 @@ describe("parsers and the [memsig] line", () => {
       // without the second a line about a held queue names nobody.
       foreign: [{ name: "Claude", gb: 8.1, procs: 12 }, { name: "next-server", gb: 2.9, procs: 1 }],
     });
-    expect(line).toBe("2026-09-15T14:06:10.000Z [memsig] avail=4.4 held2m=3.9 cover=120s swapin/s=33.6 debt/min=+8.8 comprGB=13.5 swapUsedGB=10.1 swapPct=96.5 load1=75.9 swap=sustained inFlight=2 checkRuns=1 heaviestCheckGB=8.2 frozen=1 frozenGB=2.4 altri=Claude:8.1,next-server:2.9");
+    expect(line).toBe("2026-09-15T14:06:10.000Z [memsig] avail=4.4 held2m=3.9 cover=120s swapin/s=33.6 debt/min=+8.8 comprGB=13.5 swapUsedGB=10.1 swapTotalGB=16.4 swapPct=96.5 load1=75.9 swap=sustained inFlight=2 checkRuns=1 heaviestCheckGB=8.2 frozen=1 frozenGB=2.4 altri=Claude:8.1,next-server:2.9");
     const empty = formatMemorySignalLine({
       at: 0, held: { measurable: true, latestGB: null, heldGB: null, coveredMs: 0 },
       swap: { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, swapPct: null, coveredMs: 0 }, latest: null, inFlight: 0, checkRuns: 0, heaviestCheckGB: null,
     });
-    expect(empty).toContain("avail=? held2m=? cover=0s swapin/s=? debt/min=? comprGB=? swapUsedGB=? swapPct=? load1=? swap=calm");
+    expect(empty).toContain("avail=? held2m=? cover=0s swapin/s=? debt/min=? comprGB=? swapUsedGB=? swapTotalGB=? swapPct=? load1=? swap=calm");
     // A caller that knows nothing about freezes says zero, not `?`: nothing
     // frozen is a MEASUREMENT here, and the bar sums these numbers.
     expect(empty).toEndWith("frozen=0 frozenGB=0.0 altri=-");
+  });
+});
+
+/**
+ * THE DENOMINATOR AND THE SIGN, the two things the ceiling door broke.
+ *
+ * `swapPct` decides half the verdict and its denominator was never written
+ * anywhere: the live server logged `swapUsedGB` alone for 869 lines, so no
+ * share in this repo was ever read off a machine - they were all divided by an
+ * assumed 16384. And `sustained` no longer implies a growing debt, so every
+ * line that hard-coded a `+` in front of it started printing `+-1.9`.
+ *
+ * @covers KANBAN-75
+ */
+describe("the terms of the verdict must be readable after the fact", () => {
+  const verdict = (over: Partial<SwapVerdict> = {}): SwapVerdict =>
+    ({ sustained: true, pagesReadBackPerS: 167.7, debtGBPerMin: -1.9, swapPct: 0.9277, coveredMs: 60_000, ...over });
+
+  test("S6: the swap file TOTAL is in the line, because a share without its denominator cannot be calibrated", () => {
+    const line = formatMemorySignalLine({
+      at: Date.UTC(2026, 8, 16, 12, 46, 59),
+      held: { measurable: true, latestGB: 3.6, heldGB: 3.6, coveredMs: 120_000 },
+      swap: verdict({ pagesReadBackPerS: 284, debtGBPerMin: 1.7, swapPct: 17_200 / 17_408 }),
+      // The live 12:46:59 reading: 17.2 GB USED, which is more than the 16384 MB
+      // the share of every line before it had been divided by.
+      latest: s(0, { swapUsedMB: 17_200, swapTotalMB: 17_408 }),
+      inFlight: 0, checkRuns: 0, heaviestCheckGB: null,
+    });
+    expect(line).toContain("swapUsedGB=17.2 swapTotalGB=17.4 swapPct=98.8");
+  });
+
+  test("S7: a sustained verdict with a FALLING debt never prints `+-`, and says which term fired", () => {
+    expect(signed(-1.9)).toBe("-1.9");
+    expect(signed(0)).toBe("+0.0");
+    expect(signed(null)).toBe("?");
+    // The real 12:22:24 minute: 167.7 pages/s, debt -1.9, file 92.8% full.
+    expect(swapSigns(verdict())).toBe("swapins 167.7/s, memory debt -1.9 GB/min, swap file 92.8% full");
+    expect(swapSigns(verdict())).not.toContain("+-");
+    // Italian, for the card: with the debt falling the reason is the CEILING,
+    // and a note that says "debito +-1.9" names neither term.
+    expect(swapReasonIt(verdict())).toBe("il Mac ha il file di swap pieno al 92.8% e rilegge 167.7 pagine/s dal disco (debito -1.9 GB/min)");
+    // With the debt growing the old sentence is still the true one.
+    expect(swapReasonIt(verdict({ debtGBPerMin: 8.8, pagesReadBackPerS: 33.6 })))
+      .toBe("il Mac è in swap da un minuto (33.6 pagine/s rilette dal disco, debito di memoria +8.8 GB/min)");
+    for (const v of [verdict(), verdict({ debtGBPerMin: 8.8 }), verdict({ debtGBPerMin: null, swapPct: null })]) {
+      expect(swapSigns(v) + swapReasonIt(v)).not.toContain("+-");
+    }
+  });
+});
+
+/**
+ * A DEBT IN FREE FALL AT THE CEILING IS NOT RECOVERY, and this pins the
+ * decision so that nobody has to re-derive it from the log.
+ *
+ * The obvious narrowing - let the ceiling vote only while the debt is inside a
+ * narrow band - was tried against the live lines and REFUSED: the two minutes
+ * that read most like recovery, 12:22 (-1.7 GB/min at 167.7 pages/s) and 12:48
+ * (-4.1 at 134.6), are each wedged between minutes the AND ALONE already called
+ * sustained (12:21 +0.7 at 170.1/s, 12:46 +1.7 at 284.0/s, 12:49 +0.8 at
+ * 171.7/s). A compressor dropping 4.5 GB in one minute there is a process dying
+ * under the pressure, not the pressure lifting - and the band would also throw
+ * away the very line this door was written for.
+ *
+ * @covers KANBAN-75
+ */
+describe("swapVerdict: at the ceiling a falling debt does not veto, below it nothing changes", () => {
+  const minute = (pagesPerS: number, debtGBPerMin: number, usedMB: number, totalMB: number | null = 16_384) =>
+    swapVerdict(swapSeries(60, () => ({ swapins: pagesPerS * 5, compressorPages: perMinGBToPages5s(debtGBPerMin), swapUsedMB: 0 }),
+      { swapins: 1_000_000, compressorPages: 700_000, swapUsedMB: usedMB }, totalMB), at(60));
+
+  test("S8: 12:48, 134.6 pages/s with the debt at -4.1 and the file 92.8% full, between two sustained minutes", () => {
+    const v = minute(134.6, -4.1, 15_200);
+    expect(v.debtGBPerMin!).toBeLessThan(-4);
+    expect(v.swapPct!).toBeGreaterThanOrEqual(SWAP_CEILING_SHARE);
+    expect(v.sustained).toBe(true);
+    // The minute before and the minute after, on the debt term alone.
+    expect(minute(284, +1.7, 15_200).sustained).toBe(true);
+    expect(minute(171.7, +0.8, 15_200).sustained).toBe(true);
+  });
+
+  test("S9: the same shape BELOW the ceiling is still calm - that is M5b, and it is what recovery looks like", () => {
+    // 11:23 of 15/09: 65 pages/s, debt falling, 10788 MB of 16384 = 65.8%.
+    const v = minute(65, -4.1, 10_788);
+    expect(v.swapPct!).toBeLessThan(SWAP_CEILING_SHARE);
+    expect(v.sustained).toBe(false);
   });
 });

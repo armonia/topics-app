@@ -94,6 +94,7 @@ import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
+import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
@@ -1540,14 +1541,16 @@ void memSignal.sample();
 
 /**
  * CHI tiene la memoria quando non e' Topics: un solo `/bin/ps` al minuto, sul
- * battito che stampa gia' `[memsig]`. I marcatori sono le tre radici da cui
- * nasce tutto il nostro: il checkout, le worktree degli agenti e il guscio.
- * Tutto il resto e' di qualcun altro, e va detto a chi guarda la coda ferma.
+ * battito che stampa gia' `[memsig]`. I marcatori sono le radici da cui nasce
+ * tutto il nostro: il checkout, le worktree degli agenti e i DUE bundle di
+ * `OUR_APP_MARKERS` (il guscio e il programma del LaunchAgent, che del server e'
+ * antenato e non discendente). Tutto il resto e' di qualcun altro, e va detto a
+ * chi guarda la coda ferma.
  */
 const memoryOwners = createMemoryOwnersReader({
   selfPid: process.pid,
   ourMarkers: () => {
-    const marks = [import.meta.dir, "/Topics.app/"];
+    const marks = [import.meta.dir, ...OUR_APP_MARKERS];
     try { marks.push(ctx.worktreeManager.worktreesDir()); } catch { /* not mounted yet */ }
     return marks;
   },

@@ -17,7 +17,9 @@ import {
   formatMemoryOwners,
   memoryOwners,
   memoryOwnersLogField,
+  OUR_APP_MARKERS,
   parsePsMemRows,
+  rowGB,
   type PsMemRow,
 } from "./memory-owners";
 
@@ -84,6 +86,9 @@ describe("appFamilyName: the app, never the raw process name", () => {
     expect(appFamilyName("node /Users/zorahrel/Projects/quadra/node_modules/.pnpm/next@15.5.23/node_modules/next/dist/bin/next dev")).toBe("next");
     expect(appFamilyName("node /Users/zorahrel/Projects/topics-app/server/pty-bridge.mjs --socket /tmp/x.sock")).toBe("pty-bridge");
     expect(appFamilyName("node --max-old-space-size=8192")).toBe("node");
+    // `index` is a file name, not a program: the package above it is the answer.
+    expect(appFamilyName("/opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway --port 18789")).toBe("openclaw");
+    expect(appFamilyName("bun run /Users/zorahrel/Projects/topics-app/server/index.ts")).toBe("server");
   });
 });
 
@@ -142,5 +147,103 @@ describe("memoryOwners: everything that is not Topics, heaviest first", () => {
     const inOrder = memoryOwners({ rows, selfPid: SERVER_PID, ourMarkers: OURS, floorGB: 0, top: 50 });
     const shuffledOut = memoryOwners({ rows: shuffled, selfPid: SERVER_PID, ourMarkers: OURS, floorGB: 0, top: 50 });
     expect(round(shuffledOut)).toEqual(round(inOrder));
+  });
+});
+
+/**
+ * THE SECOND EXTRACT, and it exists because the first one cannot see any of
+ * this: `/bin/ps -Ao pid=,ppid=,rss=,command=` on this Mac on 16/09/2026 at
+ * 15:20, pids, paths and resident sizes verbatim, with the answers
+ * `responsibility_get_pid_responsible_for_pid` really gave beside them. It
+ * carries the three shapes `PS_REAL` has none of:
+ *
+ *  - `Topics Host.app` (pid 808), the program of the `com.armonia.topics-server`
+ *    LaunchAgent and the server's ANCESTOR, not its descendant;
+ *  - two foreign processes macOS makes it responsible for (an `astro dev` of
+ *    another repo's worktree and the `npm exec` above it) - 28 of them on the
+ *    live machine;
+ *  - a foreign process responsible to ANOTHER foreign process: `next-server`
+ *    answers 19972, the OpenClaw gateway.
+ *
+ * Every family here is far under the 0.5 GB floor, so these tests read the list
+ * with the floor off: what is on trial is the NAME each row is counted under,
+ * and the floor would hide the whole table.
+ *
+ * @covers KANBAN-75
+ */
+const PS_HOST = `
+  808     1   5104 /Users/zorahrel/Applications/Topics Host.app/Contents/MacOS/topics-host
+  981   808    736 /bin/bash /Users/zorahrel/Projects/topics-app/scripts/start-prod.sh
+ 5629   981 151584 /Users/zorahrel/.bun/bin/bun run /Users/zorahrel/Projects/topics-app/server.ts
+19972     1 247360 /opt/homebrew/opt/node/bin/node --max-old-space-size=8192 /opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway --port 18789
+24226 24160   4576 node /Users/zorahrel/Projects/quadra/node_modules/next/dist/bin/next dev
+24276 24226  37584 next-server (v15.5.23)
+41343     1   8096 npm exec astro dev --port 4444 --host 127.0.0.1 --force
+41387 41343  19376 node /Users/zorahrel/Projects/armonia-agency/armonia-site/.claude/worktrees/mano-armonia/node_modules/.bin/astro dev --port 4444 --host 127.0.0.1 --force
+45099 19972 189808 /Users/zorahrel/.local/bin/claude --disallowedTools ScheduleWakeup,CronCreate --strict-mcp-config
+48914     1 122624 /Applications/Claude.app/Contents/MacOS/Claude
+39946     1 105664 /System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent
+91121     1  53712 /Users/zorahrel/Applications/Topics.app/Contents/MacOS/app
+`;
+
+describe("memoryOwners: the responsible pid names an XPC service and nothing else", () => {
+  const hostRows = parsePsMemRows(PS_HOST);
+  /** What the FFI answered, pid by pid, on the live machine. */
+  const RESPONSIBLE_LIVE = new Map([[808, 808], [981, 808], [5629, 808], [24276, 19972], [41343, 808], [41387, 808], [39946, 91121]]);
+  const hostOwners = (over: Partial<Opts> = {}) => memoryOwners({
+    rows: hostRows,
+    selfPid: 5629,
+    ourMarkers: ["/Users/zorahrel/Projects/topics-app", ...OUR_APP_MARKERS],
+    ownerOf: (pid) => RESPONSIBLE_LIVE.get(pid) ?? null,
+    floorGB: 0, top: 50, ...over,
+  });
+
+  test("O9: the `astro dev` of another repo is named after ITSELF, and no family is called Topics Host", () => {
+    const names = hostOwners().map((f) => f.name);
+    // The row the sentence exists to name: 41387, responsible to pid 808.
+    expect(names).toContain("astro");
+    expect(hostOwners().find((f) => f.name === "astro")).toEqual({ name: "astro", gb: 19_376 / 1e6, procs: 1 });
+    // `Topics Host.app` is OURS, so it is neither a family of its own nor the
+    // name somebody else's memory gets counted under.
+    expect(names).not.toContain("Topics Host");
+    expect(names).not.toContain("topics-host");
+    // And what is ours is still ours: the server, the launchd script, the shell
+    // and the WebContent our shell is responsible for.
+    expect(hostOwners().reduce((n, f) => n + f.procs, 0)).toBe(hostRows.length - 5);
+  });
+
+  test("O10: `next-server` keeps its own name, not the name of the bundle that launched it", () => {
+    const names = hostOwners().map((f) => f.name);
+    expect(names).toContain("next-server");
+    // The gateway's own row is `.../openclaw/dist/index.js`: on the live machine
+    // its responsible-pid answer pulled 24 unrelated processes into a family
+    // called `index`, `next-server` among them.
+    expect(names).not.toContain("index");
+    // The gateway keeps a name a person can act on: `dist/index.js` is a file
+    // name, `openclaw` is the program.
+    expect(names).toContain("openclaw");
+    expect(hostOwners().find((f) => f.name === "next-server")!.procs).toBe(1);
+    // An XPC service still goes to whoever asked for it: 39946 is our shell's.
+    expect(names).not.toContain("WebContent");
+  });
+
+  test("O11: a family is summed on the FOOTPRINT, and on resident size only where there is none", () => {
+    // Measured 16/09 on the live Claude family: 7.01 GB resident, 10.88 GB of
+    // `phys_footprint` over the same 33 pids. Activity Monitor shows the second.
+    const withFootprint = hostRows.map((r) => (r.pid === 48914 ? { ...r, footprintKB: 190_000 } : r));
+    expect(rowGB({ pid: 1, ppid: 0, rssKB: 122_624, footprintKB: 190_000, command: "x" })).toBeCloseTo(0.19, 6);
+    expect(rowGB({ pid: 1, ppid: 0, rssKB: 122_624, command: "x" })).toBeCloseTo(0.122624, 6);
+    expect(hostOwners({ rows: withFootprint }).find((f) => f.name === "Claude")!.gb).toBeCloseTo(0.19, 6);
+    expect(hostOwners().find((f) => f.name === "Claude")!.gb).toBeCloseTo(0.122624, 6);
+  });
+
+  test("O12: two names that differ only by case are told apart in the sentence the owner reads", () => {
+    // Live on 16/09: `Claude 6.8 GB` (the app) beside `claude 1.1 GB` (the CLI
+    // the app ships, running outside it) - two entries, one readable word.
+    const named = hostOwners({ floorGB: 0.1, top: 3 });
+    expect(named.map((f) => f.name)).toEqual(["openclaw", "claude (comando)", "Claude"]);
+    expect(formatMemoryOwners(named)).toBe("Fuori da Topics la memoria la tengono: openclaw 0.2 GB, claude (comando) 0.2 GB, Claude 0.1 GB.");
+    // A name with no twin is left alone.
+    expect(hostOwners().map((f) => f.name)).toContain("astro");
   });
 });

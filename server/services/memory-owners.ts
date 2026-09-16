@@ -14,9 +14,19 @@
  * included), never one per card. Everything below is pure code over the lines
  * that read returns, and the grouping is what the test drives.
  *
- * RSS AND NOT FOOTPRINT, said out loud: helper processes of one app share
- * pages, so a family total is an upper bound, not a sum of disjoint memory. It
- * ranks the apps right, which is the whole job here - it gates nothing.
+ * FOOTPRINT AND NOT RSS, and the difference is not small: measured on this Mac
+ * on 16/09/2026 the Claude family reads 7.01 GB of resident size across 33
+ * processes and 10.88 GB of `phys_footprint`, 55% more. Activity Monitor shows
+ * the footprint, so a card saying 7.0 GB would be naming a number the owner
+ * cannot find anywhere on his screen - and `rss` reads SMALL exactly while a
+ * tree thrashes, which is the only moment this sentence is ever printed (the
+ * same reason `swap-freeze.ts` picks its victim on footprint). `procFootprintKB`
+ * is the FFI the fleet already calls, no extra fork; `rssKB` stays the fallback
+ * for a pid the kernel will not answer for.
+ *
+ * A family total is still an upper bound and not a sum of disjoint memory -
+ * helpers of one app share pages either way. It ranks the apps right, which is
+ * the whole job here: it gates nothing.
  */
 
 /** One `/bin/ps -Ao pid=,ppid=,rss=,command=` line. */
@@ -25,7 +35,14 @@ export interface PsMemRow {
   ppid: number;
   /** `ps` prints resident size in KB. */
   rssKB: number;
+  /** `phys_footprint` in KB, when the kernel answered for this pid: what a family is summed on. */
+  footprintKB?: number;
   command: string;
+}
+
+/** What the row weighs: the footprint when there is one, resident size when there is not. */
+export function rowGB(r: PsMemRow): number {
+  return (r.footprintKB ?? r.rssKB) / 1e6;
 }
 
 /** A family of processes and what it holds, in GB. */
@@ -35,6 +52,20 @@ export interface MemoryFamily {
   gb: number;
   procs: number;
 }
+
+/**
+ * THE BUNDLES THAT ARE OURS wherever a process was reparented to.
+ *
+ * `Topics Host.app` is not a second name for `Topics.app`. It is the program of
+ * the `com.armonia.topics-server` LaunchAgent, built from this repo
+ * (`scripts/build-topics-host.sh`), and it is the parent of `start-prod.sh` and
+ * so the server's own ANCESTOR - while the descent below only walks DOWN from
+ * the server, never up. Left out it is a FOREIGN family named after us, and
+ * every XPC service macOS makes it responsible for goes in with it: measured
+ * 16/09/2026, pid 808 is the responsible app of 28 processes that are not ours
+ * at all.
+ */
+export const OUR_APP_MARKERS: readonly string[] = ["/Topics.app/", "/Topics Host.app/"];
 
 /**
  * Under this a family is not worth a sentence: nobody quits an app to get
@@ -71,7 +102,29 @@ export function appFamilyName(command: string): string {
   // `node /…/next/dist/bin/next dev` is "next", not "node": the first argument
   // that is a path is the program a person would recognise and stop.
   const script = tokens.slice(1).find((t) => t.includes("/") && !t.startsWith("-"));
-  return script ? base(script).replace(/\.(m|c)?[jt]s$/, "") : argv0;
+  if (!script) return argv0;
+  const file = base(script).replace(/\.(m|c)?[jt]s$/, "");
+  if (!GENERIC_ENTRY.has(file)) return file;
+  // ...unless the file is the entry point every package has: nobody recognises
+  // `index`. `/opt/homebrew/lib/node_modules/openclaw/dist/index.js gateway` is
+  // the OpenClaw gateway, and it read as a family called `index` - the heaviest
+  // non-app node process on this Mac named after a file name.
+  const parts = script.split("/").slice(0, -1).filter(Boolean);
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const dir = parts[k]!;
+    if (!BUILD_DIRS.has(dir)) return dir;
+  }
+  return file;
+}
+
+/** File names that name nothing: every package has one. */
+const GENERIC_ENTRY = new Set(["index", "main", "cli"]);
+/** Directories that hold build output, not a program: skipped when climbing out of a generic entry point. */
+const BUILD_DIRS = new Set(["dist", "build", "lib", "bin", ".bin", "src", "out", "esm", "cjs", "node_modules"]);
+
+/** An XPC service, the only row whose name may come from somebody else. */
+function isXpc(command: string): boolean {
+  return command.includes(".xpc/");
 }
 
 function base(path: string): string {
@@ -102,6 +155,15 @@ export interface MemoryOwnersInput {
    * as a foreign "WebContent" family - measured on this Mac, three of them, all
    * responsible to `Topics.app` - and the sentence would blame the owner for
    * memory Topics itself is holding.
+   *
+   * ASKED ONLY OF AN XPC SERVICE, which is what it is for. It answers for 600
+   * pids of 901 on this machine, and asking it about every row handed the NAME
+   * of somebody else's process to whoever had launched it: `next-server` (pid
+   * 24276) is responsible to the OpenClaw gateway and was counted in a family
+   * called `index`, after the bundle's `dist/index.js` - the process the
+   * sentence exists to name came out named after a file. That one lookup built
+   * families of `index` (24 processes, 0.94 GB), `npm` and `mcp-remote` out of
+   * unrelated programs.
    */
   ownerOf?: (pid: number) => number | null;
   top?: number;
@@ -134,20 +196,33 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     }
   }
 
-  const totals = new Map<string, MemoryFamily>();
+  const totals = new Map<string, MemoryFamily & { bundle: boolean }>();
   for (const r of rows) {
     if (ours.has(r.pid)) continue;
-    // Count the row under whoever asked for it, when that is somebody else.
-    const ownerPid = input.ownerOf?.(r.pid) ?? null;
+    // An XPC service is counted under whoever ASKED for it - and only an XPC
+    // service: see `ownerOf`. Everything else is named by its own command line.
+    const ownerPid = isXpc(r.command) ? input.ownerOf?.(r.pid) ?? null : null;
     const owner = ownerPid != null && ownerPid !== r.pid ? byPid.get(ownerPid) : undefined;
     if (owner && ours.has(owner.pid)) continue;
-    const name = appFamilyName((owner ?? r).command);
-    const seen = totals.get(name) ?? { name, gb: 0, procs: 0 };
-    seen.gb += r.rssKB / 1e6;
+    const from = (owner ?? r).command;
+    const name = appFamilyName(from);
+    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, bundle: false };
+    seen.gb += rowGB(r);
     seen.procs += 1;
+    seen.bundle ||= /\/[^/]+\.app\//.test(from);
     totals.set(name, seen);
   }
+  // TWO LINES THAT DIFFER ONLY BY CASE are two lines nobody can tell apart.
+  // Measured 16/09: `Claude 7.0 GB` (the app) beside `claude 1.1 GB` (the CLI
+  // the app ships, running outside it). The app keeps the bare name; the
+  // command says what it is.
+  const byLower = new Map<string, number>();
+  for (const f of totals.values()) byLower.set(f.name.toLowerCase(), (byLower.get(f.name.toLowerCase()) ?? 0) + 1);
+  for (const f of totals.values()) {
+    if (!f.bundle && (byLower.get(f.name.toLowerCase()) ?? 0) > 1) f.name = `${f.name} (comando)`; // allow-italian: the owner reads this name inside an Italian sentence
+  }
   return [...totals.values()]
+    .map(({ name, gb, procs }) => ({ name, gb, procs }))
     .filter((f) => f.gb >= floorGB)
     .sort((a, b) => b.gb - a.gb || a.name.localeCompare(b.name))
     .slice(0, top);

@@ -32,6 +32,14 @@ import { _resetCardMemPeaks, recentCardMemPeaksGB } from "../lib/card-memory-pea
 
 const CALM: SwapVerdict = { sustained: false, pagesReadBackPerS: 1, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 };
 const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 };
+/**
+ * THE POSE THE NEW CODE ACTUALLY LIVES IN, and the one no test held before:
+ * sustained THROUGH THE CEILING, with the debt FALLING. Verbatim the 12:22:24
+ * line of 16/09/2026 - 167.7 pages/s read back, debt -1.9 GB/min, swap file
+ * 92.8% full - which under the old AND was called calm and is the very line the
+ * second door was written for.
+ */
+const AT_CEILING: SwapVerdict = { sustained: true, pagesReadBackPerS: 167.7, debtGBPerMin: -1.9, swapPct: 0.9277, coveredMs: 60_000 };
 const fullWindow = (gb: number): HeldMemory => ({ measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 });
 
 /** Both sides of a timing case stretched by the same factor: the ratio is the claim. */
@@ -359,20 +367,49 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     expect(clock.now()).toBe(t0);
   });
 
-  test("W4: sustained swap beats the fail-open: nothing starts before the swap ends, then it starts anyway", async () => {
+  test("W4b: swap that never ends does NOT hold a round for ever - the budget is spent and it starts", async () => {
+    // The invariant that justified "no fail-open on swap" was that a sustained
+    // verdict implies a debt growing by 0.5 GB/min, which no machine holds for
+    // long. The ceiling door removes it: this Mac reads over 90% of its swap
+    // file in 566 of the 874 `[memsig]` lines of 15-16/09, and the longest
+    // unbroken sustained episode goes from 4 minutes to 19. A round that never
+    // starts records no verdict at all and the delivery just goes round again.
     const clock = steppedClock();
-    const t0 = clock.now();
-    const swap = () => {
-      const min = (clock.now() - t0) / 60_000;
-      return min >= 4 && min < 9 ? SUSTAINED : CALM;
-    };
-    const wait = memoryWaiter({ held: () => fullWindow(5), swap, floorGB: 6, maxWaitMs: 5 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => AT_CEILING, floorGB: 6, maxWaitMs: 5 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
-    const waited = await runUntil(clock, () => released, 20 * 60_000);
+    const waited = await runUntil(clock, () => released, 60 * 60_000);
+    expect(released).toBe(true);
+    expect(waited).toBe(5 * 60);
+    expect(lines().some((l) => l.includes('still in swap after 5 min: "test:unit" starts anyway'))).toBe(true);
+    // And the line that explained the wait carries the sign and the share.
+    expect(lines().some((l) => l.includes('"test:unit" waits: the Mac is in sustained swap (swapins 167.7/s, memory debt -1.9 GB/min, swap file 92.8% full)'))).toBe(true);
+    expect(lines().some((l) => l.includes("+-"))).toBe(false);
+  });
+
+  test("W4c: the budget is spent whatever holds the round, and a fresh round still waits", () => {
+    const base = { held: fullWindow(11), swap: AT_CEILING, floorGB: 6, otherRoundRelease: null, now: 0, maxWaitMs: 30 * 60_000 };
+    expect(releaseDecision({ ...base, spentMs: 0 })).toEqual({ release: false, wait: "swap", anyway: false });
+    expect(releaseDecision({ ...base, spentMs: 30 * 60_000 })).toEqual({ release: true, wait: null, anyway: true });
+    // Not a blanket fail-open: one second short of the budget it still waits.
+    expect(releaseDecision({ ...base, spentMs: 30 * 60_000 - 1 }).wait).toBe("swap");
+  });
+
+  test("W4: sustained swap beats the fail-open on room: nothing starts while it lasts, and it is the swap that ends it", async () => {
+    // A round restarted after a swap interruption must not start straight back
+    // into the thrash that is still under way: the room has been over the floor
+    // the whole time here and the budget (20 min) is nowhere near spent - what
+    // holds the round for nine minutes is the swap, and only the swap.
+    const clock = steppedClock();
+    const t0 = clock.now();
+    const swap = () => ((clock.now() - t0) / 60_000 < 9 ? SUSTAINED : CALM);
+    const wait = memoryWaiter({ held: () => fullWindow(11), swap, floorGB: 6, maxWaitMs: 20 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    let released = false;
+    void wait("test:unit").then(() => { released = true; });
+    const waited = await runUntil(clock, () => released, 30 * 60_000);
     expect(waited).toBe(9 * 60);
-    expect(lines().some((l) => l.includes("waits: the Mac is in sustained swap (swapins 33.6/s, memory debt +8.8 GB/min)"))).toBe(true);
-    expect(lines().some((l) => l.includes('no room after 5 min: "test:unit" starts anyway, swap not sustained'))).toBe(true);
+    expect(lines().some((l) => l.includes("waits: the Mac is in sustained swap (swapins 33.6/s, memory debt +8.8 GB/min, swap file ? full)"))).toBe(true);
+    expect(lines().some((l) => l.includes("starts anyway"))).toBe(false);
   });
 
   test("W5, restart after an interruption: the thrash readings keep the first command waiting 120 s after the last of them", async () => {
@@ -425,6 +462,19 @@ describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery,
     expect(b.notes[0]![1]).toContain("Interruzione 1 di 2");
     expect(b.logs.some((l) => l.startsWith('[checks-swap] interrupted "test:unit" of bbbbbbbb'))).toBe(true);
     expect(swapInterruptedDelivery("bbbbbbbb-2", "c1")).toBe(true);
+  });
+
+  test("S1b: interrupted AT THE CEILING, the note and the log name the term that fired and not a `+-`", () => {
+    const b = brakeAt();
+    const run = runOf("test:unit", "bbbbbbbb-2", 3, 4);
+    b.brake.tick(AT_CEILING, [run]);
+    const note = b.notes[0]![1];
+    const log = b.logs.find((l) => l.startsWith("[checks-swap] interrupted"))!;
+    expect(note).not.toContain("+-");
+    expect(log).not.toContain("+-");
+    // With the debt falling the reason is the full file, and the note says so.
+    expect(note).toContain("il Mac ha il file di swap pieno al 92.8% e rilegge 167.7 pagine/s dal disco (debito -1.9 GB/min)");
+    expect(log).toContain("swapins 167.7/s, memory debt -1.9 GB/min, swap file 92.8% full");
   });
 
   /**

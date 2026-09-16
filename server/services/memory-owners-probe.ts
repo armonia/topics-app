@@ -11,7 +11,7 @@
  * neither `/usr/sbin` nor, reliably, `/bin`.
  */
 import { captureWithDeadline } from "../lib/bounded-capture";
-import { responsiblePid } from "../lib/fleet-usage";
+import { procFootprintKB, responsiblePid } from "../lib/fleet-usage";
 import { memoryOwners, parsePsMemRows, type MemoryFamily } from "./memory-owners";
 
 export const PS_BIN = "/bin/ps";
@@ -40,6 +40,8 @@ export function createMemoryOwnersReader(deps: {
   now?: () => number;
   read?: () => Promise<string | null>;
   ownerOf?: (pid: number) => number | null;
+  /** `phys_footprint` of a pid in KB, or `null`: the test seam over the FFI. */
+  footprintOf?: (pid: number) => number | null;
   measurable?: boolean;
 }): MemoryOwnersReader {
   const now = deps.now ?? Date.now;
@@ -49,6 +51,7 @@ export function createMemoryOwnersReader(deps: {
     return got === null ? null : got.text;
   });
   const ownerOf = deps.ownerOf ?? responsiblePid;
+  const footprintOf = deps.footprintOf ?? procFootprintKB;
   let last: { at: number; families: MemoryFamily[] } | null = null;
   let inFlight: Promise<void> | null = null;
   return {
@@ -66,7 +69,13 @@ export function createMemoryOwnersReader(deps: {
           last = {
             at: now(),
             families: memoryOwners({
-              rows: parsePsMemRows(text),
+              // `phys_footprint` where the kernel knows it, `rss` where it does
+              // not: the same FFI the fleet reads, no second fork, and the only
+              // number that matches what Activity Monitor shows the owner.
+              rows: parsePsMemRows(text).map((r) => {
+                const kb = footprintOf(r.pid);
+                return kb === null ? r : { ...r, footprintKB: kb };
+              }),
               selfPid: deps.selfPid,
               ourMarkers: deps.ourMarkers(),
               ownerOf,

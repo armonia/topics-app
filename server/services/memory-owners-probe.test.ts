@@ -23,6 +23,9 @@ const reader = (over: Partial<Parameters<typeof createMemoryOwnersReader>[0]> = 
     ourMarkers: () => ["/Users/zorahrel/Projects/topics-app"],
     now: () => clock,
     ownerOf: () => null,
+    // The FFI is not asked about pids that do not exist on the machine running
+    // the test: what it would answer is R5's subject, not R1's.
+    footprintOf: () => null,
     measurable: true,
     read: async () => { reads += 1; return answer; },
     ...over,
@@ -43,6 +46,18 @@ describe("createMemoryOwnersReader", () => {
     await w.r.sample();
     expect(w.reads()).toBe(1);
     expect(w.r.latest()).toEqual([{ name: "Dia", gb: expect.closeTo(1.12, 2), procs: 2 }]);
+  });
+
+  test("R5: the family is summed on `phys_footprint`, with resident size only where the kernel is silent", async () => {
+    // Live on 16/09/2026 the Claude family read 7.01 GB resident and 10.88 GB of
+    // footprint over the same 33 pids: `ps` alone would name a number 35% under
+    // what Activity Monitor shows the owner, and `rss` reads small exactly while
+    // a tree thrashes - the only moment this sentence is printed at all.
+    const w = reader({ footprintOf: (pid) => (pid === 3554 ? 1_400_000 : null) });
+    await w.r.sample();
+    // 1.4 GB of footprint for the renderer, 0.245 GB of rss for the pid the
+    // kernel would not answer for.
+    expect(w.r.latest()).toEqual([{ name: "Dia", gb: expect.closeTo(1.646, 3), procs: 2 }]);
   });
 
   test("R2: a mute `ps` keeps the last answer instead of inventing an empty one", async () => {

@@ -78,13 +78,13 @@ export const DEBT_GB_PER_MIN = 0.5;
  * any more reads exactly like a debt that is not growing.
  *
  * Measured on the live server on 16/09/2026 between 11:50 and 12:35, one
- * `[memsig]` line a minute, swap total 16384 MB throughout:
+ * `[memsig]` line a minute:
  *
- *     swapin/s 170.1 debt +0.7 swapUsed 14.8 (90.3%) -> sustained
- *     swapin/s 167.7 debt -1.7 swapUsed 15.2 (92.8%) -> CALM
- *     swapin/s  64.1 debt -1.2 swapUsed 15.4 (94.0%) -> CALM
- *     swapin/s  36.3 debt -0.1 swapUsed 15.3 (93.4%) -> CALM
- *     swapin/s  27.8 debt +0.1 swapUsed 15.1 (92.2%) -> CALM
+ *     swapin/s 170.1 debt +0.7 swapUsed 14.8 -> sustained
+ *     swapin/s 167.7 debt -1.7 swapUsed 15.2 -> CALM
+ *     swapin/s  64.1 debt -1.2 swapUsed 15.4 -> CALM
+ *     swapin/s  36.3 debt -0.1 swapUsed 15.3 -> CALM
+ *     swapin/s  27.8 debt +0.1 swapUsed 15.1 -> CALM
  *
  * Eleven lines of those 40 minutes read at least 10 pages/s back from disk and
  * only two were called sustained: with the swap full the debt oscillates around
@@ -93,13 +93,36 @@ export const DEBT_GB_PER_MIN = 0.5;
  * needed. The reading was already in the probe's hands and thrown away -
  * `sysctl -n vm.swapusage` prints `total` next to `used`.
  *
- * So the debt term gets an OR: the debt is GROWING, or the swap is already
- * full. 0.9 and not lower because with an OR the loose first term carries the
- * whole weight of the door alone: the sick readings above sit at 90.3-94.0%
- * and this machine read 96.5% while the queue was stuck, while a machine with
- * headroom is asked to prove a full minute at 10 pages/s before the share is
- * even looked at (a healthy board reads 0.04-3 pages/s; on this sick Mac 49 of
- * 60 lines were still under 10).
+ * 0.9 IS PROVISIONAL AND IT IS NOT MEASURED, written down here because the
+ * first version of this comment claimed the opposite. `total` was NEVER in the
+ * log: `[memsig]` printed `swapUsedGB` alone, so the shares above are
+ * `used / 16384`, a denominator assumed and not read. And it moved - 39 of the
+ * 869 lines of 15-16/09 print `swapUsedGB` ABOVE 16.384, up to 17.2 GB at
+ * 12:46:59, eleven minutes after the last line of the table, so by then macOS
+ * had grown the file to at least 17408 MB. `/System/Volumes/VM` holds files of
+ * exactly 1 GiB: the denominator moves in 1 GB steps, which is 5.5 points of
+ * share at used = 15 GB against the 0.3 points of margin of the lowest line
+ * above. Had the 17th file already been there at 12:22, those five lines would
+ * read 85.0-88.5% and this door would open on none of them. `swapTotalGB` is in
+ * the line from today for exactly that reason: the share is calibrated on read
+ * numbers after a few days of log, not before.
+ *
+ * WHAT THE DOOR COSTS, counted over all 874 lines of the live log that carry
+ * the three fields (denominator assumed at 16384): the AND alone called 68 of
+ * them sustained, the OR calls 170. Against "at least 50 pages/s read back" as
+ * the thrash the brief names, precision goes 44% -> 32% and recall 39% -> 70%,
+ * and the longest unbroken episode goes from 4 minutes to 19 - which is why the
+ * checks brake now has a way out (`review-checks-brakes.ts`). It held nothing in
+ * that log: all 874 lines print `inFlight=0 checkRuns=0`, so there was never a
+ * check tree to brake or a tree to freeze in the minutes this door was written
+ * for. The board was stopped upstream, by the admission floor.
+ *
+ * WHAT IT STILL MISSES: 23 lines reading 50-438 pages/s sit UNDER the ceiling
+ * (12.3-14.7 GB used) and stay calm, the heaviest minute of the whole log among
+ * them (438.6 pages/s at 08:43:02, debt +0.0). A third term on the read-back
+ * rate alone would take them and is deliberately NOT here: this log holds no
+ * reading of a HEALTHY machine above 10 pages/s, so its threshold would be a
+ * second uncalibrated number propping up the first.
  *
  * THE TWO TERMS HAND OFF and that is why neither is enough alone. When macOS
  * grows the swap file the total rises, the share drops below the ceiling - and
@@ -108,6 +131,15 @@ export const DEBT_GB_PER_MIN = 0.5;
  * is at the ceiling. Swap turned off (`total = 0`), an unreadable line or the
  * first samples after a reboot leave the share `null`, which is not zero and
  * not one: the term simply does not vote, and the rule falls back to the debt.
+ *
+ * A FALLING DEBT DOES NOT VETO THE CEILING, and that is a decision and not an
+ * oversight. The two minutes that read most like recovery - 12:22 at -1.7 and
+ * 12:48 at -4.1 - sit INSIDE an episode that is sustained in the minute before
+ * AND in the minute after (12:21 +0.7 at 170.1/s, 12:46 +1.7 at 284.0/s, 12:49
+ * +0.8 at 171.7/s): a compressor losing 4.5 GB in one minute there is a process
+ * dying under the pressure, not the pressure ending. Recovery that really is
+ * recovery reads BELOW the ceiling and stays calm on the share alone (M5b: 65
+ * pages/s at 65.8% of the file).
  */
 export const SWAP_CEILING_SHARE = 0.9;
 /** Samples older than this are dropped: the longest question asked is 120 s. */
@@ -231,6 +263,51 @@ export function parseSwapTotalMB(out: string): number | null {
 }
 
 /**
+ * `+0.7`, `-1.9`, `?`: the ONE place a signed number gets its sign.
+ *
+ * Every line that explains a sustained verdict used to hard-code the `+`, which
+ * was true only while `sustained` implied a debt of at least +0.5 GB/min. The
+ * ceiling door removes that invariant - the typical sustained minute of the
+ * live log has a NEGATIVE debt - and four lines started printing `+-1.9`.
+ */
+export function signed(n: number | null | undefined, digits = 1): string {
+  return n == null || !Number.isFinite(n) ? "?" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}`;
+}
+
+function oneDecimal(n: number | null | undefined): string {
+  return n == null || !Number.isFinite(n) ? "?" : n.toFixed(1);
+}
+
+function sharePct(v: SwapVerdict): string {
+  return v.swapPct == null ? "?" : `${(v.swapPct * 100).toFixed(1)}%`;
+}
+
+/**
+ * The signs of a sustained verdict, for the ENGLISH log lines, in one place.
+ *
+ * The share is in it because since the ceiling became a door it is half the
+ * verdict: a line that explains a wait and names only the debt explains a wait
+ * that is not the one happening.
+ */
+export function swapSigns(v: SwapVerdict): string {
+  return `swapins ${oneDecimal(v.pagesReadBackPerS)}/s, memory debt ${signed(v.debtGBPerMin)} GB/min, swap file ${sharePct(v)} full`;
+}
+
+/**
+ * The same verdict for the notes the OWNER reads on a card, in Italian like
+ * every other board note, and naming the term that actually fired: with the
+ * debt growing the machine is taking on memory it cannot hold, with the debt
+ * flat or falling the reason is the full swap file, and "debito +-1.9 GB/min"
+ * was neither of the two.
+ */
+export function swapReasonIt(v: SwapVerdict): string {
+  const pages = oneDecimal(v.pagesReadBackPerS);
+  return v.debtGBPerMin != null && v.debtGBPerMin >= DEBT_GB_PER_MIN
+    ? `il Mac è in swap da un minuto (${pages} pagine/s rilette dal disco, debito di memoria ${signed(v.debtGBPerMin)} GB/min)` // allow-italian: board notes are written in Italian like every other service comment
+    : `il Mac ha il file di swap pieno al ${sharePct(v)} e rilegge ${pages} pagine/s dal disco (debito ${signed(v.debtGBPerMin)} GB/min)`; // allow-italian: board notes are written in Italian like every other service comment
+}
+
+/**
  * The instrument line, every 60 s, idle included: it gates nothing, and it is
  * what the thresholds above and the outcome bar are measured with.
  */
@@ -249,7 +326,6 @@ export function formatMemorySignalLine(i: {
   foreign?: readonly MemoryFamily[];
 }): string {
   const f = (n: number | null | undefined, digits = 1) => (n == null || !Number.isFinite(n) ? "?" : n.toFixed(digits));
-  const signed = (n: number | null) => (n == null || !Number.isFinite(n) ? "?" : `${n >= 0 ? "+" : ""}${n.toFixed(1)}`);
   const l = i.latest;
   const compressorGB = l?.compressorPages != null && l.pageSize ? (l.compressorPages * l.pageSize) / 1e9 : null;
   return [
@@ -261,6 +337,10 @@ export function formatMemorySignalLine(i: {
     `debt/min=${signed(i.swap.debtGBPerMin)}`,
     `comprGB=${f(compressorGB)}`,
     `swapUsedGB=${f(l?.swapUsedMB == null ? null : l.swapUsedMB / 1000)}`,
+    `swapTotalGB=${f(l?.swapTotalMB == null ? null : l.swapTotalMB / 1000)}`,
+    // The DENOMINATOR of the next field, and the reason it is here: the share
+    // that decides half the verdict was never logged, so nobody could tell a
+    // machine filling up from macOS having added a 1 GB file under it.
     `swapPct=${f(i.swap.swapPct == null ? null : i.swap.swapPct * 100)}`,
     `load1=${f(l?.load1)}`,
     `swap=${i.swap.sustained ? "sustained" : "calm"}`,

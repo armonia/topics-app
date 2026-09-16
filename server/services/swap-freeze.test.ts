@@ -67,9 +67,10 @@ interface World {
   freezer: ReturnType<typeof createSwapFreezer>;
   signals: { pid: number; sig: string }[];
   logs: string[];
+  notes: Array<[string, string]>;
   now: () => number;
   advance(ms: number): void;
-  beat(over?: { sustained?: boolean; heldGB?: number | null; pagesReadBackPerS?: number | null; brake?: { interrupted: boolean; skipped: string | null } }): Promise<void>;
+  beat(over?: { sustained?: boolean; heldGB?: number | null; pagesReadBackPerS?: number | null; debtGBPerMin?: number | null; swapPct?: number | null; brake?: { interrupted: boolean; skipped: string | null } }): Promise<void>;
   ledgerText(): string | null;
   setProcs(list: ProcSpec[]): void;
   stopped: Set<number>;
@@ -98,6 +99,7 @@ function world(i: {
   let clock = T0;
   const signals: { pid: number; sig: string }[] = [];
   const logs: string[] = [];
+  const notes: Array<[string, string]> = [];
   const stopped = new Set<number>();
   let lstartCalls = 0;
   let text = i.ledgerText ?? null;
@@ -149,11 +151,12 @@ function world(i: {
     xpcServicePids: async (appPid) => (i.xpc ?? {})[appPid] ?? [],
     outsidePeers: i.outsidePeers ?? (async () => []),
     ledger,
+    note: (taskId, text_) => notes.push([taskId, text_]),
     log: (line) => logs.push(line),
   });
 
   return {
-    freezer, signals, logs, stopped,
+    freezer, signals, logs, stopped, notes,
     now: () => clock,
     advance: (ms) => { clock += ms; },
     ledgerText: () => text,
@@ -162,8 +165,8 @@ function world(i: {
       const swap: SwapVerdict = {
         sustained: over.sustained ?? true,
         pagesReadBackPerS: over.pagesReadBackPerS ?? 33.6,
-        debtGBPerMin: 8.8,
-        swapPct: null,
+        debtGBPerMin: over.debtGBPerMin ?? 8.8,
+        swapPct: over.swapPct ?? null,
         coveredMs: 120_000,
       };
       const held: HeldMemory = { measurable: true, latestGB: 4, heldGB: over.heldGB ?? 4, coveredMs: 120_000 };
@@ -209,6 +212,27 @@ describe("F5: the heaviest background command, and nothing else", () => {
     for (const other of [52000, 52004, 53000, 53004, 54000, 54004]) expect(stopped).not.toContain(other);
     expect(w.freezer.views()).toHaveLength(1);
     expect(w.freezer.views()[0]!.command).toBe("bun batteria.ts");
+  });
+
+  /**
+   * The pose the ceiling door put this code in and that no test held: sustained
+   * with the debt FALLING. Verbatim the 12:22:24 line of 16/09/2026 - 167.7
+   * pages/s, debt -1.9 GB/min, swap file 92.8% full. Every sentence that
+   * explained a freeze hard-coded a `+` in front of the debt, which was true
+   * only while `sustained` implied a debt of at least +0.5.
+   *
+   * @covers KANBAN-75
+   */
+  test("frozen AT THE CEILING, the card note names the full file and never prints `+-`", async () => {
+    const w = world({ procs, sessions: [session({ taskId: "abcdef12-3456", backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })] });
+    await twoBeats(w, { debtGBPerMin: -1.9, pagesReadBackPerS: 167.7, swapPct: 0.9277 });
+    expect(w.notes).toHaveLength(1);
+    expect(w.notes[0]![0]).toBe("abcdef12-3456");
+    expect(w.notes[0]![1]).not.toContain("+-");
+    expect(w.notes[0]![1]).toContain("Comando congelato, non fermato: il Mac ha il file di swap pieno al 92.8% e rilegge 167.7 pagine/s dal disco (debito -1.9 GB/min)");
+    const froze = w.logs.find((l) => l.startsWith("[freeze] froze"))!;
+    expect(froze).toContain("swapins 167.7/s, memory debt -1.9 GB/min, swap file 92.8% full");
+    expect(froze).not.toContain("+-");
   });
 
   test("the foreground command is named in the log, so nobody has to guess why", async () => {

@@ -60,7 +60,7 @@ import {
 } from "../lib/agent-tool-children";
 import { looksLikeAppExecutable } from "../lib/xpc-attribution";
 import type { LedgerBatch, LedgerPidRef, SwapFreezeLedger } from "./swap-freeze-ledger";
-import type { HeldMemory, SwapVerdict } from "./mem-signal";
+import { signed, swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./mem-signal";
 
 /** One tree measured on a sustained beat, before anything is chosen. */
 export interface FreezeCandidate {
@@ -306,7 +306,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         deps.log(
           `[freeze] effect of "${tree.root.command}" after ${Math.round(age / 1000)} s: ` +
           `swapin/s ${gb(tree.pagesReadBackAtFreeze)} -> ${gb(i.swap.pagesReadBackPerS)}, ` +
-          `debt/min ${gb(tree.debtAtFreeze)} -> ${gb(i.swap.debtGBPerMin)}`,
+          `debt/min ${signed(tree.debtAtFreeze)} -> ${signed(i.swap.debtGBPerMin)}`,
         );
       }
       if (reason) {
@@ -527,15 +527,14 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     deps.log(
       `[freeze] froze "${candidate.root.command}": tree ${gb(candidate.footprintGB)} GB footprint, ${gb(candidate.residentGB)} GB resident, ` +
       `${candidate.cpuCores.toFixed(2)} core, ${candidate.treePids.length} pids + ${candidate.xpcPids.length} XPC [${candidate.xpcPids.join(",")}], ` +
-      `${candidate.root.kind}; swapin/s ${gb(swap.pagesReadBackPerS)} debt/min ${gb(swap.debtGBPerMin)}; ` +
+      `${candidate.root.kind}; ${swapSigns(swap)}; ` +
       `thaw by ${new Date(at + FREEZE_MAX_MS).toISOString()}; guard disjoint; freeze ${n} of ${FREEZES_PER_TREE}`,
     );
     try { deps.announce?.({ kind: "frozen", view: viewOf(tree_) }); } catch { /* best effort */ }
     if (candidate.root.taskId && deps.note) {
       try {
         deps.note(candidate.root.taskId,
-          `Comando congelato, non fermato: il Mac è in swap da un minuto (${gb(swap.pagesReadBackPerS)} pagine/s rilette dal disco, ` + // allow-italian: board notes are written in Italian like every other service comment
-          `debito +${gb(swap.debtGBPerMin)} GB/min) e \`${candidate.root.command}\` teneva ${gb(candidate.footprintGB)} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
+          `Comando congelato, non fermato: ${swapReasonIt(swap)} e \`${candidate.root.command}\` teneva ${gb(candidate.footprintGB)} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
           "Riprende da solo quando c'è memoria, al più tardi fra 10 minuti. " + // allow-italian: board notes are written in Italian like every other service comment
           `Un'operazione con un timeout in corso può scadere alla ripresa. Congelamento ${n} di ${FREEZES_PER_TREE}.`); // allow-italian: board notes are written in Italian like every other service comment
       } catch { /* a note that cannot be written must not stop the freeze */ }
