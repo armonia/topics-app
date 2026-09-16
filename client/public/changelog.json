@@ -8,6 +8,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "bloat-baseline: la versione di main, rigenerata con le righe di questo ramo",
           "en": "",
           "scope": null
@@ -24,6 +29,11 @@
         },
         {
           "it": "La seconda porta dello swap chiede anche che il debito non stia calando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi non tiene la parola dice DOVE gira, non «comando»: con tre famiglie sullo stesso nome un suffisso solo non bastava",
           "en": "",
           "scope": null
         },
@@ -65,6 +75,11 @@
           "scope": null
         },
         {
+          "it": "Un debito che non puo' piu' crescere non e' un debito che non cresce: lo swap al soffitto e' la seconda porta",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu",
           "en": "",
           "scope": null
@@ -80,7 +95,22 @@
           "scope": null
         },
         {
+          "it": "La configurazione si rilegge a ogni avvio del server, non solo alla partenza dello script",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome nudo va all'app installata, non a qualunque cosa viva dentro un bundle",
           "en": "",
           "scope": null
         },

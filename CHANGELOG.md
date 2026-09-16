@@ -5,10 +5,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.336 — 2026-09-16
 
 ### Sotto il cofano
+- La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'
 - bloat-baseline: la versione di main, rigenerata con le righe di questo ramo
 - Il docstring della porta elencava tre casi su quattro
 - Con i magazzini pieni lo swap si dice sostenuto anche solo dalle pagine rilette dal disco
 - La seconda porta dello swap chiede anche che il debito non stia calando
+- Chi non tiene la parola dice DOVE gira, non «comando»: con tre famiglie sullo stesso nome un suffisso solo non bastava
 - La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende
 
 ## 2.2.335 — 2026-09-16
@@ -18,10 +20,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - senza la pulizia del layout salvato il giro phone non trova la voce Board
 - La coda del terminale scade AL limite, e l'avviso dice quale delle tre perdite
 - Una pane browser in una cella accanto e' gia' quella pagina, e la porta non ne fa una seconda
+- Un debito che non puo' piu' crescere non e' un debito che non cresce: lo swap al soffitto e' la seconda porta
 - Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu
 - La consigliata non tocca piu' le etichette che la board esegue, e il cancello di parita' la vede
 - Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce
+- La configurazione si rilegge a ogni avvio del server, non solo alla partenza dello script
 - usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9
+- Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno
+- Il nome nudo va all'app installata, non a qualunque cosa viva dentro un bundle
 - Il cancello di parita' ancora anche la meta' della 5-bis che l'agente legge davvero
 - La porta di una chat-pane si apre solo su una finestra che c'e' gia'
 
