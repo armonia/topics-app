@@ -247,6 +247,18 @@ queste regole.
    scriveva era nella posizione di prendere. Il pannello in chat ha il campo
    `recommended` (un chip); le opzioni della board sono stringhe semplici, quindi
    il segno vive nell'etichetta.
+   **E per questo il segno si ferma alle etichette riservate.** «Landa su main»,
+   «Landa e pubblica», «Approva il piano», «Da rivedere» e le quattro dei
+   sottotask parcheggiati sono un contratto che il server confronta PER VALORE
+   (`normalizeActionLabel`, §6 qui sotto): il suffisso e' fatto di lettere, quindi
+   sopravvive alla normalizzazione e cambia l'etichetta. Una «Landa su main
+   (consigliata)» smette di essere un'azione di board — il click risveglia
+   l'agente invece di fondere su main — e una «Approva il piano (consigliata)»
+   non arma piu' `tasks.plan_comment_id`. Su quelle si offre il testo esatto e la
+   propria scelta si dice con l'ORDINE, mettendola per prima. Misurato il
+   16/09/2026 sul DB vivo: 1.166 commenti su 1.451 con una fence `question`
+   portano «Landa su main», 34 «Approva il piano» — e' il ramo normale, non un
+   caso raro.
 
 6. **Approve = SOLO accettare il task** (review → done, sblocca i dipendenti). Non
    fa più merge/build/reap "da sotto": il landing è un passo ESPLICITO e separato

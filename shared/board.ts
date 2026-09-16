@@ -305,9 +305,24 @@ export const VERSION_BUMP_RULE =
  * already had. The in-chat panel solves this with `recommended: true` (a chip); board
  * options are plain strings, so the mark lives in the label. The word follows the
  * language the agent is writing in, which is why both spellings are named.
+ *
+ * AND THE MARK STOPS AT THE RESERVED LABELS, which is not a nicety: the option text
+ * travels to the server and is matched BY VALUE (see `normalizeActionLabel` and the
+ * block on `LAND_ACTION_LABEL` below), and the suffix survives normalization because
+ * it is made of letters. Measured on the live DB on 2026-09-16: of 1,451 comments
+ * carrying a ```question fence, 1,166 offer `Landa su main` and 34 offer
+ * `Approva il piano` — this is the dominant branch, not an edge case. A marked
+ * `Landa su main (consigliata)` stops being a board action (`isBoardActionLabel`
+ * false, `questionAsksHuman` true): the click wakes the agent up instead of merging.
+ * A marked `Approva il piano (consigliata)` stops arming `tasks.plan_comment_id`
+ * (`hasPlanApproveOption` false), which is the exact regression the comment on
+ * `PLAN_APPROVE_LABEL` records as already paid for. The labels are spelled out here
+ * rather than interpolated because they are declared further down this module and a
+ * template literal would read them in their temporal dead zone; the drift gate is the
+ * test that asserts this string quotes each of them verbatim.
  */
 export const RECOMMENDED_OPTION_RULE =
-  "WHEN YOU OFFER OPTIONS, YOUR PICK GOES FIRST AND SAYS SO. Put the option you would choose as the first element of `options` and end its label with \" (consigliata)\", or \" (recommended)\" when you are writing in English. In the same one-line question, add why in a few words. Only when you truly have no preference, say that instead and name what would settle it. A neutral list hands the human a decision you were in a position to make.";
+  "WHEN YOU OFFER OPTIONS, YOUR PICK GOES FIRST AND SAYS SO. Put the option you would choose as the first element of `options` and end its label with \" (consigliata)\", or \" (recommended)\" when you are writing in English. In the same one-line question, add why in a few words. Only when you truly have no preference, say that instead and name what would settle it. A neutral list hands the human a decision you were in a position to make. NEVER MARK A LABEL THE BOARD EXECUTES ITSELF: `Landa su main`, `Landa e pubblica`, `Approva il piano`, `Da rivedere`, `Rimetti in coda i sottotask`, `Archivia i sottotask`, `Promuovi i sottotask a task`, `La prendo in mano io`. Those are a contract the server matches BY VALUE, and a suffix breaks it. A marked `Landa su main` is no longer a merge order but a question that only wakes you up again, and a marked `Approva il piano` never registers the comment as the plan. Offer those VERBATIM and put your pick first by ORDER alone."; // allow-italian: the reserved labels are quoted verbatim on purpose, the server matches them by value
 
 /**
  * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA

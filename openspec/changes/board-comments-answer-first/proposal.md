@@ -28,14 +28,31 @@ l'occhio la trovi.
 
 ## What changes
 
-- La riga dei commenti nel kickoff diventa: prima riga = l'esito o il blocco; una cosa per riga;
-  una domanda che ti ferma va per ultima, con le opzioni e la consigliata in cima; niente log.
-- Nessun cambio a `topicsAgentSystemPrompt`, a `args.ts` né al limite di lunghezza dei commenti.
+- Nasce `RECOMMENDED_OPTION_RULE` in `shared/board.ts`, accanto a `PREVIEW_RULE`,
+  `CODE_GATES_RULE` e `VERSION_BUMP_RULE`: una costante sola, interpolata da `buildKickoff`
+  (`server/services/task-dispatcher.ts`, sotto «If you need a human decision to go on») e dalla
+  descrizione di `options` in `comment_task` e `comment_global_task`
+  (`server/mcp/topics-mcp-server.ts`). Dice: l'opzione che sceglieresti e' il PRIMO elemento di
+  `options`, l'etichetta finisce con « (consigliata)» / « (recommended)», il perche' sta nella
+  stessa riga della domanda, e se davvero non hai una preferenza lo dichiari.
+- La stessa costante porta la DEROGA sulle etichette riservate («Landa su main», «Approva il
+  piano», «Da rivedere», le quattro dei sottotask parcheggiati): quelle il server le confronta
+  per valore, quindi si offrono verbatim e la propria scelta si dice con l'ORDINE. Senza, una
+  consegna marcata smette di essere un'azione di board e un piano marcato non arma
+  `tasks.plan_comment_id`.
+- **Nessun cambio alla riga «Comments SHORT and useful»** del kickoff, nessuno a
+  `topicsAgentSystemPrompt`, a `server/providers/claude/args.ts` ne' al limite di lunghezza dei
+  commenti: la scelta 2 ha respinto la regola «esito in prima riga / domanda in fondo» e il
+  codice non la implementa.
+- `docs/board-protocol.md` (copia canonica per gli umani) guadagna la regola 5-bis e la quarta
+  costante nell'elenco in testa; `server/services/board-protocol-parity.test.ts` la ancora
+  all'envelope, e conta anche le regole `N-bis` — prima ne leggeva solo le cifre nude e una
+  5-bis passava sotto il cancello senza accenderlo.
 
 ## Dove cambiarla
 
 | Scelta | Requisito |
 |---|---|
-| 1 | `server/providers/claude/args.ts` (nessuna modifica se consigliata) |
-| 2, 3 | riga «Comments SHORT» in `buildKickoff`, `server/services/task-dispatcher.ts` |
-| 4 | idem, blocco di consegna |
+| 1 | `RECOMMENDED_OPTION_RULE` in `shared/board.ts`; interpolata in `buildKickoff` (`server/services/task-dispatcher.ts`) e nelle descrizioni di `options` in `server/mcp/topics-mcp-server.ts` |
+| 2 | riga «Comments SHORT and useful» in `buildKickoff`: resta invariata, e' la scelta |
+| 3 | `server/providers/claude/args.ts`: nessuna modifica, `--setting-sources user,project,local` passa gia' lo stile |

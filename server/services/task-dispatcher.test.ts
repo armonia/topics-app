@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
@@ -2534,6 +2534,11 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain("first element of `options`");
     expect(kickoff).toContain("(consigliata)");
     expect(kickoff).toContain("(recommended)");
+    // The carve-out ALWAYS travels with the rule, because this very envelope
+    // prescribes `options=[LAND_ACTION_LABEL]` at every delivery and the two plan
+    // labels in plan-first: the server matches those by value, and the suffix
+    // would break them.
+    expect(kickoff).toContain("NEVER MARK A LABEL THE BOARD EXECUTES ITSELF");
   });
 
   it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
@@ -4048,9 +4053,18 @@ describe("l'envelope non parla italiano", () => {
    */
   const ITALIANO = /\b(?:il|lo|la|le|gli|un|una|uno|del|dello|della|dei|delle|degli|che|non|con|sul|sulla|nel|nella|dal|dalla|alla|questo|questa|quello|quella|quando|perché|perche|già|gia|senza|sempre|anche|ancora|adesso|quindi|invece|oppure|ogni|tutti|tutte|nessuno|niente|appena|subito|mentre|sotto|sono|essere|fare|fatto|deve|devi|puoi|può|puo|cosa|dove|più|piu|sei|tuo|tua|tuoi|suo|sua)\b|è/i;
 
-  /** L'envelope meno le etichette che il resto della app confronta per valore. */
+  /**
+   * The envelope minus the labels the rest of the app compares by value.
+   *
+   * EIGHT of them, not four, since 2026-09-16: `RECOMMENDED_OPTION_RULE` names
+   * them all, because a rule about where the "(consigliata)" suffix is forbidden
+   * has to spell out the labels it is forbidden on. They keep being removed BY
+   * NAME, from the constants: widening the Italian dictionary instead would have
+   * switched the gate off on the instruction lines too.
+   */
   function withoutLabels(envelope: string): string {
-    return [LAND_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, "Pubblica"]
+    return [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL,
+      REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, "Pubblica"]
       .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
   }
 
