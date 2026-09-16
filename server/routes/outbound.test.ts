@@ -562,8 +562,9 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
   });
 
   test("la traccia di una scrittura che porta un messaggio dice A CHI e con che oggetto", async () => {
-    // "Scrittura Google eseguita: gmail users drafts create - riuscita" says
-    // that something happened and nothing about what left (OUTBOUND-05).
+    // A trace that names only the method says that something happened and
+    // nothing about what left, which is what OUTBOUND-05 refuses. The line as
+    // the route writes it: "Scrittura Google eseguita: gmail users drafts create - riuscita". allow-italian: quotes that line
     const raw = Buffer.from("To: cliente@e.test\r\nSubject: Preventivo 2026\r\n\r\nEccolo.", "utf8").toString("base64url");
     const h = makeHarness();
     const sessionKey = "topic:abcd1264";
