@@ -23,7 +23,7 @@
   * @covers OUTBOUND-05
  */
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOutboundRouter, googleCallWrites } from "./outbound";
@@ -32,7 +32,10 @@ import { deliverAnswer, cancelAsk } from "../lib/ask-user-bridge";
 import { _resetRoutedAsks } from "../services/board-ask-routing";
 import { payloadDigest } from "./outbound";
 
-const root = mkdtempSync(join(tmpdir(), "outbound-route-"));
+// `realpathSync` on purpose: on macOS `tmpdir()` is itself a symlink
+// (`/var` -> `/private/var`), and containment now compares REAL paths. A
+// fixture built on the link would be measuring the link, not the rule.
+const root = realpathSync(mkdtempSync(join(tmpdir(), "outbound-route-")));
 const LOG = join(root, "calls.log");
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
 afterEach(() => { _resetRoutedAsks(); if (existsSync(LOG)) unlinkSync(LOG); });
@@ -262,6 +265,87 @@ describe("POST /outbound/mail", () => {
     expect(args).toContain(attached);
   });
 
+  test("un allegato che e' un LINK verso l'esterno e' rifiutato: `resolve()` non segue i symlink", async () => {
+    // The half the `../` test does not cover. `isInsideDir` says so itself
+    // (path-containment.ts: "`../` is normalised here, a symlink is not"), and
+    // an agent with a shell in its own worktree writes one in a second:
+    // `ln -s ~/.topics-server-env preventivo.pdf`. The string is impeccable,
+    // the bytes that leave are somebody else's secrets.
+    const workspace = join(root, "ws-link");
+    mkdirSync(workspace, { recursive: true });
+    const outside = join(root, "fuori-segreto.txt");
+    writeFileSync(outside, "TOKEN=finto-super-segreto", "utf8");
+    const link = join(workspace, "preventivo.pdf");
+    if (existsSync(link)) unlinkSync(link);
+    symlinkSync(outside, link);
+    const h = makeHarness({ workspace });
+    const resp = (await h.call(mailPath("topic:abcd1250"), { ...message, attachments: ["preventivo.pdf"] }))!;
+    expect(resp.status).toBe(400);
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body.code).toBe("attachment_refused");
+    expect(String(body.error)).toContain("outside");
+    // The negative proof: no confirmation was even opened, and nothing ran.
+    expect(recorded()).toEqual([]);
+    expect(h.comments).toEqual([]);
+  });
+
+  test("un link che resta DENTRO il workspace passa, e quello che parte e' il file reale", async () => {
+    // The other side of the same rule: resolving is not refusing. A link that
+    // lands inside is legitimate, and the path handed to the CLI is the real
+    // one, so re-pointing the link while the person reads the question changes
+    // nothing about what leaves.
+    const workspace = join(root, "ws-link-dentro");
+    mkdirSync(join(workspace, "dati"), { recursive: true });
+    const realFile = join(workspace, "dati", "tabella.csv");
+    writeFileSync(realFile, "a,b\n1,2\n", "utf8");
+    const link = join(workspace, "allegato.csv");
+    if (existsSync(link)) unlinkSync(link);
+    symlinkSync(realFile, link);
+    const h = makeHarness({ workspace });
+    const sessionKey = "topic:abcd1251";
+    const digest = payloadDigest(["primo", message.to, message.subject, message.body, "", [realFile]]);
+    setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["allegato.csv"], legMs: 400 }))!;
+    expect((await resp.json() as Record<string, unknown>).sent).toBe(true);
+    expect(recorded()).toContain(realFile);
+  });
+
+  test("la conferma NOMINA gli allegati: un numero non si puo' leggere", async () => {
+    // "Allegati: 1" is the sealed envelope OUTBOUND-03 refuses two paragraphs
+    // above: it is exactly what makes a link nobody can see invisible to the
+    // one person who could have stopped it.
+    const workspace = join(root, "ws-nomi");
+    mkdirSync(workspace, { recursive: true });
+    const attached = join(workspace, "preventivo-2026.pdf");
+    writeFileSync(attached, "%PDF-finto abbastanza lungo da avere un peso", "utf8");
+    const h = makeHarness({ workspace });
+    const sessionKey = "topic:abcd1252";
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo-2026.pdf"], legMs: 150 }))!;
+    expect(await resp.json()).toEqual({ pending: true });
+    const question = h.comments[0]?.content ?? "";
+    expect(question).toContain("preventivo-2026.pdf");
+    expect(question).not.toContain("Allegati: 1");
+    cancelAsk(sessionKey, "fine del test");
+  });
+
+  test("un invio CONFERMATO che non parte lascia comunque la sua riga sulla card", async () => {
+    // OUTBOUND-05 asks for a line from a REFUSED or FAILED attempt too. The
+    // person said yes and the message did not go: the card has to say so, or
+    // the only record of a broken send is the agent's own message.
+    const env = { ...ENV, TOPICS_MAIL_CLI: "eseguibile-sparito" };
+    const h = makeHarness({ env });
+    const sessionKey = "topic:abcd1253";
+    const digest = payloadDigest(["primo", message.to, message.subject, message.body, "", []]);
+    setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
+    const resp = (await h.call(mailPath(sessionKey), { ...message, legMs: 400 }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json() as Record<string, unknown>).code).toBe("outbound_not_configured");
+    expect(recorded()).toEqual([]);
+    const line = h.comments.at(-1)?.content ?? "";
+    expect(line).toContain("FALLITO");
+    expect(line).toContain("TOPICS_MAIL_CLI");
+  });
+
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {
     const h = makeHarness();
     const resp = (await h.call(mailPath("topic:abcd1241"), { ...message, subject: "  " }))!;
@@ -313,6 +397,22 @@ describe("POST /outbound/google", () => {
     expect((await resp.json() as Record<string, unknown>).ok).toBe(true);
     expect(recorded()).toContain("insert");
     expect(h.comments.at(-1)?.content).toContain("calendar events insert");
+  });
+
+  test("una scrittura CONFERMATA che non parte lascia comunque la sua riga", async () => {
+    const env = { ...ENV, TOPICS_GOOGLE_CLI: "eseguibile-sparito" };
+    const h = makeHarness({ env });
+    const sessionKey = "topic:abcd1254";
+    const digest = payloadDigest(["calendar", "events", "", "insert", null, JSON.stringify({ summary: "riunione" })]);
+    setTimeout(() => { deliverAnswer(sessionKey, { [confirmKey(digest)]: CONFIRM_LABEL }); }, 20);
+    const resp = (await h.call(googlePath(sessionKey), {
+      service: "calendar", resource: "events", method: "insert", body: { summary: "riunione" }, legMs: 400,
+    }))!;
+    expect(resp.status).toBe(400);
+    expect(recorded()).toEqual([]);
+    const line = h.comments.at(-1)?.content ?? "";
+    expect(line).toContain("FALLITA");
+    expect(line).toContain("TOPICS_GOOGLE_CLI");
   });
 
   test("un metodo che nessuno sa classificare conta come scrittura", async () => {

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, isAbsolute, resolve } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { isInsideDir } from "../lib/path-containment";
+import { realPathForNewEntry } from "../lib/real-path";
 import {
   OutboundConfigError,
   pickAccount,
@@ -101,6 +102,21 @@ function clampLeg(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(Math.max(value, 100), 60_000)
     : DEFAULT_LEG_MS;
+}
+
+/** One attachment, as the person reading the confirmation sees it. */
+interface ResolvedAttachment {
+  /** The REAL path, with every link already resolved: this is what is spawned. */
+  path: string;
+  name: string;
+  bytes: number;
+}
+
+/** A size a person reads at a glance. An attachment nobody weighed is a surprise. */
+function humanBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** A one-line quote of a subject: enough to recognise it, not enough to repeat it. */
@@ -217,26 +233,54 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
    * An agent picks these names from text it has read, so "inside" is checked
    * and not assumed: `../../.ssh/id_rsa` resolves perfectly well, and a mail
    * tool is a file exfiltration tool the moment it stops looking.
+   *
+   * THE DECISION RUNS ON THE REAL PATH, and that is the half `../` does not
+   * cover. `isInsideDir` normalises `..` and says so itself, in the same breath
+   * in which it says it does NOT follow a symlink: "a link inside an allowed
+   * root pointing at /etc would produce a string that is impeccable". An agent
+   * has a shell in its own worktree, so writing that link costs it one command
+   * (`ln -s ~/.topics-server-env preventivo.pdf`) and the string check waves it
+   * through. Same rule, same reason, same shape as `browser-tool-dispatcher.ts`
+   * in front of `checkUploadPath`: resolve first, decide after.
+   *
+   * WHAT IS HANDED TO THE CLI IS THE REAL PATH, not the name that was asked
+   * for. Resolution happens BEFORE the person answers, and that answer takes
+   * minutes: a link still pointing at a file when the question is painted can
+   * point somewhere else when the child is spawned. A path with no links left
+   * in it has nothing to re-point.
    */
-  const resolveAttachments = (sessionKey: string, raw: unknown): { paths: string[] } | { error: string } => {
-    if (raw === undefined || raw === null) return { paths: [] };
+  const resolveAttachments = (
+    sessionKey: string,
+    raw: unknown,
+  ): { files: ResolvedAttachment[] } | { error: string } => {
+    if (raw === undefined || raw === null) return { files: [] };
     if (!Array.isArray(raw)) return { error: "attachments must be an array of paths" };
     const wanted = raw.filter((p): p is string => typeof p === "string" && !!p.trim()).map((p) => p.trim());
-    if (!wanted.length) return { paths: [] };
+    if (!wanted.length) return { files: [] };
     const workspace = workspaceOf(sessionKey);
     if (!workspace) {
       return { error: "this session has no workspace directory: attachments can only be sent from a card or a project session" };
     }
-    const paths: string[] = [];
+    // The root is resolved too: on macOS a project under `/tmp` lives at
+    // `/private/tmp`, and comparing a real path against a linked root would
+    // refuse every legitimate file in it.
+    const root = realPathForNewEntry(workspace) ?? resolve(workspace);
+    const files: ResolvedAttachment[] = [];
     for (const candidate of wanted) {
-      const full = isAbsolute(candidate) ? resolve(candidate) : resolve(workspace, candidate);
-      if (!isInsideDir(full, workspace)) {
+      const full = isAbsolute(candidate) ? resolve(candidate) : resolve(root, candidate);
+      const real = realPathForNewEntry(full);
+      if (!real) {
+        return { error: `attachment "${candidate}" cannot be resolved: a broken link, or a path this server cannot read` };
+      }
+      if (!isInsideDir(real, root)) {
         return { error: `attachment "${candidate}" resolves outside this session workspace` };
       }
-      if (!existsSync(full)) return { error: `attachment "${candidate}" does not exist in this session workspace` };
-      paths.push(full);
+      if (!existsSync(real)) return { error: `attachment "${candidate}" does not exist in this session workspace` };
+      let bytes = 0;
+      try { bytes = statSync(real).size; } catch { bytes = 0; }
+      files.push({ path: real, name: basename(real), bytes });
     }
-    return { paths };
+    return { files };
   };
 
   /** The argv of one message, per transport. Arrays only: never a shell string. */
@@ -327,17 +371,26 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           return json({ error: attachments.error, code: "attachment_refused" }, 400);
         }
 
-        const digest = payloadDigest([account.name, to, subject, text, cc ?? "", attachments.paths]);
+        const attachedPaths = attachments.files.map((f) => f.path);
+        const digest = payloadDigest([account.name, to, subject, text, cc ?? "", attachedPaths]);
         const quoted = shortSubject(subject);
         const draft = text.trim();
         const preview = draft.length > BODY_PREVIEW_CHARS
           ? `${draft.slice(0, BODY_PREVIEW_CHARS)}\n[...] (${draft.length} caratteri in tutto)`
           : draft;
+        // THE FILES ARE NAMED, not counted. "Allegati: 1" is the sealed
+        // envelope this route refuses for the body two constants above: a
+        // person who cannot see WHICH file leaves cannot stop the one that
+        // should not, and the workspace of a card is the whole project
+        // directory - `data/topics.db` is in there, and it counts as one.
+        const attachmentLine = attachments.files.length
+          ? `Allegati (${attachments.files.length}): ${attachments.files.map((f) => `${f.name} (${humanBytes(f.bytes)})`).join(", ")}`
+          : "Nessun allegato";
         const summary = [
           `Invio una mail dall'account ${account.name}.`,
           `A: ${to}${cc ? ` (cc ${cc})` : ""}`,
           `Oggetto: ${quoted}`,
-          attachments.paths.length ? `Allegati: ${attachments.paths.length}` : "Nessun allegato",
+          attachmentLine,
           "",
           preview,
         ].join("\n");
@@ -353,7 +406,8 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
             legMs: clampLeg(body?.legMs),
           });
         } catch (err) {
-          return json({ refused: true, reason: err instanceof Error ? err.message : String(err) });
+          const reason = err instanceof Error ? err.message : String(err);
+          return refuse(sessionKey, `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${reason}`, reason);
         }
         if (outcome.state === "pending") return json({ pending: true });
         if (outcome.state === "refused") {
@@ -373,6 +427,11 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           );
         } catch (err) {
           if (err instanceof OutboundConfigError) {
+            // PAST THE YES. The person confirmed and nothing left: that is the
+            // same fact as a CLI exiting non-zero, and OUTBOUND-05 asks for the
+            // same line. Without it a confirmed send that never happened exists
+            // only in the agent's own message.
+            trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${err.message}`);
             return json({ error: err.message, code: "outbound_not_configured", variable: err.variable }, 400);
           }
           throw err;
@@ -380,7 +439,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
 
         const run = await runCli({
           file,
-          argv: mailArgv(account, { to, subject, body: text, cc, attachments: attachments.paths }),
+          argv: mailArgv(account, { to, subject, body: text, cc, attachments: attachedPaths }),
           env: childEnv(),
           timeoutMs: cliTimeoutMs,
         });
@@ -393,7 +452,8 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           trace(sessionKey, `Invio FALLITO (${account.name} a ${to}, oggetto "${quoted}"): ${failure}`);
           return json({ error: failure, code: "send_failed" }, 502);
         }
-        const traced = trace(sessionKey, `Mail inviata: da ${account.name} a ${to}, oggetto "${quoted}"${attachments.paths.length ? `, ${attachments.paths.length} allegati` : ""} - riuscito`);
+        const attachedNames = attachments.files.map((f) => f.name).join(", ");
+        const traced = trace(sessionKey, `Mail inviata: da ${account.name} a ${to}, oggetto "${quoted}"${attachedNames ? `, allegati: ${attachedNames}` : ""} - riuscito`);
         return json({ sent: true, account: account.name, to, subject: quoted, traced });
       }
     }
@@ -451,7 +511,8 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
               legMs: clampLeg(body?.legMs),
             });
           } catch (err) {
-            return json({ refused: true, reason: err instanceof Error ? err.message : String(err) });
+            const reason = err instanceof Error ? err.message : String(err);
+            return refuse(sessionKey, `Scrittura Google NON eseguita (${call}): ${reason}`, reason);
           }
           if (outcome.state === "pending") return json({ pending: true });
           if (outcome.state === "refused") {
@@ -464,6 +525,10 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           file = resolveCliPath(config.cli, "TOPICS_GOOGLE_CLI", { searchDirs: options.searchDirs });
         } catch (err) {
           if (err instanceof OutboundConfigError) {
+            // Same reason as the mail route: a write the person approved and
+            // that never ran is a fact of the card. A read that cannot run is
+            // not - nobody was asked, and nothing was promised.
+            if (googleCallWrites(apiMethod)) trace(sessionKey, `Scrittura Google FALLITA (${call}): ${err.message}`);
             return json({ error: err.message, code: "outbound_not_configured", variable: err.variable }, 400);
           }
           throw err;
