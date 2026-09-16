@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.338 — 2026-09-16
+
+### Sotto il cofano
+- Le fixture di ps non portano piu' la home di chi lavora in un repo pubblico
+
 ## 2.2.336 — 2026-09-16
 
 ### Sotto il cofano
