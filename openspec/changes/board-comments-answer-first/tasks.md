@@ -7,4 +7,5 @@
 - [x] `docs/board-protocol.md` (the canonical human copy of the envelope) names the rule: four constants, not three, plus rule 5-bis
 - [x] Deroga nella costante: le etichette che la board esegue per valore si offrono verbatim (`shared/board.test.ts`, mutante provato: tolta la frase, 1 fail)
 - [x] Il cancello di parita' ancora la 5-bis e conta le regole `N-bis` (`server/services/board-protocol-parity.test.ts`, mutante provato: tolta `RECOMMENDED_OPTION_RULE` dal dispatcher, 1 fail dove prima era 11/0)
+- [x] Lo stesso cancello ancora anche l'ALTRA meta' che il documento promette — le descrizioni di `options` dei due tool MCP, una per una — e rifiuta una 5-bis che nomini una terza superficie non ancorata (mutanti provati: tolta da entrambe 1 fail, tolta dal solo `comment_global_task` 1 fail, terzo tool nominato nel documento 1 fail; prima 14/0)
 - [ ] After a server restart: share of `question` blocks with a recommended option on the board (was 13/78)
