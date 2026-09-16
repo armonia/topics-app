@@ -2996,7 +2996,11 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * `motion-entry-animations.test.ts` now fails when a fourth one appears. */
 .anims-paused .reveal-in,
 .anims-paused .morph-char,
-.anims-paused .morph-block {
+.anims-paused .morph-block,
+/* The frost's glint is the same shape (one-shot, first frame at opacity 0) and
+   it is pure decoration: switched off it is simply absent, which is what a
+   window nobody is looking at should cost. */
+.anims-paused .swap-ice-glint {
   animation: none !important;
 }
 

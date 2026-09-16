@@ -18,7 +18,7 @@
  * dialog were open (memory note `native-webview-occlusion`): no `role`, no
  * `.glass-surface`, no `.native-occlude`.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { SwapFreezeView } from '../../state/swapFreeze';
 import { glintPoints, iceFields, keepOutMask, paintIce, type IceFields, type IceTheme, type Rect } from '../../lib/swapIceTexture';
 
@@ -74,18 +74,25 @@ const rectKeyOf = (rects: readonly Rect[]): string =>
 
 export function SwapIce({ freeze, size }: SwapIceProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wasFrozen = useRef(false);
   const glintRef = useRef<HTMLDivElement | null>(null);
-  /** The melt ends with the canvas GONE, not with a transparent one left behind. */
-  const [melted, setMelted] = useState(0);
+  /**
+   * THE CANVAS IS ALWAYS IN THE DOM, at 0x0 until something freezes.
+   *
+   * A thaw has to paint 700 ms of melting on a canvas the freeze has already
+   * left, so the element cannot be mounted by the freeze and unmounted by the
+   * thaw; and deciding that during render would mean reading, while rendering,
+   * a ref written by an effect. An idle canvas with no backing store costs
+   * nothing, the host gets no class, and this component paints only when asked.
+   */
+  const wasFrozen = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const host = canvas?.parentElement as HTMLElement | null;
     if (!canvas || !host) return;
-
     const melting = !freeze && wasFrozen.current;
-    if (!freeze && !wasFrozen.current) return;
+    // Idle: never frozen, nothing to melt.
+    if (!freeze && !melting) return;
     wasFrozen.current = !!freeze;
 
     const seed = freeze?.id ?? 'melt';
@@ -108,7 +115,10 @@ export function SwapIce({ freeze, size }: SwapIceProps) {
     const done = (): void => {
       host.removeAttribute('data-swap-ice');
       host.classList.remove('swap-ice-host');
-      setMelted((n) => n + 1);
+      // Back to nothing: no backing store, no pixels, no host class.
+      canvas.width = 0;
+      canvas.height = 0;
+      glintRef.current?.replaceChildren();
     };
 
     const build = (): boolean => {
@@ -189,7 +199,7 @@ export function SwapIce({ freeze, size }: SwapIceProps) {
       const recheck = (): void => {
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
-          if (cancelled || !fields) return;
+          if (stopped || !fields) return;
           const next = textRects(host);
           const key = rectKeyOf(next);
           const rect = host.getBoundingClientRect();
@@ -221,11 +231,9 @@ export function SwapIce({ freeze, size }: SwapIceProps) {
     };
   }, [freeze, freeze?.id, size]);
 
-  // `melted` is read here so the melt's last frame can drop the canvas.
-  if (!freeze && (!wasFrozen.current || melted > 0)) return null;
   return (
     <>
-      <canvas ref={canvasRef} className="swap-ice" aria-hidden="true" />
+      <canvas ref={canvasRef} className="swap-ice" width={0} height={0} aria-hidden="true" />
       <div ref={glintRef} className="swap-ice-glints" aria-hidden="true" />
     </>
   );

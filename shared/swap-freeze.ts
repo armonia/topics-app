@@ -43,12 +43,6 @@ export interface SwapFreezeView {
   n: number;
 }
 
-/** The wire frame, authoritative: the full list on every change and on connect. */
-export interface SwapFreezeFrame {
-  type: "swap-freeze:state";
-  views: SwapFreezeView[];
-}
-
 /**
  * Under this a freeze frees no page activity worth its cost. See the header for
  * the T0 measurement that fixes it, and E0 of the bar for whether this Mac's own

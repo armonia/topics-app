@@ -99,8 +99,3 @@ export function foregroundBashFor(claudeSessionId: string): string | null {
 export function forgetBashRecords(claudeSessionId: string): void {
   sessions.delete(claudeSessionId);
 }
-
-/** Test seam: the registry is process-wide, a test file is not. */
-export function _resetBashRecords(): void {
-  sessions.clear();
-}

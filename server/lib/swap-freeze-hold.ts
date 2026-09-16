@@ -65,10 +65,3 @@ export function setInjectedSwapFreezeViews(views: SwapFreezeView[]): void {
   injected = views;
   announceSwapFreeze();
 }
-
-/** Test seam: the registry is process-wide, a test file is not. */
-export function _resetSwapFreezeHold(): void {
-  active = null;
-  injected = [];
-  broadcast = null;
-}
