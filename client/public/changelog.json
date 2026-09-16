@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.336",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "bloat-baseline: la versione di main, rigenerata con le righe di questo ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il docstring della porta elencava tre casi su quattro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Con i magazzini pieni lo swap si dice sostenuto anche solo dalle pagine rilette dal disco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La seconda porta dello swap chiede anche che il debito non stia calando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.335",
     "date": "2026-09-16",
     "sections": {
@@ -7,6 +43,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "La regola della consigliata arriva anche a chi mantiene l'envelope",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "senza la pulizia del layout salvato il giro phone non trova la voce Board",
           "en": "",
@@ -19,12 +60,37 @@
           "scope": null
         },
         {
+          "it": "Una pane browser in una cella accanto e' gia' quella pagina, e la porta non ne fa una seconda",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu",
           "en": "",
           "scope": null
         },
         {
+          "it": "La consigliata non tocca piu' le etichette che la board esegue, e il cancello di parita' la vede",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello di parita' ancora anche la meta' della 5-bis che l'agente legge davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La porta di una chat-pane si apre solo su una finestra che c'e' gia'",
           "en": "",
           "scope": null
         }
@@ -170,6 +236,11 @@
         },
         {
           "it": "Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board options put the agent's pick first, marked (consigliata)",
           "en": "",
           "scope": null
         },
@@ -473,7 +544,32 @@
       "perf": [],
       "internal": [
         {
+          "it": "Baseline bloat riallineata dopo il merge di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la crescita di topic-browser-window fra i due scenari nuovi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra dispatch-capacity.test.ts, cresciuto su main e mai iscritto",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due test del sync aspettano la scrittura, non l'orologio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo",
           "en": "",
           "scope": null
         },
@@ -524,6 +620,11 @@
           "scope": null
         },
         {
+          "it": "Il foglio dell'indirizzo non riapre da solo quando cambia il layout",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso",
           "en": "",
           "scope": null
@@ -542,6 +643,11 @@
           "it": "Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Le guardie che mancavano, e i due documenti che dicevano il contrario",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -554,6 +660,46 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Gli e2e delle aperture: il link va nella finestra, l'agente non muove il layout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Solo il comando del composer va nella finestra: l'evento ha due produttori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ripiego riprende il suo split: e' il ramo che la card chiama invariato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il budget dei due scenari 04 segue il lavoro vero che fanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TABLINK-09: il ripiego del permalink morto si guarda dove ora cade",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli scenari 04 misurano quello che dicono di misurare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La stessa porta anche dentro una finestra di progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "04d chiede il budget dei suoi fratelli: e' il piu' lento dei quattro",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "La quota è sul libero: chi non è nostro ha la precedenza",
           "en": "",
@@ -664,6 +810,11 @@
         },
         {
           "it": "Scenario 01r falsificato: il commento e la baseline dello spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La porta la registra la chat, non la finestra montata",
           "en": "",
           "scope": null
         }
