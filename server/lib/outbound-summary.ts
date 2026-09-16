@@ -12,14 +12,21 @@
  *
  * TWO ANSWERS, because the two failures are different:
  *
- *   - a method that SENDS is refused here and told to use `send_mail`. Not a
- *     regex on the verb: a short explicit list, because "which Gmail methods
- *     put a message on the wire" is a fact about an API, not a pattern. Two
- *     doors onto the same act mean two confirmations to keep honest, and the
- *     one that shows the message already exists.
+ *   - a call that SENDS is refused here and told to use `send_mail`. Two doors
+ *     onto the same act mean two confirmations to keep honest, and the one that
+ *     shows the message already exists.
  *   - every other write is SUMMARISED in words: an `raw` field is decoded and
  *     read out (from, to, subject, body), and nothing is ever cut without the
  *     cut being announced.
+ *
+ * A LIST IS THE SECOND LAYER, NOT THE FENCE. The first version of this file was
+ * a list of two API paths, and the CLI it is standing in front of has four
+ * `+helpers` that send - none of them an API path, all of them reachable
+ * through the same four free strings. The fence is in `routes/outbound.ts`: the
+ * four fields must be API names, which refuses every helper and every flag in
+ * one rule. What survives here is the list, kept because "this call sends mail,
+ * use `send_mail`" is a better answer to an agent than "that is not a name",
+ * and because `users drafts create` writes without sending and must still pass.
  */
 
 /** A message pulled out of a `raw` field, in the parts a person decides on. */
@@ -47,6 +54,24 @@ const GMAIL_SENDING_CALLS = new Set([
   "drafts send",
 ]);
 
+/**
+ * The HELPERS of the CLI that is actually being driven, which the API paths
+ * above do not cover.
+ *
+ * `gws gmail --help` lists four commands that put a message on the wire:
+ * `+send`, `+reply`, `+reply-all`, `+forward`. None of them is an API path, so
+ * comparing whole paths never saw them, and the call has four free string slots
+ * - exactly the ones `+forward --message-id <ID> --to <EMAILS>` needs, which
+ * forwards any message of the mailbox, attachments included, to any address.
+ * A helper is recognised wherever it sits, because the caller chooses the slot.
+ */
+const GMAIL_SENDING_HELPERS = new Set([
+  "+send",
+  "+reply",
+  "+reply-all",
+  "+forward",
+]);
+
 /** Lower case, trimmed, single spaces: `Users  Messages` is the same call. */
 function flatten(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -60,11 +85,9 @@ export function gmailSendsMail(parts: {
   method: string;
 }): boolean {
   if (flatten(parts.service) !== "gmail") return false;
-  const path = [parts.resource, parts.subresource ?? "", parts.method]
-    .map(flatten)
-    .filter(Boolean)
-    .join(" ");
-  return GMAIL_SENDING_CALLS.has(path);
+  const fields = [parts.resource, parts.subresource ?? "", parts.method].map(flatten).filter(Boolean);
+  if (fields.some((field) => GMAIL_SENDING_HELPERS.has(field))) return true;
+  return GMAIL_SENDING_CALLS.has(fields.join(" "));
 }
 
 /**

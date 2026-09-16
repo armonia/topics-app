@@ -126,6 +126,18 @@ del silenzio.
 Se la risposta non arriva, o non è quella di consenso, NON SHALL partire niente
 e lo strumento SHALL dirlo con la ragione.
 
+IL CONFINE DI FIDUCIA È L'UTENTE DELLA MACCHINA, e questo delta NON SHALL
+promettere di più. Il server e gli agenti girano sotto lo STESSO uid (misurato con `ps`: il
+`bun run server.ts` e le CLI degli agenti hanno lo stesso utente), il canale che
+risponde alla domanda è la rotta dei commenti della board, e su loopback
+`evaluateIdentity` risponde `role: 'owner'` senza credenziali. Un processo che
+gira come l'utente del server può quindi rispondere «Conferma» al posto della
+persona — e nessuna credenziale locale lo impedisce, perché le legge tutte: il
+token del daemon è un file 0600 di quell'utente e i token dei dispositivi stanno
+nel DB, che è 0644. Ciò che la conferma garantisce è che niente esce senza una
+decisione presa SU QUESTA MACCHINA e senza che ne resti la traccia sulla card;
+non è una difesa contro un processo che è già dentro il confine.
+
 #### Scenario: la persona legge cosa firma
 - **GIVEN** una conferma di invio aperta
 - **THEN** la domanda SHALL contenere il corpo del messaggio
@@ -184,15 +196,43 @@ una stringa, e fra la domanda e lo spawn c'è l'attesa della persona: nello
 stesso workspace l'agente sostituisce il file (o lo ripunta a un link) e parte
 altro, con la persona che ha letto «preventivo.pdf (9 B)». Al momento della
 domanda gli allegati SHALL essere LETTI e copiati in una cartella di appoggio
-privata del server (permessi 0700, fuori da ogni workspace), e ciò che viene
-passato alla CLI SHALL essere quella copia. La domanda SHALL portare nome, peso
-e l'impronta (sha256, in forma breve) dei byte congelati, e l'identità del
-messaggio SHALL comprendere quell'impronta: byte diversi sono un messaggio
-diverso, quindi una domanda nuova, non un sì ereditato. Le copie SHALL essere
-cancellate quando l'invio finisce, e quelle che nessuno ha più chiuso SHALL
-scadere. Il totale degli allegati SHALL avere un tetto dichiarato: i byte
-passano dalla RAM del server, e oltre il limite che una casella accetta l'invio
-non sarebbe comunque arrivato.
+del server (0700, fuori da ogni workspace), e ciò che viene passato alla CLI
+SHALL essere quella copia. La domanda SHALL portare nome, peso e l'impronta
+(sha256, in forma breve) dei byte congelati, e l'identità del messaggio SHALL
+comprendere quell'impronta: byte diversi sono un messaggio diverso, quindi una
+domanda nuova, non un sì ereditato. Le copie SHALL essere cancellate quando
+l'invio finisce, e quelle che nessuno ha più chiuso SHALL scadere.
+
+QUELLA CARTELLA NON È FUORI PORTATA DELL'AGENTE, e il delta NON SHALL dirlo:
+l'agente gira sotto lo stesso uid del server, quindi 0700 tiene fuori gli ALTRI
+utenti e non lui (vedi il confine nominato in OUTBOUND-03). Riprodotte due
+strade, e ognuna SHALL essere chiusa per quello che è:
+
+- il NOME della cartella NON SHALL essere derivabile dal contenuto né dalla
+  sessione. Derivandolo, l'agente lo calcolava e ci piantava dentro la propria
+  copia PRIMA di chiamare lo strumento: nessuna corsa, nessun tempismo. Il nome
+  SHALL venire da `mkdtemp` e il riuso fra le gambe SHALL passare da una mappa
+  in memoria;
+- ogni copia SHALL essere creata con `O_EXCL`: un file già presente a quel
+  percorso è un attacco, non una gamba precedente. `if (!existsSync) write` lo
+  consegnava intatto;
+- dopo il sì e PRIMA dello spawn le copie SHALL essere rilette e ri-hashate, e
+  un'impronta diversa SHALL fermare l'invio con la sua riga sulla card. La
+  finestra da chiudere è l'attesa della persona, che dura minuti; quella che
+  resta è fra questa rilettura e la `open` della CLI, su un percorso che nessuno
+  fuori dal processo conosce.
+
+IL TETTO SHALL ESSERE MISURATO PRIMA DI LEGGERE. Il totale degli allegati SHALL
+avere un limite dichiarato — oltre a quello che una casella accetta l'invio non
+sarebbe comunque arrivato — e la decisione SHALL essere presa sulla `stat`: un
+allegato da 64 MB rifiutato DOPO la lettura costa 64 MB di RSS al server
+(misurato), cioè esattamente il guasto che il tetto esiste per impedire.
+Un allegato che non è un FILE REGOLARE SHALL essere rifiutato: leggere una FIFO
+non ritorna finché nessuno ci scrive, e `mkfifo report.csv` in una worktree è un
+comando — misurato, ha congelato l'intero event loop del server (non la
+richiesta) prima che a qualcuno fosse chiesto alcunché. La copia SHALL avvenire
+a blocchi: il tetto limita ciò che può partire, i blocchi limitano ciò che sta
+in RAM mentre parte.
 
 Le chiamate Google che LEGGONO (`list`, `get`, e simili) NON SHALL chiedere
 conferma; quelle che SCRIVONO SHALL chiederla, e un metodo che non si sa
@@ -200,12 +240,22 @@ classificare SHALL contare come scrittura. `watch` SHALL contare come
 SCRITTURA: sembra un osservatore e non lo è, crea un'iscrizione push che
 sopravvive alla chiamata.
 
-`google_call` NON SHALL essere una seconda porta della posta. I metodi di Gmail
-che SPEDISCONO (`users messages send`, `users drafts send`, e le loro forme
-brevi) SHALL essere rifiutati con un errore che rimanda a `send_mail`: sono un
-ELENCO esplicito, non una regola sul verbo, e il confronto SHALL ignorare
-maiuscole e spazi. Un atto ha una porta sola, e quella che sa mostrare il
-messaggio esiste già.
+`google_call` NON SHALL essere una seconda porta della posta, e un ELENCO da
+solo NON BASTA a impedirlo. I quattro campi (servizio, risorsa, sotto-risorsa,
+metodo) diventano argv della CLI, quindi SHALL essere NOMI di API — lettere,
+cifre, punto, underscore. Senza questa regola l'elenco si aggira in due modi,
+entrambi riprodotti: gli helper della CLI che spedisce (`+send`, `+reply`,
+`+reply-all`, `+forward`, che non sono percorsi d'API e quindi non erano
+nell'insieme; `+forward` inoltra un messaggio qualunque della casella, allegati
+compresi, a un destinatario arbitrario) e i campi che cominciano con un trattino,
+che arrivano alla CLI come FLAG.
+
+Le chiamate di Gmail che SPEDISCONO (`users messages send`, `users drafts send`,
+le loro forme brevi e i quattro helper) SHALL comunque essere rifiutate con un
+errore che rimanda a `send_mail`: è un secondo strato e una risposta migliore
+per chi chiama, non la recinzione. Il confronto SHALL ignorare maiuscole e
+spazi. Un atto ha una porta sola, e quella che sa mostrare il messaggio esiste
+già.
 
 Ogni chiamata che scrive SHALL essere riassunta in una forma LEGGIBILE. Se il
 corpo porta un campo `raw` in base64 SHALL essere decodificato e mostrato come
@@ -235,10 +285,35 @@ timeout di socket dal lato del client.
 - **THEN** SHALL partire il contenuto che la persona ha visto nominare e pesare
 - **AND** il percorso passato alla CLI NON SHALL essere quello del workspace
 
+#### Scenario: la copia e' gia' li' prima della chiamata
+- **GIVEN** un file piantato al percorso di appoggio che la sessione userebbe
+- **THEN** SHALL partire il contenuto letto dal workspace, non quello piantato
+
+#### Scenario: la copia viene riscritta durante l'attesa
+- **GIVEN** una copia congelata modificata dopo la domanda
+- **THEN** l'invio SHALL essere rifiutato e NON SHALL partire nessun processo
+- **AND** la card SHALL avere la riga che lo dice
+
+#### Scenario: un allegato che non e' un file regolare
+- **GIVEN** una FIFO al posto dell'allegato
+- **THEN** SHALL essere rifiutata senza fermare il server
+
+#### Scenario: un allegato oltre il tetto
+- **GIVEN** un allegato piu' grande del tetto dichiarato
+- **THEN** SHALL essere rifiutato senza essere stato letto
+
 #### Scenario: una chiamata Google che spedisce
 - **GIVEN** `google_call` con `gmail users messages send`
 - **THEN** SHALL essere rifiutata rimandando a `send_mail`
 - **AND** NON SHALL aprire nessuna conferma e NON SHALL eseguire niente
+
+#### Scenario: un helper della CLI che spedisce
+- **GIVEN** `google_call` con `gmail +forward` e i suoi flag nei campi liberi
+- **THEN** SHALL essere rifiutata rimandando a `send_mail`
+
+#### Scenario: un campo che e' un flag
+- **GIVEN** un campo che comincia con un trattino su una chiamata che legge
+- **THEN** SHALL essere rifiutata e NON SHALL eseguire niente
 
 #### Scenario: una scrittura Google che porta un messaggio
 - **GIVEN** una scrittura Google il cui corpo contiene un `raw` in base64

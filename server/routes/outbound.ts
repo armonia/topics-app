@@ -15,7 +15,7 @@ import {
 } from "../lib/outbound-config";
 import { resolveCliPath, runCli, CLI_SEARCH_DIRS } from "../lib/outbound-cli";
 import { confirmOutbound, type ConfirmOutcome, type OutboundGateDeps } from "../lib/outbound-gate";
-import { discardStaging, freezeAttachments, OutboundStagingError, type FrozenAttachments } from "../lib/outbound-staging";
+import { discardStaging, freezeAttachments, OutboundStagingError, verifyFrozen, type FrozenAttachments } from "../lib/outbound-staging";
 import { announcedCut, decodeRawMail, gmailSendsMail, googleWriteSummary } from "../lib/outbound-summary";
 import { flushTurnBody } from "../lib/turn-body-flush";
 import { deliverAnswer } from "../lib/ask-user-bridge";
@@ -101,6 +101,18 @@ export function googleCallWrites(method: string): boolean {
   if (!verb) return true;
   return !READ_METHOD_PREFIXES.some((prefix) => verb === prefix || verb.startsWith(prefix));
 }
+
+/**
+ * What the four fields of a Google call may look like.
+ *
+ * The API path of the CLI is `gmail users messages list`: names. The four
+ * strings are handed to `runCli` as argv elements, so anything else in them is
+ * an argument to a command, which is a second interface nobody wrote down -
+ * `{resource: "+forward", subresource: "--message-id=...", method: "--to=..."}`
+ * was a complete, valid `gws` command and it forwards a mailbox message, with
+ * its attachments, to any address.
+ */
+const API_IDENTIFIER = /^[A-Za-z][A-Za-z0-9_.]*$/;
 
 /** The identity of one message: same payload, same digest; one field differs, new question. */
 export function payloadDigest(parts: unknown): string {
@@ -412,7 +424,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // should not, and the workspace of a card is the whole project
         // directory - `data/topics.db` is in there, and it counts as one.
         const attachmentLine = frozen.files.length
-          ? `Allegati (${frozen.files.length}): ${frozen.files.map((f) => `${f.name} (${humanBytes(f.bytes)}, sha256 ${f.sha256})`).join(", ")}`
+          ? `Allegati (${frozen.files.length}): ${frozen.files.map((f) => `${f.name} (${humanBytes(f.bytes)}, sha256 ${f.shortSha})`).join(", ")}`
           : "Nessun allegato";
         const summary = [
           `Invio una mail dall'account ${account.name}.`,
@@ -449,6 +461,20 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
             `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${outcome.reason}`,
             outcome.reason,
           );
+        }
+
+        // THE COPIES ARE READ AGAIN, after the yes and before anything is
+        // spawned. The staging directory belongs to the user the server runs
+        // as, which is the user the agents run as too: what keeps the bytes
+        // honest is not the mode of that directory but this check, which turns
+        // the window from "the minutes a person spends reading" into "the
+        // microseconds between this read and the CLI's open".
+        try {
+          verifyFrozen(frozen);
+        } catch (err) {
+          discardStaging(frozen.dir);
+          const reason = err instanceof Error ? err.message : String(err);
+          return refuse(sessionKey, `Invio NON partito (${account.name} a ${to}, oggetto "${quoted}"): ${reason}`, reason);
         }
 
         let file: string;
@@ -519,6 +545,19 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
           return json({
             error: "this call sends mail: use send_mail, which shows the message to a person before anything leaves and traces it on the card",
             code: "use_send_mail",
+          }, 400);
+        }
+        // AND THE FOUR FIELDS ARE NAMES, NOT ARGUMENTS. They become argv
+        // verbatim, so a field starting with a dash was a FLAG for the CLI:
+        // `subresource: "--upload-file=..."` rode through on a read verb, which
+        // asks nobody. The refusal above is a list of calls and cannot cover a
+        // shape it never sees; this covers the shape. Letters, digits, dot and
+        // underscore is what an API path is made of - a `+helper` and a
+        // `--flag` are not.
+        if (![service, resource, subresource, apiMethod].filter(Boolean).every((part) => API_IDENTIFIER.test(part))) {
+          return json({
+            error: "service, resource, subresource and method are API names (letters, digits, dot, underscore): this door is not a command line, and a `+helper` or a `--flag` is refused here",
+            code: "invalid_call",
           }, 400);
         }
         // `params` and `body` travel as JSON TEXT, one argv element each. They

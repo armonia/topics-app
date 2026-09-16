@@ -8,7 +8,9 @@
  * @covers OUTBOUND-04
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardStaging, freezeAttachments, OutboundStagingError } from "./outbound-staging";
@@ -32,7 +34,10 @@ describe("freezeAttachments", () => {
     expect(frozen.files[0].path).not.toBe(file.path);
     expect(frozen.files[0].name).toBe("preventivo.pdf");
     expect(frozen.files[0].bytes).toBe(10);
-    expect(frozen.files[0].sha256).toMatch(/^[0-9a-f]{8}$/);
+    // The whole hash is what gets re-checked before the spawn; its head is
+    // what the person reads in the question.
+    expect(frozen.files[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(frozen.files[0].shortSha).toBe(frozen.files[0].sha256.slice(0, 8));
     expect(readFileSync(frozen.files[0].path, "utf8")).toBe("%PDF-finto");
     discardStaging(frozen.dir);
     expect(existsSync(frozen.dir)).toBe(false);
@@ -76,6 +81,58 @@ describe("freezeAttachments", () => {
     writeFileSync(big, Buffer.alloc(26 * 1024 * 1024));
     expect(() => freezeAttachments("topic:quattro", [{ path: big, name: "enorme.bin" }], { root: STAGING }))
       .toThrow(OutboundStagingError);
+  });
+
+  // The title above says "does not enter the RAM" and the assertion under it
+  // only says "throws": 26 MB read whole and then refused passes it. What the
+  // ceiling is FOR is the size being known before the read, and the only way to
+  // measure that from outside is a file that can be STATTED and not READ.
+  test.skipIf(process.getuid?.() === 0)("il tetto si misura PRIMA di leggere, non sui byte gia' in RAM", () => {
+    const sparse = join(root, "sparso.bin");
+    const fd = openSync(sparse, "w");
+    ftruncateSync(fd, 64 * 1024 * 1024);
+    closeSync(fd);
+    // Unreadable, statable: the old order (read, then measure) can only report
+    // the permission error, the new one reports the ceiling.
+    chmodSync(sparse, 0o000);
+    expect(() => freezeAttachments("topic:sparso", [{ path: sparse, name: "sparso.bin" }], { root: STAGING }))
+      .toThrow(/25 MB/);
+    chmodSync(sparse, 0o600);
+  });
+
+  test("un allegato che non e' un file regolare e' un rifiuto, non un server fermo", () => {
+    // `mkfifo report.csv` in its own worktree is one command, and a blocking
+    // read of a pipe with no writer never returns: not this request, the whole
+    // event loop, before anybody has been asked anything. The test proves the
+    // refusal; that it does not hang is the point of it.
+    const pipe = join(root, "tubo.csv");
+    if (existsSync(pipe)) rmSync(pipe);
+    execFileSync("mkfifo", [pipe]);
+    expect(() => freezeAttachments("topic:tubo", [{ path: pipe, name: "tubo.csv" }], { root: STAGING }))
+      .toThrow(OutboundStagingError);
+  });
+
+  test("una copia PIANTATA in anticipo non e' la copia che parte", () => {
+    // Server and agent run under the SAME uid, so 0700 keeps other users out
+    // and not the agent. What kept it out was supposed to be the name - and the
+    // name was derived from the two things the agent knows best: its own
+    // session key and the bytes it is about to attach. It computes the
+    // directory, plants a secret in it, and calls send_mail: the copy that is
+    // "already there" is the one that leaves.
+    const sessionKey = "topic:piantato";
+    const innocent = "contenuto innocente";
+    const file = source("piantato.txt", innocent);
+    const sha = createHash("sha256").update(innocent).digest("hex");
+    const derived = createHash("sha256")
+      .update(sessionKey).update("\x00").update(`piantato.txt:${sha}`)
+      .digest("hex").slice(0, 16);
+    mkdirSync(join(STAGING, derived, "0"), { recursive: true });
+    writeFileSync(join(STAGING, derived, "0", "piantato.txt"), "TOKEN=segreto-rubato", "utf8");
+    const frozen = freezeAttachments(sessionKey, [file], { root: STAGING });
+    expect(readFileSync(frozen.files[0].path, "utf8")).toBe(innocent);
+    // And no directory of this send carries a name anybody could have computed.
+    expect(frozen.dir).not.toBe(join(STAGING, derived));
+    discardStaging(frozen.dir);
   });
 
   test("le copie di una conferma che nessuno ha mai chiuso non restano li' per sempre", () => {

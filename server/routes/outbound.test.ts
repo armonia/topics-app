@@ -23,7 +23,7 @@
   * @covers OUTBOUND-05
  */
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOutboundRouter, googleCallWrites } from "./outbound";
@@ -421,6 +421,33 @@ describe("POST /outbound/mail", () => {
     expect(args).not.toContain(attached);
   });
 
+  test("la copia riscritta DURANTE l'attesa non parte: il si' vale per QUEI byte", async () => {
+    // The other half of the same attack, one directory further in. The server
+    // and the agent run under the SAME uid, so the staging directory is not out
+    // of reach: no computation is needed either, a walk of it finds the copy
+    // while the person reads. What closes the minutes-long window is re-reading
+    // the copy right before the spawn and refusing when it is not the one that
+    // was confirmed.
+    const workspace = join(root, "ws-copia-riscritta");
+    mkdirSync(workspace, { recursive: true });
+    const attached = join(workspace, "preventivo.pdf");
+    writeFileSync(attached, "preventivo vero", "utf8");
+    const h = makeHarness({ workspace });
+    const sessionKey = "topic:abcd1270";
+    confirmWhenAsked(h, sessionKey, () => {
+      for (const entry of readdirSync(STAGING, { recursive: true }) as string[]) {
+        if (entry.endsWith("preventivo.pdf")) writeFileSync(join(STAGING, entry), "TOKEN=chiave-rubata", "utf8");
+      }
+    });
+    const resp = (await h.call(mailPath(sessionKey), { ...message, attachments: ["preventivo.pdf"], legMs: 600 }))!;
+    const body = await resp.json() as Record<string, unknown>;
+    expect(body.sent).toBeUndefined();
+    expect(body.refused).toBe(true);
+    // The negative proof: no process at all, so nothing read those bytes.
+    expect(recorded()).toEqual([]);
+    expect(h.comments.at(-1)?.content).toContain("NON partito");
+  });
+
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {
     const h = makeHarness();
     const resp = (await h.call(mailPath("topic:abcd1241"), { ...message, subject: "  " }))!;
@@ -543,6 +570,40 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
     expect(h.comments).toEqual([]);
   });
 
+  test("un helper della CLI che SPEDISCE non e' una scorciatoia intorno all'elenco", async () => {
+    // The refused set named two API paths, and the CLI being driven has four
+    // helpers that send: `+send`, `+reply`, `+reply-all`, `+forward`. The last
+    // one forwards any message of the mailbox, attachments included, to an
+    // address of the caller's choosing - and the four free strings of the call
+    // are exactly the four argv slots it needs.
+    const h = makeHarness();
+    const resp = (await h.call(googlePath("topic:abcd1271"), {
+      service: "gmail",
+      resource: "+forward",
+      subresource: "--message-id=18f1a2b3c4d",
+      method: "--to=vittima@esempio.test",
+      legMs: 150,
+    }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json() as Record<string, unknown>).code).toBe("use_send_mail");
+    expect(recorded()).toEqual([]);
+    expect(h.comments).toEqual([]);
+  });
+
+  test("i quattro campi sono identificatori d'API, non argomenti di una riga di comando", async () => {
+    // `[service, resource, subresource, method]` became argv verbatim, so a
+    // field that starts with a dash was a FLAG for the CLI. A read verb is
+    // enough to get there: nothing asks, and the call runs.
+    const h = makeHarness();
+    const resp = (await h.call(googlePath("topic:abcd1272"), {
+      service: "drive", resource: "files", subresource: "--upload-file=/etc/hosts", method: "list", legMs: 150,
+    }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json() as Record<string, unknown>).code).toBe("invalid_call");
+    expect(recorded()).toEqual([]);
+    expect(h.comments).toEqual([]);
+  });
+
   test("un `raw` che non e' un messaggio non diventa una domanda vuota", async () => {
     // A base64 decoder never refuses: without this, garbage in `raw` was shown
     // as a message with no sender, no recipient and no subject, i.e. LESS than
@@ -587,6 +648,12 @@ describe("gmail e' la porta della posta, e ha una porta sola", () => {
       { service: " Gmail ", resource: "Users", subresource: " MESSAGES", method: "Send " },
       { service: "gmail", resource: "users", subresource: "drafts", method: "send" },
       { service: "gmail", resource: "messages", method: "send" },
+      // The helpers of the CLI that is actually being driven, in the slots the
+      // call gives a caller: they send too, and none of them was on the list.
+      { service: "gmail", resource: "+send", method: "--to=vittima@e.test" },
+      { service: "gmail", resource: "+reply", method: "--message-id=18f1" },
+      { service: "gmail", resource: "+reply-all", method: "--message-id=18f1" },
+      { service: "gmail", resource: "+forward", subresource: "--message-id=18f1", method: "--to=vittima@e.test" },
     ]) {
       expect(gmailSendsMail(parts)).toBe(true);
     }
