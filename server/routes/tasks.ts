@@ -1168,16 +1168,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     for (const entry of entries) {
       if (!stillDelivering(entry.taskId)) {
         forgetPendingDelivery(ctx.db, entry.taskId);
+        // One line per row dropped, because "my card never resumed its checks"
+        // is a question somebody asks, and the rows in flight at a shutdown are
+        // a handful, not a stream.
+        console.warn(`[Tasks] consegna di ${entry.taskId.slice(0, 8)} dimenticata al boot: la card non è più in lavorazione, nessun check lanciato`);
         continue;
       }
       restoredDeliveries.set(entry.taskId, entry.commit);
       pendingDeliveries.set(entry.taskId, { pathname: entry.pathname, body: entry.body });
-      console.warn(
-        `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono ` +
-        (entry.commit
-          ? `sullo stesso commit (${entry.commit.slice(0, 7)}), nessun riallineamento in più`
-          : "con un riallineamento su main: il giro tagliato non era arrivato a farlo"),
-      );
       // A tick, not a microtask: the router is still being built, and the
       // re-issue goes back in through `tasksRouter`.
       setTimeout(() => {
@@ -1190,9 +1188,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           pendingDeliveries.delete(entry.taskId);
           restoredDeliveries.delete(entry.taskId);
           forgetPendingDelivery(ctx.db, entry.taskId);
+          console.warn(`[Tasks] consegna di ${entry.taskId.slice(0, 8)} dimenticata: la card non è più in lavorazione, nessun check lanciato`);
           return;
         }
         if (!pendingDeliveries.delete(entry.taskId)) return;
+        // Said HERE and not in the sweep above: a line that announces a resume
+        // must only be printed by a resume that happens.
+        console.warn(
+          `[Tasks] consegna di ${entry.taskId.slice(0, 8)} ripresa dopo il riavvio: i check ripartono ` +
+          (entry.commit
+            ? `sullo stesso commit (${entry.commit.slice(0, 7)}), nessun riallineamento in più`
+            : "con un riallineamento su main: il giro tagliato non era arrivato a farlo"),
+        );
         reissueDelivery(entry.taskId, entry.pathname, entry.body, "riavvio del server");
       }, 0);
     }
