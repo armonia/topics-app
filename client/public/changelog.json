@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.338",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le fixture di ps non portano piu' la home di chi lavora in un repo pubblico",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.336",
     "date": "2026-09-16",
     "sections": {
