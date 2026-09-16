@@ -32,12 +32,13 @@
  * @covers KANBAN-85
  */
 import { test } from "./fixtures/layout.fixture";
-import { expect, type Browser, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
+import { projectPanesKey } from "../../shared/project-keys";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -52,7 +53,23 @@ const SHOTS = join(process.cwd(), "test-results", "swap-ice");
 const VIEWPORT = { width: 1400, height: 900 };
 
 let topicId = "";
+/** A STANDALONE chat, only so that a top-level sidebar row exists to frost. */
+let rowTopicId = "";
 const taskIds: string[] = [];
+
+/**
+ * Open this project's conversation inside the project's own layout.
+ *
+ * `openChatTopicIds` is the same key `resetProjectPanes` empties in the
+ * `beforeEach`, so the seed has to be written per test, after the reset.
+ */
+async function seedProjectChat(request: APIRequestContext): Promise<void> {
+  const res = await request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(PROJECT_PATH)}`, {
+    data: { nonChatPanes: [], openChatTopicIds: [topicId], activeChatTopicId: topicId },
+    ignoreHTTPSErrors: true,
+  });
+  expect(res.ok()).toBe(true);
+}
 
 /** The view the server would push for a frozen tree of this topic. */
 const freezeView = (over: Record<string, unknown> = {}) => ({
@@ -129,7 +146,8 @@ async function settled(page: Page): Promise<void> {
   }, { timeout: 15_000, intervals: [300] }).toBe(true);
 }
 
-async function openBoard(page: Page): Promise<void> {
+/** The project window of this spec's project, opened from the sidebar. */
+async function openProject(page: Page): Promise<void> {
   const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
   if ((await projectsSection.count()) > 0 && (await projectsSection.getAttribute("aria-expanded")) === "false") {
     await projectsSection.click();
@@ -138,10 +156,32 @@ async function openBoard(page: Page): Promise<void> {
   await expect(row).toBeVisible({ timeout: 20_000 });
   await row.click();
   await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 20_000 });
-  if (!(await page.getByTestId("kanban-board").isVisible().catch(() => false))) {
-    const tab = page.getByTestId("project-window").locator('[data-testid="pane-tab-label"]', { hasText: /^Board$/ });
-    if ((await tab.count()) > 0) await tab.first().click();
+}
+
+/**
+ * The board, added through the pane "+" menu like every other board spec.
+ *
+ * A seeded project opens with NO board: the first run of this spec waited for a
+ * `Board` tab that the project never had, and every card test died on the
+ * kanban locator. The loop over the triggers is the shape `board-blocked-chip`
+ * and its siblings use - the last visible "+" is the project's own, and a
+ * trigger that does not open the menu is skipped rather than retried blindly.
+ */
+async function openBoard(page: Page): Promise<void> {
+  await openProject(page);
+  if (await page.getByTestId("kanban-board").isVisible().catch(() => false)) return;
+  const triggers = page.getByTestId("pane-add-menu-trigger");
+  const item = page.getByTestId("pane-add-menu-kanban");
+  let opened = false;
+  for (let i = (await triggers.count()) - 1; i >= 0; i--) {
+    const t = triggers.nth(i);
+    if (!(await t.isVisible().catch(() => false))) continue;
+    if (!(await t.click({ timeout: 3_000 }).then(() => true, () => false))) continue;
+    if (await item.waitFor({ state: "visible", timeout: 2_000 }).then(() => true, () => false)) { opened = true; break; }
+    await page.keyboard.press("Escape");
   }
+  if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
+  await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 20_000 });
 }
 
@@ -154,6 +194,8 @@ test.describe("La brina di un comando congelato", () => {
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-swapice" }, null, 2));
     const topic = await createTopic(request, `E2E-SwapIce-${STAMP}`, { projectPath: PROJECT_PATH });
     topicId = topic.id;
+    const rowTopic = await createTopic(request, `E2E-SwapIce-Row-${STAMP}`);
+    rowTopicId = rowTopic.id;
     const created = await request.post(`${API}/boards/${PROJECT_ID}/tasks`, { data: { text: "Batteria WebGL" } });
     expect(created.ok()).toBe(true);
     const task = (await created.json()) as { id: string };
@@ -166,6 +208,7 @@ test.describe("La brina di un comando congelato", () => {
     await request.post(`${API}/test/swap-freeze`, { data: { views: [] } }).catch(() => {});
     for (const id of taskIds) await deleteTask(request, PROJECT_ID, id).catch(() => {});
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
+    if (rowTopicId) await deleteTopic(request, rowTopicId).catch(() => {});
     rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
@@ -254,23 +297,39 @@ test.describe("La brina di un comando congelato", () => {
     });
   }
 
-  test("ICE-04: riga, tab e pane della chat, col banner in flusso sopra il composer", async ({ browser }) => {
+  test("ICE-04: riga, tab e pane della chat, col banner in flusso sopra il composer", async ({ browser, request }) => {
+    // The conversation is seeded OPEN in the project's own layout. Clicking it
+    // in the sidebar would not do: inside a project the chat is a child row of
+    // the project node, so the click depends on an accordion being open, while
+    // the pane is what this test is about.
+    // The standalone chat's pane, so its row is in the sidebar: a chat is shown
+    // there only while it has an open tab, and the `beforeEach` empties the
+    // store. The project pane is seeded again after it, because the reset wipes
+    // that too.
+    await resetPaneStore(request, [rowTopicId]);
+    await seedProjectPane(request, PROJECT_PATH);
+    await seedProjectChat(request);
     const ctx = await openContext(browser);
     const page = await ctx.newPage();
     try {
       await page.goto("/");
-      // The chat of the topic, opened from the sidebar: row, tab and pane are
-      // then the three surfaces on screen at once.
-      const row = page.getByRole("treeitem", { name: new RegExp(`E2E-SwapIce-${STAMP}`) }).first();
+      await openProject(page);
+      const pane = page.locator(`[data-chat-topic-id="${topicId}"]`).first();
+      await expect(pane).toBeVisible({ timeout: 20_000 });
+      // The standalone chat's own row, the second surface: a sidebar row frosts
+      // wherever it is, and a top-level row is the one a click can reach here.
+      const row = page.getByRole("treeitem", { name: new RegExp(`E2E-SwapIce-Row-${STAMP}`) }).first();
       await expect(row).toBeVisible({ timeout: 20_000 });
-      await row.click();
-      await expect(page.locator(`[data-chat-topic-id="${topicId}"]`)).toBeVisible({ timeout: 20_000 });
 
-      await setFrozen(page, [freezeView()]);
+      await setFrozen(page, [freezeView(), freezeView({
+        id: `tree-row-${STAMP}`, sessionKey: `topic:${rowTopicId}`, topicId: rowTopicId, taskId: null,
+      })]);
 
-      const pane = page.locator(`[data-chat-topic-id="${topicId}"]`);
       await expect(pane).toHaveAttribute("data-swap-frozen", "true", { timeout: 10_000 });
       await expect(row).toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
+      // The third surface: the tab of the frozen conversation.
+      await expect(page.locator(`[data-pane-id="chat:${topicId}"]`).first())
+        .toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
 
       const banner = pane.getByTestId("swap-freeze-label");
       await expect(banner).toBeVisible();
