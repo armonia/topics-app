@@ -186,12 +186,20 @@ describe("parsers and the [memsig] line", () => {
       swap: { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 60_000 },
       latest: s(0, { compressorPages: 826_687, swapUsedMB: 10_070, load1: 75.9 }),
       inFlight: 2, checkRuns: 1, heaviestCheckGB: 8.2,
+      // The two fields the freeze added (16/09). They are what tells a line
+      // read afterwards whether the swap of that minute was measured with agent
+      // trees STOPPED: without them the same `swapin/s` describes two different
+      // machines, and E0 of the bar could not say what a freeze bought.
+      frozenTrees: 1, frozenGB: 2.4,
     });
-    expect(line).toBe("2026-09-15T14:06:10.000Z [memsig] avail=4.4 held2m=3.9 cover=120s swapin/s=33.6 debt/min=+8.8 comprGB=13.5 swapUsedGB=10.1 load1=75.9 swap=sustained inFlight=2 checkRuns=1 heaviestCheckGB=8.2");
+    expect(line).toBe("2026-09-15T14:06:10.000Z [memsig] avail=4.4 held2m=3.9 cover=120s swapin/s=33.6 debt/min=+8.8 comprGB=13.5 swapUsedGB=10.1 load1=75.9 swap=sustained inFlight=2 checkRuns=1 heaviestCheckGB=8.2 frozen=1 frozenGB=2.4");
     const empty = formatMemorySignalLine({
       at: 0, held: { measurable: true, latestGB: null, heldGB: null, coveredMs: 0 },
       swap: { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, coveredMs: 0 }, latest: null, inFlight: 0, checkRuns: 0, heaviestCheckGB: null,
     });
     expect(empty).toContain("avail=? held2m=? cover=0s swapin/s=? debt/min=? comprGB=? swapUsedGB=? load1=? swap=calm");
+    // A caller that knows nothing about freezes says zero, not `?`: nothing
+    // frozen is a MEASUREMENT here, and the bar sums these numbers.
+    expect(empty).toEndWith("frozen=0 frozenGB=0.0");
   });
 });

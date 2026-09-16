@@ -192,7 +192,10 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     // The brake reads the verdict of the sample just taken on the same beat.
     const beat = server.slice(server.indexOf("const dispatchTimer = setInterval("));
     expect(beat.indexOf("memSignal.sample()")).toBeGreaterThan(-1);
-    expect(beat.indexOf("swapBrake.tick(memSignal.swap(), freezableRuns())")).toBeGreaterThan(beat.indexOf("memSignal.sample()"));
+    // The third argument is the swap freezer's last action: the two levers that
+    // act under sustained swap share one 120 s window (`shared/swap-freeze.ts`).
+    expect(beat.indexOf("swapBrake.tick(memSignal.swap(), freezableRuns(), swapFreezer.lastActionAt())"))
+      .toBeGreaterThan(beat.indexOf("memSignal.sample()"));
     // The brake kills a check the way the round's own kill does: with its process group.
     expect(server).toMatch(/createSwapBrake\(\{\s*kill:\s*killCheckTree,/);
     const route = readFileSync(join(import.meta.dir, "../routes/tasks.ts"), "utf8");
@@ -422,6 +425,28 @@ describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery,
     expect(b.notes[0]![1]).toContain("Interruzione 1 di 2");
     expect(b.logs.some((l) => l.startsWith('[checks-swap] interrupted "test:unit" of bbbbbbbb'))).toBe(true);
     expect(swapInterruptedDelivery("bbbbbbbb-2", "c1")).toBe(true);
+  });
+
+  /**
+   * The freezer stops an agent's heaviest background command on the same 60 s
+   * window this brake reads. With a clock each, the second lever would act ten
+   * seconds after the first and then read the first one's effect as its own.
+   *
+   * @covers KANBAN-85
+   */
+  test("S2b: a freeze by the other lever closes this brake's window too, and the outcome says what happened", () => {
+    const b = brakeAt();
+    const a = runOf("test:unit", "aaaaaaaa-1", 0, 8);
+    // The freezer stamped its own action on this beat: the brake's clock reads
+    // the same instant (`brakeAt` starts ten minutes after t0).
+    const freezeAt = t0 + 10 * 60_000;
+    const held = b.brake.tick(SUSTAINED, [a], freezeAt);
+    expect(held, "the other lever acted just now").toEqual({ interrupted: false, skipped: "spacing" });
+    expect(b.killed).toEqual([]);
+    b.advance(121);
+    const acted = b.brake.tick(SUSTAINED, [a], freezeAt);
+    expect(acted).toEqual({ interrupted: true, skipped: null });
+    expect(b.killed).toEqual([a.pid]);
   });
 
   test("S2: spacing, nothing again for 120 s", () => {

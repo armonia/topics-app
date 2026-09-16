@@ -246,6 +246,7 @@ describe('outbound registry contract', () => {
       'stream:tool_usage',
       'stream:tool_user_input_required',
       'stream:usage',
+      'swap-freeze:state',
       'task:awaiting-human',
       'task:created',
       'task:deleted',
@@ -370,8 +371,13 @@ describe('outbound registry contract', () => {
   // 97 → 98: `provider:usage`, how full the plan's five-hour window is: the
   // hold only fires at the wall, this is the reading the status bar shows on
   // the way there and the dispatcher brakes on.
-  test('all 98 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(98);
+  // 98 → 99: `swap-freeze:state`, which agent trees are STOPPED right now
+  // (SIGSTOP under sustained swap). The whole list on every change and on
+  // connect, never a delta: it is the only source of the frost on the card, of
+  // the snowflake on rows and tabs and of the ring on the pane, and a client
+  // that missed one frame would keep a session frosted while it is running again.
+  test('all 99 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(99);
   });
 });
 

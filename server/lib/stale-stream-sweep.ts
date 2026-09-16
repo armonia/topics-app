@@ -75,6 +75,10 @@ export interface StaleStreamSweepDeps {
    *  so a tool held open by that wait is never "hung". Optional: a caller with
    *  no board answers nothing and the hung cap applies as before. */
   waitingOnOurChecks?: (sessionKey: string) => boolean;
+  /** How long a command of this session was held STOPped by the swap freezer
+   *  since a given moment (`swapFreezer.frozenMsSince`). Optional: a caller
+   *  without the freezer answers nothing and the clocks read as before. */
+  frozenMsSince?: (sessionKey: string, since: number) => number;
   resyncStream: (sessionKey: string) => void;
   cancelAsk: (sessionKey: string, reason: string) => void;
   updateStreamActivity: (sessionKey: string) => void;
@@ -307,8 +311,13 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // `finalizeOrphanedRunningTools` finalizes the two together.
       toolRunning: hasRunningTool(partial.toolCalls) || hasRunningTool(partial.blocks),
       // The age of the oldest tool still 'running', read off its own
-      // `startedAt`: the one clock the extensions do not reset.
-      toolRunningMs: toolStartedAt === null ? undefined : now - toolStartedAt,
+      // `startedAt`: the one clock the extensions do not reset. The time Topics
+      // itself held the tool's process STOPPED is taken off it: a 25-minute
+      // native tool frozen for 10 would otherwise read 35 and be called `hung`
+      // for a wait that was ours (memory note `our-own-wait-is-not-a-stall`).
+      toolRunningMs: toolStartedAt === null
+        ? undefined
+        : now - toolStartedAt - (deps.frozenMsSince?.(sessionKey, toolStartedAt) ?? 0),
       waitingOnOurChecks: ourChecks,
       alreadyResynced: deps.rescued.has(sessionKey),
     });

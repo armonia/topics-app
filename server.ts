@@ -7,6 +7,16 @@ import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
+import { createSwapFreezer } from "./server/services/swap-freeze";
+import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
+import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
+import { readProcessStates, readProcessTable, readStartTimes } from "./server/lib/process-snapshot";
+import { createXpcAttribution, printPidDomain } from "./server/lib/xpc-attribution";
+import { establishedPeers, outsidePeersOf } from "./server/lib/tree-network-peers";
+import { appendFrozenNote, stdoutFileOf } from "./server/lib/background-shell-output";
+import { backgroundBashFor, foregroundBashFor } from "./server/lib/background-bash-record";
+import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-command-registry";
+import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
@@ -66,7 +76,7 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
+import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
@@ -84,7 +94,7 @@ import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
-import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB } from "./server/lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
 import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
@@ -1054,11 +1064,15 @@ async function watchHeadlessBody(
     idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
     isWaitingForHuman: () => isHumanHold(sessionKey),
     isWaitingForChecks: () => isChecksHold(sessionKey),
+    // A command of this session is STOPped by us: that silence is ours.
+    isFrozen: () => isSwapFreezeHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(
       reason === "human"
         ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+        : reason === "freeze"
+          ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
         : reason === "checks"
           ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
           : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -1501,6 +1515,25 @@ const nodeBranchPlanter = createNodeBranchPlanter({
  * the admission floor, the budget axis, the checks waiter and the swap brake
  * (`server/services/mem-signal.ts`). Sampled at boot and on the dispatch beat.
  */
+/**
+ * THE LEDGER OF THE SWAP FREEZER, and the first thing it does: continue every
+ * tree the previous server left STOPped.
+ *
+ * A SIGKILL (a `kickstart -k`, a crash, the machine giving up on us) takes away
+ * the only process that could send SIGCONT. The pids are on disk because they
+ * were written there BEFORE their SIGSTOP, so this runs before the memory signal
+ * starts and before anything can freeze again.
+ */
+const swapFreezeLedger = createSwapFreezeLedger(
+  fileLedgerIo(join(resolveStateDir(process.cwd()), "swap-freeze.json"), (line) => console.warn(line)),
+);
+void thawLedgerAtBoot({
+  ledger: swapFreezeLedger,
+  lstartOf: readStartTimes,
+  signal: (pid, sig) => { process.kill(pid, sig); },
+  log: (line) => console.warn(line),
+}).catch((err) => console.warn("[freeze] boot thaw failed:", err));
+
 const memSignal = createMemSignal({ probe: probeVm, measurable: process.platform === "darwin" });
 void memSignal.sample();
 
@@ -3877,6 +3910,11 @@ const opzioniServer = {
       if (holdInForce) {
         inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
       }
+      // The frozen trees, for the same reason: the frost has to be on the card
+      // the moment a reloaded client paints it, and the next change may be ten
+      // minutes away.
+      const frozenNow = swapFreezeViews();
+      if (frozenNow.length > 0) inviaIniziale({ type: "swap-freeze:state", views: frozenNow });
       // Same for the reading behind it: a reload must land on the same row,
       // and the next event may be minutes away.
       const usageNow = planUsage();
@@ -4794,6 +4832,9 @@ const staleStreamTimer = setInterval(() => {
     // The delivery's own wait: the same predicate the stall detector reads, so
     // `update_task(status='review')` queued behind the checks is never "hung".
     waitingOnOurChecks: (sk) => isChecksHold(sk),
+    // And the time we held one of its commands STOPped comes off the tool's own
+    // clock, so a freeze can never turn a live tool into a "hung" one.
+    frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since),
     resyncStream: (sk) => {
       // The rescue went to claude-code too: for somebody else's turn it was a
       // mute no-op, a recovery attempt that attempted nothing.
@@ -4902,12 +4943,152 @@ const swapBrake = createSwapBrake({
   },
   log: (line) => console.warn(line),
 });
+
+/**
+ * AND UNDER THE SAME SWAP, THE HEAVIEST COMMAND AN AGENT LAUNCHED IN THE
+ * BACKGROUND IS FROZEN (`server/services/swap-freeze.ts`).
+ *
+ * Order on the beat: the brake first (it kills a check round, which gives memory
+ * back and restarts by itself), the freezer only when the brake found nothing.
+ * The two share one 120 s window, so neither measures the other's effect.
+ */
+const swapFreezeXpc = createXpcAttribution({ print: printPidDomain });
+/** The card a session works on, the same reading `isChecksHold` makes. */
+function taskIdForSessionKey(sessionKey: string): string | null {
+  const prefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
+  if (!prefix) return null;
+  try {
+    const row = db.prepare(
+      `SELECT id FROM tasks WHERE assigned_topic_id LIKE ? AND status IN ('in_progress','review') LIMIT 1`,
+    ).get(prefix + "%") as { id: string } | null;
+    return row?.id ?? null;
+  } catch { return null; }
+}
+/** Every agent with a CLI alive: panes first, then the chats. */
+function agentSessionRefs() {
+  const refs: Array<{
+    sessionKey: string; cliPid: number; topicId: string | null; terminalId: string | null;
+    taskId: string | null; backgroundBash: { command: string; startedAt: number }[]; foregroundBash: string[];
+  }> = [];
+  const seen = new Set<string>();
+  for (const pty of getAgentPtyCliPids()) {
+    seen.add(pty.sessionId);
+    refs.push({
+      sessionKey: pty.sessionId, cliPid: pty.pid, topicId: pty.topicId, terminalId: pty.sessionId,
+      taskId: taskIdForSessionKey(pty.sessionId),
+      backgroundBash: pty.claudeSessionId ? backgroundBashFor(pty.claudeSessionId) : [],
+      foregroundBash: pty.claudeSessionId ? foregroundBashFor(pty.claudeSessionId) : [],
+    });
+  }
+  for (const { sessionKey, pid } of listSessionCliPids()) {
+    if (!sessionKey || pid <= 0 || seen.has(sessionKey)) continue;
+    const claudeSessionId = (() => {
+      try { return claudeSessionTracker.getSessionByKey(sessionKey)?.claudeSessionId ?? null; } catch { return null; }
+    })();
+    refs.push({
+      sessionKey, cliPid: pid,
+      topicId: (() => { try { return ctx.getTopicBySessionKey(sessionKey)?.id ?? null; } catch { return null; } })(),
+      terminalId: null,
+      taskId: taskIdForSessionKey(sessionKey),
+      backgroundBash: claudeSessionId ? backgroundBashFor(claudeSessionId) : [],
+      foregroundBash: claudeSessionId ? foregroundBashFor(claudeSessionId) : [],
+    });
+  }
+  return refs;
+}
+/** Where a frozen background shell writes, captured while it is still readable. */
+const frozenShellOutputs = new Map<number, string>();
+const swapFreezer = createSwapFreezer({
+  processTable: readProcessTable,
+  footprintKB: procFootprintKB,
+  residentKB: procResidentKB,
+  lstartOf: readStartTimes,
+  statOf: readProcessStates,
+  signal: (pid, sig) => { process.kill(pid, sig); },
+  sessions: agentSessionRefs,
+  natives: () => listNativeCommands().map((n) => ({
+    sessionKey: n.sessionKey,
+    pid: n.pid,
+    command: n.command,
+    topicId: (() => { try { return ctx.getTopicBySessionKey(n.sessionKey)?.id ?? null; } catch { return null; } })(),
+    terminalId: null,
+    taskId: taskIdForSessionKey(n.sessionKey),
+  })),
+  guardRoles: (rows) => {
+    const cliPids = [
+      ...getAgentPtyCliPids().map((p) => p.pid),
+      ...listSessionCliPids().map((p) => p.pid),
+    ];
+    return { serverPid: process.pid, sidecarPids: sidecarPidsNow(rows), cliPids };
+  },
+  xpcServicePids: (appPid, appCommand, commandOf) => swapFreezeXpc.servicePidsOf(appPid, appCommand, commandOf),
+  // `null` travels: an `lsof` that did not answer is not a tree with no clients.
+  outsidePeers: async (pids) => {
+    const rows = await establishedPeers();
+    return rows === null ? null : outsidePeersOf(rows, new Set(pids));
+  },
+  ledger: swapFreezeLedger,
+  log: (line) => console.warn(line),
+  note: (taskId, text) => {
+    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
+    catch { /* a note that cannot be written must not stop the freeze */ }
+  },
+  onFreezeTree: (root) => {
+    if (root.kind === "native") { try { nativeCommandByPid(root.pid)?.onFreeze(); } catch { /* the freeze holds anyway */ } return; }
+    // The agent is told through the file its own `BashOutput` reads, and the
+    // path has to be resolved while the shell is still there to be asked.
+    void stdoutFileOf(root.pid).then((path) => { if (path) frozenShellOutputs.set(root.pid, path); }).catch(() => {});
+  },
+  onThawTree: (root, frozenMs) => {
+    if (root.kind === "native") { try { nativeCommandByPid(root.pid)?.onThaw(frozenMs); } catch { /* it resumes anyway */ } return; }
+    const path = frozenShellOutputs.get(root.pid);
+    frozenShellOutputs.delete(root.pid);
+    if (path) appendFrozenNote(path, frozenMs);
+  },
+  announce: (event) => {
+    announceSwapFreeze();
+    try {
+      const it = event.view;
+      recordAndAnnounce({
+        kind: "session",
+        title: event.kind === "frozen"
+          ? `Congelato: ${it.command}` // allow-italian: notification history is written in Italian like every other row
+          : `Scongelato: ${it.command}`, // allow-italian: same row
+        body: event.kind === "frozen"
+          ? `Il Mac e' in swap: il comando tiene ${it.footprintGB.toFixed(1)} GB e riprende entro 10 minuti.` // allow-italian: same row
+          : `Ripreso dopo ${Math.round(event.frozenMs / 1000)} s (${event.reason}).`, // allow-italian: same row
+        targetKind: it.topicId ? "topic" : null,
+        targetId: it.topicId,
+        dedupeKey: `swap-freeze:${it.id}:${event.kind}`,
+        source: "push",
+      });
+    } catch { /* a notification that cannot be written must not stop the freeze */ }
+  },
+});
+setActiveSwapFreezer(swapFreezer);
+setSwapFreezeBroadcast((views) => broadcastToAll({ type: "swap-freeze:state", views }));
+/** The sidecars (pty bridge, ai-bridge, webrtc), found on the freezer's own table
+ *  by the socket paths they registered themselves with `registerFleetSocket`. */
+function sidecarPidsNow(rows: readonly { pid: number; command: string }[]): number[] {
+  const paths = registeredFleetSocketPaths();
+  if (paths.length === 0) return [];
+  return rows
+    .filter((row) => row.pid !== process.pid && paths.some((sock) => row.command.includes(sock)))
+    .map((row) => row.pid);
+}
+
 /** The `[memsig]` line goes out once a minute on the 10 s beat. */
 const MEMSIG_EVERY_MS = 60_000;
 let memsigAt = 0;
 const dispatchTimer = setInterval(() => {
   void memSignal.sample().then(() => {
-    swapBrake.tick(memSignal.swap(), freezableRuns());
+    // THE BRAKE FIRST, THE FREEZER AFTER, ON ONE WINDOW. The brake kills a check
+    // round (memory back, no verdict lost); the freezer only stops an agent's
+    // heaviest background command, which gives nothing back. Whichever acts,
+    // the other waits 120 s: `lastActionAt` is the shared clock.
+    const brake = swapBrake.tick(memSignal.swap(), freezableRuns(), swapFreezer.lastActionAt());
+    void swapFreezer.tick({ swap: memSignal.swap(), held: memSignal.held(), brake })
+      .catch((err) => console.error("[freeze] tick failed", err));
     const now = Date.now();
     if (now - memsigAt < MEMSIG_EVERY_MS) return;
     memsigAt = now;
@@ -4915,6 +5096,7 @@ const dispatchTimer = setInterval(() => {
     console.log(formatMemorySignalLine({
       at: now, held: memSignal.held(), swap: memSignal.swap(), latest: samples[samples.length - 1] ?? null,
       inFlight: turniInVolo(), checkRuns: freezableRuns().length, heaviestCheckGB: liveCheckTreeGB(),
+      frozenTrees: swapFreezer.frozenCount(), frozenGB: swapFreezer.frozenGB(),
     }));
   }).catch((err) => console.error("[memsig] sample failed", err));
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
@@ -6411,6 +6593,10 @@ async function gracefulShutdown(signal: string) {
   // continue: the one thing that could send it SIGCONT is the loop that is
   // about to stop. Thaw before anything else goes away.
   try { await budgetGovernor.thawAll(); } catch { /* best effort on the way out */ }
+  // The swap freezer's trees go the same way, and BEFORE the checks are killed:
+  // a stopped process holds a SIGTERM until it is continued, so a tree left
+  // frozen here would take its signal only at the next boot's ledger thaw.
+  try { await swapFreezer.thawAll("shutdown"); } catch { /* best effort on the way out */ }
   // Then the check trees go. `slot.ts` runs each command in a process group of
   // its own, so without this a reload left every running check reparented to
   // pid 1, finishing a verdict nobody would read while the new server started
