@@ -22,6 +22,7 @@
  * attributed to an agent's tree and then SIGSTOPped, which is the browser of the
  * person sitting at the machine.
  */
+import { captureWithDeadline } from "./bounded-capture";
 
 /** One line of the `services = { ... }` block: `\t 2216 - com.apple.WebKit.WebContent.F3AD…`. */
 export interface LaunchctlService {
@@ -108,19 +109,14 @@ export function createXpcAttribution(deps: LaunchctlDeps): XpcAttribution {
   };
 }
 
-/** `launchctl print pid/<pid>` with a kill timer: under thrash a fork can hang. */
+/**
+ * `launchctl print pid/<pid>` with a DEADLINE on the answer, not just a signal at
+ * it (`bounded-capture.ts`): under thrash a fork can hang, and this is awaited
+ * inside the freezer's beat - the beat that holds the ten minute thaw cap.
+ */
 export async function printPidDomain(pid: number, timeoutMs = 2_000): Promise<string> {
-  try {
-    const proc = Bun.spawn(["/bin/launchctl", "print", `pid/${pid}`], { stdout: "pipe", stderr: "ignore" });
-    const killer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, timeoutMs);
-    killer.unref?.();
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    clearTimeout(killer);
-    return proc.exitCode === 0 ? text : "";
-  } catch {
-    return "";
-  }
+  const capture = await captureWithDeadline(["/bin/launchctl", "print", `pid/${pid}`], timeoutMs);
+  return capture !== null && capture.exitCode === 0 ? capture.text : "";
 }
 
 /** The argv of a process that looks like an `.app` executable, which is the only shape with a pid domain. */

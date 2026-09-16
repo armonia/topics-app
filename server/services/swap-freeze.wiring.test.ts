@@ -68,4 +68,21 @@ describe("the freezer is wired in the one order that works", () => {
     at(server, "isFrozen: () => isSwapFreezeHold(sessionKey)", "the stall detector's hold");
     at(server, "frozenMsSince: (sk, since) => swapFrozenMsSince(sk, since)", "the sweeper's subtraction");
   });
+
+  /**
+   * EVERY PROBE THE BEAT AWAITS HAS A DEADLINE, and this is the only place that
+   * can see it. `tick()` holds a latch for the whole beat and `thawPass` - where
+   * the ten minute cap lives - runs only at the start of one, so a single probe
+   * that never settles leaves a tree stopped for the life of the server. The
+   * shape that does that is `spawn` + a kill timer + an `await` on the pipe, and
+   * it spread by copy-paste across four files before it was noticed.
+   */
+  test("no probe of the freeze path spawns a process without going through the deadline", () => {
+    const probes = ["../lib/process-snapshot.ts", "../lib/tree-network-peers.ts", "../lib/background-shell-output.ts", "../lib/xpc-attribution.ts"];
+    for (const file of probes) {
+      const source = readFileSync(join(import.meta.dir, file), "utf8");
+      expect(source, `${file} spawns its own process again: the kill timer is not a deadline`).not.toContain("Bun.spawn(");
+      expect(source, `${file} no longer uses the bounded capture`).toContain("captureWithDeadline(");
+    }
+  });
 });

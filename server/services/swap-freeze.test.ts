@@ -13,7 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSwapFreezer, pickVictim, thawReason, type FreezeCandidate } from "./swap-freeze";
 import { createSwapFreezeLedger, type LedgerIo } from "./swap-freeze-ledger";
-import type { AgentSessionRef, NativeCommandRef, PsRow } from "../lib/agent-tool-children";
+import { encodeAsPsWould, type AgentSessionRef, type NativeCommandRef, type PsRow } from "../lib/agent-tool-children";
 import type { HeldMemory, SwapVerdict } from "./mem-signal";
 import { FREEZE_MAX_MS } from "../../shared/swap-freeze";
 
@@ -44,11 +44,22 @@ const BASE: ProcSpec[] = [
   { pid: 39135, ppid: CLI, pgid: 48914, command: "bun run topics-mcp-server.ts" },
 ];
 
-/** A background shell of the CLI: its own group, the recorded command in its `eval`. */
+/**
+ * A shell of the CLI: its own group, the command inside its `eval` - WRITTEN THE
+ * WAY `ps` WOULD WRITE IT.
+ *
+ * The fixture used to interpolate the command raw, which made every test here a
+ * measurement of a `ps` that does not exist: the real one escapes the single
+ * quotes the `eval` forces on it AND rewrites every byte it cannot print (a
+ * newline reads `\012`). Fifty-two green tests therefore said nothing about a
+ * multi-line command, which is how a foreground command stayed one step from a
+ * SIGSTOP.
+ */
 function shell(pid: number, command: string, opts: { cores?: number; footprintGB?: number; residentGB?: number } = {}): ProcSpec[] {
+  const printedByPs = encodeAsPsWould(command).replace(/'/g, `'\\''`);
   return [
-    { pid, ppid: CLI, pgid: pid, command: `/bin/zsh -c source ~/.claude/shell-snapshots/snapshot-zsh-1.sh && eval '${command}' < /dev/null && pwd -P` },
-    { pid: pid + 4, ppid: pid, pgid: pid, command, cores: opts.cores ?? 0, footprintGB: opts.footprintGB ?? 0, residentGB: opts.residentGB ?? 0 },
+    { pid, ppid: CLI, pgid: pid, command: `/bin/zsh -c source ~/.claude/shell-snapshots/snapshot-zsh-1.sh && eval '${printedByPs}' < /dev/null && pwd -P` },
+    { pid: pid + 4, ppid: pid, pgid: pid, command: encodeAsPsWould(command), cores: opts.cores ?? 0, footprintGB: opts.footprintGB ?? 0, residentGB: opts.residentGB ?? 0 },
   ];
 }
 
@@ -71,7 +82,7 @@ function world(i: {
   ledgerText?: string | null;
   /** A pid the post-check reports as stopped even though it was never signalled. */
   fakeStopped?: number[];
-  outsidePeers?: (pids: readonly number[]) => Promise<number[]>;
+  outsidePeers?: (pids: readonly number[]) => Promise<number[] | null>;
   xpc?: Record<number, number[]>;
   xpcFootprintGB?: number;
   /** `ps` mute: not an empty answer, no answer at all (its own 4 s timeout). */
@@ -162,7 +173,7 @@ function world(i: {
 
 const session = (over: Partial<AgentSessionRef> = {}): AgentSessionRef => ({
   sessionKey: "topic:a", cliPid: CLI, topicId: "a", terminalId: "term-a", taskId: null,
-  backgroundBash: [], foregroundBash: null, ...over,
+  backgroundBash: [], foregroundBash: [], ...over,
 });
 
 /** Two beats: the first has no CPU base, so a rate is measured and not invented. */
@@ -186,7 +197,7 @@ describe("F5: the heaviest background command, and nothing else", () => {
       { command: "bun idle-hog.ts", startedAt: T0 },
       { command: "bun tiny.ts", startedAt: T0 },
     ],
-    foregroundBash: "bun barra.ts && bun prova-3d.ts",
+    foregroundBash: ["bun barra.ts && bun prova-3d.ts"],
   })];
 
   test("A (2.1 GB, 0.5 core) is frozen; the idle 3 GB, the small one and the foreground are not", async () => {
@@ -250,6 +261,54 @@ describe("F6: what a freeze must never reach", () => {
     expect(stopped).toContain(52000);
     expect(stopped).not.toContain(51000);
     expect(w.logs.join("\n")).toContain("established peer(s) outside its tree");
+  });
+
+  test("an `lsof` that did not answer is not a tree with no clients: the candidate is skipped, not frozen", async () => {
+    const procs = [
+      ...BASE,
+      ...shell(51000, "bun run dev", { cores: 0.6, footprintGB: 3.0 }),
+      ...shell(52000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1 }),
+    ];
+    const sessions = [session({ backgroundBash: [{ command: "bun run dev", startedAt: T0 }, { command: "bun batteria.ts", startedAt: T0 }] })];
+    // Under sustained swap - the only condition in which this is ever asked -
+    // the 2 s of `lsof` are as likely to expire as the 4 s of `ps`. Reading the
+    // silence as "nobody is connected" hangs whoever was connected, for up to
+    // ten minutes, instead of failing them.
+    const w = world({ procs, sessions, outsidePeers: async (pids) => (pids.includes(51000) ? null : []) });
+    await twoBeats(w);
+    const stopped = w.signals.filter((s) => s.sig === "SIGSTOP").map((s) => Math.abs(s.pid));
+    expect(stopped).not.toContain(51000);
+    expect(stopped, "the next heaviest is still tried: a mute probe skips one candidate, not the beat").toContain(52000);
+    expect(w.logs.join("\n")).toContain("lsof did not answer");
+  });
+
+  test("a multi-line foreground command is not frozen, however stale the background record is", async () => {
+    // The whole shape of the T0 blocker: `ps` writes the newline as `\\012`, the
+    // record carries the real one, and a background record of an earlier turn is
+    // a substring of the same line. Nothing here is parallel or exotic - a
+    // heredoc, or an `&&` on the next line, is enough.
+    const procs = [
+      ...BASE,
+      ...shell(51000, "cd /repo\nbun test server/services/swap-freeze.test.ts", { cores: 0.9, footprintGB: 2.6, residentGB: 2.0 }),
+    ];
+    const sessions = [session({
+      backgroundBash: [{ command: "bun test", startedAt: T0 }],
+      foregroundBash: ["cd /repo\nbun test server/services/swap-freeze.test.ts"],
+    })];
+    const w = world({ procs, sessions });
+    await twoBeats(w);
+    expect(w.signals, "a foreground command is killed by its CLI on a clock that never stopped").toEqual([]);
+    expect(w.freezer.views()).toEqual([]);
+    expect(w.logs.join("\n")).toContain("foreground Bash, never frozen");
+  });
+
+  test("a multi-line background command is a candidate instead of `unrecognised`", async () => {
+    const procs = [...BASE, ...shell(51000, "cd /repo\nbun run build:all", { cores: 0.9, footprintGB: 2.6, residentGB: 2.0 })];
+    const sessions = [session({ backgroundBash: [{ command: "cd /repo\nbun run build:all", startedAt: T0 }] })];
+    const w = world({ procs, sessions });
+    await twoBeats(w);
+    expect(w.signals.filter((s) => s.sig === "SIGSTOP").map((s) => Math.abs(s.pid))).toContain(51000);
+    expect(w.logs.join("\n"), "the lever was blind to exactly the heavy scripts").not.toContain("unrecognised child 51000");
   });
 
   test("property: over 200 random layouts, no guarded pid and no guarded group is ever signalled", async () => {

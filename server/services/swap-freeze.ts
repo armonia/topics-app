@@ -18,7 +18,9 @@
  *    stream, a paused MCP server hangs every tool call of the session);
  *  - a foreground Bash of Claude Code: its CLI kills it on a wall clock that
  *    keeps running while it is stopped (`background-bash-record.ts`);
- *  - a tree with a network peer outside itself: its clients would hang, not fail;
+ *  - a tree with a network peer outside itself: its clients would hang, not fail -
+ *    and a tree whose peers could not be read AT ALL, because an `lsof` that did
+ *    not answer is a measurement nobody made, not a tree with no clients;
  *  - human shell panes, and anything not under a Topics agent.
  *
  * THE ORDER WITH THE CHECK BRAKE. The brake kills the youngest heavy check round
@@ -152,8 +154,13 @@ export interface SwapFreezerDeps {
   guardRoles: (rows: readonly PsRow[]) => GuardRoles;
   /** Attributed WebKit-style XPC services of an `.app` inside the tree. */
   xpcServicePids: (appPid: number, appCommand: string, commandOf: (pid: number) => string | undefined) => Promise<number[]>;
-  /** ESTABLISHED peers of the tree whose pid is outside it: a dev server somebody is watching. */
-  outsidePeers: (pids: readonly number[]) => Promise<number[]>;
+  /**
+   * ESTABLISHED peers of the tree whose pid is outside it: a dev server somebody
+   * is watching. `null` when `lsof` did not answer - which is NOT an empty list,
+   * and is read here as "this candidate cannot be cleared", never as "nobody is
+   * connected to it".
+   */
+  outsidePeers: (pids: readonly number[]) => Promise<number[] | null>;
   ledger: SwapFreezeLedger;
   log: (line: string) => void;
   /** The card's thread, when the session works on one. */
@@ -576,9 +583,11 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         const tried = new Set<ToolRoot>();
         while (victim) {
           tried.add(victim.root);
-          const peers = await deps.outsidePeers([...victim.treePids, ...victim.xpcPids]).catch(() => []);
-          if (peers.length === 0) break;
-          deps.log(`[freeze] skipped "${victim.root.command}": ${peers.length} established peer(s) outside its tree`);
+          const peers = await deps.outsidePeers([...victim.treePids, ...victim.xpcPids]).catch(() => null);
+          if (peers !== null && peers.length === 0) break;
+          deps.log(peers === null
+            ? `[freeze] skipped "${victim.root.command}": lsof did not answer, so who is connected to it was never measured`
+            : `[freeze] skipped "${victim.root.command}": ${peers.length} established peer(s) outside its tree`);
           ({ victim, skipped } = pickVictim(candidates.filter((c) => !tried.has(c.root))));
         }
         if (!victim) {

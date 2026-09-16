@@ -13,6 +13,7 @@
  * Run on the CHOSEN victim only, never on every candidate: `lsof` forks, and the
  * machine it forks on is the one already short of memory.
  */
+import { captureWithDeadline } from "./bounded-capture";
 
 /** `lsof -nP -FpPn -iTCP -sTCP:ESTABLISHED`: the pids and the peer of each connection. */
 export function parseEstablishedPeers(text: string): { pid: number; peer: string }[] {
@@ -47,17 +48,19 @@ export function outsidePeersOf(rows: readonly { pid: number; peer: string }[], t
   return [...out];
 }
 
-/** One `lsof` over the established TCP of the machine, with a kill timer. */
-export async function establishedPeers(timeoutMs = 2_000): Promise<{ pid: number; peer: string }[]> {
-  try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-nP", "-FpPn", "-iTCP", "-sTCP:ESTABLISHED"], { stdout: "pipe", stderr: "ignore" });
-    const killer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, timeoutMs);
-    killer.unref?.();
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    clearTimeout(killer);
-    return parseEstablishedPeers(text);
-  } catch {
-    return [];
-  }
+/**
+ * One `lsof` over the established TCP of the machine, or `null` when it did not
+ * answer within the deadline.
+ *
+ * `null` IS NOT AN EMPTY LIST, for the same reason `ps` mute is not an empty
+ * `ps` (`process-snapshot.ts`). This answer is the whole evidence behind "nobody
+ * outside is talking to this tree", and returning `[]` for a timeout turned a
+ * measurement nobody made into a clean bill of health - under sustained swap,
+ * which is the only condition in which the freezer ever asks. Measured on this
+ * Mac: a real run reads 192 rows, a timed-out one reads 0. The caller skips the
+ * candidate instead.
+ */
+export async function establishedPeers(timeoutMs = 2_000): Promise<{ pid: number; peer: string }[] | null> {
+  const capture = await captureWithDeadline(["/usr/sbin/lsof", "-nP", "-FpPn", "-iTCP", "-sTCP:ESTABLISHED"], timeoutMs);
+  return capture === null ? null : parseEstablishedPeers(capture.text);
 }

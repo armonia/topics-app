@@ -63,6 +63,7 @@ Disegno: `design.md` (sezione «Tornata 3c»); delta in `specs/kanban` (KANBAN-7
 - [x] Brina: texture procedurale con zone libere sul testo, card, riga, tab, anello e banner della pane, due temi, reduced-motion
 - [x] Test F1-F23 (unit e segnali veri, e2e in CI su chromium e webkit con screenshot e video)
 - [x] Giro di correzioni dopo la verifica avversaria: `ps` muto distinto da `ps` che risponde vuoto (niente identita' = nessun SIGSTOP, registro tenuto al boot), comando in `eval '...'` confrontato dopo aver sciolto le virgolette e col match piu' lungo, post-controllo che legge anche i pid segnalati, ICE-02/04/05 misurati sullo strumento giusto
+- [x] Secondo giro di correzioni: primo piano come insieme per `tool_use_id` (nessun `PostToolUse` altrui lo cancella), record confrontato nell'alfabeto che `ps` stampa (`\012`, `\011`, `M-`), timeout dei quattro sondaggi come scadenza sulla risposta (il battito non si pianta, quindi il tetto dei 10 minuti resta raggiungibile), `lsof` muto trattato come «peer non misurati» e non come «nessun peer», delta di spec registrato
 - [ ] Barra sul server vivo (§9 del disegno), 7 giorni dopo il land: E0 candidati sopra il pavimento, E1 swap-in/s prima/dopo, E2 stalli [LAG], E3 durate e ragioni, E4 quota di «no effect»
 
 ## Tornata 4: pannelli browser pesanti

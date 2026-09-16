@@ -4968,7 +4968,7 @@ function taskIdForSessionKey(sessionKey: string): string | null {
 function agentSessionRefs() {
   const refs: Array<{
     sessionKey: string; cliPid: number; topicId: string | null; terminalId: string | null;
-    taskId: string | null; backgroundBash: { command: string; startedAt: number }[]; foregroundBash: string | null;
+    taskId: string | null; backgroundBash: { command: string; startedAt: number }[]; foregroundBash: string[];
   }> = [];
   const seen = new Set<string>();
   for (const pty of getAgentPtyCliPids()) {
@@ -4977,7 +4977,7 @@ function agentSessionRefs() {
       sessionKey: pty.sessionId, cliPid: pty.pid, topicId: pty.topicId, terminalId: pty.sessionId,
       taskId: taskIdForSessionKey(pty.sessionId),
       backgroundBash: pty.claudeSessionId ? backgroundBashFor(pty.claudeSessionId) : [],
-      foregroundBash: pty.claudeSessionId ? foregroundBashFor(pty.claudeSessionId) : null,
+      foregroundBash: pty.claudeSessionId ? foregroundBashFor(pty.claudeSessionId) : [],
     });
   }
   for (const { sessionKey, pid } of listSessionCliPids()) {
@@ -4991,7 +4991,7 @@ function agentSessionRefs() {
       terminalId: null,
       taskId: taskIdForSessionKey(sessionKey),
       backgroundBash: claudeSessionId ? backgroundBashFor(claudeSessionId) : [],
-      foregroundBash: claudeSessionId ? foregroundBashFor(claudeSessionId) : null,
+      foregroundBash: claudeSessionId ? foregroundBashFor(claudeSessionId) : [],
     });
   }
   return refs;
@@ -5022,7 +5022,11 @@ const swapFreezer = createSwapFreezer({
     return { serverPid: process.pid, sidecarPids: sidecarPidsNow(rows), cliPids };
   },
   xpcServicePids: (appPid, appCommand, commandOf) => swapFreezeXpc.servicePidsOf(appPid, appCommand, commandOf),
-  outsidePeers: async (pids) => outsidePeersOf(await establishedPeers(), new Set(pids)),
+  // `null` travels: an `lsof` that did not answer is not a tree with no clients.
+  outsidePeers: async (pids) => {
+    const rows = await establishedPeers();
+    return rows === null ? null : outsidePeersOf(rows, new Set(pids));
+  },
   ledger: swapFreezeLedger,
   log: (line) => console.warn(line),
   note: (taskId, text) => {

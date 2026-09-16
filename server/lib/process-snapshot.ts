@@ -11,6 +11,7 @@
  * carry the group and the CPU time the decision is made on.
  */
 import { parseProcessTable, type PsRow } from "./agent-tool-children";
+import { captureWithDeadline } from "./bounded-capture";
 
 /**
  * `null` MEANS `ps` DID NOT ANSWER, and it is never the same as an empty answer.
@@ -21,21 +22,15 @@ import { parseProcessTable, type PsRow } from "./agent-tool-children";
  * Mac in sustained swap, the exact condition the freezer runs in. A caller that
  * read `""` as "that pid is gone" would SIGSTOP a tree while recording an empty
  * identity for it, and no thaw could ever match it again.
+ *
+ * The 4 s are a deadline on the ANSWER (`bounded-capture.ts`), which is the only
+ * shape that holds the promise this file's header makes: a `ps` that hangs used
+ * to leave the freezer's beat awaiting it for ever, and with the beat the ten
+ * minute thaw cap.
  */
 async function runPs(args: string[], timeoutMs = 4_000): Promise<string | null> {
-  try {
-    const proc = Bun.spawn(["/bin/ps", ...args], { stdout: "pipe", stderr: "ignore" });
-    let timedOut = false;
-    const killer = setTimeout(() => { timedOut = true; try { proc.kill(); } catch { /* already gone */ } }, timeoutMs);
-    killer.unref?.();
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    clearTimeout(killer);
-    if (timedOut || proc.signalCode) return null;
-    return text;
-  } catch {
-    return null;
-  }
+  const capture = await captureWithDeadline(["/bin/ps", ...args], timeoutMs);
+  return capture === null ? null : capture.text;
 }
 
 /** Pid, parent, group, CPU time and argv of every process, or `null` if `ps` was mute. */

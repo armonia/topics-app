@@ -855,6 +855,23 @@ congelarlo è ucciderlo con passi in più — e un payload assente o non riconos
 SHALL valere come primo piano. Un figlio che nessun record spiega SHALL essere
 registrato nel log e mai segnalato.
 
+I comandi in primo piano SHALL essere tenuti come INSIEME, uno per chiamata, e
+una voce SHALL sparire solo con il `PostToolUse` della SUA chiamata: né il
+`PostToolUse` di un altro strumento né l'arrivo di un `Bash` di background
+SHALL cancellarla. Il confronto fra un comando registrato e la riga di `ps`
+SHALL avvenire in un solo alfabeto — la riga senza le virgolette che `eval
+'<cmd>'` le impone, il record con gli escape che `ps` stampa al posto dei byte
+che non può scrivere (`\012` per un a capo, `\011` per un tab, `M-` per i byte
+non ASCII) — perché un comando che non combacia con la propria riga è un
+comando scambiato per un altro.
+
+Senza un'identità leggibile non si congela: se `ps` non risponde, in quel
+battito NESSUN albero SHALL essere candidato e nessun segnale SHALL partire (il
+conteggio dei congelamenti vive per identità, e un'identità non letta non si
+ritrova più allo scongelamento). Allo stesso modo un albero i cui peer di rete
+non sono stati misurati — `lsof` che non risponde, che non è «nessuno è
+collegato» — SHALL essere saltato per il prossimo candidato.
+
 **CHI NON SHALL MAI RICEVERE UN SEGNALE:** il server e ogni membro del suo gruppo
 di processi (il comando nativo è un figlio del server e ne condivide il gruppo:
 un segnale al gruppo fermerebbe Topics, e un server fermo è l'unico che potrebbe
@@ -887,6 +904,13 @@ ogni albero ancora in registro SHALL essere continuato prima che il segnale di
 memoria riparta, saltando le identità che non corrispondono; allo spegnimento
 SHALL essere scongelato prima che i check vengano uccisi, perché un processo fermo
 tiene il suo SIGTERM finché non è continuato.
+
+Un `ps` MUTO NON È UN ELENCO DI PID RICICLATI. Se al boot le identità non si
+possono leggere, ogni pid registrato SHALL comunque ricevere SIGCONT (un SIGCONT
+a un processo che gira non fa niente) e il registro SHALL essere TENUTO: è
+l'ultima copia di quei numeri, e svuotarlo lascerebbe un albero fermo senza
+nessuno che li conosca. Il registro SHALL essere svuotato solo dopo un boot in
+cui `ps` ha risposto.
 
 **GLI OROLOGI DEL SILENZIO.** Il tempo di congelamento è un'attesa NOSTRA: il
 rilevatore di stallo SHALL rientrare, lo spazzino degli stream SHALL scalarlo
@@ -938,7 +962,18 @@ selettori di occlusione del guscio nativo.
 
 #### Scenario: nessun albero resta fermo dopo un crash del server
 - **GIVEN** un albero congelato e il server ucciso con SIGKILL
-- **THEN** al boot ogni pid ancora vivo con la stessa identità SHALL ricevere SIGCONT, e il registro SHALL restare vuoto
+- **THEN** al boot ogni pid ancora vivo con la stessa identità SHALL ricevere SIGCONT e, se `ps` ha risposto, il registro SHALL restare vuoto
+- **AND** se `ps` non ha risposto, ogni pid registrato SHALL ricevere SIGCONT senza controllo e il registro SHALL essere tenuto per il boot dopo
+
+#### Scenario: senza identità o senza peer misurabili non parte nessun segnale
+- **GIVEN** swap sostenuto, un candidato sopra il pavimento, e `ps` che non risponde sulle identità delle radici
+- **THEN** nessun albero SHALL essere congelato in quel battito, e il log SHALL dire perché
+- **AND** con `ps` che risponde ma `lsof` muto sul candidato più pesante, quel candidato SHALL essere saltato e il successivo SHALL essere valutato
+
+#### Scenario: un comando in primo piano su più righe non si congela
+- **GIVEN** un comando in primo piano che contiene un a capo e un record di background di un turno precedente che ne è sottostringa
+- **THEN** il comando in primo piano NON SHALL ricevere nessun segnale, e il log SHALL dire che è in primo piano
+- **AND** il `PostToolUse` di un altro strumento, o un `Bash` di background nella stessa risposta, NON SHALL renderlo un candidato
 
 #### Scenario: il timer del bash nativo si ferma col congelamento
 - **GIVEN** un comando nativo con timeout 120 s, congelato al secondo 60 per 200 s

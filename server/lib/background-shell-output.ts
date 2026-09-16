@@ -23,6 +23,7 @@
  * notification history.
  */
 import { appendFileSync } from "fs";
+import { captureWithDeadline } from "./bounded-capture";
 
 /** `lsof -a -p <pid> -d 1 -F ftn`: the path of fd 1 when it is a regular file. */
 export function parseLsofStdout(text: string): string | null {
@@ -37,17 +38,12 @@ export function parseLsofStdout(text: string): string | null {
 
 /** The file a background shell writes to, or `null` when its stdout is not a file. */
 export async function stdoutFileOf(pid: number, timeoutMs = 2_000): Promise<string | null> {
-  try {
-    const proc = Bun.spawn(["/usr/sbin/lsof", "-a", "-p", String(pid), "-d", "1", "-F", "ftn"], { stdout: "pipe", stderr: "ignore" });
-    const killer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, timeoutMs);
-    killer.unref?.();
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    clearTimeout(killer);
-    return parseLsofStdout(text);
-  } catch {
-    return null;
-  }
+  // The deadline is on the answer (`bounded-capture.ts`): this runs on the freeze
+  // path, and an `lsof` that never returns used to hold the beat that the ten
+  // minute thaw cap depends on. A note that cannot be written is dropped; a beat
+  // that never ends leaves the tree stopped.
+  const capture = await captureWithDeadline(["/usr/sbin/lsof", "-a", "-p", String(pid), "-d", "1", "-F", "ftn"], timeoutMs);
+  return capture === null ? null : parseLsofStdout(capture.text);
 }
 
 /** The line the agent reads in its next `BashOutput`. */

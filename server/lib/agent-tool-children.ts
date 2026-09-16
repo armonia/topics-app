@@ -48,8 +48,13 @@ export interface AgentSessionRef {
   terminalId: string | null;
   taskId: string | null;
   backgroundBash: readonly BackgroundBashRecord[];
-  /** The command of the Bash tool running in the FOREGROUND right now, if any. */
-  foregroundBash: string | null;
+  /**
+   * The commands of the Bash tools running in the FOREGROUND right now. A LIST,
+   * because a single box was wrong: one response can hold several Bash calls,
+   * and the second one overwrote the first - leaving a command in flight with
+   * nothing naming it and a stale background record free to claim its pid.
+   */
+  foregroundBash: readonly string[];
 }
 
 /** A command the native runtime started for a session, registered by `runCommand`. */
@@ -133,6 +138,56 @@ export function normalizeCommandLine(text: string): string {
  */
 export function decodeShellQuoting(text: string): string {
   return text.replace(/'\\''|'"'"'/g, "'");
+}
+
+/**
+ * THE RECORD WRITTEN IN THE ALPHABET `ps` PRINTS IN.
+ *
+ * The quoting is only half the gap between a recorded command and its `ps` line:
+ * `ps` also REWRITES every byte it cannot print. Measured on this Mac
+ * (`/bin/ps -axo command= -ww` over a child whose argv carries one byte per
+ * class), the whole alphabet:
+ *
+ *   0x09 -> `\011`      0x0a -> `\012`      other controls, 0x7f -> `^A`, `^?`
+ *   0x5c (backslash)    printed as itself, NEVER escaped
+ *   >= 0x80             `M-` + the byte without its top bit (`ò` -> `M-CM-2`),
+ *                       `M^` + control letter when that byte is a control
+ *                       (0xc2 0x81 -> `M-BM^A`), and plain octal when it would
+ *                       be a space (0xc2 0xa0 -> `M-B\240`)
+ *
+ * So a command with a newline in it (a heredoc, an `&&` on the next line) never
+ * matched its own `ps` row: `normalizeCommandLine` turned the record's newline
+ * into a space while the row said `\012`. The foreground command then went
+ * unrecognised and a shorter background record from an earlier turn claimed its
+ * pid - a foreground command one step from a SIGSTOP - and a multi-line
+ * background command fell into `unrecognised`, which is exactly the heavy script
+ * this lever exists for.
+ *
+ * The direction is ENCODE THE RECORD, not decode the row: since `ps` leaves a
+ * literal backslash alone, a row reading `\012` is genuinely ambiguous (this
+ * repo's own `cat <<'EOF'` heredocs contain the four characters), while the
+ * record's bytes are known exactly.
+ */
+export function encodeAsPsWould(text: string): string {
+  let out = "";
+  for (const byte of new TextEncoder().encode(text)) {
+    if (byte === 0x09 || byte === 0x0a) { out += `\\${byte.toString(8).padStart(3, "0")}`; continue; }
+    if (byte < 0x20 || byte === 0x7f) { out += `^${String.fromCharCode(byte ^ 0x40)}`; continue; }
+    if (byte < 0x80) { out += String.fromCharCode(byte); continue; }
+    const stripped = byte & 0x7f;
+    // A meta byte whose letter is a space cannot be printed as `M- `: the column
+    // would end there, so `ps` falls back to the octal of the whole byte.
+    if (stripped === 0x20) { out += `\\${byte.toString(8).padStart(3, "0")}`; continue; }
+    out += stripped < 0x20 || stripped === 0x7f
+      ? `M^${String.fromCharCode(stripped ^ 0x40)}`
+      : `M-${String.fromCharCode(stripped)}`;
+  }
+  return out;
+}
+
+/** A recorded command as it would have to read inside a `ps` line to be the same command. */
+export function psNeedle(command: string): string {
+  return normalizeCommandLine(encodeAsPsWould(command));
 }
 
 function commandNameOf(command: string): string {
@@ -245,11 +300,17 @@ export function allowedGroups(
 
 /**
  * The roots an agent's tools started, with the two shapes told apart by evidence
- * and never by guessing. A Claude Code child counts only when its `eval` text -
- * put back into the alphabet of the record by `decodeShellQuoting` - contains a
- * command the CLI announced as background; matching the foreground command in
- * flight makes it `foreground` (named, never frozen), and when both match the
- * longer of the two wins, because it is the one that explains more of the line.
+ * and never by guessing. A Claude Code child counts only when its `eval` text
+ * contains a command the CLI announced as background; matching a command in
+ * flight in the foreground makes it `foreground` (named, never frozen), and when
+ * both match the longer of the two wins, because it is the one that explains
+ * more of the line.
+ *
+ * THE COMPARISON HAPPENS IN ONE ALPHABET, and getting there takes both
+ * directions: the row loses the shell quoting `eval '<cmd>'` forced on it
+ * (`decodeShellQuoting`) and the record gains the escapes `ps` prints for the
+ * bytes it cannot (`psNeedle`). Each of the two used to be enough, on its own,
+ * to hand a foreground command to the freezer.
  */
 export function toolRoots(i: {
   rows: readonly PsRow[];
@@ -258,9 +319,15 @@ export function toolRoots(i: {
 }): ToolRootsResult {
   const result: ToolRootsResult = { roots: [], foreground: [], unrecognised: [] };
   const byPpid = childIndex(i.rows);
+  type Match = { raw: string; needle: string };
+  const longerOf = (best: Match | null, c: Match): Match => (best && best.needle.length >= c.needle.length ? best : c);
   for (const s of i.sessions) {
-    const background = s.backgroundBash.map((b) => normalizeCommandLine(b.command)).filter((c) => c.length >= 3);
-    const foreground = s.foregroundBash ? normalizeCommandLine(s.foregroundBash) : null;
+    // Both sides of the comparison are put in the alphabet of `ps`: the record is
+    // encoded the way `ps` would print it, the row has its shell quoting undone.
+    const background = s.backgroundBash
+      .map((b) => ({ raw: normalizeCommandLine(b.command), needle: psNeedle(b.command) }))
+      .filter((c) => c.needle.length >= 3);
+    const foregrounds = s.foregroundBash.map((c) => ({ raw: c, needle: psNeedle(c) })).filter((f) => f.needle.length >= 3);
     for (const child of byPpid.get(s.cliPid) ?? []) {
       // An MCP server, an LSP, a `caffeinate`: the CLI's own group, not a
       // command of a tool call. They are in the guard set, never here.
@@ -271,10 +338,10 @@ export function toolRoots(i: {
       // outrank the command actually in flight; the longer match is the one that
       // explains more of the line, and when both explain the same the safe
       // reading is the one that is never signalled.
-      const fgHit = foreground && foreground.length >= 3 && text.includes(foreground) ? foreground : null;
-      const hit = background.filter((c) => text.includes(c)).reduce<string | null>((best, c) => (best && best.length >= c.length ? best : c), null);
-      if (fgHit && (!hit || fgHit.length >= hit.length)) {
-        result.foreground.push({ pid: child.pid, sessionKey: s.sessionKey, command: s.foregroundBash! });
+      const fg = foregrounds.filter((f) => text.includes(f.needle)).reduce<Match | null>(longerOf, null);
+      const hit = background.filter((c) => text.includes(c.needle)).reduce<Match | null>(longerOf, null);
+      if (fg && (!hit || fg.needle.length >= hit.needle.length)) {
+        result.foreground.push({ pid: child.pid, sessionKey: s.sessionKey, command: fg.raw });
         continue;
       }
       if (!hit) {
@@ -283,7 +350,7 @@ export function toolRoots(i: {
       }
       result.roots.push({
         kind: "claude-background", pid: child.pid, pgid: child.pgid, sessionKey: s.sessionKey,
-        command: hit, topicId: s.topicId, terminalId: s.terminalId, taskId: s.taskId,
+        command: hit.raw, topicId: s.topicId, terminalId: s.terminalId, taskId: s.taskId,
       });
     }
   }

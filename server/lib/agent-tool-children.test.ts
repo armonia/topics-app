@@ -19,6 +19,7 @@ import {
   allowedGroups,
   containsAgentCli,
   descendantPids,
+  encodeAsPsWould,
   guardSet,
   parseCpuTime,
   parseProcessTable,
@@ -60,7 +61,7 @@ const session = (over: Partial<AgentSessionRef> = {}): AgentSessionRef => ({
   terminalId: "term-1",
   taskId: null,
   backgroundBash: [{ command: "bun batteria.ts", startedAt: 1 }],
-  foregroundBash: "bun barra.ts && bun prova-3d.ts",
+  foregroundBash: ["bun barra.ts && bun prova-3d.ts"],
   ...over,
 });
 
@@ -103,7 +104,7 @@ describe("F2: anything not accounted for is logged, never signalled", () => {
   });
 
   test("a pane with no records at all yields no roots", () => {
-    const bare = session({ backgroundBash: [], foregroundBash: null });
+    const bare = session({ backgroundBash: [], foregroundBash: [] });
     const { roots, unrecognised } = toolRoots({ rows, sessions: [bare], natives: [] });
     expect(roots).toEqual([]);
     expect(unrecognised.length).toBeGreaterThan(0);
@@ -139,7 +140,7 @@ describe("F1b: the `eval` quoting, on both sides of the comparison", () => {
   test("the foreground command with a quote in it is recognised, and a shorter background record does not steal it", () => {
     const s = session({
       backgroundBash: [{ command: "bun test", startedAt: 1 }],
-      foregroundBash: "bun test --grep 'brina'",
+      foregroundBash: ["bun test --grep 'brina'"],
     });
     const { roots, foreground } = toolRoots({ rows: quotedRows, sessions: [s], natives: [] });
     expect(foreground.map((f) => f.pid)).toContain(55000);
@@ -149,7 +150,7 @@ describe("F1b: the `eval` quoting, on both sides of the comparison", () => {
   test("a background command with a quote in it is recognised instead of falling into `unrecognised`", () => {
     const s = session({
       backgroundBash: [{ command: "bun test tests/e2e --grep 'ghiaccio'", startedAt: 1 }],
-      foregroundBash: null,
+      foregroundBash: [],
     });
     const { roots, unrecognised } = toolRoots({ rows: quotedRows, sessions: [s], natives: [] });
     expect(roots.map((r) => r.pid), "the lever was blind to exactly the heavy commands").toContain(56000);
@@ -160,10 +161,94 @@ describe("F1b: the `eval` quoting, on both sides of the comparison", () => {
   test("the longest match wins: a background record that explains more than the foreground one still takes the pid", () => {
     const s = session({
       backgroundBash: [{ command: "bun test tests/e2e --grep 'ghiaccio'", startedAt: 1 }],
-      foregroundBash: "bun",
+      foregroundBash: ["bun"],
     });
     const { roots } = toolRoots({ rows: quotedRows, sessions: [s], natives: [] });
     expect(roots.map((r) => r.pid)).toContain(56000);
+  });
+});
+
+/**
+ * F1c: THE OTHER ALPHABET, the one `ps` itself writes in.
+ *
+ * The quoting of `eval '<cmd>'` was only half the gap. `ps` rewrites every byte
+ * it cannot print, so a command with a newline in it (a heredoc, an `&&` on the
+ * next line) never matched its own row: the record said a newline, the row said
+ * the four characters `\012`, and `normalizeCommandLine` turned the record's
+ * newline into a space. The pairs below were MEASURED on this Mac on 16/09/2026
+ * by putting one byte class per child into argv and reading
+ * `/bin/ps -axo command= -ww` back; the consequence is in the two `toolRoots`
+ * tests: without the encoding a multi-line foreground command is a freeze
+ * candidate, and a multi-line background command is invisible to the lever.
+ */
+describe("F1c: the escapes `ps` prints, on the record side of the comparison", () => {
+  test("every byte class reads the way `/bin/ps` wrote it", () => {
+    const measured: [string, string][] = [
+      ["\t", "\\011"],
+      ["\n", "\\012"],
+      ["\x01", "^A"],
+      ["\x0b", "^K"],
+      ["\x1b", "^["],
+      ["\x7f", "^?"],
+      ["\\", "\\"],
+      ["^", "^"],
+      ["ò", "M-CM-2"],
+      ["€", "M-bM^BM-,"],
+      [" ", "M-B\\240"],
+      ["", "M-BM^A"],
+      ["", "M-BM^_"],
+      ["plain ascii", "plain ascii"],
+    ];
+    for (const [raw, printed] of measured) expect(encodeAsPsWould(raw), JSON.stringify(raw)).toBe(printed);
+  });
+
+  const ESCAPED = `
+38515 34260 48914  12:03.00 /Users/u/Library/App/claude-code/2.1.270/claude.app/Contents/MacOS/claude --resume=abc
+57000 38515 57000   0:20.00 /bin/zsh -c source /Users/u/.claude/snapshot.sh && eval 'cd /repo\\012bun test server/services/swap-freeze.test.ts' < /dev/null && pwd -P
+58000 38515 58000   0:20.00 /bin/zsh -c source /Users/u/.claude/snapshot.sh && eval 'cd /repo\\012bun run build:all' < /dev/null && pwd -P
+59000 38515 59000   0:20.00 /bin/zsh -c source /Users/u/.claude/snapshot.sh && eval 'bun scripts/verifica-perM-CM-2.ts' < /dev/null && pwd -P
+`;
+  const escapedRows = parseProcessTable(ESCAPED);
+
+  test("a multi-line foreground command is recognised, and a stale background record does not claim its pid", () => {
+    const s = session({
+      backgroundBash: [{ command: "bun test", startedAt: 1 }],
+      foregroundBash: ["cd /repo\nbun test server/services/swap-freeze.test.ts"],
+    });
+    const { roots, foreground } = toolRoots({ rows: escapedRows, sessions: [s], natives: [] });
+    expect(foreground.map((f) => f.pid)).toContain(57000);
+    expect(roots.map((r) => r.pid), "the command in flight is never a candidate").not.toContain(57000);
+  });
+
+  test("a multi-line background command is a root instead of falling into `unrecognised`", () => {
+    const s = session({
+      backgroundBash: [{ command: "cd /repo\nbun run build:all", startedAt: 1 }],
+      foregroundBash: [],
+    });
+    const { roots, unrecognised } = toolRoots({ rows: escapedRows, sessions: [s], natives: [] });
+    expect(roots.map((r) => r.pid), "the lever was blind to exactly the heavy scripts").toContain(58000);
+    expect(unrecognised.map((u) => u.pid)).not.toContain(58000);
+    expect(roots.find((r) => r.pid === 58000)!.command, "what is shown is the command, not its escapes").toBe("cd /repo bun run build:all");
+  });
+
+  test("a command with an accent in it is recognised too: `ps` writes the byte, not the letter", () => {
+    const s = session({
+      backgroundBash: [{ command: "bun scripts/verifica-però.ts", startedAt: 1 }],
+      foregroundBash: [],
+    });
+    const { roots } = toolRoots({ rows: escapedRows, sessions: [s], natives: [] });
+    expect(roots.map((r) => r.pid)).toContain(59000);
+  });
+
+  test("a tab in the record does not become a space either", () => {
+    const rows_ = parseProcessTable(`
+38515 34260 48914  12:03.00 /Users/u/claude --resume=abc
+57500 38515 57500   0:20.00 /bin/zsh -c source /x.sh && eval 'bun test\\011--coverage' < /dev/null && pwd -P
+`);
+    const s = session({ backgroundBash: [], foregroundBash: ["bun test\t--coverage"] });
+    const { foreground, roots } = toolRoots({ rows: rows_, sessions: [s], natives: [] });
+    expect(foreground.map((f) => f.pid)).toContain(57500);
+    expect(roots).toEqual([]);
   });
 });
 
