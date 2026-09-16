@@ -765,10 +765,28 @@ l'unico posto che alza la fascia della perdita, quindi una pane che smette di
 chiamarla torna a perdere input in silenzio con la coda ancora perfettamente
 corretta.
 
+La fascia della perdita resta su finché un tasto non arriva davvero alla
+pseudo-terminale, quindi input TRATTENUTO ADESSO SHALL avere la precedenza su
+una perdita vecchia: byte in coda sono la prova che il lettore sta battendo di
+nuovo. Senza questa precedenza, un secondo distacco prima che il lettore abbia
+consegnato un tasto lasciava la pane a dire «era troppo vecchio per partire»
+mentre la coda tratteneva per davvero i tasti nuovi, senza fascia «in coda» e
+senza invito: chi crede alla fascia riscrive, quell'episodio NON è avvelenato e
+l'aggancio consegna alla shell le due copie attaccate (`who` battuto e poi
+`whoami\r` = `whowhoami\r`), cioè la ricucitura che TERM-11 chiama peggiore di
+un tasto perso. La precedenza non tocca l'episodio in corso: dopo uno scarto la
+coda è vuota e rifiuta i tasti, quindi la fascia della perdita resta.
+
 #### Scenario: l'avviso dice quale delle tre cause
 - **GIVEN** una perdita per scadenza, una per tetto di byte e una per aggancio senza socket
 - **WHEN** la pane mostra l'avviso
 - **THEN** ciascuna causa SHALL avere la propria frase, nelle due lingue
+
+#### Scenario: un secondo distacco trattiene davvero, e la pane lo dice
+- **GIVEN** una fascia di perdita ancora su, perché nessun tasto è arrivato alla pseudo-terminale
+- **WHEN** il socket cade di nuovo e si battono tasti nuovi, che la coda trattiene
+- **THEN** la pane SHALL mostrare che l'input è in coda
+- **AND** la fascia della perdita vecchia SHALL scendere, invece di invitare a una riscrittura che si ricuce alla copia trattenuta
 
 #### Scenario: l'invito a riscrivere aspetta l'aggancio
 - **GIVEN** una perdita mentre la coda è ancora avvelenata

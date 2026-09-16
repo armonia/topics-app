@@ -292,6 +292,15 @@ describe('TerminalInputQueue', () => {
     // takes it down, and that is the pane's call, not this function's.
     expect(nextInputBands({ pendingBytes: 0, lostReason: null }, { held: false, lost: 'expired' }))
       .toEqual({ held: false, lost: 'expired' });
+    // ...but input held RIGHT NOW does take it down, and this is the case the
+    // guard used to get backwards. Second episode: the reader never typed after
+    // the expiry, the socket drops again, the new keys ARE queued - and the
+    // pane kept showing "too old to send", with no held band and no retype
+    // invitation. Whoever believes it retypes the line, this episode is not
+    // poisoned, and the attach hands the shell `who` + `whoami\r` stitched into
+    // one command line, which TERM-11 calls worse than a lost keystroke.
+    expect(nextInputBands({ pendingBytes: 3, lostReason: null }, { held: false, lost: 'expired' }))
+      .toEqual({ held: true, lost: null });
   });
 
   test('the age limit clears the measured reattach window', () => {

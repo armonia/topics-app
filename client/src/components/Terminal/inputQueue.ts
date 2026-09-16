@@ -306,9 +306,23 @@ export interface InputBands {
  * with the queue itself still perfectly correct.
  */
 export function nextInputBands(state: InputQueueState, current: InputBands): InputBands {
-  const lost = state.lostReason ?? current.lost;
-  // A loss outranks a promise of delivery: after a discard there is nothing
-  // left to deliver, and showing both would have the pane contradict itself.
-  const held = lost ? false : state.pendingBytes > 0;
+  // Input held RIGHT NOW outranks a loss the reader has not answered yet.
+  //
+  // The loss band is sticky until a key actually reaches the PTY, so a SECOND
+  // drop before that key used to leave the pane saying "it was too old to send"
+  // while the queue was genuinely holding what had just been typed: no "held"
+  // band, no invitation, and a reader who believes the band retypes the line.
+  // That episode is not poisoned, so the attach then delivers both copies
+  // stitched together (`who` + `whoami\r` = `whowhoami\r` at the shell), which
+  // TERM-11 calls the one outcome worse than a lost keystroke. Bytes in the
+  // queue ARE the proof the reader is typing again, so the old loss goes down.
+  //
+  // This does not hide a fresh discard: every loss empties the queue first
+  // (`poison` zeroes the bytes, `flush` empties before it can say
+  // `disconnected`), so a state carrying a reason always carries 0 pending
+  // bytes, and within the same episode the poisoned queue keeps refusing keys
+  // with `pendingBytes` at 0 - the band stays up, as it must.
+  const held = state.pendingBytes > 0;
+  const lost = held ? null : (state.lostReason ?? current.lost);
   return { held, lost };
 }
