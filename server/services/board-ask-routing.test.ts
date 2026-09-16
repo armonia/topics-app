@@ -16,6 +16,7 @@ import { Database } from "bun:sqlite";
 import {
   _resetRoutedAsks,
   answerRoutedAsk,
+  clearRoutedAsk,
   normalizeAsk,
   pendingRoutedAsk,
   routeAskToTaskThread,
@@ -279,14 +280,67 @@ describe("two questions on one card", () => {
     expect(h.delivered).toEqual([{ sessionKey: COORD, answers: { "outbound:bbb": "Conferma" } }]);
   });
 
-  test("the same session always replaces: the CLI blocks on one question", () => {
+  // ONE SESSION, TWO REQUESTS - and the rule used to read "the same session
+  // always replaces, the CLI blocks on one question at a time". The code
+  // shipped says otherwise: `topics-mcp-server.ts` handles every JSON-RPC line
+  // in a callback it does not await, so two `send_mail` of one message run
+  // together on one session, and the route is callable by hand anyway.
+  // Reproduced 120 ms apart: the second confirmation took the first one's place
+  // and the card carried two blocks of buttons, one of them unanswerable.
+  test("the same session does NOT replace its own live question: it is told the card is taken", () => {
+    beginAsk(KID);
+    const first = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    expect(first?.shown).toBe(true);
+    const afterFirst = lines();
+
+    const second = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:bbb", question: "Credenziali -> attaccante@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    expect(second?.shown).toBe(false);
+    expect(second?.busy?.sessionKey).toBe(KID);
+    // Nothing written: the card keeps ONE confirmation to read.
+    expect(lines()).toBe(afterFirst);
+    expect(pendingRoutedAsk(taskId)?.askId).toBe(first!.askId!);
+    // And the yes read on it pays for the message it names, not the other one.
+    expect(answerRoutedAsk(h.deps, taskId, "Conferma", { askId: first!.askId! }).delivered).toBe(true);
+    expect(h.delivered).toEqual([{ sessionKey: KID, answers: { "outbound:aaa": "Conferma" } }]);
+  });
+
+  test("a question nobody waits on any more is replaced, by its own session too", () => {
     beginAsk(KID);
     routeAskToTaskThread(h.deps, { sessionKey: KID, questions: [{ key: "leftover", question: "Left by an interrupted turn?" }] });
+    // The turn died under the panel: the rendez-vous is gone, the entry is not.
+    // Holding the card for it would make every later confirmation of this
+    // session refuse for a question nobody can answer.
+    endAsk(KID);
     const now = routeAskToTaskThread(h.deps, {
       sessionKey: KID,
       questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
     });
     expect(now?.shown).toBe(true);
-    expect(pendingRoutedAsk(taskId)?.sessionKey).toBe(KID);
+    expect(pendingRoutedAsk(taskId)?.askId).toBe(now!.askId!);
+  });
+
+  // THE LOSER MUST NOT CLEAR WHAT IS NOT ITS. The clear used to take a
+  // sessionKey and delete every entry of that session: on one session the leg
+  // that was refused deleted the entry of the leg that WON, so the confirmation
+  // stayed on screen with its buttons while `pendingRoutedAsk` answered null -
+  // the click reached nothing and the card said nothing.
+  test("clearing by id leaves another question alone", () => {
+    beginAsk(KID);
+    const first = routeAskToTaskThread(h.deps, {
+      sessionKey: KID,
+      questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma"] }],
+    });
+    // The id of a question that is not on the card: the refused leg has none of
+    // its own, and whatever it names must not touch this one.
+    clearRoutedAsk("c-mai-scritto");
+    expect(pendingRoutedAsk(taskId)?.askId).toBe(first!.askId!);
+    clearRoutedAsk(first!.askId!);
+    expect(pendingRoutedAsk(taskId)).toBeNull();
   });
 });

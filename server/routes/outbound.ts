@@ -85,7 +85,7 @@ export interface OutboundRouterOptions {
    * which has no board to write on and everything to check about WHAT would be
    * written.
    */
-  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => string | null;
+  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string; quiet?: boolean }) => string | null;
 }
 
 /**
@@ -182,7 +182,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
     }
   };
 
-  const addComment = options.comment ?? ((args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+  const addComment = options.comment ?? ((args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string; quiet?: boolean }) => {
     try {
       const service = createTaskService(ctx.db);
       const written = service.addComment({
@@ -192,6 +192,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         projectId: args.projectId,
         questionOptions: args.options,
         messageId: args.sessionKey ? ctx.isStreaming?.(args.sessionKey)?.messageId ?? null : null,
+        ...(args.quiet ? { quiet: true } : {}),
       });
       const task = service.get(args.taskId, { projectId: args.projectId })?.task;
       if (task) broadcastToAll({ type: "task:updated", projectId: args.projectId, task });
@@ -207,11 +208,25 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
    * THE TRACE. Something left this machine (or was stopped on its way out), and
    * that is a fact of the card, not a line in a log file nobody opens. The body
    * is deliberately absent: who, what, to whom, and how it went.
+   *
+   * `quiet` BECAUSE A TRACE IS NOT AN ANSWER, and that flag is the one place
+   * where the writer gets to say so (`TaskComment.quiet`, read by
+   * `pendingQuestionComment`). Without it this line SILENCED the question above
+   * it: the scan for the open question stops on the first agent row that is
+   * neither a question nor a delivery, so a refusal written under a live
+   * confirmation of another request took its buttons away and, with them, the
+   * `answerTo` the drawer sends - measured, `pendingQuestionComment -> null`
+   * with the trace in the thread and the question without it. The alternative,
+   * holding the line back until the question is answered, would mean an agent
+   * told "nothing was sent" while the card says nothing at all; the trace must
+   * be written when it is true, so it is written in a shape that answers
+   * nothing. It stays a normal comment everywhere else: visible in the thread,
+   * counted as the card's last word.
    */
   const trace = (sessionKey: string, line: string): boolean => {
     const card = cardOf(sessionKey);
     if (!card) return false;
-    return !!addComment({ taskId: card.taskId, projectId: card.projectId, content: line, options: [], sessionKey });
+    return !!addComment({ taskId: card.taskId, projectId: card.projectId, content: line, options: [], sessionKey, quiet: true });
   };
 
   const gateDeps: OutboundGateDeps = {
@@ -471,9 +486,10 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // honest is not the mode of that directory but this check, which turns
         // the window from "the minutes a person spends reading" into "one
         // process start". IT DOES NOT CLOSE IT: that remainder was reproduced,
-        // and `/dev/fd/N` cannot close it against a CLI that re-opens the
-        // attachment by name. The measure and the refusal text are in the
-        // header of `outbound-staging.ts`.
+        // and `/dev/fd/N` does not close it either - this CLI refuses the
+        // descriptor twice over, at the path containment check and at the read.
+        // The two measures and their exact text are in the header of
+        // `outbound-staging.ts`.
         try {
           verifyFrozen(frozen);
         } catch (err) {

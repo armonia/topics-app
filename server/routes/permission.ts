@@ -1,7 +1,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError } from "../lib/ask-user-bridge";
 import { createTaskService } from "../services/tasks";
-import { routeAskToTaskThread, clearRoutedAskForSession } from "../services/board-ask-routing";
+import { routeAskToTaskThread, clearRoutedAsk, clearRoutedAsksOfEndedSession } from "../services/board-ask-routing";
 import {
   beginPermission,
   waitForDecision,
@@ -148,7 +148,10 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           // The ask outlived its TTL. Close it here rather than letting the
           // bridge poll on into the CLI child's own lifetime cap.
           cancelAsk(sk, "no answer: the question expired");
-          clearRoutedAskForSession(sk);
+          // The rendez-vous of this session is over for good, so every question
+          // of its on the board is unanswerable: this is the one caller allowed
+          // to clear by SESSION, and the line above is what makes it true.
+          clearRoutedAsksOfEndedSession(sk);
           return json({ cancelled: true, reason: "ask_user_question: the question expired with no answer" });
         }
         // LA DOMANDA ESCE NEL THREAD DEL TASK, se questa sessione ne ha uno.
@@ -170,7 +173,13 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // somebody answers the first one, the second comes out by itself. The
         // turn was parked on a person either way, and the panel in the tab
         // stays its other road.
-        try { routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] }); }
+        // The id of the thread row this ask owns, kept so the clears below name
+        // THIS question instead of "everything this session has open": two
+        // requests of one session share the rendez-vous, and a clear by session
+        // deletes the entry of the one still waiting (measured on the send
+        // gate, same registry).
+        let askId: string | undefined;
+        try { askId = routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] })?.askId; }
         catch { /* il pannello nel tab resta comunque */ }
         try {
           const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
@@ -185,7 +194,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           // close. The two existing clears do not cover this case: one is the
           // TTL expiry (above), the other is an answer written IN the thread
           // (`answerRoutedAsk`, which deletes its own entry).
-          clearRoutedAskForSession(sk);
+          if (askId) clearRoutedAsk(askId);
           return json({ answers });
         } catch (err: any) {
           // A leg expiring is the NORMAL case — the human is still reading.
@@ -193,8 +202,10 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           if (err instanceof AskWaitError && err.code === "timeout") {
             return json({ pending: true });
           }
-          // Cancelled or superseded: the question is gone, so is the entry.
-          clearRoutedAskForSession(sk);
+          // Cancelled or superseded: the question is gone, so is the entry. If
+          // another question took the card meanwhile, this names ours and
+          // leaves that one alone.
+          if (askId) clearRoutedAsk(askId);
           // Uses `reason`, not `error`, so the bridge's httpJson passes it
           // through instead of auto-throwing on `error`.
           return json({ cancelled: true, reason: err?.message ?? String(err) });

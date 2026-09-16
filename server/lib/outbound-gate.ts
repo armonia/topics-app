@@ -32,7 +32,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { beginAsk, cancelAsk, waitForAnswer, AskWaitError } from "./ask-user-bridge";
-import { routeAskToTaskThread, clearRoutedAskForSession, type AskRoutingDeps } from "../services/board-ask-routing";
+import { routeAskToTaskThread, clearRoutedAsk, type AskRoutingDeps } from "../services/board-ask-routing";
 import type { UserInputSchema } from "../types";
 
 /** The word that sends. Anything else, including silence, does not. */
@@ -208,23 +208,27 @@ export async function confirmOutbound(
   const key = confirmKey(request.digest);
   const question = confirmQuestion(request.summary, request.digest);
 
-  if (!beginAsk(request.sessionKey)) {
-    cancelAsk(request.sessionKey, "no answer: the confirmation expired");
-    return { state: "refused", reason: "the confirmation expired with no answer" };
-  }
-
-  const schema = schemaFor(request);
-  // The card thread. Writes once per question: the registry inside
-  // `routeAskToTaskThread` recognises the one it already posted.
+  // THE CARD IS ASKED FIRST, BEFORE THIS REQUEST OPENS ANYTHING OF ITS OWN.
+  //
+  // The order is the fix. The rendez-vous is keyed by SESSION, so `beginAsk`
+  // here joins whatever is already open on this session instead of starting
+  // something of ours, and every later "clean up after me" then lands on a
+  // question that belongs to the request that got here first. Reproduced, 120
+  // ms apart on one session: the second send cancelled the first one's ask and
+  // deleted its registry entry, so the confirmation stayed on screen with its
+  // buttons and the click on it reached nothing at all. Asking the card first
+  // means a second confirmation is turned away having touched NOTHING - no
+  // rendez-vous, no registry, no line in the thread.
   //
   // `shown` AND NOT "it returned a task". The two are not the same thing, and
   // the difference is a send left hanging in silence: that function also
-  // returns the task when it decided NOT to write - and it was deciding that
-  // whenever the registry still held any entry for this session, including one
-  // left by a question of an interrupted turn. Reading the task as "the person
-  // was asked" meant the confirmation existed nowhere: the card showed the old
-  // question, the send polled for four hours, nobody could have answered it.
+  // returns the task when it decided NOT to write, and reading that as "the
+  // person was asked" meant the confirmation existed nowhere: the card showed
+  // another question, the send polled for four hours, nobody could have
+  // answered it.
   let asked = false;
+  /** The thread row THIS request owns, and the only one it may ever clear. */
+  let mine: string | undefined;
   let busy: { sessionKey: string; askedAt: number } | undefined;
   try {
     const routed = routeAskToTaskThread(
@@ -232,34 +236,50 @@ export async function confirmOutbound(
       { sessionKey: request.sessionKey, questions: [{ key, header: request.header, question, options: [CONFIRM_LABEL, REFUSE_LABEL] }] },
     );
     asked = routed?.shown === true;
+    mine = routed?.askId;
     busy = routed?.busy;
   } catch {
     // The panel below is the other road; a thread that refuses a comment must
     // not be the reason nobody can answer.
   }
 
-  // ANOTHER LIVE QUESTION HOLDS THE CARD, and this send does not queue behind
-  // it. Two sessions of one task are the normal shape here - the coordinator
-  // and its children map to the SAME taskId on purpose - so "the card already
-  // has a confirmation open" is a state that happens, not a corner.
+  // ANOTHER CONFIRMATION IS ALREADY OPEN ON THIS CARD, and this send does not
+  // queue behind it. Two questions on one task are the normal shape here, in
+  // both forms: two sessions (a coordinator and its children map to the SAME
+  // taskId on purpose) and two requests of one session (the MCP bridge does not
+  // await the handler of a JSON-RPC line, so two `send_mail` of one message run
+  // together).
   //
   // Refused rather than parked, and the reason is what a yes IS. A card draws
   // one quick-reply block: a second confirmation can only be shown by taking
   // the first one's place, and then the person reads one message and the yes
   // pays for another (reproduced: the quote a person read on screen confirmed,
-  // and a mail to a different recipient sent). Waiting in silence is no
-  // better for something irreversible - the agent would poll for four hours
-  // with nothing on screen, and the human would never learn a send was queued.
-  // A refusal with its own line is the only answer that is true when it is
-  // given: the person keeps ONE confirmation to read, and the agent is told
-  // why, so it can come back after the first one is closed.
+  // and a mail to a different recipient sent). Waiting in silence is no better
+  // for something irreversible - the agent would poll for four hours with
+  // nothing on screen, and the human would never learn a send was queued. A
+  // refusal with its own line is the only answer that is true when it is given:
+  // the person keeps ONE confirmation to read, and the agent is told why, so it
+  // can come back after the first one is closed.
+  //
+  // NOTHING IS CANCELLED HERE. There used to be a `cancelAsk` on this line,
+  // from when the holder could only be another session; on the same session it
+  // killed the rendez-vous the FIRST send was waiting on. This request has not
+  // opened one yet - that is what the order above buys - so there is nothing of
+  // ours to close and nothing of anybody else's to touch.
   if (busy && !asked) {
-    cancelAsk(request.sessionKey, "another confirmation is already open on this card");
     return {
       state: "refused",
       reason: "this card already has a confirmation waiting for an answer: nothing is sent until that one is closed",
     };
   }
+
+  if (!beginAsk(request.sessionKey)) {
+    cancelAsk(request.sessionKey, "no answer: the confirmation expired");
+    if (mine) clearRoutedAsk(mine);
+    return { state: "refused", reason: "the confirmation expired with no answer" };
+  }
+
+  const schema = schemaFor(request);
 
   // The chat panel, on the row of the tool that is waiting.
   const target = findWaitingToolRow(deps.lastToolRow(request.sessionKey), request.toolName);
@@ -275,7 +295,6 @@ export async function confirmOutbound(
     // would be a question nobody can see, held open until its TTL — so it is
     // refused NOW, with the reason, which is the only honest answer.
     cancelAsk(request.sessionKey, "nowhere to ask");
-    clearRoutedAskForSession(request.sessionKey);
     return {
       state: "refused",
       reason: "there is no card thread and no visible tool row to ask on: nobody could confirm",
@@ -284,13 +303,16 @@ export async function confirmOutbound(
 
   try {
     const answers = await waitForAnswer(request.sessionKey, { timeoutMs: request.legMs });
-    // THIS QUESTION IS OVER, whatever the answer says. The thread registry is
-    // keyed by TASK and does not look at the digest: leaving the entry behind
+    // THIS QUESTION IS OVER, whatever the answer says. Leaving the entry behind
     // means the NEXT message's question is silently not posted to the card,
     // because the registry still believes one is open. The two existing clears
     // (expiry, and a human answering in the thread) do not cover an answer that
     // arrived through the chat panel.
-    clearRoutedAskForSession(request.sessionKey);
+    //
+    // OURS, BY ITS ID. Clearing "this session's" entries is what let the losing
+    // leg delete the winner's question: on one session the two are the same
+    // thing to a session-keyed clear, and they are not the same question.
+    if (mine) clearRoutedAsk(mine);
     // Both identities of the same question: the board answers under the key,
     // the chat panel under the question text.
     const raw = answers[key] ?? answers[question];
@@ -304,7 +326,7 @@ export async function confirmOutbound(
     return { state: "granted" };
   } catch (err) {
     if (err instanceof AskWaitError && err.code === "timeout") return { state: "pending" };
-    clearRoutedAskForSession(request.sessionKey);
+    if (mine) clearRoutedAsk(mine);
     return { state: "refused", reason: err instanceof Error ? err.message : String(err) };
   }
 }

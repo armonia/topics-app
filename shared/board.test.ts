@@ -953,6 +953,28 @@ describe('pendingQuestionComment: a delivery from the same message preserves its
     expect(pendingQuestionComment([question, { kind: 'status', content: 'backlog→review' }, note, { ...note, content: 'and a second note' }])).toBe(question);
   });
 
+  /**
+   * THE SAME COLLISION, WRITTEN BY THE MACHINE. A send refused because the card
+   * already had a confirmation open leaves its own line on that card, and the
+   * line lands UNDER the live question of the request that got there first:
+   * two `send_mail` of one message run together, measured 120 ms apart.
+   * Unmarked, that line is an agent row which is neither a question nor a
+   * delivery, so the scan stopped on it: no buttons, and no `answerTo` from the
+   * drawer, exactly in the state the race produces. The trace is written
+   * `quiet` (`server/routes/outbound.ts`) because it answers nothing.
+   */
+  test('a QUIET trace written by an agent does not silence the question above it', () => {
+    const trace = {
+      ...question,
+      kind: 'comment',
+      quiet: true,
+      content: 'Invio NON partito (primo a attaccante@esempio.test, oggetto "Credenziali"): this card already has a confirmation waiting for an answer',
+    };
+    expect(pendingQuestionComment([question, trace])).toBe(question);
+    // And without the flag it is the defect: the question stops being pending.
+    expect(pendingQuestionComment([question, { ...trace, quiet: undefined }])).toBeNull();
+  });
+
   test('without the flag a human word closes the question as it always did', () => {
     const answer = { ...question, author: 'user', kind: 'comment', content: 'Requeue the subtasks' };
     expect(pendingQuestionComment([question, answer])).toBeNull();

@@ -104,18 +104,34 @@ Quindi:
   confermato;
 - una risposta che non nomina nessun id SHALL valere per la domanda aperta, che
   è l'unica che può esserci per la regola qui sotto;
-- una SECONDA conferma di invio su una card che ne ha già una VIVA di un'altra
-  sessione SHALL essere RIFIUTATA con quella ragione, e NON SHALL prendere il
-  posto della prima. La card disegna un blocco di risposta rapida solo: mostrare
-  la seconda significa togliere la prima, e un atto irreversibile non può
-  nemmeno restare in coda in silenzio per ore. Una `ask_user_question` generica
-  invece ASPETTA il suo turno, perché il suo bridge ripassa con la stessa
-  domanda ogni 25 secondi e non perde niente;
-- se la domanda che occupa la card non aspetta più nessuno (turno interrotto),
-  la nuova SHALL sostituirla, la sostituzione SHALL essere scritta nel thread
-  ANCHE fra sessioni diverse, e il rendez-vous della sostituita SHALL essere
-  annullato, così il suo invio fallisce con la sua traccia invece di raccogliere
-  un sì che non era suo.
+- una SECONDA conferma di invio su una card che ne ha già una VIVA SHALL essere
+  RIFIUTATA con quella ragione, e NON SHALL prendere il posto della prima,
+  CHIUNQUE la chieda: un'altra sessione dello stesso task o un'altra richiesta
+  della STESSA sessione, che non è un caso limite — il bridge MCP gestisce ogni
+  riga JSON-RPC in un callback che non aspetta, quindi due `send_mail` di un
+  messaggio corrono insieme, e la rotta è comunque chiamabile a mano. La card
+  disegna un blocco di risposta rapida solo: mostrare la seconda significa
+  togliere la prima, e un atto irreversibile non può nemmeno restare in coda in
+  silenzio per ore. Una `ask_user_question` generica invece ASPETTA il suo
+  turno, perché il suo bridge ripassa con la stessa domanda ogni 25 secondi e
+  non perde niente;
+- il rifiuto della seconda NON SHALL toccare niente di ciò che è della prima:
+  né il suo rendez-vous, né la sua voce nel registro, né una riga nel thread.
+  Il registro SHALL essere chiavato sulla RICHIESTA — l'id della riga che porta
+  la domanda — e non sulla sessione: chiavato sulla sessione, la gamba che
+  perdeva cancellava la voce di quella che aveva vinto, e il clic sulla conferma
+  ancora a schermo non partiva più (misurato: `pendingRoutedAsk` tornava null e
+  la card non diceva niente);
+- se la domanda che occupa la card non aspetta più nessuno, la nuova SHALL
+  sostituirla, la sostituzione SHALL essere scritta nel thread ANCHE fra
+  sessioni diverse, e il rendez-vous della sostituita SHALL essere annullato,
+  così il suo invio fallisce con la sua traccia invece di raccogliere un sì che
+  non era suo. «Non aspetta più nessuno» SHALL essere deciso su DUE fatti e non
+  su uno: la sessione della domanda non ha più un rendez-vous aperto (turno
+  interrotto), oppure nessuno è più ripassato a ri-porre quella domanda entro un
+  tempo dichiarato — le gambe del poll sono il battito, e una sola delle due
+  misure non basta, perché il rendez-vous è chiavato sulla sessione e non sa
+  distinguere due richieste della stessa.
 
 La domanda SHALL contenere il MESSAGGIO che sta per partire: mittente,
 destinatario, oggetto e il corpo (tagliato a una lunghezza dichiarata, e il
@@ -206,6 +222,19 @@ non è una difesa contro un processo che è già dentro il confine.
 - **AND** la domanda sulla card SHALL restare quella della prima
 - **AND** il sì SHALL far partire il PRIMO messaggio, non il secondo
 
+#### Scenario: due conferme della STESSA sessione, in volo insieme
+- **GIVEN** un invio in attesa di conferma sulla card
+- **WHEN** la stessa sessione ne chiede un secondo mentre il primo aspetta
+- **THEN** il secondo SHALL essere rifiutato con quella ragione
+- **AND** la card SHALL portare UNA sola conferma, quella del primo messaggio
+- **AND** il clic su quella conferma SHALL essere consegnato e far partire il
+  primo messaggio, non il secondo
+
+#### Scenario: la traccia di un invio rifiutato non spegne la domanda viva
+- **GIVEN** una conferma viva sulla card e un secondo invio rifiutato
+- **THEN** la riga «Invio NON partito» SHALL essere scritta come NOTA
+- **AND** la domanda sopra di lei SHALL restare da rispondere, coi suoi tasti
+
 #### Scenario: la persona risponde a una domanda superata
 - **GIVEN** una domanda sostituita e una risposta che nomina la riga vecchia
 - **THEN** NON SHALL partire niente e la risposta SHALL restare una nota
@@ -274,12 +303,17 @@ processo intero: riprodotta 1 volta su 1 con i tempi veri e 3 su 4 senza nessun
 ritardo simulato, e il percorso non si indovina — si ELENCA, cosa che costa
 niente a chi gira come questo utente. La chiusura naturale (aprire la copia,
 scollegarla e passare al figlio `/dev/fd/N`) è stata MISURATA contro la CLI vera
-il 2026-09-16 (`gws gmail +send --dry-run`, nessun invio) e NON regge: `--attach
-/dev/fd/3` torna «resolves to '/dev/fd/preventivo.pdf' which is outside the
-current directory» (400, `validationError`), cioè la CLI canonicalizza il
-percorso e RIAPRE il file per nome, e da quel nome deriva anche l'intestazione
-MIME. Quindi la copia tiene un nome, e ciò che questo delta promette è solo ciò
-che il codice fa: la finestra passa dai minuti della lettura a un avvio di
+il 2026-09-16 (`gws` 0.22.5, `gmail +send --dry-run`, nessun invio) e NON regge,
+due volte e per due ragioni diverse. Col figlio nella cartella delle copie,
+`--attach /dev/fd/3` torna «--attach '/dev/fd/3' resolves to '/dev/fd/3' which
+is outside the current directory» (400, `validationError`) — identico col file
+già scollegato, che è lo stato che il trucco richiede: su macOS `/dev/fd/3` non
+ha link da seguire, canonicalizza a sé stesso e non sta dentro nessuna cartella
+di lavoro. Col figlio dentro `/dev/fd`, `--attach 3` supera il contenimento e si
+ferma subito dopo: «Cannot read --attach '3': Bad file descriptor (os error 9)»,
+col descrittore dimostrabilmente ereditato. Il descrittore alla CLI non arriva,
+e una forma su stdin non c'è. Quindi la copia tiene un nome, e ciò che questo
+delta promette è solo ciò che il codice fa: la finestra passa dai minuti della lettura a un avvio di
 processo, e ciò che cambia IN quei minuti ferma l'invio. Il confine resta quello
 di OUTBOUND-03: un processo che gira come l'utente del server chiama la CLI da
 sé, e nessuna conferma dentro Topics glielo impedisce.

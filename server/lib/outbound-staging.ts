@@ -51,16 +51,30 @@
  * WHY IT IS NOT CLOSED FROM HERE, and what was tried. The fix that would close
  * it is one open shared by the check and the use: open the copy, unlink it, and
  * hand the child `/dev/fd/N`, so no name is left to substitute. Measured
- * against the real CLI on 2026-09-16 (`gws gmail +send --dry-run`, nothing
- * sent): `--attach /dev/fd/3` comes back
+ * against the real CLI on 2026-09-16 (`gws` 0.22.5, `gmail +send --dry-run`,
+ * nothing sent), twice - with the descriptor open on a file of the current
+ * directory, and again with that file unlinked, which is the state the trick
+ * needs. Same answer both times, copied from the run:
  *
- *     --attach '/dev/fd/3' resolves to '/dev/fd/preventivo.pdf'
- *     which is outside the current directory        (400, validationError)
+ *     error[validation]: --attach '/dev/fd/3' resolves to '/dev/fd/3'
+ *     which is outside the current directory       (400, validationError)
  *
- * i.e. `gws` canonicalises the path and RE-OPENS IT BY NAME - it never uses the
- * descriptor, and the basename is also what the MIME header would carry. There
- * is no stdin form of `--attach` either. So the descriptor trick cannot be
- * honestly claimed here, and the copy keeps a name.
+ * The refusal is the path CONTAINMENT check, and it lands before anything is
+ * opened: on macOS `/dev/fd/3` has no link to follow, so it canonicalises to
+ * itself and can never be inside the working directory the child is given.
+ * Standing the child IN `/dev/fd` gets past that check and no further - same
+ * CLI, same flags, `--attach 3`:
+ *
+ *     error[validation]: Cannot read --attach '3': Bad file descriptor
+ *     (os error 9)                                 (400, validationError)
+ *
+ * measured with the descriptor demonstrably inherited (`cat /dev/fd/3` in the
+ * same shell prints the file). Two roads, two refusals: the descriptor never
+ * reaches the CLI, and there is no stdin form of `--attach`. What the CLI would
+ * have done with the name afterwards - re-open it, derive the MIME header from
+ * it - is an INFERENCE nobody got to measure, because the flag never gets that
+ * far; it does not need to be true for the conclusion, which is that the
+ * descriptor trick cannot be honestly claimed here and the copy keeps a name.
  *
  * The honest sentence is therefore: an agent that runs as the server's user is
  * inside the trust boundary, and no file mode and no random name move it - that

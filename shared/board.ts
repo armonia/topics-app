@@ -1559,6 +1559,13 @@ export interface TaskComment {
    * The note stayed readable, the three choices stayed written, and there was
    * no longer anything to click.
    *
+   * A MACHINE writes it too, and for the same sentence. The outbound trace
+   * («Mail inviata…», «Invio NON partito…») is a fact of the card that can land
+   * under a confirmation another request is still waiting on, and unmarked it
+   * took that question's buttons away exactly as the note above did - with
+   * them, the `answerTo` the drawer sends, so the yes stopped naming anything.
+   * See `trace` in `server/routes/outbound.ts`.
+   *
    * Absent means NOT QUIET — everything written before the column existed, and
    * every ordinary reply. The unknown must never read as quiet: that would
    * revive questions a real answer had closed.

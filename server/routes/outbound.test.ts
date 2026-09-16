@@ -30,7 +30,7 @@ import { createOutboundRouter, googleCallWrites } from "./outbound";
 import { CONFIRM_LABEL, REFUSE_LABEL, confirmKey } from "../lib/outbound-gate";
 import { gmailSendsMail } from "../lib/outbound-summary";
 import { deliverAnswer, cancelAsk } from "../lib/ask-user-bridge";
-import { _resetRoutedAsks } from "../services/board-ask-routing";
+import { _resetRoutedAsks, answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
 import { registerTurnBodyFlush, _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { payloadDigest } from "./outbound";
 
@@ -104,7 +104,7 @@ function makeHarness(options: {
   /** The last persisted row of the session, read fresh: the gate forces a write before looking. */
   lastRow?: () => { tool_calls?: unknown; blocks?: unknown } | undefined;
 } = {}) {
-  const comments: Array<{ taskId: string; content: string; options: string[] }> = [];
+  const comments: Array<{ id: string; taskId: string; content: string; options: string[]; quiet?: boolean }> = [];
   const ctx = {
     db: {
       prepare: (sql: string) => ({
@@ -138,7 +138,11 @@ function makeHarness(options: {
     // Never the real `~/.topics`: the frozen copies live here and are swept here.
     stagingRoot: STAGING,
     cliTimeoutMs: 10_000,
-    comment: (args) => { comments.push({ taskId: args.taskId, content: args.content, options: args.options }); return `c-${comments.length}`; },
+    comment: (args) => {
+      const id = `c-${comments.length + 1}`;
+      comments.push({ id, taskId: args.taskId, content: args.content, options: args.options, quiet: args.quiet });
+      return id;
+    },
   });
   const call = (path: string, body: unknown) => {
     const url = new URL(`http://topics.test${path}`);
@@ -511,6 +515,66 @@ describe("POST /outbound/mail", () => {
     expect(args).toContain(message.to);
     expect(args).not.toContain("attaccante@esempio.test");
     cancelAsk(secondSession, "end of test");
+  });
+
+  /**
+   * TWO SENDS OF ONE SESSION, 120 ms apart, the second arriving while the first
+   * is inside its waiting leg. Reproduced against the real route, the real
+   * gate and the real rendez-vous: the MCP bridge handles every JSON-RPC line
+   * in a callback it does not await, so two `send_mail` of one message run
+   * together on one session - and the route is callable by hand anyway.
+   *
+   * Three defects in one. The second confirmation REPLACED the first (the gate
+   * only looked at other sessions) and the card ended up with TWO blocks of
+   * buttons; the losing leg deleted the entry of the one that had WON (the
+   * registry was keyed by session), so the click on the live block did not
+   * start anything - `pendingRoutedAsk` answered null; and its trace line,
+   * written under the live question, took that question's buttons away
+   * (`pendingQuestionComment` stops at the first agent row that is neither a
+   * question nor a delivery).
+   */
+  test("due invii della stessa sessione a 120 ms: UNA conferma sulla card, e il si' la consegna", async () => {
+    const h = makeHarness();
+    const sessionKey = "topic:abcd1290";
+    const first = { to: "cliente@esempio.test", subject: "Preventivo", body: "in allegato", legMs: 600 };
+    const firstLeg = h.call(mailPath(sessionKey), first);
+    await Bun.sleep(120);
+    const secondLeg = h.call(mailPath(sessionKey), {
+      to: "attaccante@esempio.test", subject: "Credenziali", body: "ecco tutto", legMs: 600,
+    });
+
+    const refusal = await (await secondLeg)!.json() as Record<string, unknown>;
+    expect(refusal.refused).toBe(true);
+    expect(String(refusal.reason)).toContain("already has a confirmation");
+
+    // ONE confirmation on the card, and it is the one of the right message.
+    const confirmations = h.comments.filter((c) => c.options.length > 0);
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0].content).toContain("cliente@esempio.test");
+    // The refusal line is there, and it is a NOTE: it answers nothing, so it
+    // does not take the buttons away from the question above it.
+    const traceLine = h.comments.at(-1)!;
+    expect(traceLine.content).toContain("NON partito");
+    expect(traceLine.quiet).toBe(true);
+
+    // The registry still holds the first one: without this the click is a no-op.
+    expect(pendingRoutedAsk("task-1")?.askId).toBe(confirmations[0].id);
+    // The person clicks the confirm button on that block, which is the road
+    // `routes/tasks.ts` takes when a quick reply comes back from the drawer.
+    const answered = answerRoutedAsk(
+      { db: null as never, comment: () => null, deliver: (key, answers) => deliverAnswer(key, answers) },
+      "task-1",
+      CONFIRM_LABEL,
+      { askId: confirmations[0].id },
+    );
+    expect(answered.delivered).toBe(true);
+
+    const sent = await (await firstLeg)!.json() as Record<string, unknown>;
+    expect(sent.sent).toBe(true);
+    expect(sent.to).toBe("cliente@esempio.test");
+    const args = recorded();
+    expect(args).toContain("cliente@esempio.test");
+    expect(args).not.toContain("attaccante@esempio.test");
   });
 
   test("un messaggio senza oggetto non arriva nemmeno alla conferma", async () => {
