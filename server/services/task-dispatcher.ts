@@ -31,7 +31,7 @@ import { onHumanHoldChange } from "../lib/human-hold-events";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
 import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
@@ -2406,6 +2406,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `  1. comment_task(task_id="${task.id}", content=<the question, on one line>, options=[<option 1>, <option 2>, ...])`,
         `  2. update_task(task_id="${task.id}", status="review")`,
         "  The board renders the options as buttons: the human answers with one click and you restart with their choice.",
+        `  ${RECOMMENDED_OPTION_RULE}`,
         ...languageLine(langFor(task.projectId)),
         "Start now.",
       ].join("\n"),
@@ -3743,6 +3744,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // messaggio davanti all'agente che riprende, e la versione «corta» che
       // stava qui aveva già perso per strada il ramo del diagramma.
       PREVIEW_RULE,
+      // Same reason as the line above, and the same precedent: the resume is the
+      // ONLY message in front of an agent that comes back, and a rule that lives
+      // only in a tool schema is read when the tool is called, not while the
+      // agent decides WHETHER the answer needs options at all. `PREVIEW_RULE`
+      // has an MCP carrier too (the `preview_image` description of
+      // `update_task`) and is repeated here anyway, with a gate that demands it
+      // (`tests/unit/preview-rule-in-envelope.test.ts`). Rule 5-bis of
+      // `docs/board-protocol.md` names the envelopes and the two `options`
+      // descriptions as carriers of one string: the resume is an envelope.
+      RECOMMENDED_OPTION_RULE,
       `If you committed landable code, offer ONLY options=["${LAND_ACTION_LABEL}"] → the system does the LOCAL merge onto main (no push). You never do a git merge/push. Publishing online is separate, the human does it from the board's "Pubblica" control: do NOT propose it. No option at all if there is no committed code.`,
     ].join("\n");
   }

@@ -2,6 +2,35 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.336 — 2026-09-16
+
+### Sotto il cofano
+- La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'
+- bloat-baseline: la versione di main, rigenerata con le righe di questo ramo
+- Il docstring della porta elencava tre casi su quattro
+- Con i magazzini pieni lo swap si dice sostenuto anche solo dalle pagine rilette dal disco
+- La seconda porta dello swap chiede anche che il debito non stia calando
+- Chi non tiene la parola dice DOVE gira, non «comando»: con tre famiglie sullo stesso nome un suffisso solo non bastava
+- La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende
+
+## 2.2.335 — 2026-09-16
+
+### Sotto il cofano
+- La regola della consigliata arriva anche a chi mantiene l'envelope
+- senza la pulizia del layout salvato il giro phone non trova la voce Board
+- La coda del terminale scade AL limite, e l'avviso dice quale delle tre perdite
+- Una pane browser in una cella accanto e' gia' quella pagina, e la porta non ne fa una seconda
+- Un debito che non puo' piu' crescere non e' un debito che non cresce: lo swap al soffitto e' la seconda porta
+- Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu
+- La consigliata non tocca piu' le etichette che la board esegue, e il cancello di parita' la vede
+- Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce
+- La configurazione si rilegge a ogni avvio del server, non solo alla partenza dello script
+- usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9
+- Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno
+- Il nome nudo va all'app installata, non a qualunque cosa viva dentro un bundle
+- Il cancello di parita' ancora anche la meta' della 5-bis che l'agente legge davvero
+- La porta di una chat-pane si apre solo su una finestra che c'e' gia'
+
 ## 2.2.334 — 2026-09-16
 
 ### Sotto il cofano
@@ -37,7 +66,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Un check interrotto dal freno o dallo spegnimento muore con tutto il suo gruppo, anche il figlio forkato dopo la foto dei discendenti
 - Due giri in attesa dei check si alternano: un giro di tre comandi non si riprende piu' il rilascio a ogni uscita
 - Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva
+- Board options put the agent's pick first, marked (consigliata)
 - Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto
+- **e2e** · reset persisted project panes before task-model-labels runs
 - Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio
 
 ## 2.2.330 — 2026-09-15
@@ -63,6 +94,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.329 — 2026-09-15
 
 ### Sotto il cofano
+- Input queue: a partial loss is worse than none, so a loss takes the whole queue
 - Take the wheel back on both shells, and stop trusting one testid
 - La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti
 - Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0
@@ -107,7 +139,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.324 — 2026-09-15
 
 ### Sotto il cofano
+- Baseline bloat riallineata dopo il merge di main
+- Registra la crescita di topic-browser-window fra i due scenari nuovi
+- Registra dispatch-capacity.test.ts, cresciuto su main e mai iscritto
 - Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza
+- I due test del sync aspettano la scrittura, non l'orologio
+- Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo
 - I test del freno della flotta in un file loro: CI di main rossa su check:bloat
 - Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language
 
@@ -118,20 +155,32 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
 - Il marker degraded si ritira, e ora la barra se ne accorge
 - L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda
+- Terminal input is queued until the reattach is proven
+- Il foglio dell'indirizzo non riapre da solo quando cambia il layout
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
 - Il wire porta l'asse che blocca: le fixture del client lo dichiarano
 - Il git del test dei checkpoint porta l'ambiente isolato del preload
 - Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine
+- Le guardie che mancavano, e i due documenti che dicevano il contrario
 
 ## 2.2.322 — 2026-09-14
 
 ### Sotto il cofano
+- Gli e2e delle aperture: il link va nella finestra, l'agente non muove il layout
+- Solo il comando del composer va nella finestra: l'evento ha due produttori
+- Il ripiego riprende il suo split: e' il ramo che la card chiama invariato
+- Il budget dei due scenari 04 segue il lavoro vero che fanno
+- TABLINK-09: il ripiego del permalink morto si guarda dove ora cade
+- Gli scenari 04 misurano quello che dicono di misurare
+- La stessa porta anche dentro una finestra di progetto
+- 04d chiede il budget dei suoi fratelli: e' il piu' lento dei quattro
 - La quota è sul libero: chi non è nostro ha la precedenza
 - Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio
 - Il tetto sul libero non salta piu' a ogni respiro della macchina
 - Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
 - Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
 - Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente
+- **e2e** · stabilize task-model-labels add-menu click under load
 
 ## 2.2.321 — 2026-09-14
 
@@ -149,6 +198,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La barra e non il contenitore: la finestra scansa i comandi del composer
 - Via i file di servizio finiti nel commit precedente
 - Scenario 01r falsificato: il commento e la baseline dello spec
+- La porta la registra la chat, non la finestra montata
 
 ## 2.2.320 — 2026-09-14
 

@@ -94,6 +94,8 @@ import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
+import { OUR_APP_MARKERS } from "./server/services/memory-owners";
+import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
 import { recentCardMemPeaksGB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
@@ -1537,6 +1539,23 @@ void thawLedgerAtBoot({
 const memSignal = createMemSignal({ probe: probeVm, measurable: process.platform === "darwin" });
 void memSignal.sample();
 
+/**
+ * CHI tiene la memoria quando non e' Topics: un solo `/bin/ps` al minuto, sul
+ * battito che stampa gia' `[memsig]`. I marcatori sono le radici da cui nasce
+ * tutto il nostro: il checkout, le worktree degli agenti e i DUE bundle di
+ * `OUR_APP_MARKERS` (il guscio e il programma del LaunchAgent, che del server e'
+ * antenato e non discendente). Tutto il resto e' di qualcun altro, e va detto a
+ * chi guarda la coda ferma.
+ */
+const memoryOwners = createMemoryOwnersReader({
+  selfPid: process.pid,
+  ourMarkers: () => {
+    const marks = [import.meta.dir, ...OUR_APP_MARKERS];
+    try { marks.push(ctx.worktreeManager.worktreesDir()); } catch { /* not mounted yet */ }
+    return marks;
+  },
+});
+
 const taskDispatcher = createTaskDispatcher({
   captureDelivery: (taskId) => capturaConsegna ? capturaConsegna(taskId) : Promise.resolve(false),
   uncommittedInWorktree: (taskId) =>
@@ -1755,6 +1774,7 @@ const taskDispatcher = createTaskDispatcher({
       () => memSignal.held(),
       resolveAgentRuntime() === "cli",
       hold,
+      memoryOwners.latest(),
     ),
   // Il ramo di una card nasce da MAIN, non dall'HEAD del checkout condiviso, e
   // da qui in poi la stessa nascita la usa anche un sotto-agente isolato
@@ -5092,12 +5112,15 @@ const dispatchTimer = setInterval(() => {
     const now = Date.now();
     if (now - memsigAt < MEMSIG_EVERY_MS) return;
     memsigAt = now;
-    const samples = memSignal.samples();
-    console.log(formatMemorySignalLine({
-      at: now, held: memSignal.held(), swap: memSignal.swap(), latest: samples[samples.length - 1] ?? null,
-      inFlight: turniInVolo(), checkRuns: freezableRuns().length, heaviestCheckGB: liveCheckTreeGB(),
-      frozenTrees: swapFreezer.frozenCount(), frozenGB: swapFreezer.frozenGB(),
-    }));
+    return memoryOwners.sample().then(() => {
+      const samples = memSignal.samples();
+      console.log(formatMemorySignalLine({
+        at: now, held: memSignal.held(), swap: memSignal.swap(), latest: samples[samples.length - 1] ?? null,
+        inFlight: turniInVolo(), checkRuns: freezableRuns().length, heaviestCheckGB: liveCheckTreeGB(),
+        frozenTrees: swapFreezer.frozenCount(), frozenGB: swapFreezer.frozenGB(),
+        foreign: memoryOwners.latest(),
+      }));
+    });
   }).catch((err) => console.error("[memsig] sample failed", err));
   // THE E2E BENCH CAN HOLD THIS ONE STEP, and nothing else can: the only writer
   // is a route mounted on a test server. See `lib/e2e-dispatch-hold.ts` for the

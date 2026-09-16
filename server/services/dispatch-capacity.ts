@@ -55,7 +55,8 @@ import type { Database } from "bun:sqlite";
 import { fleetLoadSync, fleetSessionCoreUnits, type FleetLoadReading } from "../lib/fleet-usage";
 import { recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
-import { MEM_WINDOW_MS, parseSwapUsedMB, type HeldMemory, type MemSample } from "./mem-signal";
+import { MEM_WINDOW_MS, parseSwapTotalMB, parseSwapUsedMB, type HeldMemory, type MemSample } from "./mem-signal";
+import { formatMemoryOwners, type MemoryFamily } from "./memory-owners";
 
 // La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
 export type { DispatchCapacity } from "../../shared/board";
@@ -535,6 +536,7 @@ export async function probeVm(
     compressorPages: parsed.compressorPages,
     pageSize: parsed.pageSize,
     swapUsedMB: swap ? parseSwapUsedMB(swap) : null,
+    swapTotalMB: swap ? parseSwapTotalMB(swap) : null,
     load1: os.loadavg()[0] ?? 0,
   };
 }
@@ -636,6 +638,9 @@ export function dispatchResourceBlock(
   agentsAreProcesses = true,
   /** What the dispatcher knows and the reading cannot see (see `MemoryFloorHold`). */
   hold: MemoryFloorHold = { cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, ourWorkRunning: false },
+  /** Who is holding the memory outside Topics (`memory-owners.ts`), heaviest first.
+   *  Only the MEMORY sentence carries it: a full disk is not somebody's app. */
+  foreign: readonly MemoryFamily[] = [],
 ): string | null {
   const free = readFreeGB(worktreesPath);
   if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
@@ -667,7 +672,12 @@ export function dispatchResourceBlock(
     ? "Ogni agente costa ~240 MB fermo e fino a 420 MB al lavoro"
     : `Con il runtime nativo la sessione pesa 2,3 MB, ma una card nei suoi check si prezza ${gb(cardGB)} GB`;
   const tail = `Parto quando la memoria resta sopra ${gb(line)} GB per 2 minuti di fila: una lettura sola sopra la riga non basta. Niente è andato perso.`;
-  return `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}`;
+  // The way OUT of the wait, and the only part of this sentence a person can
+  // act on: on 16/09/2026 seven cards were held for hours by memory that was
+  // not Topics' at all. `holdKey` keys a machine-floor wait on its first word
+  // ("Memoria"), so these names never make the chip rewrite itself.
+  const who = formatMemoryOwners(foreign);
+  return `${head} ${costo}, e sotto questa riga la macchina va in swap. ${tail}${who ? ` ${who}` : ""}`;
 }
 
 // THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back

@@ -102,7 +102,7 @@ function freezerFor(i: { dir: string; parentPid: number; rootPid: number; ledger
   return { freezer, ledger };
 }
 
-const SUSTAINED = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, coveredMs: 120_000 };
+const SUSTAINED = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 120_000 };
 const NO_ROOM = { measurable: true, latestGB: 4, heldGB: 4, coveredMs: 120_000 };
 const BRAKE = { interrupted: false, skipped: "noHeavyRun" };
 

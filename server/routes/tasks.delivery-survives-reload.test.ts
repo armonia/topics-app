@@ -84,7 +84,7 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     const clock = { now: 0 };
     return {
       held: () => ({ measurable: true, latestGB: heldGB(), heldGB: heldGB(), coveredMs: 120_000 }),
-      swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, coveredMs: 60_000 }),
+      swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 }),
       floorGB: 6,
       pollMs: 5_000,
       // The waiter fails open on room after 30 minutes of ITS clock, and its

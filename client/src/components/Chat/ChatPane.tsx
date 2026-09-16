@@ -3,7 +3,7 @@ import { useT } from '../../hooks/useT';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
-import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, usePaneWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -347,9 +347,15 @@ function ChatPaneComponent({
   // it. Expanded it takes width away from this pane ALONE: the padding lives
   // inside the pane, so the grid keeps tiling the columns it always tiled, and
   // the clamp is the chat minimum of THIS pane, not of the whole window.
-  const browserWindow = useTopicBrowserPresence(
-    ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
-  );
+  // ONE expression, two consumers: how much room to cede, and whether the
+  // openings of this conversation land in the window instead of the layout.
+  // Two copies of this rule is how one of them ends up wrong.
+  const browserWindowTopicId = ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '';
+  const browserWindow = useTopicBrowserPresence(browserWindowTopicId);
+  // The door, on the pane's own terms: a window that already exists. This pane
+  // is also the chat of a PROJECT window, whose layout is where a first link of
+  // that conversation belongs (`LINK-TAB-02`). See `usePaneWindowDoor`.
+  usePaneWindowDoor(browserWindowTopicId, browserWindow);
   const requestedBrowserInset = browserWindow.mode === 'exp'
     ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
     : 0;
@@ -1104,8 +1110,12 @@ function ChatPaneComponent({
       // Loosely-coupled signal: layout layer listens for browser:open-and-navigate
       // and ensureBrowserPane + navigates. Mirrors the existing browser:navigate
       // CustomEvent pattern used by server-driven detection.
+      // `source` is what tells this apart from the OTHER producer of the same
+      // event (the task drawer): only the command typed in the composer is an
+      // explicit request to LOOK, so only it opens the topic's window expanded.
+      // See the handler in `usePaneOrdering` (effect 8b).
       window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
-        detail: { topicId: topic.id, url: normalized },
+        detail: { topicId: topic.id, url: normalized, source: 'slash-command' },
       }));
       setCommandResult({ type: 'success', message: tr('chat.command.openingBrowser', { url: normalized }) });
       return true;

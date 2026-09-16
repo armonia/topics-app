@@ -10,7 +10,7 @@
 import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { ChecksInterruptedError } from "./checks-gate";
 import { killProcessTree } from "../lib/process-tree";
-import type { HeldMemory, SwapVerdict } from "./mem-signal";
+import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./mem-signal";
 
 /**
  * NO NEW CHECK STARTS UNDER THE MEMORY FLOOR, INTO SUSTAINED SWAP, OR IN A HERD.
@@ -44,9 +44,18 @@ import type { HeldMemory, SwapVerdict } from "./mem-signal";
  * CI (`github-ci:unit`) no delivery command on topics-app holds more than 1 GB
  * (tsc 460 MB, a vite build 316 MB), so the floor alone is the line.
  *
- * IT FAILS OPEN on room only: after `maxWaitMs` of waiting IN TOTAL a round
- * starts its commands whatever the window says, never while swap is sustained.
- * Memory that cannot be measured (off macOS) never waits.
+ * IT FAILS OPEN AFTER `maxWaitMs` OF WAITING IN TOTAL, whatever holds the round
+ * - swap included, which it did not do before. A sustained verdict used to be
+ * self-limiting: it implied a debt growing by at least 0.5 GB/min, a state no
+ * machine holds for long. The ceiling door (`mem-signal.ts`) removes that
+ * invariant, and the ceiling is where this Mac LIVES: 566 of the 874 `[memsig]`
+ * lines of 15-16/09 sit over 90% of the swap file, and the longest unbroken
+ * sustained episode goes from 4 minutes under the old rule to 19 under the new
+ * one. A brake with no way out is not a brake: the swap branch sat in front of
+ * the budget, so one chronic false positive held every checks round for ever,
+ * and a round that never starts records no verdict at all - the delivery just
+ * goes round again (`checks-gate.ts`). Memory that cannot be measured (off
+ * macOS) never waits.
  */
 export interface MemoryFloor {
   held: () => HeldMemory;
@@ -92,13 +101,15 @@ export function releaseDecision(i: {
   maxWaitMs: number;
 }): { release: boolean; wait: WaitReason | null; anyway: boolean } {
   if (!i.held.measurable) return { release: true, wait: null, anyway: false };
+  // The budget comes FIRST, before every reason to hold: see the fail-open
+  // paragraph above. Nothing here can hold a round longer than `maxWaitMs`.
+  if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
   if (i.swap.sustained) return { release: false, wait: "swap", anyway: false };
   if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) {
     return { release: false, wait: "spacing", anyway: false };
   }
   const room: WaitReason | null = i.held.heldGB == null ? "measuring" : i.held.heldGB < i.floorGB ? "room" : null;
   if (!room) return i.olderWaiter ? { release: false, wait: "turn", anyway: false } : { release: true, wait: null, anyway: false };
-  if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
   return { release: false, wait: room, anyway: false };
 }
 
@@ -106,7 +117,7 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
   const gb = (n: number | null) => (n == null ? "?" : n.toFixed(1));
   switch (reason) {
     case "swap":
-      return `[review-checks] "${name}" waits: the Mac is in sustained swap (swapins ${gb(swap.pagesReadBackPerS)}/s, memory debt +${gb(swap.debtGBPerMin)} GB/min)`;
+      return `[review-checks] "${name}" waits: the Mac is in sustained swap (${swapSigns(swap)})`;
     case "spacing":
       return `[review-checks] "${name}" waits: "${lastRelease?.name ?? "?"}" of another delivery started ${Math.round((now - (lastRelease?.at ?? now)) / 1000)} s ago, one release per 2 min`;
     case "turn":
@@ -133,7 +144,7 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
   let spentMs = 0;
   const read = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
   const unmeasured: HeldMemory = { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 };
-  const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, coveredMs: 0 };
+  const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, swapPct: null, coveredMs: 0 };
   return async (name) => {
     const from = now();
     let said: WaitReason | null = null;
@@ -151,7 +162,7 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
         if (d.release) {
           const waited = t - from;
           spentMs += waited;
-          if (d.anyway) console.warn(`[review-checks] no room after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway, swap not sustained`);
+          if (d.anyway) console.warn(`[review-checks] ${said === "swap" ? "still in swap" : "no room"} after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway`);
           else if (said) console.warn(`[review-checks] "${name}" starts after ${Math.round(waited / 1000)} s`);
           const mine: Release = { round, name, at: t, running: true };
           lastRelease = mine;
@@ -317,7 +328,7 @@ export function createSwapBrake(deps: {
         return { interrupted: false, skipped: null };
       }
       episodeSince ??= t;
-      const signs = `swapins ${gb(v.pagesReadBackPerS)}/s, memory debt +${gb(v.debtGBPerMin)} GB/min`;
+      const signs = swapSigns(v);
       const { victim, skipped } = swapVictim({
         sustained: true, runs, now: t,
         lastActionAt: Math.max(lastInterruptAt, lastForeignActionAt),
@@ -347,7 +358,7 @@ export function createSwapBrake(deps: {
       deps.log(`[checks-swap] interrupted "${victim.name}" of ${taskId.slice(0, 8)} (round started ${roundAge} s ago, tree ${gb(treeGB(victim))} GB): ${signs}; interruption ${n} of ${SWAP_INTERRUPTS_PER_DELIVERY}`);
       try {
         deps.note(taskId,
-          `Check interrotti, non rossi: il Mac è in swap da un minuto (${gb(v.pagesReadBackPerS)} pagine/s rilette dal disco, debito di memoria +${gb(v.debtGBPerMin)} GB/min) e \`${victim.name}\` teneva ${gb(treeGB(victim))} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
+          `Check interrotti, non rossi: ${swapReasonIt(v)} e \`${victim.name}\` teneva ${gb(treeGB(victim))} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
           "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap e c'è memoria per il primo comando da 2 minuti. " + // allow-italian: board notes are written in Italian like every other service comment
           `Interruzione ${n} di ${SWAP_INTERRUPTS_PER_DELIVERY}: dopo la seconda il giro va fino in fondo comunque.`); // allow-italian: board notes are written in Italian like every other service comment
       } catch { /* a note that cannot be written must not stop the brake */ }

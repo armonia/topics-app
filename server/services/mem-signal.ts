@@ -15,6 +15,8 @@
  * reads the machine itself.
  */
 
+import { memoryOwnersLogField, type MemoryFamily } from "./memory-owners";
+
 export interface MemSample {
   /** Epoch ms when the probe answered. */
   at: number;
@@ -27,6 +29,13 @@ export interface MemSample {
   pageSize: number | null;
   /** `sysctl -n vm.swapusage`, "used = N M". */
   swapUsedMB: number | null;
+  /**
+   * `sysctl -n vm.swapusage`, "total = N M": how big macOS has grown the swap
+   * file so far. Read from the SAME line as `swapUsedMB` and kept, because the
+   * share of the two is the only term that separates a machine at its ceiling
+   * from a calm one when the debt has stopped growing (see `swapVerdict`).
+   */
+  swapTotalMB: number | null;
   load1: number;
 }
 
@@ -46,6 +55,8 @@ export interface SwapVerdict {
   pagesReadBackPerS: number | null;
   /** (delta compressor + delta swap used) over the window, per minute. */
   debtGBPerMin: number | null;
+  /** `used / total` of the newest swap reading, 0..1; `null` with no swap file or no reading. */
+  swapPct: number | null;
   coveredMs: number;
 }
 
@@ -62,6 +73,92 @@ export const SWAP_WINDOW_MS = 60_000;
  */
 export const PAGES_READ_BACK_PER_S = 10;
 export const DEBT_GB_PER_MIN = 0.5;
+/**
+ * THE SECOND DOOR: A SWAP FILE AT ITS CEILING, because a debt that cannot grow
+ * any more reads exactly like a debt that is not growing.
+ *
+ * Measured on the live server on 16/09/2026 between 11:50 and 12:35, one
+ * `[memsig]` line a minute:
+ *
+ *     swapin/s 170.1 debt +0.7 swapUsed 14.8 -> sustained
+ *     swapin/s 167.7 debt -1.7 swapUsed 15.2 -> CALM
+ *     swapin/s  64.1 debt -1.2 swapUsed 15.4 -> CALM
+ *     swapin/s  36.3 debt -0.1 swapUsed 15.3 -> CALM
+ *     swapin/s  27.8 debt +0.1 swapUsed 15.1 -> CALM
+ *
+ * Eleven lines of those 40 minutes read at least 10 pages/s back from disk and
+ * only two were called sustained: with the swap full the debt oscillates around
+ * zero, so the WORST state the machine reaches is the one the AND lets through,
+ * and neither the checks brake nor the freezer can ever fire when they are
+ * needed. The reading was already in the probe's hands and thrown away -
+ * `sysctl -n vm.swapusage` prints `total` next to `used`.
+ *
+ * 0.9 IS PROVISIONAL AND IT IS NOT MEASURED, written down here because the
+ * first version of this comment claimed the opposite. `total` was NEVER in the
+ * log: `[memsig]` printed `swapUsedGB` alone, so the shares above are
+ * `used / 16384`, a denominator assumed and not read. And it moved - 39 of the
+ * 869 lines of 15-16/09 print `swapUsedGB` ABOVE 16.384, up to 17.2 GB at
+ * 12:46:59, eleven minutes after the last line of the table, so by then macOS
+ * had grown the file to at least 17408 MB. `/System/Volumes/VM` holds files of
+ * exactly 1 GiB: the denominator moves in 1 GB steps, which is 5.5 points of
+ * share at used = 15 GB against the 0.3 points of margin of the lowest line
+ * above. Had the 17th file already been there at 12:22, those five lines would
+ * read 85.0-88.5% and this door would open on none of them. `swapTotalGB` is in
+ * the line from today for exactly that reason: the share is calibrated on read
+ * numbers after a few days of log, not before.
+ *
+ * WHAT THE DOOR COSTS, counted over all 874 lines of the live log that carry
+ * the three fields (denominator assumed at 16384): the AND alone called 68 of
+ * them sustained, the OR calls 170. Against "at least 50 pages/s read back" as
+ * the thrash the brief names, precision goes 44% -> 32% and recall 39% -> 70%,
+ * and the longest unbroken episode goes from 4 minutes to 19 - which is why the
+ * checks brake now has a way out (`review-checks-brakes.ts`). It held nothing in
+ * that log: all 874 lines print `inFlight=0 checkRuns=0`, so there was never a
+ * check tree to brake or a tree to freeze in the minutes this door was written
+ * for. The board was stopped upstream, by the admission floor.
+ *
+ * WHAT IT STILL MISSES: 23 lines reading 50-438 pages/s sit UNDER the ceiling
+ * (12.3-14.7 GB used) and stay calm, the heaviest minute of the whole log among
+ * them (438.6 pages/s at 08:43:02, debt +0.0). A third term on the read-back
+ * rate alone would take them and is deliberately NOT here: this log holds no
+ * reading of a HEALTHY machine above 10 pages/s, so its threshold would be a
+ * second uncalibrated number propping up the first.
+ *
+ * THE TWO TERMS HAND OFF and that is why neither is enough alone. When macOS
+ * grows the swap file the total rises, the share drops below the ceiling - and
+ * in the same breath `used` climbs, which is the debt term. When growth stops
+ * because there is nothing left to grow into, the debt flattens and the share
+ * is at the ceiling. Swap turned off (`total = 0`), an unreadable line or the
+ * first samples after a reboot leave the share `null`, which is not zero and
+ * not one: the term simply does not vote, and the rule falls back to the debt.
+ *
+ * A FALLING DEBT DOES NOT VETO THE CEILING, and that is a decision and not an
+ * oversight. The two minutes that read most like recovery - 12:22 at -1.7 and
+ * 12:48 at -4.1 - sit INSIDE an episode that is sustained in the minute before
+ * AND in the minute after (12:21 +0.7 at 170.1/s, 12:46 +1.7 at 284.0/s, 12:49
+ * +0.8 at 171.7/s): a compressor losing 4.5 GB in one minute there is a process
+ * dying under the pressure, not the pressure ending. Recovery that really is
+ * recovery reads BELOW the ceiling and stays calm on the share alone (M5b: 65
+ * pages/s at 65.8% of the file).
+ */
+export const SWAP_CEILING_SHARE = 0.9;
+
+/**
+ * TWO DOORS, NOT ONE, because they see different minutes and the live log says
+ * so. The rate-only door below (200 pages/s with the debt not shrinking) lets in
+ * 16/09 14:41 - 956 pages/s, debt +0.4. The ceiling door takes 12:22:24 - 167.7
+ * pages/s, debt -1.7, file 92% full - which the rate door refuses twice over
+ * (under 200, and the debt negative). The ceiling door also asks for
+ * PERSISTENCE, the window before it at 10 pages/s or more, and that is what
+ * keeps out 12:54:29: an isolated 718.5 pages/s spike between two quiet minutes
+ * (6.6 and 21.2) while the machine was giving memory back, swap 16.7 -> 15.4 GB.
+ * A door that fires on one sample brakes a Mac that is emptying itself;
+ * "sustained" has to mean sustained.
+ */
+
+/** The rate that says thrash by itself, as long as the debt is not shrinking. */
+export const PAGES_READ_BACK_HARD_PER_S = 200;
+
 /** Samples older than this are dropped: the longest question asked is 120 s. */
 const KEEP_MS = 180_000;
 
@@ -95,8 +192,14 @@ export function heldMemory(samples: readonly MemSample[], now: number, measurabl
 
 export function swapVerdict(samples: readonly MemSample[], now: number): SwapVerdict {
   const run = newestRun(samples, now, () => true);
-  const none: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, coveredMs: run.length ? now - run[0]!.at : 0 };
   const last = run[run.length - 1];
+  // Used and total from the SAME reading. macOS grows the swap file while the
+  // window runs, so a share built from two reads would move for a reason that
+  // is not the machine filling up.
+  const swapPct = last && last.swapUsedMB != null && last.swapTotalMB != null && last.swapTotalMB > 0
+    ? last.swapUsedMB / last.swapTotalMB
+    : null;
+  const none: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, swapPct, coveredMs: run.length ? now - run[0]!.at : 0 };
   const base = [...run].reverse().find((s) => s.at <= now - SWAP_WINDOW_MS);
   if (!last || !base || last === base) return none;
   const seconds = (last.at - base.at) / 1000;
@@ -108,9 +211,21 @@ export function swapVerdict(samples: readonly MemSample[], now: number): SwapVer
   const pagesReadBackPerS = (last.swapins! - base.swapins!) / seconds;
   const debtGB = ((last.compressorPages! - base.compressorPages!) * last.pageSize!) / 1e9 + (last.swapUsedMB! - base.swapUsedMB!) / 1000;
   const debtGBPerMin = (debtGB * 60) / seconds;
+  const atCeiling = swapPct != null && swapPct >= SWAP_CEILING_SHARE;
+  // PERSISTENCE, for the ceiling door only: the rate of the window BEFORE this
+  // one. A single spike between two quiet minutes is a machine giving memory
+  // back, not a machine drowning - 16/09 12:54:29 read 718.5 pages/s between 6.6
+  // and 21.2 while swap went 16.7 -> 15.4 GB. `null` when there is not enough
+  // history yet, and then the ceiling door stays shut: at boot nothing is known.
+  const before = [...run].reverse().find((sm) => sm.at <= base.at - SWAP_WINDOW_MS);
+  const heldRatePerS = before != null && before.swapins != null && base.swapins != null && base.swapins >= before.swapins
+    ? (base.swapins - before.swapins) / Math.max(1, (base.at - before.at) / 1000)
+    : null;
   return {
-    sustained: pagesReadBackPerS >= PAGES_READ_BACK_PER_S && debtGBPerMin >= DEBT_GB_PER_MIN,
-    pagesReadBackPerS, debtGBPerMin, coveredMs: none.coveredMs,
+    sustained: (pagesReadBackPerS >= PAGES_READ_BACK_PER_S && debtGBPerMin >= DEBT_GB_PER_MIN)
+      || (pagesReadBackPerS >= PAGES_READ_BACK_HARD_PER_S && debtGBPerMin >= 0)
+      || (pagesReadBackPerS >= PAGES_READ_BACK_PER_S && atCeiling && heldRatePerS != null && heldRatePerS >= PAGES_READ_BACK_PER_S),
+    pagesReadBackPerS, debtGBPerMin, swapPct, coveredMs: none.coveredMs,
   };
 }
 
@@ -163,6 +278,64 @@ export function parseSwapUsedMB(out: string): number | null {
 }
 
 /**
+ * The `total` of the same line: the size of the swap file macOS has grown, in MB.
+ *
+ * Zero is a real answer and it is NOT "unknown": a machine with swap turned off
+ * prints `total = 0.00M`, and `swapVerdict` must read that as "no ceiling to be
+ * at", never as a division by zero (which would make the share `Infinity` and
+ * pin the second door open for ever).
+ */
+export function parseSwapTotalMB(out: string): number | null {
+  const n = Number(out.match(/total = ([\d.]+)M/)?.[1] ?? NaN);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * `+0.7`, `-1.9`, `?`: the ONE place a signed number gets its sign.
+ *
+ * Every line that explains a sustained verdict used to hard-code the `+`, which
+ * was true only while `sustained` implied a debt of at least +0.5 GB/min. The
+ * ceiling door removes that invariant - the typical sustained minute of the
+ * live log has a NEGATIVE debt - and four lines started printing `+-1.9`.
+ */
+export function signed(n: number | null | undefined, digits = 1): string {
+  return n == null || !Number.isFinite(n) ? "?" : `${n >= 0 ? "+" : ""}${n.toFixed(digits)}`;
+}
+
+function oneDecimal(n: number | null | undefined): string {
+  return n == null || !Number.isFinite(n) ? "?" : n.toFixed(1);
+}
+
+function sharePct(v: SwapVerdict): string {
+  return v.swapPct == null ? "?" : `${(v.swapPct * 100).toFixed(1)}%`;
+}
+
+/**
+ * The signs of a sustained verdict, for the ENGLISH log lines, in one place.
+ *
+ * The share is in it because since the ceiling became a door it is half the
+ * verdict: a line that explains a wait and names only the debt explains a wait
+ * that is not the one happening.
+ */
+export function swapSigns(v: SwapVerdict): string {
+  return `swapins ${oneDecimal(v.pagesReadBackPerS)}/s, memory debt ${signed(v.debtGBPerMin)} GB/min, swap file ${sharePct(v)} full`;
+}
+
+/**
+ * The same verdict for the notes the OWNER reads on a card, in Italian like
+ * every other board note, and naming the term that actually fired: with the
+ * debt growing the machine is taking on memory it cannot hold, with the debt
+ * flat or falling the reason is the full swap file, and "debito +-1.9 GB/min"
+ * was neither of the two.
+ */
+export function swapReasonIt(v: SwapVerdict): string {
+  const pages = oneDecimal(v.pagesReadBackPerS);
+  return v.debtGBPerMin != null && v.debtGBPerMin >= DEBT_GB_PER_MIN
+    ? `il Mac è in swap da un minuto (${pages} pagine/s rilette dal disco, debito di memoria ${signed(v.debtGBPerMin)} GB/min)` // allow-italian: board notes are written in Italian like every other service comment
+    : `il Mac ha il file di swap pieno al ${sharePct(v)} e rilegge ${pages} pagine/s dal disco (debito ${signed(v.debtGBPerMin)} GB/min)`; // allow-italian: board notes are written in Italian like every other service comment
+}
+
+/**
  * The instrument line, every 60 s, idle included: it gates nothing, and it is
  * what the thresholds above and the outcome bar are measured with.
  */
@@ -177,9 +350,10 @@ export function formatMemorySignalLine(i: {
   /** Agent trees the swap freezer is holding stopped right now, and their footprint. */
   frozenTrees?: number;
   frozenGB?: number | null;
+  /** Who is holding memory OUTSIDE Topics, heaviest first (`memory-owners.ts`). */
+  foreign?: readonly MemoryFamily[];
 }): string {
   const f = (n: number | null | undefined, digits = 1) => (n == null || !Number.isFinite(n) ? "?" : n.toFixed(digits));
-  const signed = (n: number | null) => (n == null || !Number.isFinite(n) ? "?" : `${n >= 0 ? "+" : ""}${n.toFixed(1)}`);
   const l = i.latest;
   const compressorGB = l?.compressorPages != null && l.pageSize ? (l.compressorPages * l.pageSize) / 1e9 : null;
   return [
@@ -191,6 +365,11 @@ export function formatMemorySignalLine(i: {
     `debt/min=${signed(i.swap.debtGBPerMin)}`,
     `comprGB=${f(compressorGB)}`,
     `swapUsedGB=${f(l?.swapUsedMB == null ? null : l.swapUsedMB / 1000)}`,
+    `swapTotalGB=${f(l?.swapTotalMB == null ? null : l.swapTotalMB / 1000)}`,
+    // The DENOMINATOR of the next field, and the reason it is here: the share
+    // that decides half the verdict was never logged, so nobody could tell a
+    // machine filling up from macOS having added a 1 GB file under it.
+    `swapPct=${f(i.swap.swapPct == null ? null : i.swap.swapPct * 100)}`,
     `load1=${f(l?.load1)}`,
     `swap=${i.swap.sustained ? "sustained" : "calm"}`,
     `inFlight=${i.inFlight}`,
@@ -198,5 +377,6 @@ export function formatMemorySignalLine(i: {
     `heaviestCheckGB=${f(i.heaviestCheckGB)}`,
     `frozen=${i.frozenTrees ?? 0}`,
     `frozenGB=${f(i.frozenGB ?? 0)}`,
+    `altri=${memoryOwnersLogField(i.foreign ?? [])}`,
   ].join(" ");
 }

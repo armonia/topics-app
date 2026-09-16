@@ -51,6 +51,20 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
     expect(resumeBody).toContain("PREVIEW_RULE");
   });
 
+  test("buildResume in task-dispatcher.ts referenzia RECOMMENDED_OPTION_RULE", () => {
+    // Same shape as the case above, same failure: an agent that comes back has
+    // ONLY this message in front of it, and the recommended-option rule also
+    // lives in the schema of the two comment tools - which the model reads when
+    // it CALLS the tool, not while it decides whether the answer needs options
+    // at all. Rule 5-bis of docs/board-protocol.md: one string for the envelopes
+    // and for the two `options` descriptions.
+    const dispatcher = src("server/services/task-dispatcher.ts");
+    const resumeStart = dispatcher.indexOf("function buildResume(");
+    const resumeEnd = dispatcher.indexOf("\n  function ", resumeStart + 1);
+    const resumeBody = dispatcher.slice(resumeStart, resumeEnd > resumeStart ? resumeEnd : undefined);
+    expect(resumeBody).toContain("RECOMMENDED_OPTION_RULE");
+  });
+
   test("promoteReviewPreview non scrive piu' il paragrafo operativo nel thread", () => {
     const tasks = src("server/services/tasks.ts");
     // Cerca il corpo di promoteReviewPreview tra la sua firma e la funzione

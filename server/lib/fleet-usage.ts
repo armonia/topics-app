@@ -213,6 +213,18 @@ const { responsiblePidFn, responsiblePidAvailable } = (() => {
   }
 })();
 
+/**
+ * The RESPONSIBLE pid of a pid, or `null` (off macOS, no FFI, dead pid).
+ *
+ * Exported because it has a second reader: `memory-owners-probe.ts` needs it to
+ * NOT hand somebody else's app the WebContent processes that are Topics' own
+ * browser panes (measured 16/09/2026 on this Mac: three of them, all
+ * responsible to `Topics.app`). 7 ms over 877 pids, no fork.
+ */
+export function responsiblePid(pid: number): number | null {
+  return responsiblePidAvailable ? responsiblePidFn(pid) : null;
+}
+
 /** Lettura precedente dei secondi di CPU per pid: e' la BASE da cui si ricava
  *  la percentuale istantanea. Senza, si potrebbe solo riportare la media di
  *  vita di `ps pcpu`, che e' il difetto che questo modulo aveva. */
