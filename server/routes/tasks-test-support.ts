@@ -74,6 +74,11 @@ export function freshDb(): Database {
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT, UNIQUE (task_id, idx)
   )`);
+  // migration 20260915230316 - the delivery a restart must not forget.
+  db.run(`CREATE TABLE pending_deliveries (
+    task_id TEXT PRIMARY KEY, pathname TEXT NOT NULL, body_json TEXT NOT NULL,
+    commit_sha TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
   return db;
 }
 

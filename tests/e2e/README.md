@@ -67,6 +67,8 @@ For test-authoring rules (locators, waits, fixtures, test data) see
 
 ## Running
 
+Not on the owner's Mac: no Chromium there (`nochrome`). Run on CI or on the Windows PC.
+
 ```bash
 # From the repo root. Tests run against http://localhost:13334
 # (a dedicated test server; global-setup.ts starts/seeds it).
@@ -82,14 +84,14 @@ npx playwright show-report test-results/html-report
 
 ```bash
 bun run check:e2e-touched --list   # which specs your branch touches
-bun run check:e2e-touched          # select and run them
 ```
 
-None of the six delivery gates (`typecheck`, `lint`, `check:deadcode`,
-`check:emdash`, `check:migrations`, `test:unit`) runs an e2e test, and a land is
-a LOCAL merge: it never passes through the CI job that runs the PR tier of this
-suite. On 27/08 three cards landed green on every gate and the nightly came back
-with six reds, two of which were a rule and a list changed on one surface only.
+Running the selected specs is the PR CI's job (`e2e (1)`, step "E2E dei file
+toccati"), and since 15/09/2026 the board reads that verdict for every delivery
+(`github-ci:e2e`, KANBAN-84). On a Mac outside GitHub Actions the script lists
+and exits 97 without running anything. On 27/08 three cards landed green on
+every local gate and the nightly came back with six reds, two of which were a
+rule and a list changed on one surface only.
 
 This command closes part of that window without becoming the suite: it diffs the
 branch against `main`, derives the related specs (a spec that changed, a spec

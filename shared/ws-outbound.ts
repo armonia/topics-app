@@ -1037,6 +1037,32 @@ const providerUsageSchema = z.looseObject({
   observedAtMs: z.number(),
 });
 
+// Which agent trees are stopped right now under sustained swap
+// (server/services/swap-freeze.ts, broadcast through
+// `server/lib/swap-freeze-hold.ts`). Always the WHOLE list, never a delta: a
+// client that missed a frame would otherwise keep the frost on a session that
+// has been running again for minutes. An empty array is the normal state and
+// is what a thaw sends.
+const swapFreezeStateSchema = z.looseObject({
+  type: z.literal('swap-freeze:state'),
+  views: z.array(z.looseObject({
+    id: z.string(),
+    sessionKey: z.string(),
+    topicId: z.nullable(z.string()),
+    terminalId: z.nullable(z.string()),
+    taskId: z.nullable(z.string()),
+    command: z.string(),
+    footprintGB: z.number(),
+    // Null while the first reading of the episode is still missing: the card
+    // shows the freeze anyway, and the numbers arrive on the next frame.
+    pagesReadBackPerS: z.nullable(z.number()),
+    debtGBPerMin: z.nullable(z.number()),
+    frozenAt: z.number(),
+    thawBy: z.number(),
+    n: z.number(),
+  })),
+});
+
 // Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
 // BOOLEANO ("scegli tu in base alla capacità"), non un numero.
 const boardGlobalCapSchema = z.looseObject({
@@ -1358,6 +1384,8 @@ const OUTBOUND_SCHEMAS = {
   'provider:hold': providerHoldSchema,
   'provider:usage': providerUsageSchema,
   'board:settings': boardSettingsSchema,
+  // The swap freeze: which trees are stopped right now, as a whole list.
+  'swap-freeze:state': swapFreezeStateSchema,
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,

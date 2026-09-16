@@ -29,12 +29,11 @@
 # qui, nello stesso commit.
 #
 # I due che restano fuori con un motivo, e non per dimenticanza:
-#   `check:e2e-touched`  sceglie le spec e2e a partire dal DIFF con un ramo base,
-#                        quindi ha bisogno di un base contro cui confrontarsi: in
-#                        `ci.yml` gira solo su `pull_request`, dove quel base
-#                        esiste. Qui non ce l'ha, e senza base non seleziona
-#                        niente — un verde che non ha guardato nulla. Si lancia a
-#                        mano prima di consegnare: `bun run check:e2e-touched`.
+#   `check:e2e-touched`  picks the e2e specs from the DIFF against a base branch,
+#                        and it runs in the pull request CI (`e2e (1)`), whose
+#                        verdict the board reads for each delivery
+#                        (`github-ci:e2e`). Here only `--list`: on a Mac it
+#                        refuses to run specs.
 #   `check:bundle`       pretende `public/` gia' costruito (`bun run build:client`,
 #                        minuti): in CI viene dopo una build che qui non c'e'.
 #                        Dal 26/08 non puo' piu' mentire su una build vecchia:
@@ -101,6 +100,13 @@ esegui lint bun run lint
 if [ "$VELOCE" = "0" ]; then
   echo "== unit + integrazione =="
   esegui test:unit bun run test:unit
+fi
+
+if [ "$SENZA_E2E" = "0" ] && [ "$(uname -s)" = "Darwin" ] && [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  # Chromium does not run on the owner's Mac (playwright.config.ts refuses):
+  # the e2e of a branch is the pull request CI, not a red bar here.
+  echo "== E2E: not on this Mac, the pull request CI runs it =="
+  SENZA_E2E=1
 fi
 
 if [ "$SENZA_E2E" = "0" ]; then

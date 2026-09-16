@@ -30,7 +30,7 @@ import { Gauge } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
 import { useT } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { dispatchLoadReading, limitDerivation, loadToneClass, loadWordKey, type DispatchLoadReading } from './dispatchLoad';
+import { admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation, loadToneClass, loadWordKey, type DispatchLoadReading } from './dispatchLoad';
 import { spendLabel } from './spendFormat';
 import { budgetShare, capMode } from '../../lib/board';
 import type { DispatchCapacity, GlobalDispatchCap } from '../../lib/board';
@@ -98,7 +98,21 @@ const pctOf = (share: number | null | undefined): number => Math.round(Math.max(
  *  budget line prints. "May hold" is the usable ceiling (the share of what the
  *  rest of the machine leaves free), the same number the gate admits against. */
 function coreNumbers(cap: DispatchCapacity | null): { used: string; usable: string } {
-  return { used: (cap?.usedCoreUnits ?? 0).toFixed(1), usable: Math.max(0, cap?.usableCoreUnits ?? 0).toFixed(1) };
+  const gate = gateCoreNumbers(cap);
+  return { used: (gate.used ?? 0).toFixed(1), usable: gate.usable.toFixed(1) };
+}
+
+/**
+ * THE ONE GIGABYTE LINE. The wire carried memory all along and no surface of
+ * the dispatch printed a single GB, so a queue held by memory showed a ring
+ * filled with CPU and no number that explained it. What the gate compared:
+ * our footprint, our share of the free memory, and what one more agent asks.
+ * Only when the gate sent them.
+ */
+function memoryLine(cap: DispatchCapacity | null): { ours: string; free: string; cost: string } | null {
+  const a = cap?.admission;
+  if (!a || a.ourMemGB == null || a.freeQuotaMemGB == null || a.costMemGB == null) return null;
+  return { ours: a.ourMemGB.toFixed(1), free: a.freeQuotaMemGB.toFixed(1), cost: a.costMemGB.toFixed(1) };
 }
 
 /** What the DOM says the state is, for whoever reads it without pixels (the
@@ -133,6 +147,8 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
   const cap = s.capacity;
   const phrase = gaugePhrase(reading, cap, tr);
   const derived = limitDerivation(s);
+  const mem = reading.byResources ? memoryLine(cap) : null;
+  const verdict = reading.heldBy && cap?.admission ? admissionVerdictText(cap.admission) : null;
 
   return (
     <>
@@ -142,6 +158,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
         onClick={() => setOpen((o) => !o)}
         data-testid="dispatch-load-gauge"
         data-tone={toneAttr(reading)}
+        data-held={reading.heldBy ?? 'none'}
         data-fill={reading.fill.toFixed(2)}
         role="meter"
         aria-valuenow={reading.running}
@@ -174,6 +191,14 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
             </p>
           ) : (
             <p className="tabular-nums">{tr('board.gauge.inFlight', { running: reading.running })}</p>
+          )}
+          {mem && <p className="tabular-nums" data-testid="dispatch-load-memory">{tr('board.gauge.memLine', mem)}</p>}
+          {/* What holds, in the panel's own words: the ring says the axis in
+              one word, this says it with the numbers. */}
+          {verdict && (
+            <p className="tabular-nums text-rose-300" data-testid="dispatch-load-verdict" title={verdict.title}>
+              {tr(verdict.key, verdict.params)}
+            </p>
           )}
           {reading.frozen > 0 && <p className="tabular-nums">{tr('board.gauge.frozen', { n: reading.frozen })}</p>}
           {s.spend && (
@@ -208,6 +233,7 @@ export function DispatchLoadSummary() {
       className={`flex shrink-0 items-center gap-1 text-mini font-medium tabular-nums ${loadToneClass(reading)}`}
       data-testid="dispatch-load-summary"
       data-tone={toneAttr(reading)}
+      data-held={reading.heldBy ?? 'none'}
       data-fill={reading.fill.toFixed(2)}
       title={gaugePhrase(reading, s.capacity, tr)}
     >

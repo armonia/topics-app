@@ -43,6 +43,7 @@ import { Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
+import { useSurfaceFocus } from './useSurfaceFocus';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
   MIN_WINDOW_SIZE,
@@ -231,6 +232,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const state = useTopicWindowState(topicId);
   const area = useAreaRect(areaRef);
   const band = useComposerBand(areaRef);
+  // The chat beside it and this window take turns: a heavy page pauses while
+  // the person types in the chat.
+  const focus = useSurfaceFocus();
   const [addOpen, setAddOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   // Where the "+" menu is drawn, in viewport coordinates: it is a portal on the
@@ -474,6 +478,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   return createPortal(
     <div
       data-testid="topic-browser-window"
+      {...focus.captureProps}
       data-mode={barOnly ? 'loaned' : (expanded ? 'exp' : 'min')}
       // The window is not an overlay for the native views it contains, and it
       // declares the corner radius the shell rounds its page to.
@@ -624,6 +629,8 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               isVisible={!parked && t.contextId === active?.contextId}
               onUrlChange={(url) => topicBrowserWindow.updateSheet(topicId, t.contextId, { url })}
               onTitleChange={(title) => topicBrowserWindow.updateSheet(topicId, t.contextId, { title })}
+              hasFocus={focus.focused}
+              onSelfFocus={focus.claim}
             />
           </div>
         ))}

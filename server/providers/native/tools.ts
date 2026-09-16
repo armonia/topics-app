@@ -24,6 +24,7 @@ import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
 import { killProcessTree } from "../../lib/process-tree";
+import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
@@ -55,6 +56,13 @@ export interface ToolContext {
    * l'uccisione dell'albero. Assente = comportamento di prima, invariato.
    */
   signal?: AbortSignal;
+  /**
+   * The session this turn belongs to. The swap freezer needs it to know WHOSE
+   * command a child of the server is: a native `bash` runs in the server's own
+   * process group, so without an owner it is indistinguishable from Topics' own
+   * work (`server/lib/agent-tool-children.ts`).
+   */
+  sessionKey?: string;
 }
 
 export interface ToolResult {
@@ -257,6 +265,7 @@ async function runCommand(
   cwd: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  owner?: { sessionKey?: string; command?: string },
 ): Promise<{ out: string; code: number | null; annullato?: boolean }> {
   // Già annullato: far partire il comando vorrebbe dire spendere secondi per
   // un risultato che nessuno leggerà, sul cammino di uno spegnimento che ha
@@ -289,7 +298,8 @@ async function runCommand(
     const chiudi = (r: { out: string; code: number | null }) => {
       if (closed) return;
       closed = true;
-      clearTimeout(timer);
+      forgetCommand?.();
+      if (timer) clearTimeout(timer);
       if (drainTimer) clearTimeout(drainTimer);
       signal?.removeEventListener("abort", suAbort);
       res({ ...r, ...(annullato ? { annullato: true } : {}) });
@@ -304,12 +314,45 @@ async function runCommand(
       drainTimer = setTimeout(() => chiudi({ out, code: null }), GRACE_AFTER_KILL_MS);
       drainTimer.unref?.();
     };
-    const timer = setTimeout(() => {
-      abbatti();
-      out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
-      giveUp();
-    }, timeoutMs);
-    timer.unref?.();
+    // THE DEADLINE IS PAUSABLE, and it has to be. Under sustained swap Topics
+    // can SIGSTOP this command's whole tree (`services/swap-freeze.ts`): a wall
+    // clock ticking through the pause would kill, at 120 s, a command that spent
+    // 60 of them stopped by us - a red invented by the brake that was meant to
+    // protect the machine. `onFreeze` banks what is left, `onThaw` re-arms it
+    // and writes the one line that tells the agent it happened, so a timeout
+    // that expired INSIDE the frozen tree (a Playwright action, a fetch) is
+    // readable as an artefact of the freeze and not as a defect of the code.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let leftMs = timeoutMs;
+    let armedAt = Date.now();
+    const arm = (ms: number): void => {
+      leftMs = Math.max(0, ms);
+      armedAt = Date.now();
+      timer = setTimeout(() => {
+        abbatti();
+        out += `\n[comando ucciso dopo ${timeoutMs}ms]`;
+        giveUp();
+      }, leftMs);
+      timer.unref?.();
+    };
+    arm(timeoutMs);
+    const forgetCommand = child.pid && owner?.sessionKey
+      ? registerNativeCommand({
+        sessionKey: owner.sessionKey,
+        pid: child.pid,
+        command: owner.command ?? `${cmd} ${args.join(" ")}`,
+        startedAt: Date.now(),
+        onFreeze: () => {
+          if (timer) clearTimeout(timer);
+          timer = undefined;
+          leftMs = Math.max(0, leftMs - (Date.now() - armedAt));
+        },
+        onThaw: (frozenMs) => {
+          out += `\n[fermo ${Math.round(frozenMs / 1000)} s: Topics lo ha congelato con il Mac in swap, poi e' ripreso]`;
+          arm(leftMs);
+        },
+      })
+      : null;
     // IL TURNO È FINITO MENTRE IL COMANDO GIRAVA. Non è il timeout del comando:
     // è lo spegnimento del server o uno stop dell'utente, e la differenza va
     // detta — `[exit null]` nudo manda a cercare un guasto che non c'è stato.
@@ -523,6 +566,7 @@ export async function executeTool(
         const { out, code, annullato } = await runCommand(
           "/bin/bash", ["-lc", String(input.command)],
           cwd, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS, ctx.signal,
+          { ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), command: String(input.command) },
         );
         const body = truncate(out.trim() || "(nessun output)");
         // Annullato non è fallito: `[exit null]` racconterebbe un comando

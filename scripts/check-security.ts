@@ -58,10 +58,13 @@
  * name and appears in dozens of tracked files - and no list of third parties.
  * There those two would measure what the build machine's user is called, or
  * nothing at all.
- * Mordono dove il commit nasce davvero: sulla postazione (`bun run
- * check:security`, tutti e quattro) e nei check pre-review, che eseguono
- * `test:unit` nel worktree dell'agente. In `.github/workflows/ci.yml` va la
- * meta' che non dipende da chi e' alla tastiera: `--only=secrets,dependencies`.
+ * They bite where the commit is born: on the workstation (`bun run
+ * check:security`, all four) and in the pre-review checks, in the agent's
+ * worktree and before the delivery is pushed. Since the board reads the unit
+ * suite from the pull request CI (`github-ci:unit`), that is the tail of the
+ * `static-rails` row, `check:security --only=data,home,secrets`, and no longer
+ * `test:unit`, which no longer runs there. `.github/workflows/ci.yml` gets the
+ * half that does not depend on who is at the keyboard: `--only=secrets,dependencies`.
  *
  * EXIT CODES
  *   0  il checkout e' pubblicabile

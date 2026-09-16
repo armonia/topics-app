@@ -118,8 +118,8 @@ export function staleStreamVerdict(opts: {
   // above already describes.
   if (opts.toolRunning) {
     // THE WAIT IS OURS. `update_task(status='review')` holds its tool call open
-    // while the pre-review checks grind in the worktree: legs of 25 s, up to 50
-    // minutes by design (`CHECKS_MAX_LEGS`), and under load the slot queue alone
+    // while the pre-review checks grind in the worktree: legs of 25 s, up to 100
+    // minutes by design (`CHECKS_MAX_LEGS`, the pull request CI wait included), and under load the slot queue alone
     // gets past the cap below. On 2026-09-04, 11:53-11:59, three deliveries were
     // closed here at 31-32 minutes of `update_task` as "a promise that never
     // returns": the promise was ours, the checks were still running, and every

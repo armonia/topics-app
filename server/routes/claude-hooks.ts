@@ -7,6 +7,7 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession } from "./terminal";
+import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
 
 /**
  * Where the hook auth token lives: under Topics' OWN home, never under
@@ -130,6 +131,21 @@ export function createClaudeHooksRouter(
 
         if (!payload.session_id) {
           return errorResponse(400, "Missing session_id in payload");
+        }
+
+        // WHICH COMMANDS OF THIS SESSION RUN IN THE BACKGROUND, from the only
+        // place that knows: the tool call itself. The swap freezer may pause a
+        // background shell and must never pause a foreground one, and this
+        // payload is the whole evidence (`lib/background-bash-record.ts`).
+        if (payload.hook_event_name === "PreToolUse") {
+          noteBashToolCall(payload.session_id, payload.tool_name, payload.tool_input, Date.now(), payload.tool_use_id);
+        } else if (payload.hook_event_name === "PostToolUse") {
+          // The `PostToolUse` of THIS call, not of any tool at all: the hook is
+          // installed on every matcher, and a `Read` that finishes says nothing
+          // about a `bun test` still running in the foreground.
+          endBashToolCall(payload.session_id, payload.tool_name, payload.tool_input, payload.tool_use_id);
+        } else if (payload.hook_event_name === "SessionEnd") {
+          forgetBashRecords(payload.session_id);
         }
 
         const result = tracker.ingestHook(payload);
