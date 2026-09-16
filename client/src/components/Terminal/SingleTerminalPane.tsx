@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock, AlertTriangle } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
-import { TerminalInputQueue, nextInputBands } from './inputQueue';
+import { TerminalInputQueue, nextInputBands, INPUT_LOSS_MESSAGE_KEY, type InputLossReason } from './inputQueue';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
@@ -263,6 +263,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // tells the two apart, and it is deliberately NOT "the socket is open" (the
   // server accepts the upgrade for any id and refuses afterwards).
   const attachedRef = useRef(false);
+  // The same bit as `attachedRef`, but as state: the loss band CHANGES when the
+  // attach comes back (it starts inviting a retype), and a ref cannot repaint.
+  const [inputAttached, setInputAttached] = useState(false);
   const [inputHeld, setInputHeld] = useState(false);
   const inputHeldRef = useRef(false);
   // The loss has its OWN band, and deliberately not the "not connected" one
@@ -271,8 +274,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // good, the terminal is alive again and about to print a prompt, so a notice
   // that disappears on that prompt is a notice nobody reads. This one stays
   // until the next keystroke proves the reader is back.
-  const [inputLost, setInputLost] = useState(false);
-  const inputLostRef = useRef(false);
+  // It carries the CAUSE, not a bare yes: expiry, byte ceiling and "the attach
+  // found no socket" are three different things to tell the reader, and one
+  // sentence for all three was wrong for two of them.
+  const [inputLost, setInputLost] = useState<InputLossReason | null>(null);
+  const inputLostRef = useRef<InputLossReason | null>(null);
   const heldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputQueueRef = useRef<TerminalInputQueue | null>(null);
 
@@ -545,7 +551,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         });
         // Take the flag down so the NEXT loss can raise the band again; the
         // band itself stays up on its own state until the reader types.
-        if (state.discarded) inputQueue.acknowledgeDiscarded();
+        if (state.lostReason) inputQueue.acknowledgeLoss();
         if (next.held !== inputHeldRef.current) {
           inputHeldRef.current = next.held;
           setInputHeld(next.held);
@@ -560,6 +566,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const markDetached = () => {
       attachedRef.current = false;
+      setInputAttached(false);
       if (heldTimerRef.current) clearTimeout(heldTimerRef.current);
       heldTimerRef.current = setTimeout(() => {
         heldTimerRef.current = null;
@@ -571,6 +578,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
     const markAttached = () => {
       attachedRef.current = true;
+      setInputAttached(true);
       if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
       if (inputHeldRef.current) { inputHeldRef.current = false; setInputHeld(false); }
       inputQueue.flush();
@@ -787,8 +795,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       // A key that actually reaches the PTY is the proof the loss is over:
       // that, and not a byte of output, is what takes the band down.
       if (inputQueue.send(data) === 'sent' && inputLostRef.current) {
-        inputLostRef.current = false;
-        setInputLost(false);
+        inputLostRef.current = null;
+        setInputLost(null);
       }
     });
 
@@ -817,9 +825,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       inputQueue.clear();
       inputQueueRef.current = null;
       attachedRef.current = false;
+      setInputAttached(false);
       if (heldTimerRef.current) { clearTimeout(heldTimerRef.current); heldTimerRef.current = null; }
       inputHeldRef.current = false;
-      inputLostRef.current = false;
+      inputLostRef.current = null;
       if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
       reconnectRef.current = null;
       detachTouchScroll();
@@ -1061,8 +1070,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // Ctrl+C tapped while the pane is reattaching used to vanish too.
   const sendToTerminal = (data: string) => {
     if (inputQueueRef.current?.send(data) === 'sent' && inputLostRef.current) {
-      inputLostRef.current = false;
-      setInputLost(false);
+      inputLostRef.current = null;
+      setInputLost(null);
     }
   };
 
@@ -1305,13 +1314,23 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             <span>{t('terminal.inputHeld')}</span>
           </div>
         )}
+        {/* WHAT WAS TYPED IS GONE, and why. The three causes read differently:
+            "too old to send" is simply untrue for a paste refused on the spot.
+            The invitation to retype waits for the attach, because until then
+            the queue is poisoned and refuses every key, so inviting a retype
+            earlier asks for input that goes straight in the bin. */}
         {inputLost && !stale && (
           <div
             data-testid="terminal-input-lost"
+            data-reason={inputLost}
+            data-retype={inputAttached ? 'true' : 'false'}
             className="absolute top-0 left-0 right-0 z-20 pointer-events-none flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-white text-mini font-medium"
           >
             <AlertTriangle size={12} />
-            <span>{t('terminal.inputLost')}</span>
+            <span>
+              {t(INPUT_LOSS_MESSAGE_KEY[inputLost])}
+              {inputAttached ? ` ${t('terminal.inputLost.retype')}` : ''}
+            </span>
           </div>
         )}
         {inputDropped && !inputLost && !stale && (

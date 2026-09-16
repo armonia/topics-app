@@ -3,6 +3,7 @@ import {
   TerminalInputQueue,
   TERMINAL_INPUT_QUEUE_MAX_AGE_MS,
   TERMINAL_INPUT_QUEUE_MAX_BYTES,
+  INPUT_LOSS_MESSAGE_KEY,
   nextInputBands,
   type InputQueueState,
 } from './inputQueue';
@@ -53,6 +54,10 @@ function harness(opts: { maxBytes?: number; maxAgeMs?: number } = {}) {
     /** Move the clock AND let any timer that came due actually fire. */
     advance(ms: number) { clock += ms; runDueTimers(); },
     pendingTimers: () => timers.size,
+    /** Fire every armed timer whatever its deadline says. `setTimeout` counts
+     *  monotonic milliseconds while the queue reads the wall clock, so a real
+     *  wake-up can land before the queue agrees the entry is old enough. */
+    fireTimersEarly() { for (const [id, p] of [...timers]) { timers.delete(id); p.fn(); } },
     /** The socket is gone and the attach with it: this is what a reload does. */
     drop() { readyState = 3; attached = false; },
     /** The socket is back but the session has not proven it is alive yet. */
@@ -102,7 +107,7 @@ describe('TerminalInputQueue', () => {
     h.drop();
     h.queue.send('abcd');
     expect(h.queue.send('e')).toBe('discarded');
-    expect(h.queue.state.discarded).toBe(true);
+    expect(h.queue.state.lostReason).toBe('tooLong');
     h.attach();
     h.queue.flush();
     expect(h.sent).toEqual([]);
@@ -119,7 +124,7 @@ describe('TerminalInputQueue', () => {
     h.attach();
     h.queue.flush();
     expect(h.sent).toEqual([]);
-    expect(h.queue.state.discarded).toBe(true);
+    expect(h.queue.state.lostReason).toBe('expired');
   });
 
   test('a flush with no socket drops the queue rather than keeping it for later', () => {
@@ -128,16 +133,16 @@ describe('TerminalInputQueue', () => {
     h.queue.send('a');
     expect(h.queue.flush()).toBe(0);
     expect(h.queue.state.pendingBytes).toBe(0);
-    expect(h.queue.state.discarded).toBe(true);
+    expect(h.queue.state.lostReason).toBe('disconnected');
   });
 
   test('the state is published so the pane can say input is being held', () => {
     const h = harness();
     h.drop();
     h.queue.send('ab');
-    expect(h.states.at(-1)).toEqual({ pendingBytes: 2, discarded: false });
+    expect(h.states.at(-1)).toEqual({ pendingBytes: 2, lostReason: null });
     h.queue.clear();
-    expect(h.states.at(-1)).toEqual({ pendingBytes: 0, discarded: false });
+    expect(h.states.at(-1)).toEqual({ pendingBytes: 0, lostReason: null });
   });
 
   test('acknowledging the loss clears the warning without touching the queue', () => {
@@ -145,11 +150,11 @@ describe('TerminalInputQueue', () => {
     h.drop();
     h.queue.send('a');
     h.queue.send('b');
-    expect(h.queue.state.discarded).toBe(true);
-    h.queue.acknowledgeDiscarded();
+    expect(h.queue.state.lostReason).toBe('tooLong');
+    h.queue.acknowledgeLoss();
     // The warning is down, the queue stays empty and poisoned: telling the
     // reader is not the same as pretending the loss did not happen.
-    expect(h.queue.state).toEqual({ pendingBytes: 0, discarded: false });
+    expect(h.queue.state).toEqual({ pendingBytes: 0, lostReason: null });
     expect(h.queue.send('c')).toBe('discarded');
   });
 
@@ -200,14 +205,65 @@ describe('TerminalInputQueue', () => {
     expect(h.sent).toEqual(['ls\r']);
   });
 
-  test('the expiry fires on its own, without a keystroke to notice it', () => {
+  test('the expiry fires on its own, ON the limit and not a millisecond past it', () => {
     // The band promised delivery for 30 s because nothing re-read the clock.
+    // The clock is advanced by EXACTLY the limit, which is the instant the
+    // timer is scheduled for: with a `<` comparison the wake-up found nothing
+    // stale at its own deadline, dropped the timer and left the queue held for
+    // good, so the band promised a delivery that could never come. The old
+    // test advanced 15_001 ms and walked straight past the only tick that
+    // matters.
     const h = harness({ maxAgeMs: 15_000 });
     h.drop();
     h.queue.send('ls\r');
-    expect(h.queue.state).toEqual({ pendingBytes: 3, discarded: false });
-    h.advance(15_001);
-    expect(h.queue.state).toEqual({ pendingBytes: 0, discarded: true });
+    expect(h.queue.state).toEqual({ pendingBytes: 3, lostReason: null });
+    h.advance(15_000);
+    expect(h.queue.state).toEqual({ pendingBytes: 0, lostReason: 'expired' });
+  });
+
+  test('a wake-up that lands early re-arms, instead of leaving the queue held for good', () => {
+    // `setTimeout` is monotonic, `Date.now()` is the wall clock: they disagree
+    // by a tick, and the queue only ever gets ONE timer. Firing a hair early
+    // used to end the surveillance altogether - no expiry, no band change, the
+    // promise of delivery left standing for as long as the pane is open.
+    const h = harness({ maxAgeMs: 15_000 });
+    h.drop();
+    h.queue.send('ls\r');
+    h.advance(14_999);
+    h.fireTimersEarly();
+    // Right call: nothing is stale yet, so nothing is thrown away...
+    expect(h.queue.state).toEqual({ pendingBytes: 3, lostReason: null });
+    // ...but the watch has to continue.
+    expect(h.pendingTimers()).toBe(1);
+    h.advance(1);
+    expect(h.queue.state).toEqual({ pendingBytes: 0, lostReason: 'expired' });
+  });
+
+  test('each way of losing input says WHICH one it was', () => {
+    // One boolean for three causes made the pane say "too old to send" for an
+    // 8 KB paste refused on the spot, and for a socket that was simply gone.
+    const expired = harness({ maxAgeMs: 1_000 });
+    expired.drop();
+    expired.queue.send('old');
+    expired.advance(1_000);
+    expect(expired.queue.state.lostReason).toBe('expired');
+
+    const tooLong = harness({ maxBytes: 4 });
+    tooLong.drop();
+    tooLong.queue.send('abcd');
+    tooLong.queue.send('e');
+    expect(tooLong.queue.state.lostReason).toBe('tooLong');
+
+    const gone = harness();
+    gone.drop();
+    gone.queue.send('a');
+    gone.queue.flush();
+    expect(gone.queue.state.lostReason).toBe('disconnected');
+  });
+
+  test('the three causes do not share one sentence', () => {
+    const keys = Object.values(INPUT_LOSS_MESSAGE_KEY);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   test('nothing is left ticking once the queue is emptied', () => {
@@ -221,20 +277,21 @@ describe('TerminalInputQueue', () => {
   test('the pane bands follow the queue: a loss replaces the promise of delivery', () => {
     // This is the pane<->queue wiring. Without it nothing went red when the
     // callback simply forgot to raise a band.
-    expect(nextInputBands({ pendingBytes: 0, discarded: false }, { held: false, lost: false }))
-      .toEqual({ held: false, lost: false });
-    expect(nextInputBands({ pendingBytes: 3, discarded: false }, { held: false, lost: false }))
-      .toEqual({ held: true, lost: false });
+    expect(nextInputBands({ pendingBytes: 0, lostReason: null }, { held: false, lost: null }))
+      .toEqual({ held: false, lost: null });
+    expect(nextInputBands({ pendingBytes: 3, lostReason: null }, { held: false, lost: null }))
+      .toEqual({ held: true, lost: null });
     // Delivered: the promise comes down.
-    expect(nextInputBands({ pendingBytes: 0, discarded: false }, { held: true, lost: false }))
-      .toEqual({ held: false, lost: false });
-    // Lost: the promise comes down and the loss goes up, never both.
-    expect(nextInputBands({ pendingBytes: 0, discarded: true }, { held: true, lost: false }))
-      .toEqual({ held: false, lost: true });
+    expect(nextInputBands({ pendingBytes: 0, lostReason: null }, { held: true, lost: null }))
+      .toEqual({ held: false, lost: null });
+    // Lost: the promise comes down and the loss goes up, never both, and the
+    // band carries the cause it will have to explain.
+    expect(nextInputBands({ pendingBytes: 0, lostReason: 'tooLong' }, { held: true, lost: null }))
+      .toEqual({ held: false, lost: 'tooLong' });
     // The loss survives the states that follow it: only a delivered keystroke
     // takes it down, and that is the pane's call, not this function's.
-    expect(nextInputBands({ pendingBytes: 0, discarded: false }, { held: false, lost: true }))
-      .toEqual({ held: false, lost: true });
+    expect(nextInputBands({ pendingBytes: 0, lostReason: null }, { held: false, lost: 'expired' }))
+      .toEqual({ held: false, lost: 'expired' });
   });
 
   test('the age limit clears the measured reattach window', () => {

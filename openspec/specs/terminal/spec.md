@@ -691,10 +691,17 @@ Finché l'aggancio non è provato la pane SHALL dirlo con un segno visibile, che
 SHALL sparire da solo a `replay-end`. La scadenza SHALL essere sorvegliata da un
 TIMER e non solo riletta al prossimo tasto: senza, una pane lasciata sola
 continua a promettere la consegna di input che è già troppo vecchio per partire.
+Il timer SHALL scattare AL limite, non un millisecondo dopo, e se si sveglia
+prima che l'attesa sia compiuta SHALL riarmarsi: `setTimeout` conta millisecondi
+monotoni mentre la coda legge l'orologio di parete, e una sveglia anticipata
+senza riarmo lascia la coda in attesa per sempre con la fascia che promette una
+consegna impossibile.
+
 La perdita SHALL avere una frase PROPRIA, distinta da «il terminale non è
 connesso», e SHALL sopravvivere al primo byte di output: quando la perdita si
 scopre il terminale è vivo e sta per stampare un prompt, e un avviso che se ne
 va su quel prompt non lo legge nessuno.
+
 
 #### Scenario: tre tasti battuti a socket caduto
 - **GIVEN** una pane il cui socket è caduto e si sta riagganciando
@@ -727,3 +734,44 @@ va su quel prompt non lo legge nessuno.
 - **GIVEN** input in coda e nessuno che tocca la tastiera
 - **WHEN** passa la scadenza
 - **THEN** la pane NON SHALL più promettere la consegna, di sua iniziativa
+
+#### Scenario: la scadenza scatta AL limite, non dopo
+- **GIVEN** input in coda da esattamente la durata del limite
+- **WHEN** il timer si sveglia sul proprio istante di scadenza
+- **THEN** l'input SHALL essere scartato in quel momento
+- **AND** la fascia «in coda» NON SHALL restare su a promettere una consegna
+
+#### Scenario: una sveglia anticipata non spegne la sorveglianza
+- **GIVEN** un timer che scatta un millisecondo prima che l'input sia scaduto
+- **WHEN** non trova nulla da scartare
+- **THEN** NON SHALL scartare niente
+- **AND** SHALL riarmarsi, così che la scadenza vera arrivi lo stesso
+
+### Requirement: TERM-11b — L'avviso della perdita dice la causa, e invita a riscrivere solo quando si può
+
+Le tre perdite di TERM-11 finivano in una sola frase, «era troppo vecchio per
+partire»: falsa per un incolla oltre gli 8 KB, rifiutato nello stesso
+millisecondo in cui è stato battuto, e falsa per un aggancio che non trova più
+un socket. La pane SHALL dire quale delle tre è stata, con una frase propria per
+ciascuna e nelle due lingue.
+
+L'invito a riscrivere SHALL essere una stringa a parte, mostrata SOLO quando
+l'aggancio è tornato. Fra la perdita e l'aggancio la coda è avvelenata e rifiuta
+ogni tasto: invitare a riscrivere lì chiede esattamente l'input che viene
+buttato, e la seconda perdita è su invito della pane.
+
+Lo stato della coda SHALL arrivare alle fasce passando per `nextInputBands`: è
+l'unico posto che alza la fascia della perdita, quindi una pane che smette di
+chiamarla torna a perdere input in silenzio con la coda ancora perfettamente
+corretta.
+
+#### Scenario: l'avviso dice quale delle tre cause
+- **GIVEN** una perdita per scadenza, una per tetto di byte e una per aggancio senza socket
+- **WHEN** la pane mostra l'avviso
+- **THEN** ciascuna causa SHALL avere la propria frase, nelle due lingue
+
+#### Scenario: l'invito a riscrivere aspetta l'aggancio
+- **GIVEN** una perdita mentre la coda è ancora avvelenata
+- **WHEN** l'avviso compare
+- **THEN** NON SHALL invitare a riscrivere
+- **AND** SHALL invitare a riscrivere solo dopo che l'aggancio è tornato

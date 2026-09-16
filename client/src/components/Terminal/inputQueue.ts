@@ -42,11 +42,36 @@ export interface InputQueueSocket {
   send(data: string): void;
 }
 
+/**
+ * WHY the queue threw something away.
+ *
+ * One boolean used to answer for all three, and the pane said "it was too old
+ * to send" for every one of them. That sentence is simply false for an 8 KB
+ * paste refused a millisecond after it was typed, and false again for a flush
+ * that found no socket: the reader is told a wrong cause and goes looking for
+ * a slowness that never happened.
+ */
+export type InputLossReason =
+  /** Held past the age limit: delivering it now would surprise the reader. */
+  | 'expired'
+  /** Over the byte ceiling in one go (a paste), so nothing was held at all. */
+  | 'tooLong'
+  /** The attach arrived with no socket behind it, so nothing could go out. */
+  | 'disconnected';
+
+/** The phrase the pane shows per cause. One key each, on purpose: a single
+ *  key for three causes is how the wrong explanation got shipped. */
+export const INPUT_LOSS_MESSAGE_KEY: Record<InputLossReason, string> = {
+  expired: 'terminal.inputLost.expired',
+  tooLong: 'terminal.inputLost.tooLong',
+  disconnected: 'terminal.inputLost.disconnected',
+};
+
 export interface InputQueueState {
   /** Bytes waiting for the attach. Zero means nothing is held. */
   pendingBytes: number;
-  /** Something was thrown away (ceiling or age) since the last flush/clear. */
-  discarded: boolean;
+  /** Why something was thrown away since the last flush/clear, or null. */
+  lostReason: InputLossReason | null;
 }
 
 /** A partial command is worse than no command. See `poisoned`. */
@@ -82,7 +107,7 @@ export class TerminalInputQueue {
   private readonly maxAgeMs: number;
   private entries: Entry[] = [];
   private bytes = 0;
-  private discarded = false;
+  private lostReason: InputLossReason | null = null;
   /**
    * THE HOLE RULE. Once anything is thrown away, the queue stops accepting
    * input until the next flush/clear.
@@ -110,7 +135,7 @@ export class TerminalInputQueue {
   }
 
   private emit(): void {
-    this.options.onStateChange?.({ pendingBytes: this.bytes, discarded: this.discarded });
+    this.options.onStateChange?.({ pendingBytes: this.bytes, lostReason: this.lostReason });
   }
 
   private cancelTimer(): void {
@@ -137,18 +162,29 @@ export class TerminalInputQueue {
     const set = this.options.setTimer ?? setTimeout;
     this.timer = set(() => {
       this.timer = null;
-      if (this.expire()) this.emit();
+      if (this.expire()) {
+        this.emit();
+        return;
+      }
+      // Fired, and nothing was stale. `setTimeout` counts monotonic
+      // milliseconds while `now()` reads the wall clock, so a wake-up can land
+      // a tick before the entry is old enough by that clock. Without this
+      // re-arm the queue has no timer left and the "held, will be delivered"
+      // band promises a delivery that never comes, for as long as the pane
+      // stays open. It terminates: the only way `expire()` says no is
+      // `now() < oldest.at + maxAge`, which makes the next `due` positive.
+      this.scheduleExpiry();
     }, due);
   }
 
   /** Throw the queue away wholesale and refuse what follows. Returns true if
    *  this call is what lost something. */
-  private poison(): boolean {
+  private poison(reason: InputLossReason): boolean {
     const hadSomething = this.entries.length > 0;
     this.cancelTimer();
     this.entries = [];
     this.bytes = 0;
-    this.discarded = true;
+    this.lostReason = reason;
     const wasClean = !this.poisoned;
     this.poisoned = true;
     return hadSomething || wasClean;
@@ -157,10 +193,14 @@ export class TerminalInputQueue {
   /** Forget what got stale while nobody was looking. Returns true if it did. */
   private expire(): boolean {
     if (this.entries.length === 0) return false;
+    // `<=`, not `<`: at exactly `at + maxAge` the entry has reached the limit,
+    // and this is the instant the timer above aims at. With `<` the scheduled
+    // wake-up found nothing stale at its own deadline and left the queue held
+    // for good.
     const cutoff = this.now() - this.maxAgeMs;
-    const stale = this.entries.some((e) => e.at < cutoff);
+    const stale = this.entries.some((e) => e.at <= cutoff);
     if (!stale) return false;
-    this.poison();
+    this.poison('expired');
     return true;
   }
 
@@ -186,7 +226,7 @@ export class TerminalInputQueue {
       return 'discarded';
     }
     if (this.bytes + data.length > this.maxBytes) {
-      this.poison();
+      this.poison('tooLong');
       this.emit();
       return 'discarded';
     }
@@ -221,7 +261,7 @@ export class TerminalInputQueue {
         delivered += entry.data.length;
       }
     } else if (pending.length > 0) {
-      this.discarded = true;
+      this.lostReason = 'disconnected';
     }
     this.emit();
     return delivered;
@@ -232,29 +272,29 @@ export class TerminalInputQueue {
     this.cancelTimer();
     this.entries = [];
     this.bytes = 0;
-    this.discarded = false;
+    this.lostReason = null;
     this.poisoned = false;
     this.emit();
   }
 
   /** Drop the "something was lost" flag once the reader has been told. */
-  acknowledgeDiscarded(): void {
-    if (!this.discarded) return;
-    this.discarded = false;
+  acknowledgeLoss(): void {
+    if (this.lostReason === null) return;
+    this.lostReason = null;
     this.emit();
   }
 
   get state(): InputQueueState {
-    return { pendingBytes: this.bytes, discarded: this.discarded };
+    return { pendingBytes: this.bytes, lostReason: this.lostReason };
   }
 }
 
-/** What the pane shows about the queue: at most one band is true. */
+/** What the pane shows about the queue: at most one band is up. */
 export interface InputBands {
   /** "held and will be delivered" */
   held: boolean;
-  /** "what you typed is gone, retype it" */
-  lost: boolean;
+  /** Why what was typed is gone, or null when nothing was lost. */
+  lost: InputLossReason | null;
 }
 
 /**
@@ -266,9 +306,9 @@ export interface InputBands {
  * with the queue itself still perfectly correct.
  */
 export function nextInputBands(state: InputQueueState, current: InputBands): InputBands {
-  const lost = state.discarded ? true : current.lost;
+  const lost = state.lostReason ?? current.lost;
   // A loss outranks a promise of delivery: after a discard there is nothing
   // left to deliver, and showing both would have the pane contradict itself.
-  const held = lost ? false : state.pendingBytes > 0 ? true : false;
+  const held = lost ? false : state.pendingBytes > 0;
   return { held, lost };
 }
