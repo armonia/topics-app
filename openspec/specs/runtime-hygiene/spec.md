@@ -1011,3 +1011,31 @@ il comportamento gia' specificato.
 - **GIVEN** il watcher ripristinato e contenuto dei sorgenti invariato
 - **WHEN** arriva un evento del filesystem
 - **THEN** NON SHALL essere richiesto alcun riavvio del server
+
+### Requirement: BOOT-ENV-01 — La configurazione si rilegge a ogni avvio del server
+
+Il file di configurazione fuori dal repo (`~/.topics-server-env`, sorgiato da
+`scripts/start-prod.sh`) SHALL essere riletto a ogni avvio del processo del
+server, non solo alla partenza dello script. Il 16/09/2026 le variabili della
+posta e di Google, scritte nel file mentre il supervisore girava gia', non sono
+mai arrivate al server: il `source` stava sopra il loop, e il ricarico del
+watcher ripartiva con l'ambiente di ore prima. Chi modifica quel file si
+aspetta che basti un ricarico; chiedere un riavvio di launchd e' una trappola,
+e per accorgersene servivano `ps eww` e mezz'ora.
+
+Una variabile TOLTA dal file SHALL poter restare nell'ambiente fino al prossimo
+avvio dello script: il `source` aggiunge, non azzera, e la frase del requisito
+non promette il contrario. Un file illeggibile o con un errore di sintassi NON
+SHALL impedire il riavvio del server: si tiene l'ambiente di prima e lo si dice
+nel log.
+
+#### Scenario: una variabile aggiunta mentre il server gira
+- **GIVEN** il supervisore gia' avviato e una variabile nuova scritta nel file
+- **WHEN** il server viene ricaricato dal watcher
+- **THEN** il processo nuovo SHALL avere quella variabile nel suo ambiente
+
+#### Scenario: il file non si legge
+- **GIVEN** un file di configurazione con un errore
+- **WHEN** il server viene riavviato
+- **THEN** il riavvio SHALL avvenire lo stesso, con l'ambiente di prima e una riga di log
+

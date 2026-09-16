@@ -278,6 +278,18 @@ BACKOFF_MAX=30      # tetto del backoff (secondi)
 _backoff_cur=0      # ritardo corrente; 0 = primo giro / nessun boot-failure recente
 
 while [ "$SHUTTING_DOWN" != 1 ]; do
+  # LA CONFIGURAZIONE SI RILEGGE A OGNI AVVIO DEL SERVER, non solo la prima
+  # volta. Il 16/09/2026 il proprietario ha aggiunto a ~/.topics-server-env le
+  # variabili della posta e di Google; il `source` stava solo sopra questo loop,
+  # quindi il server ricaricato dal watcher continuava a girare con l'ambiente
+  # di ore prima e quelle variabili non esistevano per lui. Chi scrive nel file
+  # si aspetta che un ricarico basti: gli serviva invece un riavvio di launchd.
+  # Una variabile TOLTA dal file resta comunque in questo ambiente fino al
+  # prossimo avvio dello script: il source aggiunge, non azzera.
+  if [ -f "$HOME/.topics-server-env" ]; then
+    # shellcheck source=/dev/null
+    source "$HOME/.topics-server-env" || echo "[start-prod] ~/.topics-server-env non si legge: tengo l'ambiente di prima"
+  fi
   _boot_t="$(date +%s)"
   "$BUN" run "$APP_DIR/server.ts" &
   SERVER_PID=$!
