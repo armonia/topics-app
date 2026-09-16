@@ -133,8 +133,10 @@ describe("swapVerdict: pages read back from disk while the memory debt still gro
 
 /**
  * THE SECOND DOOR, on the 16/09/2026 lines of the live server (`[memsig]`, one a
- * minute, 11:50-12:35). The swap file was 16384 MB the whole time, so the share
- * of each row is `swapUsed / 16.384`.
+ * minute, 11:50-12:35). The total is NOT a constant: macOS adds swap files while
+ * it runs, and that day the live rows read up to 17.2 GB used, so a share
+ * computed against a fixed 16384 MB would be a number nobody measured. These
+ * cases therefore state the total they assume, row by row.
  */
 describe("swapVerdict: a swap file at its ceiling is the second door", () => {
   /** A minute of samples at `pagesPerS` with the debt moving `debtGBPerMin`, swap pinned at `usedMB`. */

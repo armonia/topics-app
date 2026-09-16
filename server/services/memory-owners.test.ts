@@ -126,8 +126,9 @@ describe("memoryOwners: everything that is not Topics, heaviest first", () => {
   test("O6: below the floor nothing is named, and never more than the top N", () => {
     const all = owners({ floorGB: 0, top: 50 });
     // `claude` lowercase is the CLI the Claude APP ships inside its own bundle,
-    // and it is neither the app nor ours: a separate family is the honest answer.
-    expect(all.map((f) => f.name)).toEqual(["Claude", "Dia", "Spotify", "claude", "WindowServer", "Wispr Flow", "next-server", "npm", "next"]);
+    // and it is neither the app nor ours: a separate family is the honest answer,
+    // and it says `(comando)` because the installed app already owns the word.
+    expect(all.map((f) => f.name)).toEqual(["Claude", "Dia", "Spotify", "claude (comando)", "WindowServer", "Wispr Flow", "next-server", "npm", "next"]);
     // Nobody quits an app to get 0.17 GB back on a machine whose floor is 6 GB.
     expect(owners().map((f) => f.name)).toEqual(["Claude", "Dia"]);
     expect(owners({ top: 3, floorGB: 0.1 }).map((f) => f.name)).toEqual(["Claude", "Dia", "Spotify"]);

@@ -196,7 +196,7 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     }
   }
 
-  const totals = new Map<string, MemoryFamily & { bundle: boolean }>();
+  const totals = new Map<string, MemoryFamily & { installed: boolean }>();
   for (const r of rows) {
     if (ours.has(r.pid)) continue;
     // An XPC service is counted under whoever ASKED for it - and only an XPC
@@ -206,20 +206,27 @@ export function memoryOwners(input: MemoryOwnersInput): MemoryFamily[] {
     if (owner && ours.has(owner.pid)) continue;
     const from = (owner ?? r).command;
     const name = appFamilyName(from);
-    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, bundle: false };
+    const seen = totals.get(name) ?? { name, gb: 0, procs: 0, installed: false };
     seen.gb += rowGB(r);
     seen.procs += 1;
-    seen.bundle ||= /\/[^/]+\.app\//.test(from);
+    // INSTALLED, not merely bundled: the app the owner would quit lives in an
+    // Applications folder (/Applications or ~/Applications), while a command a
+    // program ships runs from inside its own `.app` under Application Support.
+    // Measured 16/09: the CLI at `…/Application Support/Claude/claude-code/
+    // 2.1.270/claude.app/Contents/MacOS/claude` is in a bundle too, so a test on
+    // "is it in a .app" left `Claude` and `claude` side by side, which is the
+    // one thing this rule exists to prevent.
+    seen.installed ||= /\/Applications\/[^/]+\.app\//.test(from);
     totals.set(name, seen);
   }
   // TWO LINES THAT DIFFER ONLY BY CASE are two lines nobody can tell apart.
   // Measured 16/09: `Claude 7.0 GB` (the app) beside `claude 1.1 GB` (the CLI
-  // the app ships, running outside it). The app keeps the bare name; the
-  // command says what it is.
+  // the app ships). The INSTALLED app keeps the bare name; the command says
+  // what it is, wherever it runs from.
   const byLower = new Map<string, number>();
   for (const f of totals.values()) byLower.set(f.name.toLowerCase(), (byLower.get(f.name.toLowerCase()) ?? 0) + 1);
   for (const f of totals.values()) {
-    if (!f.bundle && (byLower.get(f.name.toLowerCase()) ?? 0) > 1) f.name = `${f.name} (comando)`; // allow-italian: the owner reads this name inside an Italian sentence
+    if (!f.installed && (byLower.get(f.name.toLowerCase()) ?? 0) > 1) f.name = `${f.name} (comando)`; // allow-italian: the owner reads this name inside an Italian sentence
   }
   return [...totals.values()]
     .map(({ name, gb, procs }) => ({ name, gb, procs }))
