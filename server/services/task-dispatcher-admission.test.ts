@@ -294,7 +294,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     let reading = 20;
     const signal = createMemSignal({
       measurable: true,
-      probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, load1: 1 }),
+      probe: async () => ({ availGB: reading, swapins: 0, compressorPages: 0, pageSize: 16_384, swapUsedMB: 0, swapTotalMB: 16_384, load1: 1 }),
     });
     const h = harness({
       agentMemSamples: () => [],

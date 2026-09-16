@@ -335,6 +335,18 @@ describe("il pavimento sulla memoria", () => {
     expect(availableMemGB(() => healthy)!).toBeGreaterThan(DISPATCH_MEM_FLOOR_GB);
   });
 
+  test("P1: the probe keeps the swap TOTAL of the same `vm.swapusage` line", async () => {
+    const got = await probeVm(async (argv) => argv[0] === "/usr/bin/vm_stat"
+      ? "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nSwapins: 9123456.\nPages occupied by compressor: 476226."
+      : "total = 16384.00M  used = 15805.31M  free = 578.69M  (encrypted)", "darwin");
+    expect(got!.swapUsedMB).toBeCloseTo(15_805.31, 2);
+    // Thrown away until 16/09/2026, and it is the whole second door: without it
+    // `swapVerdict` cannot tell a machine at its ceiling from a calm one.
+    expect(got!.swapTotalMB).toBeCloseTo(16_384, 2);
+    const mute = await probeVm(async (argv) => argv[0] === "/usr/bin/vm_stat" ? "page size of 16384 bytes" : null, "darwin");
+    expect(mute!.swapTotalMB).toBeNull();
+  });
+
   test("la somma e' cio' che si ottiene SENZA far lavorare il disco", () => {
     // free 65536 + speculative 65536 + purgeable 65536 + file-backed 65536
     // = 4 x 65536 x 16384 / 1e9 = 4,295 GB. A unit error (pages counted as
@@ -639,6 +651,23 @@ describe("il pavimento della memoria segue il runtime", () => {
     expect(dispatchResourceBlock("/tmp", disco, ram(14.0), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }))).toBeNull();
     // Not measurable: memory never blocks, whatever the number would have been.
     expect(dispatchResourceBlock("/tmp", disco, ram(null), false, hold({ ourWorkRunning: true }))).toBeNull();
+  });
+
+  test("C1b: the held sentence says WHO is holding the memory, and only when it is somebody else", () => {
+    const hold = { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false };
+    // 16/09/2026: seven cards held for hours by the Claude app, a Dia and a
+    // `next-server` nobody had noticed. The chip said the number and no name.
+    const who = [{ name: "Claude", gb: 8.1, procs: 12 }, { name: "next-server", gb: 2.9, procs: 1 }, { name: "Dia", gb: 2.6, procs: 21 }];
+    const r = dispatchResourceBlock("/tmp", disco, ram(4.1), false, hold, who)!;
+    expect(r).toContain("Memoria quasi finita");
+    expect(r).toEndWith("Fuori da Topics la memoria la tengono: Claude 8.1 GB, next-server 2.9 GB, Dia 2.6 GB.");
+    // The wait's key is the FIRST word, so the names never rewrite the chip.
+    expect(r.split(/[\s:]/)[0]).toBe("Memoria");
+    // Nothing measured, nothing said: the sentence stood on its own before this.
+    expect(dispatchResourceBlock("/tmp", disco, ram(4.1), false, hold)).not.toContain("Fuori da Topics");
+    expect(dispatchResourceBlock("/tmp", disco, ram(4.1), false, hold, [])).not.toContain("Fuori da Topics");
+    // A full disk is not somebody's app: only the memory sentence carries it.
+    expect(dispatchResourceBlock("/tmp", () => 1, ram(4.1), false, hold, who)).not.toContain("Fuori da Topics");
   });
 
   test("C2: a window that is not full holds and says how long it has measured; every sentence starts with Memoria and has no long dash", () => {

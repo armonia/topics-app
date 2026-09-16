@@ -434,19 +434,157 @@ quelle rimaste in attesa di un posto.
 
 Ogni 60 secondi, anche a board ferma, il server SHALL scrivere nel suo log una riga
 `[memsig]` con lettura, minimo dei 2 minuti, copertura, swap-in al secondo, debito
-di memoria al minuto, compressore, swap usato, carico, verdetto di swap, turni in
-volo, corse di check e l'albero di check più pesante (`?` dove manca il valore):
-non decide niente, è lo strumento con cui si misurano le soglie e l'esito.
+di memoria al minuto, compressore, swap usato, TOTALE DEL FILE DI SWAP
+(`swapTotalGB`) e QUOTA OCCUPATA (`swapPct`), carico, verdetto di swap, turni in volo, corse di check, l'albero di
+check più pesante e CHI TIENE LA MEMORIA fuori da Topics (`altri`, `-` quando non
+c'è niente da dire): non decide niente, è lo strumento con cui si misurano le
+soglie e l'esito. Un termine che entra nel verdetto e non compare nella riga non
+si può misurare, quindi non si può nemmeno tarare: il totale c'è perché è il
+DENOMINATORE della quota, e per 869 righe il log ha scritto solo `swapUsedGB`,
+lasciando indistinguibili una macchina che si riempie e macOS che le ha aggiunto
+un file da 1 GB sotto.
 
 Lo swap SHALL dirsi SOSTENUTO solo quando, su 60 secondi di campioni, le pagine
-rilette dal disco sono almeno 10 al secondo E il debito di memoria (compressore più
-swap usato) cresce di almeno 0,5 GB al minuto. Le pagine rilette da sole non
-separano il recupero (65/s alle 11:23 del 15/09, debito in calo) dal thrash
-(12,8-33,6/s alle 14:06, debito +8,8/+14 GB al minuto); lo swap usato sta nella
-somma perché un compressore saturo sposta segmenti su disco. Il livello di
-pressione del kernel NON SHALL essere usato: è un rapporto del compressore, e i
-picchi del 10/09 e del 15/09 stavano al livello 1. Le soglie sono provvisorie, e
-l'esito si misura sulle righe `[memsig]` e `[LAG]` 72 ore dopo il land.
+rilette dal disco sono almeno 10 al secondo E vale almeno una fra: il debito di
+memoria (compressore più swap usato) cresce di almeno 0,5 GB al minuto, OPPURE il
+file di swap è occupato per almeno il 90% del suo totale. Le pagine rilette da
+sole non separano il recupero (65/s alle 11:23 del 15/09, debito in calo) dal
+thrash (12,8-33,6/s alle 14:06, debito +8,8/+14 GB al minuto); lo swap usato sta
+nella somma perché un compressore saturo sposta segmenti su disco.
+
+**IL SOFFITTO È LA SECONDA PORTA, e senza di essa il thrash STABILE passa per
+calmo.** Il solo termine del debito chiede che il debito CRESCA, ma con lo swap
+pieno il debito non può più crescere: oscilla intorno a zero, e lo stato peggiore
+che la macchina raggiunge è proprio quello che la regola lascia passare. Misurato
+sul server vivo il 16/09/2026 fra le 11:50 e le 12:35, una riga `[memsig]` al
+minuto:
+
+    swapin/s 170,1 debito +0,7 swap usato 14,8 -> sostenuto
+    swapin/s 167,7 debito -1,7 swap usato 15,2 -> CALMO
+    swapin/s  64,1 debito -1,2 swap usato 15,4 -> CALMO
+    swapin/s  36,3 debito -0,1 swap usato 15,3 -> CALMO
+    swapin/s  27,8 debito +0,1 swap usato 15,1 -> CALMO
+
+Undici righe di quei 40 minuti rileggevano almeno 10 pagine al secondo e solo DUE
+sono state giudicate sostenute: il freno dei check e il congelamento non potevano
+scattare proprio quando servivano. Il totale era già nella stessa lettura che il
+codice fa (`sysctl -n vm.swapusage` stampa `total` accanto a `used`) e veniva
+buttato.
+
+**0,90 È PROVVISORIA E NON È MISURATA**, e va detto perché la prima stesura di
+questo requisito affermava il contrario. Il `total` non è mai stato nel log: per
+869 righe `[memsig]` ha scritto `swapUsedGB` da solo, quindi le quote qui sopra
+sarebbero `usato / 16384`, un denominatore SUPPOSTO e non letto. E si muoveva: 39
+di quelle 869 righe stampano `swapUsedGB` SOPRA 16,384 — fino a 17,2 GB alle
+12:46:59, undici minuti dopo l'ultima riga della tabella — quindi a quel punto
+macOS aveva già allargato il file ad almeno 17408 MB, e `/System/Volumes/VM`
+tiene file da esattamente 1 GiB: il denominatore si muove a scatti da 1 GB, che a
+15 GB usati valgono 5,5 punti di quota contro gli 0,3 punti di margine della riga
+più bassa. Se il diciassettesimo file fosse già esistito alle 12:22, quelle
+cinque righe leggerebbero 85,0-88,5% e la porta non si aprirebbe su nessuna. La
+quota SHALL quindi essere tarata sulle righe `[memsig]` con `swapTotalGB` dopo
+qualche giorno di log, e fino ad allora vale 0,90 perché in OR il primo termine,
+che è largo, regge da solo il peso della porta: una macchina sana deve prima
+provare un minuto intero a 10 pagine/s (una board in salute ne legge 0,04-3;
+anche su questo Mac malato 49 righe su 60 restavano sotto 10).
+
+**QUANTO COSTA LA PORTA**, contato su tutte le 874 righe del log vivo che
+portano i tre campi (denominatore supposto a 16384): la sola AND ne chiamava
+sostenute 68, l'OR ne chiama 170. Contro «almeno 50 pagine/s rilette» come
+definizione del thrash che il guasto nomina, la precisione va dal 44% al 32% e il
+richiamo dal 39% al 70%, e l'episodio ininterrotto più lungo passa da 4 minuti a
+19 — per questo il freno dei check ha ora una via d'uscita. In quel log non ha
+trattenuto nulla: tutte le 874 righe stampano `inFlight=0 checkRuns=0`, cioè nei
+minuti per cui la porta è stata scritta non c'era né una corsa di check da
+frenare né un albero da congelare; la board era ferma a monte, sul pavimento
+delle ammissioni.
+
+**QUELLO CHE ANCORA NON PRENDE**: 23 righe fra 50 e 438 pagine/s stanno SOTTO la
+quota (12,3-14,7 GB usati) e restano calme, compreso il minuto più pesante di
+tutto il log (438,6 pagine/s alle 08:43:02, debito +0,0). Un terzo termine sulle
+sole pagine rilette le prenderebbe e NON SHALL essere aggiunto finché non esiste
+una lettura di una macchina SANA sopra le 10 pagine/s: sarebbe una seconda soglia
+non tarata a reggere la prima.
+
+**UN DEBITO IN CALO NON METTE IL VETO AL SOFFITTO**, ed è una decisione, non una
+dimenticanza. I due minuti che somigliano di più a un recupero — le 12:22 a -1,7
+GB/min e le 12:48 a -4,1 — stanno DENTRO un episodio che la sola AND chiamava già
+sostenuto nel minuto prima E in quello dopo (12:21 +0,7 a 170,1/s, 12:46 +1,7 a
+284,0/s, 12:49 +0,8 a 171,7/s): un compressore che perde 4,5 GB in un minuto lì è
+un processo che muore sotto la pressione, non la pressione che finisce. Il
+recupero che è davvero recupero si legge SOTTO la quota e resta calmo per la
+quota stessa (11:23 del 15/09: 65 pagine/s al 65,8% del file).
+
+I DUE TERMINI SI DANNO IL CAMBIO, ed è il motivo per cui nessuno dei due
+basta da solo: quando macOS ALLARGA il file di swap il totale sale, la quota
+scende sotto il soffitto e nello stesso momento `used` cresce, cioè parla il
+termine del debito; quando la crescita si ferma perché non c'è più niente da
+allargare, il debito si appiattisce e la quota è al soffitto. Swap disattivato
+(`total = 0`), riga illeggibile o primi campioni dopo un riavvio SHALL lasciare la
+quota a «non lo so», che non è zero e non è uno: il termine non vota e la regola
+torna a essere quella del debito. Usato e totale SHALL venire dalla STESSA
+lettura, perché una quota costruita su due letture si muove per un motivo che non
+è la macchina che si riempie.
+
+Il livello di pressione del kernel NON SHALL essere usato: è un rapporto del
+compressore, e i picchi del 10/09 e del 15/09 stavano al livello 1. Le soglie sono
+provvisorie, e l'esito si misura sulle righe `[memsig]` e `[LAG]` 72 ore dopo il
+land.
+
+**UNA CODA FERMA DEVE DIRE CHI TIENE LA MEMORIA.** Il server SHALL misurare, con
+UNA sola lettura di `/bin/ps` ogni 60 secondi sul battito che scrive già
+`[memsig]` e MAI una per card, la memoria sommata per FAMIGLIA di processi,
+ESCLUSI quelli di Topics, e SHALL mostrarne le prime tre: nella riga
+`[memsig]` sempre, e in coda alla frase del pavimento quando la coda è
+trattenuta per memoria. Il 16/09/2026 sette card sono rimaste ferme per ore con
+il chip «Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 4.1
+GB, sotto il pavimento di 6 GB» mentre a tenere la memoria erano l'app Claude
+(~8 GB su tre finestre), Dia (2,6 GB) e un `next-server` acceso da 14 ore (2,9
+GB): una coda ferma per ore senza una via d'uscita leggibile, e il proprietario
+che chiede due volte «attento al carico» senza poter agire.
+
+La somma SHALL essere di `phys_footprint` e non di memoria residente, con `rss`
+solo dove il kernel non risponde per quel pid: misurato il 16/09/2026 sulla
+famiglia Claude viva, 7,01 GB residenti contro 10,88 GB di footprint sugli stessi
+33 processi (+55%). Il Monitoraggio Attività mostra il footprint, quindi una card
+che dicesse 7,0 GB nominerebbe un numero che il proprietario non trova da nessuna
+parte sul suo schermo — e `rss` legge PICCOLO proprio mentre un albero fa thrash,
+che è l'unico momento in cui questa frase viene stampata. È la stessa FFI
+(`procFootprintKB`) che la flotta chiama già: nessun fork in più.
+
+La voce SHALL portare il nome dell'APP e mai il nome crudo del processo: il
+bundle `.app` PIÙ ESTERNO, perché macOS annida gli helper di un'app Electron in
+un `.app` loro («Claude», non «Claude Helper (Renderer)», e non tre voci per una
+sola app). Il pid RESPONSABILE SHALL essere chiesto SOLO per un servizio XPC, che
+è ciò per cui esiste: senza di esso i processi WebContent delle NOSTRE pane
+browser si leggono come una famiglia altrui e la frase accuserebbe il
+proprietario di memoria che tiene Topics, ma chiesto su OGNI riga di `ps`
+(risponde per 600 pid su 901) darebbe il nome del processo altrui a chi l'ha
+lanciato: misurato il 16/09, `next-server` è responsabile al gateway OpenClaw e
+finiva contato in una famiglia chiamata `index`, cioè il processo che la frase
+esiste per nominare usciva col nome di un file. Quando il nome ricavato è un
+punto di ingresso generico (`index`, `main`, `cli`) SHALL valere la prima
+cartella sopra che non sia impacchettamento (`dist`, `build`, `lib`, `bin`,
+`src`, `node_modules`): `openclaw`, non `index`. Due famiglie che differiscono
+SOLO per la maiuscola SHALL essere distinte nella frase — il 16/09 la macchina
+viva diceva «Claude 6,8 GB» (l'app) accanto a «claude 1,1 GB» (la CLI che l'app
+contiene, in esecuzione fuori) — e il nome nudo resta all'app.
+
+Un processo di Topics SHALL essere riconosciuto per sottoalbero del server, per
+percorso nostro (il checkout, le worktree degli agenti) e per BUNDLE nostro, che
+sono DUE: `Topics.app`, il guscio, e `Topics Host.app`, il programma del
+LaunchAgent `com.armonia.topics-server` costruito da questo repo
+(`scripts/build-topics-host.sh`). Il secondo è il PADRE di `start-prod.sh` e
+quindi un ANTENATO del server, mentre la chiusura dei processi nostri scende dai
+figli e non risale: lasciato fuori è una famiglia ALTRUI che porta il nostro
+nome, e con sé si tira ogni servizio XPC di cui macOS lo fa responsabile —
+misurati il 16/09, 28 processi che non sono nostri per niente. Sotto 0,5 GB una
+famiglia NON SHALL essere nominata (nessuno chiude un'app per riavere 400 MB su
+una macchina il cui pavimento è 6 GB) e una lettura più vecchia di 3 minuti NON
+SHALL essere mostrata, perché nominerebbe un'app già chiusa. Le misure hanno UNA
+cifra decimale, la frase è una sola fabbrica per il log e per la card, e la chiave
+dell'attesa resta la prima parola («Memoria»): i nomi non SHALL far riscrivere il
+chip.
 
 Lo swap SHALL dirsi sostenuto ANCHE quando le pagine rilette dal disco sono
 almeno 200 al secondo e il debito NON sta calando. La prima regola si chiude
