@@ -48,7 +48,7 @@ import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-s
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
-import { chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
+import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
@@ -1425,6 +1425,26 @@ let checksGateIsOffLane: ((taskId: string) => boolean) | null = null;
  * waiting on us. `checks_state='running'` covers the run; the gate covers the
  * queue behind another card (one run at a time, minutes each).
  */
+/**
+ * Is this card's delivery parked on our pre-review checks with NOTHING of ours
+ * running for it?
+ *
+ * Two registries answer it, and neither is the card's own row: the checks gate
+ * knows a run is live (running, queued behind another card's lane, or off-lane
+ * on the pull request CI), and the governor's registry knows whether a command
+ * of that run has actually been spawned. Live run + no spawned command = the
+ * round is WAITING - memory floor, release spacing, sustained swap, the gate's
+ * queue, the CI poll - and the restart gate may cut it (`cardTurnsHoldingReload`).
+ *
+ * `checks_state` is deliberately NOT read here, unlike `isChecksHold`: the row
+ * says "running" for the whole round, command included, and a stale row after a
+ * crash would tell the gate to cut a card that is grinding a test suite.
+ */
+function deliveryOnlyWaitsOnChecks(taskId: string): boolean {
+  if (!checksGateIsRunning?.(taskId)) return false;
+  return !freezableRuns().some((run) => run.taskId === taskId);
+}
+
 function isChecksHold(sessionKey: string): boolean {
   const topicPrefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
   if (!topicPrefix) return false;
@@ -5832,10 +5852,12 @@ setTimeout(() => {
 //
 // IL TETTO STA SOPRA LA DURATA DI UN TURNO, NON SOTTO.
 //
-// Un turno d'agente ha gia' un limite suo — `dispatchTimeoutMin`, 20 minuti di
-// default (`tasks.ts`) — oltre il quale e' il dispatcher a chiuderlo. Questo cap
-// serve SOLO contro un turno che ha sfondato anche quello, quindi deve stargli
-// sopra. A cinque minuti stava sotto, e il cancello scritto per non tagliare i
+// Un turno d'agente aveva un limite suo — `dispatchTimeoutMin`, 20 minuti di
+// default (`tasks.ts`) — e questo cap serviva a stargli SOPRA. Quel tetto oggi
+// non taglia piu' niente (server.ts:1094, «reporting only, no cut»), quindi il
+// numero qui sotto non e' piu' «sopra il limite del turno»: e' solo la soglia
+// oltre cui un'attesa smette di essere muta.
+// A cinque minuti stava sotto, e il cancello scritto per non tagliare i
 // turni li tagliava quasi sempre: misurato il 19/08, salvato un file di
 // `server/` con quattro agenti `working`, cinque minuti dopo tutti e quattro
 // «Il server e' ripartito mentre l'agent lavorava: task rimesso in coda».
@@ -5945,11 +5967,24 @@ let askProbeCache: { at: number; parked: string[] } = { at: 0, parked: [] };
 async function whatIsStillWorking(): Promise<{ busy: string | null; cards: number; unadoptable: number; parkedAsks: number; chats: number; holder: string | null; holderKind: "turn" | "question" }> {
   // A land in flight is a card turn for this purpose: it rewrites main and
   // the card, and a restart in the middle of it forgets the delivery branch.
-  const cards = taskDispatcher.busyCount() + landingQueue.inFlight();
+  //
+  // A card turn PARKED ON OUR OWN CHECKS, with no command of ours running, is
+  // not in this count: see `cardTurnsHoldingReload` for the 2026-09-15 wait it
+  // closes. Its delivery is remembered and re-issued after the boot, so cutting
+  // it loses nothing — while deferring for it froze the whole board.
+  const { holding: cardTurns, waiting: cardsWaitingOnChecks } =
+    cardTurnsHoldingReload(taskDispatcher.busyTurns(), deliveryOnlyWaitsOnChecks);
+  const cards = cardTurns.length + landingQueue.inFlight();
+  // Those cards' own streams go with them. A card turn streams through
+  // /api/chat, so its session is a stream key too, and left in it would hold
+  // the restart a second time - as a chat on the native runtime, which is
+  // unadoptable, which defers from the first loop.
+  const waitingKeys = new Set(cardsWaitingOnChecks.map((t) => t.sessionKey).filter((k) => k !== ""));
   // NON LE CHIAVI DEL REGISTRO: quelle il cui TURNO e' ancora aperto. Una voce
   // rimasta dietro a un turno gia' finalizzato trattiene un riavvio per
   // nessuno, e nessuno puo' nemmeno sbloccarlo (vedi `turnAlreadyFinished`).
-  const liveStreams = unfinishedStreams(activeStreams.values(), turnAlreadyFinished);
+  const liveStreams = unfinishedStreams(activeStreams.values(), turnAlreadyFinished)
+    .filter((s) => !waitingKeys.has(s.sessionKey));
   const streamKeys = liveStreams.map((s) => s.sessionKey);
   // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
   // economica ha già detto «occupato», la risposta non cambia.
@@ -5961,6 +5996,9 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
     }
     brokerOpen = brokerProbeCache.open;
   }
+  // Same reason as the streams above: a card whose turn lives in a broker child
+  // must not come back as a chat once its delivery has stopped holding.
+  brokerOpen = brokerOpen.filter((key) => !waitingKeys.has(key));
   // QUALI DI QUESTE CHAT NON TORNANO PIÙ, se le tagliamo adesso.
   //
   // L'attesa corta riservata alle chat vale una promessa: «la reload-resilience
@@ -6193,9 +6231,20 @@ async function runDispatcherQuiescentWait(label: string, capMs = QUIESCENCE_CAP_
       // in cinque secondi appena l'ha saputo. Best-effort: un registro che non
       // scrive non deve fermare l'attesa.
       // QUANDO AVVISARE DIPENDE DA CHI TRATTIENE, e sono due attese diverse.
-      // Un turno di CARD ha gia' un limite suo (`dispatchTimeoutMin`, venti
-      // minuti) oltre il quale e' il dispatcher a chiuderlo: quell'attesa
-      // finisce da sola, e svegliare qualcuno al primo minuto sarebbe rumore.
+      // Un turno di CARD finisce da solo e svegliare qualcuno al primo minuto
+      // sarebbe rumore, quindi la sua soglia resta il tetto lungo.
+      //
+      // QUI C'ERA SCRITTO CHE A CHIUDERLO ERA `dispatchTimeoutMin`, VENTI
+      // MINUTI. Non e' piu' vero da quando quel tetto e' stato declassato a
+      // sola segnalazione (server.ts:1094: «reporting only, no cut»), e non lo
+      // era comunque per il caso che ha prodotto l'attesa del 15/09: un turno
+      // fermo su `update_task` con i check nostri in coda non ha nessun
+      // orologio addosso — `isChecksHold` spegne anche il giudice di stallo.
+      // Il limite vero e' ora dall'altra parte: un turno di card che trattiene
+      // e' un turno con un COMANDO nostro in corso (gli altri non trattengono
+      // piu', vedi `cardTurnsHoldingReload`), e quel comando ha il tetto di
+      // `runReviewChecks`. Oltre il tetto lungo si chiama comunque una persona,
+      // perche' un'attesa senza fine puo' essere accettabile ma MUTA no.
       // Una CHAT no: il turno nativo non ha nessun limite superiore, e a
       // finirlo puo' essere solo una persona - che al minuto sessanta e' gia'
       // l'unica cosa che puo' succedere, perche' e' li' che il cancello ha
