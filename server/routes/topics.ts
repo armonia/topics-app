@@ -17,6 +17,7 @@ import { createChatRouter } from "./chat";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
+import { createOutboundRouter } from "./outbound";
 import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
@@ -857,6 +858,9 @@ export function createTopicsRouter(
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
   // Il canale umano non chiede niente a questa closure: solo ctx.
   const permissionRouter = createPermissionRouter(ctx);
+  // The two doors that leave the machine (mail and Google): same treatment as
+  // the human channel, because the confirmation they impose IS that channel.
+  const outboundRouter = createOutboundRouter(ctx);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
@@ -1993,6 +1997,14 @@ export function createTopicsRouter(
     {
       const permResp = await permissionRouter(req, url, pathname, method);
       if (permResp) return permResp;
+    }
+
+    // Mail and Google: the human confirmation, the account roster and the trace
+    // on the card all live in server/routes/outbound.ts. Mounted after the human
+    // channel because that is the channel it asks through.
+    {
+      const outResp = await outboundRouter(req, url, pathname, method);
+      if (outResp) return outResp;
     }
 
     // POST /api/sessions/:sessionKey/{switch-topic,new-topic,create-project,open-project}

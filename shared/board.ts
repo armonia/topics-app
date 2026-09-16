@@ -268,6 +268,23 @@ export const CODE_GATES_RULE = [
 // end-allow-emdash
 
 /**
+ * THE TWO ACTIONS THAT LEAVE THE MACHINE, and how they are asked for.
+ *
+ * A dispatched agent reads ONLY the envelope: no CLAUDE.md, no docs/. So two
+ * tools that are not named here do not exist for it, and it will hand a draft
+ * email back to the person in a comment because it does not know it could send
+ * it.
+ *
+ * The line also says the thing a model would get wrong on its own: the
+ * confirmation is NOT a step it performs (ask in the thread, wait for a
+ * comment, then send). The SERVER stops and opens the question, one per
+ * message. An agent that "asks first" by itself makes the person answer twice,
+ * and the second wait is the real one.
+ */
+export const OUTBOUND_TOOLS_RULE =
+  "MAIL AND GOOGLE ARE TOOLS, and the confirmation is NOT yours to run. `send_mail(to, subject, body, account?, attachments?)` sends from one of the mailboxes this installation declares; `google_call(service, resource, method, params?, body?)` reads and writes Drive, Calendar, Sheets, Docs, Tasks, People and Gmail through one door. Call them with the FINAL text: the server opens the confirmation itself, in this card's thread, and nothing is spawned until a person answers, ONE answer per message (a yes never covers the next one). So do not ask in the thread first and do not wait for a comment before calling: that makes the person answer twice. Google reads run with no question; anything that writes asks. Every send and every write leaves a one-line trace on the card, without the body. Attachments must be paths inside your workspace.";
+
+/**
  * Il bump di versione è UN GESTO, non quattro modifiche a mano.
  *
  * Misurato nella notte dell'11-12/08: due card diverse (`d18b2db5`, `b1f4d6ff`)

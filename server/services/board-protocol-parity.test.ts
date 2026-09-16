@@ -52,6 +52,16 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     expect(numerate).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
+  test("posta e Google: il documento e l'envelope dicono la stessa cosa, e la stringa e' UNA", () => {
+    // Rule 5-bis speaks to the agent, so it must be in both. And as with the
+    // preview rule, the envelope does not REWRITE it: it imports it from
+    // `shared/board.ts`, because two copies of a rule become two rules the
+    // moment somebody edits one.
+    expect(doc).toContain("Posta e Google sono STRUMENTI");
+    expect(board).toContain("MAIL AND GOOGLE ARE TOOLS");
+    expect(dispatcher).toContain("${OUTBOUND_TOOLS_RULE}");
+  });
+
   test("both say the e2e of a delivery runs on the pull request CI, never here", () => {
     expect(doc).toContain("`github-ci:e2e`");
     expect(dispatcher).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");

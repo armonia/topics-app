@@ -32,6 +32,7 @@ import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/boa
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
+import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -513,6 +514,7 @@ const TOOLS = [
     },
     annotations: MODIFICA,
   },
+  ...OUTBOUND_TOOLS,
   {
     name: "ask_user_question",
     description:
@@ -1163,7 +1165,7 @@ const REQUEST_TIMEOUT_MS = 45_000;
  */
 const SPAWN_WORKTREE_TIMEOUT_MS = 240_000;
 
-async function httpJson<T>(
+export async function httpJson<T>(
   args: ParsedArgs,
   method: string,
   path: string,
@@ -2600,6 +2602,18 @@ export const TOOL_HANDLERS: Record<
     }),
   comment_task: (a, t) => callCommentTask(a, t),
   label_task: (a, t) => callLabelTask(a, t),
+  send_mail: (a, t, ctx) =>
+    callSendMail(a, t, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "in attesa della conferma dell'umano")
+        : undefined,
+    }),
+  google_call: (a, t, ctx) =>
+    callGoogleCall(a, t, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "in attesa della conferma dell'umano")
+        : undefined,
+    }),
   ask_user_question: (a, t, ctx) =>
     callAskUserQuestion(a, t as { questions?: unknown }, fetch, {
       onProgress: ctx?.onProgress

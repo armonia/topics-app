@@ -603,6 +603,8 @@ describe("handleMessage", () => {
       "wait_for_condition",
       "label_task",
       "comment_task",
+      "send_mail",
+      "google_call",
       "ask_user_question",
       // Il canale di permesso: pubblicato sempre. Lo designa
       // `--permission-prompt-tool`, e la CLI lo toglie da sé dall'elenco che
@@ -690,6 +692,9 @@ describe("handleMessage", () => {
       "move_session_to_project", "spawn_agent", "send_to_agent", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
       "send_chat_message",
+      // They leave the machine: a mail is sent, a Google write changes
+      // somebody's calendar. Both also declare `openWorldHint`.
+      "send_mail", "google_call",
     ].sort();
 
     const resp = await handleMessage({ jsonrpc: "2.0", id: 9, method: "tools/list" }, ARGS);

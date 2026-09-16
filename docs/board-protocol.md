@@ -232,6 +232,35 @@ queste regole.
    scrivono MAI in chiaro (thread, file, commit): se ne servono, ci si ferma e si
    chiede.
 
+5-bis. **Posta e Google sono STRUMENTI, e la conferma la impone il server.**
+   `send_mail(to, subject, body, account?, attachments?)` manda da una delle
+   caselle che questa installazione dichiara; `google_call(service, resource,
+   method, params?, body?)` legge e scrive Drive, Calendario, Fogli, Documenti,
+   Attivita', Contatti e Gmail da una porta sola sopra la CLI `gws`. Il testo
+   della regola nell'envelope e' `OUTBOUND_TOOLS_RULE` in `shared/board.ts`: e'
+   quella stringa che legge l'agente, non questo paragrafo.
+
+   - **La conferma non e' un passo dell'agente.** Prima di ogni invio e di ogni
+     scrittura il SERVER apre la domanda (commento con risposte rapide nel
+     thread della card; pannello sulla riga dello strumento in una chat) e non
+     spawna niente finche' non arriva la risposta. Un agente che «chiede prima»
+     per conto suo nel thread fa aspettare la persona due volte.
+   - **Un si' vale per QUEL messaggio.** La domanda porta un digest del
+     contenuto: una risposta che non lo porta non e' un consenso, e nessuna
+     regola di «consenti sempre» puo' coprire un invio. E' anche il motivo per
+     cui non passa dal canale dei permessi, che e' fatto apposta per poter
+     smettere di chiedere.
+   - **Le letture Google non chiedono niente**, le scritture si', e un metodo
+     che il server non sa classificare conta come scrittura.
+   - **Ogni azione riuscita, rifiutata o fallita lascia una riga sulla card**:
+     chi, cosa, a chi, esito. Mai il corpo del messaggio.
+   - **La configurazione sta solo nell'ambiente** (`~/.topics-server-env`,
+     sorgiato da `scripts/start-prod.sh`): `TOPICS_MAIL_*` e `TOPICS_GOOGLE_*`.
+     Nel repo, che e' pubblico, non c'e' un indirizzo ne' un nome di account; la
+     casella Exchange si riconosce per indirizzo (`TOPICS_MAIL_EDM_FROM`) e usa
+     la CLI sua. Una variabile mancante e' un errore che la nomina, mai un
+     ripiego su un'altra casella.
+
 6. **Approve = SOLO accettare il task** (review → done, sblocca i dipendenti). Non
    fa più merge/build/reap "da sotto": il landing è un passo ESPLICITO e separato
    (scorporato 2026-07-19). Le azioni sono tre, ognuna un click umano deliberato:
