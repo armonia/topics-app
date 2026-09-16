@@ -64,7 +64,7 @@ describe('la porta di una chat-pane', () => {
   });
 
   it('smontata la chat, la porta non resta aperta dietro di lei', () => {
-    let presence = PARKED_WINDOW;
+    const presence = PARKED_WINDOW;
     const harness = mount(createElement(probe(() => presence)));
     expect(takesLink()).toBe(true);
     harness.unmount();
