@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.2.335",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "senza la pulizia del layout salvato il giro phone non trova la voce Board",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La coda del terminale scade AL limite, e l'avviso dice quale delle tre perdite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.334",
     "date": "2026-09-16",
     "sections": {
@@ -147,6 +179,12 @@
           "scope": null
         },
         {
+          "it": "reset persisted project panes before task-model-labels runs",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
           "it": "Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio",
           "en": "",
           "scope": null
@@ -253,6 +291,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Input queue: a partial loss is worse than none, so a loss takes the whole queue",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Take the wheel back on both shells, and stop trusting one testid",
           "en": "",
@@ -476,6 +519,11 @@
           "scope": null
         },
         {
+          "it": "Terminal input is queued until the reattach is proven",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso",
           "en": "",
           "scope": null
@@ -535,6 +583,12 @@
           "it": "Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "stabilize task-model-labels add-menu click under load",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
         }
       ]
     }
