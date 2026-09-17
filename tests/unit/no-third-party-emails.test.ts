@@ -66,7 +66,9 @@ function personalAddresses(rel: string): string[] {
     // non ci finisce a mano, e leggerli tutti costerebbe la passata.
     if (statSync(abs).size > 2 * 1024 * 1024) return [];
     const testo = readFileSync(abs, "utf8");
-    const trovati = testo.match(EMAIL) ?? [];
+    // The empty side needs its type: `RegExpMatchArray | never[]` makes the
+    // filter's parameter `string & never`, and `typecheck:e2e` fails on main.
+    const trovati: string[] = testo.match(EMAIL) ?? [];
     return [...new Set(trovati.filter((a) => PERSONAL_MAIL.some((d) => a.toLowerCase().endsWith("@" + d))))];
   } catch {
     return []; // binario o illeggibile: non e' un file che scrive un umano
@@ -109,7 +111,7 @@ describe("nessun indirizzo personale nei file tracciati", () => {
     // nessun indirizzo da prendere.
     const personale = ["mario.rossi", "gmail.com"].join("@");
     const prova = `scrivi a ${personale} oppure a security@armonia.io o admin@example.com`;
-    const trovati = (prova.match(EMAIL) ?? []).filter((a) =>
+    const trovati = ((prova.match(EMAIL) ?? []) as string[]).filter((a) =>
       PERSONAL_MAIL.some((d) => a.toLowerCase().endsWith("@" + d)),
     );
     expect(trovati.length, "il dominio personale deve essere l'unico preso").toBe(1);
