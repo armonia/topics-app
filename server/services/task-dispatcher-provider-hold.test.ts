@@ -76,9 +76,15 @@ function limit(kind: "hold" | "threshold") {
 function codexLimit() {
   setProviderHold({ untilMs: Date.now() + 3_600_000, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" });
 }
-function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> = {}) {
-  const db = freshDb();
-  const svc = createTaskService(db);
+/**
+ * `shared` is what a RESTART looks like from here: the same database and the
+ * same service clock, a brand new dispatcher whose in-memory sets are empty.
+ * Without it every "boot" would also be a fresh thread, which is precisely the
+ * state that hides a note rewritten once per process.
+ */
+function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> = {}, shared?: { db: Database; now: () => string }) {
+  const db = shared?.db ?? freshDb();
+  const svc = createTaskService(db, shared ? { now: shared.now } : {});
   const attempts = createTaskAttemptStore(db);
   const snapshot: ProvidersSnapshot = {
     defaultProvider, generatedAt: new Date().toISOString(),
@@ -108,7 +114,7 @@ function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> 
     ...overrides,
   };
   const dispatcher = createTaskDispatcher(deps);
-  cleanups.push(() => { dispatcher.shutdown(); db.close(); });
+  cleanups.push(() => { dispatcher.shutdown(); if (!shared) db.close(); });
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
   svc.setGlobalCap({ auto: false, max: 5 });
   function task(id: string, model?: string, provider?: string) {
@@ -246,6 +252,58 @@ describe("a hold longer than a day", () => {
     await h.dispatcher.tick(PID); await flush();
     expect(said()).toHaveLength(1);
     expect(h.starts).toHaveLength(0);
+  });
+
+  /**
+   * ONE PARAGRAPH PER CARD, ACROSS RESTARTS - the set in the closure cannot do it.
+   *
+   * `planHeldNoted` is born empty at every process, and the only other defence
+   * is the 10-second dedupe window of `addComment`. On this machine a boot is
+   * ~35 minutes from the last one (44 restarts in 25,7 h), and a wall of days
+   * outlives all of them: 7 cards in the queue behind a 6-day Codex wall is
+   * ~300 identical paragraphs a day in the threads, the same pile KANBAN-83 and
+   * the 314 «Memoria quasi finita» comments exist to end. And the sentence is
+   * not even identical: it counts the days left, so it is REWORDED once a day.
+   */
+  test("five boots over three days leave one paragraph on the card, not five", async () => {
+    const db = freshDb();
+    cleanups.push(() => db.close());
+    const clock = { ms: Date.parse("2026-09-17T09:00:00.000Z") };
+    const shared = { db, now: () => new Date(clock.ms).toISOString() };
+    const wall = clock.ms + 6 * 24 * 3_600_000;
+    setProviderHold({ untilMs: wall, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" });
+
+    const first = harness("topics", { now: () => clock.ms }, shared);
+    first.task("held-across-boots", codingModel);
+    const said = () => (first.svc.get("held-across-boots")!.comments ?? [])
+      .filter(c => c.content.includes("piano esaurito"));
+    const boot = () => {
+      const h = harness("topics", { now: () => clock.ms }, shared);
+      return h.dispatcher.tick(PID).then(flush);
+    };
+
+    await first.dispatcher.tick(PID); await flush();
+    expect(said()).toHaveLength(1);
+    const firstRow = said()[0]!.id;
+
+    // Two boots 35 minutes apart - the watcher's own cadence on this machine -
+    // with the sentence unchanged. Not merely one comment: the SAME one. A
+    // delete-and-rewrite would touch `updated_at` every 35 minutes, which is
+    // the column KANBAN-84 already found lying about how idle a card is.
+    clock.ms += 35 * 60_000; await boot();
+    clock.ms += 35 * 60_000; await boot();
+    expect(said()).toHaveLength(1);
+    expect(said()[0]!.id).toBe(firstRow);
+
+    // Two more a day apart: now the sentence itself CHANGES (six days left
+    // becomes five, then four), so the identical-text guard cannot catch it and
+    // the slot has to.
+    clock.ms += 24 * 3_600_000; await boot();
+    clock.ms += 24 * 3_600_000; await boot();
+    expect(said()).toHaveLength(1);
+    // The one left is the CURRENT one: a card that kept the first paragraph
+    // would still promise six days.
+    expect(said()[0]!.content).toContain("fra 4 giorni");
   });
 
   test("a wall of hours stays a wait: the hour alone, and nothing in the thread", async () => {

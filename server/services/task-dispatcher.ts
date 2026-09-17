@@ -1342,7 +1342,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 31be77d3). The approaching-limit early warning stays Claude-only: it
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
-  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string; asksAPerson?: true } | null {
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string; asksAPerson?: true; slot?: string } | null {
     const claudeHold = providerHold();
     const codexHold = providerHold(Date.now(), "codex");
     const window = starting ? planUsage()?.fiveHour : null;
@@ -1385,6 +1385,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (asksAPerson) {
         return {
           untilMs: hold.untilMs, asksAPerson: true,
+          // THE SLOT THIS NOTE OWNS IN THE THREAD, and it has to be a slot
+          // because the sentence CHANGES while the condition does not: the
+          // days left count down, so on a wall of six days the same note reads
+          // differently on each of six days. `once` alone would let one copy
+          // per day through - six paragraphs a card - and the 10 s dedupe
+          // window of `addComment` lets through one per BOOT (35 minutes apart
+          // on this machine: 44 restarts in 25,7 h, 7 cards in the queue, a
+          // Codex wall of 6 days = ~300 identical paragraphs a day, the exact
+          // pile KANBAN-83 exists to end).
+          slot: `${label}: `,
           reason: `${label}: ${hold.reason}. L'attesa arriva al ${endsAt}, fra ${holdDays(hold)} giorni: non e' il reset di una finestra, e' il piano esaurito. ` // allow-italian: task queue reason
             + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason
         };
@@ -1675,6 +1685,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // Same discipline as `spendHeldNoted`, and for the same reason: this wait does
   // not end by itself inside any horizon a person would wait through, so the
   // note is forgotten only when that card's hold really lifts.
+  //
+  // WITHIN THIS PROCESS ONLY, which is why this note also carries a thread slot
+  // (`noteHold`'s `slot`): the wait it describes is measured in DAYS and the
+  // process restarts every 35 minutes on this machine, so the set is empty
+  // again long before the condition is.
   const planHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
@@ -1769,7 +1784,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
    * poll ogni 10s riempirebbe il thread della stessa frase.
    */
-  function noteHold(noted: Set<string>, task: Task, why: string): void {
+  function noteHold(noted: Set<string>, task: Task, why: string, slot?: string): void {
     if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
     if (noted.has(task.id)) return;
     noted.add(task.id);
@@ -1779,9 +1794,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // of the queue, and it changes at every boot and every cap move: 363
       // such notes in twelve hours on 2026-09-04, four on one card, the old
       // ones contradicting the new. The card keeps the current one only.
+      //
+      // THE SET IS NOT THE GUARD ACROSS PROCESSES: it lives in this closure, so
+      // it is born empty at every boot, and on this machine a boot is 35 minutes
+      // away from the last one while the `addComment` dedupe window is 10
+      // seconds. A caller whose wait outlives a restart (the provider wall of
+      // days) passes its own `slot`, and gets both defences: `once` for the
+      // identical text, the slot for the same note reworded by another day.
       deps.svc.addComment({
         taskId: task.id, author: "system", content: why, kind: "service",
-        replaces: why.startsWith("In coda:") ? "In coda:" : undefined,
+        replaces: slot ?? (why.startsWith("In coda:") ? "In coda:" : undefined),
+        once: slot ? true : undefined,
       });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
@@ -4250,7 +4273,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // no reason, so the other order left the card with an empty
         // `dispatch_error` - the queue's own chip blanked by the line that was
         // meant to explain it.
-        if (wait.asksAPerson) noteHold(planHeldNoted, t, wait.reason);
+        if (wait.asksAPerson) noteHold(planHeldNoted, t, wait.reason, wait.slot);
         markPlanWait(t, wait.reason);
         return false;
       })
