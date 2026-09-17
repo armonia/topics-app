@@ -50,13 +50,49 @@ export function isForbiddenEndpointIpv4(ip: string): boolean {
   );
 }
 
+/**
+ * Expand an IPv6 literal into its eight 16-bit groups, or null when it is not
+ * one. Spelling is why this exists: the same address has many, and a guard that
+ * matches on text rather than on value only refuses the spellings it imagined.
+ */
+function ipv6Groups(ip: string): number[] | null {
+  // A trailing dotted quad is legal IPv6 syntax (`::ffff:1.2.3.4`). Fold it
+  // into two groups first, so the rest of the parser sees one shape only.
+  let text = ip;
+  const dotted = text.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const quad = ipv4ToInt(dotted[2]!);
+    if (quad === null) return null;
+    text = `${dotted[1]}${(quad >>> 16).toString(16)}:${(quad & 0xffff).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] =>
+    part === "" ? [] : part.split(":").map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN));
+  const head = parse(halves[0]!);
+  const tail = halves.length === 2 ? parse(halves[1]!) : [];
+  if ([...head, ...tail].some((g) => Number.isNaN(g))) return null;
+  const gap = 8 - head.length - tail.length;
+  if (halves.length === 2 ? gap < 1 : gap !== 0) return null;
+  return [...head, ...new Array<number>(halves.length === 2 ? gap : 0).fill(0), ...tail];
+}
+
 export function isForbiddenEndpointIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (lower === "::") return true;
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isForbiddenEndpointIpv4(mapped[1]);
-  if (/^fe[89ab]/.test(lower)) return true; // fe80::/10 link-local
-  if (/^ff/.test(lower)) return true;       // multicast
+  const parts = ipv6Groups(ip.toLowerCase().replace(/^\[|\]$/g, ""));
+  if (parts === null) return true; // unparseable, so unusable
+  if (parts.every((group) => group === 0)) return true; // the unspecified address
+  // An IPv4-MAPPED address dials the IPv4 host, so it has to answer to the IPv4
+  // rules. It cannot be recognised by its dotted spelling: `new URL()` folds
+  // `[::ffff:169.254.169.254]` down to `[::ffff:a9fe:a9fe]` before this function
+  // is ever called, so a check written against the dotted form never fires on
+  // the one path that matters and the metadata address walks straight through.
+  if (parts.slice(0, 5).every((group) => group === 0) && parts[5] === 0xffff) {
+    const high = parts[6]!;
+    const low = parts[7]!;
+    return isForbiddenEndpointIpv4([high >> 8, high & 0xff, low >> 8, low & 0xff].join("."));
+  }
+  if ((parts[0]! & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((parts[0]! & 0xff00) === 0xff00) return true; // multicast
   return false;
 }
 
@@ -128,14 +164,29 @@ export async function fetchCheckedEndpoint(
   doFetch: typeof fetch = fetch,
 ): Promise<Response> {
   let target = raw;
+  let carried = init;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const verdict = await checkEndpointUrl(target, resolver);
     if (!verdict.ok) throw new EndpointUrlError(verdict.error);
-    const response = await doFetch(verdict.url.toString(), { ...init, redirect: "manual" });
+    const response = await doFetch(verdict.url.toString(), { ...carried, redirect: "manual" });
     if (response.status < 300 || response.status >= 400) return response;
     const location = response.headers.get("location");
     if (!location) return response;
-    target = new URL(location, verdict.url).toString();
+    const next = new URL(location, verdict.url);
+    // The guard clears a hop's ADDRESS; it does not vouch for who answers
+    // there, and most of the internet is an address it allows. So credentials
+    // stop at the origin they were meant for: otherwise one `302` is all an
+    // endpoint needs to hand a user's bearer token to a host of its choosing.
+    if (next.origin !== verdict.url.origin) carried = withoutCredentials(carried);
+    target = next.toString();
   }
   throw new EndpointUrlError("The endpoint redirected too many times.");
+}
+
+/** The same request with nothing on it that authenticates the caller. */
+function withoutCredentials(init: RequestInit): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.delete("authorization");
+  headers.delete("cookie");
+  return { ...init, headers };
 }
