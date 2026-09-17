@@ -21,6 +21,10 @@
  *  8. A card whose checks only wait on the pull request CI reserves no memory.
  *  9. A tick parked on the delivery probe does not start a second card after
  *     another board's tick started one in the gap.
+ * 10. The memory floor's derogation for the first card (E1-E5), in COUNT mode
+ *     where the floor is the only memory brake: what counts as "our work" (a
+ *     card waiting on GitHub's CI counts), what the log says happened, and
+ *     where the verdict declares it. The disk never gets one.
  * @covers KANBAN-75
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
@@ -423,9 +427,15 @@ describe("the memory window on the floor and on the budget axis", () => {
    * times, seven cards still for 45-51 hours, every sample `inFlight=0
    * checkRuns=0` - a queue that never restarts, not a queue that waits.
    */
-  it("E1: under the floor with no work of ours ONE card starts; a check run alone holds it", async () => {
+  it("E1, COUNT MODE: under the floor with no work of ours ONE card starts; a check run alone holds it", async () => {
+    // COUNT MODE ON PURPOSE, and the mode is the whole point of the case. In
+    // resources mode the budget axis blocks this same machine by itself - at
+    // `availableMemGB` 4.8, share 0.8 and one turn running its free quota is
+    // 3.84 GB against a price of 4 - so a card held there proves nothing about
+    // the floor. Here the floor is the ONLY memory brake (the count cap is 4,
+    // and three todos never reach it), so every number below is the floor's.
     let checks = 1;
-    const w = windowHarness("resources", { checksRunning: () => checks });
+    const w = windowHarness("count", { checksRunning: () => checks });
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e1-${i}`);
     // A full window well under the 6 GB native floor, with a shard of ours running.
     await w.beats(repeat(4.8, 14));
@@ -438,6 +448,57 @@ describe("the memory window on the floor and on the budget axis", () => {
     // And exactly one: that card is now our work, so the floor is full again.
     await w.beats(repeat(4.8, 20));
     expect(w.h.startedAt).toHaveLength(1);
+  });
+
+  it("E3, COUNT MODE: a card waiting on the pull request CI is an agent in flight, and nothing starts behind it", async () => {
+    // THE STATE THIS REOPENS THE 10/09 INCIDENT FROM, and it is the normal state
+    // of a delivery: `routes/tasks.ts` releases the lane the moment the local
+    // checks pass, so a card spends about fifteen minutes with its checks
+    // off-lane while GitHub measures (KANBAN-85). The agent is alive and
+    // resident the whole time. Deciding the exemption on the reservation - which
+    // subtracts exactly those cards - counted it zero and re-armed the
+    // derogation on every 10 s tick: one off-lane card plus two todos started 2,
+    // and with a cap of 5 it started 5.
+    const offLane = new Set<string>();
+    const w = windowHarness("count", { checksOffLane: (id) => offLane.has(id) });
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e3-${i}`);
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(1);
+    // The first card hands its branch over: from here on its checks are GitHub's.
+    for (let i = 0; i < 3; i++) offLane.add(`e3-${i}`);
+    await w.beats(repeat(4.8, 30));
+    expect(w.h.startedAt).toHaveLength(1);
+  });
+
+  it("E4: the log says the queue moved BY DEROGATION, and says it once", async () => {
+    // The line the board's history is read from: the 16/09 audit dated "the
+    // queue restarted at 23:38" from it, while `held2m` was 4.8 GB against a
+    // floor of 6. And ONCE: the floor is read twice in a tick that starts a card
+    // (here, and again as `midPassFloor`), which used to print the restart line
+    // twice in forty seconds.
+    const w = windowHarness("count");
+    seedTodo(w.h.db, "e4-0");
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.h.lines("per deroga")).toHaveLength(1);
+    expect(w.h.lines("le risorse sono rientrate sopra il pavimento")).toHaveLength(0);
+  });
+
+  it("E5: the derogation is declared where the budget declares its own", async () => {
+    // KANBAN-75 asks for it "as the budget declares it", which is
+    // `DispatchAdmission.firstAgentExempt` - the field the client paints amber
+    // (`board.dispatch.verdictFirst`). No card in the queue, so the machine
+    // stays idle and under the floor while the panel asks.
+    const w = windowHarness("count");
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null, firstAgentExempt: true });
+    // And in resources mode it is an OR with the budget's, not the budget's
+    // alone: here the budget has 30 GB to look at and would answer plain green
+    // over a card that only got past the floor by derogation.
+    const r = windowHarness("resources");
+    r.h.machine.sample = () => ({ ...QUIET, availableMemGB: 30, running: 0 });
+    await r.beats(repeat(4.8, 14));
+    expect(r.h.dispatcher.admissionPreview?.()).toMatchObject({ admit: true, blockedBy: null, firstAgentExempt: true });
   });
 
   it("E2: a full disk has no exemption - nothing starts even with the machine idle", async () => {

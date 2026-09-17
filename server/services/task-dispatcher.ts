@@ -163,7 +163,7 @@ export interface DispatcherDeps {
    *
    * `hold` is what the reading cannot see, as separate facts: the price of one
    * card, the memory kept for the local turns in flight, and whether any of our
-   * work is on the machine (see `floorReason`).
+   * work is on the machine (see `floorVerdict`).
    *
    * A VERDICT and not a sentence: which floor spoke keys the wait (the 120 s
    * warm-up and the real floor share their first word), and the memory floor
@@ -1081,19 +1081,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * comunque. Da quando il tetto si può togliere, senza questo la coda si
    * fermerebbe solo a disco pieno — cioè quando il DB non scrive più.
    */
-  /** L'ultimo motivo di blocco già annunciato, per non ripeterlo a ogni tick. */
-  let lastAdmissionBlock: ResourceFloorKind | null = null;
+  /** L'ultimo esito del pavimento già annunciato, per non ripeterlo a ogni tick.
+   *  `"exempt"` is a state of its own and not the absence of one: the reading is
+   *  still under the line, and saying "le risorse sono rientrate" there is a lie
+   *  on the one line the board's history is read from. */
+  let lastAdmissionBlock: ResourceFloorKind | "exempt" | null = null;
   /** What one more agent is priced at in memory: the same price list the budget reads. */
   function agentMemPrice(): number {
     return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
   }
-  /** Launch instants of the LOCAL turns in flight: a run riding on a node holds
-   *  nothing on this machine, the same filter `busyCount` applies. */
+  /** Launch instants of the LOCAL turns in flight whose memory is still ours to
+   *  reserve: a run riding on a node holds nothing on this machine (the same
+   *  filter `busyCount` applies), and a card parked on the pull request CI is
+   *  charged nothing (KANBAN-76). A PRICE LIST, not a census - `localTurns()`
+   *  is the census, and the two must not be confused. */
   function localLaunches(): number[] {
     const offLane = (taskId: string) => { try { return deps.checksOffLane?.(taskId) ?? false; } catch { return false; } };
     return [...inFlight.entries()]
       .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId))
       .map(([, slot]) => slot.sessionAt);
+  }
+  /**
+   * HOW MANY LOCAL TURNS ARE ALIVE ON THIS MACHINE - the census, byte-identical
+   * to what `busyCount()` answers and to the `running` the budget axis reads in
+   * its sample.
+   *
+   * NOT `localLaunches().length`. That one also subtracts every card whose
+   * checks are off-lane, which is every card waiting on GitHub's CI - the
+   * NORMAL state of a delivery for about fifteen minutes, since
+   * `server/routes/tasks.ts` releases the lane the moment the local checks pass
+   * (KANBAN-85). That agent is alive and resident; counting it zero re-arms the
+   * memory floor's exemption on every 10 s tick, which is the 10/09 incident
+   * again at the speed of a delivery cycle. Measured against this dispatcher
+   * with `held2m` at 4.8 GB: one off-lane card plus two todos started 2 cards,
+   * count mode with a cap of 5 started 5, resources mode with `held2m` at
+   * 5.5 GB and six todos drained the whole queue. The exemption is for a
+   * machine with NONE of our work on it - one card, once.
+   */
+  function localTurns(): number {
+    return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).length;
   }
   /**
    * THE FLOOR, read with what the reading cannot see, and without saying it
@@ -1120,32 +1146,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const resources = inResourcesMode();
     const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
     // `ourWorkRunning` is the SAME "zero" the budget axis counts for
-    // `firstAgentExempt`: local turns plus pre-review check runs. A run riding
-    // on a node holds nothing on this machine, and a board behind an 11 GB
-    // shard is not a board that never starts.
+    // `firstAgentExempt`: `sample.running` (= `busyCount()`) plus pre-review
+    // check runs. A run riding on a node holds nothing on this machine, and a
+    // board behind an 11 GB shard is not a board that never starts - but a card
+    // waiting on the pull request CI IS an agent alive on this Mac, so it is
+    // counted by `localTurns()` and not by the reservation's `launches`.
     return deps.resourceBlock?.({
       cardGB: price,
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length,
-      ourWorkRunning: launches.length + Math.max(0, checks) > 0,
+      ourWorkRunning: localTurns() + Math.max(0, checks) > 0,
     }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
-  function floorReason(): string | null {
-    return floorVerdict().reason;
-  }
-  /** The memory floor stood down for the first card: said once per episode, the
-   *  way the budget axis says its own (`firstAgentExemptNoted`). */
-  let memoryFloorExemptNoted = false;
   function admissionVerdictNow(): ResourceFloorVerdict {
     try {
       const verdict = floorVerdict();
       const reason = verdict.reason;
-      if (verdict.memoryFirstCardExempt) {
-        if (!memoryFloorExemptNoted) log("pavimento memoria sotto la riga ma nessun lavoro di Topics in volo: la prima card parte comunque");
-        memoryFloorExemptNoted = true;
-      } else {
-        memoryFloorExemptNoted = false;
-      }
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
       // del server» — solo che nel log non ci finiva niente: il messaggio
@@ -1171,10 +1187,25 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // exists to stop. But the first word also merged the 120 s warm-up with
       // the real floor, and the warm-up is guaranteed at every boot: it got
       // there first and this log never printed the floor's sentence either.
-      const kind = verdict.kind;
-      if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
-      else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
-      lastAdmissionBlock = kind;
+      //
+      // THE EXEMPTION IS ONE OF THE STATES, not a line printed beside them, and
+      // that is what makes this log honest and quiet at the same time.
+      //  - Honest: with the derogation the reading is STILL under the line
+      //    (4.8 GB against 6), so "le risorse sono rientrate sopra il pavimento"
+      //    was false, and it is precisely the line the board's history gets read
+      //    on - the 16/09 audit dated "the queue restarted at 23:38" from it.
+      //  - Quiet: the state changes, not the call, so the two reads of the same
+      //    tick (this one at the top and `midPassFloor` after a start) print one
+      //    line between them. They used to print two in forty seconds, because
+      //    an exempt read and a blocked read alternated through `null`.
+      const state: ResourceFloorKind | "exempt" | null =
+        verdict.kind ?? (verdict.memoryFirstCardExempt ? "exempt" : null);
+      if (state !== lastAdmissionBlock) {
+        if (state === "exempt") log("pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: passa UNA card per deroga, e il pavimento torna pieno appena è partita");
+        else if (state) log(`coda ferma — ${reason}`);
+        else if (lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
+      }
+      lastAdmissionBlock = state;
       return verdict;
     } catch { return { reason: null, kind: null, memoryFirstCardExempt: false }; }
   }
@@ -1269,8 +1300,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * card said "the machine has no room". The floor holds in count mode as well,
    * so it is the one verdict a count-mode reading carries.
    *
-   * `floorReason()` and not `admissionBlock()`: that one logs the episode and
+   * `floorVerdict()` and not `admissionBlock()`: that one logs the episode and
    * moves its dedup state, and a panel polling every 15 s must not.
+   *
+   * THE FLOOR'S DEROGATION IS DECLARED HERE, in `firstAgentExempt`, because
+   * that is where the budget axis declares its own and the client already
+   * paints it amber (`board.dispatch.verdictFirst`, `dispatchLoad.ts`). The
+   * whole verdict and not just its sentence: reading the sentence alone drew
+   * NOTHING at all in count mode - where the floor is the only memory brake -
+   * and in resources mode drew the BUDGET's green over a card that got through
+   * only by derogation, which is a green on a machine still under the line.
    */
   function admissionPreview(): DispatchAdmission | null {
     try {
@@ -1278,17 +1317,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0, reason });
       const drain = drainBlock();
       if (drain) return held("drain", drain);
-      const floor = (() => { try { return floorReason(); } catch { return null; } })();
-      if (floor) return held("floor", floor);
+      const floor = (() => { try { return floorVerdict(); } catch { return null; } })();
+      if (floor?.reason) return held("floor", floor.reason);
+      // A pass owed to the derogation, shaped like the budget's: no axis holds,
+      // and the amber says the machine is not actually calm.
+      const exempt = floor?.memoryFirstCardExempt ?? false;
+      const exemptPass: DispatchAdmission | null = exempt
+        ? { admit: true, blockedBy: null, firstAgentExempt: true, costCoreUnits: 0 }
+        : null;
       const gcap = deps.svc.getGlobalCap();
-      if (capMode(gcap) !== "resources") return null;
+      if (capMode(gcap) !== "resources") return exemptPass;
       const computed = budgetVerdict(gcap);
-      if (!computed) return null;
+      if (!computed) return exemptPass;
       const { verdict: v, mem } = computed;
       return {
         admit: v.admit,
         blockedBy: v.blockedBy,
-        firstAgentExempt: v.firstAgentExempt,
+        // OR, not the budget's alone: the budget can admit on its own quota
+        // while the only reason this card reached it is the floor standing
+        // down, and a green there says the opposite of what happened.
+        firstAgentExempt: v.firstAgentExempt || exempt,
         costCoreUnits: v.costCoreUnits,
         usedCoreUnits: v.usedCoreUnits,
         usableCoreUnits: v.usableCoreUnits,
@@ -5529,8 +5577,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // running on a node costs no process, no worktree and no CPU here, and the
     // cap exists to protect exactly those. `running` in
     // GET /api/system/dispatch-capacity reads this number, so both sides of the
-    // requirement come from one predicate.
-    busyCount: () => [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).length,
+    // requirement come from one predicate - the same `localTurns()` the memory
+    // floor reads, so "our work is on the machine" and "running" cannot drift
+    // apart into two different counts of the same agents.
+    busyCount: localTurns,
     // ...but `busyIds` stays HONEST about what is in flight: it answers "what
     // is a restart waiting for", and a remote run is something this process is
     // holding a handle on. Hiding it there would make a drain believe the board
