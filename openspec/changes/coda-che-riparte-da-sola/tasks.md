@@ -70,10 +70,26 @@ davvero, non in teoria.
 - [ ] T4.1 Un land che riallinea azzera `checks_commit` e dice che i verdetti CI
       si riferivano al commit misurato, non a quello fuso. (22 land su 32 negli
       ultimi 7 giorni hanno la riga di riallineamento, 18 muti)
+      OSSERVATO IL 17/09 sul land di `c4f53a85`: il land ha creato `596e828dd`
+      («Riporta main nel ramo prima del land») e poi il merge `20a271a11`, mentre
+      `checks_commit` e `delivery_commit` sono rimasti entrambi `71e96ec13f`. La
+      card dichiara quindi «CI verde» su un albero diverso da quello atterrato,
+      alla prima consegna che quella frase l'ha potuta dire.
 - [ ] T4.2 La bozza di PR e il ramo remoto si chiudono dopo il land, il rifiuto
       definitivo e l'archiviazione. (regime atteso: circa 94 card a settimana che
       lascerebbero la bozza aperta; gia' oggi 41 rami `topics/*` su origin, 39
       dentro `main`, nessuno cancellato)
+      OSSERVATO IL 17/09 sul land di `c4f53a85`, e la forma del buco e' piu'
+      stretta di come l'avevo scritta. La bozza #78 si e' chiusa DA SOLA come
+      MERGED alle 00:37:56Z, un minuto dopo il land: il land fonde con
+      `merge --no-ff`, quindi i commit del ramo diventano antenati di main, e
+      appena main viene spinto GitHub marca la PR come fusa. Quindi la PR NON
+      perde quando il land va a buon fine e main viene spinto. Perdono due cose:
+      il RAMO remoto, sempre (dopo questo land i rami `topics/*` gia' dentro main
+      erano 40, nessuno cancellato; l'ho tolto a mano e sono tornati 39), e la
+      bozza quando la card esce da review senza un land — rifiuto definitivo,
+      archiviazione — oppure quando main non viene spinto. Il fix vada su quelle
+      due, non sul caso che si sistema da se'.
 - [ ] T4.3 `isChecksHold` incrocia il registro vivo del cancello invece di fidarsi
       della spia `running` nel DB, che solo un boot spegne. (89 boot hanno trovato
       una spia accesa; 1253 riarmi del giudice di stallo)
