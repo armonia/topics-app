@@ -1073,6 +1073,13 @@ const IT: Dict = {
   'board.task.checks.at': 'alle {t}',
   'board.task.checks.notStarted': 'non è partito',
   'board.task.checks.timedOut': 'oltre il tempo massimo',
+  // NOT MEASURED is the third outcome, not a shade of red: "the code is broken"
+  // and "we do not know" are decided differently. The card's chip already tells
+  // them apart in amber; the drawer painted this one red.
+  'board.task.checks.unknown': 'Checks NON MISURATI',
+  'board.task.checks.notMeasured': 'non misurato',
+  'board.task.checks.ciPr': 'pull request',
+  'board.task.checks.ciRun': 'run della CI',
   // The hint is split in two because the send-back word goes in the middle, in
   // bold. It is the SAME word as the button (`board.action.sendBack`, read
   // through `taskActionWord`): spelling it inside a whole sentence would mean

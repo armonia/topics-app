@@ -397,6 +397,17 @@ c'e' niente da misurare, e il verde di una riga che non ha misurato niente e' la
 bugia che queste righe esistono per non dire. SHALL essere NON MISURATO con quella
 ragione.
 
+NON MISURATO su quel ramo rimanda la consegna all'agente invece di farla entrare
+in review, e questo e' voluto. Pesato il 17/09/2026, quando tre card vere di
+quella notte avevano esattamente questa forma (lavoro gia' dentro `main`, niente
+da landare): da qui dentro quella forma e' indistinguibile da un commit fatto sul
+ramo sbagliato, da una worktree riportata su `main` o da un ramo che un rebase ha
+svuotato, e due verdi sull'unico ingresso in cui NON si e' misurato niente sono
+la bugia che queste righe esistono per non dire. Sbagliata era la ragione: «serve
+un commit nuovo» e' l'unica uscita che un agente puo' prendere, e per una card
+gia' dentro main quel commit non esiste. La ragione SHALL nominare ENTRAMBE le
+uscite, quella di una persona per prima.
+
 Il contratto che fissa i nomi letti nella CI SHALL coprire anche la FORMA dei nomi
 dei job e2e, non solo il nome del passo unit: oggi un secondo asse nella matrice
 rinominerebbe i job e ogni consegna tornerebbe NON MISURATA con la CI verde, senza
@@ -429,7 +440,7 @@ due verdetti opposti sulla stessa card sono peggio di nessuno dei due.
 #### Scenario: nessun commit proprio non e' un verde
 - **GIVEN** una consegna il cui sha non ha commit propri oltre `main`
 - **WHEN** le righe CI vengono valutate
-- **THEN** SHALL essere non misurate, e il referto SHALL dirne la ragione
+- **THEN** SHALL essere non misurate, e il referto SHALL nominare sia l'uscita della persona (lavoro gia' in `main`, card da chiudere) sia quella dell'agente (un commit nuovo)
 
 ### Requirement: KANBAN-86 — Una card non dice «verde» su un commit la cui CI e' rossa
 
@@ -452,12 +463,27 @@ contraddirla. Adesso esiste, e' a due chiamate di distanza, ed e' rossa: guardar
 una fetta e chiamarla verde e' peggio che non averla, perche' la card AFFERMA
 qualcosa che la CI smentisce.
 
-Quando la run che le righe CI hanno letto e' `completed` con conclusione diversa
-da `success`, il giro NON SHALL chiudere con tutte le righe verdi. SHALL
-aggiungere al referto il fatto, nominando il job e il passo che hanno fallito e
-il link alla run, e il verdetto complessivo della card NON SHALL essere `pass`.
-Le singole righe restano quello che sono — il passo unit era verde e dirlo e'
-corretto — ma la CARD non puo' dichiararsi verde su una CI rossa.
+Quando la run che le righe CI hanno letto e' rossa, il giro NON SHALL chiudere
+con tutte le righe verdi. SHALL aggiungere al referto il fatto, nominando il job
+e il passo che hanno fallito e il link alla run, e il verdetto complessivo della
+card NON SHALL essere `pass`. Le singole righe restano quello che sono — il passo
+unit era verde e dirlo e' corretto — ma la CARD non puo' dichiararsi verde su una
+CI rossa.
+
+«ROSSA» SHALL essere letto dai JOB, non solo dalla conclusione della run. La
+chiusura tutta-verde non aspetta la run: scatta appena l'ultima riga dichiarata
+ha un verdetto, e li' `run.conclusion` puo' essere ancora `null`. Sonda del
+17/09/2026 contro la guardia che leggeva solo la run: run `in_progress` con un
+job ancora vivo, `check` GIA' `completed/failure` al passo «Bundle size budget»,
+passo unit verde e quattro shard verdi davano `rows.ok = [true, true]` e
+`ciRunRed = [null, null]`, cioe' la card verde che KANBAN-86 vieta. La variante
+piu' probabile e' la stessa chiusura con tutti i job finiti e la run non ancora
+girata a `completed` fra la chiamata `runs()` e la `jobs()` dello stesso poll:
+sulle 33 run di `ci.yml` misurate quel giorno l'ultimo job e' sempre uno shard
+e2e e `check` finisce da 2,8 a 10,7 minuti prima, quindi oggi quella finestra e'
+di secondi e si allarga appena `check`, o `tauri` con la cache Rust fredda,
+superano gli shard. Quando invece la run E' conclusa, la sua conclusione SHALL
+prevalere: GitHub la calcola su tutti i job.
 
 Questo NON SHALL diventare un sesto cancello che rifa' in locale cio' che la CI
 misura: la lettura e' la stessa gia' fatta, un campo dello stesso oggetto.
@@ -466,6 +492,11 @@ misura: la lettura e' la stessa gia' fatta, un campo dello stesso oggetto.
 - **GIVEN** un commit la cui run ha il passo unit verde, gli shard e2e verdi e il job `check` fallito a un passo successivo
 - **WHEN** il giro chiude
 - **THEN** il verdetto della card NON SHALL essere `pass`, e il referto SHALL nominare il job e il passo falliti con il link alla run
+
+#### Scenario: il job e' gia' rosso e la run non e' ancora conclusa
+- **GIVEN** lo stesso commit, con la run ancora `in_progress`, un job che le righe CI non leggono gia' fallito e gli altri ancora vivi
+- **WHEN** il giro chiude perche' tutte le righe dichiarate hanno un verdetto verde
+- **THEN** il verdetto della card NON SHALL essere `pass`, e il referto SHALL nominare il job e il passo gia' falliti
 
 ### Requirement: KANBAN-89 — La spia «check in corso» la accende il registro vivo, non la riga
 

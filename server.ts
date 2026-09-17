@@ -2571,7 +2571,7 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     resumeHeldDelivery = (taskId) => hooks.settleDelivery(taskId);
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
-  ciEvidence: (input) => awaitCiEvidence(input),
+  ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
   // No new pre-review command starts under the floor the admission uses, into
   // sustained swap, or within 2 minutes of another delivery's release
   // (15/09/2026: 5.9 GB free and 9.9 GB of swap, four commands on one poll).

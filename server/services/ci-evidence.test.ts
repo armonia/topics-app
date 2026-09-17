@@ -1,6 +1,8 @@
 /**
- * The e2e verdict of a delivery comes from the pull request CI of the delivered
- * commit, and nothing but a green e2e run on that commit is a pass.
+ * The readers: what a single answer from GitHub (`runs` + `jobs`) says about the
+ * e2e side and about the unit step, and the contracts that keep those names
+ * pinned to `ci.yml`. The wait loop around them is
+ * `ci-evidence-wait.test.ts`, its verdict `ci-evidence-verdict.test.ts`.
  *
  * @covers KANBAN-15
  */
@@ -32,16 +34,7 @@ import { ChecksInterruptedError } from "./checks-gate";
 import { CHECKS_LEG_MS } from "./checks-gate";
 import { CHECKS_MAX_LEGS } from "../mcp/topics-mcp-server";
 import { ASK_TTL_MS } from "../lib/ask-user-bridge";
-
-const SHA = "a".repeat(40);
-const run = (over: Partial<GithubRun> = {}): GithubRun => ({
-  id: 10, head_sha: SHA, event: "pull_request", path: ".github/workflows/ci.yml",
-  status: "completed", conclusion: "success", html_url: "https://github.com/o/r/actions/runs/10", ...over,
-});
-const job = (name: string, conclusion: string | null, over: Partial<GithubJob> = {}): GithubJob => ({
-  id: name.length * 100 + (conclusion?.length ?? 0), name, status: conclusion ? "completed" : "in_progress", conclusion, ...over,
-});
-const green = [job("prepare-e2e", "success"), job("e2e (1)", "success"), job("e2e (2)", "success"), job("e2e (3)", "success"), job("e2e (4)", "success")];
+import { SHA, checkJob, green, job, run, step } from "./ci-evidence.testkit";
 
 describe("readE2eEvidence", () => {
   test("a green run of another commit, and none of ours, is pending", () => {
@@ -109,13 +102,6 @@ describe("readE2eEvidence", () => {
   });
 });
 
-const step = (name: string, conclusion: string | null) => ({ name, status: conclusion ? "completed" : "in_progress", conclusion });
-const checkJob = (unit: string | null, over: Partial<GithubJob> = {}): GithubJob => ({
-  id: 4242, name: "check", status: "in_progress", conclusion: null,
-  steps: [step("Setup Bun", "success"), step("Typecheck (client + server ratchet + e2e)", "success"), step(UNIT_STEP, unit)],
-  ...over,
-});
-
 describe("readUnitEvidence", () => {
   test("the unit step green on our commit is a pass, even while the rest of the check job runs", () => {
     const out = readUnitEvidence(SHA, [run({ status: "in_progress", conclusion: null })], [checkJob("success"), ...green]);
@@ -144,9 +130,9 @@ describe("readUnitEvidence", () => {
   });
 
   test("a red typecheck step with the unit step green is still a unit pass: the row reads only its step", () => {
-    const job = checkJob("success", { status: "completed", conclusion: "failure" });
-    job.steps![1] = step("Typecheck (client + server ratchet + e2e)", "failure");
-    expect(readUnitEvidence(SHA, [run({ conclusion: "failure" })], [job]).kind).toBe("pass");
+    const one = checkJob("success", { status: "completed", conclusion: "failure" });
+    one.steps![1] = step("Typecheck (client + server ratchet + e2e)", "failure");
+    expect(readUnitEvidence(SHA, [run({ conclusion: "failure" })], [one]).kind).toBe("pass");
   });
 
   test("a skipped or cancelled unit step is not measured, never green", () => {
@@ -158,8 +144,8 @@ describe("readUnitEvidence", () => {
   });
 
   test("a check job that failed before the step is not measured and says so", () => {
-    const job: GithubJob = { id: 4242, name: "check", status: "completed", conclusion: "failure", steps: [step("Setup Bun", "failure")] };
-    const out = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [job]);
+    const died: GithubJob = { id: 4242, name: "check", status: "completed", conclusion: "failure", steps: [step("Setup Bun", "failure")] };
+    const out = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [died]);
     expect(out.kind).toBe("notMeasured");
     if (out.kind === "notMeasured") expect(out.reason).toContain("without running the step");
     const cut = readUnitEvidence(SHA, [run({ conclusion: "failure" })], [checkJob(null, { status: "completed", conclusion: "cancelled" })]);
@@ -199,6 +185,9 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     runs: async () => { calls.runs += 1; return { ok: true, value: [run()] }; },
     jobs: async () => ({ ok: true, value: green }),
     mergeState: async () => { calls.merge += 1; return { ok: true, value: "MERGEABLE" }; },
+    // Nothing in this file asks for a re-run - that is `ci-evidence-wait.test.ts`,
+    // which counts them. Here the port only has to be complete.
+    rerun: async () => ({ ok: true, value: undefined }),
     ...over,
   };
   // Keep the counters when a test overrides a counted method.
@@ -328,14 +317,10 @@ describe("awaitCiEvidence with the e2e row", () => {
     await expect(e2eRow(input, { port, now: clock.now, sleep, stopping: () => stop })).rejects.toBeInstanceOf(ChecksInterruptedError);
   });
 
-  test("no commit beyond main is green with a note, and nothing is pushed or opened", async () => {
-    const { port, calls } = fakePort({ ownCommits: async () => ({ ok: true, value: 0 }) });
-    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
-    expect(row.ok).toBe(true);
-    expect(row.tail).toContain("no commit of its own");
-    expect(calls.push.length).toBe(0);
-    expect(calls.pr).toBe(0);
-  });
+  // The branch with no commit of its own moved to `ci-evidence-verdict.test.ts`
+  // ("is NOT MEASURED, nothing is pushed or opened, and both exits are named")
+  // when it stopped being a green: nothing was measured, and a green that
+  // measured nothing is the lie these two rows exist not to tell.
 
   test("the push carries the measured commit, not HEAD", async () => {
     const { port, calls } = fakePort();
@@ -496,6 +481,26 @@ describe("contracts", () => {
     expect(e2e).toContain("E2E_TIER: pr");
     expect(e2e).toContain("if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}");
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
+  });
+
+  // THE SHAPE OF THE NAMES, not only the name of the step (its twin, below).
+  // `E2E_JOB` reads `e2e (N)`: GitHub spells a one-axis matrix that way and a
+  // two-axis one `e2e (1, chromium)`, which matches nothing — every delivery
+  // would come back NOT MEASURED with the CI green, and no gate would notice.
+  // Not theoretical: the install step of this very job already pulls "Chromium
+  // + WebKit", so a second axis is one line away.
+  test("the e2e matrix still has ONE axis, or the job names this reader matches change", () => {
+    const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
+    const from = ci.search(/^ {2}e2e:$/m);
+    const rest = ci.slice(from + 1);
+    const next = rest.search(/^ {2}[\w-]+:$/m);
+    const e2e = next >= 0 ? rest.slice(0, next) : rest;
+    const matrix = e2e.match(/^ {6}matrix:\n((?: {8}\S.*\n| {10}.*\n|\n)+)/m);
+    expect(matrix).not.toBeNull();
+    const axes = matrix![1]!.split("\n").filter((l) => /^ {8}\S/.test(l)).map((l) => l.trim().split(":")[0]);
+    expect(axes).toEqual(["shard"]);
+    // And the names that axis produces are the ones `E2E_JOB` accepts.
+    expect(e2e).toMatch(/^ {8}shard: \[(\d+(, )?)+\]$/m);
   });
 
   test("ci.yml still runs the unit suite in the step the unit row reads, inside the check job", () => {

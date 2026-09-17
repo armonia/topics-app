@@ -446,7 +446,11 @@ export interface TasksRouterOpts {
    * only after every local command is green and the lane is given back.
    * Absent with a declared CI row = NOT MEASURED, never a pass.
    */
-  ciEvidence?: (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun[]>;
+  ciEvidence?: (input: {
+    cwd: string; sha: string; taskId: string; checks: ReviewCheck[];
+    /** The links of the wait, as soon as they exist: they go on the card. */
+    onCiWait?: (links: { prUrl: string; runUrl?: string }) => void;
+  }) => Promise<CheckRun[]>;
 }
 
 /**
@@ -1199,12 +1203,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (!stream) return;
       const running = ctx.getMessageById(stream.messageId)?.toolCalls?.find((tc) => tc.status === "running");
       if (!running) return;
-      const names = svc.getBoardSettings(projectId).reviewChecks.map((c) => c.name);
+      const declared = svc.getBoardSettings(projectId).reviewChecks;
       const progress = task?.checksProgress ?? null;
       const partialResult = formatChecksWait({
         done: progress ? progress.done : null,
-        total: progress?.total ?? names.length,
-        names,
+        total: progress?.total ?? declared.length,
+        checks: declared,
         elapsedMs: Date.now() - since,
       });
       const message = { type: "stream:tool_update" as const, sessionKey, topicId: topicId ?? undefined, toolCallId: running.id, partialResult };
@@ -1502,8 +1506,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // and the card entered review with no e2e verdict. Only a shutdown
         // passes through, as the interrupted outcome it already has.
         const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+        /* THE WAIT ON GITHUB IS NOT A MUTE WAIT.
+         *
+         * The pull request and its run exist within seconds of the push, and
+         * used to reach the card only inside the tail of the verdict — measured
+         * on run 35158365969, from 22:34:48 to 22:49:48: a quarter of an hour in
+         * which the card said «check 1/2» and nothing that could be opened.
+         * Best-effort like every other lamp of this round: a link that fails to
+         * be written must not be able to stop a delivery. */
+        const onCiWait = (links: { prUrl: string; runUrl?: string }) => {
+          try {
+            const t = svc.recordChecks({
+              taskId, state: "running", commit: ref.commit, runs: null,
+              progress: { done: localChecks.length, total: checks.length }, ci: links,
+            });
+            broadcastToAll({ type: "task:updated", projectId, task: t });
+          } catch { /* a link lost does not stop the gate */ }
+        };
         const ciRuns = ref.commit && opts?.ciEvidence
-          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
+          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait }).catch((err: unknown) => {
             if (err instanceof ChecksInterruptedError) throw err;
             return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
           })
