@@ -222,6 +222,7 @@
     "tests/e2e/sidebar-touch-audit.spec.ts": 891,
     "server/services/worktree-gc.ts": 888,
     "server/providers/native/provider.ts": 869,
+    "server/services/review-checks-brakes.test.ts": 867,
     "client/src/hooks/useCompletionNotifier.tsx": 855,
     "server/routes/topics.control.test.ts": 855,
     "tests/e2e/board-drawer-scroll.spec.ts": 847,

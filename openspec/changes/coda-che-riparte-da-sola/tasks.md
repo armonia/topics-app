@@ -151,9 +151,20 @@ circa 30 di sola attesa**, su una macchina che nel frattempo `[memsig]` chiamava
 `swap=calm`. Il prezzo e' quindi mezz'ora per consegna, non tre ore; con 121
 ingressi in review in 7 giorni resta l'ordine delle decine di ore a settimana.
 
-Un freno che spara sempre la sua valvola non e' un freno, e' un timer. E il freno
-ha gia' la misura giusta accanto a quella sbagliata: il verdetto sullo swap
-misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
+Un freno che spara sempre la sua valvola non e' un freno, e' un timer. La valvola
+pero' e' l'unico pezzo che si puo' toccare: il pavimento e' montato una volta per
+tutto il server, non per board, e la board `dancerooms-intq6i` ha come unico
+check locale una suite unit — l'albero che il freno esiste per non far partire su
+un Mac vuoto. Quindi resta, e quello che cambia e' quanto si aspetta: sotto
+thrash aspettare compra memoria, a Mac calmo la lettura migliora di rado e a
+tratti lunghissimi (`held2m >= 6 GB` nel 15,2% delle 1589 letture con un valore
+in 29,1 ore, con 854 campioni consecutivi — 16,2 ore fra il primo e l'ultimo —
+sotto il pavimento). CORREZIONE: avevo scritto «15,5% di 1553 letture» e «circa
+quattordici ore». La percentuale era contata sulle righe invece che sulle letture
+con un valore, e le quattordici ore erano il conteggio dei campioni convertito a
+un campione al minuto invece della distanza fra i due timestamp. Rimisurato sul
+log intero (`~/.claude/jarvis/logs/topics-server*.log`, 1654 righe `[memsig]`,
+16/09 07:27Z - 17/09 12:33Z): 241 letture su 1589, tratto 07:27:57Z - 23:37:44Z.
 
 - [x] T5.1 MISURATO, sulla consegna di `c4f53a85` conclusa il 17/09 alle 00:46Z,
       leggendo i `ms` di `checks_json`:
@@ -168,12 +179,68 @@ misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
       **80 secondi di esecuzione in tutto.** Il giro ha impiegato 32 minuti dal
       primo comando all'ultimo, quindi circa 30 minuti e mezzo sono stati attesa
       del pavimento — 23 volte il lavoro che il freno stava proteggendo, su una
-      macchina che per tutta la durata leggeva `swap=calm`. Le due righe CI hanno
-      poi preso 624,7 s (unit) e 1065,8 s (e2e) di attesa della CI vera, che e'
-      tempo di GitHub e non si tocca.
-- [ ] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
-      pavimento non trattiene un check, e resta guardia solo mentre lo swap e'
-      sostenuto.
+      macchina che nella finestra del giro leggeva `swap=calm` in 40 dei 42
+      campioni sotto il pavimento. Le due righe CI hanno poi preso 624,7 s (unit)
+      e 1065,8 s (e2e) di attesa della CI vera, che e' tempo di GitHub e non si
+      tocca. CORREZIONE ai numeri di questa riga: nella finestra 23:41-00:27 il
+      log ha 44 righe `[memsig]`, 2 sostenute, 42 sotto pavimento e 40 di quelle
+      calme — non 46/3/43/41 come avevo scritto prima, e non «calmo per tutta la
+      durata».
+- [x] T5.3 PRIMA STESURA SBAGLIATA e rifatta: «a swap calmo il pavimento non
+      trattiene» non indeboliva il pavimento, lo cancellava (sotto swap
+      sostenuto il freno usciva gia' prima di leggerlo, quindi calmo era l'unico
+      stato in cui decideva). Fatto invece: il pavimento resta in vigore calmo e
+      sostenuto, e cambia la VALVOLA — tre minuti quando a trattenere e' il
+      pavimento su un Mac calmo, i trenta di oggi sotto swap sostenuto. La riga
+      del fail-open nomina la condizione letta in quell'istante, non l'ultima che
+      quel comando aveva stampato (che per un comando mai in attesa e' nessuna).
+- [x] T5.4 Le due valvole hanno un orologio ciascuna. Con un contatore solo il
+      tempo di una condizione pagava l'altra: dieci minuti di swap sostenuto a
+      5,2 GB e il comando partiva NELL'ISTANTE del verdetto calmo, senza che il
+      pavimento l'avesse trattenuto un secondo — un episodio di thrash regalava
+      l'esenzione dal pavimento per il resto del giro. Ogni tratto d'attesa e'
+      addebitato alla condizione in vigore mentre passava; il caso e' fissato al
+      tredicesimo minuto (dieci di swap + tre di pavimento).
+- [x] T5.5 La riga del fail-open dice l'attesa VERA di quel comando e, accanto,
+      cio' che il giro aveva speso di quel budget: prima stampava il budget al
+      posto della durata, cioe' «dopo 3 minuti» per tre comandi che avevano
+      atteso tre, zero e zero. Il log degli errori non ha timestamp: quella riga
+      e' l'unica traccia che resta del giro.
+- [x] T5.7 L'ORDINE DENTRO `holdReason` ERA UNA GUARDIA SCOPERTA. Con due
+      orologi quell'ordine non sceglie piu' l'etichetta del log ma il BUDGET:
+      spostando `room` prima di `spacing` la suite restava verde (29 pass / 0
+      fail) mentre il comportamento cambiava — un giro sotto il pavimento mentre
+      gira il comando di un altro giro passava da `heldBy: "spacing",
+      budgetMs: 1800000` a `heldBy: "room", budgetMs: 180000`, e con la valvola
+      calma gia' spesa partiva ATTRAVERSO i 120 s di spaziatura, cioe' la mandria
+      del 15/09. Nessun test teneva insieme `held < floorGB` e un rilascio altrui
+      in corso. Adesso due: uno sulla decisione e uno sul waiter con due giri,
+      dove il secondo parte a 300 s e non a 180.
+- [x] T5.8 DUE CAMBI CHE NON AVEVO DICHIARATO, scritti nel requisito e fissati da
+      un test ciascuno invece che annullati. (a) Il tetto di un giro e' la somma
+      delle due valvole, `maxWaitMs + min(3 min, maxWaitMs)`: 33 minuti in
+      produzione, dove `checksMemoryFloor` monta senza `maxWaitMs`. E' il prezzo
+      di non far pagare una condizione all'altra, e il caso peggiore vale tre
+      minuti. (b) `MEMORY_WAIT_CALM_MAX_MS` e' un soffitto duro: il tetto del
+      chiamante puo' solo accorciare la valvola calma. Nessun seam per alzarla,
+      perche' nessun chiamante ne ha chiesto uno — il pavimento e' montato una
+      volta per tutto il server.
+- [x] T5.9 PREMESSA MIA FALSA, ritirata: avevo scritto che il rail
+      `typecheck:e2e` era rosso su `origin/main` e avevo aggiunto due
+      annotazioni di tipo a `tests/unit/no-third-party-emails.test.ts` per
+      «ripararlo». Non era rosso: con il tsc pinnato dal repo,
+      `tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0` esce 0 sul file
+      originale. Le due righe sono state annullate e il file e' tornato identico
+      a main.
+- [ ] T5.6 DA DECIDERE COL PROPRIETARIO, ancora aperta: il cancello cancellato
+      insieme alla vecchia T5.2 riguardava il comportamento del pavimento a swap
+      calmo, e la valvola da tre minuti lo cambia lo stesso — un `test:unit` da
+      4-11 GB su questo Mac a 5,2 GB adesso parte dopo 3 minuti invece di 30. Il
+      numero non e' stato approvato da nessuno. La forma giusta, se si chiude, e'
+      un prezzo per COMANDO (l'albero unit non e' un typecheck) invece di un
+      pavimento unico montato una volta per tutto il server: oggi il freno swap
+      non ha nemmeno una vittima da interrompere, `SWAP_VICTIM_MIN_GB` = 1 GB
+      contro un tsc misurato a 460 MB.
 
 ## Barra
 
