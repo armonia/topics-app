@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.344",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un numero che avevo messo nel contratto era falso: 241 volte, non zero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.343",
     "date": "2026-09-17",
     "sections": {

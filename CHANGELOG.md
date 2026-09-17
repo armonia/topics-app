@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.344 — 2026-09-17
+
+### Sotto il cofano
+- Un numero che avevo messo nel contratto era falso: 241 volte, non zero
+
 ## 2.2.343 — 2026-09-17
 
 ### Sotto il cofano
