@@ -35,6 +35,14 @@
  * other row — the same rule the local commands follow — and a branch with no
  * commit of its own is NOT MEASURED, never two greens.
  *
+ * ONE RERUN PER RUN, AND `run_attempt` IS WHERE THAT IS WRITTEN. Nothing in this
+ * process may count the rerun: the delivery is a row on `pending_deliveries`
+ * that `resumePendingDeliveries` re-issues on the same commit after every
+ * restart (44 of them in 25.7 hours against a CI wait of 15-25 minutes), so a
+ * local flag asks again at every boot. The attempt number of the run answers
+ * both ends of it: above 1 the rerun is already spent, and a rerun of ours is
+ * only observed once it has grown.
+ *
  * Between two polls no child process is alive: each git/gh call is a short argv
  * spawn at agent priority with its own 60 s cap on its whole process group, and it
  * never throws.
@@ -53,6 +61,16 @@ export const CI_POLL_MS = 60_000;
 export const CI_NO_RUN_GRACE_MS = 5 * 60_000;
 /** Consecutive failed GitHub reads that end the wait. */
 export const CI_API_ERRORS_MAX = 5;
+/**
+ * Reads granted to a rerun before it counts as never happened. `gh run rerun`
+ * exits 0 the moment GitHub accepts the request, but `actions/runs?head_sha=`
+ * kept answering with the old attempt for a while, and `cancel-in-progress` can
+ * cancel the new one straight away. Every other GitHub read of this loop already
+ * has `CI_API_ERRORS_MAX` tries before it concludes; this one had exactly one,
+ * and a single stale read closed the round with "only a new commit can" while
+ * the new attempt was running and would go green.
+ */
+export const CI_RERUN_READS_MAX = CI_API_ERRORS_MAX;
 /** A git or gh call that hangs is an error, not a wait. */
 export const CI_CALL_TIMEOUT_MS = 60_000;
 export const CI_CONFIG_PATH = ".github/workflows/ci.yml";
@@ -110,6 +128,16 @@ export function repoFromRemote(url: string): string | null {
 export function pushRejectedAsNonFastForward(porcelainOut: string): boolean {
   return /\[rejected\] \((non-fast-forward|fetch first)\)/.test(porcelainOut);
 }
+
+/**
+ * Which attempt of a run this is, 1 when GitHub does not say. It is the only
+ * trace of a rerun that survives a restart of this server: a run re-run keeps
+ * its id and its sha and only this number grows.
+ */
+export const runAttempt = (run: GithubRun): number => {
+  const n = Math.trunc(Number(run.run_attempt));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+};
 
 /** The run whose verdict counts: ci.yml, `pull_request`, this very commit, highest id. */
 export function latestCiRun(sha: string, runs: GithubRun[]): GithubRun | null {
@@ -484,6 +512,9 @@ export async function awaitCiEvidence(
   let conflictProbed = false;
   let rerunTried = false;
   let rerunError = "";
+  /** The attempt a rerun of ours has to beat before a read is conclusive again, 0 when none is pending. */
+  let rerunAwaitedAttempt = 0;
+  let rerunReadsLeft = 0;
   let lastRun: GithubRun | null = null;
   /** A row whose run ended without a verdict says what unblocks it, once the rerun is spent. */
   type Settled = Exclude<CiEvidence, { kind: "pending" }>;
@@ -516,35 +547,64 @@ export async function awaitCiEvidence(
     }
     if (errors >= errorsMax) return notMeasured(`${errors} GitHub reads failed in a row: ${lastError}`, { ...ctx, run: lastRun });
     let noRun = false;
-    if (read) {
-      const page = read;
-      const run = latestCiRun(sha, page.runs);
-      if (run && run.html_url !== toldRunUrl) {
-        toldRunUrl = run.html_url;
-        tellWait(run.html_url);
-      }
+    const page = read;
+    const run = page ? latestCiRun(sha, page.runs) : null;
+    if (run && run.html_url !== toldRunUrl) {
+      toldRunUrl = run.html_url;
+      tellWait(run.html_url);
+    }
+    // A REREAD THAT STILL SHOWS THE OLD ATTEMPT IS NOT A VERDICT. `gh run rerun`
+    // answers when GitHub accepts the request, not when the new attempt is
+    // listed, so the read right after it can still be the dead run.
+    if (page && rerunAwaitedAttempt > 0) {
+      if (run && runAttempt(run) > rerunAwaitedAttempt) rerunAwaitedAttempt = 0;
+      else if (rerunReadsLeft > 0) rerunReadsLeft -= 1;
+      else rerunAwaitedAttempt = 0; // the grace is spent: read the run as it is
+    }
+    if (page && rerunAwaitedAttempt === 0) {
       const outcomes = open().map((check) => ({ check, outcome: readCiEvidence(check, sha, page.runs, page.jobs) }));
+      // Rows with no verdict on this run, the ones already closed included: a
+      // row read as not measured while the run was still going (a `prepare-e2e`
+      // that failed, a `check` job that died before its unit step) used to be
+      // closed on the spot and never looked at again, so the run reaching
+      // `completed` found nothing left open and the rerun below never fired.
+      // Those are two of the three terminal cases KANBAN-85 names.
+      const unmeasured = checks.filter((c) => {
+        const done = settled.get(c);
+        return done ? done.notMeasured === true
+          : outcomes.find((o) => o.check === c)?.outcome.kind === "notMeasured";
+      });
       // A RUN THAT ENDED WITHOUT A VERDICT: ONE MORE ATTEMPT, NOT ANOTHER GIRO.
       //
       // The readers answer `notMeasured` only when there is nothing left to wait
-      // for, so a completed run where EVERY open row is not measured has nothing
-      // more to give. Re-delivering the same commit would push nothing (the
-      // branch is already there), reuse the draft and find this same run: 15 of
-      // the last 100 shas measured on 17/09/2026 were already parked there.
+      // for, so a completed run with a row that has no verdict has nothing more
+      // to give it. Re-delivering the same commit would push nothing (the branch
+      // is already there), reuse the draft and find this same run: 15 of the
+      // last 100 shas measured on 17/09/2026 were already parked there.
       // Only when the run itself is over, so a rerun cannot cut a shard still
       // running for the other row.
-      if (run && run.status === "completed" && !rerunTried
-        && outcomes.length > 0 && outcomes.every((o) => o.outcome.kind === "notMeasured")) {
+      if (run && run.status === "completed" && !rerunTried && unmeasured.length > 0) {
         rerunTried = true;
-        const again = await port.rerun(repo.value, run.id);
-        if (again.ok) {
-          // The new attempt re-measures every row that has no verdict; a row
-          // already green or red measured something real on this commit.
-          for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
-          await pause(pollMs);
-          continue;
+        // THE RERUN IS SPENT ONCE PER RUN, NOT ONCE PER CALL. `rerunTried` is a
+        // local of this call, but the delivery it serves is a row on
+        // `pending_deliveries` that `resumePendingDeliveries` re-issues on the
+        // same commit at every boot, and this Mac restarted the server 44 times
+        // in 25.7 hours against a CI wait of 15-25 minutes. The attempt number
+        // is the state GitHub keeps for us: above 1 the rerun was already asked,
+        // and this run is what it produced.
+        if (runAttempt(run) === 1) {
+          const again = await port.rerun(repo.value, run.id);
+          if (again.ok) {
+            // The new attempt re-measures every row that has no verdict; a row
+            // already green or red measured something real on this commit.
+            for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
+            rerunAwaitedAttempt = runAttempt(run);
+            rerunReadsLeft = CI_RERUN_READS_MAX;
+            await pause(pollMs);
+            continue;
+          }
+          rerunError = again.error;
         }
-        rerunError = again.error;
       }
       for (const { check, outcome } of outcomes) {
         if (outcome.kind === "pending") {
@@ -563,7 +623,11 @@ export async function awaitCiEvidence(
         return notMeasured(`the round stopped at the first red (${red.name}), so this row was not waited for`,
           { ...ctx, run: run ?? lastRun });
       }
-      if (open().length === 0) return checks.map((c) => settled.get(c)!);
+      // A row without a verdict is not final while its run is still going: the
+      // rerun above reopens it when the run completes, so leaving now would be
+      // the dead end again with every row closed.
+      const mayStillRerun = !rerunTried && !!run && run.status !== "completed" && unmeasured.length > 0;
+      if (open().length === 0 && !mayStillRerun) return checks.map((c) => settled.get(c)!);
     }
     const waited = now() - pushedAt;
     if (noRun && !conflictProbed && waited >= graceMs) {

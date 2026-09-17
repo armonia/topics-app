@@ -223,8 +223,8 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
     expect(got.checks).toBeNull();
   });
 
-  // I link vivono quanto l'attesa: una riga `github-ci:` aspetta GitHub per una
-  // quindicina di minuti e la card non aveva niente da aprire.  @covers KANBAN-85
+  // The links live as long as the wait: a `github-ci:` row waits on GitHub for
+  // some fifteen minutes and the card had nothing to open. @covers KANBAN-85
   test("running: i link della CI viaggiano con la spia, e muoiono col verdetto", () => {
     const t = s.create({ projectId: PID, text: "x" });
     const ci = { prUrl: "https://github.com/o/r/pull/5", runUrl: "https://github.com/o/r/actions/runs/10" };
@@ -236,8 +236,8 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
 
   test("running: un link che non è https non arriva alla card", () => {
     const t = s.create({ projectId: PID, text: "x" });
-    // Il solo scrittore è il lettore della CI, ma il valore finisce dentro un
-    // `href`: il controllo di forma costa una riga e chiude la domanda.
+    // The only writer is the CI reader, but the value ends up inside an `href`:
+    // checking its shape costs one line and closes the question.
     s.recordChecks({
       taskId: t.id, state: "running", commit: "abc", runs: null, progress: { done: 1, total: 2 },
       ci: { prUrl: "javascript:alert(1)" } as { prUrl: string },

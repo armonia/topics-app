@@ -374,6 +374,117 @@ describe("a terminal run without a verdict", () => {
     expect(row.notMeasured).toBe(true);
     expect(row.tail).toContain("re-run once");
     expect(row.tail).toContain("only a new commit can");
+    // The grace given to an unobserved rerun is counted in reads, not in the
+    // whole hour of the deadline: an attempt that never shows up still answers.
+    expect(row.ms).toBeLessThan(CI_E2E_DEADLINE_MS);
+  });
+
+  /**
+   * The rerun is spent once per RUN, and `run_attempt` is the only place that
+   * survives a restart: `rerunTried` is a local of the call, while the delivery
+   * is a `pending_deliveries` row re-issued on the same commit at every boot (44
+   * restarts in 25.7 hours against a CI wait of 15-25 minutes).
+   */
+  test("a run already at its second attempt is not re-run again after a restart", async () => {
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ conclusion: "cancelled", run_attempt: 2 })] }),
+    });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(calls.rerun).toEqual([]);
+    expect(row.notMeasured).toBe(true);
+    expect(row.tail).toContain("only a new commit can");
+  });
+
+  /**
+   * `gh run rerun` exits 0 when GitHub accepts the request, not when the new
+   * attempt is listed: the read right after it can still be the dead one, and it
+   * used to close the round with "only a new commit can" while the attempt that
+   * would go green was already running.
+   */
+  test("a read that still shows the old attempt is not the verdict of the re-run", async () => {
+    let reads = 0;
+    const { port, calls } = fakePort({
+      runs: async () => {
+        reads += 1;
+        return { ok: true, value: [reads <= 3 ? run({ conclusion: "cancelled" }) : run({ run_attempt: 2 })] };
+      },
+    });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(calls.rerun).toEqual([10]);
+    expect(row.ok).toBe(true);
+    expect(row.tail).not.toContain("only a new commit can");
+  });
+
+  /**
+   * The third terminal case of KANBAN-85: a run that COMPLETES without the job
+   * or the step a row reads. The row falls to NOT MEASURED while the run is
+   * still going, and closing it there left nothing open when the run completed,
+   * so the rerun never fired and the card got the dead end with no way out.
+   */
+  test("a row closed while the run was still going is re-opened by the new attempt", async () => {
+    let reads = 0;
+    const lost = [job("prepare-e2e", "failure"), ...[1, 2, 3, 4].map((n) => job(`e2e (${n})`, "skipped"))];
+    const { port, calls } = fakePort({
+      runs: async () => {
+        reads += 1;
+        if (reads === 1) return { ok: true, value: [run({ status: "in_progress", conclusion: null })] };
+        return { ok: true, value: [reads === 2 ? run({ conclusion: "failure" }) : run({ run_attempt: 2 })] };
+      },
+      jobs: async () => ({
+        ok: true,
+        value: reads === 1
+          ? [checkJob(null), ...lost]
+          : reads === 2
+            ? [checkJob("success", { status: "completed", conclusion: "success" }), ...lost]
+            : [checkJob("success", { status: "completed", conclusion: "success" }), ...green],
+      }),
+    });
+    const clock = fakeClock();
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] },
+      { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.rerun).toEqual([10]);
+    expect(rows.map((r) => r.ok)).toEqual([true, true]);
+    expect(rows[0]!.tail).not.toContain("only a new commit can");
+  });
+
+  /**
+   * With one row declared, the same row is also the last one open: closing it
+   * on the spot ended the whole wait before the run could complete, so the
+   * rerun never got its turn. A row with no verdict is not final while its run
+   * is still going.
+   */
+  test("the only row, closed with no verdict while the run goes on, still waits for the rerun", async () => {
+    let reads = 0;
+    const lost = [job("prepare-e2e", "failure"), ...[1, 2, 3, 4].map((n) => job(`e2e (${n})`, "skipped"))];
+    const { port, calls } = fakePort({
+      runs: async () => {
+        reads += 1;
+        if (reads === 1) return { ok: true, value: [run({ status: "in_progress", conclusion: null })] };
+        return { ok: true, value: [reads === 2 ? run({ conclusion: "failure" }) : run({ run_attempt: 2 })] };
+      },
+      jobs: async () => ({ ok: true, value: reads <= 2 ? lost : green }),
+    });
+    const clock = fakeClock();
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.rerun).toEqual([10]);
+    expect(row.ok).toBe(true);
+  });
+
+  /**
+   * The guard that keeps that rerun from cutting a run that is still measuring:
+   * one row already has no verdict, and the other is waiting for a step of the
+   * same run. Only `run.status === "completed"` holds it here.
+   */
+  test("a run still going is not re-run because one row already has no verdict", async () => {
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ status: "in_progress", conclusion: null })] }),
+      jobs: async () => ({ ok: true, value: [checkJob(null), job("prepare-e2e", "failure"), ...[1, 2, 3, 4].map((n) => job(`e2e (${n})`, "skipped"))] }),
+    });
+    const clock = fakeClock();
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] },
+      { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.rerun).toEqual([]);
+    expect(rows.map((r) => r.notMeasured)).toEqual([true, true]);
   });
 
   test("a run still in progress for the other row is never re-run under it", async () => {
