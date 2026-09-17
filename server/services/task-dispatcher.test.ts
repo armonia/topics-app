@@ -4029,6 +4029,105 @@ describe("il reconcile non idrata la board per contare le board", () => {
 });
 
 /**
+ * THE WIRE, NOT THE JUDGEMENT.
+ *
+ * `sweepWaitedOut` has its own bench (`tasks.waited-out-sweep.test.ts`) and it
+ * survives every mutation. What nobody watched was the WIRING: deleting the
+ * whole 1-quater step of `reconcilePass` — the sweep call plus the `busy`
+ * predicate — left 366 pass / 0 fail across sixteen `task-dispatcher*.test.ts`
+ * files, so the one thing the spec asks for could be reverted with the bar
+ * still green.
+ *
+ * The proof runs the whole reconcile and reads one doubled assertion: the card
+ * past the cap must come out parked AND with no turn. Without the step the
+ * `tick` on the very next line claims it, so the test does not die by a hair —
+ * it dies saying `in_progress` with a live turn.
+ *
+ * @covers KANBAN-84
+ */
+describe("il reconcile cronometra le attese, non solo il servizio", () => {
+  /** A card waiting for FIVE hours, its wake-up long past. */
+  function seedWaitedOut(h: ReturnType<typeof harness>, id: string): string {
+    seedTask(h.db, { id, status: "todo" });
+    const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    const wake = new Date(Date.now() - 4 * 3_600_000).toISOString();
+    h.db.run(
+      `UPDATE tasks SET dispatch_state = 'waiting', dispatch_deferred_until = ?,
+         wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+       WHERE id = ?`,
+      [wake, since, id],
+    );
+    return id;
+  }
+
+  it("una card oltre il tetto esce dal reconcile parcheggiata, e senza turno", async () => {
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    seedWaitedOut(h, "t1");
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
+    // Without step 1-quater the `tick` claims it instead of parking it: this
+    // is the line that tells "the wire is there" from "the wire was moot".
+    expect(h.turns.length).toBe(0);
+    h.dispatcher.shutdown();
+  });
+
+  it("la stessa card con un turno VIVO non si tocca: `busy` arriva dal registro del dispatcher", async () => {
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    // The turn really starts, then the row takes the shape of a wait past
+    // its cap: the only way to hold `inFlight` and an over-cap series at
+    // once, which is the race the predicate exists to lose.
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+    const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    h.db.run(
+      `UPDATE tasks SET wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+       WHERE id = ?`,
+      [since, "t1"],
+    );
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.dispatchState).not.toBe(PARKED_WAITED_OUT);
+    h.dispatcher.shutdown();
+  });
+
+  it("interruttore globale spento: il backstop non gira, e la card resta dov'era", async () => {
+    // A choice, not an oversight: `waited_out` is the only state that reaches
+    // a push notification, and with the queue off there is no card to look at,
+    // there is a stopped machine. The clock lives on the row (`wait_since`),
+    // so the first pass after the switch comes back on collects the backlog.
+    const h = harness();
+    // One switch only: `updateBoardSettings({autoDispatch})` writes
+    // `app_settings`, so "board on" and "machine on" are the same row. Here it
+    // stays off.
+    expect(h.svc.getGlobalAutoDispatch()).toBe(false);
+    seedWaitedOut(h, "t1");
+
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.status).toBe("todo");
+
+    h.svc.setGlobalAutoDispatch(true);
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe(PARKED_WAITED_OUT);
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
  * L'ENVELOPE È IN INGLESE, TUTTO, E QUESTO È IL CANCELLO CHE LO TIENE.
  *
  * È un contratto di runtime letto da un modello, sta nel codice, e in questo

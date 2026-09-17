@@ -5342,6 +5342,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    `busy` is the whole difference between a park and a turn cut in half: a
     //    card with a live turn, a queued resume, a scheduled retry or an open
     //    grace window is OURS, whatever the row says.
+    //
+    //    BEFORE THE `tick`, ON PURPOSE. The two only ever fire in the same pass
+    //    when a card's requested wake-up lands on the very instant its series
+    //    tops the cap, and after `waitedOutIfCapped` learned to read
+    //    `dispatch_deferred_until` that can only happen to a real SERIES —
+    //    streak two or more, so at least two turns have already come back to
+    //    look at this condition and asked for more time. The cap exists to stop
+    //    the next one. A single wait never meets the two conditions together:
+    //    its clock starts at the wake-up, so the retry is always four hours
+    //    ahead of the park.
+    //
+    //    AND IT DOES NOT RUN WITH GLOBAL DISPATCH OFF: the `return` above stops
+    //    the pass, exactly as it does for `sweepParkedChildren`. That is the
+    //    state in which a card can sit past the cap indefinitely, and it is
+    //    still the right call — `waited_out` is a push notification asking a
+    //    person to decide about a card, and with the queue deliberately off the
+    //    honest answer is that NOTHING is moving, not that this one card needs
+    //    attention. Nothing is lost while it is off: the clock lives on the row
+    //    (`wait_since`), not in this process, so the first pass after the
+    //    switch comes back on parks whatever went past the cap meanwhile.
     try {
       const ours = (taskId: string): boolean =>
         inFlight.has(taskId) || slotWaits.has(taskId) || retryWaits.has(taskId) || graceTimers.has(taskId);
