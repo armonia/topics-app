@@ -576,7 +576,7 @@ export interface TaskService {
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
   /**
-   * Esegue la risposta umana allo stallo. `requeue` manda i figli parkedCards
+   * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
    * in coda come task indipendenti. In tutti i casi il padre torna in coda col
    * chip `queued` e col budget dei tentativi azzerato — la risposta è un
@@ -2775,14 +2775,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * La domanda sui parkedCards è GIÀ sulla card, e ancora senza risposta?
+   * La domanda sui parcheggiati è GIÀ sulla card, e ancora senza risposta?
    *
    * Serve solo al padre che sta in review, dove la domanda si posa nel thread
    * senza muovere la card: lì non c'è nessun `delivered_reason` a fare da
    * marchio, e senza questo controllo la stessa domanda tornerebbe a ogni
    * figlio che chiude.
    *
-   * Il confronto è con l'ultimo movimento dei figli parkedCards, non con
+   * Il confronto è con l'ultimo movimento dei figli parcheggiati, non con
    * l'orologio: una domanda più vecchia del parcheggio più recente parla di
    * una configurazione che non c'è più, e va rifatta. Rispondere ai due
    * bottoni muove i figli, quindi la risposta si vede da qui senza bisogno di
@@ -2820,9 +2820,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    *    c'è una decisione umana in attesa e adesso approvare funziona davvero.
    *    Si toglie solo il chip stantio, che dice di aspettare figli che non
    *    esistono più.
-   *  - restano solo parkedCards e il padre non è in review: `askParkedChildren`,
+   *  - restano solo parcheggiati e il padre non è in review: `askParkedChildren`,
    *    che fa già tutto (domanda, review, due bottoni).
-   *  - restano solo parkedCards e il padre è GIÀ in review: la domanda si posa
+   *  - restano solo parcheggiati e il padre è GIÀ in review: la domanda si posa
    *    nel thread e basta. Muoverlo scriverebbe `delivered_by = 'system'` sopra
    *    una consegna vera, e sulla card quella è la riga che dice al reviewer se
    *    sotto c'è un deliverable.
@@ -2867,7 +2867,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       svc.addComment({
         taskId: parentId, author: "system",
         content:
-          `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parkedCards in backlog (${elenco}): ` +
+          `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parcheggiati in backlog (${elenco}): ` +
           `nessun dispatcher li prende da solo, e con un sottotask aperto questa card non si può approvare. ` +
           (withWork > 0
             ? `${withWork} hanno lavoro proprio: promuoverli a task li rende servibili dalla coda. `
@@ -3281,7 +3281,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * annidare uno step sotto una card in Done costruisce un vicolo cieco con una
    * chiamata perfettamente legittima. Nessun dispatcher prende gli step, il
    * padre è chiuso quindi nessuno ne apre più l'albero, e la sonda dei figli
-   * parkedCards esce subito su un padre `done`. Il cancello su `done` impedisce
+   * parcheggiati esce subito su un padre `done`. Il cancello su `done` impedisce
    * di CHIUDERE un padre con figli aperti; senza questo, la stessa coppia si
    * otteneva dall'altro verso — prima chiudi, poi attacca.
    */
@@ -5029,7 +5029,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // La domanda sta su UNA riga: il blocco `question` appiattisce gli a capo
       // (contratto del parser delle risposte rapide), quindi l'elenco dei figli
       // viaggia in linea e non come lista.
-      // «fermi», non «parkedCards in backlog»: da quando il predicato conta
+      // «fermi», non «parcheggiati in backlog»: da quando il predicato conta
       // anche i figli in `todo`, la colonna non è più la notizia — lo è il fatto
       // che nessun turno li muoverà. Nominare una colonna sbagliata manderebbe a
       // cercarli dove non sono.
@@ -5903,7 +5903,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // that reach review without going through the end of a turn. Nobody
       // redrew, so the card kept the old sheet. Measured 2026-09-01 on
       // `dec39cd3`: the sheet read zero files and zero lines both ways — its
-      // own words: «file toccati 0, +0 rows aggiunte, -0 rows tolte». allow-italian: the sheet's own labels, quoted.
+      // own words: «file toccati 0, +0 righe aggiunte, -0 righe tolte». allow-italian: the sheet's own labels, quoted.
       // While the column held
       // 4 files and +157 lines. Not an empty box —
       // a box declaring the opposite of the truth, and the only thing that card
