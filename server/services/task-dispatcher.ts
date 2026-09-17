@@ -33,7 +33,7 @@ import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
+import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
@@ -163,9 +163,13 @@ export interface DispatcherDeps {
    *
    * `hold` is what the reading cannot see, as separate facts: the price of one
    * card, the memory kept for the local turns in flight, and whether any of our
-   * work is on the machine (see `floorReason`).
+   * work is on the machine (see `floorVerdict`).
+   *
+   * A VERDICT and not a sentence: which floor spoke keys the wait (the 120 s
+   * warm-up and the real floor share their first word), and the memory floor
+   * standing down for the first card is a fact only this answer carries.
    */
-  resourceBlock?: (hold: MemoryFloorHold) => string | null;
+  resourceBlock?: (hold: MemoryFloorHold) => ResourceFloorVerdict | null;
   /**
    * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
    * core-units and gigabytes, what the others are taking, and the agents
@@ -737,16 +741,27 @@ const HELD_RESUME_REFRESH_MS = 60_000;
  *
  * Figures never count: "5.9 GB" and "6.0 GB" say the same thing. And for the
  * machine floor (`resources`) the words do not count either, only the RESOURCE,
- * the first word ("Memoria", "Disco"), the same key `admissionBlock` logs by. One
- * memory episode goes through three sentences (under the floor, reserved for
- * the agents starting, climbing back towards the restart line), and with the
- * hysteresis holding the composer turns "under" into "climbing" exactly at the
- * floor: on the 15/09 readings (5.7, 5.9, 6.0, 5.8) a key on the words still
- * rewrote the card about every other retry.
+ * the same key `admissionBlock` logs by. One memory episode goes through three
+ * sentences (under the floor, reserved for the agents starting, climbing back
+ * towards the restart line), and with the hysteresis holding the composer turns
+ * "under" into "climbing" exactly at the floor: on the 15/09 readings (5.7, 5.9,
+ * 6.0, 5.8) a key on the words still rewrote the card about every other retry.
+ *
+ * THE RESOURCE COMES FROM THE VERDICT, NOT FROM THE FIRST WORD, and that is the
+ * whole of KANBAN-83. "Memoria: la sto misurando da 11 s su 120" and "Memoria
+ * quasi finita: la lettura più bassa…" share their first word, so they shared
+ * this key - and the warm-up is a 120 s state guaranteed at every boot, so it
+ * always wrote first and the real reason never reached the card at all: 80
+ * comments out of 80 after 15/09/2026 17:49 carried the warm-up, zero carried
+ * the floor, while `dispatch_error` beside them was refreshed every 60 s with
+ * the right text. Reading the resource from `ResourceFloorVerdict.kind` splits
+ * the two WITHOUT going back to keying on the words, which PR #63 removed
+ * because the app names inside the memory sentence rewrote the card at every
+ * retry.
  */
-function holdKey(kind: DispatchBlockKind | null, reason: string | null): string {
+function holdKey(kind: DispatchBlockKind | null, reason: string | null, floor: ResourceFloorKind | null = null): string {
   if (reason == null) return `${kind}:`;
-  if (kind === "resources") return `${kind}:${reason.split(/[\s:]/)[0]}`;
+  if (kind === "resources") return `${kind}:${floor ?? "?"}`;
   return `${kind}:${reason.replace(/\d+(?:[.,]\d+)*/g, "#")}`;
 }
 
@@ -1005,8 +1020,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
-  const waitingForSlot = new Set<string>();
+  /** Chi ha già detto nel thread che sta aspettando uno slot, e per QUALE attesa
+   *  (`holdKey`): una volta basta finché l'attesa è la stessa. */
+  const waitingForSlot = new Map<string, string>();
   /** What each held resume last wrote on its chip, and when (clock ms): see `HELD_RESUME_REFRESH_MS`. */
   const heldWritten = new Map<string, { at: number; key: string; reason: string | null }>();
   /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
@@ -1065,19 +1081,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * comunque. Da quando il tetto si può togliere, senza questo la coda si
    * fermerebbe solo a disco pieno — cioè quando il DB non scrive più.
    */
-  /** L'ultimo motivo di blocco già annunciato, per non ripeterlo a ogni tick. */
-  let lastAdmissionBlock: string | null = null;
+  /** L'ultimo esito del pavimento già annunciato, per non ripeterlo a ogni tick.
+   *  `"exempt"` is a state of its own and not the absence of one: the reading is
+   *  still under the line, and saying "le risorse sono rientrate" there is a lie
+   *  on the one line the board's history is read from. */
+  let lastAdmissionBlock: ResourceFloorKind | "exempt" | null = null;
   /** What one more agent is priced at in memory: the same price list the budget reads. */
   function agentMemPrice(): number {
     return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
   }
-  /** Launch instants of the LOCAL turns in flight: a run riding on a node holds
-   *  nothing on this machine, the same filter `busyCount` applies. */
+  /** Launch instants of the LOCAL turns in flight whose memory is still ours to
+   *  reserve: a run riding on a node holds nothing on this machine (the same
+   *  filter `busyCount` applies), and a card parked on the pull request CI is
+   *  charged nothing (KANBAN-76). A PRICE LIST, not a census - `localTurns()`
+   *  is the census, and the two must not be confused. */
   function localLaunches(): number[] {
     const offLane = (taskId: string) => { try { return deps.checksOffLane?.(taskId) ?? false; } catch { return false; } };
     return [...inFlight.entries()]
       .filter(([taskId, slot]) => !isNodeSessionKey(slot.sessionKey) && !offLane(taskId))
       .map(([, slot]) => slot.sessionAt);
+  }
+  /**
+   * HOW MANY LOCAL TURNS ARE ALIVE ON THIS MACHINE - the census, byte-identical
+   * to what `busyCount()` answers and to the `running` the budget axis reads in
+   * its sample.
+   *
+   * NOT `localLaunches().length`. That one also subtracts every card whose
+   * checks are off-lane, which is every card waiting on GitHub's CI - the
+   * NORMAL state of a delivery for about fifteen minutes, since
+   * `server/routes/tasks.ts` releases the lane the moment the local checks pass
+   * (KANBAN-85). That agent is alive and resident; counting it zero re-arms the
+   * memory floor's exemption on every 10 s tick, which is the 10/09 incident
+   * again at the speed of a delivery cycle. Measured against this dispatcher
+   * with `held2m` at 4.8 GB: one off-lane card plus two todos started 2 cards,
+   * count mode with a cap of 5 started 5, resources mode with `held2m` at
+   * 5.5 GB and six todos drained the whole queue. The exemption is for a
+   * machine with NONE of our work on it - one card, once.
+   */
+  function localTurns(): number {
+    return [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).length;
   }
   /**
    * THE FLOOR, read with what the reading cannot see, and without saying it
@@ -1097,22 +1139,41 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * anything this Mac reads. In count mode the floor is the only memory brake,
    * so it charges N x price itself.
    */
-  function floorReason(): string | null {
+  function floorVerdict(): ResourceFloorVerdict {
     const price = agentMemPrice();
     const launches = localLaunches();
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
     const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
+    // TWO QUESTIONS, AND EACH GETS ITS OWN CENSUS WHOLE.
+    //
+    // `ourWorkRunning` is the SAME "zero" the budget axis counts for
+    // `firstAgentExempt`: `sample.running` (= `busyCount()`) plus pre-review
+    // check runs. A run riding on a node holds nothing on this machine, and a
+    // board behind an 11 GB shard is not a board that never starts - but a card
+    // waiting on the pull request CI IS an agent alive on this Mac, so it is
+    // counted by `localTurns()` and not by the reservation's `launches`.
+    //
+    // `spendingHere` is the PRICE LIST, the same `launches` `reservedGB` is
+    // computed from, plus the check runs (a shard spends 4-11 GB while it
+    // runs). It decides the line, branch and figure alike. Mixing the two - the
+    // census for the branch, the price list for the figure - put the line at
+    // `floor + cardGB + 0` = 10 GB whenever the only thing in flight was a card
+    // parked on GitHub's CI, which is the normal state of a delivery for about
+    // fifteen minutes: measured 7.0, 8.0 and 9.9 GB of `held2m` all held with
+    // nothing on this Mac to spend them.
     return deps.resourceBlock?.({
       cardGB: price,
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length,
-      ourWorkRunning: launches.length + Math.max(0, checks) > 0,
-    }) ?? null;
+      spendingHere: launches.length + Math.max(0, checks) > 0,
+      ourWorkRunning: localTurns() + Math.max(0, checks) > 0,
+    }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
-  function admissionBlock(): string | null {
+  function admissionVerdictNow(): ResourceFloorVerdict {
     try {
-      const reason = floorReason();
+      const verdict = floorVerdict();
+      const reason = verdict.reason;
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
       // del server» — solo che nel log non ci finiva niente: il messaggio
@@ -1130,17 +1191,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // i GB liberi, che cambiano a ogni lettura, quindi un confronto per
       // stringa non dedupica niente — provato sul server vero, tre righe
       // identiche nel senso e diverse nei decimali in trenta secondi.
-      // The kind is the RESOURCE, the first word ("Disco", "Memoria"): one
-      // memory episode goes through three sentences (under the floor, reserved
-      // for the agents starting, climbing back towards the restart line), and
-      // keying on the whole prefix would log a new "coda ferma" at every swing
-      // between them, the flood the hysteresis exists to stop.
-      const kind = reason ? reason.split(/[\s:]/)[0]! : null;
-      if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
-      else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
-      lastAdmissionBlock = kind;
-      return reason;
-    } catch { return null; }
+      // The kind is the RESOURCE, and it comes from the verdict instead of the
+      // first word of the sentence. One memory episode goes through three
+      // sentences (under the floor, reserved for the agents starting, climbing
+      // back towards the restart line), and keying on the whole prefix would log
+      // a new "coda ferma" at every swing between them, the flood the hysteresis
+      // exists to stop. But the first word also merged the 120 s warm-up with
+      // the real floor, and the warm-up is guaranteed at every boot: it got
+      // there first and this log never printed the floor's sentence either.
+      //
+      // THE EXEMPTION IS ONE OF THE STATES, not a line printed beside them, and
+      // that is what makes this log honest and quiet at the same time.
+      //  - Honest: with the derogation the reading is STILL under the line
+      //    (4.8 GB against 6), so "le risorse sono rientrate sopra il pavimento"
+      //    was false, and it is precisely the line the board's history gets read
+      //    on - the 16/09 audit dated "the queue restarted at 23:38" from it.
+      //  - Quiet: the state changes, not the call, so the two reads of the same
+      //    tick (this one at the top and `midPassFloor` after a start) print one
+      //    line between them. They used to print two in forty seconds, because
+      //    an exempt read and a blocked read alternated through `null`.
+      const state: ResourceFloorKind | "exempt" | null =
+        verdict.kind ?? (verdict.memoryFirstCardExempt ? "exempt" : null);
+      if (state !== lastAdmissionBlock) {
+        if (state === "exempt") log("pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: passa UNA card per deroga, e il pavimento torna pieno appena è partita");
+        else if (state) log(`coda ferma — ${reason}`);
+        else if (lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
+      }
+      lastAdmissionBlock = state;
+      return verdict;
+    } catch { return { reason: null, kind: null, memoryFirstCardExempt: false }; }
+  }
+  function admissionBlock(): string | null {
+    return admissionVerdictNow().reason;
   }
 
   /**
@@ -1230,8 +1312,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * card said "the machine has no room". The floor holds in count mode as well,
    * so it is the one verdict a count-mode reading carries.
    *
-   * `floorReason()` and not `admissionBlock()`: that one logs the episode and
+   * `floorVerdict()` and not `admissionBlock()`: that one logs the episode and
    * moves its dedup state, and a panel polling every 15 s must not.
+   *
+   * THE FLOOR'S DEROGATION IS DECLARED HERE, in `firstAgentExempt`, because
+   * that is where the budget axis declares its own and the client already
+   * paints it amber (`board.dispatch.verdictFirst`, `dispatchLoad.ts`). The
+   * whole verdict and not just its sentence: reading the sentence alone drew
+   * NOTHING at all in count mode - where the floor is the only memory brake -
+   * and in resources mode drew the BUDGET's green over a card that got through
+   * only by derogation, which is a green on a machine still under the line.
    */
   function admissionPreview(): DispatchAdmission | null {
     try {
@@ -1239,17 +1329,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         ({ admit: false, blockedBy, firstAgentExempt: false, costCoreUnits: 0, reason });
       const drain = drainBlock();
       if (drain) return held("drain", drain);
-      const floor = (() => { try { return floorReason(); } catch { return null; } })();
-      if (floor) return held("floor", floor);
+      const floor = (() => { try { return floorVerdict(); } catch { return null; } })();
+      if (floor?.reason) return held("floor", floor.reason);
+      // A pass owed to the derogation, shaped like the budget's: no axis holds,
+      // and the amber says the machine is not actually calm.
+      const exempt = floor?.memoryFirstCardExempt ?? false;
+      const exemptPass: DispatchAdmission | null = exempt
+        ? { admit: true, blockedBy: null, firstAgentExempt: true, costCoreUnits: 0 }
+        : null;
       const gcap = deps.svc.getGlobalCap();
-      if (capMode(gcap) !== "resources") return null;
+      if (capMode(gcap) !== "resources") return exemptPass;
       const computed = budgetVerdict(gcap);
-      if (!computed) return null;
+      if (!computed) return exemptPass;
       const { verdict: v, mem } = computed;
       return {
         admit: v.admit,
         blockedBy: v.blockedBy,
-        firstAgentExempt: v.firstAgentExempt,
+        // OR, not the budget's alone: the budget can admit on its own quota
+        // while the only reason this card reached it is the floor standing
+        // down, and a green there says the opposite of what happened.
+        firstAgentExempt: v.firstAgentExempt || exempt,
         costCoreUnits: v.costCoreUnits,
         usedCoreUnits: v.usedCoreUnits,
         usableCoreUnits: v.usableCoreUnits,
@@ -1644,10 +1743,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
   // Tasks already told "the machine is under the floor" / "the daily spend cap
-  // is reached". Same discipline as the sets above: one line per EPISODE, not
-  // one per 10s poll - a full disk would otherwise write a thousand rows in the
-  // thread. Emptied in the round the block lifts, so the next one speaks again.
-  const floorHeldNoted = new Set<string>();
+  // is reached", and WHICH wait they were told about (`holdKey`). Same
+  // discipline as the sets above: one line per EPISODE, not one per 10s poll - a
+  // full disk would otherwise write a thousand rows in the thread. Emptied in
+  // the round the block lifts, and the entry decays when the wait CHANGES: a
+  // card noted under the 120 s warm-up used to get nothing when the real floor
+  // sentence replaced it, so the reason never arrived.
+  const floorHeldNoted = new Map<string, string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -3793,11 +3895,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * provider hold, the per-card spend cap): the machine sentences on the card
    * do not describe them.
    */
-  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null } | null {
+  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null } | null {
     const own = taskPlanWait(t)?.reason ?? drainBlock();
     if (own) return { reason: own, kind: null };
-    const floor = admissionBlock();
-    if (floor) return { reason: floor, kind: "resources" };
+    // The floor VERDICT, because the resume keys its wait on the resource and
+    // decides on it whether the sentence is worth a line in the thread.
+    const floor = admissionVerdictNow();
+    if (floor.reason) return { reason: floor.reason, kind: "resources", floor: floor.kind };
     const day = spendBrake.dayBlock();
     if (day) return { reason: daySpendSentence(day), kind: "spend" };
     const card = spendBrake.taskBlock(t.agentCostCents);
@@ -3890,7 +3994,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // `heldResumeBlock` believes it only while it matches the sentence the row
       // still carries; refreshing it alone would blank the card's reason.
       const kind = hold?.kind ?? null;
-      const key = holdKey(kind, floorBlock);
+      const key = holdKey(kind, floorBlock, hold?.floor ?? null);
       const last = heldWritten.get(taskId);
       const sameHold = last != null
         && clock() - last.at < HELD_RESUME_REFRESH_MS
@@ -3902,8 +4006,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
         heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
       }
-      if (!rampWait && !waitingForSlot.has(taskId)) {
-        waitingForSlot.add(taskId);
+      // THE WARM-UP NEVER GOES IN THE THREAD. It lasts 120 s, it is guaranteed
+      // at every boot, and the chip already carries it: what a comment adds is
+      // one permanent line saying the window was empty, on a card whose real
+      // reason arrives a minute later. It is also what held the key.
+      //
+      // AND THE REGISTER DECAYS ON THE KEY, not only when the block lifts: a
+      // card already noted under one wait got nothing when the wait BECAME
+      // another one, which is how a card held at boot never read its floor.
+      const noteKey = hold?.floor === "memory_warmup" ? null : key;
+      if (!rampWait && noteKey && waitingForSlot.get(taskId) !== noteKey) {
+        waitingForSlot.set(taskId, noteKey);
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
@@ -4411,7 +4524,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const resourceFloor = admissionBlock();
+    const floorNow = admissionVerdictNow();
+    const resourceFloor = floorNow.reason;
     const daySpendBlock = resourceFloor ? null : spendBrake.dayBlock();
     // The cap "by resources", ONCE per tick like the floor and after it: when
     // the floor or the bill already holds the queue there is nothing left for
@@ -4426,6 +4540,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the line for the thread. Called every tick, `null` included, so the
     // signal never outlives the block it describes.
     const floorNote = publishDispatchBlock(resourceFloor, daySpendBlock, pressure);
+    // WHICH wait the thread line describes, and whether it deserves a line at
+    // all. The 120 s warm-up of the memory window gets none: it is guaranteed at
+    // every boot, the chip already says it, and a permanent comment saying "the
+    // window is empty" on a card whose real reason lands a minute later is the
+    // wrong half of the story. Everything else is keyed so the note is rewritten
+    // when the wait CHANGES, not only when the block finally lifts.
+    const floorNoteKey = resourceFloor
+      ? (floorNow.kind === "memory_warmup" ? null : `resources:${floorNow.kind}`)
+      : daySpendBlock ? "spend" : pressure ? "pressure" : null;
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -4520,8 +4643,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // like the twin path of the resume already does - that discipline was
         // missing here entirely.
         try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
-        if (floorNote && !floorHeldNoted.has(t.id)) {
-          floorHeldNoted.add(t.id);
+        if (floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
+          floorHeldNoted.set(t.id, floorNoteKey);
           try {
             deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: floorNote });
           } catch { /* il task può essersi mosso sotto i piedi */ }
@@ -5466,8 +5589,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // running on a node costs no process, no worktree and no CPU here, and the
     // cap exists to protect exactly those. `running` in
     // GET /api/system/dispatch-capacity reads this number, so both sides of the
-    // requirement come from one predicate.
-    busyCount: () => [...inFlight.values()].filter((slot) => !isNodeSessionKey(slot.sessionKey)).length,
+    // requirement come from one predicate - the same `localTurns()` the memory
+    // floor reads, so "our work is on the machine" and "running" cannot drift
+    // apart into two different counts of the same agents.
+    busyCount: localTurns,
     // ...but `busyIds` stays HONEST about what is in flight: it answers "what
     // is a restart waiting for", and a remote run is something this process is
     // holding a handle on. Hiding it there would make a drain believe the board
