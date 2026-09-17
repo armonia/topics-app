@@ -222,6 +222,14 @@ export interface GithubPort {
   push(cwd: string, sha: string, branch: string, lease?: string): Promise<Got<"pushed" | "non-fast-forward">>;
   remoteHead(cwd: string, branch: string): Promise<Got<string | null>>;
   inReflog(cwd: string, branch: string, sha: string): Promise<Got<boolean>>;
+  /**
+   * True when `sha` is an ancestor of `of` in THIS checkout's object store.
+   *
+   * Exit 1 - «no» - is an answer, not a failure; anything else (a sha this clone
+   * never fetched, a broken repo) is a failed read and MUST NOT be read as a
+   * `false`, because the one caller uses `false` to delete a branch on origin.
+   */
+  contains(cwd: string, sha: string, of: string): Promise<Got<boolean>>;
   /** The open pull request whose head is `branch`, or null. The SAME lookup that opens the draft and the one that closes it. */
   openPullRequest(cwd: string, repo: string, branch: string): Promise<Got<PullRequestRef | null>>;
   draftPullRequest(cwd: string, repo: string, branch: string, title: string, body: string): Promise<Got<PullRequestRef>>;
@@ -354,6 +362,13 @@ export function githubPort(): GithubPort {
       (o) => o.trim().split(/\s+/)[0] || null),
     inReflog: (cwd, branch, sha) => call(["git", "reflog", "show", "--format=%H", `refs/heads/${branch}`], cwd,
       (o) => o.split("\n").some((l) => l.trim() === sha)),
+    contains: async (cwd, sha, of) => {
+      const argv = ["git", "merge-base", "--is-ancestor", sha, of];
+      const r = await spawnCapped(argv, cwd);
+      if (r.code === 0) return { ok: true, value: true };
+      if (r.code === 1) return { ok: true, value: false };
+      return failed(argv, r);
+    },
     closePullRequest: (cwd, repo, pr, comment) => call(
       ["gh", "pr", "close", String(pr), "--repo", repo, "--comment", comment], cwd, () => "closed" as const),
     deleteRemoteBranch: async (cwd, branch) => {
@@ -537,7 +552,7 @@ export interface CloseCiDraftInput {
   /** Posted as the closing comment on the pull request. Unused when `closePr` is false. */
   reason: string;
   /**
-   * Whether to close the pull request, on top of always deleting the branch.
+   * Whether the pull request is this function's to end.
    *
    * NO DEFAULT ON PURPOSE: the answer differs per door and getting it wrong is
    * visible on every card. `false` is for a branch whose commits are on their way
@@ -547,6 +562,10 @@ export interface CloseCiDraftInput {
    * instead, on the ~32 cards that land in a week. `true` is for a branch that
    * will never land - a superseded approval, an archived card, a losing attempt -
    * where nothing else will ever close it.
+   *
+   * IT GOVERNS THE BRANCH TOO, and that is not a detail: deleting a head branch
+   * is itself a way of closing the pull request, so `false` also means «do not
+   * delete the branch until origin/main carries it».
    */
   closePr: boolean;
 }
@@ -613,8 +632,49 @@ export async function closeCiDraft(
       }
     }
   }
+  // KEEPING THE PULL REQUEST MEANS KEEPING THE BRANCH, and until this guard the
+  // flag only moved WHO closed it. GitHub closes a pull request itself when its
+  // head branch is deleted, and it closes it as CLOSED, not merged: measured on
+  // this repo, #27 and #28 - never merged - read `closed` and `head_ref_deleted`
+  // at the same second inside a burst of ten deletions, while #78, which really
+  // landed, has `merged` 33 seconds BEFORE its branch went. The land door can
+  // only produce the first order: `confirmLandedOnMain` re-reads the LOCAL main
+  // and nothing in this server pushes main, so the delete always precedes the
+  // human push. So `closePr: false` now waits for origin to carry the commit,
+  // and a read that does not conclude keeps the branch too - deleting on origin
+  // is the one move here the Mac cannot undo. The branch is not stranded: the
+  // archive door sweeps the same card with `closePr: true`, by which time the
+  // pull request is already MERGED and `--state open` finds nothing to close.
+  if (!input.closePr) {
+    const carried = await originCarries(port, input.cwd, branch);
+    if (!carried.ok) { out.problems.push(carried.error); return out; }
+    if (!carried.value) {
+      out.problems.push(`kept \`${branch}\` on origin: origin/${CI_BASE_BRANCH} does not carry it yet, and deleting it now would close its pull request instead of letting GitHub mark it merged`);
+      return out;
+    }
+  }
   const deleted = await port.deleteRemoteBranch(input.cwd, branch);
   if (!deleted.ok) out.problems.push(deleted.error);
   else out.branchDeleted = deleted.value === "deleted";
   return out;
+}
+
+/**
+ * Does `origin/main` already carry what `origin/<branch>` points at?
+ *
+ * Both tips come from `ls-remote` - the question is about ORIGIN, and
+ * `refs/remotes/origin/main` in this checkout is whatever the last fetch left.
+ * The ancestry itself is local: the merge that landed is on local main, so
+ * origin's older main tip is an object this clone has.
+ */
+async function originCarries(port: GithubPort, cwd: string, branch: string): Promise<Got<boolean>> {
+  const head = await port.remoteHead(cwd, branch);
+  if (!head.ok) return head;
+  // Already gone from origin: there is no head branch left whose deletion could
+  // close anything, and `deleteRemoteBranch` will read it as `absent`.
+  if (!head.value) return { ok: true, value: true };
+  const base = await port.remoteHead(cwd, CI_BASE_BRANCH);
+  if (!base.ok) return base;
+  if (!base.value) return { ok: false, error: `origin has no ${CI_BASE_BRANCH} to compare \`${branch}\` against` };
+  return port.contains(cwd, head.value, base.value);
 }

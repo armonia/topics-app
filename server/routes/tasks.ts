@@ -1848,9 +1848,22 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // the land. A `gh pr close` racing that push would stamp "Closed" on the
         // ~32 cards that land in a week instead. The card's OTHER branches, which
         // no push will ever merge, are closed here.
+        //
+        // NOT AWAITED, and that is the difference between housekeeping and a
+        // stop-the-world. `landTask` runs inside `landings.enqueue`, ONE land at
+        // a time per project, while this sweep is `gh pr list` + `git push
+        // --delete` per branch with a 60 s cap each. On the live DB the worst
+        // card carries 11 branches: with `gh` logged out or rate-limited an
+        // awaited sweep turned a 3-minute queue into a 22-minute one for every
+        // OTHER card waiting behind it, and 124 archived cards carry attempt
+        // branches that never delivered, so those calls buy nothing at all.
+        // Nothing downstream reads its result - the receipt it writes is its own
+        // comment - and the two other doors (superseded approval, archive)
+        // already call it exactly like this.
         if (proof === true) {
-          await sweepRemoteDelivery(projectId, taskId, `Closed by the Topics board: the card landed on main as ${res.commit} from another branch, this one will not land.`,
-            { cwd: res.repoPath, landed: res.branch });
+          void sweepRemoteDelivery(projectId, taskId, `Closed by the Topics board: the card landed on main as ${res.commit} from another branch, this one will not land.`,
+            { cwd: res.repoPath, landed: res.branch })
+            .catch((err) => console.warn(`[land] remote cleanup after a land failed for ${taskId}:`, err));
         }
         if (res.landedNotLive) {
           // Landed on main, but the shared checkout (the live server's cwd) is parked

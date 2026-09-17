@@ -1026,6 +1026,44 @@ describe("the draft and the origin branch are closed at the doors that end the b
     expect(comments(id).filter((c) => c.includes("Pulizia su GitHub"))).toEqual([]);
   });
 
+  /**
+   * THE SWEEP IS HOUSEKEEPING, THE QUEUE IS THE PRODUCT. `landTask` runs inside
+   * `landings.enqueue`, one land at a time per project, and the sweep is `gh pr
+   * list` + `git push --delete` per branch with a 60 s cap each. The worst card
+   * on the live DB carries 11 branches, so an AWAITED sweep with `gh` logged out
+   * or rate-limited held the whole queue for ~22 minutes instead of ~3 - and 124
+   * archived cards carry attempt branches that never delivered, i.e. calls that
+   * buy nothing. Here `gh` never answers at all: the second land must still go.
+   */
+  test("un `gh` che non risponde non tiene ferma la coda seriale dei land", async () => {
+    let release = () => {};
+    const stuck = new Promise<void>((r) => { release = r; });
+    const merged: string[] = [];
+    const router = routerWith({
+      autoMerge: {
+        tryMerge: async (taskId: string) => { merged.push(taskId); return MERGED; },
+        buildClient: async () => ({ code: 0, stderr: "" }),
+      },
+      confirmLandedOnMain: async () => true,
+      closeDelivery: async (i: (typeof swept)[number]) => {
+        swept.push(i);
+        await stuck;
+        return { pr: null, branchDeleted: true, problems: [] };
+      },
+    });
+    const first = await delivered(router);
+    const second = await delivered(router);
+    await call(router, "POST", `/api/boards/${PID}/tasks/${first}/land`, {});
+    await call(router, "POST", `/api/boards/${PID}/tasks/${second}/land`, {});
+    await new Promise((r) => setTimeout(r, 80));
+    // The first card's sweep is still hanging on `gh`...
+    expect(swept.length).toBeGreaterThan(0);
+    // ...and the card behind it in the queue landed anyway.
+    expect(merged).toContain(second);
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
   test("quando invece qualcosa succede, la ricevuta lo dice e nomina il ramo", async () => {
     const router = routerWith();
     const id = await delivered(router);

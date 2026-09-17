@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { E2E_CI_CHECK, UNIT_CI_CHECK } from "../../shared/board";
 import {
+  CI_BASE_BRANCH,
   CI_E2E_DEADLINE_MS,
   awaitCiEvidence,
   ciCheckRun,
@@ -188,6 +189,9 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     push: async (_cwd, sha, branch, lease) => { calls.push.push({ sha, branch, lease }); return { ok: true, value: "pushed" }; },
     remoteHead: async () => ({ ok: true, value: "c".repeat(40) }),
     inReflog: async () => ({ ok: true, value: false }),
+    // The land case by default: the merge is on LOCAL main and nobody has
+    // pushed it yet, so origin/main does not carry the branch.
+    contains: async () => ({ ok: true, value: false }),
     openPullRequest: async () => ({ ok: true, value: null }),
     draftPullRequest: async () => { calls.pr += 1; return { ok: true, value: { number: 5, url: "https://github.com/o/r/pull/5" } }; },
     closePullRequest: async (_cwd, _repo, pr) => { calls.closed.push(pr); return { ok: true, value: "closed" }; },
@@ -571,14 +575,66 @@ describe("closeCiDraft", () => {
    * minute after the land - and a `gh pr close` racing that push would stamp
    * "Closed" on the ~32 cards that land in a week.
    */
-  test("closePr false deletes the branch and never touches the pull request", async () => {
+  test("closePr false never touches the pull request", async () => {
     const { port, calls } = fakePort({
       openPullRequest: async () => ({ ok: true, value: { number: 78, url: "u" } }),
+      contains: async () => ({ ok: true, value: true }),
     });
     const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/landed", reason: "landed", closePr: false }, { port });
     expect(calls.closed).toEqual([]);
     expect(out.pr).toBeNull();
     expect(out.branchDeleted).toBe(true);
+    expect(calls.deleted).toEqual(["topics/landed"]);
+    expect(out.problems).toEqual([]);
+  });
+
+  /**
+   * DELETING THE HEAD BRANCH IS ITSELF A WAY OF CLOSING THE PULL REQUEST, and
+   * GitHub closes it as CLOSED, never as merged. On this repo #27 and #28 - never
+   * merged - read `closed` and `head_ref_deleted` at the SAME second inside a
+   * burst of ten deletions, while #78, which really landed, has `merged` 33
+   * seconds BEFORE its branch went. The land door can only produce the first
+   * order: `confirmLandedOnMain` re-reads the LOCAL main and nothing in this
+   * server pushes main, so the delete always precedes the human push. So a flag
+   * that only stops `gh pr close` moved who did the closing, not whether it
+   * happened - and it lost the `reason` comment on the way.
+   */
+  test("closePr false keeps the branch too until origin/main carries it", async () => {
+    const { port, calls } = fakePort({
+      openPullRequest: async () => ({ ok: true, value: { number: 78, url: "u" } }),
+      contains: async () => ({ ok: true, value: false }),
+    });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/landed", reason: "landed", closePr: false }, { port });
+    expect(calls.deleted).toEqual([]);
+    expect(calls.closed).toEqual([]);
+    expect(out.branchDeleted).toBe(false);
+    expect(out.problems.join(" ")).toContain("does not carry it yet");
+  });
+
+  // The half nobody can undo: a read that does not conclude must not be read as
+  // «origin/main carries it».
+  test("a read that does not conclude keeps the branch", async () => {
+    for (const over of [
+      { remoteHead: async () => ({ ok: false as const, error: "ls-remote exited 128" }) },
+      { contains: async () => ({ ok: false as const, error: "merge-base: not a valid object name" }) },
+      { remoteHead: async (_c: string, b: string) => ({ ok: true as const, value: b === CI_BASE_BRANCH ? null : "a".repeat(40) }) },
+    ]) {
+      const { port, calls } = fakePort(over);
+      const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/landed", reason: "landed", closePr: false }, { port });
+      expect(calls.deleted).toEqual([]);
+      expect(out.branchDeleted).toBe(false);
+      expect(out.problems).toHaveLength(1);
+    }
+  });
+
+  // Nothing on origin means there is no head branch whose deletion could close
+  // anything: the guard must not stand between the caller and an `absent`.
+  test("a branch already gone from origin is not held back by the guard", async () => {
+    const { port, calls } = fakePort({
+      remoteHead: async () => ({ ok: true, value: null }),
+      deleteRemoteBranch: async () => ({ ok: true, value: "absent" as const }),
+    });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/landed", reason: "landed", closePr: false }, { port });
     expect(calls.deleted).toEqual(["topics/landed"]);
     expect(out.problems).toEqual([]);
   });
@@ -669,6 +725,65 @@ describe("closeCiDraft", () => {
       expect(await port.deleteRemoteBranch(wt, "topics/delivered")).toEqual({ ok: true, value: "deleted" });
       expect(git(wt, "ls-remote", "origin", "refs/heads/topics/delivered")).toBe("");
       expect(await port.deleteRemoteBranch(wt, "topics/delivered")).toEqual({ ok: true, value: "absent" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  /**
+   * THE SAME QUESTION ASKED OF GIT INSTEAD OF A STUB, because the stub cannot
+   * fail the way the land does: it is `git push origin --delete` against a real
+   * origin, and origin's main is a real ref that the Mac's local main is ahead
+   * of. `gh` never enters - `closePr` is false and the pull-request half is
+   * skipped - so this runs anywhere.
+   *
+   * The two states are the land's timeline, minute by minute: the merge is on
+   * local main and origin/main still points at the old commit (the branch must
+   * survive), then a person pushes main (the branch may go).
+   */
+  test("on real git the landed branch survives until origin/main carries it, and goes right after", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ci-evidence-landed-"));
+    const wt = join(root, "wt");
+    const bare = join(root, "origin.git");
+    const env: Record<string, string | undefined> = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (cwd: string, ...args: string[]): string => {
+      const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+      return p.stdout.toString().trim();
+    };
+    const onOrigin = (branch: string): boolean => git(wt, "ls-remote", "origin", `refs/heads/${branch}`) !== "";
+    try {
+      mkdirSync(wt);
+      git(root, "init", "-q", "--bare", bare);
+      git(wt, "init", "-q", "-b", CI_BASE_BRANCH);
+      git(wt, "remote", "add", "origin", bare);
+      writeFileSync(join(wt, "a.txt"), "a\n");
+      git(wt, "add", "-A");
+      git(wt, "commit", "-q", "-m", "base");
+      git(wt, "push", "-q", "--no-verify", "origin", CI_BASE_BRANCH);
+      // The delivery: its own branch, pushed, as every card's does.
+      git(wt, "checkout", "-q", "-b", "topics/landed");
+      writeFileSync(join(wt, "b.txt"), "b\n");
+      git(wt, "add", "-A");
+      git(wt, "commit", "-q", "-m", "work");
+      git(wt, "push", "-q", "--no-verify", "origin", "topics/landed");
+      // The land: merged into LOCAL main, and nothing in this server pushes main.
+      git(wt, "checkout", "-q", CI_BASE_BRANCH);
+      git(wt, "merge", "-q", "--no-ff", "-m", "land", "topics/landed");
+      // The checkout must not be sitting on the branch, or the earlier floor answers first.
+      expect(git(wt, "symbolic-ref", "--quiet", "--short", "HEAD")).toBe(CI_BASE_BRANCH);
+
+      const first = await closeCiDraft({ cwd: wt, branch: "topics/landed", reason: "landed", closePr: false });
+      expect(first.branchDeleted).toBe(false);
+      expect(first.problems.join(" ")).toContain("does not carry it yet");
+      expect(onOrigin("topics/landed")).toBe(true);
+
+      // A person pushes main - measured on #78 as a minute after the land.
+      git(wt, "push", "-q", "--no-verify", "origin", CI_BASE_BRANCH);
+      const second = await closeCiDraft({ cwd: wt, branch: "topics/landed", reason: "landed", closePr: false });
+      expect(second.problems).toEqual([]);
+      expect(second.branchDeleted).toBe(true);
+      expect(onOrigin("topics/landed")).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
