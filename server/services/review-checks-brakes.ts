@@ -37,8 +37,25 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  *    next 5 s poll: without the turn a three-command round took the spacing
  *    back every time and the other round waited for its whole local phase
  *    (95 s instead of 35 with three 30 s commands);
- *  - a full 2-minute window whose lowest reading is over the floor.
+ *  - a full 2-minute window whose lowest reading is over the floor, and ONLY
+ *    while the swap verdict is sustained: see the paragraph below.
  * The command's deadline is not running during the wait: it is armed at spawn.
+ *
+ * THE FLOOR IS A NUMBER, "GASPING" IS A VERDICT, and on this Mac only the
+ * verdict ever changes. The floor used to hold on its own, and the reading it
+ * compares against never comes back: `held2m >= 6 GB` zero times in 1455
+ * `[memsig]` lines over 25.7 hours of 16-17/09/2026. So the brake did not brake,
+ * it timed out: on the first delivery to go through the CI rows (card c4f53a85,
+ * 23:41:29Z-00:26Z of 16-17/09) the four local commands spent the round's WHOLE
+ * 30-minute budget waiting against some 195 s of running - typecheck released
+ * after 372 s, `check:deadcode` and `static-rails` only by the fail-open, which
+ * is why the same "no room after 30 min" line names two commands in a row. Over
+ * the 46 `[memsig]` samples of that round `held2m` was under 6 GB in 43, and 41
+ * of those 43 read `swap=calm`: the machine was not swapping, which is the
+ * problem this brake exists to avoid. So the floor is read INSIDE the sustained
+ * branch, where the round is held anyway and the GB tell you how deep it is;
+ * with a calm verdict a reading under the floor starts the command. A brake that
+ * always fires its own fail-open is a timer in disguise.
  *
  * There is no per-command price: with the unit suite read from the pull request
  * CI (`github-ci:unit`) no delivery command on topics-app holds more than 1 GB
@@ -60,7 +77,8 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
 export interface MemoryFloor {
   held: () => HeldMemory;
   swap: () => SwapVerdict;
-  /** Under this, a new command waits. */
+  /** Under this, a new command waits - but only while the swap verdict is
+   *  sustained: on a calm Mac the reading holds nothing. */
   floorGB: number;
   /** Total wait of one round before running anyway on room. Default `MEMORY_WAIT_MAX_MS`. */
   maxWaitMs?: number;
@@ -104,13 +122,19 @@ export function releaseDecision(i: {
   // The budget comes FIRST, before every reason to hold: see the fail-open
   // paragraph above. Nothing here can hold a round longer than `maxWaitMs`.
   if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
-  if (i.swap.sustained) return { release: false, wait: "swap", anyway: false };
+  // The floor lives here, inside the sustained verdict, and nowhere else: a Mac
+  // that is not swapping starts the command whatever the reading says. Both
+  // reasons hold the round the same, the difference is which line the log gets.
+  if (i.swap.sustained) {
+    const under = i.held.heldGB != null && i.held.heldGB < i.floorGB;
+    return { release: false, wait: under ? "room" : "swap", anyway: false };
+  }
   if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) {
     return { release: false, wait: "spacing", anyway: false };
   }
-  const room: WaitReason | null = i.held.heldGB == null ? "measuring" : i.held.heldGB < i.floorGB ? "room" : null;
-  if (!room) return i.olderWaiter ? { release: false, wait: "turn", anyway: false } : { release: true, wait: null, anyway: false };
-  return { release: false, wait: room, anyway: false };
+  // Still no release on a single reading: an empty window is not a calm one.
+  if (i.held.heldGB == null) return { release: false, wait: "measuring", anyway: false };
+  return i.olderWaiter ? { release: false, wait: "turn", anyway: false } : { release: true, wait: null, anyway: false };
 }
 
 function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: SwapVerdict, floorGB: number, now: number): string {
@@ -125,7 +149,9 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
     case "measuring":
       return `[review-checks] "${name}" waits: free memory measured for ${Math.round(held.coveredMs / 1000)} s of the 120 s window`;
     case "room":
-      return `[review-checks] "${name}" waits: lowest free memory of the last 2 min ${gb(held.heldGB)} GB, under the ${floorGB} GB floor`;
+      // The floor only speaks under a sustained verdict, so the line carries
+      // both halves: the swap is the condition, the GB say how deep it is.
+      return `[review-checks] "${name}" waits: lowest free memory of the last 2 min ${gb(held.heldGB)} GB, under the ${floorGB} GB floor, and the Mac is in sustained swap (${swapSigns(swap)})`;
   }
 }
 
@@ -359,7 +385,9 @@ export function createSwapBrake(deps: {
       try {
         deps.note(taskId,
           `Check interrotti, non rossi: ${swapReasonIt(v)} e \`${victim.name}\` teneva ${gb(treeGB(victim))} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
-          "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap e c'è memoria per il primo comando da 2 minuti. " + // allow-italian: board notes are written in Italian like every other service comment
+          // The second half of this sentence ("and there is memory for the first command")
+          // was the floor holding on its own, which no longer happens: the swap is the condition.
+          "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap. " + // allow-italian: board notes are written in Italian like every other service comment
           `Interruzione ${n} di ${SWAP_INTERRUPTS_PER_DELIVERY}: dopo la seconda il giro va fino in fondo comunque.`); // allow-italian: board notes are written in Italian like every other service comment
       } catch { /* a note that cannot be written must not stop the brake */ }
       return { interrupted: true, skipped: null };

@@ -79,12 +79,16 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     throw new Error(`never happened: ${what}`);
   }
 
-  /** Free memory under the floor, on a clock this test owns. */
+  /** A machine that holds the round back, or one that lets it go, on a clock
+   *  this test owns. The floor is read only inside a sustained verdict
+   *  (review-checks-brakes.ts): on a calm Mac a reading under the floor starts
+   *  the command, so the two poses here are "swapping and under the floor" and
+   *  "calm and roomy" - what the machine looked like before and after the reload. */
   function memoryFloor(heldGB: () => number) {
     const clock = { now: 0 };
     return {
       held: () => ({ measurable: true, latestGB: heldGB(), heldGB: heldGB(), coveredMs: 120_000 }),
-      swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 }),
+      swap: () => ({ sustained: heldGB() < 6, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 }),
       floorGB: 6,
       pollMs: 5_000,
       // The waiter fails open on room after 30 minutes of ITS clock, and its

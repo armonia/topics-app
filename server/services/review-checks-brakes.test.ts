@@ -105,15 +105,16 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     expect(runs[0].tail).toContain("slots=0");
   });
 
-  test("under the memory floor a command waits before starting, and the wait is not its time", async () => {
+  test("under the memory floor of a swapping Mac a command waits before starting, and the wait is not its time", async () => {
     // 1.5 s under the floor against a 1 s cap: the command only starts once the
-    // memory is back, so the cap (armed at spawn) never sees the wait.
+    // swap is over, so the cap (armed at spawn) never sees the wait. The reading
+    // stays at 2 GB throughout: under a calm verdict the floor alone no longer waits.
     const releaseAt = Date.now() + stretched(1500);
     const started = Date.now();
     const runs = await runReviewChecks([{ name: "dopo la memoria", cmd: "true" }], {
       cwd,
       timeoutMs: stretched(1000),
-      memoryFloor: { held: () => fullWindow(Date.now() < releaseAt ? 2 : 20), swap: () => CALM, floorGB: 6, pollMs: 25 },
+      memoryFloor: { held: () => fullWindow(2), swap: () => (Date.now() < releaseAt ? SUSTAINED : CALM), floorGB: 6, pollMs: 25 },
     });
     expect(Date.now() - started).toBeGreaterThanOrEqual(stretched(1500));
     expect(runs[0].ok).toBe(true);
@@ -124,7 +125,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     const started = Date.now();
     const runs = await runReviewChecks(
       [{ name: "a", cmd: "true" }, { name: "b", cmd: "true" }, { name: "c", cmd: "true" }],
-      { cwd, memoryFloor: { held: () => fullWindow(1), swap: () => CALM, floorGB: 6, maxWaitMs: stretched(800), pollMs: 25 } },
+      { cwd, memoryFloor: { held: () => fullWindow(1), swap: () => SUSTAINED, floorGB: 6, maxWaitMs: stretched(800), pollMs: 25 } },
     );
     expect(runs.map((r) => r.ok)).toEqual([true, true, true]);
     // One limit for the round (0.8 s), not one per command (2.4 s). Both sides
@@ -256,31 +257,73 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     return (clock.now() - from) / 1000;
   }
 
-  test("room is the floor alone: 6.0 releases, 5.9 waits, an empty window waits, off macOS nothing waits", () => {
-    const base = { swap: CALM, floorGB: 6, otherRoundRelease: null, now: 0, spentMs: 0, maxWaitMs: 1_000 };
-    expect(releaseDecision({ ...base, held: fullWindow(6) }).release).toBe(true);
-    expect(releaseDecision({ ...base, held: fullWindow(5.9) }).wait).toBe("room");
-    expect(releaseDecision({ ...base, held: { measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 } }).wait).toBe("measuring");
+  test("the floor is read inside the swap verdict: 5.9 calm releases, 5.9 sustained waits on room, 11 sustained waits on swap, an empty window waits, off macOS nothing waits", () => {
+    const base = { floorGB: 6, otherRoundRelease: null, now: 0, spentMs: 0, maxWaitMs: 1_000 };
+    // The reading that held every round of 16-17/09 and never came back: 43 of
+    // the 46 `[memsig]` samples of card c4f53a85's round were under 6 GB, 41 of
+    // them with `swap=calm`. Calm is the machine this brake has nothing to do on.
+    expect(releaseDecision({ ...base, swap: CALM, held: fullWindow(5.9) }).release).toBe(true);
+    expect(releaseDecision({ ...base, swap: CALM, held: fullWindow(6) }).release).toBe(true);
+    expect(releaseDecision({ ...base, swap: SUSTAINED, held: fullWindow(5.9) }).wait).toBe("room");
+    expect(releaseDecision({ ...base, swap: SUSTAINED, held: fullWindow(11) }).wait).toBe("swap");
+    expect(releaseDecision({ ...base, swap: CALM, held: { measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 } }).wait).toBe("measuring");
     expect(releaseDecision({ ...base, held: { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 }, swap: SUSTAINED }).release).toBe(true);
+    // The 30-minute valve is per ROUND and covers the floor too, unchanged.
+    expect(releaseDecision({ ...base, swap: SUSTAINED, held: fullWindow(5.9), spentMs: 1_000 }))
+      .toEqual({ release: true, wait: null, anyway: true });
   });
 
-  test("W1, the 15/09 deadcode: one reading at 6.0 after 5.2 does not release; 120 s of readings at 6.6 do, and the release is logged", async () => {
+  test("T5.2, the 17/09 round: the same 5.2 GB window starts at once on a calm Mac and waits out the valve on a swapping one", async () => {
+    // Card c4f53a85, 23:41:29Z-00:26Z of 16-17/09/2026: the four local commands
+    // spent the round's whole 30-minute budget waiting against some 195 s of
+    // running, with `[memsig]` reading `swap=calm` in 41 of the 43 samples that
+    // were under the floor. Both halves of the change are one window here.
+    for (const swapping of [false, true]) {
+      _resetReleaseSpacing();
+      warn.mockClear();
+      const clock = steppedClock();
+      // 5.2 for two minutes: the shape of the readings the floor never cleared.
+      const held = windowOver(clock, clock.now() - 130_000, () => 5.2);
+      const wait = memoryWaiter({
+        held, swap: () => (swapping ? SUSTAINED : CALM),
+        floorGB: 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+      });
+      let released = false;
+      void wait("check:deadcode").then(() => { released = true; });
+      await clock.settle();
+      expect(released).toBe(swapping ? false : true);
+      const waited = await runUntil(clock, () => released, 60 * 60_000);
+      expect(released).toBe(true);
+      expect(waited).toBe(swapping ? 30 * 60 : 0);
+      // A calm Mac under the floor says nothing at all: no wait, no line.
+      expect(lines().some((l) => l.includes("check:deadcode"))).toBe(swapping);
+      if (swapping) {
+        expect(lines().some((l) => l.includes('"check:deadcode" waits: lowest free memory of the last 2 min 5.2 GB, under the 6 GB floor, and the Mac is in sustained swap (swapins 33.6/s'))).toBe(true);
+        expect(lines().some((l) => l.includes('no room after 30 min: "check:deadcode" starts anyway'))).toBe(true);
+      }
+    }
+  });
+
+  test("the valve is per ROUND, not per command: the second command of a round that has spent the budget does not wait at all", async () => {
+    // The live log printed the same "no room after 30 min" line for
+    // `check:deadcode` and `static-rails` back to back on 17/09: the second one
+    // never waited, `spentMs` was already spent by the first.
     const clock = steppedClock();
-    const start = clock.now();
-    // 5.2 for two minutes, 6.0 at 130 s (now), then 6.6.
-    const held = windowOver(clock, start - 130_000, (sec) => (sec < 130 ? 5.2 : sec === 130 ? 6.0 : 6.6));
-    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
-    let released = false;
-    void wait("deadcode").then(() => { released = true; });
-    await clock.settle();
-    expect(released).toBe(false);
-    const waited = await runUntil(clock, () => released, 10 * 60_000);
-    expect(released).toBe(true);
-    // The 6.0 reading is now: the window holds no 5.2 any more 120 s from now.
-    expect(waited).toBeGreaterThanOrEqual(120);
-    expect(waited).toBeLessThanOrEqual(125);
-    expect(lines().some((l) => l.includes('"deadcode" waits: lowest free memory of the last 2 min 5.2 GB'))).toBe(true);
-    expect(lines().some((l) => l.includes('"deadcode" starts after'))).toBe(true);
+    const wait = memoryWaiter({
+      held: () => fullWindow(5.2), swap: () => SUSTAINED,
+      floorGB: 6, maxWaitMs: 10 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+    });
+    const t0 = clock.now();
+    const at: Record<string, number> = {};
+    void (async () => {
+      (await wait("check:deadcode"))();
+      at.deadcode = (clock.now() - t0) / 1000;
+      await wait("static-rails");
+      at.rails = (clock.now() - t0) / 1000;
+    })();
+    await runUntil(clock, () => at.rails !== undefined, 60 * 60_000);
+    expect(at.deadcode).toBe(10 * 60);
+    expect(at.rails).toBe(10 * 60);
   });
 
   test("W3: two rounds waiting on a roomy window release one command, and the other goes when it exits or 120 s later", async () => {
@@ -412,19 +455,22 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     expect(lines().some((l) => l.includes("starts anyway"))).toBe(false);
   });
 
-  test("W5, restart after an interruption: the thrash readings keep the first command waiting 120 s after the last of them", async () => {
+  test("W5, restart after an interruption: it is the swap that holds the first command, not the readings the thrash left behind", async () => {
+    // This used to wait 120 s for the 4.0 readings to leave the window even on
+    // a calm Mac, and that is the wait the 17/09 measurement killed: the window
+    // is no longer what releases. The interrupted round restarts as soon as the
+    // episode that interrupted it is over, with the thrash readings still in it.
     const clock = steppedClock();
-    const start = clock.now() - 120_000;
+    const t0 = clock.now();
     // Two minutes at 4.0 (the kill came at the end of them), then 14.0.
-    const held = windowOver(clock, start, (sec) => (sec < 120 ? 4.0 : 14.0));
-    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const held = windowOver(clock, t0 - 120_000, (sec) => (sec < 120 ? 4.0 : 14.0));
+    const swap = () => (clock.now() - t0 < 60_000 ? SUSTAINED : CALM);
+    const wait = memoryWaiter({ held, swap, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
     const waited = await runUntil(clock, () => released, 10 * 60_000);
-    // The last 4.0 reading is 10 s before now; the first sample of a clean
-    // window is the 14.0 of now, so the release comes 120 s from now.
-    expect(waited).toBeGreaterThanOrEqual(120);
-    expect(waited).toBeLessThanOrEqual(125);
+    expect(waited).toBe(60);
+    expect(lines().some((l) => l.includes('"test:unit" waits: lowest free memory of the last 2 min 4.0 GB, under the 6 GB floor, and the Mac is in sustained swap'))).toBe(true);
   });
 });
 
