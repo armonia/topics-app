@@ -53,7 +53,7 @@ import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
 // the human channel, in ./permission.
-import { deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
+import { deliverAnswer, hasPendingAsk, cancelAsk, openAskToolCallId, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
 // "Waiting on you" is also read off the ROW: the panel's questions travel over
 // the MCP bridge, not the provider's native channel, and after a restart no
 // in-memory map remembers them. See lib/waiting-ask.ts.
@@ -2546,6 +2546,32 @@ export function createTopicsRouter(
         } catch { return false; }
       })();
       if (answeringBridgeAsk) {
+        // AND THE ANSWER NAMES THE QUESTION, here too.
+        //
+        // The rendez-vous is keyed by SESSION, not by question: until now an
+        // open ask was enough, and the `toolCallId` of the clicked panel only
+        // decided WHETHER that row is a bridge panel, never FOR WHICH question.
+        // With two panels on screen - the send confirmation that is waiting,
+        // and the generic ask the gate parks whose form the stream detector has
+        // already painted - the yes given to the generic one was delivered to
+        // the SEND: measured with both real routes and no card, the send refused
+        // with "the answer that came back was not about this message" and the
+        // generic question stayed unanswered. One click, two questions damaged.
+        //
+        // The board road already has this rule (`answerTo`, routes/tasks.ts):
+        // the yes belongs to THAT question. When nobody named a panel
+        // (`undefined`) the answer is delivered as it always was - that is the
+        // generic leg, which only reaches the wait when no confirmation of this
+        // session holds the gate's lock, so its question is the only one that
+        // can be waiting.
+        const openFor = openAskToolCallId(sessionKey);
+        if (openFor && openFor !== toolCallId) {
+          // Nothing delivered and NO wait killed: the live one stays live and
+          // the person can still answer the right panel. The 409 reaches the
+          // form as an inline error (`ToolInputForm` shows the ApiError
+          // message), which is the opposite of the silence it replaces.
+          return json({ error: ASK_NOT_CURRENT_LINE, code: "ask_not_current" }, 409);
+        }
         const submittedAt = new Date().toISOString();
         const answers = (response.answers || {}) as Record<string, string>;
         const normalised = {

@@ -192,7 +192,39 @@ Se chi occupa la card è un'altra sessione, il rendez-vous è un altro e non c'�
 niente da temere: quella gamba SHALL registrarsi normalmente. Due sessioni dello
 stesso task esistono per costruzione, e trattarle come una sola significa una
 domanda che non raggiunge mai nessuno per tutto il tempo in cui l'altra tiene la
-card.
+card. Il lucchetto SHALL essere letto sulla SUA sessione e SHALL onorare la
+propria scadenza — le due condizioni sono altrettanti difetti quando cadono:
+senza la sessione, un invio parcheggia le domande di TUTTE le altre; senza la
+scadenza, un invio il cui agente muore fra due gambe lascia quella sessione senza
+domande fino al riavvio, perché niente ripulisce un lucchetto morto. Un lucchetto
+scaduto SHALL uscire dalla mappa e non solo essere ignorato.
+
+ANCHE IN CHAT LA RISPOSTA NOMINA LA DOMANDA. La regola della strada della board
+(«una risposta che nomina un id diverso da quello della domanda aperta NON SHALL
+essere consegnata») SHALL valere identica sulla strada della chat, dove mancava
+del tutto: lì il rendez-vous è chiavato sulla SESSIONE, la rotta della risposta
+porta il `toolCallId` del pannello cliccato ma lo usava solo per decidere SE quella
+riga è un pannello del bridge, mai PER QUALE domanda. La conseguenza è la stessa
+di prima con i ruoli invertiti: la domanda generica che il punto qui sopra
+parcheggia ha comunque il suo form a schermo — lo dipinge il rilevatore dello
+stream sul `tool_use`, non la rotta della gamba — e il sì dato a QUEL pannello
+veniva consegnato alla conferma d'invio, che lo rifiutava («non riguarda questo
+messaggio») mentre la generica restava senza risposta. Un clic, due domande rotte.
+Quindi:
+
+- l'attesa che possiede il rendez-vous SHALL poter NOMINARE la riga su cui la sua
+  domanda è dipinta, e il cancello d'invio — che il pannello lo dipinge lui —
+  SHALL nominarla;
+- una risposta che arriva da un'altra riga NON SHALL essere consegnata, NON SHALL
+  far partire niente e NON SHALL annullare l'attesa viva: chi ha cliccato SHALL
+  ricevere un errore leggibile, perché il silenzio è ciò che rendeva caro il
+  difetto sulla board;
+- una risposta che arriva mentre nessuno ha nominato una riga SHALL essere
+  consegnata all'attesa aperta, che per il lucchetto è l'unica che possa esserci:
+  è il caso della gamba generica, che una riga da nominare non ce l'ha e arriva
+  all'attesa solo quando nessuna conferma di quella sessione tiene il lucchetto;
+- un'attesa che non nomina nessuna riga SHALL cancellare il nome lasciato da
+  quella prima, o un invio abbandonato renderebbe muta la domanda che gli succede.
 
 I TASTI NON SHALL RESTARE SU UN BLOCCO MORTO. Quando la domanda di una richiesta
 finisce senza che qualcuno abbia risposto NEL THREAD — scaduta, annullata,

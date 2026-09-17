@@ -279,6 +279,11 @@ export function _resetOutboundHolds(): void {
   holds.clear();
 }
 
+/** Tests only: the size of that memory, so "it empties" can be an assertion. */
+export function _outboundHoldCount(): number {
+  return holds.size;
+}
+
 /**
  * IS A SEND CONFIRMATION OF THIS SESSION WAITING RIGHT NOW?
  *
@@ -295,10 +300,18 @@ export function _resetOutboundHolds(): void {
  * know is whose rendez-vous would be cut, which is the holder's session.
  */
 export function outboundHoldOfSession(sessionKey: string, now = Date.now()): boolean {
-  for (const hold of holds.values()) {
-    if (hold.sessionKey === sessionKey && hold.expiresAt > now) return true;
+  let held = false;
+  for (const [key, hold] of holds) {
+    // AND THE DEAD ONES GO, here and nowhere else. `releaseHold` only removes
+    // the entry of a request that finishes, `acquireHold` only overwrites the
+    // key it was asked for: a send whose agent died between two legs leaves a
+    // lapsed entry that nothing ever collects. Harmless to correctness (an
+    // expired hold blocks nobody) and process memory that never comes back.
+    // This scan already walks every entry with the clock in hand.
+    if (hold.expiresAt <= now) { holds.delete(key); continue; }
+    if (hold.sessionKey === sessionKey) held = true;
   }
-  return false;
+  return held;
 }
 
 /** The key the board channel answers under. Carries the digest on purpose. */
@@ -492,7 +505,17 @@ async function confirmHeld(
   }
 
   try {
-    const answers = await waitForAnswer(request.sessionKey, { timeoutMs: request.legMs });
+    // AND THE WAIT NAMES ITS PANEL. The chat road delivers by SESSION, so a
+    // click on any other panel of this session used to land here: the generic
+    // `ask_user_question` this gate parks keeps its own form on screen (the
+    // stream detector painted it), and the yes given to THAT one arrived as the
+    // answer to this send - refused as "not about this message", with the
+    // generic question left unanswered. `target` is the row this confirmation is
+    // drawn on, which is the identity `/api/chat/tool-response` carries back.
+    const answers = await waitForAnswer(request.sessionKey, {
+      timeoutMs: request.legMs,
+      ...(target ? { toolCallId: target.toolCallId } : {}),
+    });
     // THIS QUESTION IS OVER, whatever the answer says, and the card has to say
     // so. Leaving the entry behind means the NEXT message's question is
     // silently not posted, because the registry still believes one is open;

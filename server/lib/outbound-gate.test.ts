@@ -18,7 +18,7 @@
   * @covers OUTBOUND-03
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { confirmOutbound, confirmKey, confirmQuestion, findWaitingToolRow, CONFIRM_LABEL, REFUSE_LABEL, CONFIRM_ANSWERED_ELSEWHERE_LINE, _resetOutboundHolds, type OutboundGateDeps } from "./outbound-gate";
+import { confirmOutbound, confirmKey, confirmQuestion, findWaitingToolRow, outboundHoldOfSession, CONFIRM_LABEL, REFUSE_LABEL, CONFIRM_ANSWERED_ELSEWHERE_LINE, _resetOutboundHolds, _outboundHoldCount, type OutboundGateDeps } from "./outbound-gate";
 import { deliverAnswer, hasPendingAsk, cancelAsk } from "./ask-user-bridge";
 import { _resetRoutedAsks, routeAskToTaskThread } from "../services/board-ask-routing";
 
@@ -180,6 +180,55 @@ describe("confirmOutbound", () => {
     // Past the declared leg plus the grace, the surface is free again.
     clock += 2_000;
     expect((await confirmOutbound(deps, { ...request(sessionKey), legMs: 20 })).state).toBe("pending");
+    cancelAsk(sessionKey, "fine del test");
+  });
+
+  /**
+   * THE TWO PREDICATES OF `outboundHoldOfSession`, AND NEITHER WAS MEASURED.
+   *
+   * That function is what tells a generic `ask_user_question` that a send
+   * confirmation of its own session is on screen, so it must park instead of
+   * superseding the rendez-vous. It reads by SESSION and it reads the CLOCK, and
+   * removing either left the whole branch suite green:
+   *
+   *   - without the session comparison, ONE session's send parks the questions
+   *     of EVERY other session on the machine - the map is global, and the
+   *     coordinator plus its children are several sessions by construction;
+   *   - without the expiry, an agent that dies between two legs leaves a lapsed
+   *     entry that nothing collects, and that session never asks another
+   *     question until the server restarts.
+   *
+   * The clock is the test's, not the wall's: faking the lapse by clearing the
+   * map would prove the reset, exactly the gap this closes.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("il lucchetto parla per la SUA sessione e solo finche' e' vivo, poi esce dalla mappa", async () => {
+    const { deps } = makeDeps({ card: false, row: runningRow("tool-99") });
+    let clock = 2_000_000;
+    deps.now = () => clock;
+    const sessionKey = "chat-session-4";
+    const stranger = "chat-session-5";
+    const legMs = 20;
+
+    // A send of `sessionKey` is on screen: its leg expired with the question up,
+    // so the hold is its own and alive.
+    expect((await confirmOutbound(deps, { ...request(sessionKey), legMs })).state).toBe("pending");
+    expect(_outboundHoldCount()).toBe(1);
+
+    // MINE, yes. Somebody else's, no: a hold is never an answer about another
+    // session's questions.
+    expect(outboundHoldOfSession(sessionKey, clock)).toBe(true);
+    expect(outboundHoldOfSession(stranger, clock)).toBe(false);
+
+    // Still mine for the last millisecond of the lease (leg + 30s of grace)...
+    expect(outboundHoldOfSession(sessionKey, clock + legMs + 30_000 - 1)).toBe(true);
+    // ...and not one millisecond past it: the agent never came back.
+    expect(outboundHoldOfSession(sessionKey, clock + legMs + 30_000)).toBe(false);
+    // And the dead entry is GONE, not merely ignored: nothing else collects it,
+    // and a map that only grows is memory that never comes back.
+    expect(_outboundHoldCount()).toBe(0);
+
     cancelAsk(sessionKey, "fine del test");
   });
 

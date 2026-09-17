@@ -30,6 +30,14 @@ export interface AskUserBridgeOptions {
   timeoutMs?: number;
   /** How long a delivered-but-unclaimed answer stays buffered (ms). */
   bufferTtlMs?: number;
+  /**
+   * THE PANEL THIS WAIT IS ABOUT: the id of the `tool_use` row the question was
+   * painted on. Declared by a caller that KNOWS it (the outbound gate paints the
+   * panel itself, so it does); absent from a caller that does not, and then the
+   * open wait answers for whatever panel the person clicked - see
+   * `openAskToolCallId`.
+   */
+  toolCallId?: string;
 }
 
 /**
@@ -113,10 +121,21 @@ const buffered = new Map<string, BufferedAnswer>();
  * are millisecond gaps between legs where no waiter is registered, and during
  * those gaps the ask is still very much pending. Anything reasoning about "is a
  * question on screen right now?" (the turn watchdog, the tool-response route)
- * must read THIS, not the waiter map. Value = when the ask opened, so the TTL
- * spans the whole ask rather than restarting on every leg.
+ * must read THIS, not the waiter map. The value carries when the ask opened, so
+ * the TTL spans the whole ask rather than restarting on every leg, and which
+ * panel the current wait is about.
  */
-const activeAsks = new Map<string, number>();
+const activeAsks = new Map<string, OpenAsk>();
+
+interface OpenAsk {
+  /** When the ask opened, so the TTL spans the ask and not a single leg. */
+  startedAt: number;
+  /**
+   * The tool row the panel of THIS question sits on, when the wait that owns the
+   * rendez-vous declared one. See `openAskToolCallId` for what reads it.
+   */
+  toolCallId?: string;
+}
 
 /**
  * Open an ask, or confirm the one already open. Called at the top of every poll
@@ -127,16 +146,16 @@ const activeAsks = new Map<string, number>();
  * and reports a clean expiry instead of polling into the CLI child's death.
  */
 export function beginAsk(sessionKey: string, ttlMs = DEFAULT_ASK_TTL_MS, now = Date.now()): boolean {
-  const startedAt = activeAsks.get(sessionKey);
-  if (startedAt === undefined) {
-    activeAsks.set(sessionKey, now);
+  const open = activeAsks.get(sessionKey);
+  if (open === undefined) {
+    activeAsks.set(sessionKey, { startedAt: now });
     // Da qui in poi il turno è fermo su una persona. Chi guarda la BOARD non ha
     // modo di accorgersene da sé: il task resterebbe `working` sotto un pannello
     // aperto. Vedi human-hold-events.ts.
     emitHumanHoldChange({ sessionKey, phase: "held", source: "ask" });
     return true;
   }
-  return now - startedAt < ttlMs;
+  return now - open.startedAt < ttlMs;
 }
 
 /** Close an ask: answered, cancelled, or expired. Idempotent. */
@@ -179,6 +198,25 @@ export function waitForAnswer(
     existing.reject(new AskWaitError("superseded", "ask_user_question: superseded by a newer question"));
   }
 
+  // THE WAIT THAT OWNS THE RENDEZ-VOUS NAMES ITS PANEL, and the name outlives
+  // the leg: a polling bridge spends a sliver of every cycle with no waiter
+  // registered, and an answer that lands in that sliver is buffered for the next
+  // leg. If the identity lived on the waiter, that answer would be matched
+  // against nothing. It lives on the ask, which is the thing on screen.
+  //
+  // A wait WITHOUT an identity clears it, and that is the fallback branch on
+  // purpose: from here the caller is saying "the open question is mine and I
+  // cannot name its row", so the answer goes to it whatever panel it came from.
+  // That is the pre-existing behaviour and it stays true for the one caller in
+  // that shape (the generic ask leg, `routes/permission.ts`), which only reaches
+  // the wait when NO send confirmation of this session holds the gate's lock -
+  // so the question it owns is the only one that can be waiting.
+  const open = activeAsks.get(sessionKey);
+  if (open) {
+    if (opts.toolCallId) open.toolCallId = opts.toolCallId;
+    else delete open.toolCallId;
+  }
+
   return new Promise<Record<string, string>>((resolve, reject) => {
     const timer = setTimeout(() => {
       waiters.delete(sessionKey);
@@ -187,6 +225,44 @@ export function waitForAnswer(
     waiters.set(sessionKey, { resolve, reject, timer });
   });
 }
+
+/**
+ * WHICH PANEL THE OPEN QUESTION OF THIS SESSION IS, or `undefined` when nobody
+ * has named one.
+ *
+ * WHY IT EXISTS. The rendez-vous is keyed by SESSION, so "there is a question
+ * waiting" and "this is the question being answered" were the same fact for the
+ * chat road: `/api/chat/tool-response` carried the `toolCallId` of the panel the
+ * person clicked and used it only to decide WHETHER the row is a bridge panel,
+ * never FOR WHICH question. Measured with both real routes and no card: while a
+ * send confirmation was waiting, the generic `ask_user_question` parked by the
+ * gate still had ITS panel on screen (the stream detector paints it, not the ask
+ * route), the person clicked that one, and the yes was delivered to the send -
+ * which refused with "the answer that came back was not about this message"
+ * while the generic question stayed unanswered. One click, two questions
+ * damaged.
+ *
+ * The board road already had the rule (`answerTo`, `routes/tasks.ts`): the yes
+ * belongs to THAT question. This is the same rule for the second channel.
+ *
+ * `undefined` means the answer is delivered to whoever is waiting, which is the
+ * behaviour every caller had before: see the fallback branch in `waitForAnswer`.
+ */
+export function openAskToolCallId(sessionKey: string): string | undefined {
+  return activeAsks.get(sessionKey)?.toolCallId;
+}
+
+/**
+ * What the chat says to somebody who answered a panel that is not the question
+ * waiting right now - an old turn's, or one already answered.
+ *
+ * Its twin on the board road is `DEAD_QUESTION_LINE` in `board-ask-routing.ts`,
+ * and it says the same two things: nothing was delivered, and nothing was sent.
+ * Silence here is what made the defect expensive - the person had every reason
+ * to believe they had answered.
+ */
+export const ASK_NOT_CURRENT_LINE =
+  "Questa risposta era per una domanda che non e' quella aperta adesso in questa chat: non e' stata consegnata e non e' partito niente.";
 
 /**
  * Called by the tool-response route when the human submits. Returns true if a
@@ -259,8 +335,8 @@ export function pendingAskKeys(): string[] {
  * Bounding the exemption by this age gives the sweeper its teeth back.
  */
 export function pendingAskAgeMs(sessionKey: string, now = Date.now()): number | null {
-  const startedAt = activeAsks.get(sessionKey);
-  return startedAt === undefined ? null : now - startedAt;
+  const open = activeAsks.get(sessionKey);
+  return open === undefined ? null : now - open.startedAt;
 }
 
 /**
