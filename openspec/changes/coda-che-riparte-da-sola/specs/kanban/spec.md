@@ -83,19 +83,37 @@ Un giro che aspetta il pavimento con lo swap calmo NON SHALL aspettare piu' di
 tre minuti prima di partire comunque; con lo swap sostenuto SHALL restare la
 valvola dei trenta minuti che c'e' oggi. La ragione e' che le due attese non
 comprano la stessa cosa: sotto thrash la macchina sta davvero restituendo memoria
-e aspettare serve, mentre a swap calmo la lettura non migliora da sola — su
-questa macchina il minimo su 2 minuti non ha toccato i 6 GB nemmeno una volta su
-1455 letture in 25,7 ore, quindi i trenta minuti e i tre finiscono identici
-tranne che per ventisette minuti buttati. Misurato sulla consegna del 17/09:
-ottanta secondi di esecuzione dentro un giro di trentadue minuti.
+e aspettare serve, mentre a swap calmo la lettura migliora di rado e, quando non
+migliora, non migliora per ore — sulle 1553 finestre `[memsig]` del 16-17/09
+(07:27Z-11:56Z, 28,5 ore) il minimo su 2 minuti tocca i 6 GB nel 15,5% delle
+letture, e il tratto ininterrotto SOTTO il pavimento e' di 854 campioni, circa
+quattordici ore. Dentro un tratto cosi', e li' questa macchina ci vive, i trenta
+minuti e i tre finiscono identici tranne che per ventisette minuti buttati.
+Misurato sulla consegna del 17/09: ottanta secondi di esecuzione dentro un giro
+di trentadue minuti.
 
 Resta invariato tutto il resto: la spaziatura fra due rilasci, la regola che una
 lettura non disponibile non fa aspettare, e il fatto che la valvola si conta per
 GIRO e non per comando.
 
+Ma le due valvole SHALL avere un orologio ciascuna. Con un contatore solo, il
+tempo passato ad aspettare una condizione paga l'altra: un giro fermo dieci
+minuti sotto swap sostenuto, con la lettura immobile a 5,2 GB sotto un pavimento
+di 6, partiva NELL'ISTANTE in cui il verdetto tornava calmo — i dieci minuti
+spesi sullo swap avevano gia' coperto la valvola da tre, e il pavimento non
+l'aveva trattenuto per un secondo. Un episodio di thrash comprava cosi'
+l'esenzione dal pavimento per tutto il resto del giro, che e' il contrario di
+cio' che servono a fare i due freni. Il tempo SHALL essere addebitato alla
+condizione in vigore MENTRE passava, non a quella su cui l'attesa finisce.
+
 E la riga che annuncia il fail-open SHALL dire quale delle due condizioni ha
-tenuto il comando fermo: «non c'e' spazio» su un Mac che ha scambiato per mezz'ora
-e' l'unica traccia che sopravvive, ed e' falsa.
+tenuto il comando fermo — «non c'e' spazio» su un Mac che ha scambiato per
+mezz'ora e' l'unica traccia che sopravvive, ed e' falsa — e SHALL dire quanto ha
+aspettato DAVVERO quel comando, non il budget del giro. Il log degli errori non
+ha timestamp: una riga che scrive «dopo 3 minuti» per tre comandi che hanno
+atteso zero, zero e tre minuti non traccia la meta' temporale di niente. Il
+budget del giro resta un fatto utile e SHALL comparire accanto, come quello che
+e': cio' che il GIRO ha speso, non cio' che il comando ha atteso.
 
 #### Scenario: a swap calmo si aspetta tre minuti, non trenta
 - **GIVEN** il minimo su 2 minuti a 5,2 GB, sotto il pavimento di 6 GB
@@ -112,6 +130,16 @@ e' l'unica traccia che sopravvive, ed e' falsa.
 - **GIVEN** un giro rilasciato dalla valvola con lo swap sostenuto
 - **WHEN** la riga viene scritta
 - **THEN** SHALL nominare lo swap, non la mancanza di spazio
+
+#### Scenario: il tempo speso sullo swap non paga la valvola del pavimento
+- **GIVEN** un giro fermo dieci minuti sotto swap sostenuto, con il minimo su 2 minuti immobile a 5,2 GB sotto il pavimento di 6 GB
+- **WHEN** il verdetto sullo swap torna calmo e la memoria non cambia
+- **THEN** il comando NON SHALL partire in quell'istante, e SHALL partire tre minuti dopo, cioe' al tredicesimo
+
+#### Scenario: la riga del fail-open dice l'attesa di quel comando
+- **GIVEN** un giro di tre comandi a swap calmo sotto il pavimento, dove il primo esaurisce la valvola e gli altri due non aspettano un poll
+- **WHEN** le tre righe vengono scritte
+- **THEN** la prima SHALL dire tre minuti e le altre due SHALL dire zero secondi, e tutte e tre SHALL riportare accanto i tre minuti spesi dal GIRO
 
 ## ADDED Requirements
 

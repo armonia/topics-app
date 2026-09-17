@@ -129,8 +129,9 @@ pero' e' l'unico pezzo che si puo' toccare: il pavimento e' montato una volta pe
 tutto il server, non per board, e la board `dancerooms-intq6i` ha come unico
 check locale una suite unit — l'albero che il freno esiste per non far partire su
 un Mac vuoto. Quindi resta, e quello che cambia e' quanto si aspetta: sotto
-thrash aspettare compra memoria, a Mac calmo la lettura non migliora da sola
-(`held2m >= 6 GB` zero volte su 1455 letture in 25,7 ore).
+thrash aspettare compra memoria, a Mac calmo la lettura migliora di rado e a
+tratti lunghissimi (`held2m >= 6 GB` nel 15,5% di 1553 letture in 28,5 ore, con
+854 campioni consecutivi — circa quattordici ore — sotto il pavimento).
 
 - [x] T5.1 MISURATO, sulla consegna di `c4f53a85` conclusa il 17/09 alle 00:46Z,
       leggendo i `ms` di `checks_json`:
@@ -160,6 +161,27 @@ thrash aspettare compra memoria, a Mac calmo la lettura non migliora da sola
       pavimento su un Mac calmo, i trenta di oggi sotto swap sostenuto. La riga
       del fail-open nomina la condizione letta in quell'istante, non l'ultima che
       quel comando aveva stampato (che per un comando mai in attesa e' nessuna).
+- [x] T5.4 Le due valvole hanno un orologio ciascuna. Con un contatore solo il
+      tempo di una condizione pagava l'altra: dieci minuti di swap sostenuto a
+      5,2 GB e il comando partiva NELL'ISTANTE del verdetto calmo, senza che il
+      pavimento l'avesse trattenuto un secondo — un episodio di thrash regalava
+      l'esenzione dal pavimento per il resto del giro. Ogni tratto d'attesa e'
+      addebitato alla condizione in vigore mentre passava; il caso e' fissato al
+      tredicesimo minuto (dieci di swap + tre di pavimento).
+- [x] T5.5 La riga del fail-open dice l'attesa VERA di quel comando e, accanto,
+      cio' che il giro aveva speso di quel budget: prima stampava il budget al
+      posto della durata, cioe' «dopo 3 minuti» per tre comandi che avevano
+      atteso tre, zero e zero. Il log degli errori non ha timestamp: quella riga
+      e' l'unica traccia che resta del giro.
+- [ ] T5.6 DA DECIDERE COL PROPRIETARIO, ancora aperta: il cancello cancellato
+      insieme alla vecchia T5.2 riguardava il comportamento del pavimento a swap
+      calmo, e la valvola da tre minuti lo cambia lo stesso — un `test:unit` da
+      4-11 GB su questo Mac a 5,2 GB adesso parte dopo 3 minuti invece di 30. Il
+      numero non e' stato approvato da nessuno. La forma giusta, se si chiude, e'
+      un prezzo per COMANDO (l'albero unit non e' un typecheck) invece di un
+      pavimento unico montato una volta per tutto il server: oggi il freno swap
+      non ha nemmeno una vittima da interrompere, `SWAP_VICTIM_MIN_GB` = 1 GB
+      contro un tsc misurato a 460 MB.
 
 ## Barra
 
