@@ -33,7 +33,7 @@ import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { effectiveDispatchCap, type MemoryFloorHold } from "./dispatch-capacity";
+import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
@@ -164,8 +164,12 @@ export interface DispatcherDeps {
    * `hold` is what the reading cannot see, as separate facts: the price of one
    * card, the memory kept for the local turns in flight, and whether any of our
    * work is on the machine (see `floorReason`).
+   *
+   * A VERDICT and not a sentence: which floor spoke keys the wait (the 120 s
+   * warm-up and the real floor share their first word), and the memory floor
+   * standing down for the first card is a fact only this answer carries.
    */
-  resourceBlock?: (hold: MemoryFloorHold) => string | null;
+  resourceBlock?: (hold: MemoryFloorHold) => ResourceFloorVerdict | null;
   /**
    * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
    * core-units and gigabytes, what the others are taking, and the agents
@@ -1066,7 +1070,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * fermerebbe solo a disco pieno — cioè quando il DB non scrive più.
    */
   /** L'ultimo motivo di blocco già annunciato, per non ripeterlo a ogni tick. */
-  let lastAdmissionBlock: string | null = null;
+  let lastAdmissionBlock: ResourceFloorKind | null = null;
   /** What one more agent is priced at in memory: the same price list the budget reads. */
   function agentMemPrice(): number {
     return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
@@ -1097,22 +1101,39 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * anything this Mac reads. In count mode the floor is the only memory brake,
    * so it charges N x price itself.
    */
-  function floorReason(): string | null {
+  function floorVerdict(): ResourceFloorVerdict {
     const price = agentMemPrice();
     const launches = localLaunches();
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
     const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
+    // `ourWorkRunning` is the SAME "zero" the budget axis counts for
+    // `firstAgentExempt`: local turns plus pre-review check runs. A run riding
+    // on a node holds nothing on this machine, and a board behind an 11 GB
+    // shard is not a board that never starts.
     return deps.resourceBlock?.({
       cardGB: price,
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length,
       ourWorkRunning: launches.length + Math.max(0, checks) > 0,
-    }) ?? null;
+    }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }
-  function admissionBlock(): string | null {
+  function floorReason(): string | null {
+    return floorVerdict().reason;
+  }
+  /** The memory floor stood down for the first card: said once per episode, the
+   *  way the budget axis says its own (`firstAgentExemptNoted`). */
+  let memoryFloorExemptNoted = false;
+  function admissionVerdictNow(): ResourceFloorVerdict {
     try {
-      const reason = floorReason();
+      const verdict = floorVerdict();
+      const reason = verdict.reason;
+      if (verdict.memoryFirstCardExempt) {
+        if (!memoryFloorExemptNoted) log("pavimento memoria sotto la riga ma nessun lavoro di Topics in volo: la prima card parte comunque");
+        memoryFloorExemptNoted = true;
+      } else {
+        memoryFloorExemptNoted = false;
+      }
       // SI DICE UNA VOLTA, e prima non si diceva affatto. Il chip sulla card
       // scrive «in coda» e il commento accanto rimanda «il perché sta nel log
       // del server» — solo che nel log non ci finiva niente: il messaggio
@@ -1130,17 +1151,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // i GB liberi, che cambiano a ogni lettura, quindi un confronto per
       // stringa non dedupica niente — provato sul server vero, tre righe
       // identiche nel senso e diverse nei decimali in trenta secondi.
-      // The kind is the RESOURCE, the first word ("Disco", "Memoria"): one
-      // memory episode goes through three sentences (under the floor, reserved
-      // for the agents starting, climbing back towards the restart line), and
-      // keying on the whole prefix would log a new "coda ferma" at every swing
-      // between them, the flood the hysteresis exists to stop.
-      const kind = reason ? reason.split(/[\s:]/)[0]! : null;
+      // The kind is the RESOURCE, and it comes from the verdict instead of the
+      // first word of the sentence. One memory episode goes through three
+      // sentences (under the floor, reserved for the agents starting, climbing
+      // back towards the restart line), and keying on the whole prefix would log
+      // a new "coda ferma" at every swing between them, the flood the hysteresis
+      // exists to stop. But the first word also merged the 120 s warm-up with
+      // the real floor, and the warm-up is guaranteed at every boot: it got
+      // there first and this log never printed the floor's sentence either.
+      const kind = verdict.kind;
       if (kind && kind !== lastAdmissionBlock) log(`coda ferma — ${reason}`);
       else if (!reason && lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
       lastAdmissionBlock = kind;
-      return reason;
-    } catch { return null; }
+      return verdict;
+    } catch { return { reason: null, kind: null, memoryFirstCardExempt: false }; }
+  }
+  function admissionBlock(): string | null {
+    return admissionVerdictNow().reason;
   }
 
   /**
@@ -4411,7 +4438,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nuovo ad aprire una worktree, cioè a consumare esattamente la risorsa che
     // sta finendo. Letto una volta per tick: la domanda è sulla macchina, non
     // sulla card, e chiederlo per ogni todo sarebbe una statfs per riga.
-    const resourceFloor = admissionBlock();
+    const floorNow = admissionVerdictNow();
+    const resourceFloor = floorNow.reason;
     const daySpendBlock = resourceFloor ? null : spendBrake.dayBlock();
     // The cap "by resources", ONCE per tick like the floor and after it: when
     // the floor or the bill already holds the queue there is nothing left for

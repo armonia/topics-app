@@ -16,6 +16,17 @@ import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, P
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import type { ResourceFloorVerdict } from "./dispatch-capacity";
+
+/**
+ * A sentence as the floor VERDICT the dispatcher now takes: these tests inject
+ * the text, and which floor it came from is read off its first word - the one
+ * place still allowed to, because here the text IS the fixture.
+ */
+function asFloor(reason: string | null): ResourceFloorVerdict {
+  return { reason, kind: reason ? (reason.startsWith("Disco") ? "disk" : "memory") : null, memoryFirstCardExempt: false };
+}
+
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
@@ -4321,7 +4332,7 @@ describe("il pavimento delle risorse si spiega", () => {
     let gb = 8.7;
     const h = harness({
       log: (m: string) => righe.push(m),
-      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+      resourceBlock: () => asFloor(bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -4354,7 +4365,7 @@ describe("il pavimento delle risorse si spiega", () => {
     let bloccato = true;
     let gb = 8.7;
     const h = harness({
-      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+      resourceBlock: () => asFloor(bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -4395,7 +4406,7 @@ describe("il pavimento delle risorse si spiega", () => {
     let bloccato = true;
     const h = harness({
       log: (m: string) => righe.push(m),
-      resourceBlock: () => (bloccato ? "Disco quasi pieno: 2 GB liberi." : null),
+      resourceBlock: () => asFloor(bloccato ? "Disco quasi pieno: 2 GB liberi." : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });

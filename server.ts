@@ -92,7 +92,7 @@ import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
+import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
@@ -1779,7 +1779,7 @@ const taskDispatcher = createTaskDispatcher({
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
   resourceBlock: (hold) =>
-    dispatchResourceBlock(
+    dispatchResourceVerdict(
       ctx.worktreeManager.worktreesDir(),
       undefined,
       () => memSignal.held(),

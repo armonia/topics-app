@@ -6,7 +6,7 @@
  * reading of that instant, touched `updated_at` and broadcast `task:updated`.
  * Seven held cards made about 70 frames a minute to every client.
  *
- * The real service, dispatcher and floor composer (`dispatchResourceBlock`, the
+ * The real service, dispatcher and floor composer (`dispatchResourceVerdict`, the
  * native runtime's floor of 6 GB, with its hysteresis): only the memory and disk
  * readings are injected. The retries are driven by hand at the cadence the timer
  * keeps, with the system clock moved between them, so two minutes take
@@ -29,7 +29,7 @@ import type { TurnEndInfo } from "../providers/stop-reason";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
-import { dispatchResourceBlock } from "./dispatch-capacity";
+import { dispatchResourceBlock, dispatchResourceVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 function freshDb(): Database {
@@ -117,7 +117,7 @@ function harness() {
     // A full window at the injected reading, with a turn of ours on the machine
     // (the held cards' own), so the floor's line is floor + price and the
     // readings swing between its two sentences.
-    resourceBlock: (hold) => dispatchResourceBlock("/", () => floor.diskGB, windowAt(floor.memGB), false, { ...hold, ourWorkRunning: true }),
+    resourceBlock: (hold) => dispatchResourceVerdict("/", () => floor.diskGB, windowAt(floor.memGB), false, { ...hold, ourWorkRunning: true }),
   };
   const dispatcher = createTaskDispatcher(deps);
   dispatchers.push(dispatcher);
@@ -252,4 +252,5 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     expect(h.task("rewritten").dispatchError).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 5.8 GB");
     expect(h.task("rewritten").queueReason).toMatchObject({ kind: "resource_floor" });
   });
+
 });

@@ -29,7 +29,7 @@ import type { MachineBudgetSample } from "../../shared/board";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock } from "./dispatch-block-signal";
-import { dispatchResourceBlock } from "./dispatch-capacity";
+import { dispatchResourceVerdict } from "./dispatch-capacity";
 import { createMemSignal } from "./mem-signal";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -299,7 +299,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     const h = harness({
       agentMemSamples: () => [],
       agentCostSamples: () => [0.1],
-      resourceBlock: (hold) => dispatchResourceBlock("/tmp", () => 500, () => signal.held(), false, hold),
+      resourceBlock: (hold) => dispatchResourceVerdict("/tmp", () => 500, () => signal.held(), false, hold),
       ...overrides,
     });
     if (mode === "resources") h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
@@ -323,30 +323,40 @@ describe("the memory window on the floor and on the budget axis", () => {
   }
   const repeat = (gb: number, n: number) => Array<number>(n).fill(gb);
 
-  it("D1, the 10:37 replay: ten minutes at 5.8, one reading at 14.5, then 5.5 start nothing", async () => {
+  it("D1, the 10:37 replay: ten minutes at 5.8, one reading at 14.5, then 5.5 start ONE card and no more", async () => {
+    // ONE, not zero, since KANBAN-75: with nothing of ours on the machine the
+    // memory floor stands down for the first card, because the RAM holding it is
+    // somebody else's and waiting does not get it back. The moment that card is
+    // running the floor is full again - which is what the other beats prove.
     const w = windowHarness("resources");
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d1-${i}`);
     await w.beats([...repeat(5.8, 60), 14.5, ...repeat(5.5, 18)]);
-    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.startsSec()).toEqual([0]);
     expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
   });
 
-  it("D2, the 11:03 shape: 5.5, 10.4, 5.5 starts nothing", async () => {
+  it("D2, the 11:03 shape: 5.5, 10.4, 5.5 start ONE card and no more", async () => {
     const w = windowHarness("resources");
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d2-${i}`);
     await w.beats([...repeat(5.5, 13), 10.4, ...repeat(5.5, 13)]);
-    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.h.startedAt).toHaveLength(1);
+    expect(w.startsSec()).toEqual([0]);
   });
 
-  it("D3, boot: an empty window admits nothing for 120 s, then the first card starts", async () => {
+  it("D3, boot: the empty window lets the FIRST card through and holds the rest until it fills", async () => {
+    // The warm-up takes the same exemption as the floor: holding on "I do not
+    // know yet" while admitting on a reading that is measured and bad would say
+    // the unknown is worse than the bad. With that first card in flight the
+    // empty window holds everything else, which is the 120 s below.
     const w = windowHarness("resources");
     for (let i = 0; i < 3; i++) seedTodo(w.h.db, `d3-${i}`);
     await w.beats(repeat(12, 12)); // 0 .. 110 s
-    expect(w.h.startedAt).toHaveLength(0);
+    expect(w.startsSec()).toEqual([0]);
     expect(currentDispatchBlock()?.reason ?? "").toContain("la sto misurando da 110 s su 120");
     await w.beats(repeat(12, 2)); // 120, 130 s
-    expect(w.h.startedAt.length).toBeGreaterThanOrEqual(1);
-    expect(Math.min(...w.startsSec())).toBeGreaterThanOrEqual(120);
+    expect(w.h.startedAt.length).toBeGreaterThanOrEqual(2);
+    expect(w.startsSec()[1]!).toBeGreaterThanOrEqual(120);
   });
 
   it("D4: a turn in flight does not starve the queue at 10 GB, and a window dipping to 9.5 holds it", async () => {
@@ -379,9 +389,13 @@ describe("the memory window on the floor and on the budget axis", () => {
     const band = [10.4, 11.7, 11.0];
     await w.beats(Array.from({ length: 30 }, (_, i) => band[i % band.length]!));
     const starts = w.startsSec();
+    // Still two, and now they are a different two: the exempt first card at
+    // second 0 (nothing of ours was on the machine yet) and ONE more when the
+    // window opens. The bound this case exists for is unchanged - the opening
+    // does not drain the queue, and the third is held by the budget axis below.
     expect(starts).toHaveLength(2);
-    expect(starts[0]!).toBeGreaterThanOrEqual(bite + 120);
-    expect(starts[1]! - starts[0]!).toBeLessThanOrEqual(10);
+    expect(starts[0]!).toBe(0);
+    expect(starts[1]!).toBeGreaterThanOrEqual(bite + 120);
     expect(currentDispatchBlock()).toMatchObject({ kind: "pressure" });
     const afterFirst = w.h.logLines.slice(w.h.logLines.findIndex((l) => l.includes("coda ripartita")) + 1);
     expect(afterFirst.filter((l) => l.includes("coda ferma") && l.includes("Memoria"))).toHaveLength(0);
@@ -399,6 +413,43 @@ describe("the memory window on the floor and on the budget axis", () => {
     const reason = currentDispatchBlock()?.reason ?? "";
     expect(reason).toContain("4.0 GB tenuti per l'agente al lavoro");
     expect(reason).toContain("sotto i 14.0 GB");
+  });
+
+  /**
+   * KANBAN-75: the memory floor's "first card" exemption, at the dispatcher's
+   * door and not only in the composer. The "zero" is OUR work: local turns plus
+   * pre-review check runs, the same zero `firstAgentExempt` counts on the budget
+   * axis. Measured 16-17/09/2026: 1455 `[memsig]` lines, `held2m >= 6 GB` zero
+   * times, seven cards still for 45-51 hours, every sample `inFlight=0
+   * checkRuns=0` - a queue that never restarts, not a queue that waits.
+   */
+  it("E1: under the floor with no work of ours ONE card starts; a check run alone holds it", async () => {
+    let checks = 1;
+    const w = windowHarness("resources", { checksRunning: () => checks });
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e1-${i}`);
+    // A full window well under the 6 GB native floor, with a shard of ours running.
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("Memoria quasi finita");
+    // The shard ends: nothing of ours is on the machine, and one card goes.
+    checks = 0;
+    await w.beats(repeat(4.8, 2));
+    expect(w.h.startedAt).toHaveLength(1);
+    // And exactly one: that card is now our work, so the floor is full again.
+    await w.beats(repeat(4.8, 20));
+    expect(w.h.startedAt).toHaveLength(1);
+  });
+
+  it("E2: a full disk has no exemption - nothing starts even with the machine idle", async () => {
+    // A full disk does not reabsorb itself: SQLite's writes fail and the wait
+    // ends when a person frees space, so no count of agents opens it.
+    const w = windowHarness("resources", {
+      resourceBlock: (hold) => dispatchResourceVerdict("/tmp", () => 1, () => ({ measurable: true, latestGB: 40, heldGB: 40, coveredMs: 120_000 }), false, hold),
+    });
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e2-${i}`);
+    await w.beats(repeat(40, 20));
+    expect(w.h.startedAt).toHaveLength(0);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("Disco quasi pieno");
   });
 
   it("D7: the budget axis reads the window, so a reading of 14 between two of 10.5 does not start a third card", async () => {
