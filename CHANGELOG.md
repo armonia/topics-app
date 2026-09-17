@@ -2,20 +2,49 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.344 — 2026-09-17
+
+### Sotto il cofano
+- Un numero che avevo messo nel contratto era falso: 241 volte, non zero
+
+## 2.2.343 — 2026-09-17
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-17 [skip ci]
+
 ## 2.2.342 — 2026-09-17
 
 ### Sotto il cofano
+- Il giudice di fuori parcheggiava una card che su main parte
+- La guardia su `commentIds` copriva un chiamante su tre
+- Il ramo lo decideva il censimento, la cifra il listino: 7-9,9 GB fermi per niente
+- Il segno valeva in un verso solo: finestra scritta non vuol dire serie viva
+- La chiave di dedup non era guardata da nessun test: rimessa a mano, 469 verdi
 - La card diceva verde su una CI rossa: due consegne su tre, stanotte
+- Due nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test
+- Cinque nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test
 
 ## 2.2.341 — 2026-09-17
 
 ### Sotto il cofano
+- Un agente che aspetta la CI vale zero: la deroga si ri-armava a ogni tick
+- Un non tracciato riscritto ogni 10 s nella radice, un giorno dopo l'incidente
+- A 600 s a tagliare e' KEEP_MS: il confine dei 30 s non era provato da nessuno
+- Un replace cieco per i cancelli della lingua e' entrato in una frase che l'utente legge
+- Il giudice di fuori parcheggiava un'attesa che l'agente aveva chiesto per otto ore
+- Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde
+- Una bocciatura di tre commenti ne registrava uno solo
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
 
 ## 2.2.340 — 2026-09-17
 
 ### Sotto il cofano
+- Una bocciatura umana ripartiva con «il tuo turno e' stato interrotto»
+- La finestra di memoria moriva a ogni salvataggio: 28 volte in 25,7 ore
+- Il pavimento della memoria non aveva uscita: held2m sopra 6 GB zero volte su 1455
 - Il freno dei check spara sempre la valvola: e' un timer, non un freno
+- Riscaldamento e pavimento condividevano la chiave: 80 commenti su 80 con la frase sbagliata
+- I nomi e i commenti nuovi passano i due cancelli della lingua
 - 80 secondi di lavoro, 30 minuti di attesa: il numero del freno dei check
 - Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre
 - La catena ha girato intera: tre buchi osservati invece che dedotti
@@ -30,6 +59,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane
 - Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid
 - Il pavimento di memoria non aspetta una persona: aspetta per sempre
+- L'inattivita' di un task la misurava il chip che il dispatcher riscrive ogni 60 s
+- Il tetto sulla durata di un'attesa lo leggeva solo chi ridichiarava l'attesa
 
 ## 2.2.338 — 2026-09-16
 

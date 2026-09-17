@@ -20,6 +20,24 @@ davvero, non in teoria.
       vero, e il registro «gia' detto» decade al cambio della frase. (80 commenti
       su 80 con la frase sbagliata dopo il 15/09 17:49)
 - [ ] T1.6 Test: `holdKey` distingue riscaldamento e pavimento.
+- [x] T1.7 REGRESSIONE della T1.1, chiusa: il censimento («c'e' del nostro vivo
+      qui?») decideva il RAMO della riga e il listino («c'e' del nostro che deve
+      ancora spendere qui?») la CIFRA. Con le sole card parcheggiate sulla CI in
+      volo la riga chiedeva `pavimento + prezzo + 0` = 10 GB a una macchina su
+      cui nessuno spendeva. Ora il ramo e la cifra escono dallo stesso elenco
+      (`spendingHere`), e l'esenzione resta sul censimento (`ourWorkRunning`):
+      una card sulla CI tiene viva una sessione — 240 MB gia' dentro `held2m` —
+      ma non ha nessuna fiammata futura da coprire.
+- [x] T1.8 Test sulla banda 6-10 GB, che prima non copriva nessuno: con due card
+      off-lane in volo e una terza in coda, 25 battiti per lettura.
+
+      | held2m | prima | adesso |
+      |---|---|---|
+      | 4,8 GB | ferma | ferma (l'esenzione NON si ri-arma) |
+      | 7,0 GB | FERMA | parte |
+      | 8,0 GB | FERMA | parte |
+      | 9,9 GB | FERMA | parte |
+      | 12,0 GB | parte | parte |
 
 ## Tornata 2 — gli orologi muti (KANBAN-84)
 
@@ -41,6 +59,15 @@ davvero, non in teoria.
       mentre non fa nulla. Prendere i commenti umani a partire da `reopened_at`
       inclusivo, con una tolleranza all'indietro, e provarlo su quella card.
 - [ ] T2.6 Test: reconcile su una card bocciata da un umano porta il testo umano.
+- [ ] T2.7 Il tetto sulla durata vale solo su una serie ANCORA IN CORSO: con
+      `wait_since` scritto e `dispatch_deferred_until` NULL un turno e' gia'
+      ripartito senza ridichiarare l'attesa, e la card non si parcheggia.
+      (misurato contro `origin/main` sulla forma di `c4d48d3e`: main la manda
+      `in_progress` con un turno, il giudice di fuori la parcheggiava
+      `waited_out` con zero turni)
+- [ ] T2.8 La guardia su `commentIds` copre tutti e tre i chiamanti di
+      `bufferResume`: `.slice(0,1)` su `clearSlotWait` e sul ramo di `resume` in
+      attesa di slot lasciava 2576 test verdi in `server/services`.
 
 ## Tornata 3 — il verdetto CI azionabile (KANBAN-85)
 

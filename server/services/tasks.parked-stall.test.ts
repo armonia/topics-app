@@ -549,6 +549,35 @@ describe("chiudere l'ultimo figlio rimette in moto il padre", () => {
     expect(lastComment(s, padre)).toContain("- Archivia i sottotask");
   });
 
+  /**
+   * THE SENTENCE, WORD BY WORD, because no gate ever reads the strings.
+   *
+   * `check:identifier-language` and `check:comment-language` read names and
+   * comments; `check:ui-language` reads the client. The Italian prose the
+   * server writes into a thread is watched by none of the three, and on
+   * 2026-09-17 a blind `parcheggiati`->`parkedCards` replace made to pass
+   * those very gates landed inside this template literal, which then read
+   * "restano 2 passi parkedCards in backlog". This is the question a person
+   * answers to promote, requeue or archive: the last place where a word can
+   * turn into noise with nothing going red.
+   */
+  test("la domanda nel thread e' in italiano, parola per parola", () => {
+    const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
+    const vivo = s.create({ projectId: PID, text: "Lo step vivo", parentTaskId: padre }).id;
+    s.create({ projectId: PID, text: "Lo step rimandato", parentTaskId: padre });
+    s.create({ projectId: PID, text: "L'altro step rimandato", parentTaskId: padre });
+    s.update({ taskId: vivo, actor: "human", by: "attilio", patch: { status: "todo" } });
+    db.run("UPDATE tasks SET status = 'review', delivered_by = 'agent' WHERE id = ?", [padre]);
+
+    s.update({ taskId: vivo, actor: "human", by: "attilio", patch: { status: "done" } });
+
+    const question = lastComment(s, padre);
+    expect(question).toContain("restano 2 passi parcheggiati in backlog");
+    expect(question).toContain("Chiuso l'ultimo sottotask in lavorazione");
+    // No code identifier leaked into the prose.
+    expect(question).not.toContain("parkedCards");
+  });
+
   test("la domanda nel thread non si ripete a ogni figlio che chiude", () => {
     const padre = s.create({ projectId: PID, text: "Il padre", status: "in_progress" }).id;
     const a = s.create({ projectId: PID, text: "Step A", parentTaskId: padre }).id;
