@@ -229,8 +229,8 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
     // A turn ran and ended with children still open: the series is over.
     clock.t += 30 * 60_000;
     s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
-    const figlio = s.create({ projectId: PID, text: "sottotask", status: "in_progress", parentTaskId: id });
-    expect(figlio.parentTaskId).toBe(id);
+    const child = s.create({ projectId: PID, text: "sottotask", status: "in_progress", parentTaskId: id });
+    expect(child.parentTaskId).toBe(id);
     s.deliverToReviewBySystem({ taskId: id, reason: "turno finito coi figli aperti" });
     expect(s.get(id)!.task.waitStreak).toBe(0);
     expect(s.get(id)!.task.waitSince).toBeNull();

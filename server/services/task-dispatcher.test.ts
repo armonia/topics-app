@@ -4423,7 +4423,7 @@ describe("l'envelope non parla italiano", () => {
    * absolved by the other.
    */
   /** Cap of one, `t1` holding it, `t2` bound to a topic and ready to resume. */
-  async function tettoPieno(): Promise<ReturnType<typeof harness>> {
+  async function capIsFull(): Promise<ReturnType<typeof harness>> {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.setGlobalCap({ auto: false, max: 1 });
@@ -4438,7 +4438,7 @@ describe("l'envelope non parla italiano", () => {
   }
 
   it("l'eredita' di un'attesa di slot porta TUTTI gli id, non il primo", async () => {
-    const h = await tettoPieno();
+    const h = await capIsFull();
     // The rejection arrives with the cap full: it opens a slot wait holding the
     // three ids.
     void h.dispatcher.resume("t2", "tre obiezioni", { commentIds: ["c1", "c2", "c3"] });
@@ -4463,7 +4463,7 @@ describe("l'envelope non parla italiano", () => {
   });
 
   it("un secondo messaggio arrivato mentre si aspetta lo slot porta TUTTI gli id", async () => {
-    const h = await tettoPieno();
+    const h = await capIsFull();
     // The first resume opens the wait and deliberately carries NO id: whatever
     // comes out of the envelope below went through the second door only.
     void h.dispatcher.resume("t2", "prima obiezione");
