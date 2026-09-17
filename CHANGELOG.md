@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.339 — 2026-09-17
+
+### Sotto il cofano
+- Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra
+- Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane
+- Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid
+- Il pavimento di memoria non aspetta una persona: aspetta per sempre
+
 ## 2.2.338 — 2026-09-16
 
 ### Sotto il cofano
