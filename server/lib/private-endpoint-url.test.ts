@@ -77,8 +77,10 @@ describe("checkEndpointUrl", () => {
 describe("fetchCheckedEndpoint", () => {
   test("a redirect towards the metadata address is refused before it is followed", async () => {
     const seen: string[] = [];
-    const doFetch = (async (url: string) => {
+    const redirectModes: unknown[] = [];
+    const doFetch = (async (url: string, init: RequestInit) => {
       seen.push(String(url));
+      redirectModes.push(init?.redirect);
       return new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } });
     }) as unknown as typeof fetch;
 
@@ -86,6 +88,12 @@ describe("fetchCheckedEndpoint", () => {
       fetchCheckedEndpoint("http://127.0.0.1:18080/v1/models", {}, never, doFetch),
     ).rejects.toBeInstanceOf(EndpointUrlError);
     expect(seen).toEqual(["http://127.0.0.1:18080/v1/models"]);
+    // THE LOAD-BEARING LINE. Everything else in this file only proves we reject
+    // a bad hop once we are the one deciding to take it. With `redirect:
+    // "follow"` the runtime takes it for us, before any check of ours runs, and
+    // every other assertion here stays green while the guard is gone: the fake
+    // doFetch hands back the 302 either way. So the mode itself is asserted.
+    expect(redirectModes).toEqual(["manual"]);
   });
 
   test("a redirect inside the private network is followed", async () => {

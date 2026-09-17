@@ -12,6 +12,7 @@
 import { EventEmitter } from "node:events";
 import { listProviders, getProvider, getDefaultProviderName } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
+import { publishDeclaredWindows } from "../usage/declared-windows";
 
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
@@ -205,6 +206,10 @@ export class ProviderSnapshotManager extends EventEmitter {
       return;
     }
 
+    // The assembler budgets against a model name, and it reads what was
+    // published here: a declared window has to reach it the moment the snapshot
+    // learns it, not at the next restart.
+    publishDeclaredWindows(name, entry.modelContextWindows);
     this.entries.set(name, entry);
     this.emit("change");
   }
@@ -230,6 +235,7 @@ export class ProviderSnapshotManager extends EventEmitter {
   invalidate(name: string): void {
     this.revisions.set(name, (this.revisions.get(name) ?? 0) + 1);
     this.inflight.delete(name);
+    publishDeclaredWindows(name, null);
     if (this.entries.delete(name)) this.emit("change");
   }
 
