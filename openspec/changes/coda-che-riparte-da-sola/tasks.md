@@ -107,9 +107,16 @@ Un freno che spara sempre la sua valvola non e' un freno, e' un timer. E il fren
 ha gia' la misura giusta accanto a quella sbagliata: il verdetto sullo swap
 misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
 
-- [ ] T5.1 Misurare, su questa consegna, quanto tempo e' stato speso in attesa
+- [x] T5.1 Misurare, su questa consegna, quanto tempo e' stato speso in attesa
       contro quanto in esecuzione: e' il numero che decide se vale la pena.
-- [ ] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
+      Card `c4f53a85`, 16/09 23:41:29Z - 17/09 00:26Z: 1800 s di attesa (l'intero
+      budget del giro) contro ~195 s di esecuzione, 9,2 volte tanto. typecheck
+      rilasciato dopo 372 s, `check:deadcode` e `static-rails` solo dalla valvola.
+      Su 46 campioni `[memsig]` del giro `held2m` era sotto 6 GB in 43, e 41 di
+      quei 43 leggevano `swap=calm`. Correzione alla premessa: NON e' stato calmo
+      per tutta la durata — 3 campioni su 46 sono sostenuti, e durante l'attesa di
+      `check:deadcode` la ragione ha alternato 5 volte fra swap e pavimento.
+- [x] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
       pavimento non trattiene un check, e resta guardia solo mentre lo swap e'
       sostenuto.
 
