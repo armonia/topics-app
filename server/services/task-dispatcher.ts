@@ -53,7 +53,7 @@ import {
   type TurnEndInfo,
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
-import { providerHold, holdUntilLabel, planUsage } from "../lib/provider-hold";
+import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
@@ -1427,6 +1427,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** The reset instant of the plan window already logged by `tick`: once per window. */
   let planWindowAnnounced = 0;
 
+  /** Whole days between now and the end of a hold, rounded up: past
+   *  `HOLD_ASKS_A_PERSON_MS` this is always two or more, so both sentences that
+   *  use it stay plural. */
+  function holdDays(hold: { untilMs: number }): number {
+    return Math.max(1, Math.ceil((hold.untilMs - clock()) / 86_400_000));
+  }
+
   /**
    * The memo belongs to whichever PROVIDER the task would actually run on,
    * never to the whole machine — AGPT-01 extended: a Codex wall must not wait
@@ -1434,7 +1441,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 31be77d3). The approaching-limit early warning stays Claude-only: it
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
-  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string } | null {
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string; asksAPerson?: true; slot?: string } | null {
     const claudeHold = providerHold();
     const codexHold = providerHold(Date.now(), "codex");
     const window = starting ? planUsage()?.fiveHour : null;
@@ -1461,15 +1468,41 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!hold && !applicableNearLimit) return null;
     const label = providerHoldLabel(holdKey);
     if (hold) {
+      // A WALL OF DAYS IS NOT A WINDOW ROTATING. Held for longer than a day,
+      // the queue is not waiting for a reset: the plan is spent, and the only
+      // thing that moves the cards is a person changing the board's model or
+      // the account. Saying "resumes at 14:45" for six days running (43 such
+      // lines between 13/09 and 16/09) is how that stays invisible.
+      const asksAPerson = holdAsksAPerson(hold, clock());
+      const endsAt = holdUntilLabel(hold, clock());
       if (holdAnnounced !== hold.sinceMs) {
         holdAnnounced = hold.sinceMs;
-        log(`${label} dispatch waiting: ${hold.reason}, resumes at ${holdUntilLabel(hold)}`);
+        log(asksAPerson
+          ? `${label} dispatch waiting: ${hold.reason}, and the wall is ${holdDays(hold)} days away (until ${endsAt}): this is a spent plan, not a window reset`
+          : `${label} dispatch waiting: ${hold.reason}, resumes at ${endsAt}`);
       }
-      return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${holdUntilLabel(hold)}.` }; // allow-italian: task queue reason
+      if (asksAPerson) {
+        return {
+          untilMs: hold.untilMs, asksAPerson: true,
+          // THE SLOT THIS NOTE OWNS IN THE THREAD, and it has to be a slot
+          // because the sentence CHANGES while the condition does not: the
+          // days left count down, so on a wall of six days the same note reads
+          // differently on each of six days. `once` alone would let one copy
+          // per day through - six paragraphs a card - and the 10 s dedupe
+          // window of `addComment` lets through one per BOOT (35 minutes apart
+          // on this machine: 44 restarts in 25,7 h, 7 cards in the queue, a
+          // Codex wall of 6 days = ~300 identical paragraphs a day, the exact
+          // pile KANBAN-83 exists to end).
+          slot: `${label}: `,
+          reason: `${label}: ${hold.reason}. L'attesa arriva al ${endsAt}, fra ${holdDays(hold)} giorni: non e' il reset di una finestra, e' il piano esaurito. ` // allow-italian: task queue reason
+            + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason
+        };
+      }
+      return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason
     }
     const untilMs = window!.resetsAtMs!;
     const pct = Math.round(window!.utilization);
-    const at = holdUntilLabel({ untilMs });
+    const at = holdUntilLabel({ untilMs }, clock());
     if (planWindowAnnounced !== untilMs) {
       planWindowAnnounced = untilMs;
       log(`${label} dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
@@ -1750,6 +1783,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // card noted under the 120 s warm-up used to get nothing when the real floor
   // sentence replaced it, so the reason never arrived.
   const floorHeldNoted = new Map<string, string>();
+  // Tasks already told "the provider's wall is days away, this is a spent plan".
+  // Same discipline as `spendHeldNoted`, and for the same reason: this wait does
+  // not end by itself inside any horizon a person would wait through, so the
+  // note is forgotten only when that card's hold really lifts.
+  //
+  // WITHIN THIS PROCESS ONLY, which is why this note also carries a thread slot
+  // (`noteHold`'s `slot`): the wait it describes is measured in DAYS and the
+  // process restarts every 35 minutes on this machine, so the set is empty
+  // again long before the condition is.
+  const planHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -1851,7 +1894,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * — la nota si ripete solo dopo che l'attesa è finita davvero, altrimenti un
    * poll ogni 10s riempirebbe il thread della stessa frase.
    */
-  function noteHold(noted: Set<string>, task: Task, why: string): void {
+  function noteHold(noted: Set<string>, task: Task, why: string, slot?: string): void {
     if (inFlight.has(task.id) || graceTimers.has(task.id)) return;
     if (noted.has(task.id)) return;
     noted.add(task.id);
@@ -1861,9 +1904,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // of the queue, and it changes at every boot and every cap move: 363
       // such notes in twelve hours on 2026-09-04, four on one card, the old
       // ones contradicting the new. The card keeps the current one only.
+      //
+      // THE SET IS NOT THE GUARD ACROSS PROCESSES: it lives in this closure, so
+      // it is born empty at every boot, and on this machine a boot is 35 minutes
+      // away from the last one while the `addComment` dedupe window is 10
+      // seconds. A caller whose wait outlives a restart (the provider wall of
+      // days) passes its own `slot`, and gets both defences: `once` for the
+      // identical text, the slot for the same note reworded by another day.
       deps.svc.addComment({
         taskId: task.id, author: "system", content: why, kind: "service",
-        replaces: why.startsWith("In coda:") ? "In coda:" : undefined,
+        replaces: slot ?? (why.startsWith("In coda:") ? "In coda:" : undefined),
+        once: slot ? true : undefined,
       });
     } catch { /* il task può essersi mosso sotto i piedi */ }
   }
@@ -4333,7 +4384,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
       .filter((t) => {
         const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
-        if (!wait) return true;
+        if (!wait) { planHeldNoted.delete(t.id); return true; }
+        // THE CHIP IS NOT A QUESTION. A wall of days needs a person, and the
+        // chip is read by whoever already has the board open on that card: the
+        // line goes in the thread once per episode, like the spend cap's -
+        // the other wait here that no amount of patience ends.
+        //
+        // BEFORE the chip, not after: `noteHold` writes the `queued` state with
+        // no reason, so the other order left the card with an empty
+        // `dispatch_error` - the queue's own chip blanked by the line that was
+        // meant to explain it.
+        if (wait.asksAPerson) noteHold(planHeldNoted, t, wait.reason, wait.slot);
         markPlanWait(t, wait.reason);
         return false;
       })
