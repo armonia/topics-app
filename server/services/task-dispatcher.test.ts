@@ -4125,6 +4125,39 @@ describe("il reconcile cronometra le attese, non solo il servizio", () => {
     expect(h.task("t1")!.dispatchState).toBe(PARKED_WAITED_OUT);
     h.dispatcher.shutdown();
   });
+
+  it("un turno e' gia' ripartito dopo la dichiarazione: la card PARTE, non si parcheggia", async () => {
+    // THE REGRESSION THIS BACKSTOP INTRODUCED, and it is the opposite of what
+    // the change is for. Measured on `origin/main` against this branch, on the
+    // shape the live DB carries (`c4d48d3e`): streak 1, `wait_since` five hours
+    // old, `dispatch_deferred_until` NULL.
+    //
+    //     main    → in_progress / working, one turn started
+    //     branch  → backlog / waited_out, ZERO turns
+    //
+    // `claim` clears the window and leaves `wait_since` alone — no dispatcher
+    // requeue clears it, only human→todo, review and done — so the column
+    // outlives the very turn that stopped waiting.
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    h.db.run(
+      `UPDATE tasks SET dispatch_state = 'waiting', dispatch_deferred_until = NULL,
+         wait_streak = 1, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+       WHERE id = ?`,
+      [since, "t1"],
+    );
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.dispatchState).not.toBe(PARKED_WAITED_OUT);
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
 });
 
 /**

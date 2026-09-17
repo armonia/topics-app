@@ -194,6 +194,23 @@ un tetto su una SERIE: con una sola attesa dichiarata l'orologio SHALL partire
 dalla sveglia, non dalla dichiarazione, perche' il tempo in cui nessuno ha guardato
 la card comincia li'.
 
+E il tetto SHALL valere solo su una serie ANCORA IN CORSO. Un turno che e'
+ripartito dopo la dichiarazione e ha smesso di aspettare chiude la serie, e
+nessuna rimessa in coda del dispatcher azzera `wait_since` — solo umano→todo,
+review e done — quindi la colonna sopravvive proprio al turno che ha smesso.
+Misurato contro `origin/main` sulla forma che il DB vivo porta (`c4d48d3e`:
+`wait_streak` 1, `wait_since` di cinque ore fa, `dispatch_deferred_until` NULL):
+main la manda `in_progress` con un turno partito, il giudice di fuori la
+parcheggiava `backlog` / `waited_out` con zero turni, cioe' il contrario di cio'
+che questo requisito serve a fare. Il segno SHALL essere la finestra di rinvio:
+`deferForWait` la scrive a ogni dichiarazione e il claim la azzera, quindi su una
+riga che porta ancora `wait_since` una finestra NULL dice esattamente «un turno e'
+gia' ripartito e non ha ridichiarato l'attesa». NON SHALL essere l'istante
+dell'ultimo turno (`task_attempts.created_at`, `in_progress_at`) confrontato con
+`wait_since`: su una serie di due o piu' attese quell'istante e' SEMPRE successivo
+a `wait_since` — e' cio' che una serie e' — quindi quel confronto spegnerebbe il
+backstop invece di delimitarlo.
+
 Una card che un umano ha bocciato riparte oggi con «il tuo turno e' stato
 interrotto, continua il lavoro rimasto»: il testo del rifiuto viveva in una Map in
 memoria e muore al primo riavvio, mentre `tasks.reopened_actor` dice sulla riga
@@ -217,6 +234,16 @@ turno interrotto.
 - **GIVEN** una card che ha dichiarato UNA attesa di 480 minuti, quattro ore fa
 - **WHEN** il giro periodico la valuta
 - **THEN** la card NON SHALL essere parcheggiata, perche' la sveglia che ha chiesto e' ancora davanti
+
+#### Scenario: un turno gia' ripartito chiude la serie, e la card parte
+- **GIVEN** una card con `wait_streak` 1, `wait_since` a cinque ore fa e `dispatch_deferred_until` NULL perche' un turno l'ha gia' reclamata
+- **WHEN** il giro la valuta
+- **THEN** la card NON SHALL essere parcheggiata, e il giro successivo del dispatcher SHALL farla partire
+
+#### Scenario: un turno che RIDICHIARA l'attesa lascia la serie in corso
+- **GIVEN** la stessa card, il cui turno ha dichiarato di nuovo la stessa attesa
+- **WHEN** la serie supera le quattro ore e la sveglia e' passata
+- **THEN** la card SHALL essere parcheggiata con lo stato `waited_out`
 
 #### Scenario: una bocciatura umana riparte col suo testo
 - **GIVEN** una card con `reopened_actor = 'human'` e tre obiezioni scritte dall'umano

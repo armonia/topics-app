@@ -210,12 +210,103 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
     expect(s.get(id)!.task.dispatchState).toBe(PARKED_WAITED_OUT);
   });
 
-  test("senza finestra di rinvio il tetto torna a leggere `wait_since`", () => {
-    // The claim clears the column, so a row without a window is a card a
-    // turn has already seen: there the cap measures the series, as always.
+  test("senza finestra di rinvio non c'e' piu' niente da cronometrare", () => {
+    // The claim clears the column, so a row without a window is a card a turn
+    // has ALREADY restarted on. See the bench below: that is the end of the
+    // series, not a series measured from `wait_since`.
     const id = longWait(480);
     db.run("UPDATE tasks SET dispatch_deferred_until = NULL WHERE id = ?", [id]);
     clock.t += 5 * ORA;
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.waitedOutIfCapped({ taskId: id })).toBeNull();
+  });
+});
+
+/**
+ * THE DURATION CAP IS A CAP ON A SERIES THAT IS STILL RUNNING.
+ *
+ * Measured against `origin/main` on the exact shape the live DB carries (card
+ * `c4d48d3e`: `wait_streak` 1, `wait_since` 2026-09-15T00:42, five hours old,
+ * `dispatch_deferred_until` NULL):
+ *
+ *     main    → reconcile: in_progress / working, one turn started
+ *     branch  → reconcile: backlog / waited_out, ZERO turns
+ *
+ * The change meant to restart a stalled queue was PARKING a card that started
+ * on main. The shape is not theoretical: no dispatcher requeue clears
+ * `wait_since` (only human→todo, review and done do), so the column outlives
+ * the very turn that STOPPED waiting. Reproduced below through the real path —
+ * declare a wait, let a turn claim and end without re-declaring it — because
+ * it is the claim itself that clears the window.
+ *
+ * The sign we read is `dispatch_deferred_until`: `deferForWait` writes it on
+ * every declaration and `claim` nulls it, so with `wait_since` set, a NULL
+ * window means exactly "a turn has restarted since the last declaration". Not
+ * `task_attempts.created_at` and not `in_progress_at`: both answer "when did
+ * the last turn start", which on a streak of two or more is ALWAYS after
+ * `wait_since` (that is what a series is), so comparing them against
+ * `wait_since` would switch the whole backstop off.
+ *
+ * @covers KANBAN-84
+ */
+describe("un turno ripartito senza ridichiarare l'attesa chiude la serie", () => {
+  let db: Database; let s: TaskService;
+  const clock = { t: T0 };
+  beforeEach(() => { clock.t = T0; db = freshDb(); s = svc(db, clock); });
+
+  /** Declare a wait, then let a real turn claim the card and end. */
+  function waitThenTurn(): string {
+    const t = s.create({ projectId: PID, text: "consegna bloccata", status: "todo" });
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: 5 });
+    s.deferForWait({ taskId: t.id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude" });
+    clock.t += 30 * 60_000; // the wake-up rings and a turn answers it
+    expect(s.claim({ taskId: t.id, cap: 5, maxAttempts: 5 })).not.toBeNull();
+    return t.id;
+  }
+
+  test("la forma esatta del DB vivo: streak 1, cinque ore, nessuna finestra", () => {
+    const id = waitThenTurn();
+    // The turn ends with nothing delivered and the card goes back in the queue:
+    // the requeue leaves `wait_since` and `wait_streak` exactly where they were.
+    s.release({ taskId: id, requeue: true, by: "dispatcher" });
+    clock.t += 5 * ORA;
+
+    const row = db.prepare(
+      "SELECT status, wait_streak, wait_since, dispatch_deferred_until AS wake FROM tasks WHERE id = ?",
+    ).get(id) as { status: string; wait_streak: number; wait_since: string; wake: string | null };
+    expect(row.status).toBe("todo");
+    expect(row.wait_streak).toBe(1);
+    expect(row.wait_since).not.toBeNull();
+    expect(row.wake).toBeNull();
+    expect(clock.t - Date.parse(row.wait_since)).toBeGreaterThan(WAIT_SERIES_MAX_MS);
+
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.waitedOutIfCapped({ taskId: id })).toBeNull();
+    expect(s.get(id)!.task.status).toBe("todo");
+    expect(s.get(id)!.task.dispatchState).not.toBe(PARKED_WAITED_OUT);
+  });
+
+  test("col turno ancora in corso la card non si parcheggia sotto i piedi dell'agente", () => {
+    // `c4d48d3e` on the live DB is this one: `in_progress`, streak 1, the
+    // window cleared by its own claim. `busy` is a register that lives in the
+    // dispatcher's process, so a restart empties it — the row has to answer on
+    // its own.
+    const id = waitThenTurn();
+    clock.t += 5 * ORA;
+    expect(s.get(id)!.task.status).toBe("in_progress");
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.waitedOutIfCapped({ taskId: id })).toBeNull();
+  });
+
+  test("ma se il turno RIDICHIARA l'attesa la serie continua, e il tetto la prende", () => {
+    // The other half of the rule: the window is back, so the series is running
+    // again and the backstop must still fire. Without this the fix above would
+    // be indistinguishable from deleting the sweep.
+    const id = waitThenTurn();
+    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude" });
+    expect(s.get(id)!.task.waitStreak).toBe(2);
+    clock.t += 5 * ORA;
     expect(s.sweepWaitedOut().map((t) => t.id)).toEqual([id]);
+    expect(s.get(id)!.task.dispatchState).toBe(PARKED_WAITED_OUT);
   });
 });

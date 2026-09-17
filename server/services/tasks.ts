@@ -577,6 +577,12 @@ export interface TaskService {
    * neither a series nor an expired one. Hence: the wake-up the agent asked
    * for (`dispatch_deferred_until`) is never overtaken, and for a streak of
    * one the cap's clock starts at that wake-up instead of at the declaration.
+   *
+   * AND THE SERIES HAS TO BE STILL RUNNING. `deferForWait` writes the window
+   * on every declaration, `claim` nulls it: with `wait_since` set, a NULL
+   * window says a turn has already restarted and did not ask to wait again.
+   * The series ended there, and no dispatcher requeue clears `wait_since` to
+   * say so. Reading it the other way parked a card that `origin/main` starts.
    */
   waitedOutIfCapped(args: { taskId: string }): Task | null;
   /**
@@ -5233,16 +5239,40 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // alive for twelve.
       const serieMs = nowMs - Date.parse(since);
       if (!Number.isFinite(serieMs)) return null;
-      // THE WAKE-UP THE AGENT ASKED FOR IS NEVER OVERTAKEN. While
-      // `dispatch_deferred_until` is still ahead, no turn has had the chance
-      // to look at whether the condition arrived, so there is nothing to judge
-      // yet. `deferForWait` clamps `minutes` to 1440 and production asks for
-      // up to 240, so a lone wait outliving the 4-hour cap is a normal card,
-      // not a stuck one. The column is cleared by the claim, so a window in
-      // the PAST means the wake-up came and nobody answered it — which is
-      // exactly what this backstop exists to catch.
+      // A CAP ON A SERIES STILL RUNNING, AND THIS IS WHERE IT ENDS.
+      //
+      // `deferForWait` writes `dispatch_deferred_until` on every declaration
+      // and `claim` nulls it. So on a row that still carries `wait_since`, a
+      // NULL window means exactly one thing: a turn has already restarted
+      // since the last declaration and did not ask to wait again. The series
+      // is over, whatever the column says — no dispatcher requeue clears
+      // `wait_since` (only human→todo, review and done do), so it outlives
+      // the very turn that STOPPED waiting.
+      //
+      // Reading it as "no window, so measure from `wait_since`" is what parked
+      // a card that `origin/main` starts: the live shape (`c4d48d3e`, streak 1,
+      // `wait_since` five hours old, window NULL) came out `backlog` /
+      // `waited_out` with zero turns against `in_progress` / working with one.
+      //
+      // The window is the sign, not `task_attempts.created_at` or
+      // `in_progress_at`: those answer "when did the last turn start", which on
+      // a streak of two or more is ALWAYS later than `wait_since` — that is
+      // what a series IS — so comparing them against `wait_since` would switch
+      // the whole backstop off instead of bounding it.
+      //
+      // Nothing is left unguarded by stepping back here. A card whose turns
+      // keep dying without declaring anything is not a stuck WAIT, and it has
+      // its own backstop: the claim spends an attempt every time (only
+      // `deferForWait` refunds one), so `dispatch_attempts` reaches the retry
+      // cap and the card parks as `failed` — with a note that is true.
       const wakeMs = Date.parse((row.dispatch_deferred_until ?? "") as string);
-      if (Number.isFinite(wakeMs) && wakeMs > nowMs) return null;
+      if (!Number.isFinite(wakeMs)) return null;
+      // THE WAKE-UP THE AGENT ASKED FOR IS NEVER OVERTAKEN. While the window
+      // is still ahead, no turn has had the chance to look at whether the
+      // condition arrived, so there is nothing to judge yet. `deferForWait`
+      // clamps `minutes` to 1440 and production asks for up to 240, so a lone
+      // wait outliving the 4-hour cap is a normal card, not a stuck one.
+      if (wakeMs > nowMs) return null;
       // THE DURATION CAP IS A CAP ON A SERIES. With a streak of one there is
       // no series: there is one wait the agent asked for, and the only time
       // nobody looked at the card is the time since its wake-up. Measuring
@@ -5251,7 +5281,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // wait in a row. From two waits up the clock is the series itself,
       // which is the quantity `WAIT_SERIES_MAX_MS` was written for.
       const streak = Number(row.wait_streak) || 1;
-      const capFrom = streak >= 2 || !Number.isFinite(wakeMs) ? Date.parse(since) : wakeMs;
+      const capFrom = streak >= 2 ? Date.parse(since) : wakeMs;
       if (nowMs - capFrom < WAIT_SERIES_MAX_MS) return null;
       // THE REASON WE HAVE IS THE KEY, NOT THE PROSE. The row keeps
       // `waitReasonKey(reason)` — lowercased, whitespace collapsed — because
@@ -5286,10 +5316,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // discards, and under a fake clock the two answers never meet.
       //
       // `dispatch_deferred_until` is in the query for the same reason and not
-      // as an optimisation: a card whose wake-up is still ahead is the single
-      // most common shape here (a 240-minute wait is a normal note on the live
-      // DB), and leaving it in the candidate list means offering the judge, ten
-      // seconds at a time, every card that is simply not due yet.
+      // as an optimisation, and it carries BOTH of the judge's window rules: a
+      // wake-up still ahead is the single most common shape here (a 240-minute
+      // wait is a normal note on the live DB), and a NULL window is a card a
+      // turn has already restarted on — the shape the live row `c4d48d3e`
+      // carries. Leaving either in the candidate list means offering the judge,
+      // ten seconds at a time, cards it is going to refuse.
       const ts = now();
       const cutoff = new Date(Date.parse(ts) - WAIT_SERIES_MAX_MS).toISOString();
       let candidati: Array<{ id: string; project_id: string }> = [];
@@ -5300,7 +5332,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
               AND status IN ('todo', 'in_progress')
               AND wait_since IS NOT NULL
               AND wait_since <= ?
-              AND (dispatch_deferred_until IS NULL OR dispatch_deferred_until <= ?)
+              AND dispatch_deferred_until IS NOT NULL
+              AND dispatch_deferred_until <= ?
             ORDER BY wait_since`,
         ).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
