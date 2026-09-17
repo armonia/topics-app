@@ -900,6 +900,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const revivingRef = useRef(false);
   useEffect(() => {
     if (!isActive || !stale || revivingRef.current) return;
+    // A process that reported its own exit is NOT woken up behind the human's
+    // back: relaunching what just died is the silent loop this card is about.
+    // The veil stays, it says the code, and the Riprendi button is the choice.
+    if (exitCode !== null) return;
     let cancelled = false;
     revivingRef.current = true;
     void (async () => {
@@ -920,7 +924,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       }
     })();
     return () => { cancelled = true; revivingRef.current = false; };
-  }, [isActive, stale, sessionId]);
+  }, [isActive, stale, sessionId, exitCode]);
 
   // The card behind this session, asked ONCE, and only once the pane has gone
   // quiet: while output flows there is nothing to explain. `by-topic` answers
