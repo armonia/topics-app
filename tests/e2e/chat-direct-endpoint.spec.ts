@@ -21,6 +21,7 @@ import type { AddressInfo } from "node:net";
 import { E2E_BASE } from "./helpers/test-server";
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
+import { hermetic } from "./fixtures/hermetic";
 import { goToApp, openTopic } from "./helpers";
 import {
   createTopic,
@@ -141,6 +142,8 @@ async function startFakeEndpoint(opts: { hold: boolean }): Promise<{
     close: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
   };
 }
+
+hermetic(test);
 
 test.describe("a configured endpoint serving a chat", () => {
   test("streams its tokens into the conversation and reports usage", async ({
