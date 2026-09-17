@@ -1528,7 +1528,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (wait) {
       clearTimeout(wait.timer);
       slotWaits.delete(taskId);
-      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds?.[0]);
+      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds);
     }
     waitingForSlot.delete(taskId);
     heldWritten.delete(taskId);
@@ -1670,18 +1670,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // sentence typed at 03:52, and without the hour the reopen reads as a verdict
   // on the delivery instead of the delayed hand-over it is.
   //
-  // The buffer also carries the id of the CARD COMMENT the words came from,
-  // when they came from one. That id rides the envelope to the row (`commentIds`)
-  // so a reader can tell that these words are already in the thread, and draw
-  // them once instead of twice.
-  const pendingResume = new Map<string, { text: string; at: number; commentId?: string }[]>();
+  // The buffer also carries the ids of the CARD COMMENTS the words came from,
+  // when they came from some. Those ids ride the envelope to the row
+  // (`commentIds`) so a reader can tell that these words are already in the
+  // thread, and draw them once instead of twice.
+  //
+  // ALL OF THEM, NOT THE FIRST. A review rejection hands `resume` every comment
+  // it is delivering, and the buffer used to keep `commentIds[0]`. The ids are
+  // what `pendingHumanReopen` reads to answer "has the agent ever seen these
+  // words": with only the first one recorded, objections two and three stayed
+  // "never delivered" forever, so every later re-adoption of the card started
+  // by re-delivering text the agent had already read.
+  const pendingResume = new Map<string, { text: string; at: number; commentIds: string[] }[]>();
   /** Queue a message for the turn boundary, keeping the order it was written in. */
-  function bufferResume(taskId: string, text: string, commentId?: string): void {
-    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock(), commentId }]);
+  function bufferResume(taskId: string, text: string, commentIds?: string[]): void {
+    const ids = (commentIds ?? []).filter((id) => typeof id === "string" && id.length > 0);
+    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock(), commentIds: ids }]);
   }
   /** The card comments a queued batch delivers, in the order they were written. */
-  function queuedCommentIds(queued: { commentId?: string }[]): string[] {
-    return queued.map((q) => q.commentId).filter((id): id is string => typeof id === "string" && id.length > 0);
+  function queuedCommentIds(queued: { commentIds: string[] }[]): string[] {
+    return queued.flatMap((q) => q.commentIds);
   }
 
   /** Broadcast the updated task so live boards move the chip. */
@@ -3836,7 +3844,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // as if a person had written it: card d2a4a907, delivered at 04:50 and
       // reopened at 04:50 with nothing to read. Nothing is lost by dropping it.
       if (opts?.continuation || !humanMessage.trim()) return;
-      bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
+      bufferResume(taskId, humanMessage, opts?.commentIds);
       return;
     }
     // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
@@ -3918,7 +3926,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
       // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
       if (slotWaits.has(taskId)) {
-        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
+        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage, opts?.commentIds);
         return;
       }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per

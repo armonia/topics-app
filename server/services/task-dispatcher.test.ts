@@ -4348,6 +4348,34 @@ describe("l'envelope non parla italiano", () => {
   });
 
   /**
+   * A REJECTION OF THREE COMMENTS RECORDED ONE.
+   *
+   * `reviewDecision reject` hands `resume` EVERY comment it is delivering, and
+   * the live-turn buffer kept `commentIds[0]`. Those ids are what
+   * `pendingHumanReopen` reads to answer "has the agent ever seen these
+   * words": with two of three left out of the envelope, the second and third
+   * objection stay "never delivered" forever and every later re-adoption of
+   * the card starts by handing the agent text it has already read.
+   */
+  it("una bocciatura di tre commenti li porta TUTTI nella busta, non solo il primo", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The turn is alive: the resume is buffered and `onTurnEnd` delivers it.
+    void h.dispatcher.resume("t1", "tre obiezioni", { commentIds: ["c1", "c2", "c3"] });
+    await flush();
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    expect(h.turns[1]!.dispatchedFor).toEqual(["c1", "c2", "c3"]);
+    h.dispatcher.shutdown();
+  });
+
+  /**
    * Il sollecito automatico dopo un turno finito senza consegna. Ha DUE forme, e
    * la seconda (budget finito) si accende solo al tetto dei tentativi: il modo
    * di raggiungerle è il turno vero che si chiude, non una chiamata diretta.
