@@ -33,6 +33,13 @@ davvero, non in teoria.
 - [ ] T2.5 Una card con `reopened_actor = 'human'` riparte con i commenti umani da
       `reopened_at` in poi, non col sollecito da turno interrotto. (3 card ferme
       da 45 h, 44 riavvii ciascuna)
+      TRAPPOLA, verificata sul DB il 17/09: il testo della bocciatura e' scritto
+      nello STESSO istante di `reopened_at`, non dopo — su `f981f62c` il commento
+      `author='user' kind='comment'` e la riga `status` «review→in_progress`»
+      hanno entrambi `2026-09-15T13:49:31`, e differiscono solo per i millisecondi.
+      Un filtro `created_at > reopened_at` non trova niente e il fix sembra fatto
+      mentre non fa nulla. Prendere i commenti umani a partire da `reopened_at`
+      inclusivo, con una tolleranza all'indietro, e provarlo su quella card.
 - [ ] T2.6 Test: reconcile su una card bocciata da un umano porta il testo umano.
 
 ## Tornata 3 — il verdetto CI azionabile (KANBAN-85)
@@ -71,6 +78,40 @@ davvero, non in teoria.
       oltre una durata diventa una domanda. (43 righe «resumes at 14:45» per un
       hold di 6 giorni)
 - [ ] T4.6 Test per ciascuno.
+
+## Tornata 5 — il gemello: lo stesso pavimento frena ogni check
+
+Osservato dal vivo il 17/09 sulla prima consegna che passa dalle righe CI
+(`c4f53a85`, iniziata 01:38). `memoryWaiter` (`review-checks-brakes.ts:137`)
+confronta lo STESSO minimo su 2 minuti con lo STESSO pavimento di 6 GB prima di
+ogni comando, e la macchina legge 4,8-5,9. Righe vere del log:
+
+```
+[review-checks] "typecheck" waits: lowest free memory of the last 2 min 5.4 GB, under the 6 GB floor
+[review-checks] "typecheck" starts after 372 s
+[review-checks] "check:deadcode" waits: lowest free memory of the last 2 min 5.2 GB, under the 6 GB floor
+```
+
+A differenza dell'ammissione qui l'uscita c'e' (`MEMORY_WAIT_MAX_MS`, 30 min e
+poi parte comunque), quindi non e' uno stallo: e' un ritardo fisso. Il tetto e'
+**per GIRO, non per comando** — `spentMs` si accumula nella chiusura di
+`memoryWaiter`, quindi quando un comando lo sfonda tutti i successivi partono
+subito con `anyway` (ed e' per questo che il log stampa la stessa riga per
+`check:deadcode` e per `static-rails`: il secondo non ha aspettato). Misurato su
+questa consegna: i quattro comandi locali hanno impiegato **32 minuti dei quali
+circa 30 di sola attesa**, su una macchina che nel frattempo `[memsig]` chiamava
+`swap=calm`. Il prezzo e' quindi mezz'ora per consegna, non tre ore; con 121
+ingressi in review in 7 giorni resta l'ordine delle decine di ore a settimana.
+
+Un freno che spara sempre la sua valvola non e' un freno, e' un timer. E il freno
+ha gia' la misura giusta accanto a quella sbagliata: il verdetto sullo swap
+misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
+
+- [ ] T5.1 Misurare, su questa consegna, quanto tempo e' stato speso in attesa
+      contro quanto in esecuzione: e' il numero che decide se vale la pena.
+- [ ] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
+      pavimento non trattiene un check, e resta guardia solo mentre lo swap e'
+      sostenuto.
 
 ## Barra
 

@@ -49,6 +49,39 @@ trattiene entrambi.
 - **WHEN** il dispatcher valuta la prima card in coda
 - **THEN** la card NON SHALL essere ammessa
 
+### Requirement: KANBAN-15 — Prima della review i comandi girano, e un rosso che non ha misurato niente non è un rosso
+
+Il requisito resta quello che e'. Cambia la condizione con cui il freno davanti a
+un comando trattiene: oggi e' il pavimento da solo, e su questa macchina il
+pavimento e' sempre rosso.
+
+Il freno nasce per non far partire una suite da 4-11 GB su un Mac che sta gia'
+annaspando, e quella e' la cosa giusta. Ma «annaspare» lo misura il verdetto
+sullo swap, che il freno ha gia' accanto: il pavimento misura un numero assoluto
+che qui non arriva mai. Osservato il 17/09 sulla prima consegna che passa dalle
+righe CI: i quattro comandi locali hanno impiegato 32 minuti dei quali circa 30
+di sola attesa, mentre `[memsig]` scriveva `swap=calm` per tutta la durata e la
+lettura oscillava fra 4,8 e 5,9 GB contro una riga a 6. Il giro e' uscito dalla
+valvola dei 30 minuti, non dalla condizione: un freno che spara sempre la sua
+valvola e' un timer travestito.
+
+Con il verdetto sullo swap CALMO il pavimento NON SHALL trattenere un comando di
+check: la macchina che non sta scambiando non ha il problema che il freno esiste
+per evitare. Con lo swap SOSTENUTO il pavimento SHALL valere pieno, e resta
+l'attesa che gia' c'e'. La valvola dei 30 minuti per giro NON cambia, e nemmeno
+la regola che una lettura non disponibile non fa aspettare.
+
+#### Scenario: a swap calmo il comando parte
+- **GIVEN** il minimo su 2 minuti a 5,2 GB, sotto il pavimento di 6 GB
+- **AND** il verdetto sullo swap calmo
+- **WHEN** un comando di check chiede di partire
+- **THEN** SHALL partire subito, senza attesa
+
+#### Scenario: sotto swap sostenuto il pavimento vale
+- **GIVEN** il minimo su 2 minuti a 5,2 GB e il verdetto sullo swap sostenuto
+- **WHEN** un comando di check chiede di partire
+- **THEN** SHALL aspettare, e dopo 30 minuti di giro SHALL partire comunque
+
 ## ADDED Requirements
 
 ### Requirement: KANBAN-82 — La finestra di memoria sopravvive a un ricarico breve
