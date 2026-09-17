@@ -4,6 +4,7 @@
  * The count exists so the boot resume can stop restarting the SAME round for
  * ever (`MAX_DELIVERY_ROUNDS`, routes/tasks.ts). Which makes every way of
  * counting the WRONG round a way of giving up on a delivery that never had one.
+ * The table had no test file at all before this one.
  *
  * @covers KANBAN-87
  */
@@ -49,13 +50,13 @@ describe("il conteggio dei giri", () => {
   });
 
   /**
-   * IL CASO CHE BRUCIA I GIRI PIU' FACILMENTE E' PROPRIO QUELLO SENZA COMMIT.
+   * THE ROW THAT BURNS ROUNDS MOST EASILY IS THE ONE WITHOUT A COMMIT.
    *
-   * La gamba `interrupted` della rotta scrive la riga mentre il server sta
-   * uscendo, PRIMA che il checkout sia risolto: `commit_sha` resta NULL, e ogni
-   * boot successivo ne brucia un giro. Se un NULL memorizzato conta come
-   * «stessa consegna», la consegna VERA che arriva dopo - con un commit suo -
-   * eredita quei giri e viene abbandonata senza averne fatto nemmeno uno.
+   * The route's `interrupted` leg writes the row while the server is on its way
+   * out, BEFORE the checkout is resolved: `commit_sha` stays NULL and every
+   * later boot burns one of its rounds. If a stored NULL counts as "the same
+   * delivery", the REAL delivery that follows - the one carrying a commit of
+   * its own - inherits those rounds and is given up on without running one.
    */
   test("una riga nata senza commit non spende i giri della consegna dopo", () => {
     save(db, null);
@@ -84,14 +85,14 @@ describe("il conteggio dei giri", () => {
 });
 
 /**
- * UN DB CHE LA MIGRATION NON HA RAGGIUNTO (un ripristino da backup) NON PERDE
- * LE CONSEGNE.
+ * A DATABASE THE MIGRATION NEVER REACHED (a restore from backup) DOES NOT LOSE
+ * ITS DELIVERIES.
  *
- * Nominare `rounds` in un `ON CONFLICT` fa lanciare SQLite al PREPARE, e il
- * `catch` che protegge questa tabella si mangerebbe la scrittura intera: la
- * riga non verrebbe mai scritta e ogni riavvio perderebbe la sua consegna. La
- * promessa del docstring - perdere la riga costa un riallineamento, lanciare
- * costa la consegna - vale anche li'.
+ * Naming `rounds` in an `ON CONFLICT` makes SQLite throw at PREPARE, and the
+ * `catch` that guards this table would then eat the whole write: the row would
+ * never be stored and every restart would lose its delivery. The promise in the
+ * docstring - losing the row costs a realign, throwing costs the delivery -
+ * has to hold there too.
  */
 test("senza la colonna rounds la riga si scrive lo stesso", () => {
   const db = freshDb(false);
@@ -99,7 +100,7 @@ test("senza la colonna rounds la riga si scrive lo stesso", () => {
   expect(loadPendingDeliveries(db)).toEqual([{
     taskId: "card", pathname: "/api/sessions/s1/tasks/card", body: { status: "review" }, commit: "aaa",
   }]);
-  // E il contatore risponde zero, cioe' «riparti come prima che la tabella
-  // contasse»: il boot riprende la consegna invece di rinunciarci.
+  // And the counter answers zero, i.e. "carry on as before the table counted":
+  // the boot resumes the delivery instead of giving up on it.
   expect(bumpPendingDeliveryRound(db, "card")).toBe(0);
 });

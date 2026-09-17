@@ -94,20 +94,20 @@ export function sweepStaleChecksLights(deps: StaleChecksLightsDeps): string[] {
   // The route is not built yet: there is no registry to cross, and every light
   // is still the boot sweep's business.
   if (!live) return [];
-  let spente: string[] = [];
+  let orphaned: string[] = [];
   try {
-    spente = deps.clearStale((taskId) => live(taskId));
+    orphaned = deps.clearStale((taskId) => live(taskId));
   } catch (err) {
     deps.warn(`[checks] passata sulle spie 'running' fallita: ${err instanceof Error ? err.message : String(err)}`);
     return [];
   }
-  if (!spente.length) return [];
-  deps.warn(`[checks] ${spente.length} spie 'running' spente: il gate non ha piu' quella corsa, e nessuno ne scrivera' il verdetto`);
-  for (const id of spente) {
+  if (!orphaned.length) return [];
+  deps.warn(`[checks] ${orphaned.length} spie 'running' spente: il gate non ha piu' quella corsa, e nessuno ne scrivera' il verdetto`);
+  for (const id of orphaned) {
     // The board that has the card open must stop showing the spinner NOW: the
     // next `task:updated` for a card whose round died may never come.
     try { deps.announce(id); } catch { /* an announcement is never the sweep */ }
     try { deps.resume(id); } catch { /* idem: the light is already honest */ }
   }
-  return spente;
+  return orphaned;
 }
