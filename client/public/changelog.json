@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.350",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'ultima riga aperta della tornata di stanotte si chiude, e quasi ogni sua premessa era sbagliata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.349",
     "date": "2026-09-17",
     "sections": {
