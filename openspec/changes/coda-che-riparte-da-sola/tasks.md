@@ -41,6 +41,15 @@ davvero, non in teoria.
       mentre non fa nulla. Prendere i commenti umani a partire da `reopened_at`
       inclusivo, con una tolleranza all'indietro, e provarlo su quella card.
 - [ ] T2.6 Test: reconcile su una card bocciata da un umano porta il testo umano.
+- [ ] T2.7 Il tetto sulla durata vale solo su una serie ANCORA IN CORSO: con
+      `wait_since` scritto e `dispatch_deferred_until` NULL un turno e' gia'
+      ripartito senza ridichiarare l'attesa, e la card non si parcheggia.
+      (misurato contro `origin/main` sulla forma di `c4d48d3e`: main la manda
+      `in_progress` con un turno, il giudice di fuori la parcheggiava
+      `waited_out` con zero turni)
+- [ ] T2.8 La guardia su `commentIds` copre tutti e tre i chiamanti di
+      `bufferResume`: `.slice(0,1)` su `clearSlotWait` e sul ramo di `resume` in
+      attesa di slot lasciava 2576 test verdi in `server/services`.
 
 ## Tornata 3 — il verdetto CI azionabile (KANBAN-85)
 

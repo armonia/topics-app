@@ -4409,6 +4409,84 @@ describe("l'envelope non parla italiano", () => {
   });
 
   /**
+   * THE SAME TRUNCATION, ON THE OTHER TWO DOORS.
+   *
+   * `bufferResume` has three callers and only the live-turn one was watched:
+   * `.slice(0, 1)` on it makes one test fail, while the same mutation on
+   * `clearSlotWait`'s inheritance and on the slot-wait branch of `resume` left
+   * 2576 tests green across all of `server/services`. Both are reached whenever
+   * the concurrency cap is full, which is the normal state of a busy board, and
+   * a rejection that arrives there loses the same ids for the same reason.
+   *
+   * The two are pinned SEPARATELY, and that is the point: each test carries the
+   * ids through exactly one of the two doors, so a mutation on one cannot be
+   * absolved by the other.
+   */
+  /** Cap of one, `t1` holding it, `t2` bound to a topic and ready to resume. */
+  async function tettoPieno(): Promise<ReturnType<typeof harness>> {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+    seedTask(h.db, { id: "t2", status: "in_progress", createdAt: "2020-01-02T00:00:00.000Z" });
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
+    h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
+    return h;
+  }
+
+  it("l'eredita' di un'attesa di slot porta TUTTI gli id, non il primo", async () => {
+    const h = await tettoPieno();
+    // The rejection arrives with the cap full: it opens a slot wait holding the
+    // three ids.
+    void h.dispatcher.resume("t2", "tre obiezioni", { commentIds: ["c1", "c2", "c3"] });
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    // A place frees up and another resume takes it: the starting turn inherits
+    // the waiting message (`clearSlotWait(taskId, true)`), carrying nothing of
+    // its own, so what comes out is exactly what the inheritance kept.
+    h.svc.setGlobalCap({ auto: false, max: 3 });
+    void h.dispatcher.resume("t2", "riprendi");
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1]!.dispatchedFor).toEqual([]);
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    expect(h.turns[2]!.dispatchedFor).toEqual(["c1", "c2", "c3"]);
+    h.dispatcher.shutdown();
+  });
+
+  it("un secondo messaggio arrivato mentre si aspetta lo slot porta TUTTI gli id", async () => {
+    const h = await tettoPieno();
+    // The first resume opens the wait and deliberately carries NO id: whatever
+    // comes out of the envelope below went through the second door only.
+    void h.dispatcher.resume("t2", "prima obiezione");
+    await flush();
+    // One wait per task: this one is buffered instead of opening a second.
+    void h.dispatcher.resume("t2", "altre due obiezioni", { commentIds: ["c2", "c3"] });
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    h.svc.setGlobalCap({ auto: false, max: 3 });
+    void h.dispatcher.resume("t2", "riprendi");
+    await flush();
+    expect(h.turns.length).toBe(2);
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    expect(h.turns[2]!.dispatchedFor).toEqual(["c2", "c3"]);
+    h.dispatcher.shutdown();
+  });
+
+  /**
    * Il sollecito automatico dopo un turno finito senza consegna. Ha DUE forme, e
    * la seconda (budget finito) si accende solo al tetto dei tentativi: il modo
    * di raggiungerle è il turno vero che si chiude, non una chiamata diretta.
