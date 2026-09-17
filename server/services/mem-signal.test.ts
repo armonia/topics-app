@@ -438,3 +438,86 @@ describe("swapVerdict: at the ceiling a falling debt does not veto, below it not
     expect(v.sustained).toBe(false);
   });
 });
+
+/**
+ * THE WINDOW SURVIVES A RESTART (KANBAN-82).
+ *
+ * With `TOPICS_SERVER_WATCH=1` the server restarts on every save under
+ * `server/`, and a list born empty answered `null` for 120 s: every admission
+ * and every resume held, on a free machine as on a full one. Measured 28 windows
+ * zeroed across 44 restarts in 25.7 h of 16-17/09/2026, about 56 minutes a day
+ * of queue stopped for a reason that was not memory.
+ *
+ * The store is a variable here, which is the point of injecting it: the cut
+ * being proved is `MEM_SAMPLE_GAP_MS` against the clock, not a file on a disk.
+ */
+describe("createMemSignal: the 2-minute window across a restart", () => {
+  const memStore = () => {
+    let text: string | null = null;
+    return { read: () => text, write: (t: string) => { text = t; }, get text() { return text; } };
+  };
+  /** Thirteen good readings ending at `lastSec`, one every 10 s: a full window. */
+  const full = (lastSec: number, gb = 4.8) => readings(lastSec - 120, 10, Array(13).fill(gb));
+
+  test("a three-second restart inherits the window, and the minimum is the inherited one", async () => {
+    const store = memStore();
+    store.write(JSON.stringify({ v: 1, samples: full(0, 4.8) }));
+    // The new process asks three seconds after the last sample was written.
+    const now = at(3);
+    const signal = createMemSignal({ probe: async () => null, now: () => now, measurable: true, store });
+    const held = signal.held();
+    expect(held.heldGB).toBe(4.8);
+    expect(held.coveredMs).toBeGreaterThanOrEqual(120_000);
+  });
+
+  test("a ten-minute pause starts from zero: the answer is «I am measuring it»", async () => {
+    const store = memStore();
+    store.write(JSON.stringify({ v: 1, samples: full(0) }));
+    // The gap to the newest sample is 600 s, twenty times MEM_SAMPLE_GAP_MS.
+    const signal = createMemSignal({ probe: async () => null, now: () => at(600), measurable: true, store });
+    expect(signal.held().heldGB).toBeNull();
+    expect(signal.samples().length).toBe(0);
+  });
+
+  test("the rule «I do not start on a single reading» is untouched: one inherited sample is not a window", async () => {
+    const store = memStore();
+    store.write(JSON.stringify({ v: 1, samples: [s(0, { availGB: 4.8 })] }));
+    const signal = createMemSignal({ probe: async () => null, now: () => at(3), measurable: true, store });
+    expect(signal.held().heldGB).toBeNull();
+    expect(signal.held().latestGB).toBe(4.8);
+  });
+
+  test("every sample is written back, so a restart never inherits a stale newest reading", async () => {
+    const store = memStore();
+    let now = at(0);
+    const signal = createMemSignal({
+      probe: async () => ({ availGB: 7, swapins: 0, compressorPages: 1, pageSize: PAGE, swapUsedMB: 0, swapTotalMB: 0, load1: 1 }),
+      now: () => now,
+      measurable: true,
+      store,
+    });
+    await signal.sample();
+    now = at(10);
+    await signal.sample();
+    const written = JSON.parse(store.text!) as { samples: MemSample[] };
+    expect(written.samples.map((x) => x.at)).toEqual([at(0), at(10)]);
+  });
+
+  test("a corrupt file, a sample dated in the future and an ancient one are dropped, not trusted", async () => {
+    // A clock that moved back would otherwise pin the newest run on a sample
+    // that never ages; a file that does not parse must cost a warm-up, not a throw.
+    const broken = { read: () => "{ not json", write: () => {} };
+    expect(createMemSignal({ probe: async () => null, now: () => at(0), measurable: true, store: broken }).samples().length).toBe(0);
+    const weird = {
+      read: () => JSON.stringify({ v: 1, samples: [s(60, { availGB: 4 }), s(-600, { availGB: 4 }), s(-10, { availGB: 4 })] }),
+      write: () => {},
+    };
+    const signal = createMemSignal({ probe: async () => null, now: () => at(0), measurable: true, store: weird });
+    expect(signal.samples().map((x) => x.at)).toEqual([at(-10)]);
+  });
+
+  test("no store = the behaviour before KANBAN-82: the window starts empty", () => {
+    const signal = createMemSignal({ probe: async () => null, now: () => at(0), measurable: true });
+    expect(signal.samples().length).toBe(0);
+  });
+});
