@@ -1,7 +1,7 @@
 /**
  * The four branches of the dormant cause, and the order they argue in.
  *
- * @covers TERM-11
+ * @covers TERM-12
  */
 import { describe, expect, it } from 'bun:test';
 import { causeClock, dormantCause } from './dormantCause';

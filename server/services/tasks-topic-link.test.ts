@@ -5,7 +5,7 @@
  * it has to find the card that was working there, and the card moves: a restart
  * can release it and a later claim binds it to a NEW topic, leaving the old one
  * pointed at by nobody. That is why the lookup reads the attempt history too.
- * @covers TERM-11
+ * @covers TERM-12
  */
 import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";

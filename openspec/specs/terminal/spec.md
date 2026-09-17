@@ -594,7 +594,7 @@ countdown stops instead of firing into the void.
 - **THEN** the awaiting caller SHALL receive the timeout error
 - **AND** the API SHALL answer 502
 
-### Requirement: TERM-11 — Una pane dormiente SHALL dire la CAUSA, se la sua card la conosce
+### Requirement: TERM-12 — Una pane dormiente SHALL dire la CAUSA, se la sua card la conosce
 
 Il velo «Sessione terminata» dice CHE la sessione è finita e non dice PERCHÉ.
 L'incidente, misurato il 14/09/2026: un riavvio del server ha tagliato dodici
