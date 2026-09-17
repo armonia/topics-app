@@ -1627,7 +1627,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (wait) {
       clearTimeout(wait.timer);
       slotWaits.delete(taskId);
-      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds?.[0]);
+      if (inherit && wait.message.trim()) bufferResume(taskId, wait.message, wait.commentIds);
     }
     waitingForSlot.delete(taskId);
     heldWritten.delete(taskId);
@@ -1772,18 +1772,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // sentence typed at 03:52, and without the hour the reopen reads as a verdict
   // on the delivery instead of the delayed hand-over it is.
   //
-  // The buffer also carries the id of the CARD COMMENT the words came from,
-  // when they came from one. That id rides the envelope to the row (`commentIds`)
-  // so a reader can tell that these words are already in the thread, and draw
-  // them once instead of twice.
-  const pendingResume = new Map<string, { text: string; at: number; commentId?: string }[]>();
+  // The buffer also carries the ids of the CARD COMMENTS the words came from,
+  // when they came from some. Those ids ride the envelope to the row
+  // (`commentIds`) so a reader can tell that these words are already in the
+  // thread, and draw them once instead of twice.
+  //
+  // ALL OF THEM, NOT THE FIRST. A review rejection hands `resume` every comment
+  // it is delivering, and the buffer used to keep `commentIds[0]`. The ids are
+  // what `pendingHumanReopen` reads to answer "has the agent ever seen these
+  // words": with only the first one recorded, objections two and three stayed
+  // "never delivered" forever, so every later re-adoption of the card started
+  // by re-delivering text the agent had already read.
+  const pendingResume = new Map<string, { text: string; at: number; commentIds: string[] }[]>();
   /** Queue a message for the turn boundary, keeping the order it was written in. */
-  function bufferResume(taskId: string, text: string, commentId?: string): void {
-    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock(), commentId }]);
+  function bufferResume(taskId: string, text: string, commentIds?: string[]): void {
+    const ids = (commentIds ?? []).filter((id) => typeof id === "string" && id.length > 0);
+    pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), { text, at: clock(), commentIds: ids }]);
   }
   /** The card comments a queued batch delivers, in the order they were written. */
-  function queuedCommentIds(queued: { commentId?: string }[]): string[] {
-    return queued.map((q) => q.commentId).filter((id): id is string => typeof id === "string" && id.length > 0);
+  function queuedCommentIds(queued: { commentIds: string[] }[]): string[] {
+    return queued.flatMap((q) => q.commentIds);
   }
 
   /** Broadcast the updated task so live boards move the chip. */
@@ -3940,7 +3948,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // as if a person had written it: card d2a4a907, delivered at 04:50 and
       // reopened at 04:50 with nothing to read. Nothing is lost by dropping it.
       if (opts?.continuation || !humanMessage.trim()) return;
-      bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
+      bufferResume(taskId, humanMessage, opts?.commentIds);
       return;
     }
     // Il tetto vale anche qui. Il messaggio NON si perde: si riprova quando un
@@ -4031,7 +4039,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // scattando): si imbuca dove si imbucano già i messaggi arrivati a turno
       // vivo, e `onTurnEnd` lo consegna quando il turno dell'attesa ha finito.
       if (slotWaits.has(taskId)) {
-        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage, opts?.commentIds?.[0]);
+        if (!opts?.continuation && humanMessage.trim()) bufferResume(taskId, humanMessage, opts?.commentIds);
         return;
       }
       // Sfalsati, o venti resume in coda si sveglierebbero tutti insieme per
@@ -5321,18 +5329,39 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             void reattachTask(t.id);
             continue;
           }
+          // UNA BOCCIATURA UMANA NON E' UN TURNO INTERROTTO.
+          //
+          // `buildContinueNudge` says "your previous turn was interrupted, no
+          // fault of yours, carry on ONLY with the work that is left" — which
+          // is the exact opposite of what happened when a person rejected the
+          // delivery with three objections. The rejection text lived in
+          // `slotWaits`, a Map in memory, because the floor was holding the
+          // resume: the first restart lost it and every restart after that
+          // handed the agent the interrupted-turn nudge instead. Measured
+          // 2026-09-17: 3 cards rejected on the 15th, stopped 45 hours, 44
+          // restarts each, and the words still sitting unread in the thread.
+          //
+          // The words themselves come from the service (`pendingHumanReopen`),
+          // which owns both the row that says who reopened and the record of
+          // which comments a resume envelope has already carried.
+          let rejection: { text: string; commentIds: string[] } | null = null;
+          try { rejection = deps.svc.pendingHumanReopen({ taskId: t.id }); }
+          catch { rejection = null; }
           try {
             deps.svc.claimInterruption({
               taskId: t.id,
-              note: reason === "boot"
-                ? (t.dispatchState === CHIP_QUEUED
-                  ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
-                  : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
-                : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
+              note: rejection
+                ? "Riprendo la stessa sessione con la tua bocciatura, che il turno precedente non aveva ancora ricevuto: nessun tentativo consumato."
+                : reason === "boot"
+                  ? (t.dispatchState === CHIP_QUEUED
+                    ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
+                    : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
+                  : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
-          void resume(t.id, "", { continuation: true });
+          if (rejection) void resume(t.id, rejection.text, { commentIds: rejection.commentIds });
+          else void resume(t.id, "", { continuation: true });
           // COUNTED BY WHAT HAPPENED, not by the call. `resume` is synchronous up
           // to its start (`beginRun`) or its wait (`slotWaits`), so the two maps
           // already say which one it was. Counting the call wrote «riprese» for
@@ -5420,15 +5449,58 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    board dentro `sweepParkedChildren` e poi rifare il giro dei todo
     //    significava pagare quel cestino ogni 10 secondi.
     if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) return;
+    const acceso = (projectId: string): boolean => {
+      try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
+    };
     try {
-      const acceso = (projectId: string): boolean => {
-        try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
-      };
       for (const t of deps.svc.sweepParkedChildren({ by: "dispatcher", eligible: acceso })) {
         log(`checklist ferma: alzata la domanda su ${t.id}`);
         emit(t);
       }
     } catch (err) { log("sweep delle checklist ferme fallito", err); }
+    // 1-quater) LA SERIE DI ATTESE CHE NESSUNO CRONOMETRAVA.
+    //    `WAIT_SERIES_MAX_MS` had one reader, inside `deferForWait`: the cap
+    //    fired only if another turn started and re-declared the same wait. With
+    //    admissions held the series just grew — 2 cards past the 4-hour cap by
+    //    45 and 31 hours on 2026-09-17, zero `waited_out` parks in the whole
+    //    history, and `waited_out` is the only state that reaches a push
+    //    notification. This pass already walks card by card, so the clock is
+    //    read here.
+    //
+    //    Its own `try`, and not the one above: a sweep that throws must not take
+    //    the other one down with it — that is how a backstop stays a backstop.
+    //
+    //    `busy` is the whole difference between a park and a turn cut in half: a
+    //    card with a live turn, a queued resume, a scheduled retry or an open
+    //    grace window is OURS, whatever the row says.
+    //
+    //    BEFORE THE `tick`, ON PURPOSE. The two only ever fire in the same pass
+    //    when a card's requested wake-up lands on the very instant its series
+    //    tops the cap, and after `waitedOutIfCapped` learned to read
+    //    `dispatch_deferred_until` that can only happen to a real SERIES —
+    //    streak two or more, so at least two turns have already come back to
+    //    look at this condition and asked for more time. The cap exists to stop
+    //    the next one. A single wait never meets the two conditions together:
+    //    its clock starts at the wake-up, so the retry is always four hours
+    //    ahead of the park.
+    //
+    //    AND IT DOES NOT RUN WITH GLOBAL DISPATCH OFF: the `return` above stops
+    //    the pass, exactly as it does for `sweepParkedChildren`. That is the
+    //    state in which a card can sit past the cap indefinitely, and it is
+    //    still the right call — `waited_out` is a push notification asking a
+    //    person to decide about a card, and with the queue deliberately off the
+    //    honest answer is that NOTHING is moving, not that this one card needs
+    //    attention. Nothing is lost while it is off: the clock lives on the row
+    //    (`wait_since`), not in this process, so the first pass after the
+    //    switch comes back on parks whatever went past the cap meanwhile.
+    try {
+      const ours = (taskId: string): boolean =>
+        inFlight.has(taskId) || slotWaits.has(taskId) || retryWaits.has(taskId) || graceTimers.has(taskId);
+      for (const t of deps.svc.sweepWaitedOut({ eligible: acceso, busy: ours })) {
+        log(`serie di attese oltre il tetto: ${t.id} parcheggiata`);
+        emit(t);
+      }
+    } catch (err) { log("sweep delle serie di attese fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si
