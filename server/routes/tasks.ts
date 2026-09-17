@@ -51,9 +51,16 @@ function globalCapFields(cap: GlobalDispatchCap): {
 } {
   return { maxAgentsAuto: cap.auto, maxAgents: cap.max, maxAgentsMode: capMode(cap), budgetShare: budgetShare(cap) };
 }
+
+/** The checks memory floor on the wire, in ONE place for the GET, the PATCH
+ *  answer and the broadcast — same reason as `globalCapFields` above. What
+ *  travels is the APPLIED value (clamped, defaulted), so a panel can never show
+ *  a floor the brake is not using. */
+const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
+  ({ checksMemFloorGB: svc.getChecksMemFloorGB() });
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
-import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
@@ -70,8 +77,8 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, for
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
-import { forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
-import { ciNotMeasured } from "../services/ci-evidence";
+import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
+import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -373,6 +380,13 @@ export interface TasksRouterOpts {
    */
   confirmLandedOnMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /**
+   * Close the delivery's draft pull request and delete its branch on origin.
+   * Absent ⇒ the real `gh`/`git` (`closeCiDraft`); the seam exists so the three
+   * doors that call it can be proved without a GitHub account, the same way
+   * `deleteTaskWorktree` and `confirmLandedOnMain` are.
+   */
+  closeDelivery?: (input: CloseCiDraftInput) => Promise<DraftCleanup>;
+  /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
    * keeping it is how 30+ stale worktrees accumulated.
@@ -412,7 +426,19 @@ export interface TasksRouterOpts {
    * e non puo' riceverlo al costruttore. Con questo hook il wiring e' immediato
    * e senza accoppiamenti circolari.
    */
-  onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
+  /**
+   * `hooks.settleDelivery` rides along because it answers the OTHER half of the
+   * same question: the periodic sweep that switches off an orphaned `running`
+   * light (`services/checks-lights.ts`) has the card ids in hand, and without
+   * this the honest light would just park the card - nothing in this process
+   * restarts a round whose gate key is gone, and the boot resume now gives up
+   * after three rounds (`MAX_DELIVERY_ROUNDS`). It is a no-op for a card this
+   * process holds no delivery for.
+   */
+  onChecksGate?: (
+    gate: import("../services/checks-gate").ChecksGate,
+    hooks: { settleDelivery: (taskId: string) => void },
+  ) => void;
   /**
    * The memory a pre-review command waits for before it starts: a delivery's
    * unit tree is 4-11 GB, and nothing else holds it back once the card was
@@ -427,7 +453,11 @@ export interface TasksRouterOpts {
    * only after every local command is green and the lane is given back.
    * Absent with a declared CI row = NOT MEASURED, never a pass.
    */
-  ciEvidence?: (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun[]>;
+  ciEvidence?: (input: {
+    cwd: string; sha: string; taskId: string; checks: ReviewCheck[];
+    /** The links of the wait, as soon as they exist: they go on the card. */
+    onCiWait?: (links: { prUrl: string; runUrl?: string }) => void;
+  }) => Promise<CheckRun[]>;
 }
 
 /**
@@ -856,6 +886,88 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
+   * The same reap, on the OTHER side: the draft pull requests the card's
+   * deliveries opened and the branches they pushed to origin.
+   *
+   * `reapAfterLand` above has always cleaned the local half - worktree and local
+   * branch - and nothing ever cleaned the remote one: until 17/09/2026 the whole
+   * tree had no `gh pr close` and no `push --delete`, so origin carried 41
+   * `topics/*` branches with 39 of them already inside `main`. Now that every
+   * delivery into review opens a draft (121 entries in 7 days) the drafts pile up
+   * at the same rate, so the three doors where the branch is finished for good -
+   * a confirmed land, an approval marked `superseded`, an archived card - sweep it.
+   *
+   * PLURAL, because a card delivers on MORE THAN ONE BRANCH. Every delivery that
+   * goes through the checks gate pushes the branch of ITS OWN worktree and opens
+   * its own draft (`awaitCiEvidence` takes `port.branch(cwd)`), while the card
+   * remembers only the last one in `delivery_branch`. On the live DB: 151 cards
+   * carry two or more distinct attempt branches, 104 of them also have a
+   * `delivery_branch`, and 83 branches belong to a `delivered` attempt that is
+   * NOT the card's delivery branch. Sweeping one branch per card would leave
+   * exactly those 83 behind - the very loss T4.2 exists to stop.
+   *
+   * `landed` - the branch the merge actually carried onto main - is the ONLY one
+   * whose pull request is left alone: GitHub marks it MERGED itself once main is
+   * pushed. Every other branch of the card will never land, so its draft is
+   * closed here or never.
+   *
+   * NOT on a plain approval and NOT on a rejection: an approval that does not land
+   * leaves real work on that branch and a rejection sends the agent back to the
+   * same branch to deliver again.
+   *
+   * Best-effort by contract. A `gh` that is logged out, rate-limited or missing
+   * must never turn a land into a failure: the problems go to the log, and the
+   * card gets a receipt only for what actually happened.
+   */
+  async function sweepRemoteDelivery(
+    projectId: string, taskId: string, reason: string,
+    over?: { cwd?: string | null; landed?: string | null; extra?: Array<string | null | undefined> },
+  ): Promise<void> {
+    const task = svc.get(taskId, { projectId })?.task;
+    const landed = (over?.landed ?? "").trim();
+    let tried: Array<string | null | undefined> = [];
+    try { tried = attempts.list(taskId).map((a) => a.branch); } catch { /* best-effort */ }
+    const branches: string[] = [];
+    for (const raw of [landed, task?.deliveryBranch, ...(over?.extra ?? []), ...tried]) {
+      const b = (raw ?? "").trim();
+      if (b && !branches.includes(b)) branches.push(b);
+    }
+    if (!branches.length) return;
+    let cwd = over?.cwd ?? null;
+    if (!cwd) {
+      let dirs: string[] = [];
+      try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      cwd = dirs.find((d) => projectIdForPath(d) === projectId) ?? null;
+    }
+    if (!cwd) return;
+    const close = opts?.closeDelivery ?? ((i: CloseCiDraftInput) => closeCiDraft(i));
+    const did: string[] = [];
+    for (const branch of branches) {
+      const done = await close({ cwd, branch, reason, closePr: branch !== landed }).catch((err) => {
+        console.warn(`[land] remote cleanup threw for ${taskId} on ${branch}:`, err);
+        return null;
+      });
+      if (!done) continue;
+      if (done.problems.length) console.warn(`[land] remote cleanup for ${taskId} on ${branch}: ${done.problems.join("; ")}`);
+      const half = [
+        done.pr ? `chiusa la bozza #${done.pr.number}` : null,
+        done.branchDeleted ? `cancellato il ramo \`${branch}\` su origin` : null,
+      ].filter(Boolean).join(" e ");
+      if (half) did.push(half);
+    }
+    // THE RECEIPT SAYS ONLY WHAT HAPPENED. With `gh` logged out both halves come
+    // back false and the card would otherwise read «Pulizia su GitHub: .» - a
+    // line that claims a cleanup nobody did, on the one path this code is built
+    // to survive.
+    if (!did.length) return;
+    try {
+      svc.addComment({ taskId, author: "system", kind: "service", content: `Pulizia su GitHub: ${did.join("; ")}.` });
+      const fresh = svc.get(taskId, { projectId })?.task;
+      if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+    } catch (err) { console.warn(`[land] remote cleanup receipt not written for ${taskId}:`, err); }
+  }
+
+  /**
    * Butta il workspace di un tentativo perdente: worktree + branch + riga di
    * store (via manager), poi la chat dell'agente che ci lavorava.
    *
@@ -961,14 +1073,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const checksGate = createChecksGate({ maxConcurrent: checksLanes() });
   // Notifica il chiamante non appena il gate esiste, cosi' puo' passarne
   // `runningCount` al dispatcher senza accoppiamenti circolari.
-  try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
+  // `settleDelivery` is a hoisted declaration below: the hook only stores the
+  // reference, and nothing calls it before the router is finished being built.
+  try { opts?.onChecksGate?.(checksGate, { settleDelivery: (taskId) => settleDelivery(taskId) }); } catch { /* best-effort */ }
 
-  // Qui, e non nel poll del dispatcher: questo è l'unico istante in cui il
-  // registro è VUOTO per costruzione, quindi ogni «running» rimasto nel db è di
-  // un processo morto. Nel poll la stessa riga spegnerebbe corse vive.
+  // WITHOUT A PREDICATE, and only here: this is the one instant when the gate's
+  // registry is EMPTY by construction, so every «running» left in the database
+  // belongs to a dead process. The periodic sweep (`sweepStaleChecksLights` in
+  // server.ts) asks the same question every 30 s, but it has to pass the live
+  // registry - the bare call there would switch off a run that is grinding.
   try {
     const spente = svc.clearStaleChecksRuns();
-    if (spente) console.warn(`[checks] ${spente} spie 'running' spente: erano di un processo morto`);
+    if (spente.length) console.warn(`[checks] ${spente.length} spie 'running' spente: erano di un processo morto`);
   } catch { /* una spia non deve poter impedire al server di partire */ }
 
   /**
@@ -1094,12 +1210,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (!stream) return;
       const running = ctx.getMessageById(stream.messageId)?.toolCalls?.find((tc) => tc.status === "running");
       if (!running) return;
-      const names = svc.getBoardSettings(projectId).reviewChecks.map((c) => c.name);
+      const declared = svc.getBoardSettings(projectId).reviewChecks;
       const progress = task?.checksProgress ?? null;
       const partialResult = formatChecksWait({
         done: progress ? progress.done : null,
-        total: progress?.total ?? names.length,
-        names,
+        total: progress?.total ?? declared.length,
+        checks: declared,
         elapsedMs: Date.now() - since,
       });
       const message = { type: "stream:tool_update" as const, sessionKey, topicId: topicId ?? undefined, toolCallId: running.id, partialResult };
@@ -1140,6 +1256,47 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
+   * How many times a boot restarts the SAME round before saying so instead.
+   *
+   * Three, and the arithmetic is the round's own: a round with the CI rows
+   * costs the local commands (typecheck measured at 73-177 s, plus lint,
+   * deadcode and the static rails) and then up to 65 minutes of polling
+   * GitHub, while a save under `server/` sends a SIGTERM that cuts it - 6
+   * restarts in the 14/09T23 hour, 4 in the T20 one, 1-2 an hour all through
+   * 16/09. Three whole rounds thrown away is already more wall clock than one
+   * round ever gets, so a fourth silent attempt is not patience, it is a loop.
+   */
+  const MAX_DELIVERY_ROUNDS = 3;
+
+  /**
+   * The round is not restarted a fourth time: the card is told, once.
+   *
+   * The row goes with it, because leaving it would restart the count at the
+   * next boot and write the same line again. Nothing else is touched - the card
+   * stays `in_progress`, the branch and the commit are where the agent left
+   * them - since what unblocks this is a person or a new delivery, not another
+   * round nobody watches.
+   */
+  function giveUpOnDelivery(taskId: string, rounds: number): void {
+    forgetPendingDelivery(ctx.db, taskId);
+    console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: ${rounds} giri di check ripartiti da zero senza verdetto, il giro non riparte`);
+    try {
+      const task = svc.get(taskId)?.task;
+      if (!task) return;
+      svc.addComment({
+        taskId, author: "system", kind: "comment",
+        content:
+          `I check di questa consegna sono ripartiti da zero ${rounds} volte senza arrivare a un verdetto: ` +
+          "ogni riavvio del server taglia il giro (i comandi locali durano minuti, le righe CI aspettano la pull request) " +
+          "e ricominciarlo non ha misurato niente. Il giro non riparte piu' da solo: serve un commit nuovo da consegnare, " +
+          "oppure una persona che guardi perche' questo giro non arriva in fondo.",
+      });
+      const t = svc.get(taskId)?.task;
+      if (t) broadcastToAll({ type: "task:updated", projectId: t.projectId, task: t });
+    } catch { /* the card may have moved under us: the log line above stays */ }
+  }
+
+  /**
    * THE DELIVERIES THE PREVIOUS PROCESS WAS STILL WAITING ON.
    *
    * A planned reload no longer waits for a delivery whose checks are only
@@ -1172,6 +1329,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // is a question somebody asks, and the rows in flight at a shutdown are
         // a handful, not a stream.
         console.warn(`[Tasks] consegna di ${entry.taskId.slice(0, 8)} dimenticata al boot: la card non è più in lavorazione, nessun check lanciato`);
+        continue;
+      }
+      // COUNTED BEFORE IT RESTARTS, because the round that follows may well be
+      // cut by the next save under `server/` and never be counted at all.
+      const round = bumpPendingDeliveryRound(ctx.db, entry.taskId);
+      if (round > MAX_DELIVERY_ROUNDS) {
+        giveUpOnDelivery(entry.taskId, round);
         continue;
       }
       restoredDeliveries.set(entry.taskId, entry.commit);
@@ -1349,8 +1513,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // and the card entered review with no e2e verdict. Only a shutdown
         // passes through, as the interrupted outcome it already has.
         const unread = (reason: string) => ciChecks.map((c) => ciNotMeasured(c, reason));
+        /* THE WAIT ON GITHUB IS NOT A MUTE WAIT.
+         *
+         * The pull request and its run exist within seconds of the push, and
+         * used to reach the card only inside the tail of the verdict — measured
+         * on run 35158365969, from 22:34:48 to 22:49:48: a quarter of an hour in
+         * which the card said «check 1/2» and nothing that could be opened.
+         * Best-effort like every other lamp of this round: a link that fails to
+         * be written must not be able to stop a delivery. */
+        const onCiWait = (links: { prUrl: string; runUrl?: string }) => {
+          try {
+            const t = svc.recordChecks({
+              taskId, state: "running", commit: ref.commit, runs: null,
+              progress: { done: localChecks.length, total: checks.length }, ci: links,
+            });
+            broadcastToAll({ type: "task:updated", projectId, task: t });
+          } catch { /* a link lost does not stop the gate */ }
+        };
         const ciRuns = ref.commit && opts?.ciEvidence
-          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks }).catch((err: unknown) => {
+          ? await opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait }).catch((err: unknown) => {
             if (err instanceof ChecksInterruptedError) throw err;
             return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`);
           })
@@ -1621,8 +1802,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.
+      // ...and what that costs. What landed is C2 = merge(C, main), and the
+      // checks - the local commands AND the two CI rows - measured C. Nobody
+      // reads the CI of C2: the push, the draft and the poll loop all happened
+      // once, on C, hours earlier (1,93 h in review on average, 32 lands in 7
+      // days). So the note says which commit those verdicts describe, and
+      // `checks_commit` stops naming a commit as if it were the one that landed.
+      // Measured on 17/09: 22 of those 32 lands carry this line and only 4 also
+      // warned that the land differed from the delivery - 18 said nothing.
+      //
+      // NOT a merge queue. Re-pushing C2 and re-reading its CI costs 15-40
+      // minutes per land and is the owner's call, not this line's: what changes
+      // here is only that the card stops claiming more than it measured.
       if (res.status === "merged" && res.realigned) {
-        svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato prima del land: ${res.realigned}.` });
+        const before = svc.get(taskId, { projectId })?.task;
+        const measured = before?.checksState && before.checksState !== "running"
+          ? before.checksCommit ? `\`${before.checksCommit.slice(0, 8)}\`` : "il commit consegnato"
+          : null;
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Riallineato prima del land: ${res.realigned}.`
+            + (measured
+              ? ` I check (comandi locali e righe CI) hanno misurato ${measured}, non la fusione che sta atterrando: nessuno li ha rimisurati su quest'ultima.`
+              : ""),
+        });
+        try { svc.clearChecksCommit(taskId); } catch (err) { console.warn(`[land] checks_commit non azzerato per ${taskId}:`, err); }
       }
       // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
       // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
@@ -1720,6 +1924,39 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         await reapAfterLand(taskId, "landed");
+        // The remote half of that same reap. Here, and not at the approval, for
+        // the reason the whole land path is built on: the branch is finished only
+        // once main has been RE-READ and confirms it. `proof === null` - the
+        // merge exited zero and main could not be re-read - keeps the branch on
+        // origin, because that is the one case where the comment above already
+        // asks a person to go and look.
+        //
+        // `landed: res.branch` LEAVES THAT ONE PULL REQUEST ALONE, and this is
+        // the whole reason the flag exists. `confirmLandedOnMain` re-reads the
+        // LOCAL main (`server.ts`), and nothing in this server ever pushes main:
+        // when the sweep runs, `origin/main` does not have the merge yet and a
+        // person pushes it seconds to hours later. GitHub then marks that pull
+        // request MERGED by itself - measured on #78, 17/09/2026, a minute after
+        // the land. A `gh pr close` racing that push would stamp "Closed" on the
+        // ~32 cards that land in a week instead. The card's OTHER branches, which
+        // no push will ever merge, are closed here.
+        //
+        // NOT AWAITED, and that is the difference between housekeeping and a
+        // stop-the-world. `landTask` runs inside `landings.enqueue`, ONE land at
+        // a time per project, while this sweep is `gh pr list` + `git push
+        // --delete` per branch with a 60 s cap each. On the live DB the worst
+        // card carries 11 branches: with `gh` logged out or rate-limited an
+        // awaited sweep turned a 3-minute queue into a 22-minute one for every
+        // OTHER card waiting behind it, and 124 archived cards carry attempt
+        // branches that never delivered, so those calls buy nothing at all.
+        // Nothing downstream reads its result - the receipt it writes is its own
+        // comment - and the two other doors (superseded approval, archive)
+        // already call it exactly like this.
+        if (proof === true) {
+          void sweepRemoteDelivery(projectId, taskId, `Closed by the Topics board: the card landed on main as ${res.commit} from another branch, this one will not land.`,
+            { cwd: res.repoPath, landed: res.branch })
+            .catch((err) => console.warn(`[land] remote cleanup after a land failed for ${taskId}:`, err));
+        }
         if (res.landedNotLive) {
           // Landed on main, but the shared checkout (the live server's cwd) is parked
           // on another branch — so the code is on main yet NOT running. Say it loudly:
@@ -3126,6 +3363,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           return json({
             autoDispatch: svc.getGlobalAutoDispatch(),
             ...globalCapFields(svc.getGlobalCap()),
+            ...checksFloorFields(svc),
             ...spendSnapshot(svc),
           });
         } catch (e) { return fail(e); }
@@ -3140,9 +3378,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // applies, and the response carries the value that will actually rule.
         const hasCapMode = body?.maxAgentsMode === "count" || body?.maxAgentsMode === "resources";
         const hasBudget = Number.isFinite(body?.budgetShare);
+        // Out of range is not refused here either: `setChecksMemFloorGB` clamps
+        // with the same reader the brake applies, and the answer carries the
+        // value that will actually rule.
+        const hasFloor = Number.isFinite(body?.checksMemFloorGB);
         const hasSpend = hasSpendCapPatch(body);
-        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasBudget && !hasSpend) {
-          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), budgetShare, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
+        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasBudget && !hasFloor && !hasSpend) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), budgetShare, checksMemFloorGB, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -3160,12 +3402,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               budgetShare: hasBudget ? body.budgetShare : undefined,
             });
           }
+          // The checks floor is written by a PERSON too, from the same panel.
+          // Zero switches the memory brake off in front of every check command.
+          if (hasFloor) svc.setChecksMemFloorGB(body.checksMemFloorGB);
           // The spend caps are written by a PERSON, from here. Zero clears a cap.
           if (hasSpend) applySpendCapPatch(svc, body);
           const capFields = globalCapFields(svc.getGlobalCap());
+          const floor = checksFloorFields(svc);
           const caps = spendCapFields(svc);
-          broadcastToAll({ type: "board:global-cap", ...capFields, ...caps });
-          return json({ autoDispatch, ...capFields, ...caps });
+          broadcastToAll({ type: "board:global-cap", ...capFields, ...floor, ...caps });
+          return json({ autoDispatch, ...capFields, ...floor, ...caps });
         } catch (e) { return fail(e); }
       }
       return null;
@@ -3818,6 +4064,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 taskId: bReview.taskId, state: "superseded", checkedAt: new Date().toISOString(),
               });
             } catch { /* la decisione conta piu' del suo timbro */ }
+            // The one review door that says out loud "these branches will never
+            // land": the drafts they opened and the branches they pushed go with
+            // them, all of them, with no `landed` to spare.
+            // A plain approval does not come through here, and must not - its
+            // branch still holds work nobody has merged.
+            void sweepRemoteDelivery(bReview.projectId, bReview.taskId,
+              "Closed by the Topics board: the card was approved as superseded, this branch will not land.")
+              .catch((err) => console.warn(`[land] remote cleanup after a superseded approval failed for ${bReview.taskId}:`, err));
           }
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
@@ -4192,8 +4446,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             if (got) {
               detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN);
             }
+            // Read BEFORE the archive: the sweep needs the delivery branch, and
+            // it runs after, when the card is already off the board.
+            const deliveryBranch = got?.task.deliveryBranch ?? null;
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
+            // A card that leaves the board leaves its draft pull requests and its
+            // origin branches too: nothing will ever land them, and nobody will
+            // ever look at them again. No `landed` here - not one of these
+            // branches is on its way into main, so every draft gets closed.
+            void sweepRemoteDelivery(projectId, taskId,
+              "Closed by the Topics board: the card was archived, this branch will not land.",
+              { extra: [deliveryBranch] })
+              .catch((err) => console.warn(`[land] remote cleanup after an archive failed for ${taskId}:`, err));
             // Le tab del task se ne vanno con lui: un task archiviato è fuori
             // dalla board e la sua evidenza durevole è l'anteprima, non la tab
             // viva. DOPO l'archiviazione perché il sottoalbero è quello che

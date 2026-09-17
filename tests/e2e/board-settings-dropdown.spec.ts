@@ -161,6 +161,22 @@ async function openBoard(page: Page) {
 }
 
 const gear = (page: Page) => page.getByTestId("kanban-board").getByTitle("Impostazioni auto-dispatch");
+
+/** Writes the checks floor and waits for the PATCH that carries it to answer.
+ *  The field commits on blur and does not await the call, so without this a
+ *  reload can cancel the write and the round-trip assertion after it would be
+ *  testing a race the app does not have. */
+async function writeFloor(page: Page, gb: string) {
+  const box = page.getByTestId("checks-floor-gb");
+  const written = page.waitForResponse(
+    (r) => r.url().includes("/api/all-boards/settings") && r.request().method() === "PATCH" && r.ok(),
+    { timeout: 15000 },
+  );
+  await box.fill(gb);
+  await box.blur();
+  await written;
+  await expect(box).toBeEnabled();
+}
 const menu = (page: Page) => page.getByTestId("board-settings-menu");
 const panel = (page: Page) => page.getByTestId("board-settings-panel");
 
@@ -369,5 +385,50 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.getByTestId("global-cap-brake-count").click();
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
     await expect(page.getByTestId("global-cap-budget-slider")).toHaveCount(0);
+  });
+
+  test("DROP-07: il pavimento memoria dei check si scrive, torna dopo il ricarico, e a 0 dice che il freno e' spento", async ({ page }) => {
+    // NO STUB, same reason as DROP-05: what is being claimed is that the number
+    // reaches the '*' row and comes back, not that the client re-reads its own
+    // optimistic value. This one matters more than most settings because it
+    // decides whether a delivery's check commands wait before they are spawned:
+    // a field that looked saved and was not would be a wait nobody can explain.
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    const floor = page.getByTestId("checks-floor-gb");
+    await expect(floor).toBeVisible();
+    // The default a fresh row is born with, and the change this round landed.
+    await expect(floor).toHaveValue("3");
+    // WAIT FOR THE WRITE, not for the box. The commit is fire-and-forget, so a
+    // reload fired right after the blur can cancel the PATCH in flight and the
+    // test would then be measuring its own race instead of the round trip.
+    await writeFloor(page, "5");
+
+    // `openBoard` AND NOT a bare wait for the board: a reload restores whatever
+    // layout the window had, which after the tests before this one is a project
+    // window with the file pane beside the board — the toolbar ends up clipped
+    // at the right edge and the gear never becomes clickable. `openBoard` is
+    // idempotent (it returns at once if the board pane is already there), so it
+    // re-establishes the pane this test is about instead of trusting the restore.
+    await page.reload();
+    await openBoard(page);
+    await gear(page).click();
+    await expect(page.getByTestId("checks-floor-gb")).toHaveValue("5");
+
+    // Zero is a setting, not an empty box: it survives the round trip AND the
+    // hint changes to say the brake is off, which is the only place that fact
+    // is written for whoever is looking at the panel.
+    await writeFloor(page, "0");
+    await expect(page.getByTestId("checks-floor-hint")).toContainText("Freno spento");
+    await page.reload();
+    await openBoard(page);
+    await gear(page).click();
+    await expect(page.getByTestId("checks-floor-gb")).toHaveValue("0");
+    await expect(page.getByTestId("checks-floor-hint")).toContainText("Freno spento");
+
+    // Put it back, so the isolated test server does not carry a switched-off
+    // brake into whatever runs next in the same file.
+    await writeFloor(page, "3");
   });
 });

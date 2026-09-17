@@ -16,6 +16,17 @@ import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, P
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import type { ResourceFloorVerdict } from "./dispatch-capacity";
+
+/**
+ * A sentence as the floor VERDICT the dispatcher now takes: these tests inject
+ * the text, and which floor it came from is read off its first word - the one
+ * place still allowed to, because here the text IS the fixture.
+ */
+function asFloor(reason: string | null): ResourceFloorVerdict {
+  return { reason, kind: reason ? (reason.startsWith("Disco") ? "disk" : "memory") : null, memoryFirstCardExempt: false };
+}
+
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
@@ -4029,6 +4040,138 @@ describe("il reconcile non idrata la board per contare le board", () => {
 });
 
 /**
+ * THE WIRE, NOT THE JUDGEMENT.
+ *
+ * `sweepWaitedOut` has its own bench (`tasks.waited-out-sweep.test.ts`) and it
+ * survives every mutation. What nobody watched was the WIRING: deleting the
+ * whole 1-quater step of `reconcilePass` — the sweep call plus the `busy`
+ * predicate — left 366 pass / 0 fail across sixteen `task-dispatcher*.test.ts`
+ * files, so the one thing the spec asks for could be reverted with the bar
+ * still green.
+ *
+ * The proof runs the whole reconcile and reads one doubled assertion: the card
+ * past the cap must come out parked AND with no turn. Without the step the
+ * `tick` on the very next line claims it, so the test does not die by a hair —
+ * it dies saying `in_progress` with a live turn.
+ *
+ * @covers KANBAN-84
+ */
+describe("il reconcile cronometra le attese, non solo il servizio", () => {
+  /** A card waiting for FIVE hours, its wake-up long past. */
+  function seedWaitedOut(h: ReturnType<typeof harness>, id: string): string {
+    seedTask(h.db, { id, status: "todo" });
+    const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    const wake = new Date(Date.now() - 4 * 3_600_000).toISOString();
+    h.db.run(
+      `UPDATE tasks SET dispatch_state = 'waiting', dispatch_deferred_until = ?,
+         wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+       WHERE id = ?`,
+      [wake, since, id],
+    );
+    return id;
+  }
+
+  it("una card oltre il tetto esce dal reconcile parcheggiata, e senza turno", async () => {
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    seedWaitedOut(h, "t1");
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
+    // Without step 1-quater the `tick` claims it instead of parking it: this
+    // is the line that tells "the wire is there" from "the wire was moot".
+    expect(h.turns.length).toBe(0);
+    h.dispatcher.shutdown();
+  });
+
+  it("la stessa card con un turno VIVO non si tocca: `busy` arriva dal registro del dispatcher", async () => {
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    // The turn really starts, then the row takes the shape of a wait past
+    // its cap: the only way to hold `inFlight` and an over-cap series at
+    // once, which is the race the predicate exists to lose.
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+    const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    h.db.run(
+      `UPDATE tasks SET wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+       WHERE id = ?`,
+      [since, "t1"],
+    );
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.dispatchState).not.toBe(PARKED_WAITED_OUT);
+    h.dispatcher.shutdown();
+  });
+
+  it("interruttore globale spento: il backstop non gira, e la card resta dov'era", async () => {
+    // A choice, not an oversight: `waited_out` is the only state that reaches
+    // a push notification, and with the queue off there is no card to look at,
+    // there is a stopped machine. The clock lives on the row (`wait_since`),
+    // so the first pass after the switch comes back on collects the backlog.
+    const h = harness();
+    // One switch only: `updateBoardSettings({autoDispatch})` writes
+    // `app_settings`, so "board on" and "machine on" are the same row. Here it
+    // stays off.
+    expect(h.svc.getGlobalAutoDispatch()).toBe(false);
+    seedWaitedOut(h, "t1");
+
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.status).toBe("todo");
+
+    h.svc.setGlobalAutoDispatch(true);
+    await h.dispatcher.reconcile();
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe(PARKED_WAITED_OUT);
+    h.dispatcher.shutdown();
+  });
+
+  it("un turno e' gia' ripartito dopo la dichiarazione: la card PARTE, non si parcheggia", async () => {
+    // THE REGRESSION THIS BACKSTOP INTRODUCED, and it is the opposite of what
+    // the change is for. Measured on `origin/main` against this branch, on the
+    // shape the live DB carries (`c4d48d3e`): streak 1, `wait_since` five hours
+    // old, `dispatch_deferred_until` NULL.
+    //
+    //     main    → in_progress / working, one turn started
+    //     branch  → backlog / waited_out, ZERO turns
+    //
+    // `claim` clears the window and leaves `wait_since` alone — no dispatcher
+    // requeue clears it, only human→todo, review and done — so the column
+    // outlives the very turn that stopped waiting.
+    const h = harness();
+    h.svc.setGlobalAutoDispatch(true);
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+    h.db.run(
+      `UPDATE tasks SET dispatch_state = 'waiting', dispatch_deferred_until = NULL,
+         wait_streak = 1, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+       WHERE id = ?`,
+      [since, "t1"],
+    );
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.dispatchState).not.toBe(PARKED_WAITED_OUT);
+    expect(h.turns.length).toBe(1);
+    h.dispatcher.shutdown();
+  });
+});
+
+/**
  * L'ENVELOPE È IN INGLESE, TUTTO, E QUESTO È IL CANCELLO CHE LO TIENE.
  *
  * È un contratto di runtime letto da un modello, sta nel codice, e in questo
@@ -4249,6 +4392,112 @@ describe("l'envelope non parla italiano", () => {
   });
 
   /**
+   * A REJECTION OF THREE COMMENTS RECORDED ONE.
+   *
+   * `reviewDecision reject` hands `resume` EVERY comment it is delivering, and
+   * the live-turn buffer kept `commentIds[0]`. Those ids are what
+   * `pendingHumanReopen` reads to answer "has the agent ever seen these
+   * words": with two of three left out of the envelope, the second and third
+   * objection stay "never delivered" forever and every later re-adoption of
+   * the card starts by handing the agent text it has already read.
+   */
+  it("una bocciatura di tre commenti li porta TUTTI nella busta, non solo il primo", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The turn is alive: the resume is buffered and `onTurnEnd` delivers it.
+    void h.dispatcher.resume("t1", "tre obiezioni", { commentIds: ["c1", "c2", "c3"] });
+    await flush();
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    expect(h.turns[1]!.dispatchedFor).toEqual(["c1", "c2", "c3"]);
+    h.dispatcher.shutdown();
+  });
+
+  /**
+   * THE SAME TRUNCATION, ON THE OTHER TWO DOORS.
+   *
+   * `bufferResume` has three callers and only the live-turn one was watched:
+   * `.slice(0, 1)` on it makes one test fail, while the same mutation on
+   * `clearSlotWait`'s inheritance and on the slot-wait branch of `resume` left
+   * 2576 tests green across all of `server/services`. Both are reached whenever
+   * the concurrency cap is full, which is the normal state of a busy board, and
+   * a rejection that arrives there loses the same ids for the same reason.
+   *
+   * The two are pinned SEPARATELY, and that is the point: each test carries the
+   * ids through exactly one of the two doors, so a mutation on one cannot be
+   * absolved by the other.
+   */
+  /** Cap of one, `t1` holding it, `t2` bound to a topic and ready to resume. */
+  async function capIsFull(): Promise<ReturnType<typeof harness>> {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns.length).toBe(1);
+    seedTask(h.db, { id: "t2", status: "in_progress", createdAt: "2020-01-02T00:00:00.000Z" });
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-2"]);
+    h.db.run("UPDATE tasks SET assigned_topic_id = ? WHERE id = ?", ["topic-2", "t2"]);
+    return h;
+  }
+
+  it("l'eredita' di un'attesa di slot porta TUTTI gli id, non il primo", async () => {
+    const h = await capIsFull();
+    // The rejection arrives with the cap full: it opens a slot wait holding the
+    // three ids.
+    void h.dispatcher.resume("t2", "tre obiezioni", { commentIds: ["c1", "c2", "c3"] });
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    // A place frees up and another resume takes it: the starting turn inherits
+    // the waiting message (`clearSlotWait(taskId, true)`), carrying nothing of
+    // its own, so what comes out is exactly what the inheritance kept.
+    h.svc.setGlobalCap({ auto: false, max: 3 });
+    void h.dispatcher.resume("t2", "riprendi");
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1]!.dispatchedFor).toEqual([]);
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    expect(h.turns[2]!.dispatchedFor).toEqual(["c1", "c2", "c3"]);
+    h.dispatcher.shutdown();
+  });
+
+  it("un secondo messaggio arrivato mentre si aspetta lo slot porta TUTTI gli id", async () => {
+    const h = await capIsFull();
+    // The first resume opens the wait and deliberately carries NO id: whatever
+    // comes out of the envelope below went through the second door only.
+    void h.dispatcher.resume("t2", "prima obiezione");
+    await flush();
+    // One wait per task: this one is buffered instead of opening a second.
+    void h.dispatcher.resume("t2", "altre due obiezioni", { commentIds: ["c2", "c3"] });
+    await flush();
+    expect(h.turns.length).toBe(1);
+
+    h.svc.setGlobalCap({ auto: false, max: 3 });
+    void h.dispatcher.resume("t2", "riprendi");
+    await flush();
+    expect(h.turns.length).toBe(2);
+
+    h.finishTurnWith({ end: "end_turn" });
+    await flush();
+    await flush();
+
+    expect(h.turns[2]!.dispatchedFor).toEqual(["c2", "c3"]);
+    h.dispatcher.shutdown();
+  });
+
+  /**
    * Il sollecito automatico dopo un turno finito senza consegna. Ha DUE forme, e
    * la seconda (budget finito) si accende solo al tetto dei tentativi: il modo
    * di raggiungerle è il turno vero che si chiude, non una chiamata diretta.
@@ -4321,7 +4570,7 @@ describe("il pavimento delle risorse si spiega", () => {
     let gb = 8.7;
     const h = harness({
       log: (m: string) => righe.push(m),
-      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+      resourceBlock: () => asFloor(bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -4354,7 +4603,7 @@ describe("il pavimento delle risorse si spiega", () => {
     let bloccato = true;
     let gb = 8.7;
     const h = harness({
-      resourceBlock: () => (bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
+      resourceBlock: () => asFloor(bloccato ? `Memoria quasi finita: ${(gb -= 0.1).toFixed(1)} GB disponibili, sotto il pavimento di 12 GB.` : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -4395,7 +4644,7 @@ describe("il pavimento delle risorse si spiega", () => {
     let bloccato = true;
     const h = harness({
       log: (m: string) => righe.push(m),
-      resourceBlock: () => (bloccato ? "Disco quasi pieno: 2 GB liberi." : null),
+      resourceBlock: () => asFloor(bloccato ? "Disco quasi pieno: 2 GB liberi." : null),
     });
     accendiDispatch(h.db);
     seedTask(h.db, { id: "t1", status: "todo" });

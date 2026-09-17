@@ -4255,11 +4255,6 @@
     "server/routes/task-patch.ts": [
       "expr"
     ],
-    "server/routes/tasks.landing.test.ts": [
-      "cardConsegnata",
-      "mergiato",
-      "riallineato"
-    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",

@@ -1,4 +1,4 @@
-/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04 */
+/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04, KANBAN-88 */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskAttemptStore } from "./task-attempts";
@@ -76,9 +76,15 @@ function limit(kind: "hold" | "threshold") {
 function codexLimit() {
   setProviderHold({ untilMs: Date.now() + 3_600_000, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" });
 }
-function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> = {}) {
-  const db = freshDb();
-  const svc = createTaskService(db);
+/**
+ * `shared` is what a RESTART looks like from here: the same database and the
+ * same service clock, a brand new dispatcher whose in-memory sets are empty.
+ * Without it every "boot" would also be a fresh thread, which is precisely the
+ * state that hides a note rewritten once per process.
+ */
+function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> = {}, shared?: { db: Database; now: () => string }) {
+  const db = shared?.db ?? freshDb();
+  const svc = createTaskService(db, shared ? { now: shared.now } : {});
   const attempts = createTaskAttemptStore(db);
   const snapshot: ProvidersSnapshot = {
     defaultProvider, generatedAt: new Date().toISOString(),
@@ -108,7 +114,7 @@ function harness(defaultProvider = "topics", overrides: Partial<DispatcherDeps> 
     ...overrides,
   };
   const dispatcher = createTaskDispatcher(deps);
-  cleanups.push(() => { dispatcher.shutdown(); db.close(); });
+  cleanups.push(() => { dispatcher.shutdown(); if (!shared) db.close(); });
   svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
   svc.setGlobalCap({ auto: false, max: 5 });
   function task(id: string, model?: string, provider?: string) {
@@ -212,6 +218,103 @@ describe("Codex hold (AGPT-01 extended)", () => {
     clearProviderHold("codex");
     await h.dispatcher.tick(PID); await flush();
     expect(h.starts.map(s => s.provider)).toEqual(["topics", "codex"]);
+  });
+});
+
+/**
+ * A WALL OF DAYS IS A QUESTION, NOT A WAIT.
+ *
+ * Measured on 2026-09-17: `provider-hold.json` held a Codex wall written on
+ * 13/09 at 17:39 and ending on 19/09 at 14:45, the log repeated "resumes at
+ * 14:45" 43 times over three days, and the board's `dispatch_model` sends every
+ * card through that provider. Six days are not a window rotating, and the only
+ * thing that moves those cards is a person.
+ */
+describe("a hold longer than a day", () => {
+  const sixDays = () => setProviderHold({
+    untilMs: Date.now() + 6 * 24 * 3_600_000, window: "usage_limit",
+    reason: "Codex plan usage limit reached", provider: "codex",
+  });
+
+  test("says the date, calls it a spent plan, and writes it on the card once", async () => {
+    const h = harness();
+    h.task("held-for-days", codingModel);
+    sixDays();
+    await h.dispatcher.tick(PID); await flush();
+
+    const chip = h.svc.get("held-for-days")!.task.dispatchError ?? "";
+    // The date, because an hour alone reads as "later this afternoon".
+    expect(chip).toMatch(/\d{2}\/\d{2} \d{2}:\d{2}/);
+    expect(chip).toContain("piano esaurito");
+    const said = () => (h.svc.get("held-for-days")!.comments ?? []).map(c => c.content).filter(c => c.includes("piano esaurito"));
+    expect(said()).toHaveLength(1);
+    // One per EPISODE: a 10 s poll must not write the same paragraph again.
+    await h.dispatcher.tick(PID); await flush();
+    expect(said()).toHaveLength(1);
+    expect(h.starts).toHaveLength(0);
+  });
+
+  /**
+   * ONE PARAGRAPH PER CARD, ACROSS RESTARTS - the set in the closure cannot do it.
+   *
+   * `planHeldNoted` is born empty at every process, and the only other defence
+   * is the 10-second dedupe window of `addComment`. On this machine a boot is
+   * ~35 minutes from the last one (44 restarts in 25,7 h), and a wall of days
+   * outlives all of them: 7 cards in the queue behind a 6-day Codex wall is
+   * ~300 identical paragraphs a day in the threads, the same pile KANBAN-83 and
+   * the 314 «Memoria quasi finita» comments exist to end. And the sentence is
+   * not even identical: it counts the days left, so it is REWORDED once a day.
+   */
+  test("five boots over three days leave one paragraph on the card, not five", async () => {
+    const db = freshDb();
+    cleanups.push(() => db.close());
+    const clock = { ms: Date.parse("2026-09-17T09:00:00.000Z") };
+    const shared = { db, now: () => new Date(clock.ms).toISOString() };
+    const wall = clock.ms + 6 * 24 * 3_600_000;
+    setProviderHold({ untilMs: wall, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" });
+
+    const first = harness("topics", { now: () => clock.ms }, shared);
+    first.task("held-across-boots", codingModel);
+    const said = () => (first.svc.get("held-across-boots")!.comments ?? [])
+      .filter(c => c.content.includes("piano esaurito"));
+    const boot = () => {
+      const h = harness("topics", { now: () => clock.ms }, shared);
+      return h.dispatcher.tick(PID).then(flush);
+    };
+
+    await first.dispatcher.tick(PID); await flush();
+    expect(said()).toHaveLength(1);
+    const firstRow = said()[0]!.id;
+
+    // Two boots 35 minutes apart - the watcher's own cadence on this machine -
+    // with the sentence unchanged. Not merely one comment: the SAME one. A
+    // delete-and-rewrite would touch `updated_at` every 35 minutes, which is
+    // the column KANBAN-84 already found lying about how idle a card is.
+    clock.ms += 35 * 60_000; await boot();
+    clock.ms += 35 * 60_000; await boot();
+    expect(said()).toHaveLength(1);
+    expect(said()[0]!.id).toBe(firstRow);
+
+    // Two more a day apart: now the sentence itself CHANGES (six days left
+    // becomes five, then four), so the identical-text guard cannot catch it and
+    // the slot has to.
+    clock.ms += 24 * 3_600_000; await boot();
+    clock.ms += 24 * 3_600_000; await boot();
+    expect(said()).toHaveLength(1);
+    // The one left is the CURRENT one: a card that kept the first paragraph
+    // would still promise six days.
+    expect(said()[0]!.content).toContain("fra 4 giorni");
+  });
+
+  test("a wall of hours stays a wait: the hour alone, and nothing in the thread", async () => {
+    const h = harness();
+    h.task("held-for-hours", codingModel);
+    codexLimit();
+    await h.dispatcher.tick(PID); await flush();
+    const chip = h.svc.get("held-for-hours")!.task.dispatchError ?? "";
+    expect(chip).toContain("Ripresa dopo il reset");
+    expect(chip).not.toContain("piano esaurito");
+    expect((h.svc.get("held-for-hours")!.comments ?? []).filter(c => c.content.includes("piano esaurito"))).toHaveLength(0);
   });
 });
 

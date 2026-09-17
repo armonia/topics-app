@@ -32,7 +32,8 @@ import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
-import { readGlobalCap, readSpendCaps } from "./dispatch-capacity";
+import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
+import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { currentDispatchBlock, heldResumeBlock } from "./dispatch-block-signal";
 import { liveAgentCount } from "./agent-census";
 
@@ -43,7 +44,7 @@ import { liveAgentCount } from "./agent-census";
 // the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { TaskComment, BoardSettings, BoardSettingsPatch, ParkedChildrenDecision } from "../../shared/board";
 import {
-  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
+  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
@@ -189,6 +190,31 @@ export function parseChecksProgress(raw: unknown): { done: number; total: number
 }
 
 /**
+ * The pull request and the CI run a delivery is waiting on, or `null`.
+ *
+ * Same lodging as the progress, and for the same reason: it is worth something
+ * for the minutes of the wait and nothing after it, so a column and a migration
+ * would be out of proportion. Only `https://` links are kept — the value is
+ * rendered as a link on the card, and the only writer is the CI reader, but a
+ * check on the shape costs one line and closes the question.
+ */
+export function parseChecksCi(raw: unknown): { prUrl: string; runUrl?: string } | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) || !parsed || typeof parsed !== "object") return null;
+    const ci = (parsed as { ci?: unknown }).ci;
+    if (!ci || typeof ci !== "object") return null;
+    const { prUrl, runUrl } = ci as { prUrl?: unknown; runUrl?: unknown };
+    const link = (v: unknown): string | null => (typeof v === "string" && v.startsWith("https://") ? v : null);
+    const pr = link(prUrl);
+    if (!pr) return null;
+    const runLink = link(runUrl);
+    return runLink ? { prUrl: pr, runUrl: runLink } : { prUrl: pr };
+  } catch { return null; }
+}
+
+/**
  * L'effort di board accetta anche `auto`, come il modello.
  *
  * Fissarlo per tutta una board significa pagare lo stesso sforzo su un typo e su
@@ -266,6 +292,22 @@ export { projectIdForPath } from "../../shared/board";
  * secondo riavvio vero, un'ora dopo, ha ancora la sua riga.
  */
 const INTERRUPT_CLAIM_MS = 3 * 60_000;
+
+/**
+ * How far BACK from `reopened_at` a human rejection's own words may sit.
+ *
+ * They are not written after the reopen, they are written just before it: the
+ * comment lands first, the status row an instant later. Measured 2026-09-17 on
+ * the live DB - `f981f62c` has the comment at 13:49:31.716 and the
+ * `review→in_progress` row at 13:49:31.732, sixteen milliseconds apart;
+ * `f68e46c9` and `cdc9f39b` are two and one millisecond apart. A filter that
+ * asks for words STRICTLY after the reopen finds nothing on all three, which
+ * is the worst possible failure here: the fix looks done and changes nothing.
+ *
+ * Five seconds is far wider than any of those gaps and far narrower than the
+ * gap to the turn before, which is minutes at the very least.
+ */
+const REOPEN_COMMENT_SLACK_MS = 5_000;
 
 interface ServiceOpts {
   now?: () => string;
@@ -399,6 +441,34 @@ export interface TaskService {
    */
   claimInterruption(args: { taskId: string; note: string; by?: string }): TaskComment | null;
   /**
+   * THE HUMAN REJECTION NOBODY EVER HANDED TO THE AGENT.
+   *
+   * When a person rejects a delivery, the words that say WHY live in the
+   * thread and the row records who reopened the card (`reopened_actor`). The
+   * dispatcher used to keep the text in a Map in memory, so a restart lost it
+   * and the card came back with "your turn was interrupted, carry on with the
+   * work that is left" - the opposite of "a human rejected this delivery with
+   * three objections". Measured 2026-09-17: 3 cards rejected on the 15th, still
+   * stopped 45 hours later, each one through 44 restarts.
+   *
+   * Returns the words still undelivered and their ids, or null.
+   *
+   * TWO TRAPS, both measured on the live DB, and both fatal to the naive query:
+   *
+   *  1. THE WORDS ARE OLDER THAN THE REOPEN, by milliseconds. The comment is
+   *     written first and the status row right after: on `f981f62c` they are
+   *     13:49:31.716 and 13:49:31.732, 16 ms apart (2 ms and 1 ms on the other
+   *     two cards). A `created_at > reopened_at` filter finds nothing at all
+   *     and the fix looks done while doing nothing. Hence the slack backwards.
+   *
+   *  2. "ALREADY SEEN" IS NOT "A TURN HAS RUN". A resume envelope records the
+   *     comments it carried (`dispatched-envelope` blocks on the message row),
+   *     and that - not the clock - is the honest answer to "did the agent ever
+   *     get these words". A turn that ran after the reopen with the WRONG text
+   *     did not deliver them; re-asking the clock would call that delivered.
+   */
+  pendingHumanReopen(args: { taskId: string }): { text: string; commentIds: string[] } | null;
+  /**
    * Una interruzione, un SOLLECITO.
    *
    * Il gemello di `claimInterruption` per l'altro canale: non il thread della
@@ -518,6 +588,48 @@ export interface TaskService {
    * board spenta non si tocca da sola.
    */
   sweepParkedChildren(args?: { by?: string; eligible?: (projectId: string) => boolean }): Task[];
+  /**
+   * THE DURATION CAP ON A WAIT SERIES, judged from OUTSIDE a turn.
+   *
+   * `WAIT_SERIES_MAX_MS` (4 hours) had exactly one reader in the whole repo,
+   * inside `deferForWait` — which runs only when another turn starts and
+   * re-declares the same wait. If the dispatcher stops admitting anybody, the
+   * series keeps growing and nothing looks at it: measured 2026-09-17 on the
+   * live DB, 2 cards past the cap by 45 and 31 hours, zero `waited_out` parks
+   * in the whole history, and `waited_out` is the only state that reaches a
+   * push notification.
+   *
+   * Returns the parked task, or null when the series is still inside the cap
+   * (the normal case). The STREAK cap stays where it is: it can only change
+   * when a turn declares a new wait, so it has no blind window.
+   *
+   * TWO THINGS THIS JUDGE MUST NOT DO, and both are about a SINGLE long wait.
+   * `deferForWait` clamps `minutes` to 1440, and production asks for a lot:
+   * of the 78 retry notes on the live DB the top figures are 240, 180 and 120
+   * minutes. So a lone wait can legitimately outlive the 4-hour cap, and
+   * inside `deferForWait` it never tripped it — there `serieMs` is 0 on the
+   * first declaration, and the cap only ever judged a SERIES. From outside,
+   * reading `wait_since` alone, a single 8-hour wait gets parked after 4 hours
+   * and the note it receives claims one wait in a row, four hours old —
+   * neither a series nor an expired one. Hence: the wake-up the agent asked
+   * for (`dispatch_deferred_until`) is never overtaken, and for a streak of
+   * one the cap's clock starts at that wake-up instead of at the declaration.
+   *
+   * AND THE SERIES HAS TO BE STILL RUNNING. `deferForWait` writes the window
+   * on every declaration, `claim` nulls it: with `wait_since` set, a NULL
+   * window says a turn has already restarted and did not ask to wait again.
+   * The series ended there, and no dispatcher requeue clears `wait_since` to
+   * say so. Reading it the other way parked a card that `origin/main` starts.
+   */
+  waitedOutIfCapped(args: { taskId: string }): Task | null;
+  /**
+   * The same judgement over the whole board, for the pass that already walks
+   * card by card. `eligible` decides board by board, for the same reason as
+   * `sweepParkedChildren`; `busy` is the caller's own live-turn registry — a
+   * card whose turn is running right now is not waiting on anything, and
+   * parking it would cut that turn in half.
+   */
+  sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
   /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
@@ -819,9 +931,13 @@ export interface TaskService {
      *  Serve alla card, che diceva «check in corso» senza dire quanto manca —
      *  segnalato: «se c'e' qualcosa in corso, dovrebbe esserci un progress». */
     progress?: { done: number; total: number } | null;
+    /** The pull request and the run a `github-ci:` row is waiting on, while it
+     *  waits: they exist within seconds and used to reach the card only with the
+     *  verdict, fifteen minutes later (run 35158365969, 22:34:48 → 22:49:48). */
+    ci?: { prUrl: string; runUrl?: string } | null;
   }): Task;
   /**
-   * Spegne le spie «running» rimaste accese, e si chiama UNA VOLTA all'avvio.
+   * Spegne le spie «running» rimaste accese.
    *
    * Una corsa di check vive nel processo (`services/checks-gate.ts`): se il
    * server muore mentre gira, nessuno scriverà mai il suo verdetto e la card
@@ -829,9 +945,36 @@ export interface TaskService {
    * processo morto, quindi al boot torna a «mai misurato»: chi riconsegna fa
    * ripartire i comandi, e nel frattempo la card non mente.
    *
-   * Ritorna quante ne ha spente (la riga di log al boot, e i test).
+   * WITHOUT `isLive` IT SWITCHES OFF EVERY LIGHT, which is the boot call: that
+   * is the one instant when the gate's registry is empty by construction. With
+   * `isLive` it only switches off the lights that registry does NOT know, which
+   * is the periodic sweep - a boot was never the only way to leave one on. When
+   * `measure()` (routes/tasks.ts) throws before the terminal record (the swap
+   * brake, `throwIfStopping()`, any exception) the gate drops its key while the
+   * row keeps saying "running" forever. Measured on 2026-09-17: 89 boots found
+   * at least one light already lit (71 times 1, 16 times 2, once 4, once 6).
+   *
+   * Returns the ids switched off: the boot prints their number, the periodic
+   * sweep needs the ids to refresh the boards that have those cards open.
    */
-  clearStaleChecksRuns(): number;
+  clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[];
+  /**
+   * Take the commit away from a checks verdict, leaving its state, its time and
+   * its command-by-command evidence exactly as they are.
+   *
+   * FOR THE LAND THAT REALIGNS. The delivery measures C, the local commands and
+   * the pull request CI go green on C, the card then sits in review (1,93 h on
+   * average) while main moves on - 32 lands in 7 days - and at the land
+   * `tryMerge` merges C2 = merge(C, main). Nobody reads the CI of C2, and
+   * `checks_commit` kept naming C as if it were what landed. Measured on 17/09:
+   * 22 of those 32 lands carry the realign line and only 4 also warned that the
+   * land differed from the delivery, so 18 went through silently. The verdict on
+   * C stays true and stays readable; the claim that it describes the commit that
+   * landed is the part that is no longer true, so it goes.
+   *
+   * Answers `true` when there was a commit to take away.
+   */
+  clearChecksCommit(taskId: string): boolean;
   /**
    * Tasks worth auditing: alive, delivered (review/done), carrying a commit —
    * e SENZA un esito testimoniato. Un verdetto scritto dal land stesso è un
@@ -896,6 +1039,16 @@ export interface TaskService {
   getSpendCaps(): { perTaskCents: number; perDayCents: number };
   /** Write the caps (a PERSON does this, from the settings). Zero clears one. */
   setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number };
+  /**
+   * HOW MUCH FREE MEMORY A NEW CHECK COMMAND NEEDS, in whole GB, from the same
+   * reserved row '*'. It used to be a constant borrowed from the agent admission
+   * floor and three times the heaviest command it guards; it is a setting now so
+   * that whoever measures a different load can move it instead of inheriting it.
+   * `0` switches the brake off. Applied value, clamped and defaulted.
+   */
+  getChecksMemFloorGB(): number;
+  /** Write the floor (a PERSON does this, from the settings). */
+  setChecksMemFloorGB(gb: number): number;
   /**
    * Agent spend on this machine: the rolling 24h window and the whole book, with
    * the share that could NOT be priced beside each. The unpriced number travels
@@ -2315,7 +2468,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.checks_state === "running"
         ? (() => {
             const p = parseChecksProgress(r.checks_json);
-            return p ? { checksProgress: p } : {};
+            const ci = parseChecksCi(r.checks_json);
+            return { ...(p ? { checksProgress: p } : {}), ...(ci ? { checksCi: ci } : {}) };
           })()
         : {}),
 
@@ -2910,6 +3064,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * Third of the same family, for the row that says WHICH comments a resume
+   * envelope carried (`messages.blocks`). The task tables are this service's
+   * own; the message rows belong to the chat, and several test benches mount
+   * the first without the second. Probing keeps a query that reads the chat
+   * from throwing on a bench that never had one.
+   */
+  let messageBlocksColumn: boolean | null = null;
+  function supportsMessages(): boolean {
+    if (messageBlocksColumn === null) {
+      try {
+        const messageCols = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name?: string }>;
+        // The BRIDGE is probed too, not just the column: the query goes through
+        // `topics.session_key`, and half a check leaves standing exactly the
+        // case this probe exists to rule out.
+        const topicCols = db.prepare("PRAGMA table_info(topics)").all() as Array<{ name?: string }>;
+        messageBlocksColumn = messageCols.some((c) => c.name === "blocks")
+          && topicCols.some((c) => c.name === "session_key");
+      } catch { messageBlocksColumn = false; }
+    }
+    return messageBlocksColumn;
+  }
+
+  /**
    * Append a status-transition event to the thread (kind='status'). Direct
    * INSERT — no dedupe, no question composing: transitions are deliberate
    * writes and each one IS the history entry ("chi l'ha spostato e quando").
@@ -3252,6 +3429,79 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
        )
        UPDATE tasks SET archived = 1, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
     ).run(taskId, ts);
+  }
+
+  /**
+   * THE PARK AT THE END OF A WAIT SERIES, shared by its two judges.
+   *
+   * It was inline in `deferForWait`, which made that function the ONLY reader
+   * of `WAIT_SERIES_MAX_MS` in the whole repo — and `deferForWait` runs only
+   * when another turn starts and re-declares the wait. With the dispatcher
+   * admitting nobody, the series simply grew and nobody looked: measured
+   * 2026-09-17 on the live DB, 2 cards past the 4-hour cap by 45 and 31 hours,
+   * zero `waited_out` parks ever, and `waited_out` is the only road that
+   * reaches a push notification (`push-triggers.ts`).
+   *
+   * `refundAttempt` is the one thing the two callers do not share. The turn
+   * that DECLARES a wait has already spent its attempt on the claim, so
+   * `deferForWait` gives it back; the periodic judge claimed nothing, and a
+   * refund there would silently hand a card an extra retry it never earned.
+   */
+  function parkWaitedOut(
+    svc: TaskService,
+    args: {
+      row: { id: string; status: TaskStatus };
+      streak: number;
+      serieMs: number;
+      chiave: string;
+      since: string;
+      detto: string;
+      ts: string;
+      refundAttempt: boolean;
+    },
+  ): Task {
+    const { row, streak, serieMs, chiave, since, detto, ts } = args;
+    const taskId = row.id;
+    // Un tetto sfondato: il task si ferma, ma NON come un fallimento. Non
+    // c'è niente da riparare nell'agent, c'è una condizione che non arriva.
+    // La durata detta come sta: il tetto sul CONTEGGIO può scattare in pochi
+    // minuti (attese corte una dietro l'altra), e scrivere «da un'ora» lì
+    // sarebbe una bugia sulla sola cosa che l'umano userà per decidere.
+    const ore = Math.round(serieMs / 3_600_000);
+    const minuti = Math.round(serieMs / 60_000);
+    const quanto = serieMs >= 3_600_000
+      ? `da circa ${ore} ${ore === 1 ? "ora" : "ore"}`
+      : minuti >= 1
+        ? `da ${minuti} ${minuti === 1 ? "minuto" : "minuti"}`
+        : "da meno di un minuto";
+    // La parola «fallito» non compare, e non per delicatezza: qui non è
+    // successa nessuna delle cose che quella parola descrive. Nemmeno
+    // negata («non è un fallimento») ci va, perché nominarla la mette in
+    // testa a chi legge la card. Si dice cosa è successo e cosa fare.
+    const nota =
+      `Sono ${streak} ${streak === 1 ? "attesa" : "attese"} di fila per la stessa ragione, ${quanto}` +
+      (detto ? `: ${detto}.` : ".") +
+      " La condizione non sta arrivando da sola, quindi la decisione torna a te. " +
+      "Rimetti il task in Todo per farlo riprovare, oppure sistema ciò che sta aspettando.";
+    try { svc.addComment({ taskId, author: "system", content: nota }); } catch { /* dedupe/best-effort */ }
+    const rimborso = args.refundAttempt ? "dispatch_attempts = MAX(dispatch_attempts - 1, 0)," : "";
+    // Parcheggiato in backlog senza finestra: non deve ripartire da solo,
+    // il punto è proprio che qualcuno lo guardi. I contatori restano scritti
+    // (li azzera il rientro in Todo) perché sono la ragione del parcheggio.
+    db.prepare(
+      `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
+          status = 'backlog', dispatch_state = ?, dispatch_error = ?,
+          dispatch_deferred_until = NULL,
+          wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
+        WHERE id = ?`,
+    ).run(PARKED_WAITED_OUT, nota, streak, chiave || null, since, ts, taskId);
+    // Firma di SISTEMA, non dell'agent: l'agent ha chiesto di aspettare
+    // ancora, il parcheggio è il tetto che glielo nega. Attribuirlo a lui
+    // direbbe che ha deciso di fermarsi, che è il contrario di quello che
+    // ha fatto. Stessa distinzione di `deliverToReviewBySystem`.
+    if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
+    markReopened(taskId, row.status, "backlog", "system", "dispatcher");
+    return rowToTask(getTaskRow(taskId));
   }
 
   return {
@@ -4020,6 +4270,52 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return written;
     },
 
+    pendingHumanReopen({ taskId }): { text: string; commentIds: string[] } | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      if (row.reopened_actor !== "human") return null;
+      const at = typeof row.reopened_at === "string" ? Date.parse(row.reopened_at) : NaN;
+      if (!Number.isFinite(at)) return null;
+      const da = new Date(at - REOPEN_COMMENT_SLACK_MS).toISOString();
+      // The same probe the INSERT in `addComment` uses: the migration runs when
+      // the database is OPENED, and a server already up serves the old shape
+      // until it reloads. Naming a column the file has not got yet throws, and
+      // here a throw reads as "no rejection to deliver".
+      const notQuiet = supportsCommentQuiet() ? "AND COALESCE(c.quiet, 0) = 0" : "";
+      // "Already delivered" is read off the resume envelope, which records the
+      // ids of the comments it carried (`dispatched-envelope`). Without the
+      // message table - test benches that do not mount one - the question
+      // cannot be asked, and the honest answer is "no delivery on record".
+      const alreadyDelivered = supportsMessages()
+        ? `AND NOT EXISTS (
+             SELECT 1 FROM messages m
+               JOIN topics tp ON tp.session_key = m.session_key
+              WHERE tp.id = ? AND m.blocks LIKE '%' || c.id || '%')`
+        : "";
+      const args: unknown[] = [taskId, HUMAN_AUTHOR, da];
+      if (supportsMessages()) args.push(row.assigned_topic_id ?? "");
+      let rows: Array<{ id: string; content: string }> = [];
+      try {
+        rows = db.prepare(
+          `SELECT c.id AS id, c.content AS content
+             FROM task_comments c
+            WHERE c.task_id = ?
+              AND c.author = ?
+              AND c.kind = 'comment'
+              ${notQuiet}
+              AND TRIM(c.content) <> ''
+              AND c.created_at >= ?
+              ${alreadyDelivered}
+            ORDER BY c.created_at, c.rowid`,
+        ).all(...(args as [])) as Array<{ id: string; content: string }>;
+      } catch { return null; }
+      if (rows.length === 0) return null;
+      return {
+        text: rows.map((r) => r.content.trim()).join("\n\n"),
+        commentIds: rows.map((r) => r.id),
+      };
+    },
+
     claimNudge({ taskId, text }): string {
       const row = getTaskRow(taskId);
       if (!row) return text;
@@ -4604,45 +4900,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
       if (streak > WAIT_STREAK_CAP || serieMs >= WAIT_SERIES_MAX_MS) {
-        // Sfondato un tetto: il task si ferma, ma NON come un fallimento. Non
-        // c'è niente da riparare nell'agent, c'è una condizione che non arriva.
-        // La durata detta come sta: il tetto sul CONTEGGIO può scattare in pochi
-        // minuti (attese corte una dietro l'altra), e scrivere «da un'ora» lì
-        // sarebbe una bugia sulla sola cosa che l'umano userà per decidere.
-        const ore = Math.round(serieMs / 3_600_000);
-        const minuti = Math.round(serieMs / 60_000);
-        const quanto = serieMs >= 3_600_000
-          ? `da circa ${ore} ${ore === 1 ? "ora" : "ore"}`
-          : minuti >= 1
-            ? `da ${minuti} ${minuti === 1 ? "minuto" : "minuti"}`
-            : "da meno di un minuto";
-        // La parola «fallito» non compare, e non per delicatezza: qui non è
-        // successa nessuna delle cose che quella parola descrive. Nemmeno
-        // negata («non è un fallimento») ci va, perché nominarla la mette in
-        // testa a chi legge la card. Si dice cosa è successo e cosa fare.
-        const nota =
-          `Sono ${streak} attese di fila per la stessa ragione, ${quanto}` +
-          (detto ? `: ${detto}.` : ".") +
-          " La condizione non sta arrivando da sola, quindi la decisione torna a te. " +
-          "Rimetti il task in Todo per farlo riprovare, oppure sistema ciò che sta aspettando.";
-        try { this.addComment({ taskId, author: "system", content: nota }); } catch { /* dedupe/best-effort */ }
-        // Parcheggiato in backlog senza finestra: non deve ripartire da solo,
-        // il punto è proprio che qualcuno lo guardi. I contatori restano scritti
-        // (li azzera il rientro in Todo) perché sono la ragione del parcheggio.
-        db.prepare(
-          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
-              status = 'backlog', dispatch_state = ?, dispatch_error = ?,
-              dispatch_deferred_until = NULL,
-              wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
-            WHERE id = ?`,
-        ).run(PARKED_WAITED_OUT, nota, streak, chiave || null, since, ts, taskId);
-        // Firma di SISTEMA, non dell'agent: l'agent ha chiesto di aspettare
-        // ancora, il parcheggio è il tetto che glielo nega. Attribuirlo a lui
-        // direbbe che ha deciso di fermarsi, che è il contrario di quello che
-        // ha fatto. Stessa distinzione di `deliverToReviewBySystem`.
-        if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
-        markReopened(taskId, row.status, "backlog", "system", "dispatcher");
-        return rowToTask(getTaskRow(taskId));
+        return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
       }
 
       const note =
@@ -4723,10 +4981,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // turni pagati per aspettare. Stessa meccanica di `deferForWait`.
         const note = "In attesa dei sottotask ancora aperti: torno in coda e riparto quando hanno finito.";
         const until = new Date(Date.parse(ts) + 10 * 60_000).toISOString();
+        // AND THE WAIT SERIES ENDS HERE. This window is not a wait the agent
+        // declared: it is the coordinator putting itself back in the queue
+        // because its children are still working. Leaving an old series'
+        // `wait_since` and `wait_streak` standing under a fresh window makes the
+        // outside judge lie twice over - it says "N waits in a row for the same
+        // reason" about waits a turn has already closed, and it counts them from
+        // an instant that has nothing to do with this one. The price is a
+        // `waited_out` park, the one state that reaches a push notification, on
+        // a card that is coordinating its own children and would keep working.
         db.prepare(
           `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
               dispatch_attempts = MAX(dispatch_attempts - 1, 0),
               status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
+              wait_streak = 0, wait_reason = NULL, wait_since = NULL,
               dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
         ).run(note, until, ts, taskId);
         if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
@@ -5044,6 +5312,144 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         } catch { /* una card può essersi mossa sotto: il giro dopo la ripesca */ }
       }
       return chiesti;
+    },
+
+    waitedOutIfCapped({ taskId }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      if (row.archived === 1) return null;
+      // Only the two columns where a wait is still RUNNING. `review` and `done`
+      // clear the series on the way in (see `update`), and `backlog` is where
+      // this park already put it: re-parking would rewrite the note forever.
+      if (row.status !== "todo" && row.status !== "in_progress") return null;
+      const since = (row.wait_since ?? null) as string | null;
+      if (!since) return null;
+      const ts = now();
+      const nowMs = Date.parse(ts);
+      // `serieMs` is what the NOTE reports — how long the series has actually
+      // been running — and it stays measured from `wait_since` whatever the
+      // cap decides below. The two must not be the same number: reporting the
+      // overdue time instead would claim four hours on a series that has been
+      // alive for twelve.
+      const serieMs = nowMs - Date.parse(since);
+      if (!Number.isFinite(serieMs)) return null;
+      // A CAP ON A SERIES STILL RUNNING, AND THIS IS WHERE IT ENDS.
+      //
+      // `deferForWait` writes `dispatch_deferred_until` on every declaration
+      // and `claim` nulls it. So on a row that still carries `wait_since`, a
+      // NULL window means exactly one thing: a turn has already restarted
+      // since the last declaration and did not ask to wait again. The series
+      // is over, whatever the column says — no dispatcher requeue clears
+      // `wait_since` (only human→todo, review and done do), so it outlives
+      // the very turn that STOPPED waiting.
+      //
+      // Reading it as "no window, so measure from `wait_since`" is what parked
+      // a card that `origin/main` starts: the live shape (`c4d48d3e`, streak 1,
+      // `wait_since` five hours old, window NULL) came out `backlog` /
+      // `waited_out` with zero turns against `in_progress` / working with one.
+      //
+      // The window is the sign, not `task_attempts.created_at` or
+      // `in_progress_at`: those answer "when did the last turn start", which on
+      // a streak of two or more is ALWAYS later than `wait_since` — that is
+      // what a series IS — so comparing them against `wait_since` would switch
+      // the whole backstop off instead of bounding it.
+      //
+      // Nothing is left unguarded by stepping back here. A card whose turns
+      // keep dying without declaring anything is not a stuck WAIT, and it has
+      // its own backstop: the claim spends an attempt every time (only
+      // `deferForWait` refunds one), so `dispatch_attempts` reaches the retry
+      // cap and the card parks as `failed` — with a note that is true.
+      const wakeMs = Date.parse((row.dispatch_deferred_until ?? "") as string);
+      if (!Number.isFinite(wakeMs)) return null;
+      // THE WAKE-UP THE AGENT ASKED FOR IS NEVER OVERTAKEN. While the window
+      // is still ahead, no turn has had the chance to look at whether the
+      // condition arrived, so there is nothing to judge yet. `deferForWait`
+      // clamps `minutes` to 1440 and production asks for up to 240, so a lone
+      // wait outliving the 4-hour cap is a normal card, not a stuck one.
+      if (wakeMs > nowMs) return null;
+      // THE DURATION CAP IS A CAP ON A SERIES. With a streak of one there is
+      // no series: there is one wait the agent asked for, and the only time
+      // nobody looked at the card is the time since its wake-up. Measuring
+      // from the declaration instead parks a wait that has not even come due
+      // (480 minutes requested, parked at 241) and tells the reader it is one
+      // wait in a row. From two waits up the clock is the series itself,
+      // which is the quantity `WAIT_SERIES_MAX_MS` was written for.
+      const streak = Number(row.wait_streak) || 1;
+      const capFrom = streak >= 2 ? Date.parse(since) : wakeMs;
+      if (nowMs - capFrom < WAIT_SERIES_MAX_MS) return null;
+      // THE REASON WE HAVE IS THE KEY, NOT THE PROSE. The row keeps
+      // `waitReasonKey(reason)` — lowercased, whitespace collapsed — because
+      // that is what decides whether a new wait continues the series. The
+      // original sentence lived in `dispatch_error`, which the dispatcher
+      // overwrites with its own hold text every 60 seconds, so the key is the
+      // only reason still on the row that describes THIS wait.
+      const detto = ((row.wait_reason ?? "") as string).trim();
+      return parkWaitedOut(this, {
+        row,
+        streak,
+        serieMs,
+        chiave: detto,
+        since,
+        detto,
+        ts,
+        // Nothing was claimed here: no turn started, so there is no attempt to
+        // give back. Refunding would hand the card a retry it never spent.
+        refundAttempt: false,
+      });
+    },
+
+    sweepWaitedOut({ eligible, busy } = {}): Task[] {
+      // THE CANDIDATES, not the decision - the same split as
+      // `sweepParkedChildren`: the query narrows the field, `waitedOutIfCapped`
+      // applies its guards one by one. Two predicates answering one question
+      // drift apart, and here they would drift by parking a card that was
+      // still inside the cap.
+      //
+      // The same clock as `waitedOutIfCapped` (`now()`, injectable), never
+      // `Date.now()`: two clocks make a query that selects cards the judge then
+      // discards, and under a fake clock the two answers never meet.
+      //
+      // `dispatch_deferred_until` is in the query for the same reason and not
+      // as an optimisation, and it carries BOTH of the judge's window rules: a
+      // wake-up still ahead is the single most common shape here (a 240-minute
+      // wait is a normal note on the live DB), and a NULL window is a card a
+      // turn has already restarted on — the shape the live row `c4d48d3e`
+      // carries. Leaving either in the candidate list means offering the judge,
+      // ten seconds at a time, cards it is going to refuse.
+      const ts = now();
+      const cutoff = new Date(Date.parse(ts) - WAIT_SERIES_MAX_MS).toISOString();
+      let candidati: Array<{ id: string; project_id: string }> = [];
+      try {
+        candidati = db.prepare(
+          `SELECT id, project_id FROM tasks
+            WHERE archived = 0
+              AND status IN ('todo', 'in_progress')
+              AND wait_since IS NOT NULL
+              AND wait_since <= ?
+              AND dispatch_deferred_until IS NOT NULL
+              AND dispatch_deferred_until <= ?
+            ORDER BY wait_since`,
+        ).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
+      } catch { return []; }
+      const parkedCards: Task[] = [];
+      const ammessa = new Map<string, boolean>();
+      for (const c of candidati) {
+        if (busy) {
+          let busyNow = false;
+          try { busyNow = busy(c.id); } catch { busyNow = true; }
+          if (busyNow) continue;
+        }
+        if (eligible) {
+          let ok = ammessa.get(c.project_id);
+          if (ok === undefined) { try { ok = eligible(c.project_id); } catch { ok = false; } ammessa.set(c.project_id, ok); }
+          if (!ok) continue;
+        }
+        try {
+          const t = this.waitedOutIfCapped({ taskId: c.id });
+          if (t) parkedCards.push(t);
+        } catch { /* a card may have moved underneath: the next pass picks it up */ }
+      }
+      return parkedCards;
     },
 
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {
@@ -5488,7 +5894,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    recordChecks({ taskId, state, commit, runs, progress }): Task {
+    recordChecks({ taskId, state, commit, runs, progress, ci }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       /* IL PROGRESSO VIAGGIA DENTRO `checks_json`, non in una colonna nuova.
@@ -5499,7 +5905,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
        * `runs` e' un array, questo e' un oggetto, e il client distingue i due
        * casi guardando `Array.isArray`. */
       const json = progress
-        ? JSON.stringify({ progress, runs: runs ?? [] })
+        ? JSON.stringify({ progress, runs: runs ?? [], ...(ci ? { ci } : {}) })
         : (runs && runs.length ? JSON.stringify(runs) : null);
       db.prepare(
         "UPDATE tasks SET checks_state = ?, checks_at = ?, checks_commit = ?, checks_json = ?, updated_at = ? WHERE id = ?",
@@ -5516,14 +5922,39 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    clearStaleChecksRuns(): number {
+    clearChecksCommit(taskId): boolean {
+      // `checks_at` and `checks_json` stay: a verdict that was really measured
+      // keeps its hour and its output tails. Only the commit pointer goes, and
+      // only when there is one - a card that never ran the checks must not get
+      // an `updated_at` bump out of this (the dispatcher's clocks read that
+      // column, KANBAN-84).
+      const res = db.prepare(
+        "UPDATE tasks SET checks_commit = NULL, updated_at = ? WHERE id = ? AND checks_commit IS NOT NULL",
+      ).run(now(), taskId);
+      return Number(res.changes ?? 0) > 0;
+    },
+
+    clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[] {
+      const lit = (db.prepare(
+        "SELECT id FROM tasks WHERE checks_state = 'running'",
+      ).all() as Array<{ id: string }>).map((r) => r.id);
+      // The live registry decides, the row confirms: a light the gate still
+      // knows is a run that is going, or queued behind another card's run, and
+      // switching it off would tell the board nothing is being measured while
+      // `test:unit` has been running for six minutes.
+      const orphaned = isLive ? lit.filter((id) => !isLive(id)) : lit;
+      if (!orphaned.length) return [];
       // `checks_at` resta com'era (una corsa senza verdetto non ha un "quando"),
       // e `checks_commit`/`checks_json` pure: sono la traccia dell'ultima misura
       // vera, e cancellarli qui butterebbe via un esito valido.
-      const res = db.prepare(
-        "UPDATE tasks SET checks_state = NULL, updated_at = ? WHERE checks_state = 'running'",
-      ).run(now());
-      return Number(res.changes ?? 0);
+      const stmt = db.prepare(
+        "UPDATE tasks SET checks_state = NULL, updated_at = ? WHERE id = ? AND checks_state = 'running'",
+      );
+      const cleared: string[] = [];
+      for (const id of orphaned) {
+        if (Number(stmt.run(now(), id).changes ?? 0) > 0) cleared.push(id);
+      }
+      return cleared;
     },
 
     setLabels({ taskId, labels, actor, source, projectId }): Task {
@@ -5926,6 +6357,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           .run(clean(patch.perDayCents), GLOBAL_SETTINGS_KEY);
       }
       return this.getSpendCaps();
+    },
+
+    getChecksMemFloorGB(): number {
+      // Same row and same read as the concurrency cap. NULL (and a db without
+      // the column) reads as the DEFAULT and never as zero: zero is the owner
+      // switching the brake off, and a missing migration must not say that for
+      // them — see `readChecksMemFloorGB`.
+      return readChecksMemFloorGB(db);
+    },
+
+    setChecksMemFloorGB(gb: number): number {
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 3)").run(GLOBAL_SETTINGS_KEY);
+      // Clamped on the way IN with the same reader the brake and the field use,
+      // so the value on disk is the value that applies: a field that accepts 40
+      // and enforces 16 lies to whoever filled it in.
+      db.prepare("UPDATE board_settings SET checks_mem_floor_gb = ? WHERE project_id = ?")
+        .run(checksMemFloorGB({ checksMemFloorGB: gb }), GLOBAL_SETTINGS_KEY);
+      return this.getChecksMemFloorGB();
     },
 
     agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number } {

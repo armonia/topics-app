@@ -165,6 +165,8 @@ import m20260912081500_task_comment_quiet from "./migrations/20260912081500-task
 import m20260912115225_delegated_agent_start from "./migrations/20260912115225-delegated-agent-start.sql" with { type: "text" };
 import m20260915230316_pending_deliveries from "./migrations/20260915230316-pending-deliveries.sql" with { type: "text" };
 import m20260916003000_terminal_exit_code from "./migrations/20260916003000-terminal-exit-code.sql" with { type: "text" };
+import m20260917003149_pending_delivery_rounds from "./migrations/20260917003149-pending-delivery-rounds.sql" with { type: "text" };
+import m20260917180000_checks_mem_floor from "./migrations/20260917180000-checks-mem-floor.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -334,4 +336,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260912115225, name: "20260912115225-delegated-agent-start.sql", sql: m20260912115225_delegated_agent_start },
   { version: 20260915230316, name: "20260915230316-pending-deliveries.sql", sql: m20260915230316_pending_deliveries },
   { version: 20260916003000, name: "20260916003000-terminal-exit-code.sql", sql: m20260916003000_terminal_exit_code },
+  { version: 20260917003149, name: "20260917003149-pending-delivery-rounds.sql", sql: m20260917003149_pending_delivery_rounds },
+  { version: 20260917180000, name: "20260917180000-checks-mem-floor.sql", sql: m20260917180000_checks_mem_floor },
 ];

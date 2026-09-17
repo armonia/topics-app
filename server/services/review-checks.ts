@@ -22,7 +22,7 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
+import { NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
 import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
@@ -113,21 +113,9 @@ export const TAIL_LINES = 40;
  */
 export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
-/**
- * IL CODICE CHE DICE «NON HO MISURATO», e non «hai sbagliato».
- *
- * Lo usano i cancelli che non riescono nemmeno a partire: `typecheck-server.ts`
- * quando `tsc` non c'e', `check-client-deps.ts` quando manca `eslint`. Succede
- * in ogni worktree di dispatch, perche' `git worktree add` copia i file
- * TRACCIATI e `client/node_modules` non lo e' — misurato il 18/08: 95 worktree
- * su 103 senza.
- *
- * Senza questo numero quei cancelli uscivano 1, indistinguibili da un rosso
- * vero, e la card scriveva `checks_state = 'fail'` su rami che spesso non
- * avevano nemmeno un commit. La distinzione la facevano gia' a parole; l'uscita
- * la buttava via.
- */
-export const NOT_MEASURED_EXIT = 97;
+/** The exit code that says NOT MEASURED. It lives in `shared/board.ts` next to
+ *  the `notMeasured` flag it sets, because the card reads it too. */
+export { NOT_MEASURED_EXIT };
 
 /**
  * Legge la colonna `board_settings.review_checks`.
@@ -702,21 +690,32 @@ export function checksVerdict(runs: CheckRun[], expected?: number): "pass" | "fa
 export function formatChecksWait(args: {
   done: number | null;
   total: number;
-  names: string[];
+  /** The DECLARED rows, not just their names: the line has to say who is
+   *  measuring, and only the command tells a local check from a CI one. */
+  checks: readonly { name: string; cmd: string }[];
   elapsedMs: number;
 }): string {
   const mins = Math.floor(Math.max(0, args.elapsedMs) / 60_000);
   const secs = Math.floor((Math.max(0, args.elapsedMs) % 60_000) / 1000);
   const elapsed = mins ? `${mins}m${String(secs).padStart(2, "0")}s` : `${secs}s`;
-  const footer = "È il cancello della board che misura, non l'agente: a verde la card passa in review da sola, a rosso torna qui con l'output.";
+  const names = args.checks.map((c) => c.name);
+  // WHO IS MEASURING CHANGES HALFWAY THROUGH THE BAR. The board's gate runs the
+  // local commands; a `github-ci:` row runs nothing here and waits for the pull
+  // request CI — about fifteen minutes on a normal run. Saying "the board's
+  // gate" there names the wrong machine to whoever reads the thread and wonders
+  // why nothing on this Mac is busy.
+  const footerLocal = "È il cancello della board che misura, non l'agente: a verde la card passa in review da sola, a rosso torna qui con l'output.";
+  const footerCi = "È la CI della pull request che misura, non l'agente e nemmeno questa macchina: a verde la card passa in review da sola, a rosso torna qui con l'output.";
   if (args.done === null) {
-    return `Check pre-review in coda dietro un'altra card (${elapsed}): la barra parte appena si libera un posto. ${footer}`;
+    return `Check pre-review in coda dietro un'altra card (${elapsed}): la barra parte appena si libera un posto. ${footerLocal}`;
   }
   const done = Math.max(0, Math.min(args.done, args.total));
+  const running = args.checks[done];
+  const footer = running && isCiEvidenceCheck(running) ? footerCi : footerLocal;
   const parts = [`Check pre-review ${done}/${args.total} (${elapsed})`];
-  const passed = args.names.slice(0, done);
-  const current = args.names[done];
-  const queued = args.names.slice(done + 1);
+  const passed = names.slice(0, done);
+  const current = names[done];
+  const queued = names.slice(done + 1);
   if (passed.length) parts.push(`verdi: ${passed.join(", ")}`);
   if (current) parts.push(`in corso: ${current}`);
   if (queued.length) parts.push(`poi: ${queued.join(", ")}`);
@@ -725,6 +724,10 @@ export function formatChecksWait(args: {
 
 /** What a red CI evidence row measured, in the words of the card. */
 function ciRedWhy(row: CheckRun): string {
+  // The row read a SLICE of the run and that slice was green; what is red is the
+  // run itself, elsewhere (KANBAN-86). Saying "e2e rossi" here would send whoever
+  // reads it looking at four green shards.
+  if (row.ciRunRed) return `la CI della PR è rossa fuori da questa riga (${row.ciRunRed})`;
   return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
 }
 
