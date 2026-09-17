@@ -274,3 +274,39 @@ due verdetti opposti sulla stessa card sono peggio di nessuno dei due.
 - **GIVEN** una consegna il cui sha non ha commit propri oltre `main`
 - **WHEN** le righe CI vengono valutate
 - **THEN** SHALL essere non misurate, e il referto SHALL dirne la ragione
+
+### Requirement: KANBAN-86 — Una card non dice «verde» su un commit la cui CI e' rossa
+
+Le due righe CI leggono una FETTA della prova: `unit-ci` il passo «Unit +
+integration tests» del job `check`, `e2e-ci` i quattro shard. E' la lettura
+giusta per quello che devono misurare, ma produce una frase piu' larga di cio'
+che sa: la card scrive «i check pre-review sono verdi» mentre la run della sua
+stessa pull request e' rossa per un passo che nessuna delle sei righe guarda.
+
+Osservato il 17/09/2026 su due delle tre consegne con lavoro vero arrivate in
+review quella notte. Su `topics/clumsy-wren` (run 35168540957) e
+`topics/imperial-canal` (run 35169547221) il job `check` e' fallito allo step
+«Bundle size budget» — `entry_eager.gz` di 314 e 28 byte oltre il tetto — mentre
+lo step «Unit + integration tests» era `success` e i quattro shard e2e verdi.
+Risultato: `checks_state = 'pass'`, chip verde, e la run della PR
+`completed/failure`.
+
+Prima del PATCH questa prova non esisteva affatto e la card non poteva
+contraddirla. Adesso esiste, e' a due chiamate di distanza, ed e' rossa: guardarne
+una fetta e chiamarla verde e' peggio che non averla, perche' la card AFFERMA
+qualcosa che la CI smentisce.
+
+Quando la run che le righe CI hanno letto e' `completed` con conclusione diversa
+da `success`, il giro NON SHALL chiudere con tutte le righe verdi. SHALL
+aggiungere al referto il fatto, nominando il job e il passo che hanno fallito e
+il link alla run, e il verdetto complessivo della card NON SHALL essere `pass`.
+Le singole righe restano quello che sono — il passo unit era verde e dirlo e'
+corretto — ma la CARD non puo' dichiararsi verde su una CI rossa.
+
+Questo NON SHALL diventare un sesto cancello che rifa' in locale cio' che la CI
+misura: la lettura e' la stessa gia' fatta, un campo dello stesso oggetto.
+
+#### Scenario: la run e' rossa altrove
+- **GIVEN** un commit la cui run ha il passo unit verde, gli shard e2e verdi e il job `check` fallito a un passo successivo
+- **WHEN** il giro chiude
+- **THEN** il verdetto della card NON SHALL essere `pass`, e il referto SHALL nominare il job e il passo falliti con il link alla run
