@@ -66,6 +66,26 @@
           "scope": null
         },
         {
+          "it": "Il cuore di T4.3 non aveva test, e la spia onesta lasciava la card ferma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il reset dei giri saltava proprio la riga che i giri li brucia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre cose consegnate senza uno SHALL dietro: ora la spec le copre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I rail statici: un nome italiano nuovo e i commenti del test in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il giudice di fuori parcheggiava una card che su main parte",
           "en": "",
           "scope": null
@@ -155,6 +175,11 @@
           "it": "La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -219,6 +244,21 @@
         },
         {
           "it": "La catena ha girato intera: tre buchi osservati invece che dedotti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un hold di sei giorni si leggeva come uno di sei ore: l'etichetta era solo l'ora",
           "en": "",
           "scope": null
         }

@@ -20,6 +20,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Il pavimento torna in vigore, a cambiare e' la valvola
+- Il cuore di T4.3 non aveva test, e la spia onesta lasciava la card ferma
+- Il reset dei giri saltava proprio la riga che i giri li brucia
+- Tre cose consegnate senza uno SHALL dietro: ora la spec le copre
+- I rail statici: un nome italiano nuovo e i commenti del test in inglese
 - Il giudice di fuori parcheggiava una card che su main parte
 - La guardia su `commentIds` copriva un chiamante su tre
 - Il ramo lo decideva il censimento, la cifra il listino: 7-9,9 GB fermi per niente
@@ -40,6 +44,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde
 - Una bocciatura di tre commenti ne registrava uno solo
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
+- La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno
 
 ## 2.2.340 — 2026-09-17
 
@@ -55,6 +60,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il pavimento dei check vive dentro il verdetto sullo swap, non accanto
 - T5.1: la misura sta nei task, con la correzione alla premessa
 - La catena ha girato intera: tre buchi osservati invece che dedotti
+- La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre
+- Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse
+- Un hold di sei giorni si leggeva come uno di sei ore: l'etichetta era solo l'ora
 
 ## 2.2.339 — 2026-09-17
 
