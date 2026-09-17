@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.2.342",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La card diceva verde su una CI rossa: due consegne su tre, stanotte",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.341",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.340",
     "date": "2026-09-17",
     "sections": {
