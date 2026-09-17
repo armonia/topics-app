@@ -210,6 +210,37 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
     expect(s.get(id)!.task.dispatchState).toBe(PARKED_WAITED_OUT);
   });
 
+  test("il coordinatore che aspetta i figli non eredita la serie di attese di prima", () => {
+    // THE OTHER SIDE OF THE SIGN, and it was a real hole. The judge reads
+    // "no window = the series is over", which is true; the converse - "a window
+    // means the series is alive" - is not. `deliverToReviewBySystem` writes a
+    // ten-minute window when the parent finishes with children still open, and
+    // it is not a wait the agent declared: it is coordination. With the old
+    // columns left standing under it, the sweep parked a card that is
+    // coordinating its own children, with a note false on both counts ("2 waits
+    // in a row for the same reason, about 6 hours") - and `waited_out` is the
+    // one state that reaches a push notification.
+    const id = longWait(15, "aspetto che la ci finisca");
+    clock.t += 3 * ORA;
+    s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
+    s.deferForWait({ taskId: id, reason: "aspetto che la ci finisca", minutes: 15, by: "claude" });
+    expect(s.get(id)!.task.waitStreak).toBe(2);
+
+    // A turn ran and ended with children still open: the series is over.
+    clock.t += 30 * 60_000;
+    s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
+    const figlio = s.create({ projectId: PID, text: "sottotask", status: "in_progress", parentTaskId: id });
+    expect(figlio.parentTaskId).toBe(id);
+    s.deliverToReviewBySystem({ taskId: id, reason: "turno finito coi figli aperti" });
+    expect(s.get(id)!.task.waitStreak).toBe(0);
+    expect(s.get(id)!.task.waitSince).toBeNull();
+
+    // Six hours after the FIRST wait: the old series would top the cap.
+    clock.t += 3 * ORA;
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.get(id)!.task.status).toBe("todo");
+  });
+
   test("senza finestra di rinvio non c'e' piu' niente da cronometrare", () => {
     // The claim clears the column, so a row without a window is a card a turn
     // has ALREADY restarted on. See the bench below: that is the end of the

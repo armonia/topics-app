@@ -4897,10 +4897,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // turni pagati per aspettare. Stessa meccanica di `deferForWait`.
         const note = "In attesa dei sottotask ancora aperti: torno in coda e riparto quando hanno finito.";
         const until = new Date(Date.parse(ts) + 10 * 60_000).toISOString();
+        // AND THE WAIT SERIES ENDS HERE. This window is not a wait the agent
+        // declared: it is the coordinator putting itself back in the queue
+        // because its children are still working. Leaving an old series'
+        // `wait_since` and `wait_streak` standing under a fresh window makes the
+        // outside judge lie twice over - it says "N waits in a row for the same
+        // reason" about waits a turn has already closed, and it counts them from
+        // an instant that has nothing to do with this one. The price is a
+        // `waited_out` park, the one state that reaches a push notification, on
+        // a card that is coordinating its own children and would keep working.
         db.prepare(
           `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
               dispatch_attempts = MAX(dispatch_attempts - 1, 0),
               status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
+              wait_streak = 0, wait_reason = NULL, wait_since = NULL,
               dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
         ).run(note, until, ts, taskId);
         if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
