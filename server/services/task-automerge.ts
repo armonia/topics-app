@@ -1275,10 +1275,20 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // Fast path: the shared checkout is ALREADY on main → merge in place, so a
         // hot-reload/rebuild makes the landing live immediately. Requires a clean
         // tree: never fold a concurrent session's WIP into the merge.
+        //
+        // TRACKED ONLY, and it is the whole point of the flag. A bare
+        // `status --porcelain` also lists untracked files, which a merge never
+        // folds into anything: git itself refuses the merge if one of them would
+        // be overwritten, and otherwise leaves it exactly where it is. Counting
+        // them turned any stray file in the owner's own checkout into a
+        // permanent, silent stop for EVERY land on the board — on 17/09/2026 the
+        // two files holding the door shut were a spreadsheet dropped in the repo
+        // root and another session's openspec folder, neither of which the merge
+        // would have touched.
         if (cur === defaultBranch) {
-          const st = await runGit(repoPath, ["status", "--porcelain"]);
+          const st = await runGit(repoPath, ["status", "--porcelain", "--untracked-files=no"]);
           if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con WIP non committata. Mergia a mano o pulisci il checkout` };
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
           }
           // Mixed by ancestry is not mixed by content: see `foreignAlreadyOnMain`.
           if (onlyOwn && await foreignAlreadyOnMain(repoPath, onlyOwn)) onlyOwn = null;
