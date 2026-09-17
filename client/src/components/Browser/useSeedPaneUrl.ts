@@ -19,7 +19,7 @@ import { contextHasPage } from '../../lib/contextHasPage';
  * goto → ERR_CONNECTION_REFUSED, worse than an honest blank pane. Only public
  * http(s) hosts (a registrable dotted name or a public IP) are seedable.
  */
-function isSeedableUrl(raw: string | undefined): raw is string {
+function canSeedUrl(raw: string | undefined): raw is string {
   if (!raw || !/^https?:\/\//i.test(raw)) return false;
   let host: string;
   try { host = new URL(raw).hostname; } catch { return false; }
@@ -92,8 +92,8 @@ export function useSeedPaneUrl(args: {
     // hostname, a .local name, a private-LAN address can be reachable from the
     // machine that owns the native pane and from nowhere else, and there is no
     // cheap probe that can tell.
-    if (!loopback && !isSeedableUrl(seedUrl)) return;
-    let cancelled = false;
+    if (!loopback && !canSeedUrl(seedUrl)) return;
+    let stopped = false;
     // WHETHER THE CONTEXT IS ALREADY IN USE IS A QUESTION FOR THE SERVER.
     //
     // It used to be answered by comparing two local strings, and that answer is
@@ -111,14 +111,14 @@ export function useSeedPaneUrl(args: {
     // server answers 404 while no context exists, which is the whole of this
     // card's case, and reports the real url once one does.
     const stillNeedsSeed = async (): Promise<boolean> => {
-      if (cancelled || seededRef.current) return false;
+      if (stopped || seededRef.current) return false;
       const busy = await contextHasPage(contextId);
-      return !cancelled && !seededRef.current && !busy;
+      return !stopped && !seededRef.current && !busy;
     };
     const t = setTimeout(() => {
       void (async () => {
         if (!(await stillNeedsSeed())) {
-          if (!cancelled) seededRef.current = true;
+          if (!stopped) seededRef.current = true;
           return;
         }
         if (!loopback) {
@@ -135,7 +135,7 @@ export function useSeedPaneUrl(args: {
         else setDeadLoopback({ url: seedUrl, checkedAt: new Date() });
       })();
     }, 400);
-    return () => { cancelled = true; clearTimeout(t); };
+    return () => { stopped = true; clearTimeout(t); };
     // Every dep here is a plain argument of the hook, so the exhaustive-deps
     // rule is satisfied on its own and the old disable directive is gone. The
     // pane's CURRENT url is deliberately not among them: the seed no longer
