@@ -56,11 +56,19 @@
 - **Rischio:** perdita di stato in-page volatile (form non inviati) sul tab congelato →
   freezare solo tab idle da > T e mai quello con input focus.
 
-### 1.4 Process-pool / dataStore condivisi  **[LIVE]**
-- Usare un `WKProcessPool` condiviso e un `WKWebsiteDataStore` per-topic (non per-pane)
-  riduce i processi WebContent e condivide cache/cookie coerentemente col contesto già
-  persistito. Verificare che non rompa l'isolamento login per-topic (memory:
+### 1.4 Process-pool / dataStore condivisi  **[RITIRATA — misurata inerte il 2026-08-19]**
+- **Questa leva non esiste.** `WKProcessPool` e' deprecato: istanze multiple "no longer
+  have any effect", WebKit condivide i processi da se' e lo fa bene (18 processi per 16
+  webview, misurati con `spike/browser-engine-alt/wkbench.swift`). Chi la implementasse
+  scriverebbe codice che non cambia nulla.
+- **E il `dataStore` isolato costa quanto il condiviso**: 37 MB contro 37 MB a sessione,
+  stesso banco. L'isolamento per-topic non e' la voce di costo che sembrava, quindi non
+  c'e' nessun compromesso da negoziare con l'isolamento login (memory:
   *browser-login-lost-safestorage*).
+- **Cosa resta vero:** il pane nativo costa **37-46 MB a sessione** (99 MB la prima, che
+  paga ~60 MB di Networking+GPU condivisi, poi mai piu'). E' gia' 3x piu' leggero del
+  miglior Chromium headless. Il target "pane leggera" e' raggiunto oggi: i 219 MB si
+  pagano solo quando entra in scena il Chromium server-side (vedi §2).
 
 ## 2. Engine Chromium (sidecar) — perf specifica
 

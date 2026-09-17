@@ -91,6 +91,14 @@ export interface NativeExecutorSocketOptions {
 export interface NativeExecutorSocketRun {
   /** Stop for good: no further reconnect, current socket closed. */
   stop(): void;
+  /**
+   * Take the wheel back from the agent on THIS context. The native pane has no
+   * layer over the page to click (the WKWebView composites above the DOM), so
+   * the tab's agent glyph is the handle, and this is the wire it pulls: the
+   * same `take_control` frame the streaming pane sends, answered by the server
+   * with an eager `agent_active=false` broadcast.
+   */
+  takeControl(): void;
 }
 
 /** Default factory: a real WebSocket, with the DOM plumbing kept in one place. */
@@ -212,6 +220,11 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
   connect();
 
   return {
+    takeControl: () => {
+      const open = socket;
+      if (!open) return;
+      sendOn(open, { type: 'take_control' });
+    },
     stop: () => {
       stopped = true;
       if (cancelRetry) cancelRetry();

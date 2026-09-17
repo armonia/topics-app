@@ -19,8 +19,14 @@
  *                            product, and the card that opened this gate put
  *                            them explicitly out of scope.
  *   PART OF THE OS           `/bin/sh`, `ps`, `lsof`, `pkill`, `grep`, `open`,
- *                            `vm_stat`, `scutil`, `getconf`, `security`, `cmd`.
- *                            Present on the system that can run the app at all.
+ *                            `vm_stat`, `scutil`, `getconf`, `security`, `cmd`,
+ *                            `launchctl`. Present on the system that can run the
+ *                            app at all. Some are listed twice, bare and with
+ *                            their absolute path: the server runs under launchd
+ *                            with a PATH that has neither `/usr/sbin` nor
+ *                            `/bin`, so a new spawn site must write the path in
+ *                            full (`sysctl` read null for hours on 15/09 for
+ *                            exactly this reason, PR #69).
  *
  * Everything else is a dependency on the author's machine. In particular
  * `node`, `bun`, `npx`, `bunx`, `deno`, `python` are NEVER acceptable as a
@@ -52,8 +58,11 @@ const ALLOWED_COMMANDS = new Set([
   "git", "claude", "codex",
   // the OS
   "/bin/sh", "sh", "bash", "cmd",
-  "ps", "pkill", "grep", "open", "lsof", "/usr/sbin/lsof", "/bin/true",
+  "ps", "/bin/ps", "pkill", "grep", "open", "lsof", "/usr/sbin/lsof", "/bin/true",
   "/usr/sbin/scutil", "/usr/bin/getconf", "vm_stat", "security",
+  // macOS only, and only where the code already checks the platform: the swap
+  // freezer asks it which XPC services belong to a process before signalling.
+  "/bin/launchctl",
 ]);
 
 /** Never a command: asking for these is asking the user to install a runtime. */

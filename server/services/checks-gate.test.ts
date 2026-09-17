@@ -12,7 +12,7 @@
  * @covers KANBAN-15
  */
 import { test, expect, describe } from "bun:test";
-import { CHECKS_LEG_MS, clampLegMs, CHECKS_LEG_MS_MAX, DEFAULT_MAX_CONCURRENT_CHECKS, createChecksGate } from "./checks-gate";
+import { CHECKS_LEG_MS, ChecksInterruptedError, clampLegMs, CHECKS_LEG_MS_MAX, DEFAULT_MAX_CONCURRENT_CHECKS, createChecksGate } from "./checks-gate";
 
 const differita = <T>(ms: number, value: T) => new Promise<T>((r) => setTimeout(() => r(value), ms));
 const verde = { ok: true, comment: "verdi" };
@@ -61,6 +61,19 @@ describe("createChecksGate", () => {
     expect(giri).toBe(2);
   });
 
+  test("a leg on a new commit that joins a live run of the old one never carries its verdict", async () => {
+    const gate = createChecksGate();
+    let finish: (v: typeof verde) => void = () => {};
+    const commits: string[] = [];
+    const run = (commit: string) => async () => { commits.push(commit); return commit === "aa" ? new Promise<typeof verde>((r) => { finish = r; }) : verde; };
+    expect(await gate.leg("t1", { commit: "aa", legMs: 5, run: run("aa") })).toEqual({ pending: true });
+    const leg = gate.leg("t1", { commit: "bb", legMs: 500, run: run("bb") });
+    finish(verde);
+    expect(await leg).toEqual({ pending: true });
+    expect(await gate.leg("t1", { commit: "bb", legMs: 500, run: run("bb") })).toEqual(verde);
+    expect(commits).toEqual(["aa", "bb"]);
+  });
+
   test("verdictFor: la stessa consegna e' un verdetto per QUESTO commit, non una chiave nota", async () => {
     const gate = createChecksGate();
     const run = async () => verde;
@@ -106,6 +119,24 @@ describe("createChecksGate", () => {
     expect(await gate.leg("t1", { commit: "aa", legMs: 1, run })).toEqual({ pending: true });
     await differita(60, null);
     expect(gate.isRunning("t1")).toBe(false);
+  });
+});
+
+describe("a run interrupted for sustained swap", () => {
+  test("G1: the leg reads interrupted for swap, nothing is retained, and the next leg starts a fresh run", async () => {
+    const gate = createChecksGate();
+    let rounds = 0;
+    const run = async () => {
+      rounds += 1;
+      if (rounds === 1) throw new ChecksInterruptedError("swap");
+      return verde;
+    };
+    expect(await gate.leg("t1", { commit: "aa", legMs: 500, run })).toEqual({ interrupted: true, reason: "swap" });
+    expect(gate.isRunning("t1")).toBe(false);
+    expect(gate.verdictFor("t1", "aa")).toBe(false);
+    expect(await gate.leg("t1", { commit: "aa", legMs: 500, run })).toEqual(verde);
+    expect(rounds).toBe(2);
+    expect(new ChecksInterruptedError().reason).toBe("shutdown");
   });
 });
 
@@ -237,6 +268,79 @@ describe("serializzazione — maxConcurrent limita le barre parallele", () => {
     // Aspetta che t2 finisca (e' veloce, legMs lungo per catturare il verdetto)
     await gate.leg("t2", { commit: "bb", legMs: 500, run: run2 });
     expect(gate.isRunning("t2")).toBe(false);
+  });
+});
+
+describe("a run gives its lane back", () => {
+  test("after release the run is live and off-lane, and counts zero", async () => {
+    const gate = createChecksGate({ maxConcurrent: 1 });
+    let finish: (() => void) | null = null;
+    const run = async (lane: { release(): void }) => {
+      lane.release();
+      await new Promise<void>((r) => { finish = r; });
+      return verde;
+    };
+    const leg = gate.leg("a", { commit: "aa", legMs: 500, run });
+    await differita(5, null);
+    expect(gate.runningCount()).toBe(0);
+    expect(gate.isRunning("a")).toBe(true);
+    expect(gate.isOffLane("a")).toBe(true);
+    finish!();
+    expect(await leg).toEqual(verde);
+    expect(gate.isOffLane("a")).toBe(false);
+  });
+
+  test("a queued run starts as soon as the first one releases, before it ends", async () => {
+    const gate = createChecksGate({ maxConcurrent: 1 });
+    let finishA: (() => void) | null = null;
+    let bStarted = false;
+    const legA = gate.leg("a", {
+      commit: "aa", legMs: 500,
+      run: async (lane) => {
+        await differita(5, null);
+        lane.release();
+        await new Promise<void>((r) => { finishA = r; });
+        return verde;
+      },
+    });
+    const legB = gate.leg("b", { commit: "bb", legMs: 500, run: async () => { bStarted = true; return rosso; } });
+    expect(await legB).toEqual(rosso);
+    expect(bStarted).toBe(true);
+    expect(gate.isRunning("a")).toBe(true);
+    finishA!();
+    expect(await legA).toEqual(verde);
+  });
+
+  test("releasing twice and then ending never frees a second lane", async () => {
+    const gate = createChecksGate({ maxConcurrent: 1 });
+    let finishA: (() => void) | null = null;
+    let finishB: (() => void) | null = null;
+    let cStarted = false;
+    const legA = gate.leg("a", {
+      commit: "aa", legMs: 500,
+      run: async (lane) => {
+        lane.release();
+        lane.release();
+        await new Promise<void>((r) => { finishA = r; });
+        return verde;
+      },
+    });
+    await differita(5, null);
+    const legB = gate.leg("b", {
+      commit: "bb", legMs: 500,
+      run: async () => { await new Promise<void>((r) => { finishB = r; }); return verde; },
+    });
+    await differita(5, null);
+    gate.leg("c", { commit: "cc", legMs: 1, run: async () => { cStarted = true; return verde; } });
+    finishA!();
+    await legA;
+    await differita(5, null);
+    expect(gate.runningCount()).toBe(1);
+    expect(cStarted).toBe(false);
+    finishB!();
+    await legB;
+    await differita(5, null);
+    expect(cStarted).toBe(true);
   });
 });
 

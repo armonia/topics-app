@@ -6,7 +6,12 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm } from "./dispatch-capacity";
+import type { HeldMemory } from "./mem-signal";
+
+/** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */
+const held = (gb: number | null): (() => HeldMemory) => () =>
+  gb == null ? { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 } : { measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 };
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -179,7 +184,7 @@ describe("il pavimento sulle risorse", () => {
    * decimo dal rosso. E' lo stesso difetto gia' pagato in tasks.test.ts, dove
    * un test misurava il TMPDIR di chi lo lanciava.
    */
-  const wideMemory = () => DISPATCH_MEM_FLOOR_GB + 8;
+  const wideMemory = held(DISPATCH_MEM_FLOOR_GB + 8);
 
   test("con spazio non blocca", () => {
     expect(dispatchResourceBlock("/", freeDiskGB, wideMemory)).toBeNull();
@@ -237,15 +242,15 @@ describe("il pavimento sulla memoria", () => {
   const wideDisk = () => 999;
 
   test("con memoria in abbondanza NON blocca", () => {
-    expect(dispatchResourceBlock("/qualunque", wideDisk, () => DISPATCH_MEM_FLOOR_GB + 8)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", wideDisk, held(DISPATCH_MEM_FLOOR_GB + 8))).toBeNull();
   });
 
   test("underCeiling il pavimento BLOCCA, e la frase porta il numero", () => {
-    const msg = dispatchResourceBlock("/qualunque", wideDisk, () => 2.1);
+    const msg = dispatchResourceBlock("/qualunque", wideDisk, held(2.1));
     expect(msg).not.toBeNull();
-    expect(msg!).toContain("2.1 GB disponibili");
+    expect(msg!).toContain("ultimi 2 minuti è 2.1 GB");
     expect(msg!).toContain(String(DISPATCH_MEM_FLOOR_GB));
-    expect(msg!).toContain("Riprendo");
+    expect(msg!).toContain("Niente è andato perso");
   });
 
   test("la soglia è una soglia, e il verso è «underCeiling blocca»", () => {
@@ -260,7 +265,7 @@ describe("il pavimento sulla memoria", () => {
     // che non sia un Mac.
     expect(memoryTooTight(null)).toBe(false);
     expect(memoryTooTight(Number.NaN)).toBe(false);
-    expect(dispatchResourceBlock("/qualunque", wideDisk, () => null)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", wideDisk, held(null))).toBeNull();
   });
 
   test("una sonda che throws non ferma la coda", () => {
@@ -272,7 +277,7 @@ describe("il pavimento sulla memoria", () => {
   test("il disco vince sulla memoria: una frase sola per card", () => {
     // Entrambi underCeiling: due frasi insieme sono rumore, e il disco va per primo
     // perché un disco pieno ROMPE (scritture SQLite) mentre la RAM degrada.
-    const msg = dispatchResourceBlock("/qualunque", () => 1, () => 1);
+    const msg = dispatchResourceBlock("/qualunque", () => 1, held(1));
     expect(msg!).toContain("Disco quasi pieno");
     expect(msg!).not.toContain("Memoria quasi finita");
   });
@@ -318,7 +323,7 @@ describe("il pavimento sulla memoria", () => {
     ].join("\n");
 
     const gate = (vm: string) => dispatchResourceBlock(
-      "/qualunque", () => 500, () => availableMemGB(() => vm), true,
+      "/qualunque", () => 500, held(availableMemGB(() => vm)), true,
     );
 
     expect(gate(thatNight)).not.toBeNull();   // the night of 2026-09-10: refuse
@@ -328,6 +333,18 @@ describe("il pavimento sulla memoria", () => {
     // domani scendesse sotto il pavimento, il cancello smetterebbe di
     // dispacciare su una macchina in salute e questo test lo direbbe subito.
     expect(availableMemGB(() => healthy)!).toBeGreaterThan(DISPATCH_MEM_FLOOR_GB);
+  });
+
+  test("P1: the probe keeps the swap TOTAL of the same `vm.swapusage` line", async () => {
+    const got = await probeVm(async (argv) => argv[0] === "/usr/bin/vm_stat"
+      ? "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nSwapins: 9123456.\nPages occupied by compressor: 476226."
+      : "total = 16384.00M  used = 15805.31M  free = 578.69M  (encrypted)", "darwin");
+    expect(got!.swapUsedMB).toBeCloseTo(15_805.31, 2);
+    // Thrown away until 16/09/2026, and it is the whole second door: without it
+    // `swapVerdict` cannot tell a machine at its ceiling from a calm one.
+    expect(got!.swapTotalMB).toBeCloseTo(16_384, 2);
+    const mute = await probeVm(async (argv) => argv[0] === "/usr/bin/vm_stat" ? "page size of 16384 bytes" : null, "darwin");
+    expect(mute!.swapTotalMB).toBeNull();
   });
 
   test("la somma e' cio' che si ottiene SENZA far lavorare il disco", () => {
@@ -467,7 +484,7 @@ describe("il pavimento sulla memoria", () => {
     // memory to spare the gate admits WHATEVER the compressor is doing: if
     // somebody later put a threshold back without a measurement under load to
     // justify it, this test would say so.
-    expect(dispatchResourceBlock("/qualunque", () => 500, () => 20, true)).toBeNull();
+    expect(dispatchResourceBlock("/qualunque", () => 500, held(20), true)).toBeNull();
   });
 });
 
@@ -550,7 +567,7 @@ describe("computeDispatchCapacity — quale sonda comanda", () => {
  */
 describe("il pavimento della memoria segue il runtime", () => {
   const disco = () => 500; // disco largo: qui si guarda solo la RAM
-  const ram = (gb: number) => () => gb;
+  const ram = held;
 
   test("con le CLI: 8,7 GB non bastano, ed è giusto", () => {
     const r = dispatchResourceBlock("/tmp", disco, ram(8.7), true);
@@ -566,7 +583,7 @@ describe("il pavimento della memoria segue il runtime", () => {
     // nowhere. There is no derived threshold: `byMem` divides TOTAL memory, not
     // available, so the only rule on available memory is this one.
     const disk = () => 500;
-    const open = (gb: number) => dispatchResourceBlock("/tmp", disk, () => gb, false) === null;
+    const open = (gb: number) => dispatchResourceBlock("/tmp", disk, held(gb), false) === null;
     expect(open(7.39)).toBe(true);   // worst healthy peak measured under load
     expect(open(6.01)).toBe(true);
     expect(open(5.99)).toBe(false);
@@ -611,21 +628,62 @@ describe("il pavimento della memoria segue il runtime", () => {
     // The dispatcher prices a card from the check peaks of the last cards (4 GB
     // with no history). A sentence still saying "~1,5 GB" sends whoever reads a
     // stopped queue to a number the gate stopped using.
-    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, { cardGB: 5.2, startingCards: 0, holding: false });
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, { cardGB: 5.2, reservedGB: 0, reservedCards: 0, ourWorkRunning: false });
     expect(r).toContain("si prezza 5.2 GB");
     expect(r).not.toContain("1,5 GB");
   });
 
-  test("a reservation as large as the reading is never printed as a part of it", () => {
-    // Under the floor: "5.9 GB disponibili, di cui 8.0 tenuti" was the sentence.
-    const under = dispatchResourceBlock("/tmp", disco, ram(5.9), false, { cardGB: 4, startingCards: 2, holding: true });
-    expect(under).toContain("5.9 GB disponibili, sotto il pavimento di 6 GB, e tutti già tenuti per i 2 agenti che stanno partendo");
-    // Over the floor: "ma 8.0 sono tenuti ... e i -1.0 che restano".
-    const over = dispatchResourceBlock("/tmp", disco, ram(7), false, { cardGB: 4, startingCards: 2, holding: false });
-    expect(over).toContain("7.0 GB disponibili, tutti già tenuti per i 2 agenti che stanno partendo, che la lettura non vede ancora: non ne resta niente");
-    for (const r of [under, over]) expect(r).not.toMatch(/di cui|che restano/);
-    // A reservation smaller than the reading is still "of which".
-    expect(dispatchResourceBlock("/tmp", disco, ram(5), false, { cardGB: 2, startingCards: 1, holding: false })).toContain("5.0 GB disponibili, di cui 2.0 tenuti");
+  test("C1: one line in both directions, the price only with our work on the machine, the kept memory only when charged", () => {
+    const hold = (over: Partial<{ cardGB: number; reservedGB: number; reservedCards: number; ourWorkRunning: boolean }> = {}) =>
+      ({ cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false, ...over });
+    // Nothing of ours running: the floor alone.
+    expect(dispatchResourceBlock("/tmp", disco, ram(6.0), false, hold())).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(5.9), false, hold())).toContain("Memoria quasi finita");
+    // A turn in flight: floor + one card's price, 10 GB, and 9.9 is still under it.
+    const climbing = dispatchResourceBlock("/tmp", disco, ram(9.9), false, hold({ ourWorkRunning: true }));
+    expect(climbing).toContain("Memoria in risalita");
+    expect(climbing).toContain("sotto i 10.0 GB che servono per una card in più");
+    expect(climbing).toContain("resta sopra 10.0 GB per 2 minuti di fila");
+    expect(dispatchResourceBlock("/tmp", disco, ram(10.0), false, hold({ ourWorkRunning: true }))).toBeNull();
+    // Count mode charges the turn in flight on the floor itself.
+    const kept = dispatchResourceBlock("/tmp", disco, ram(13.9), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }));
+    expect(kept).toContain("4.0 GB tenuti per l'agente al lavoro");
+    expect(dispatchResourceBlock("/tmp", disco, ram(14.0), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }))).toBeNull();
+    // Not measurable: memory never blocks, whatever the number would have been.
+    expect(dispatchResourceBlock("/tmp", disco, ram(null), false, hold({ ourWorkRunning: true }))).toBeNull();
+  });
+
+  test("C1b: the held sentence says WHO is holding the memory, and only when it is somebody else", () => {
+    const hold = { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false };
+    // 16/09/2026: seven cards held for hours by the Claude app, a Dia and a
+    // `next-server` nobody had noticed. The chip said the number and no name.
+    const who = [{ name: "Claude", gb: 8.1, procs: 12 }, { name: "next-server", gb: 2.9, procs: 1 }, { name: "Dia", gb: 2.6, procs: 21 }];
+    const r = dispatchResourceBlock("/tmp", disco, ram(4.1), false, hold, who)!;
+    expect(r).toContain("Memoria quasi finita");
+    expect(r).toEndWith("Fuori da Topics la memoria la tengono: Claude 8.1 GB, next-server 2.9 GB, Dia 2.6 GB.");
+    // The wait's key is the FIRST word, so the names never rewrite the chip.
+    expect(r.split(/[\s:]/)[0]).toBe("Memoria");
+    // Nothing measured, nothing said: the sentence stood on its own before this.
+    expect(dispatchResourceBlock("/tmp", disco, ram(4.1), false, hold)).not.toContain("Fuori da Topics");
+    expect(dispatchResourceBlock("/tmp", disco, ram(4.1), false, hold, [])).not.toContain("Fuori da Topics");
+    // A full disk is not somebody's app: only the memory sentence carries it.
+    expect(dispatchResourceBlock("/tmp", () => 1, ram(4.1), false, hold, who)).not.toContain("Fuori da Topics");
+  });
+
+  test("C2: a window that is not full holds and says how long it has measured; every sentence starts with Memoria and has no long dash", () => {
+    const measuring = dispatchResourceBlock("/tmp", disco, () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 }), false);
+    expect(measuring).toContain("la sto misurando da 40 s su 120");
+    const sentences = [
+      measuring,
+      dispatchResourceBlock("/tmp", disco, ram(2), false),
+      dispatchResourceBlock("/tmp", disco, ram(8), false, { cardGB: 4, reservedGB: 4, reservedCards: 2, ourWorkRunning: true }),
+      dispatchResourceBlock("/tmp", disco, ram(2), true),
+    ];
+    for (const r of sentences) {
+      expect(r!.split(/[\s:]/)[0]).toBe("Memoria");
+      expect(r).not.toContain("\u2014");
+    }
+    expect(sentences[2]).toContain("i 2 agenti al lavoro");
   });
 
   test("il disco viene prima della RAM, su entrambi i runtime", () => {
@@ -640,8 +698,8 @@ describe("il pavimento della memoria segue il runtime", () => {
   test("una misura assente non ferma la coda, con nessuno dei due pavimenti", () => {
     // «Non lo so» non è «zero»: un errore di lettura fermerebbe tutto per
     // sempre. Vale identico sulle due strade.
-    expect(dispatchResourceBlock("/tmp", () => null, () => null, true)).toBeNull();
-    expect(dispatchResourceBlock("/tmp", () => null, () => null, false)).toBeNull();
+    expect(dispatchResourceBlock("/tmp", () => null, held(null), true)).toBeNull();
+    expect(dispatchResourceBlock("/tmp", () => null, held(null), false)).toBeNull();
   });
 });
 
@@ -689,5 +747,25 @@ describe("il tetto conosce il runtime: 3 GB per una CLI, 0,25 per una sessione n
     const native = computeDispatchCapacity(0, probe, false).recommended;
     const cli = computeDispatchCapacity(0, probe, true).recommended;
     expect(native).toBeGreaterThanOrEqual(cli);
+  });
+});
+
+describe("the memory probe under launchd", () => {
+  // launchd starts the server with a PATH that has no /usr/sbin: a bare
+  // `sysctl` made every swap reading null on the live server (15/09/2026), and
+  // with it the swap verdict and the brake.
+  test("every binary is spawned by absolute path, and the swap reading reaches the sample", async () => {
+    const spawned: string[][] = [];
+    const sample = await probeVm(async (argv) => {
+      spawned.push(argv);
+      if (argv[0]!.endsWith("vm_stat")) {
+        return "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: 3550.\nPages speculative: 100.\nPages purgeable: 10.\nFile-backed pages: 200000.\nPages occupied by compressor: 656466.\nSwapins: 23380813.\n";
+      }
+      return "total = 15360.00M  used = 13993.56M  free = 1366.44M  (encrypted)";
+    }, "darwin");
+    for (const argv of spawned) expect(argv[0]!.startsWith("/")).toBe(true);
+    expect(spawned.map((a) => a[0])).toEqual(["/usr/bin/vm_stat", "/usr/sbin/sysctl"]);
+    expect(sample?.swapUsedMB).toBe(13993.56);
+    expect(sample?.swapins).toBe(23380813);
   });
 });

@@ -42,7 +42,8 @@ export function useProfileIdentity(): ProfileIdentity {
 
   const caricaIo = useCallback(async () => {
     try {
-      const { people } = await peopleApi.list();
+      // Only `isMe` and the face: the stats aggregates are not drawn here.
+      const { people } = await peopleApi.list({ stats: false });
       setIo(people.find((p) => p.isMe) ?? null);
     } catch {
       // Transitorio: resta il nome del dispositivo, che arriva dalla sessione e

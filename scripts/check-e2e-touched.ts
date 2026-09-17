@@ -36,7 +36,8 @@
  * EXIT CODES
  *   0  no related spec, or all the related specs are green
  *   1  a related spec is red
- *   2  the selection could not be made (no git, no base branch to diff against)
+ *   2  the selection could not be made (no git, no base branch to diff against,
+ *      or no merge base with it, as in a one-commit-deep checkout)
  *
  * WHERE THE BUNDLE COMES FROM
  * In the main checkout `public/` is kept fresh by the client watcher and the
@@ -50,8 +51,17 @@
  * the eleven e2e reds of 2026-09-06 would have been caught, one card at a time,
  * instead of all together in the nightly.
  *
+ * WHERE IT RUNS SINCE 15/09/2026
+ * Not in a board worktree any more. Run there as the sixth delivery check, it
+ * made agents download Chromium onto the owner's Mac, where no Chromium may
+ * live. The board now reads the pull request CI instead
+ * (server/services/ci-evidence.ts, KANBAN-84), and this script is what the
+ * `e2e (1)` job runs. On a Mac outside GitHub Actions only `--list` works:
+ * without it the script prints the selection and exits 97 before building or
+ * launching anything (`refusesToRunSpecs`). Linux, Windows and CI still run.
+ *
  * USAGE
- *   bun run check:e2e-touched            select and RUN (this is the gate)
+ *   bun run check:e2e-touched            select and RUN (CI, or a non-Mac machine)
  *   bun run check:e2e-touched --list     only print what it would run
  *   bun run check:e2e-touched --base=main   diff against another base
  */
@@ -77,26 +87,38 @@ const E2E_DIR = "tests/e2e";
 /** Files whose change says nothing about which surface moved. */
 const IGNORED = /^(docs|openspec|landing|desktop-tauri|performance|bench)\//;
 
-function sh(cmd: string[]): string {
-  const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+/** A Mac outside GitHub Actions only lists: running the specs needs a browser. */
+export function refusesToRunSpecs(o: { platform: string; githubActions: boolean; listOnly: boolean }): boolean {
+  return o.platform === "darwin" && !o.githubActions && !o.listOnly;
+}
+
+function sh(cmd: string[], cwd?: string): string {
+  const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe", cwd });
   if (p.exitCode !== 0) return "";
   return new TextDecoder().decode(p.stdout);
 }
 
-/** The files this branch changed: committed since the base, plus the worktree. */
-export function changedFiles(base: string): string[] {
-  const mergeBase = sh(["git", "merge-base", "HEAD", base]).trim();
+/**
+ * The files this branch changed: committed since the base, plus the worktree.
+ * `null` when the branch has no merge base with `base`: the committed half of
+ * the diff cannot be read, and counting only `git status` would call a branch
+ * of 32 changed files "1 changed file". That is what the PR CI did until
+ * 15/09/2026: its checkout is one commit deep, `git merge-base` exited 1, and
+ * the step printed "Nothing to run here" and exited 0 on every pull request.
+ */
+export function changedFiles(base: string, cwd: string = process.cwd()): { committed: number; files: string[] } | null {
+  const mergeBase = sh(["git", "merge-base", "HEAD", base], cwd).trim();
+  if (!mergeBase) return null;
   const out = new Set<string>();
-  if (mergeBase) {
-    for (const line of sh(["git", "diff", "--name-only", `${mergeBase}..HEAD`]).split("\n")) {
-      if (line.trim()) out.add(line.trim());
-    }
+  let committed = 0;
+  for (const line of sh(["git", "diff", "--name-only", `${mergeBase}..HEAD`], cwd).split("\n")) {
+    if (line.trim()) { out.add(line.trim()); committed += 1; }
   }
-  for (const line of sh(["git", "status", "--porcelain"]).split("\n")) {
+  for (const line of sh(["git", "status", "--porcelain"], cwd).split("\n")) {
     const path = line.slice(3).trim();
     if (path) out.add(path.includes(" -> ") ? path.split(" -> ")[1]! : path);
   }
-  return [...out].filter((f) => !IGNORED.test(f) && existsSync(f));
+  return { committed, files: [...out].filter((f) => !IGNORED.test(f) && existsSync(join(cwd, f))) };
 }
 
 /**
@@ -349,7 +371,17 @@ function main(): number {
     return 2;
   }
 
-  const changed = changedFiles(base);
+  const diff = changedFiles(base);
+  if (!diff) {
+    console.error(
+      `check:e2e-touched: HEAD and "${base}" have no merge base here (a shallow checkout?), ` +
+        "so the committed changes cannot be listed. NOT MEASURED.",
+    );
+    return 2;
+  }
+  // The committed count is the one to compare with the pull request's own file count.
+  console.log(`check:e2e-touched: ${diff.committed} file(s) committed since the merge base with ${base}.`);
+  const changed = diff.files;
   if (changed.length === 0) {
     console.log(`check:e2e-touched: nothing changed against ${base}, no spec to run.`);
     return 0;
@@ -378,6 +410,10 @@ function main(): number {
     );
   }
   if (listOnly) return 0;
+  if (refusesToRunSpecs({ platform: process.platform, githubActions: process.env.GITHUB_ACTIONS === "true", listOnly })) {
+    console.error("check:e2e-touched: specs run in the PR CI (e2e (1)), never on this Mac: use --list. NOT MEASURED.");
+    return NOT_MEASURED_EXIT;
+  }
 
   const env = childEnv(process.env);
   const nodeBin = pickNodeBin();

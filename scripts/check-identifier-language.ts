@@ -135,6 +135,11 @@ export const PROJECT_WORDS = new Set([
   // `pane-zoom`). "Zoom out" would be a different thing — it is the browser's
   // page scale, which this app also has.
   "unzoom",
+  // The platform's own name for an embedded browser view: Tauri's `Webview`,
+  // WebView2, and the `webviews` rows of the shell's `perf_metrics` payload
+  // (`WebviewUsage` in lib.rs). A row of that list has no other honest name
+  // (2026-09-15, `client/src/lib/shell/heavyPanes.ts`).
+  "webview",
   // `vm_stat` calls a page written out to swap a "swapout", one word: the rate
   // of those is how a Mac says it has started paying for memory it does not
   // have (2026-09-11, `dispatch-capacity.ts`).
@@ -218,7 +223,7 @@ export const PROJECT_WORDS = new Set([
   "stderr", "stdout", "utils",
   // Two Unix tools, named as identifiers in server/lib/low-priority.ts
   // (`RENICE_BIN`, `TASKPOLICY_BIN`): the binaries this machine has, not words.
-  "renice", "taskpolicy",
+  "renice", "taskpolicy", "sysctl",
   // Same family (card 7f4d8f32): `pgrep` is the binary that lists a process
   // tree, and `qos` is the macOS scheduling class the shared Chromium is
   // toggled in and out of. Both name a thing the OS calls exactly that.
@@ -510,6 +515,21 @@ export const PROJECT_WORDS = new Set([
   // type) predate this gate and sit in the baseline, so the word was already
   // the project's and only new spellings of it were being stopped.
   "cron",
+  // The names the swap freezer cannot avoid, because they are the platform's
+  // own. `lstart` is the `ps` column that says when a process started, and it
+  // is the whole identity check against a recycled pid (`rootLstart`,
+  // `leaderLstart`); `xpc` is what macOS calls the out-of-process services a
+  // WebKit page runs in, which `launchctl print` lists under that word.
+  "lstart", "xpc",
+  // The same hole, three more from the same layer: `ppid` and `rusage` are the
+  // names of the `ps` column and of the macOS call that answer "who is the
+  // parent" and "how much is this process holding" (`proc_pid_rusage`), and
+  // `launchctl` is the tool whose output tells an app's XPC services apart.
+  "ppid", "rusage", "launchctl",
+  // `fbm` is fractional Brownian motion, the standard name of the noise the
+  // frost's ragged front is built from, and `falloff` is what the same
+  // literature calls the decay at the edge of a brush.
+  "fbm", "falloff",
 ]);
 
 function trackedFiles(): string[] {

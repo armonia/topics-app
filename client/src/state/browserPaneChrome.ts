@@ -48,6 +48,10 @@ export interface BrowserPaneCommands {
   returnToTopicWindow?: () => void;
   toggleDevTools?: () => void;
   clearConsole?: () => void;
+  /** Take the wheel back from the agent. Present only while one is driving, so
+   *  the tab can turn its agent glyph into a button that ends the state instead
+   *  of merely reporting it. */
+  takeControl?: () => void;
   /** Ask the TAB to open its sheet with the Downloads section already down.
    *  The downloads cue in the tab's quiet rail is the only caller: a download
    *  announces itself there and opens nothing until you click it. */
@@ -122,6 +126,24 @@ export interface BrowserPaneChrome {
   engine?: 'native' | 'chromium';
   engineExtensions?: number;
   renderMode?: 'dom' | 'video';
+  /**
+   * AN AGENT IS AT THE WHEEL OF THIS PANE, and what it is doing right now.
+   *
+   * It travels with the other three for the same reason: until 2026-09-14 the
+   * fact was a `bg-black/40 backdrop-blur` sheet parked over the page with a
+   * box in the middle, so the one moment you most want to WATCH the page was
+   * the one moment the page was hidden. The fact belongs in the tab, where the
+   * pane's other facts already live; over the page stays only the transparent
+   * layer that swallows the clicks.
+   */
+  agentActive?: boolean;
+  agentAction?: string;
+  /**
+   * The page keeps burning CPU (native pane only): `cpu` is % of one core, and
+   * `paused` says the pane is sitting behind a still until it gets the focus.
+   * Absent when the pane is not heavy, which is almost always.
+   */
+  heavy?: { paused: boolean; cpu: number };
   /**
    * What the sheet shows and the tab does not: the pane's own address list,
    * the console rows behind the tally, and the downloads with their actions.

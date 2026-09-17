@@ -35,6 +35,7 @@ import { setBrowserSpawner } from '../../../state/browserSpawner';
 import { persistBrowserPaneUrl } from '../../../state/pane/browserPaneUrl';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
 import { insertPaneAfter } from '../../../lib/openTabTarget';
+import { openInTopicWindow } from '../../../lib/topicWindowDoor';
 
 /**
  * Phase 30.1 polish — persist a browser pane in the global pane store so
@@ -106,6 +107,34 @@ function requestBrowserSolo(paneId: string): void {
   try {
     window.dispatchEvent(new CustomEvent('browser:request-solo', { detail: { paneId } }));
   } catch { /* SSR / no window — no-op */ }
+}
+
+/**
+ * Is that page ALREADY a pane, ANYWHERE in the layout?
+ *
+ * The question the topic window's door cannot answer: a sheet promoted to a tab
+ * lives in the layout, and putting it back in the window would be the same page
+ * twice (the store refuses it, silently). So the layout is asked first, and a
+ * pane that exists is simply navigated where it stands.
+ *
+ * ANYWHERE, and not "in this cell". `orderedIds` is the id list of the CELL that
+ * holds the chat (PanelGrid hands one `panelIds` per grid cell), and the pane
+ * this rule exists to protect is exactly the one `requestBrowserSolo` split OUT
+ * of that cell: every pane the agent has opened so far lives in a cell of its
+ * own, i.e. in nobody's `prev`. Asked of the cell alone the answer was "no
+ * pane", the door took the opening, and `open` added a sheet on a contextId the
+ * layout was already showing — the same page in the pane AND in the window. The
+ * pane store is the one view that spans the cells, which is the question the
+ * project window has always asked (`useProjectBrowserPanes`, `panesRef`).
+ */
+// Exported for the co-located bun:test unit (reads the module-level store).
+export function paneForContext(orderedIds: string[], contextId?: string): string | null {
+  if (!contextId) return null;
+  const id = createPaneId('browser', contextId);
+  // `prev` first: it is this group's own optimistic list, which leads the store
+  // by the dispatch that persists a pane it has just created.
+  if (orderedIds.includes(id)) return id;
+  return usePaneStore.getState().panes[id] ? id : null;
 }
 
 /** Any browser pane already open at the app level (group:default), regardless of
@@ -526,12 +555,28 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         const navigateUrl: string = resolveBrowserNavigateUrl(msg.url);
         setOrderedIds(prev => {
           if (!groupClaimsBrowserNavigate({ topicId: navTopicId, hasProjectPane: hasProjectPaneRef.current, orderedIds: prev })) return prev;
+          // TOPIC-BROWSER-04: nobody asked for this opening, so it does not
+          // get to move the layout. A pane already on THIS context wins over
+          // the window (the same page twice, which the store refuses in
+          // silence); with no pane, and a chat able to host it, the sheet goes
+          // into the window and nothing here is touched.
+          if (!paneForContext(prev, navContextId)
+            && openInTopicWindow(navTopicId, { contextId: navContextId ?? '', url: navigateUrl, openedBy: 'agent' })) {
+            return prev;
+          }
           const { next, resolvedId } = browserSingletonReducer(prev, navContextId);
           if (resolvedId) {
             // Il seme dell'URL sta QUI, dopo la rivendicazione: prima stava
             // sopra il claim, e un gruppo che poi si tirava indietro aveva già
             // spinto l'URL nel suo browser (stessa trappola già chiusa in 8b).
-            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+            // `requestBrowserSolo` splits a cell, so it is for a pane that did
+            // NOT exist: an existing one is navigated where it stands (the
+            // "existing tab" half of TOPIC-BROWSER-04). Reaching here at all
+            // means the window did not take it - a task drawer, a viewport
+            // under 768, a chat inside a project window - and the card calls
+            // those unchanged, so they keep the split they always had.
+            const isNewPane = !paneForContext(prev, navContextId);
+            queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); if (isNewPane) requestBrowserSolo(resolvedId); });
             persistBrowserPane(resolvedId);
             // Persist the URL onto the pane NOW (deterministic) so the tab
             // restores to its page after reload — the onUrlChange render path is
@@ -576,12 +621,19 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     return unsub;
   }, [onWSMessage, onFocusPanel, onBrowserNavigateUrl]);
 
-  // 8b. Phase 30 BROWSER-CHAT-04 — DOM-event variant for /browser slash command
-  // (and any other client-side producer). Mirrors the WS browser:navigate flow
-  // but skips the WS hop. Sourced from ChatPane.handleSlashCommand.
+  // 8b. Phase 30 BROWSER-CHAT-04 — DOM-event variant of 8: same flow, without
+  // the WS hop.
+  //
+  // TWO PRODUCERS SHARE THIS EVENT NAME, and they want opposite things:
+  //   · `ChatPane.handleSlashCommand` — `/browser <url>` typed by the user, who
+  //     is asking to LOOK: it goes into the topic's window, expanded;
+  //   · `TaskDetail` — the browser tabs of a task, replayed into the layout,
+  //     which the card keeps unchanged.
+  // The composer MARKS its own event (`source: 'slash-command'`) and that mark
+  // is the only thing that separates them. See the branch below.
   useEffect(() => {
     const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ topicId?: string; url?: string }>;
+      const ce = e as CustomEvent<{ topicId?: string; url?: string; source?: string }>;
       if (!ce.detail?.url) return;
       // Ownership: la stessa regola del ramo WS, e ora la stessa funzione
       // (groupClaimsBrowserNavigate) — questa era la copia CORRETTA, l'altra
@@ -593,12 +645,33 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // (resolveContextIdForTopic === topic.id), so bind the pane to it — same
         // reason as the WS browser:navigate path: keep the native CDP target on
         // the id the agent's tools resolve to.
+        // THIS EVENT HAS TWO PRODUCERS, and only one of them is `/browser`.
+        // The other is the task drawer (`TaskDetail`), which replays the
+        // browser tabs of a task and must keep landing in the layout: the card
+        // says "links from a task: unchanged". They are told apart by the mark
+        // the composer puts on its own event, NOT by guessing from the shape of
+        // the detail - `contextId` is present on one and absent on the other
+        // today, which is an accident and not a rule. Anyone widening this back
+        // to the bare event name breaks the task drawer in silence, which is
+        // how it was found: four e2e reds and a drawer that stopped opening
+        // panes.
+        //
+        // Only the typed command is an EXPLICIT request to look, so only it
+        // opens the window, and EXPANDED - unlike the agent's open (effect 8),
+        // which at most wakes a hidden window into minimised.
+        if (ce.detail?.source === 'slash-command'
+          && !paneForContext(prev, ce.detail?.topicId)
+          && openInTopicWindow(ce.detail?.topicId, { contextId: ce.detail?.topicId ?? '', url: navigateUrl, openedBy: 'user', mode: 'exp' })) {
+          return prev;
+        }
         const { next, resolvedId } = browserSingletonReducer(prev, ce.detail?.topicId);
         if (resolvedId) {
           // URL seed happens here, AFTER this group claimed the event via the
           // membership check above — seeding before the claim leaked the URL
           // into groups that then bailed.
-          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+          // `requestBrowserSolo` only for a NEW pane: see the WS branch above.
+          const isNewPane = !paneForContext(prev, ce.detail?.topicId);
+          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); if (isNewPane) requestBrowserSolo(resolvedId); });
           persistBrowserPane(resolvedId);
           persistBrowserPaneUrl(resolvedId, navigateUrl);
           const ctx = getBrowserContextFromPaneId(resolvedId);

@@ -34,6 +34,7 @@ import type { FleetSessionRef } from "../lib/fleet-usage";
 import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
 import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
+import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
 import { recordRetirement } from "../services/retirement";
@@ -304,6 +305,29 @@ export function getTerminalSessionById(id: string): TerminalSession | undefined 
  * perché il rilevatore di porte cerca i server che Claude avvia: qui serve TUTTO
  * ciò che consuma, e una shell aperta consuma quanto il resto.
  */
+/**
+ * Every PTY that is an AGENT, with the pid of its CLI, for the swap freezer.
+ *
+ * Two things it needs and `getFleetSessionRefs` cannot give: shell panes are
+ * excluded (a person types in those, and nothing of theirs is ever signalled),
+ * and the `claudeSessionId` comes along - the hook payloads that say which of an
+ * agent's commands runs in the background are keyed by it
+ * (`lib/background-bash-record.ts`).
+ */
+export function getAgentPtyCliPids(): { sessionId: string; pid: number; topicId: string | null; claudeSessionId: string | null }[] {
+  const out: { sessionId: string; pid: number; topicId: string | null; claudeSessionId: string | null }[] = [];
+  for (const s of sessions.values()) {
+    if (!s.ptyPid || s.ptyPid <= 0 || s.type === "shell") continue;
+    out.push({
+      sessionId: s.id,
+      pid: s.ptyPid,
+      topicId: s.topicId ?? null,
+      claudeSessionId: s.claudeSessionId ?? null,
+    });
+  }
+  return out;
+}
+
 export function getFleetSessionRefs(): FleetSessionRef[] {
   const out: FleetSessionRef[] = [];
   const seen = new Set<string>();
@@ -2627,6 +2651,10 @@ function tryParkSession(
       hasTranscript:
         !!s.claudeSessionId && fs.existsSync(claudeTranscriptPath(s.cwd, s.claudeSessionId)),
       phase,
+      // Topics is holding one of this session's commands STOPped: killing the
+      // PTY now would strand it (`lib/swap-freeze-hold.ts`). The freeze lasts
+      // ten minutes at most, so the park is postponed, not cancelled.
+      hasFrozenTree: isSwapFreezeHold(id),
     },
     thresholdMs,
   );

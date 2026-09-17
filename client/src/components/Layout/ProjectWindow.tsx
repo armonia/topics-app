@@ -506,6 +506,9 @@ export function ProjectWindowPane({
               // this pane's tab via the same fresh-`groups` handler the global
               // inner-tab focus uses (avoids a stale-closure group lookup here).
               onSelfFocus={() => window.dispatchEvent(new CustomEvent('global-tab:focus-inner', { detail: { projectPath, paneId: pane.id } }))}
+              // Same convention as the chat pane above: focused group AND this
+              // project window is the focused panel.
+              hasFocus={onScreen && isFocused && focusedPanelId === wrapperPaneId}
             />
           </LazyPane>
         );

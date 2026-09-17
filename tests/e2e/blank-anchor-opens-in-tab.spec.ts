@@ -102,6 +102,11 @@ test.describe("LINK-TAB-01 a bare target=_blank anchor opens a Topics tab", () =
       await link.click();
 
       expect(await escaped).toBeNull();
+      // STILL A PANE, and deliberately so. The topic window takes the links of
+      // a CONVERSATION (LINK-TAB-02), and this anchor is not in one: the
+      // changelog is a portal on the body, so the ancestor walk that reads
+      // `data-chat-topic-id` finds nothing and the layout claims the tab, the
+      // way it does for every origin the window does not own.
       await expect(page.locator("[data-browser-pane]").first()).toBeVisible({
         timeout: 15000,
       });

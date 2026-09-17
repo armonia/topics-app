@@ -69,7 +69,7 @@ export async function stubIdentity(page: Page, population: Population): Promise<
     lastSeenAt: null,
     ...p,
   });
-  await page.route("**/api/people", (r) =>
+  await page.route(/\/api\/people(\?[^/]*)?$/, (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ people: population.people.map(person) }) }));
   await page.route("**/api/people/*/follow*", (r) =>

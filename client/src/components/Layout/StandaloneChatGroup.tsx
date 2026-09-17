@@ -775,6 +775,9 @@ export function StandaloneChatGroup({
             // A click inside the native pane never reaches React; activate this
             // pane's tab the same way the tab bar's onActivate does (line ~512).
             onSelfFocus={() => onFocusPanel(paneId)}
+            // The focus of THIS pane: a heavy page stays live only with it. No
+            // panel focused yet counts as focused, as for the tab strip above.
+            hasFocus={isPaneActive && (!focusedPanelId || focusedPanelId === paneId)}
           />
         </LazyPane>
       );

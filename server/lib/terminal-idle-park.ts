@@ -40,6 +40,14 @@ export interface ParkCandidate {
   hasTranscript: boolean;
   /** Fase della macchina a stati Claude, `null` se sconosciuta. */
   phase: ClaudeSessionPhase | null;
+  /**
+   * A command this session launched is frozen by the swap freezer right now
+   * (`services/swap-freeze.ts`). Parking kills the PTY, and killing the CLI of a
+   * frozen tree strands its processes STOPped: `release()` runs on the stop path,
+   * but an idle sweep has no reason to go near a session Topics itself is holding.
+   * The freeze is bounded by its own ten minutes, so the park comes right after.
+   */
+  hasFrozenTree?: boolean;
 }
 
 export type ParkDecision =
@@ -54,6 +62,7 @@ export type ParkRefusal =
   | "watched"
   | "phase-active"
   | "idle-unknown"
+  | "frozen-tree"
   | "too-recent"
   // Deciso dal chiamante, non da `decidePark`: un sotto-agente lo governa il suo
   // orchestratore. Sta nell'union perche' finisce nella stessa lista di rifiuti,
@@ -94,6 +103,7 @@ export function decidePark(c: ParkCandidate, idleThresholdMs: number): ParkDecis
   if (c.attachedClients > 0) return { park: false, reason: "watched" };
   if (c.phase !== null && ACTIVE_PHASES.has(c.phase)) return { park: false, reason: "phase-active" };
   if (c.idleMs === null) return { park: false, reason: "idle-unknown" };
+  if (c.hasFrozenTree) return { park: false, reason: "frozen-tree" };
   if (c.idleMs < idleThresholdMs) return { park: false, reason: "too-recent" };
   return { park: true };
 }
@@ -108,6 +118,7 @@ export function refusalLabel(reason: ParkRefusal): string {
     case "watched": return "qualcuno la sta guardando";
     case "phase-active": return "turno in corso";
     case "idle-unknown": return "inattivita' non misurata";
+    case "frozen-tree": return "ha un comando congelato";
     case "too-recent": return "ferma da troppo poco";
     case "sub-agent": return "sotto-agente (lo governa l'orchestratore)";
   }
